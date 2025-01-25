@@ -388,7 +388,7 @@ void CodeGen_LLVM::optimize_module() {
     }
 
     if (tm) {
-        tm->registerPassBuilderCallbacks(pb, /* PopulateClassToPassNames */ true);
+        tm->registerPassBuilderCallbacks(pb);
     }
 
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
