@@ -27,7 +27,6 @@ struct Token {
 
         FUNC,   // func
         MUT,    // mut
-        LAMBDA, // lambda
         RARROW, // ->
         RETURN, // return
 
@@ -40,16 +39,17 @@ struct Token {
         TRUE,  // true
         FALSE, // false
 
-        LPAREN,    // (
-        RPAREN,    // )
-        LBRACKET,  // [
-        RBRACKET,  // ]
-        LSQUIGGLE, // {
-        RSQUIGGLE, // }
-        COMMA,     // ,
-        PERIOD,    // .
-        COL,       // :
-        SEMICOL,   // ;
+        LPAREN,      // (
+        RPAREN,      // )
+        LBRACKET,    // [
+        RBRACKET,    // ]
+        LSQUIGGLE,   // {
+        RSQUIGGLE,   // }
+        COMMA,       // ,
+        PERIOD,      // .
+        COL,         // :
+        SEMICOL,     // ;
+        LAMBDA_PIPE, // |
 
         ASSIGN, // =
         AND,    // &&
@@ -98,6 +98,7 @@ struct TokenStream {
     Token peek(uint32_t count) const;
 
     void skip() { tokens.pop_front(); }
+    Token back() { return tokens.back(); }
     bool consume(Token::Type);
 
     bool empty() const { return tokens.empty(); }

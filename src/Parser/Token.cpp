@@ -80,8 +80,6 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "func";
     case Token::Type::MUT:
         return "mut";
-    case Token::Type::LAMBDA:
-        return "lambda";
     case Token::Type::RARROW:
         return "rarrow";
     case Token::Type::RETURN:
@@ -112,6 +110,8 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "lsquiggle";
     case Token::Type::RSQUIGGLE:
         return "rsquiggle";
+    case Token::Type::LAMBDA_PIPE:
+        return "lambdapipe";
     case Token::Type::COMMA:
         return "comma";
     case Token::Type::PERIOD:

@@ -48,8 +48,6 @@ Token::Type Lexer::getTokenType(const std::string token) {
         return Token::Type::FUNC;
     if (token == "mut")
         return Token::Type::MUT;
-    if (token == "lambda")
-        return Token::Type::LAMBDA;
     if (token == "return")
         return Token::Type::RETURN;
     if (token == "for")
@@ -69,6 +67,20 @@ Token::Type Lexer::getTokenType(const std::string token) {
     return Token::Type::IDENTIFIER;
 }
 
+// Returns whether this is a valid start character of an identifier or keyword,
+// i.e., [A-Za-z_][A-Za-z0-9_]
+static bool isValidIdentifierStart(int32_t c) {
+    return c == '_' || std::isalpha(c);
+}
+
+// Consumes the character ' ' in the stream until a non-' ' is found.
+static void consumeWhiteSpace(std::istream &programStream, uint32_t &column) {
+    while (programStream.peek() == ' ') {
+        programStream.get();
+        ++column;
+    }
+}
+
 TokenStream Lexer::lex(std::istream &programStream) {
     TokenStream tokens;
     uint32_t line = 1;
@@ -77,10 +89,10 @@ TokenStream Lexer::lex(std::istream &programStream) {
 
     while (programStream.peek() != EOF) {
         // Try to parse a name of the form [A-Za-z_][A-Za-z0-9_]
-        if (programStream.peek() == '_' || std::isalpha(programStream.peek())) {
+        if (isValidIdentifierStart(programStream.peek())) {
             std::string tokenString(1, programStream.get());
-            while (programStream.peek() == '_' ||
-                   std::isalnum(programStream.peek())) {
+            while (isValidIdentifierStart(programStream.peek()) ||
+                   std::isdigit(programStream.peek())) {
                 tokenString += programStream.get();
             }
 
@@ -165,18 +177,36 @@ TokenStream Lexer::lex(std::istream &programStream) {
                     tokens.addToken(Token::Type::ERROR, line, col++);
                 }
                 break;
-            case '|':
+            case '|': {
                 programStream.get();
                 if (programStream.peek() == '|') {
+                    // This is an OR expression.
                     programStream.get();
                     tokens.addToken(Token::Type::OR, line, col, 2);
                     col += 2;
-                } else {
-                    // TODO: what to do?
-                    reportError("SINGLE | not supported", line, col);
-                    tokens.addToken(Token::Type::ERROR, line, col++);
+                    break;
                 }
-                break;
+                // We do this after looking for an OR token to avoid an invalid
+                // OR representation, e.g., `true | | false`.
+                consumeWhiteSpace(programStream, col);
+
+                constexpr Token::Type Pipe = Token::Type::LAMBDA_PIPE;
+                if (isValidIdentifierStart(programStream.peek())) {
+                    // We assume a lambda expression has at least one argument.
+                    // This is the opening lambda pipe.
+                    tokens.addToken(Pipe, line, col, col++);
+                    break;
+                }
+                // Currently, we always assume a lambda body begins with `{`.
+                if (programStream.peek() == '{') {
+                    // This is the closing lambda pipe.
+                    tokens.addToken(Pipe, line, col, col++);
+                    break;
+                }
+                // TODO: what to do?
+                reportError("SINGLE | not supported", line, col);
+                tokens.addToken(Token::Type::ERROR, line, col++);
+            } break;
             case '^':
                 programStream.get();
                 tokens.addToken(Token::Type::XOR, line, col++);

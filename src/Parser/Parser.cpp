@@ -736,13 +736,17 @@ struct Parser {
             const double value = std::get<double>(token.value);
             // default (pre-type casting) is f32
             return ir::FloatImm::make(f32, value);
-        } else if (consume(Token::Type::LAMBDA)) {
+        } else if (consume(Token::Type::LAMBDA_PIPE)) {
             std::vector<ir::Lambda::Argument> args = parseLambdaArgs();
             new_frame();
             for (const auto &arg : args) {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
             }
+            internal_assert(consume(Token::Type::LSQUIGGLE).has_value());
+            internal_assert(peek().type != Token::Type::RSQUIGGLE)
+                << "lambda with empty body";
             ir::Expr expr = parseExpr();
+            internal_assert(consume(Token::Type::RSQUIGGLE).has_value());
             end_frame();
             return ir::Lambda::make(std::move(args), std::move(expr));
         } else if (consume(Token::Type::LSQUIGGLE)) {
@@ -1169,7 +1173,7 @@ struct Parser {
                 << "TODO: support mutable arguments in lambdas. Argument: "
                 << def.name << " marked as mutable.";
             args.push_back({std::move(def.name), std::move(def.type)});
-        } while (!consume(Token::Type::ASSIGN));
+        } while (!consume(Token::Type::LAMBDA_PIPE));
         return args;
     }
 
