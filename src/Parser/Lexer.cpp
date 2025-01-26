@@ -68,7 +68,7 @@ Token::Type Lexer::getTokenType(const std::string token) {
 }
 
 // Returns whether this is a valid start character of an identifier or keyword,
-// i.e., [A-Za-z_][A-Za-z0-9_]
+// i.e., [A-Za-z_]
 static bool isValidIdentifierStart(int32_t c) {
     return c == '_' || std::isalpha(c);
 }
@@ -88,9 +88,10 @@ TokenStream Lexer::lex(std::istream &programStream) {
     ScanState state = ScanState::INITIAL;
 
     while (programStream.peek() != EOF) {
-        // Try to parse a name of the form [A-Za-z_][A-Za-z0-9_]
+        // Try to parse a name of the form [A-Za-z_][A-Za-z0-9_].
         if (isValidIdentifierStart(programStream.peek())) {
             std::string tokenString(1, programStream.get());
+            // [A-Za-z0-9_]
             while (isValidIdentifierStart(programStream.peek()) ||
                    std::isdigit(programStream.peek())) {
                 tokenString += programStream.get();
