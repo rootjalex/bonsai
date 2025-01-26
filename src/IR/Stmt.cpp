@@ -24,7 +24,8 @@ Stmt Store::make(std::string name, Expr index, Expr value) {
 
 // Stmt LetStmt::make(std::string name, Expr value, Stmt body) {
 Stmt LetStmt::make(WriteLoc loc, Expr value) {
-    internal_assert(loc.defined()) << "Undefined write location in Assign::make";
+    internal_assert(loc.defined())
+        << "Undefined write location in Assign::make";
     internal_assert(value.defined()) << "Undefined value in LetStmt::make";
     // internal_assert(body.defined()) << "Undefined body in LetStmt::make";
     LetStmt *node = new LetStmt;
@@ -36,11 +37,15 @@ Stmt LetStmt::make(WriteLoc loc, Expr value) {
 
 Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     internal_assert(cond.defined()) << "Undefined condition in IfElse::make";
-    internal_assert(cond.type().defined() && cond.type().is_bool() || cond.type().is<Option_t>()) << "Non-boolean condition in IfElse::make: " << cond << " of type " << cond.type();
+    internal_assert(cond.type().defined() && cond.type().is_bool() ||
+                    cond.type().is<Option_t>())
+        << "Non-boolean condition in IfElse::make: " << cond << " of type "
+        << cond.type();
     if (cond.type().is<Option_t>()) {
         cond = Cast::make(Bool_t::make(), cond);
     }
-    internal_assert(then_body.defined()) << "Undefined then_body in IfElse::make";
+    internal_assert(then_body.defined())
+        << "Undefined then_body in IfElse::make";
     IfElse *node = new IfElse;
     node->cond = std::move(cond);
     node->then_body = std::move(then_body);
@@ -59,7 +64,8 @@ Stmt Sequence::make(std::vector<Stmt> stmts) {
 }
 
 Stmt Assign::make(WriteLoc loc, Expr value, bool mutating) {
-    internal_assert(loc.defined()) << "Undefined write location in Assign::make";
+    internal_assert(loc.defined())
+        << "Undefined write location in Assign::make";
     internal_assert(value.defined()) << "Undefined value in Assign::make";
     Assign *node = new Assign;
     node->loc = std::move(loc);
@@ -70,7 +76,8 @@ Stmt Assign::make(WriteLoc loc, Expr value, bool mutating) {
 }
 
 Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
-    internal_assert(loc.defined()) << "Undefined write location in Accumulate::make";
+    internal_assert(loc.defined())
+        << "Undefined write location in Accumulate::make";
     internal_assert(value.defined()) << "Undefined value in Accumulate::make";
     Accumulate *node = new Accumulate;
     node->loc = std::move(loc);
@@ -80,6 +87,5 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     return node;
 }
 
-
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

@@ -7,5 +7,5 @@ namespace lower {
 
 ir::Program canonicalize(const ir::Program &program);
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace lower
+} // namespace bonsai

@@ -6,8 +6,8 @@
 #include <optional>
 
 typedef float Float;
-#define PBRT_CPU_GPU 
-#define DCHECK(...) 
+#define PBRT_CPU_GPU
+#define DCHECK(...)
 
 struct TriangleIntersection {
     Float b0, b1, b2;
@@ -33,8 +33,8 @@ using Vector2i = Vector2<int>;
 using Vector3f = Vector3<Float>;
 
 template <typename T>
-inline PBRT_CPU_GPU typename std::enable_if_t<std::is_floating_point_v<T>, bool> IsNaN(
-    T v) {
+inline PBRT_CPU_GPU typename std::enable_if_t<std::is_floating_point_v<T>, bool>
+IsNaN(T v) {
 #ifdef PBRT_IS_GPU_CODE
     return isnan(v);
 #else
@@ -74,7 +74,8 @@ class Tuple3 {
     }
 
     template <typename U>
-    PBRT_CPU_GPU auto operator+(Child<U> c) const -> Child<decltype(T{} + U{})> {
+    PBRT_CPU_GPU auto operator+(Child<U> c) const
+        -> Child<decltype(T{} + U{})> {
         DCHECK(!c.HasNaN());
         return {x + c.x, y + c.y, z + c.z};
     }
@@ -112,7 +113,8 @@ class Tuple3 {
     }
 
     template <typename U>
-    PBRT_CPU_GPU auto operator-(Child<U> c) const -> Child<decltype(T{} - U{})> {
+    PBRT_CPU_GPU auto operator-(Child<U> c) const
+        -> Child<decltype(T{} - U{})> {
         DCHECK(!c.HasNaN());
         return {x - c.x, y - c.y, z - c.z};
     }
@@ -126,9 +128,13 @@ class Tuple3 {
     }
 
     PBRT_CPU_GPU
-    bool operator==(Child<T> c) const { return x == c.x && y == c.y && z == c.z; }
+    bool operator==(Child<T> c) const {
+        return x == c.x && y == c.y && z == c.z;
+    }
     PBRT_CPU_GPU
-    bool operator!=(Child<T> c) const { return x != c.x || y != c.y || z != c.z; }
+    bool operator!=(Child<T> c) const {
+        return x != c.x || y != c.y || z != c.z;
+    }
 
     template <typename U>
     PBRT_CPU_GPU auto operator*(U s) const -> Child<decltype(T{} * U{})> {
@@ -196,7 +202,8 @@ class Point3 : public Tuple3<Point3, T> {
         : Tuple3<Point3, T>(T(v.x), T(v.y), T(v.z)) {}
 
     template <typename U>
-    PBRT_CPU_GPU auto operator+(Vector3<U> v) const -> Point3<decltype(T{} + U{})> {
+    PBRT_CPU_GPU auto operator+(Vector3<U> v) const
+        -> Point3<decltype(T{} + U{})> {
         DCHECK(!v.HasNaN());
         return {x + v.x, y + v.y, z + v.z};
     }
@@ -210,7 +217,8 @@ class Point3 : public Tuple3<Point3, T> {
     }
 
     template <typename U>
-    PBRT_CPU_GPU auto operator-(Vector3<U> v) const -> Point3<decltype(T{} - U{})> {
+    PBRT_CPU_GPU auto operator-(Vector3<U> v) const
+        -> Point3<decltype(T{} - U{})> {
         DCHECK(!v.HasNaN());
         return {x - v.x, y - v.y, z - v.z};
     }
@@ -224,7 +232,8 @@ class Point3 : public Tuple3<Point3, T> {
     }
 
     template <typename U>
-    PBRT_CPU_GPU auto operator-(Point3<U> p) const -> Vector3<decltype(T{} - U{})> {
+    PBRT_CPU_GPU auto operator-(Point3<U> p) const
+        -> Vector3<decltype(T{} - U{})> {
         DCHECK(!p.HasNaN());
         return {x - p.x, y - p.y, z - p.z};
     }
@@ -257,10 +266,6 @@ template <typename T>
 template <typename U>
 Vector3<T>::Vector3(Point3<U> p) : Tuple3<Vector3, T>(T(p.x), T(p.y), T(p.z)) {}
 
-
-
-
-
 class Ray {
   public:
     // Ray Public Methods
@@ -274,8 +279,7 @@ class Ray {
 
     Ray() = default;
     // PBRT_CPU_GPU
-    Ray(Point3f o, Vector3f d, Float time = 0.f)
-        : o(o), d(d), time(time) {}
+    Ray(Point3f o, Vector3f d, Float time = 0.f) : o(o), d(d), time(time) {}
 
     // Ray Public Members
     Point3f o;
@@ -287,7 +291,6 @@ class Ray {
 PBRT_CPU_GPU inline float FMA(float a, float b, float c) {
     return std::fma(a, b, c);
 }
-
 
 template <typename Ta, typename Tb, typename Tc, typename Td>
 PBRT_CPU_GPU inline auto DifferenceOfProducts(Ta a, Tb b, Tc c, Td d) {
@@ -337,14 +340,15 @@ PBRT_CPU_GPU inline T MaxComponentValue(Tuple3<C, T> t) {
     return max(t.x, max(t.y, t.z));
 }
 
-static constexpr Float MachineEpsilon = std::numeric_limits<Float>::epsilon() * 0.5;
+static constexpr Float MachineEpsilon =
+    std::numeric_limits<Float>::epsilon() * 0.5;
 inline constexpr Float gamma(int n) {
     return (n * MachineEpsilon) / (1 - n * MachineEpsilon);
 }
 
-std::optional<TriangleIntersection> IntersectTriangle(const Ray &ray, Float tMax,
-                                                       Point3f p0, Point3f p1,
-                                                       Point3f p2) {
+std::optional<TriangleIntersection> IntersectTriangle(const Ray &ray,
+                                                      Float tMax, Point3f p0,
+                                                      Point3f p1, Point3f p2) {
     // Return no intersection if triangle is degenerate
     if (LengthSquared(Cross(p2 - p0, p1 - p0)) == 0)
         return {};
@@ -385,7 +389,8 @@ std::optional<TriangleIntersection> IntersectTriangle(const Ray &ray, Float tMax
     Float e2 = DifferenceOfProducts(p0t.x, p1t.y, p0t.y, p1t.x);
 
     // Fall back to double-precision test at triangle edges
-    if (sizeof(Float) == sizeof(float) && (e0 == 0.0f || e1 == 0.0f || e2 == 0.0f)) {
+    if (sizeof(Float) == sizeof(float) &&
+        (e0 == 0.0f || e1 == 0.0f || e2 == 0.0f)) {
         double p2txp1ty = (double)p2t.x * (double)p1t.y;
         double p2typ1tx = (double)p2t.y * (double)p1t.x;
         e0 = (float)(p2typ1tx - p2txp1ty);
@@ -432,12 +437,14 @@ std::optional<TriangleIntersection> IntersectTriangle(const Ray &ray, Float tMax
     Float deltaY = gamma(5) * (maxYt + maxZt);
 
     // Compute $\delta_e$ term for triangle $t$ error bounds
-    Float deltaE = 2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
+    Float deltaE =
+        2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
 
     // Compute $\delta_t$ term for triangle $t$ error bounds and check _t_
     Float maxE = MaxComponentValue(Abs(Vector3f(e0, e1, e2)));
-    Float deltaT =
-        3 * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * std::abs(invDet);
+    Float deltaT = 3 *
+                   (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) *
+                   std::abs(invDet);
     if (t <= deltaT)
         return {};
 

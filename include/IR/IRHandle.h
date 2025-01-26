@@ -13,13 +13,11 @@ namespace ir {
 /** IR nodes are passed around opaque handles to them. This is a
    base class for those handles. It manages the reference count,
    and dispatches visitors. */
-template<typename IRNode>
+template <typename IRNode>
 struct IRHandle : public IntrusivePtr<const IRNode> {
     IRHandle() = default;
 
-    IRHandle(const IRNode *p)
-        : IntrusivePtr<const IRNode>(p) {
-    }
+    IRHandle(const IRNode *p) : IntrusivePtr<const IRNode>(p) {}
 
     /** Dispatch to the correct visitor method for this node. E.g. if
      * this node is actually an Add node, then this will call
@@ -37,7 +35,7 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
      *   // This is an add node
      * }
      */
-    template<typename T>
+    template <typename T>
     const T *as() const {
         if (this->ptr && this->ptr->node_type == T::_node_type) {
             return (const T *)this->ptr;
@@ -45,15 +43,13 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
         return nullptr;
     }
 
-    template<typename T>
+    template <typename T>
     bool is() const {
         return (this->ptr && this->ptr->node_type == T::_node_type);
     }
 
-    typename IRNode::TypeEnum node_type() const {
-        return this->ptr->node_type;
-    }
+    typename IRNode::TypeEnum node_type() const { return this->ptr->node_type; }
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

@@ -9,8 +9,9 @@ namespace ir {
 
 namespace {
 
-template<typename T>
-std::pair<std::vector<T>, bool> visit_list(Mutator *v, const std::vector<T> &l) {
+template <typename T>
+std::pair<std::vector<T>, bool> visit_list(Mutator *v,
+                                           const std::vector<T> &l) {
     bool not_changed = true;
     const size_t n = l.size();
     std::vector<T> _l(n);
@@ -27,7 +28,8 @@ std::pair<WriteLoc, bool> mutate_writeloc(Mutator *v, const WriteLoc &loc) {
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<Expr>(value)) {
             Expr new_value = v->mutate(std::get<Expr>(value));
-            not_changed = not_changed && new_value.same_as(std::get<Expr>(value));
+            not_changed =
+                not_changed && new_value.same_as(std::get<Expr>(value));
             new_loc.add_index_access(std::move(new_value));
         } else {
             new_loc.add_struct_access(std::get<std::string>(value));
@@ -35,7 +37,7 @@ std::pair<WriteLoc, bool> mutate_writeloc(Mutator *v, const WriteLoc &loc) {
     }
     return {std::move(new_loc), not_changed};
 }
-}  // namespace
+} // namespace
 
 Type Mutator::mutate(const Type &type) {
     return type.defined() ? type.get()->mutate_type(this) : Type();
@@ -49,21 +51,13 @@ Stmt Mutator::mutate(const Stmt &stmt) {
     return stmt.defined() ? stmt.get()->mutate_stmt(this) : Stmt();
 }
 
-Type Mutator::visit(const Int_t *node) {
-    return node;
-}
+Type Mutator::visit(const Int_t *node) { return node; }
 
-Type Mutator::visit(const UInt_t *node) {
-    return node;
-}
+Type Mutator::visit(const UInt_t *node) { return node; }
 
-Type Mutator::visit(const Float_t *node) {
-    return node;
-}
+Type Mutator::visit(const Float_t *node) { return node; }
 
-Type Mutator::visit(const Bool_t *node) {
-    return node;
-}
+Type Mutator::visit(const Bool_t *node) { return node; }
 
 Type Mutator::visit(const Ptr_t *node) {
     Type etype = mutate(node->etype);
@@ -87,7 +81,7 @@ Type Mutator::visit(const Struct_t *node) {
     Struct_t::Map fields = node->fields; // copy
     bool changed = false;
     // TODO: lift into helper func?
-    for (auto& [key, value] : fields) {
+    for (auto &[key, value] : fields) {
         Type t = mutate(value);
         if (!t.same_as(value)) {
             changed = true;
@@ -97,7 +91,7 @@ Type Mutator::visit(const Struct_t *node) {
 
     // TODO: should we be recursing into defaults?
     auto defaults = node->defaults; // copy
-    for (auto& [key, value] : defaults) {
+    for (auto &[key, value] : defaults) {
         Expr e = mutate(value);
         if (!e.same_as(value)) {
             changed = true;
@@ -108,7 +102,8 @@ Type Mutator::visit(const Struct_t *node) {
     if (!changed) {
         return node;
     } else {
-        return Struct_t::make(node->name, std::move(fields), std::move(defaults));
+        return Struct_t::make(node->name, std::move(fields),
+                              std::move(defaults));
     }
 }
 
@@ -149,26 +144,15 @@ Type Mutator::visit(const Function_t *node) {
     }
 }
 
+Expr Mutator::visit(const IntImm *node) { return node; }
 
-Expr Mutator::visit(const IntImm *node) {
-    return node;
-}
+Expr Mutator::visit(const UIntImm *node) { return node; }
 
-Expr Mutator::visit(const UIntImm *node) {
-    return node;
-}
+Expr Mutator::visit(const FloatImm *node) { return node; }
 
-Expr Mutator::visit(const FloatImm *node) {
-    return node;
-}
+Expr Mutator::visit(const BoolImm *node) { return node; }
 
-Expr Mutator::visit(const BoolImm *node) {
-    return node;
-}
-
-Expr Mutator::visit(const Var *node) {
-    return node;
-}
+Expr Mutator::visit(const Var *node) { return node; }
 
 Expr Mutator::visit(const BinOp *node) {
     Expr a = mutate(node->a);
@@ -193,8 +177,7 @@ Expr Mutator::visit(const Select *node) {
     Expr cond = mutate(node->cond);
     Expr tvalue = mutate(node->tvalue);
     Expr fvalue = mutate(node->fvalue);
-    if (cond.same_as(node->cond) &&
-        tvalue.same_as(node->tvalue) &&
+    if (cond.same_as(node->cond) && tvalue.same_as(node->tvalue) &&
         fvalue.same_as(node->fvalue)) {
         return node;
     }
@@ -242,8 +225,7 @@ Expr Mutator::visit(const VectorShuffle *node) {
 Expr Mutator::visit(const Ramp *node) {
     Expr base = mutate(node->base);
     Expr stride = mutate(node->stride);
-    if (base.same_as(node->base) &&
-        stride.same_as(node->stride)) {
+    if (base.same_as(node->base) && stride.same_as(node->stride)) {
         return node;
     }
     return Ramp::make(std::move(base), std::move(stride), node->lanes);
@@ -252,8 +234,7 @@ Expr Mutator::visit(const Ramp *node) {
 Expr Mutator::visit(const Extract *node) {
     Expr vec = mutate(node->vec);
     Expr idx = mutate(node->idx);
-    if (vec.same_as(node->vec) &&
-        idx.same_as(node->idx)) {
+    if (vec.same_as(node->vec) && idx.same_as(node->idx)) {
         return node;
     }
     return Extract::make(std::move(vec), std::move(idx));
@@ -307,7 +288,6 @@ Expr Mutator::visit(const GeomOp *node) {
     }
 }
 
-
 Expr Mutator::visit(const SetOp *node) {
     Expr a = mutate(node->a);
     Expr b = mutate(node->b);
@@ -327,7 +307,6 @@ Expr Mutator::visit(const Call *node) {
         return Call::make(std::move(func), std::move(args));
     }
 }
-
 
 Stmt Mutator::visit(const Return *node) {
     Expr value = mutate(node->value);
@@ -354,7 +333,7 @@ Stmt Mutator::visit(const LetStmt *node) {
     // Stmt body = mutate(node->body);
     if (not_changed && value.same_as(node->value)
         // && body.same_as(node->body)
-        ) {
+    ) {
         return node;
     } else {
         // return LetStmt::make(node->name, std::move(value), std::move(body));
@@ -366,12 +345,12 @@ Stmt Mutator::visit(const IfElse *node) {
     Expr cond = mutate(node->cond);
     Stmt then_body = mutate(node->then_body);
     Stmt else_body = mutate(node->else_body);
-    if (cond.same_as(node->cond) &&
-        then_body.same_as(node->then_body) &&
+    if (cond.same_as(node->cond) && then_body.same_as(node->then_body) &&
         else_body.same_as(node->else_body)) {
         return node;
     } else {
-        return IfElse::make(std::move(cond), std::move(then_body), std::move(else_body));
+        return IfElse::make(std::move(cond), std::move(then_body),
+                            std::move(else_body));
     }
 }
 
@@ -390,10 +369,11 @@ Stmt Mutator::visit(const Assign *node) {
     // Stmt body = mutate(node->body);
     if (not_changed && value.same_as(node->value)
         // && body.same_as(node->body)
-        ) {
+    ) {
         return node;
     } else {
-        // return Assign::make(node->loc, std::move(value), node->mutating, std::move(body));
+        // return Assign::make(node->loc, std::move(value), node->mutating,
+        // std::move(body));
         return Assign::make(std::move(loc), std::move(value), node->mutating);
     }
 }
@@ -404,13 +384,14 @@ Stmt Mutator::visit(const Accumulate *node) {
     // Stmt body = mutate(node->body);
     if (not_changed && value.same_as(node->value)
         // && body.same_as(node->body)
-        ) {
+    ) {
         return node;
     } else {
-        // return Accumulate::make(node->loc, node->op, std::move(value), std::move(body));
+        // return Accumulate::make(node->loc, node->op, std::move(value),
+        // std::move(body));
         return Accumulate::make(std::move(loc), node->op, std::move(value));
     }
 }
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

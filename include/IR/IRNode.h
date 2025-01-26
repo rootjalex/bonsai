@@ -5,12 +5,10 @@
 namespace bonsai {
 namespace ir {
 
-template<typename IR, typename _TypeEnum>
+template <typename IR, typename _TypeEnum>
 struct IRNode {
     virtual void accept(Visitor *v) const = 0;
-    IRNode(_TypeEnum t)
-        : node_type(t) {
-    }
+    IRNode(_TypeEnum t) : node_type(t) {}
     virtual ~IRNode() = default;
 
     /** These classes are all managed with intrusive reference
@@ -37,5 +35,5 @@ struct IRNode {
 
 // All instances of IRNode need to implement ref_count and destroy!
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

@@ -3,11 +3,11 @@
 #include <vector>
 
 #include "Expr.h"
-#include "IntrusivePtr.h"
 #include "IRHandle.h"
 #include "IRNode.h"
-#include "Visitor.h"
+#include "IntrusivePtr.h"
 #include "Mutator.h"
+#include "Visitor.h"
 #include "WriteLoc.h"
 
 namespace bonsai {
@@ -29,45 +29,35 @@ using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
 
 /* This is necessary to get mutate() to work properly... */
 struct BaseStmtNode : public IRStmtNode {
-    BaseStmtNode(IRStmtEnum t)
-        : IRStmtNode(t) {
-    }
+    BaseStmtNode(IRStmtEnum t) : IRStmtNode(t) {}
     virtual Stmt mutate_stmt(Mutator *m) const = 0;
 };
 
-
-template<typename T>
+template <typename T>
 struct StmtNode : public BaseStmtNode {
-    void accept(Visitor *v) const override {
-        return v->visit((const T*)this);
-    }
+    void accept(Visitor *v) const override { return v->visit((const T *)this); }
     Stmt mutate_stmt(Mutator *m) const override;
     StmtNode() : BaseStmtNode(T::_node_type) {}
     ~StmtNode() override = default;
 };
-
 
 struct Stmt : public IRHandle<IRStmtNode> {
     /** Make an undefined stmt */
     Stmt() = default;
 
     /** Make a stmt from a concrete stmt node pointer (e.g. Return) */
-    Stmt(const IRStmtNode *n)
-        : IRHandle<IRStmtNode>(n) {
-    }
+    Stmt(const IRStmtNode *n) : IRHandle<IRStmtNode>(n) {}
 
     /** Override get() to return a BaseStmtNode * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
-    const BaseStmtNode *get() const {
-        return (const BaseStmtNode *)ptr;
-    }
+    const BaseStmtNode *get() const { return (const BaseStmtNode *)ptr; }
 
     // TODO: implement copy/move semantics!
 };
 
-template<typename T>
+template <typename T>
 Stmt StmtNode<T>::mutate_stmt(Mutator *m) const {
-    return m->visit((const T*)this);
+    return m->visit((const T *)this);
 }
 
 struct Return : StmtNode<Return> {
@@ -78,7 +68,7 @@ struct Return : StmtNode<Return> {
     static const IRStmtEnum _node_type = IRStmtEnum::Return;
 };
 
-struct Store: StmtNode<Store> {
+struct Store : StmtNode<Store> {
     // TODO: predicate
     std::string name;
     Expr index;
@@ -146,16 +136,16 @@ struct Accumulate : StmtNode<Accumulate> {
     static const IRStmtEnum _node_type = IRStmtEnum::Accumulate;
 };
 
-}  // namespace ir
+} // namespace ir
 
-template<>
+template <>
 inline RefCount &ref_count<ir::IRStmtNode>(const ir::IRStmtNode *t) noexcept {
     return t->ref_count;
 }
 
-template<>
+template <>
 inline void destroy<ir::IRStmtNode>(const ir::IRStmtNode *t) {
     delete t;
 }
 
-}  // namespace bonsai
+} // namespace bonsai

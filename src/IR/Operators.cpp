@@ -43,5 +43,5 @@ Expr operator<(Expr a, Expr b) {
     return BinOp::make(BinOp::Lt, std::move(a), std::move(b));
 }
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

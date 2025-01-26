@@ -1,7 +1,7 @@
 #pragma once
 
-#include <map>
 #include <iostream>
+#include <map>
 
 #include "Function.h"
 #include "Type.h"
@@ -21,5 +21,5 @@ Expr operator<=(Expr a, Expr b);
 Expr operator<(Expr a, Expr b);
 // TODO: the rest
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

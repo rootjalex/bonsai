@@ -1,8 +1,8 @@
+#include "CodeGen/CodeGen_LLVM.h"
 #include "IR/Expr.h"
+#include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
-#include "IR/Printer.h"
-#include "CodeGen/CodeGen_LLVM.h"
 
 #include <iostream>
 
@@ -17,7 +17,6 @@ void test_example() {
     std::cout << ap1 << std::endl;
 }
 
-
 void test_example2() {
     // Expected to fail
     Type f32 = Float_t::make(32);
@@ -27,9 +26,7 @@ void test_example2() {
     } catch (const std::runtime_error &e) {
         std::cout << "Successfully caught: " << e.what();
     }
-    
 }
-
 
 int main(void) {
     test_example();

@@ -9,7 +9,7 @@
 namespace bonsai {
 namespace ir {
 
-template<typename T>
+template <typename T>
 struct FrameStack {
     std::list<std::map<std::string, T>> frames;
 
@@ -40,19 +40,16 @@ struct FrameStack {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
             const auto &found = frame.find(name);
-            internal_assert(found == frame.cend()) << name << " shadows another variable (of the same name)";
+            internal_assert(found == frame.cend())
+                << name << " shadows another variable (of the same name)";
         }
         frames.back()[name] = value;
     }
 
-    void new_frame() {
-        frames.emplace_back();
-    }
+    void new_frame() { frames.emplace_back(); }
 
-    void pop_frame() {
-        frames.pop_back();
-    }
+    void pop_frame() { frames.pop_back(); }
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

@@ -10,7 +10,7 @@ struct Mutator {
     virtual Expr mutate(const Expr &expr);
     virtual Stmt mutate(const Stmt &stmt);
 
-// protected:
+    // protected:
     // Types
     virtual Type visit(const Int_t *);
     virtual Type visit(const UInt_t *);
@@ -55,5 +55,5 @@ struct Mutator {
     virtual Stmt visit(const Accumulate *);
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

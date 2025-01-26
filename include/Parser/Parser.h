@@ -9,5 +9,5 @@ namespace parser {
 
 ir::Program parse(const std::string &filename);
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace parser
+} // namespace bonsai

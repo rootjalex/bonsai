@@ -12,7 +12,7 @@ namespace ir {
 
 struct WriteLoc {
     Type base_type;
-    Type type; // type of current write.
+    Type type;        // type of current write.
     std::string base; // name
     // A string implies a struct access, an expr must be an integer index.
     std::vector<std::variant<std::string, Expr>> accesses;
@@ -23,9 +23,7 @@ struct WriteLoc {
         internal_assert(!base.empty()) << "Write location with empty base";
     }
 
-    bool defined() const {
-        return !base.empty();
-    }
+    bool defined() const { return !base.empty(); }
 
     // These append to `accesses` *AND* mutate type (if set).
     void add_struct_access(const std::string &field);
@@ -35,5 +33,5 @@ struct WriteLoc {
     WriteLoc rebuild_with_base_type(Type _type) const;
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

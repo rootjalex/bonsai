@@ -50,5 +50,5 @@ struct Visitor {
     virtual void visit(const Accumulate *);
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

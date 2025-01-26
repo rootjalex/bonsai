@@ -1,6 +1,6 @@
-#include <iostream>
-#include <fstream>
 #include "Bonsai.h"
+#include <fstream>
+#include <iostream>
 
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/Support/FileSystem.h>
@@ -13,7 +13,7 @@ struct ParsedOptions {
     std::string input_filename;
 };
 
-ParsedOptions parse_cli(int argc, char* argv[]) {
+ParsedOptions parse_cli(int argc, char *argv[]) {
     if (argc < 2) {
         // TODO: include --help equivalent.
         bonsai::internal_error << "Usage: " << argv[0] << " <input_file>\n";
@@ -30,28 +30,34 @@ ParsedOptions parse_cli(int argc, char* argv[]) {
             options.jit = true;
             arg++;
         } else if (_arg == "-asm") {
-            bonsai::internal_assert(arg + 1 < argc) << "-asm flag requires output file to follow.";
+            bonsai::internal_assert(arg + 1 < argc)
+                << "-asm flag requires output file to follow.";
             options.gen_asm = true;
             options.output_filename = argv[arg + 1];
             arg += 2;
         } else if (_arg == "-llvm") {
-            bonsai::internal_assert(arg + 1 < argc) << "-llvm flag requires output file to follow.";
+            bonsai::internal_assert(arg + 1 < argc)
+                << "-llvm flag requires output file to follow.";
             options.gen_llvm = true;
             options.output_filename = argv[arg + 1];
             arg += 2;
         } else if (_arg == "-o") {
-            bonsai::internal_assert(arg + 1 < argc) << "-o flag requires output file to follow.";
+            bonsai::internal_assert(arg + 1 < argc)
+                << "-o flag requires output file to follow.";
             options.output_filename = argv[arg + 1];
             arg += 2;
         } else {
             // TODO: support more options.
             // Must be input file.
-            bonsai::internal_assert(options.input_filename.empty()) << "Multiple input files detected, already have: " << options.input_filename << " and received " << _arg;
+            bonsai::internal_assert(options.input_filename.empty())
+                << "Multiple input files detected, already have: "
+                << options.input_filename << " and received " << _arg;
             options.input_filename = _arg;
             arg++;
         }
     }
-    bonsai::internal_assert(!options.input_filename.empty()) << "Failed to parse input file name.";
+    bonsai::internal_assert(!options.input_filename.empty())
+        << "Failed to parse input file name.";
 
     if (options.output_filename.empty()) {
         options.output_filename = "output.bir";
@@ -60,7 +66,7 @@ ParsedOptions parse_cli(int argc, char* argv[]) {
     return options;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     ParsedOptions options = parse_cli(argc, argv);
 
     // Parse the input file
@@ -83,7 +89,8 @@ int main(int argc, char* argv[]) {
         // Just dump to output filename.
         // Create an output file stream
         std::ofstream os(options.output_filename);
-        bonsai::internal_assert(os.is_open()) << "Could not open output file: " << options.output_filename;
+        bonsai::internal_assert(os.is_open())
+            << "Could not open output file: " << options.output_filename;
         program.dump(os);
         return 0;
     }

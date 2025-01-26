@@ -18,5 +18,5 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program);
 
 bool is_constant_expr(const Expr &expr);
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

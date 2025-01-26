@@ -6,7 +6,7 @@
 namespace bonsai {
 namespace ir {
 
-void Program::dump(std::ostream& os) const {
+void Program::dump(std::ostream &os) const {
     for (const auto &[name, type] : types) {
         os << "type " << name << " = " << type << "\n";
     }
@@ -41,5 +41,5 @@ void Program::dump(std::ostream& os) const {
     }
 }
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

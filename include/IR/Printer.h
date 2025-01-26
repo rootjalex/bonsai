@@ -4,24 +4,24 @@
 #include <string>
 
 #include "Expr.h"
-#include "Visitor.h"
 #include "Scope.h"
 #include "Stmt.h"
+#include "Visitor.h"
 #include "WriteLoc.h"
 
 namespace bonsai {
 namespace ir {
 
 std::string to_string(const Expr &expr);
-std::ostream &operator<<(std::ostream& os, const Expr &expr);
+std::ostream &operator<<(std::ostream &os, const Expr &expr);
 
 std::string to_string(const Type &type);
-std::ostream &operator<<(std::ostream& os, const Type &type);
+std::ostream &operator<<(std::ostream &os, const Type &type);
 
 std::string to_string(const Stmt &stmt);
-std::ostream &operator<<(std::ostream& os, const Stmt &stmt);
+std::ostream &operator<<(std::ostream &os, const Stmt &stmt);
 
-std::ostream &operator<<(std::ostream& os, const WriteLoc &loc);
+std::ostream &operator<<(std::ostream &os, const WriteLoc &loc);
 
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
@@ -91,13 +91,12 @@ struct Printer : public Visitor {
     void visit(const Sequence *) override;
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
-protected:
+
+  protected:
     /** The stream on which we're outputting */
     std::ostream &os;
 
-    Indentation get_indent() const {
-        return Indentation{indent};
-    }
+    Indentation get_indent() const { return Indentation{indent}; }
 
     /** The current indentation level, useful for pretty-printing
      * statements */
@@ -120,5 +119,5 @@ protected:
     // TODO: stuff for indenting and whatever for Stmts
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

@@ -22,7 +22,8 @@ void WriteLoc::add_struct_access(const std::string &field) {
 }
 
 void WriteLoc::add_index_access(const Expr &index) {
-    internal_assert(index.defined()) << "Write location made with undefined index";
+    internal_assert(index.defined())
+        << "Write location made with undefined index";
     // TODO: if we were doing stronger type inference, we could add a constraint
     // that the type of index must be an integer (signed or unsigned).
     internal_assert(!index.type().defined() || index.type().is_int_or_uint())
@@ -32,7 +33,9 @@ void WriteLoc::add_index_access(const Expr &index) {
     // that the current type must be a vector...
     const bool infer_types = type_enforcement_enabled() || type.defined();
     if (infer_types) {
-        internal_assert(type.is<Vector_t>()) << "Write location of non-vector received index: " << index << " but has type: " << type;
+        internal_assert(type.is<Vector_t>())
+            << "Write location of non-vector received index: " << index
+            << " but has type: " << type;
         ir::Type _type = type.element_of();
         internal_assert(_type.defined())
             << "Write location type inference produced undefined type: "
@@ -42,8 +45,11 @@ void WriteLoc::add_index_access(const Expr &index) {
 }
 
 WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
-    internal_assert(_type.defined()) << "Write location rebuild triggered with undefined type for base: " << base;
-    internal_assert(type_enforcement_enabled()) << "Write location rebuild triggered without type enforcement enabled";
+    internal_assert(_type.defined())
+        << "Write location rebuild triggered with undefined type for base: "
+        << base;
+    internal_assert(type_enforcement_enabled())
+        << "Write location rebuild triggered without type enforcement enabled";
     WriteLoc rebuilt(this->base, _type);
     for (const auto &value : this->accesses) {
         if (std::holds_alternative<std::string>(value)) {
@@ -56,5 +62,5 @@ WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
     return rebuilt;
 }
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

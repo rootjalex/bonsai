@@ -15,16 +15,19 @@
 #include "LLVMIncl.h"
 #include "Scope.h"
 
-
 namespace bonsai {
 
 struct CodeGen_LLVM : public ir::Visitor {
     CodeGen_LLVM();
 
     /** Takes a bonsai Program and compiles it to an llvm Module. */
-    virtual std::unique_ptr<llvm::Module> compile_program(const ir::Program &prog);
-    std::unique_ptr<llvm::LLVMContext> steal_context() { return std::move(context); }
-protected:
+    virtual std::unique_ptr<llvm::Module>
+    compile_program(const ir::Program &prog);
+    std::unique_ptr<llvm::LLVMContext> steal_context() {
+        return std::move(context);
+    }
+
+  protected:
     /** Initialize internal llvm state for the enabled targets. */
     static void init_llvm();
     /** Grab all the context specific internal state. */
@@ -45,18 +48,20 @@ protected:
     llvm::Function *codegen_func_ptr(const ir::Expr &expr);
     llvm::Value *codegen_write_loc(const ir::WriteLoc &loc);
 
-    llvm::Value *codegen_buffer_pointer(const std::string &buffer, const ir::Type &type, const ir::Expr &idx);
-    llvm::Value *codegen_buffer_pointer(const std::string &buffer, const ir::Type &type, llvm::Value *idx);
-    void add_tbaa_metadata(llvm::Instruction *inst, const std::string &buffer, const ir::Expr &index);
+    llvm::Value *codegen_buffer_pointer(const std::string &buffer,
+                                        const ir::Type &type,
+                                        const ir::Expr &idx);
+    llvm::Value *codegen_buffer_pointer(const std::string &buffer,
+                                        const ir::Type &type, llvm::Value *idx);
+    void add_tbaa_metadata(llvm::Instruction *inst, const std::string &buffer,
+                           const ir::Expr &index);
 
     void declare_struct_types(const std::vector<const ir::Struct_t *> structs);
 
     /** Get a unique name for the actual block of memory that an
      * allocate node uses. Used so that alias analysis understands
      * when multiple Allocate nodes shared the same memory. */
-    virtual std::string get_allocation_name(const std::string &n) {
-        return n;
-    }
+    virtual std::string get_allocation_name(const std::string &n) { return n; }
 
     // Types
     virtual void visit(const ir::Int_t *) override;
@@ -101,7 +106,6 @@ protected:
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
 
-
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;
@@ -113,11 +117,12 @@ protected:
     std::unique_ptr<llvm::IRBuilder<>> builder;
     // Scope<llvm::Value *> scope;
     ir::FrameStack<std::pair<llvm::Value *, bool>> frames;
-    std::map<std::string, llvm::StructType*> struct_types;
+    std::map<std::string, llvm::StructType *> struct_types;
 
     /** Some useful llvm types */
     // @{
-    llvm::Type *void_t, *i1_t, *i8_t, *i16_t, *i32_t, *i64_t, *f16_t, *f32_t, *f64_t;
+    llvm::Type *void_t, *i1_t, *i8_t, *i16_t, *i32_t, *i64_t, *f16_t, *f32_t,
+        *f64_t;
     // llvm::StructType *halide_buffer_t_type,
     //     *type_t_type,
     //     *dimension_t_type,
@@ -131,7 +136,7 @@ protected:
     // @}
 };
 
-std::unique_ptr<llvm::raw_fd_ostream> make_raw_fd_ostream(const std::string &filename);
-
+std::unique_ptr<llvm::raw_fd_ostream>
+make_raw_fd_ostream(const std::string &filename);
 
 } //  namespace bonsai

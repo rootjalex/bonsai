@@ -24,7 +24,8 @@ ir::Expr cross_product(const ir::Expr &a, const ir::Expr &b) {
 }
 
 ir::Expr argmax(const ir::Expr &a) {
-    internal_assert(a.type().element_of().is_scalar()) << "TODO: implement argmax lowering for 2D: " << a;
+    internal_assert(a.type().element_of().is_scalar())
+        << "TODO: implement argmax lowering for 2D: " << a;
     ir::Expr _max = ir::VectorReduce::make(ir::VectorReduce::Max, a);
     if (a.type().lanes() == 3) {
         ir::Type u32 = ir::UInt_t::make(32);
@@ -34,14 +35,15 @@ ir::Expr argmax(const ir::Expr &a) {
         ir::Expr a0 = ir::Extract::make(a, _0);
         ir::Expr a1 = ir::Extract::make(a, _1);
         ir::Expr a2 = ir::Extract::make(a, _2);
-        return ir::Select::make(_max == a0, _0, ir::Select::make(_max == a1, _1, _2));
+        return ir::Select::make(_max == a0, _0,
+                                ir::Select::make(_max == a1, _1, _2));
     } else {
         internal_error << "TODO: implement large argmax lowering: " << a;
-        // From Andrew: min_reduce(ramp(0, 1, 8) & v == broadcast(max_reduce(v)))
+        // From Andrew: min_reduce(ramp(0, 1, 8) & v ==
+        // broadcast(max_reduce(v)))
         return ir::Expr();
     }
-    
 }
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace lower
+} // namespace bonsai

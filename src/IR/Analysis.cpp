@@ -68,16 +68,11 @@ struct GatherFreeVars : public Visitor {
     }
 };
 
-
 struct AlwaysReturns : public Visitor {
     bool returns = false;
-    void visit(const Return *) override {
-        returns = true;
-    }
+    void visit(const Return *) override { returns = true; }
 
-    void visit(const Store *) override {
-        returns = false;
-    }
+    void visit(const Store *) override { returns = false; }
 
     void visit(const LetStmt *node) override {
         // TODO: fix this!!
@@ -100,7 +95,9 @@ struct AlwaysReturns : public Visitor {
         for (size_t i = 0; i < node->stmts.size() - 1; i++) {
             const Stmt &stmt = node->stmts[i];
             stmt.accept(this);
-            internal_assert(!returns) << "Sequence always returns in the middle of computation: " << node;
+            internal_assert(!returns)
+                << "Sequence always returns in the middle of computation: "
+                << node;
         }
         node->stmts.back().accept(this);
     }
@@ -121,13 +118,9 @@ struct AlwaysReturns : public Visitor {
 struct ReturnType : public Visitor {
     Type type;
 
-    void visit(const Return *node) override {
-        type = node->value.type();
-    }
+    void visit(const Return *node) override { type = node->value.type(); }
 
-    void visit(const Store *) override {
-        type = Type();
-    }
+    void visit(const Store *) override { type = Type(); }
 
     void visit(const LetStmt *node) override {
         // TODO: fix this!! bring back SSA
@@ -152,7 +145,10 @@ struct ReturnType : public Visitor {
             node->else_body.accept(this);
         }
         if (then_type.defined() && type.defined()) {
-            internal_assert(equals(then_type, type)) << "IfElse returns two separate types:" << then_type << " vs. " << type << " in\n" << node;
+            internal_assert(equals(then_type, type))
+                << "IfElse returns two separate types:" << then_type << " vs. "
+                << type << " in\n"
+                << node;
             // TODO: structural equality.
         } else if (then_type.defined()) {
             type = then_type;
@@ -167,7 +163,9 @@ struct ReturnType : public Visitor {
             stmt.accept(this);
             if (type.defined()) {
                 internal_assert(!prev_type.defined() || equals(type, prev_type))
-                    << "Sequence returns two separate types:\n" << prev_type << " vs. " << type << " in\n" << node;
+                    << "Sequence returns two separate types:\n"
+                    << prev_type << " vs. " << type << " in\n"
+                    << node;
                 prev_type = type;
             }
         }
@@ -202,8 +200,7 @@ struct GatherStructTypes : public Visitor {
     }
 };
 
-}  // namespace
-
+} // namespace
 
 std::vector<std::pair<std::string, Type>> gather_free_vars(const Expr &expr) {
     GatherFreeVars gather;
@@ -225,10 +222,13 @@ bool always_returns(const Stmt &stmt) {
 
 Type get_return_type(const Stmt &stmt) {
     internal_assert(always_returns(stmt))
-        << "get_return_type does not work for stmt that does not always return:\n" << stmt;
+        << "get_return_type does not work for stmt that does not always "
+           "return:\n"
+        << stmt;
     ReturnType getter;
     stmt.accept(&getter);
-    // Cannot assert that getter.type is defined, type inference might not have run yet.
+    // Cannot assert that getter.type is defined, type inference might not have
+    // run yet.
     return getter.type;
 }
 
@@ -260,25 +260,26 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program) {
     return std::move(gather.struct_types);
 }
 
-
 // TODO: merge with is_const ?
 bool is_constant_expr(const Expr &expr) {
     // TODO: constant fold first?
-    if (expr.is<IntImm>() ||
-        expr.is<UIntImm>() ||
-        expr.is<FloatImm>() ||
+    if (expr.is<IntImm>() || expr.is<UIntImm>() || expr.is<FloatImm>() ||
         expr.is<BoolImm>()) {
         return true;
     } else if (expr.is<Broadcast>()) {
         return is_constant_expr(expr.as<Broadcast>()->value);
     } else if (expr.is<VectorReduce>()) {
         return is_constant_expr(expr.as<VectorReduce>()->value);
-    // } else if (expr.is<VectorShuffle>()) {
-    //     return is_constant_expr(expr.as<VectorShuffle>()->value) && std::all_of(expr.as<VectorShuffle>()->idxs.cbegin(), expr.as<VectorShuffle>()->idxs.cend(), [](const auto &e) { return is_constant_expr(e); });
+        // } else if (expr.is<VectorShuffle>()) {
+        //     return is_constant_expr(expr.as<VectorShuffle>()->value) &&
+        //     std::all_of(expr.as<VectorShuffle>()->idxs.cbegin(),
+        //     expr.as<VectorShuffle>()->idxs.cend(), [](const auto &e) { return
+        //     is_constant_expr(e); });
     } else if (expr.is<Ramp>()) {
-        return is_constant_expr(expr.as<Ramp>()->base) && is_constant_expr(expr.as<Ramp>()->stride);
+        return is_constant_expr(expr.as<Ramp>()->base) &&
+               is_constant_expr(expr.as<Ramp>()->stride);
     } else if (expr.is<Build>()) {
-        for (const auto& value : expr.as<Build>()->values) {
+        for (const auto &value : expr.as<Build>()->values) {
             if (!is_constant_expr(value)) {
                 return false;
             }
@@ -295,5 +296,5 @@ bool is_constant_expr(const Expr &expr) {
     }
 }
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

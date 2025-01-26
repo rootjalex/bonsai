@@ -10,5 +10,5 @@ namespace parser {
 
 TokenStream lex(const std::string &filename);
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace parser
+} // namespace bonsai

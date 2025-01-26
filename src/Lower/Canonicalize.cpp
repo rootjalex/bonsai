@@ -59,7 +59,8 @@ struct RewriteVectorFields : public ir::Mutator {
         if (!changed && value.same_as(node->value)) {
             return node;
         } else {
-            return ir::Assign::make(std::move(loc), std::move(value), node->mutating);
+            return ir::Assign::make(std::move(loc), std::move(value),
+                                    node->mutating);
         }
     }
 
@@ -69,7 +70,8 @@ struct RewriteVectorFields : public ir::Mutator {
         if (!changed && value.same_as(node->value)) {
             return node;
         } else {
-            return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
+            return ir::Accumulate::make(std::move(loc), node->op,
+                                        std::move(value));
         }
     }
 };
@@ -80,7 +82,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
     return stmt;
 }
 
-}  // namespace
+} // namespace
 
 ir::Program canonicalize(const ir::Program &program) {
     ir::Program new_program;
@@ -89,7 +91,8 @@ ir::Program canonicalize(const ir::Program &program) {
 
     for (const auto &[f, func] : program.funcs) {
         ir::Stmt body = canonicalize(func->body);
-        new_program.funcs[f] = std::make_shared<ir::Function>(func->name, func->args, func->ret_type, body);
+        new_program.funcs[f] = std::make_shared<ir::Function>(
+            func->name, func->args, func->ret_type, body);
     }
 
     new_program.main_body = canonicalize(program.main_body);
@@ -99,5 +102,5 @@ ir::Program canonicalize(const ir::Program &program) {
     return new_program;
 }
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace lower
+} // namespace bonsai

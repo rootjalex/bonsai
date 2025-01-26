@@ -1,7 +1,7 @@
 #include "IR/Printer.h"
 
-#include <vector>
 #include <sstream>
+#include <vector>
 
 #include "IR/Expr.h"
 #include "IR/Stmt.h"
@@ -16,7 +16,7 @@ std::string to_string(const Expr &expr) {
     return oss.str();
 }
 
-std::ostream &operator<<(std::ostream& os, const Expr &expr) {
+std::ostream &operator<<(std::ostream &os, const Expr &expr) {
     if (expr.defined()) {
         Printer printer(os);
         printer.print(expr);
@@ -32,7 +32,7 @@ std::string to_string(const Type &type) {
     return oss.str();
 }
 
-std::ostream &operator<<(std::ostream& os, const Type &type) {
+std::ostream &operator<<(std::ostream &os, const Type &type) {
     if (type.defined()) {
         Printer printer(os);
         printer.print(type);
@@ -48,7 +48,7 @@ std::string to_string(const Stmt &stmt) {
     return oss.str();
 }
 
-std::ostream &operator<<(std::ostream& os, const Stmt &stmt) {
+std::ostream &operator<<(std::ostream &os, const Stmt &stmt) {
     if (stmt.defined()) {
         Printer printer(os);
         printer.print(stmt);
@@ -65,7 +65,7 @@ std::ostream &operator<<(std::ostream &stream, const Indentation &indentation) {
     return stream;
 }
 
-std::ostream &operator<<(std::ostream& os, const WriteLoc &loc) {
+std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
     if (loc.defined()) {
         Printer printer(os);
         printer.print(loc);
@@ -74,7 +74,6 @@ std::ostream &operator<<(std::ostream& os, const WriteLoc &loc) {
     }
     return os;
 }
-
 
 void Printer::print(const Type &type) {
     if (type.defined()) {
@@ -117,9 +116,7 @@ void Printer::print_expr_list(const std::vector<Expr> &exprs) {
     }
 }
 
-void Printer::print(const Stmt &stmt) {
-    stmt->accept(this);
-}
+void Printer::print(const Stmt &stmt) { stmt->accept(this); }
 
 void Printer::print(const WriteLoc &loc) {
     os << loc.base;
@@ -134,21 +131,13 @@ void Printer::print(const WriteLoc &loc) {
     }
 }
 
-void Printer::visit(const Int_t *node) {
-    os << "i" << node->bits;
-}
+void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
 
-void Printer::visit(const UInt_t *node) {
-    os << "u" << node->bits;
-}
+void Printer::visit(const UInt_t *node) { os << "u" << node->bits; }
 
-void Printer::visit(const Float_t *node) {
-    os << "f" << node->bits;
-}
+void Printer::visit(const Float_t *node) { os << "f" << node->bits; }
 
-void Printer::visit(const Bool_t *node) {
-    os << "bool";
-}
+void Printer::visit(const Bool_t *node) { os << "bool"; }
 
 void Printer::visit(const Ptr_t *node) {
     os << "(";
@@ -242,8 +231,7 @@ void Printer::visit(const BoolImm *node) {
 }
 
 void Printer::visit(const Var *node) {
-    if (!known_type.contains(node->name) &&
-        node->type.defined() &&
+    if (!known_type.contains(node->name) && node->type.defined() &&
         !node->type.is<Function_t>()) {
         os << "(";
         print(node->type);
@@ -266,18 +254,30 @@ void Printer::close() {
 
 std::string to_string(const BinOp::OpType &op) {
     switch (op) {
-        case BinOp::Add: return "+";
-        case BinOp::Mul: return "*";
-        case BinOp::Div: return "/";
-        case BinOp::Sub: return "-";
-        case BinOp::Mod: return "%";
-        case BinOp::Neq: return "!=";
-        case BinOp::Eq: return "==";
-        case BinOp::Le: return "<=";
-        case BinOp::Lt: return "<";
-        case BinOp::And: return "&&";
-        case BinOp::Or: return "||";
-        case BinOp::Xor: return "^";
+    case BinOp::Add:
+        return "+";
+    case BinOp::Mul:
+        return "*";
+    case BinOp::Div:
+        return "/";
+    case BinOp::Sub:
+        return "-";
+    case BinOp::Mod:
+        return "%";
+    case BinOp::Neq:
+        return "!=";
+    case BinOp::Eq:
+        return "==";
+    case BinOp::Le:
+        return "<=";
+    case BinOp::Lt:
+        return "<";
+    case BinOp::And:
+        return "&&";
+    case BinOp::Or:
+        return "||";
+    case BinOp::Xor:
+        return "^";
     }
 }
 
@@ -294,8 +294,10 @@ void Printer::visit(const BinOp *node) {
 
 std::string to_string(const UnOp::OpType &op) {
     switch (op) {
-        case UnOp::Neg: return "-";
-        case UnOp::Not: return "!";
+    case UnOp::Neg:
+        return "-";
+    case UnOp::Not:
+        return "!";
     }
 }
 
@@ -332,14 +334,22 @@ void Printer::visit(const Broadcast *node) {
 
 std::string to_string(const VectorReduce::OpType &op) {
     switch (op) {
-        case VectorReduce::Add: return "+";
-        case VectorReduce::Idxmin: return "argmin";
-        case VectorReduce::Idxmax: return "argmax";
-        case VectorReduce::Mul: return "*";
-        case VectorReduce::Min: return "min";
-        case VectorReduce::Max: return "max";
-        case VectorReduce::Or: return "any";
-        case VectorReduce::And: return "all";
+    case VectorReduce::Add:
+        return "+";
+    case VectorReduce::Idxmin:
+        return "argmin";
+    case VectorReduce::Idxmax:
+        return "argmax";
+    case VectorReduce::Mul:
+        return "*";
+    case VectorReduce::Min:
+        return "min";
+    case VectorReduce::Max:
+        return "max";
+    case VectorReduce::Or:
+        return "any";
+    case VectorReduce::And:
+        return "all";
     }
 }
 
@@ -392,14 +402,22 @@ void Printer::visit(const Access *node) {
 
 std::string to_string(const Intrinsic::OpType &op) {
     switch (op) {
-        case Intrinsic::abs: return "abs";
-        case Intrinsic::cos: return "cos";
-        case Intrinsic::cross: return "cross";
-        case Intrinsic::fma: return "fma";
-        case Intrinsic::max: return "max";
-        case Intrinsic::min: return "min";
-        case Intrinsic::sin: return "sin";
-        case Intrinsic::sqrt: return "sqrt";
+    case Intrinsic::abs:
+        return "abs";
+    case Intrinsic::cos:
+        return "cos";
+    case Intrinsic::cross:
+        return "cross";
+    case Intrinsic::fma:
+        return "fma";
+    case Intrinsic::max:
+        return "max";
+    case Intrinsic::min:
+        return "min";
+    case Intrinsic::sin:
+        return "sin";
+    case Intrinsic::sqrt:
+        return "sqrt";
     }
 }
 
@@ -431,10 +449,12 @@ void Printer::visit(const Lambda *node) {
 
 std::string to_string(const GeomOp::OpType &op) {
     switch (op) {
-        case GeomOp::distance: return "distance";
-        case GeomOp::intersects: return "intersects";
-        case GeomOp::contains: return "contains";
-        
+    case GeomOp::distance:
+        return "distance";
+    case GeomOp::intersects:
+        return "intersects";
+    case GeomOp::contains:
+        return "contains";
     }
 }
 
@@ -449,10 +469,14 @@ void Printer::visit(const GeomOp *node) {
 
 std::string to_string(const SetOp::OpType &op) {
     switch (op) {
-        case SetOp::argmin: return "argmin";
-        case SetOp::filter: return "filter";
-        case SetOp::map: return "map";
-        case SetOp::product: return "product";
+    case SetOp::argmin:
+        return "argmin";
+    case SetOp::filter:
+        return "filter";
+    case SetOp::map:
+        return "map";
+    case SetOp::product:
+        return "product";
     }
 }
 
@@ -472,7 +496,6 @@ void Printer::visit(const Call *node) {
     print_expr_list(node->args);
     os << ")";
 }
-
 
 void Printer::visit(const Return *node) {
     os << get_indent();
@@ -550,17 +573,18 @@ void Printer::visit(const Accumulate *node) {
     os << get_indent();
     print(node->loc);
     switch (node->op) {
-        case Accumulate::OpType::Add: {
-            os << " += ";
-            break;
-        }
-        case Accumulate::OpType::Mul: {
-            os << " *= ";
-            break;
-        }
-        default: {
-            internal_error << "TODO: implement printing for all Accumulate op types!";
-        }
+    case Accumulate::OpType::Add: {
+        os << " += ";
+        break;
+    }
+    case Accumulate::OpType::Mul: {
+        os << " *= ";
+        break;
+    }
+    default: {
+        internal_error
+            << "TODO: implement printing for all Accumulate op types!";
+    }
     }
     print_no_parens(node->value);
     os << "\n";
@@ -568,5 +592,5 @@ void Printer::visit(const Accumulate *node) {
     // print(node->body);
 }
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

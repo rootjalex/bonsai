@@ -7,7 +7,6 @@
 namespace bonsai {
 namespace parser {
 
-
 // Similar to Simit's (lots of borrowed code)
 
 struct Token {
@@ -21,57 +20,57 @@ struct Token {
         IDENTIFIER,
 
         // Special words/characters
-        IMPORT, // import
-        ELEMENT, // element
+        IMPORT,    // import
+        ELEMENT,   // element
         INTERFACE, // interface
-        EXTERN, // extern
+        EXTERN,    // extern
 
-        FUNC, // func
-        MUT, // mut
+        FUNC,   // func
+        MUT,    // mut
         LAMBDA, // lambda
         RARROW, // ->
         RETURN, // return
 
         // WHILE, // while
-        FOR, // for
-        IN, // in
-        IF, // if
-        ELIF, // elif
-        ELSE, // else
-        TRUE, // true
+        FOR,   // for
+        IN,    // in
+        IF,    // if
+        ELIF,  // elif
+        ELSE,  // else
+        TRUE,  // true
         FALSE, // false
 
-        LPAREN, // (
-        RPAREN, // )
-        LBRACKET, // [
-        RBRACKET, // ]
+        LPAREN,    // (
+        RPAREN,    // )
+        LBRACKET,  // [
+        RBRACKET,  // ]
         LSQUIGGLE, // {
         RSQUIGGLE, // }
-        COMMA, // ,
-        PERIOD, // .
-        COL, // :
-        SEMICOL, // ;
+        COMMA,     // ,
+        PERIOD,    // .
+        COL,       // :
+        SEMICOL,   // ;
 
         ASSIGN, // =
-        AND, // &&
-        AT, // @
-        OR, // ||
-        XOR, // ^
-        NOT, // !
-        PLUS, // +
-        INC, // ++
-        MINUS, // -
-        DEC, // --
-        STAR, // *
-        SLASH, // /
-        MOD, // %
+        AND,    // &&
+        AT,     // @
+        OR,     // ||
+        XOR,    // ^
+        NOT,    // !
+        PLUS,   // +
+        INC,    // ++
+        MINUS,  // -
+        DEC,    // --
+        STAR,   // *
+        SLASH,  // /
+        MOD,    // %
         // EXP, // ^ TODO: OR IS THIS XOR?
-        EQ, // ==
+        EQ,  // ==
         NEQ, // !=
         LEQ, // <=
         GEQ, // >=
-        LT, // <
-        GT, // >
+        LT,  // <
+        GT,  // >
 
         ERROR,
     };
@@ -85,28 +84,29 @@ struct Token {
     uint32_t colEnd;
 
     static std::string tokenTypeString(Token::Type);
-    
+
     std::string toString() const;
-    
-    friend std::ostream &operator <<(std::ostream &, const Token &);
+
+    friend std::ostream &operator<<(std::ostream &, const Token &);
 };
 
 struct TokenStream {
     void addToken(Token newToken) { tokens.push_back(newToken); }
-    void addToken(Token::Type, uint32_t line, uint32_t col, uint32_t length = 1);
+    void addToken(Token::Type, uint32_t line, uint32_t col,
+                  uint32_t length = 1);
 
     Token peek(uint32_t count) const;
-    
+
     void skip() { tokens.pop_front(); }
     bool consume(Token::Type);
 
     bool empty() const { return tokens.empty(); }
 
-    friend std::ostream &operator <<(std::ostream &, const TokenStream &);
-private:
+    friend std::ostream &operator<<(std::ostream &, const TokenStream &);
+
+  private:
     std::list<Token> tokens;
 };
 
-
-}  // namespace parser
-}  // namespace bonsai
+} // namespace parser
+} // namespace bonsai

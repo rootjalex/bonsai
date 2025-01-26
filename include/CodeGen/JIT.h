@@ -8,5 +8,5 @@ namespace codegen {
 
 void jit(const ir::Program &program, CodeGen_LLVM *gen);
 
-}  // namespace codegen
-}  // namespace bonsai
+} // namespace codegen
+} // namespace bonsai

@@ -7,5 +7,5 @@ namespace lower {
 
 ir::Program lower_option(const ir::Program &program);
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace lower
+} // namespace bonsai

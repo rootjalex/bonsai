@@ -15,7 +15,7 @@ bool is_const(const ir::Expr &e);
 ir::Expr make_zero(const ir::Type &t);
 ir::Expr make_one(const ir::Type &t);
 
-template<typename T>
+template <typename T>
 ir::Expr make_const(const ir::Type &t, const T &v) {
     if (t.is<ir::Int_t>()) {
         return ir::IntImm::make(t, (int64_t)v);
@@ -29,7 +29,9 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
         ir::Expr r = make_const(t.as<ir::Vector_t>()->etype, v);
         return ir::Broadcast::make(t.as<ir::Vector_t>()->lanes, std::move(r));
     } else {
-        internal_error << "make_const does not know how to build constant of type: " << t << " for value: " << v;
+        internal_error
+            << "make_const does not know how to build constant of type: " << t
+            << " for value: " << v;
         return ir::Expr();
     }
 }
@@ -39,16 +41,18 @@ ir::Expr constant_cast(const ir::Type &t, const ir::Expr &e);
 ir::Expr cast_to(const ir::Type &t, const ir::Expr &e);
 
 // TODO: a more generic version might be useful too.
-ir::Expr replace(const std::string &var_name, ir::Expr repl, const ir::Expr &orig);
+ir::Expr replace(const std::string &var_name, ir::Expr repl,
+                 const ir::Expr &orig);
 
 bool is_power_of_two(int32_t x);
 int32_t next_power_of_two(int32_t x);
 
-size_t find_struct_index(const std::string &field, const ir::Struct_t::Map &fields);
+size_t find_struct_index(const std::string &field,
+                         const ir::Struct_t::Map &fields);
 
 uint32_t vector_field_lane(const std::string &field);
 
 // TODO: this should be handled in codegen...
 double machine_epsilon(const ir::Type &t);
 
-}  // namespace bonsai
+} // namespace bonsai

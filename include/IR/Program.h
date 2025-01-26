@@ -1,7 +1,7 @@
 #pragma once
 
-#include <map>
 #include <iostream>
+#include <map>
 
 #include "Function.h"
 #include "Type.h"
@@ -12,7 +12,8 @@ namespace ir {
 struct Program {
     // TODO: more things?
 
-    // Intentionally ordered, this will be the order of arguments to the executable.
+    // Intentionally ordered, this will be the order of arguments to the
+    // executable.
     std::vector<std::pair<std::string, Type>> externs;
     // All function declarations except for main()
     std::map<std::string, std::shared_ptr<Function>> funcs;
@@ -24,25 +25,19 @@ struct Program {
 
     Program() {}
 
-    Program(
-        std::vector<std::pair<std::string, Type>> _externs,
-        std::map<std::string, std::shared_ptr<Function>> _funcs,
-        std::map<std::string, Type> _types,
-        Stmt _main_body)
-        : externs(std::move(_externs)),
-          funcs(std::move(_funcs)),
-          types(std::move(_types)),
-          main_body(std::move(_main_body)) {}
+    Program(std::vector<std::pair<std::string, Type>> _externs,
+            std::map<std::string, std::shared_ptr<Function>> _funcs,
+            std::map<std::string, Type> _types, Stmt _main_body)
+        : externs(std::move(_externs)), funcs(std::move(_funcs)),
+          types(std::move(_types)), main_body(std::move(_main_body)) {}
 
     ~Program() = default;
 
-    Program(const Program& other)
-        : externs(other.externs),
-          funcs(other.funcs),
-          types(other.types),
+    Program(const Program &other)
+        : externs(other.externs), funcs(other.funcs), types(other.types),
           main_body(other.main_body) {}
 
-    Program& operator=(const Program& other) {
+    Program &operator=(const Program &other) {
         if (this != &other) {
             externs = other.externs;
             funcs = other.funcs;
@@ -52,13 +47,12 @@ struct Program {
         return *this;
     }
 
-    Program(Program&& other) noexcept
-        : externs(std::move(other.externs)),
-          funcs(std::move(other.funcs)),
-          types(std::move(other.types)),
-          main_body(std::move(other.main_body)) {}
+    Program(Program &&other) noexcept
+        : externs(std::move(other.externs)), funcs(std::move(other.funcs)),
+          types(std::move(other.types)), main_body(std::move(other.main_body)) {
+    }
 
-    Program& operator=(Program&& other) noexcept {
+    Program &operator=(Program &&other) noexcept {
         if (this != &other) {
             externs = std::move(other.externs);
             funcs = std::move(other.funcs);
@@ -68,8 +62,8 @@ struct Program {
         return *this;
     }
 
-    void dump(std::ostream& os) const;
+    void dump(std::ostream &os) const;
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

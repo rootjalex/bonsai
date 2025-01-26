@@ -59,12 +59,18 @@ struct RewriteOptions : public ir::Mutator {
         if (node->type.is<ir::Option_t>()) {
             ir::Type new_type = mutate(node->type);
             if (node->values.empty()) {
-                // Build an "empty" struct - this sets the bool `set` to false by default.
+                // Build an "empty" struct - this sets the bool `set` to false
+                // by default.
                 static const std::vector<ir::Expr> empty = {};
                 return ir::Build::make(std::move(new_type), empty);
             } else {
-                internal_assert(node->values.size() == 1) << "Error in lowering build of Option_t, expected one argument by received: " << node->values.size();
-                std::vector<ir::Expr> args = {node->values[0], ir::BoolImm::make(true)};
+                internal_assert(node->values.size() == 1)
+                    << "Error in lowering build of Option_t, expected one "
+                       "argument by "
+                       "received: "
+                    << node->values.size();
+                std::vector<ir::Expr> args = {node->values[0],
+                                              ir::BoolImm::make(true)};
                 return ir::Build::make(std::move(new_type), std::move(args));
             }
         } else {
@@ -79,14 +85,18 @@ struct RewriteOptions : public ir::Mutator {
         internal_assert(_node);
         if (_node->type.is<ir::Option_t>()) {
             ir::Type new_type = mutate(_node->type);
-            std::vector<ir::Expr> args = {_node->value, ir::BoolImm::make(true)};
+            std::vector<ir::Expr> args = {_node->value,
+                                          ir::BoolImm::make(true)};
             return ir::Build::make(std::move(new_type), std::move(args));
-        } else if (_node->type.is<ir::Bool_t>() && node->value.type().is<ir::Option_t>()) {
+        } else if (_node->type.is<ir::Bool_t>() &&
+                   node->value.type().is<ir::Option_t>()) {
             return ir::Access::make("set", _node->value);
         } else if (node->value.type().is<ir::Option_t>()) {
             ir::Expr deref = ir::Access::make("value", _node->value);
             internal_assert(ir::equals(_node->type, deref.type()))
-                << "Lowering of option access: " << node->value << " resulted in: " << _node->value << " which does not match cast type: " << deref.type();
+                << "Lowering of option access: " << node->value
+                << " resulted in: " << _node->value
+                << " which does not match cast type: " << deref.type();
             return deref;
         } else {
             return expr;
@@ -118,11 +128,9 @@ ir::Stmt lower_option(const ir::Stmt &stmt) {
     return RewriteOptions().mutate(stmt);
 }
 
-bool contains_option(const ir::Type &type) {
-    return true;
-}
+bool contains_option(const ir::Type &type) { return true; }
 
-}  // namespace
+} // namespace
 
 ir::Program lower_option(const ir::Program &program) {
     ir::Program new_program;
@@ -130,7 +138,8 @@ ir::Program lower_option(const ir::Program &program) {
     // Can externs have option types? I don't think so.
     for (const auto &[name, type] : program.externs) {
         internal_assert(!contains_option(type))
-            << "Lowering failure, found option type in extern: " << name << " with type: " << type;
+            << "Lowering failure, found option type in extern: " << name
+            << " with type: " << type;
     }
     new_program.externs = program.externs;
 
@@ -142,17 +151,19 @@ ir::Program lower_option(const ir::Program &program) {
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{arg.name, lower_option(arg.type), lower_option(arg.default_value)};
+            args[i] = ir::Function::Argument{arg.name, lower_option(arg.type),
+                                             lower_option(arg.default_value)};
         }
         ir::Type ret_type = lower_option(func->ret_type);
         ir::Stmt body = lower_option(func->body);
 
-        new_program.funcs[f] = std::make_shared<ir::Function>(func->name, std::move(args), std::move(ret_type), std::move(body));
+        new_program.funcs[f] = std::make_shared<ir::Function>(
+            func->name, std::move(args), std::move(ret_type), std::move(body));
     }
 
     new_program.main_body = lower_option(program.main_body);
     return new_program;
 }
 
-}  // namespace parser
-}  // namespace bonsai
+} // namespace lower
+} // namespace bonsai

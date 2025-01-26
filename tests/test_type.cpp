@@ -1,5 +1,5 @@
-#include "IR/Type.h"
 #include "IR/Printer.h"
+#include "IR/Type.h"
 
 using namespace bonsai::ir;
 using namespace bonsai;
@@ -13,6 +13,4 @@ void test_example() {
     std::cout << p_f32x2x2 << std::endl;
 }
 
-int main(void) {
-    test_example();
-}
+int main(void) { test_example(); }

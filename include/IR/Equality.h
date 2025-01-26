@@ -13,5 +13,5 @@ struct TypeLessThan {
     bool operator()(const Type &t0, const Type &t1) const;
 };
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai

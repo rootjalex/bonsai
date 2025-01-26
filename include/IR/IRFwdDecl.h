@@ -51,5 +51,5 @@ struct Sequence;
 struct Assign;
 struct Accumulate;
 
-}  // namespace ir
-}  // namespace bonsai
+} // namespace ir
+} // namespace bonsai
