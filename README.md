@@ -1,15 +1,33 @@
 # bonsai
 DSL for Recursive Geometric Queries
 
+### Setup.
+
+1. This project uses the [CMake](https://cmake.org/) build system. On MacOS,
+
 ```bash
-export LLVM_ROOT=/Users/ajroot/projects/llvm-install-18
-export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
+brew install cmake
+```
+
+2. There is a dependency on LLVM; this currently uses [version 19.1.6](https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.6).
+
+3. Build `bonsai`:
+
+```bash
+# Option 1: normal
 cmake 
 cmake -S . -B build
 cmake --build build
-# OR for Debug
+
+# Option 2: debug
 cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg --config Debug
+```
+
+4. Run `bonsai` tests:
+
+```bash
+make run_tests
 ```
 
 ### Acknowledgements
