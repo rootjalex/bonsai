@@ -183,7 +183,7 @@ TokenStream Lexer::lex(std::istream &programStream) {
                 if (programStream.peek() == '|') {
                     // This is an OR expression.
                     programStream.get();
-                    tokens.addToken(Token::Type::OR, line, col, 2);
+                    tokens.addToken(Token::Type::OR, line, col, /*length=*/2);
                     col += 2;
                     break;
                 }
@@ -195,13 +195,13 @@ TokenStream Lexer::lex(std::istream &programStream) {
                 if (isValidIdentifierStart(programStream.peek())) {
                     // We assume a lambda expression has at least one argument.
                     // This is the opening lambda pipe.
-                    tokens.addToken(Pipe, line, col, col++);
+                    tokens.addToken(Pipe, line, col++);
                     break;
                 }
                 // Currently, we always assume a lambda body begins with `{`.
                 if (programStream.peek() == '{') {
                     // This is the closing lambda pipe.
-                    tokens.addToken(Pipe, line, col, col++);
+                    tokens.addToken(Pipe, line, col++);
                     break;
                 }
                 // TODO: what to do?
