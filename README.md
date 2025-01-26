@@ -14,6 +14,9 @@ brew install cmake
 3. Build `bonsai`:
 
 ```bash
+export LLVM_ROOT=/path/to/llvm-install # e.g., /Users/ajroot/projects/llvm-install-19
+export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
+
 # Option 1: normal
 cmake 
 cmake -S . -B build
