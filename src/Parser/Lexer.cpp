@@ -61,7 +61,7 @@ class Lexer {
         }
 
         std::cerr << getFileName() << ":" << getLineNo() << ":" << getColumnNo()
-                  << ": [LEX] error: " << message << "\n";
+                  << ": lex error: " << message << "\n";
         std::cerr << line << "\n";
         std::cerr << std::string(getColumnNo(), ' ') << std::string(1, '^')
                   << std::endl;
