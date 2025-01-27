@@ -34,7 +34,7 @@ class Lexer {
 
     void addToken(Token token) { stream.addToken(token); }
 
-    TokenStream getTokens() { return stream; }
+    const TokenStream &getTokens() { return stream; }
 
     std::string getFileName() { return filename; }
 
@@ -49,9 +49,14 @@ class Lexer {
 
     static TokenType getTokenType(std::string_view);
 
-    // TODO(cgyurgyik): Fail more gracefully, and ensure column aligns
-    // with error location.
+    // TODO(cgyurgyik): Column number isn't always lined up correctly.
+    // This probably needs to be looked at on a case-by-case basis.
     void reportError(std::string_view message) {
+        // Point past the last legally lex'd token.
+        if (std::optional<Token> last = getTokens().back()) {
+            incrColumnNo(last->colEnd - last->colBegin + 1);
+        }
+        incrColumnNo(); // Point to this token.
         // Add an error token.
         addToken(TokenType::ERROR);
 
@@ -63,11 +68,14 @@ class Lexer {
                 return;
         }
 
+        // filename:line:column: lex error: <error-message>
+        // <line>
+        //   ^
         std::cerr << getFileName() << ":" << getLineNo() << ":" << getColumnNo()
-                  << ": lex error: " << message << "\n";
-        std::cerr << line << "\n";
-        std::cerr << std::string(getColumnNo(), ' ') << std::string(1, '^')
-                  << std::endl;
+                  << ": lex error: " << message << "\n"
+                  << line << "\n"
+                  << std::string(getColumnNo(), ' ') << std::string(1, '^')
+                  << "\n";
     }
 
     char handleEscapedChar(std::istream &programStream);

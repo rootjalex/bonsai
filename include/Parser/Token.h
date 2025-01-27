@@ -96,6 +96,12 @@ struct TokenStream {
 
     Token peek(uint32_t count) const;
 
+    std::optional<Token> back() const {
+        if (tokens.empty())
+            return std::nullopt;
+        return tokens.back();
+    }
+
     void skip() { tokens.pop_front(); }
 
     bool consume(Token::Type);
