@@ -1,0 +1,18 @@
+func foo() -> i32 {
+    a = true;
+    b = false;
+    c = a || b || false;
+    d = true || b;
+
+    L1 = |x: i32| x + 1;
+    L2 = |x: i32 y: i32|  x + 1 + y ;
+    L3 = |e: bool f: bool| e || f ;
+    L4 = | e: bool f: bool  |    e || f  ;
+    L5 = |y: i32| y;
+    L6 = |x: i32 y: i32| x+y;
+    L7 = |x: i32| { |y: i32|  { y } };
+
+    return 0;
+}
+
+func relu(v: set[i32]) = filter(|x : i32| x > 0, v);

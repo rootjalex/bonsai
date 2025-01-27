@@ -80,8 +80,6 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "func";
     case Token::Type::MUT:
         return "mut";
-    case Token::Type::LAMBDA:
-        return "lambda";
     case Token::Type::RARROW:
         return "rarrow";
     case Token::Type::RETURN:
@@ -112,6 +110,8 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "lsquiggle";
     case Token::Type::RSQUIGGLE:
         return "rsquiggle";
+    case Token::Type::BAR:
+        return "bar";
     case Token::Type::COMMA:
         return "comma";
     case Token::Type::PERIOD:
@@ -126,8 +126,8 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "and";
     case Token::Type::AT:
         return "at";
-    case Token::Type::OR:
-        return "or";
+    case Token::Type::LOR:
+        return "logical-or";
     case Token::Type::XOR:
         return "xor";
     case Token::Type::NOT:
@@ -225,17 +225,15 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
-void TokenStream::addToken(Token::Type type, uint32_t line, uint32_t col,
-                           uint32_t len) {
-    Token newToken;
-
-    newToken.type = type;
-    newToken.lineBegin = line;
-    newToken.colBegin = col;
-    newToken.lineEnd = line;
-    newToken.colEnd = col + len - 1;
-
-    tokens.push_back(newToken);
+void TokenStream::addToken(Token::Type type, uint64_t line, uint64_t column,
+                           uint32_t length) {
+    tokens.push_back(Token{
+        .type = type,
+        .lineBegin = line,
+        .colBegin = column,
+        .lineEnd = line,
+        .colEnd = column + length - 1,
+    });
 }
 
 bool TokenStream::consume(Token::Type type) {
