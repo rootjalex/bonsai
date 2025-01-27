@@ -11,10 +11,10 @@ namespace parser {
 
 class Lexer {
   public:
-    Lexer() {}
+    Lexer(std::string filename) : filename(std::move(filename)) {}
 
     // TODO: support better error handling?
-    void lex(std::istream &);
+    void lex();
 
     // Returns the current line number.
     uint64_t getLineNo() { return line; }
@@ -36,7 +36,10 @@ class Lexer {
 
     TokenStream getTokens() { return stream; }
 
+    std::string getFileName() { return filename; }
+
   private:
+    std::string filename;
     TokenStream stream;
     // The current column and line number during the tokenization phase.
     uint64_t column = 1;
@@ -46,9 +49,22 @@ class Lexer {
 
     static TokenType getTokenType(std::string_view);
 
+    // TODO(cgyurgyik): Fail more gracefully, and ensure column aligns
+    // with error location.
     void reportError(std::string_view message) {
-        internal_error << "Parser error: " << message << "\n  on line "
-                       << getLineNo() << ", column " << getColumnNo();
+        std::ifstream file(getFileName());
+
+        std::string line;
+        for (int i = 1; i <= getLineNo(); ++i) {
+            if (!std::getline(file, line))
+                return;
+        }
+
+        std::cerr << getFileName() << ":" << getLineNo() << ":" << getColumnNo()
+                  << ": [LEX] error: " << message << "\n";
+        std::cerr << line << "\n";
+        std::cerr << std::string(getColumnNo(), ' ') << std::string(1, '^')
+                  << std::endl;
     }
 
     char handleEscapedChar(std::istream &programStream);
@@ -92,7 +108,11 @@ static bool isValidIdentifierStart(int32_t c) {
     return c == '_' || std::isalpha(c);
 }
 
-void Lexer::lex(std::istream &programStream) {
+void Lexer::lex() {
+    std::ifstream programStream(getFileName());
+    internal_assert(programStream.is_open())
+        << "Error: Could not open file " << getFileName();
+
     ScanState state = ScanState::INITIAL;
 
     while (programStream.peek() != EOF) {
@@ -484,13 +504,9 @@ char Lexer::handleEscapedChar(std::istream &programStream) {
 }
 
 TokenStream lex(const std::string &filename) {
-    std::ifstream inputFile(filename);
-    internal_assert(inputFile.is_open())
-        << "Error: Could not open file " << filename;
-
     // Lexical analysis
-    Lexer L;
-    L.lex(inputFile);
+    Lexer L(filename);
+    L.lex();
     return L.getTokens();
 }
 
