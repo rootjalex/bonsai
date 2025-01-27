@@ -893,45 +893,23 @@ struct Parser {
                     // for reuse in type inference.
                     const size_t n_args = func->args.size();
                     std::vector<ir::Type> arg_types(n_args);
-                    ir::Type ret_type;
 
-                    if (func->interfaces.empty()) {
-                        for (size_t i = 0; i < func->args.size(); i++) {
-                            arg_types[i] = func->args[i].type;
-                            // TODO: we could push types down here, because
-                            // we know the arg types. That mixes type
-                            // inference with parsing though, not sure we
-                            // want that.
-                            internal_assert(!args[i].type().defined() ||
-                                            ir::equals(func->args[i].type,
-                                                        args[i].type()))
-                                << "Argument " << i
-                                << " of call to function " << name
-                                << " on line " << token.lineBegin
-                                << " has incorrect type. Expected "
-                                << func->args[i].type
-                                << " but parsed: " << args[i].type();
-                        }
-                        ret_type = func->ret_type;
-                    } else {
-                        for (size_t i = 0; i < func->args.size(); i++) {
-                            arg_types[i] = replace(instantiations, func->args[i].type);
-                            // TODO: we could push types down here, because
-                            // we know the arg types. That mixes type
-                            // inference with parsing though, not sure we
-                            // want that (more than we already do...).
-                            internal_assert(!args[i].type().defined() ||
-                                            ir::equals(arg_types[i],
-                                                        args[i].type()))
-                                << "Argument " << i
-                                << " of call to function " << name
-                                << " on line " << token.lineBegin
-                                << " has incorrect type. Expected "
-                                << func->args[i].type << " (mapped to) " << arg_types[i]
-                                << " but parsed: " << args[i].type();
-                        }
-
-                        ret_type = func->ret_type.defined() ? replace(instantiations, func->ret_type) : func->ret_type;
+                    for (size_t i = 0; i < func->args.size(); i++) {
+                        arg_types[i] = func->args[i].type;
+                        // TODO: we could push types down here, because
+                        // we know the arg types. That mixes type
+                        // inference with parsing though, not sure we
+                        // want that (more than we already do...).
+                        ir::Type expected_type = func->interfaces.empty() ? func->args[i].type : replace(instantiations, func->args[i].type);
+                        internal_assert(!args[i].type().defined() ||
+                                        ir::equals(expected_type,
+                                                    args[i].type()))
+                            << "Argument " << i
+                            << " of call to function " << name
+                            << " on line " << token.lineBegin
+                            << " has incorrect type. Expected "
+                            << expected_type
+                            << " but parsed: " << args[i].type();
                     }
 
                     ir::Type ftype;
@@ -941,8 +919,8 @@ struct Parser {
                     // inference easier, but we'd have to change a lot of
                     // the error handling in IR/Type.cpp
                     // For now, leave ftype undefined in the else case
-                    if (ret_type.defined()) {
-                        ftype = ir::Function_t::make(std::move(ret_type), std::move(arg_types));
+                    if (func->ret_type.defined()) {
+                        ftype = ir::Function_t::make(func->ret_type, std::move(arg_types));
                     }
 
                     ir::Expr f = ir::Var::make(ftype, name);

@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Float16.h"
 #include "IR/Printer.h"
@@ -858,34 +859,23 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
     return node;
 }
 
-Expr Instantiate::make(Expr func, Instantiate::TypeMap types) {
-    internal_assert(func.defined()) << "Instantiate::make received undefined func";
+Expr Instantiate::make(Expr expr, Instantiate::TypeMap types) {
+    internal_assert(expr.defined()) << "Instantiate::make received undefined expr";
     internal_assert(std::all_of(types.cbegin(), types.cend(),
                                 [](const auto &p) { return p.second.defined(); }))
-        << "Instantiate::make received undefined type to func: " << func;
+        << "Instantiate::make received undefined type to expr: " << expr;
 
     Instantiate *node = new Instantiate;
 
     const bool infer_types =
-        type_enforcement_enabled() || func.type().defined();
+        type_enforcement_enabled() || expr.type().defined();
 
     if (infer_types) {
-        internal_assert(func.type().defined())
-            << "Instantiate::make needs func to have a defined type: " << func;
-        internal_assert(func.type().is<Function_t>())
-            << "Instantiate::make received non-callable func: " << func;
-        const Function_t *f = func.type().as<Function_t>();
-        // TODO: what more can be done?
-        const size_t n_args = f->arg_types.size();
-        std::vector<Type> arg_types(n_args);
-        for (size_t i = 0; i < n_args; i++) {
-            arg_types[i] = replace(types, f->arg_types[i]);
-        }
-        ir::Type ret_type = replace(types, f->ret_type);
-        node->type = Function_t::make(std::move(ret_type), std::move(arg_types));
+        internal_assert(contains_generics(expr.type(), types)) << "Instantiation does not contain generics: " << expr << " : " << expr.type();
+        node->type = replace(types, expr.type());
     }
 
-    node->func = std::move(func);
+    node->expr = std::move(expr);
     node->types = std::move(types);
     return node;
 }

@@ -144,7 +144,7 @@ void Visitor::visit(const Call *node) {
 }
 
 void Visitor::visit(const Instantiate *node) {
-    node->func.accept(this);
+    node->expr.accept(this);
     // TODO: should we visit the instantiated types?
 }
 

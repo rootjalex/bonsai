@@ -296,5 +296,24 @@ bool is_constant_expr(const Expr &expr) {
     }
 }
 
+bool contains_generics(const Type &type, const Instantiate::TypeMap &types) {
+    struct ContainsGenerics : public Visitor {
+        ContainsGenerics(const Instantiate::TypeMap &_types)  : types(_types) {}
+
+        void visit(const Generic_t *node) override {
+            if (types.contains(node->name)) {
+                seen_types.insert(node->name);
+            }
+        }
+
+        const Instantiate::TypeMap &types;
+        std::set<std::string> seen_types;
+    };
+
+    ContainsGenerics checker(types);
+    type.accept(&checker);
+    return !checker.seen_types.empty();
+}
+
 } // namespace ir
 } // namespace bonsai

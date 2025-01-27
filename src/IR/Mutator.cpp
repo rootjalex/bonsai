@@ -335,14 +335,14 @@ Expr Mutator::visit(const Call *node) {
 }
 
 Expr Mutator::visit(const Instantiate *node) {
-    Expr func = mutate(node->func);
+    Expr expr = mutate(node->expr);
     // TODO: should we visit the type params? I think no,
     // we don't recurse into an Expr's type currently.
     // auto [types, not_changed] = visit_map(this, node->types);
-    if (func.same_as(node->func)) {
+    if (expr.same_as(node->expr)) {
         return node;
     } else {
-        return Instantiate::make(std::move(func), node->types);
+        return Instantiate::make(std::move(expr), node->types);
     }
 }
 

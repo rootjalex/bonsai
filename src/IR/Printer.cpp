@@ -536,7 +536,7 @@ void Printer::visit(const Call *node) {
 }
 
 void Printer::visit(const Instantiate *node) {
-    print_no_parens(node->func);
+    print_no_parens(node->expr);
     os << "[[";
     bool first = true;
     for (const auto& [key, value] : node->types) {

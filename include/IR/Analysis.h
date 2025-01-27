@@ -18,5 +18,7 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program);
 
 bool is_constant_expr(const Expr &expr);
 
+bool contains_generics(const Type &type, const Instantiate::TypeMap &types);
+
 } // namespace ir
 } // namespace bonsai

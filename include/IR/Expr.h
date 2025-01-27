@@ -344,12 +344,12 @@ struct Call : ExprNode<Call> {
 };
 
 struct Instantiate : ExprNode<Instantiate> {
-    Expr func;
+    Expr expr;
     // Generic_t name -> replacement
     typedef std::map<std::string, Type> TypeMap;
     TypeMap types;
 
-    static Expr make(Expr func, TypeMap types);
+    static Expr make(Expr expr, TypeMap types);
 
     static const IRExprEnum _node_type = IRExprEnum::Instantiate;
 };
