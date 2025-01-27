@@ -114,7 +114,5 @@ struct TokenStream {
     std::list<Token> tokens;
 };
 
-using TokenType = Token::Type;
-
 } // namespace parser
 } // namespace bonsai

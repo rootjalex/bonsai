@@ -25,10 +25,16 @@ class Lexer {
     void resetColumnNo() { column = 1; }
     void resetLineNo() { line = 1; }
 
+    // Increments the column number.
     void incrColumnNo(uint32_t value = 1) { column += value; }
-    void incrLineNo(uint32_t value = 1) { line += value; }
 
-    void addToken(TokenType type, uint32_t length = 1) {
+    // Increments the line number and resets the column number.
+    void incrLineNo(uint32_t value = 1) {
+        line += value;
+        resetColumnNo();
+    }
+
+    void addToken(Token::Type type, uint32_t length = 1) {
         stream.addToken(type, getLineNo(), getColumnNo(), length);
     }
 
@@ -47,7 +53,7 @@ class Lexer {
 
     enum class ScanState { INITIAL, SLTEST, MLTEST };
 
-    static TokenType getTokenType(std::string_view);
+    static Token::Type getTokenType(std::string_view);
 
     // TODO(cgyurgyik): Column number isn't always lined up correctly.
     // This probably needs to be looked at on a case-by-case basis.
@@ -58,7 +64,7 @@ class Lexer {
         }
         incrColumnNo(); // Point to this token.
         // Add an error token.
-        addToken(TokenType::ERROR);
+        addToken(Token::Type::ERROR);
 
         std::ifstream file(getFileName());
 
@@ -81,36 +87,36 @@ class Lexer {
     char handleEscapedChar(std::istream &programStream);
 };
 
-TokenType Lexer::getTokenType(const std::string_view token) {
+Token::Type Lexer::getTokenType(const std::string_view token) {
     if (token == "import")
-        return TokenType::IMPORT;
+        return Token::Type::IMPORT;
     if (token == "element")
-        return TokenType::ELEMENT;
+        return Token::Type::ELEMENT;
     if (token == "interface")
-        return TokenType::INTERFACE;
+        return Token::Type::INTERFACE;
     if (token == "extern")
-        return TokenType::EXTERN;
+        return Token::Type::EXTERN;
     if (token == "func")
-        return TokenType::FUNC;
+        return Token::Type::FUNC;
     if (token == "mut")
         return Token::Type::MUT;
     if (token == "return")
-        return TokenType::RETURN;
+        return Token::Type::RETURN;
     if (token == "for")
-        return TokenType::FOR;
+        return Token::Type::FOR;
     if (token == "if")
-        return TokenType::IF;
+        return Token::Type::IF;
     if (token == "elif")
-        return TokenType::ELIF;
+        return Token::Type::ELIF;
     if (token == "else")
-        return TokenType::ELSE;
+        return Token::Type::ELSE;
     if (token == "true")
-        return TokenType::TRUE;
+        return Token::Type::TRUE;
     if (token == "false")
-        return TokenType::FALSE;
+        return Token::Type::FALSE;
 
     // If string does not correspond to a keyword, assume it is an identifier.
-    return TokenType::IDENTIFIER;
+    return Token::Type::IDENTIFIER;
 }
 
 // Returns whether this is a valid start character of an identifier or keyword,
@@ -143,7 +149,7 @@ void Lexer::lex() {
                 .lineEnd = getLineNo(),
                 .colEnd = getColumnNo() + tokenString.length() - 1,
             };
-            if (newToken.type == TokenType::IDENTIFIER) {
+            if (newToken.type == Token::Type::IDENTIFIER) {
                 newToken.value = tokenString;
             }
             addToken(newToken);
@@ -151,63 +157,63 @@ void Lexer::lex() {
             switch (programStream.peek()) {
             case '(':
                 programStream.get();
-                addToken(TokenType::LPAREN);
+                addToken(Token::Type::LPAREN);
                 break;
             case ')':
                 programStream.get();
-                addToken(TokenType::RPAREN);
+                addToken(Token::Type::RPAREN);
                 break;
             case '[':
                 programStream.get();
-                addToken(TokenType::LBRACKET);
+                addToken(Token::Type::LBRACKET);
                 break;
             case ']':
                 programStream.get();
-                addToken(TokenType::RBRACKET);
+                addToken(Token::Type::RBRACKET);
                 break;
             case '{':
                 programStream.get();
-                addToken(TokenType::LSQUIGGLE);
+                addToken(Token::Type::LSQUIGGLE);
                 break;
             case '}':
                 programStream.get();
-                addToken(TokenType::RSQUIGGLE);
+                addToken(Token::Type::RSQUIGGLE);
                 break;
             case ',':
                 programStream.get();
-                addToken(TokenType::COMMA);
+                addToken(Token::Type::COMMA);
                 break;
             case '.':
                 // NOTE: this means float literals like .0f are illegal!
                 programStream.get();
-                addToken(TokenType::PERIOD);
+                addToken(Token::Type::PERIOD);
                 break;
             case ':':
                 programStream.get();
-                addToken(TokenType::COL);
+                addToken(Token::Type::COL);
                 break;
             case ';':
                 programStream.get();
-                addToken(TokenType::SEMICOL);
+                addToken(Token::Type::SEMICOL);
                 break;
             case '@':
                 programStream.get();
-                addToken(TokenType::AT);
+                addToken(Token::Type::AT);
                 break;
             case '=':
                 programStream.get();
                 if (programStream.peek() == '=') {
                     programStream.get();
-                    addToken(TokenType::EQ, /*length=*/2);
+                    addToken(Token::Type::EQ, /*length=*/2);
                 } else {
-                    addToken(TokenType::ASSIGN);
+                    addToken(Token::Type::ASSIGN);
                 }
                 break;
             case '&':
                 programStream.get();
                 if (programStream.peek() == '&') {
                     programStream.get();
-                    addToken(TokenType::AND, /*length=*/2);
+                    addToken(Token::Type::AND, /*length=*/2);
                 } else {
                     reportError("SINGLE `&` not implemented");
                 }
@@ -216,50 +222,50 @@ void Lexer::lex() {
                 programStream.get();
                 if (programStream.peek() == '|') {
                     programStream.get();
-                    addToken(TokenType::LOR, /*length=*/2);
+                    addToken(Token::Type::LOR, /*length=*/2);
                     break;
                 }
-                addToken(TokenType::BAR);
+                addToken(Token::Type::BAR);
             } break;
             case '^':
                 programStream.get();
-                addToken(TokenType::XOR);
+                addToken(Token::Type::XOR);
                 break;
             case '!':
                 programStream.get();
                 if (programStream.peek() == '=') {
                     programStream.get();
-                    addToken(TokenType::NEQ, /*length=*/2);
+                    addToken(Token::Type::NEQ, /*length=*/2);
                 } else {
-                    addToken(TokenType::NOT);
+                    addToken(Token::Type::NOT);
                 }
                 break;
             case '+':
                 programStream.get();
                 if (programStream.peek() == '+') {
                     programStream.get();
-                    addToken(TokenType::INC, /*length=*/2);
+                    addToken(Token::Type::INC, /*length=*/2);
                 } else {
-                    addToken(TokenType::PLUS);
+                    addToken(Token::Type::PLUS);
                 }
                 break;
             case '-':
                 programStream.get();
                 if (programStream.peek() == '>') {
                     programStream.get();
-                    addToken(TokenType::RARROW, /*length=*/2);
+                    addToken(Token::Type::RARROW, /*length=*/2);
 
                 } else if (programStream.peek() == '-') {
                     programStream.get();
-                    addToken(TokenType::DEC, /*length=*/2);
+                    addToken(Token::Type::DEC, /*length=*/2);
 
                 } else {
-                    addToken(TokenType::MINUS);
+                    addToken(Token::Type::MINUS);
                 }
                 break;
             case '*':
                 programStream.get();
-                addToken(TokenType::STAR);
+                addToken(Token::Type::STAR);
                 break;
             case '/':
                 programStream.get();
@@ -272,40 +278,39 @@ void Lexer::lex() {
                     if (programStream.peek() != '\n') {
                         programStream.get();
                         incrLineNo();
-                        resetColumnNo();
                     }
                     // TODO: emit comment token?
                 } else {
-                    addToken(TokenType::SLASH);
+                    addToken(Token::Type::SLASH);
                 }
                 break;
             case '%':
                 programStream.get();
-                addToken(TokenType::MOD);
+                addToken(Token::Type::MOD);
                 break;
             // EQ, NEQ already handled
             case '<':
                 programStream.get();
                 if (programStream.peek() == '=') {
                     programStream.get();
-                    addToken(TokenType::LEQ, /*length=*/2);
+                    addToken(Token::Type::LEQ, /*length=*/2);
                 } else {
-                    addToken(TokenType::LT);
+                    addToken(Token::Type::LT);
                 }
                 break;
             case '>':
                 programStream.get();
                 if (programStream.peek() == '=') {
                     programStream.get();
-                    addToken(TokenType::GEQ, /*length=*/2);
+                    addToken(Token::Type::GEQ, /*length=*/2);
                 } else {
-                    addToken(TokenType::GT);
+                    addToken(Token::Type::GT);
                 }
                 break;
             case '"': {
                 programStream.get();
                 Token newToken;
-                newToken.type = TokenType::STRING_LITERAL;
+                newToken.type = Token::Type::STRING_LITERAL;
                 newToken.lineBegin = getLineNo();
                 newToken.colBegin = getColumnNo();
                 std::string str;
@@ -317,7 +322,7 @@ void Lexer::lex() {
                         if (escapedChar != ' ') {
                             str += escapedChar;
                             programStream.get();
-
+                            incrColumnNo(2);
                         } else {
                             // error case.
                             incrColumnNo();
@@ -354,7 +359,6 @@ void Lexer::lex() {
                     state = ScanState::INITIAL;
                 }
                 incrLineNo();
-                resetColumnNo();
                 break;
             case ' ':
             case '\t':
@@ -382,7 +386,7 @@ void Lexer::lex() {
                 Token newToken{
                     .lineBegin = getLineNo(),
                     .colBegin = getColumnNo(),
-                    .type = TokenType::INT_LITERAL,
+                    .type = Token::Type::INT_LITERAL,
                 };
                 std::string tokenString;
                 while (std::isdigit(programStream.peek())) {
@@ -392,7 +396,7 @@ void Lexer::lex() {
 
                 // Handle decimal.
                 if (programStream.peek() == '.') {
-                    newToken.type = TokenType::FLOAT_LITERAL;
+                    newToken.type = Token::Type::FLOAT_LITERAL;
                     tokenString += programStream.get();
                     incrColumnNo();
 
@@ -420,7 +424,7 @@ void Lexer::lex() {
                 // handle exponent
                 if (programStream.peek() == 'e' ||
                     programStream.peek() == 'E') {
-                    newToken.type = TokenType::FLOAT_LITERAL;
+                    newToken.type = Token::Type::FLOAT_LITERAL;
                     tokenString += programStream.get();
                     incrColumnNo();
 
@@ -456,16 +460,16 @@ void Lexer::lex() {
                 // Handle u (unsigned) modifier.
                 if (programStream.peek() == 'u') {
                     programStream.get();
-                    newToken.type = TokenType::UINT_LITERAL;
+                    newToken.type = Token::Type::UINT_LITERAL;
                     incrColumnNo();
                     newToken.value =
                         static_cast<uint64_t>(std::stoull(tokenString));
-                } else if (newToken.type == TokenType::INT_LITERAL) {
-                    newToken.type = TokenType::INT_LITERAL;
+                } else if (newToken.type == Token::Type::INT_LITERAL) {
+                    newToken.type = Token::Type::INT_LITERAL;
                     newToken.value =
                         static_cast<int64_t>(std::stoll(tokenString));
                 } else {
-                    internal_assert(newToken.type == TokenType::FLOAT_LITERAL)
+                    internal_assert(newToken.type == Token::Type::FLOAT_LITERAL)
                         << "State error in literal parsing: " << tokenString;
                     newToken.value =
                         static_cast<double>(std::stold(tokenString));
