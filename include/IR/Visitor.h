@@ -18,6 +18,11 @@ struct Visitor {
     virtual void visit(const Option_t *);
     virtual void visit(const Set_t *);
     virtual void visit(const Function_t *);
+    virtual void visit(const Generic_t *);
+    // Interfaces
+    virtual void visit(const IEmpty *);
+    virtual void visit(const IFloat *);
+    virtual void visit(const IVector *);
     // Exprs
     virtual void visit(const IntImm *);
     virtual void visit(const UIntImm *);
@@ -40,6 +45,7 @@ struct Visitor {
     virtual void visit(const GeomOp *);
     virtual void visit(const SetOp *);
     virtual void visit(const Call *);
+    virtual void visit(const Instantiate *);
     // Stmts
     virtual void visit(const Return *);
     virtual void visit(const Store *);

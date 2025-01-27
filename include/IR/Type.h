@@ -2,6 +2,7 @@
 
 #include "IRHandle.h"
 #include "IRNode.h"
+#include "Interface.h"
 #include "IntrusivePtr.h"
 #include "Mutator.h"
 #include "Visitor.h"
@@ -26,6 +27,7 @@ enum class IRTypeEnum {
     Option_t,
     Set_t,
     Function_t,
+    Generic_t,
 };
 
 using IRTypeNode = IRNode<Type, IRTypeEnum>;
@@ -182,10 +184,21 @@ struct Function_t : TypeNode<Function_t> {
     static const IRTypeEnum _node_type = IRTypeEnum::Function_t;
 };
 
+struct Generic_t : TypeNode<Generic_t> {
+    std::string name;
+    Interface interface;
+
+    static Type make(std::string name, Interface interface);
+
+    static const IRTypeEnum _node_type = IRTypeEnum::Generic_t;
+};
+
 // TODO: List_t, Tensor_t
 
 // Useful helper function
 Type get_field_type(const Type &struct_type, const std::string &field);
+
+bool satisfies(const Type &type, const Interface &interface);
 
 } // namespace ir
 

@@ -487,6 +487,29 @@ void CodeGen_LLVM::visit(const Function_t *node) {
                    << Type(node);
 }
 
+void CodeGen_LLVM::visit(const Generic_t *node) {
+    internal_error << "Generic types must be lowered before reaching LLVM codegen! Received: "
+                   << Type(node);
+}
+
+void CodeGen_LLVM::visit(const IEmpty *node) {
+    // TODO: this would be where the idea of a VisitorRestricted<...Args> would be really useful.
+    internal_error << "Interfaces must be lowered before reaching LLVM codegen! Received: "
+                   << Interface(node);
+}
+
+void CodeGen_LLVM::visit(const IFloat *node) {
+    // TODO: this would be where the idea of a VisitorRestricted<...Args> would be really useful.
+    internal_error << "Interfaces must be lowered before reaching LLVM codegen! Received: "
+                   << Interface(node);
+}
+
+void CodeGen_LLVM::visit(const IVector *node) {
+    // TODO: this would be where the idea of a VisitorRestricted<...Args> would be really useful.
+    internal_error << "Interfaces must be lowered before reaching LLVM codegen! Received: "
+                   << Interface(node);
+}
+
 void CodeGen_LLVM::visit(const IntImm *node) {
     value = llvm::ConstantInt::getSigned(codegen_type(node->type), node->value);
 }
@@ -990,6 +1013,10 @@ void CodeGen_LLVM::visit(const Call *node) {
     }
 
     value = builder->CreateCall(func, args);
+}
+
+void CodeGen_LLVM::visit(const Instantiate *node) {
+    internal_error << "Instantiate node not lowered prior to codegen: " << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Build *node) {

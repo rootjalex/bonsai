@@ -18,6 +18,37 @@ Cmp compare_primitives(const T &t0, const T &t1) {
     }
 }
 
+Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
+    if (!i0.defined()) {
+        if (!i1.defined()) {
+            return Cmp::Equals;
+        } else {
+            return Cmp::Less;
+        }
+    } else if (!i1.defined()) {
+        return Cmp::Greater;
+    }
+
+    // Must both be defined.
+
+    if (i0.node_type() < i1.node_type()) {
+        return Cmp::Less;
+    } else if (i0.node_type() > i1.node_type()) {
+        return Cmp::Greater;
+    }
+
+    // Must both be the same node type.
+    switch (i0.node_type()) {
+        case IRInterfaceEnum::IEmpty: return Cmp::Equals;
+        case IRInterfaceEnum::IFloat: return Cmp::Equals;
+        case IRInterfaceEnum::IVector: {
+            const IVector *v0 = i0.as<IVector>();
+            const IVector *v1 = i1.as<IVector>();
+            return compare_interfaces(v0->etype, v1->etype);
+        }
+    }
+}
+
 Cmp compare_types(const Type &t0, const Type &t1) {
     if (!t0.defined()) {
         if (!t1.defined()) {
@@ -126,6 +157,15 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             }
         }
         return compare_types(f0->ret_type, f1->ret_type);
+    }
+    case IRTypeEnum::Generic_t: {
+        const Generic_t *g0 = t0.as<Generic_t>();
+        const Generic_t *g1 = t1.as<Generic_t>();
+        if (g0->name != g1->name) {
+            return compare_primitives(g0->name, g1->name);
+        }
+        // TODO: can we ever have two generics of the same name with different interfaces??
+        return compare_interfaces(g0->interface, g1->interface);
     }
     }
 }

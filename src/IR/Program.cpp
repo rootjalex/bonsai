@@ -20,7 +20,7 @@ void Program::dump(std::ostream &os) const {
         bool first = true;
         for (const auto &arg : func->args) {
             if (!first) {
-                os << ",";
+                os << ", ";
             }
             first = false;
             os << arg.name;

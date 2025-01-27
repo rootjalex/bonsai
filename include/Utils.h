@@ -44,6 +44,9 @@ ir::Expr cast_to(const ir::Type &t, const ir::Expr &e);
 ir::Expr replace(const std::string &var_name, ir::Expr repl,
                  const ir::Expr &orig);
 
+ir::Type replace(const std::map<std::string, ir::Type> &repls,
+                 const ir::Type &type);
+
 bool is_power_of_two(int32_t x);
 int32_t next_power_of_two(int32_t x);
 

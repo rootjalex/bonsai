@@ -7,6 +7,7 @@ namespace ir {
 
 struct Mutator {
     virtual Type mutate(const Type &type);
+    virtual Interface mutate(const Interface &interface);
     virtual Expr mutate(const Expr &expr);
     virtual Stmt mutate(const Stmt &stmt);
 
@@ -23,6 +24,11 @@ struct Mutator {
     virtual Type visit(const Option_t *);
     virtual Type visit(const Set_t *);
     virtual Type visit(const Function_t *);
+    virtual Type visit(const Generic_t *);
+    // Interfaces
+    virtual Interface visit(const IEmpty *);
+    virtual Interface visit(const IFloat *);
+    virtual Interface visit(const IVector *);
     // Exprs
     virtual Expr visit(const IntImm *);
     virtual Expr visit(const UIntImm *);
@@ -45,6 +51,7 @@ struct Mutator {
     virtual Expr visit(const GeomOp *);
     virtual Expr visit(const SetOp *);
     virtual Expr visit(const Call *);
+    virtual Expr visit(const Instantiate *);
     // Stmts
     virtual Stmt visit(const Return *);
     virtual Stmt visit(const Store *);

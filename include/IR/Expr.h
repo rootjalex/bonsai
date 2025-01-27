@@ -40,6 +40,7 @@ enum class IRExprEnum {
     GeomOp,
     SetOp,
     Call,
+    Instantiate,
 };
 
 using IRExprNode = IRNode<Expr, IRExprEnum>;
@@ -340,6 +341,17 @@ struct Call : ExprNode<Call> {
     static Expr make(Expr func, std::vector<Expr> args);
 
     static const IRExprEnum _node_type = IRExprEnum::Call;
+};
+
+struct Instantiate : ExprNode<Instantiate> {
+    Expr func;
+    // Generic_t name -> replacement
+    typedef std::map<std::string, Type> TypeMap;
+    TypeMap types;
+
+    static Expr make(Expr func, TypeMap types);
+
+    static const IRExprEnum _node_type = IRExprEnum::Instantiate;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary

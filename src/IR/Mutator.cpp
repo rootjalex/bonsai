@@ -43,6 +43,10 @@ Type Mutator::mutate(const Type &type) {
     return type.defined() ? type.get()->mutate_type(this) : Type();
 }
 
+Interface Mutator::mutate(const Interface &interface) {
+    return interface.defined() ? interface.get()->mutate_interface(this) : Interface();
+}
+
 Expr Mutator::mutate(const Expr &expr) {
     return expr.defined() ? expr.get()->mutate_expr(this) : Expr();
 }
@@ -141,6 +145,28 @@ Type Mutator::visit(const Function_t *node) {
         return node;
     } else {
         return Function_t::make(std::move(ret_type), std::move(arg_types));
+    }
+}
+
+Type Mutator::visit(const Generic_t *node) {
+    Interface interface = mutate(node->interface);
+    if (interface.same_as(node->interface)) {
+        return node;
+    } else {
+        return Generic_t::make(node->name, std::move(interface));
+    }
+}
+
+Interface Mutator::visit(const IEmpty *node) { return node; }
+
+Interface Mutator::visit(const IFloat *node) { return node; }
+
+Interface Mutator::visit(const IVector *node) {
+    Interface etype = mutate(node->etype);
+    if (etype.same_as(node->etype)) {
+        return node;
+    } else {
+        return IVector::make(std::move(etype));
     }
 }
 
@@ -305,6 +331,18 @@ Expr Mutator::visit(const Call *node) {
         return node;
     } else {
         return Call::make(std::move(func), std::move(args));
+    }
+}
+
+Expr Mutator::visit(const Instantiate *node) {
+    Expr func = mutate(node->func);
+    // TODO: should we visit the type params? I think no,
+    // we don't recurse into an Expr's type currently.
+    // auto [types, not_changed] = visit_map(this, node->types);
+    if (func.same_as(node->func)) {
+        return node;
+    } else {
+        return Instantiate::make(std::move(func), node->types);
     }
 }
 

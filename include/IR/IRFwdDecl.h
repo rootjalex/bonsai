@@ -16,6 +16,13 @@ struct Tuple_t;
 struct Option_t;
 struct Set_t;
 struct Function_t;
+struct Generic_t;
+
+// Interfaces
+struct Interface;
+struct IEmpty;
+struct IFloat;
+struct IVector;
 
 // Exprs
 struct Expr;
@@ -40,6 +47,7 @@ struct Lambda;
 struct GeomOp;
 struct SetOp;
 struct Call;
+struct Instantiate;
 
 // Stmts
 struct Stmt;

@@ -126,6 +126,31 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
     return replacer.mutate(orig);
 }
 
+Type replace(const std::map<std::string, Type> &repls, const Type &type) {
+    struct Replacer : public Mutator {
+        Replacer(const std::map<std::string, Type> &_repls)
+            : repls(_repls) {}
+
+      private:
+        const std::map<std::string, Type> &repls;
+
+      public:
+        Type visit(const Generic_t *node) override {
+            // TODO: should node->name always be in repls?
+            // if not, then we have some sort of nested
+            // generics, I think? For now, disallow.
+            internal_assert(repls.contains(node->name))
+                << "Did not find replacement for generic: "
+                << node->name;
+            // TODO: recursively mutate...?
+            return repls.at(node->name);
+        }
+    };
+
+    Replacer replacer(repls);
+    return replacer.mutate(type);
+}
+
 bool is_power_of_two(int32_t x) { return (x & (x - 1)) == 0; }
 
 int32_t next_power_of_two(int32_t x) {

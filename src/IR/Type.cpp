@@ -228,6 +228,17 @@ Type Function_t::make(Type ret_type, std::vector<Type> arg_types) {
     return node;
 }
 
+Type Generic_t::make(std::string name, Interface interface) {
+    internal_assert(!name.empty())
+        << "Generic_t::make received empty name";
+    internal_assert(interface.defined())
+        << "Generic_t::make received undefined interface for " << name;
+    Generic_t *node = new Generic_t;
+    node->name = std::move(name);
+    node->interface = std::move(interface);
+    return node;
+}
+
 Type get_field_type(const Type &struct_type, const std::string &field) {
     if (const Struct_t *as_struct = struct_type.as<Struct_t>()) {
         Type etype;
@@ -251,6 +262,17 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;
         return ir::Type();
+    }
+}
+
+bool satisfies(const Type &type, const Interface &interface) {
+    switch (interface.node_type()) {
+        case IRInterfaceEnum::IEmpty: return true;
+        case IRInterfaceEnum::IFloat: return type.is_float();
+        case IRInterfaceEnum::IVector: {
+            const IVector *iv = interface.as<IVector>();
+            return type.is<Vector_t>() && (!iv->etype.defined() || satisfies(type.as<Vector_t>()->etype, iv->etype));
+        }
     }
 }
 

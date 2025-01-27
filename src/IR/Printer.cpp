@@ -26,6 +26,22 @@ std::ostream &operator<<(std::ostream &os, const Expr &expr) {
     return os;
 }
 
+std::string to_string(const Interface &interface) {
+    std::ostringstream oss;
+    oss << interface;
+    return oss.str();
+}
+
+std::ostream &operator<<(std::ostream &os, const Interface &interface) {
+    if (interface.defined()) {
+        Printer printer(os);
+        printer.print(interface);
+    } else {
+        os << "(undef-interface)";
+    }
+    return os;
+}
+
 std::string to_string(const Type &type) {
     std::ostringstream oss;
     oss << type;
@@ -83,6 +99,11 @@ void Printer::print(const Type &type) {
         // have a ton of undefined types.
         os << "unknown";
     }
+}
+
+void Printer::print(const Interface &interface) {
+    internal_assert(interface.defined());
+    interface->accept(this);
 }
 
 void Printer::print_type_list(const std::vector<Type> &types) {
@@ -195,6 +216,29 @@ void Printer::visit(const Function_t *node) {
     print(node->ret_type);
 }
 
+void Printer::visit(const Generic_t *node) {
+    os << "(" << node->name << " : ";
+    print(node->interface);
+    os << ")";
+}
+
+void Printer::visit(const IEmpty *node) {
+    os << "IEmpty";
+}
+
+void Printer::visit(const IFloat *node) {
+    os << "IFloat";
+}
+
+void Printer::visit(const IVector *node) {
+    os << "IVector";
+    if (node->etype.defined()) {
+        os << "[[";
+        print(node->etype);
+        os << "]]";
+    }
+}
+
 void Printer::visit(const IntImm *node) {
     os << "(";
     print(node->type);
@@ -231,12 +275,6 @@ void Printer::visit(const BoolImm *node) {
 }
 
 void Printer::visit(const Var *node) {
-    if (!known_type.contains(node->name) && node->type.defined() &&
-        !node->type.is<Function_t>()) {
-        os << "(";
-        print(node->type);
-        os << ")";
-    }
     os << node->name;
 }
 
@@ -495,6 +533,21 @@ void Printer::visit(const Call *node) {
     os << "(";
     print_expr_list(node->args);
     os << ")";
+}
+
+void Printer::visit(const Instantiate *node) {
+    print_no_parens(node->func);
+    os << "[[";
+    bool first = true;
+    for (const auto& [key, value] : node->types) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << key << " -> ";
+        print(value);
+    }
+    os << "]]";
 }
 
 void Printer::visit(const Return *node) {
