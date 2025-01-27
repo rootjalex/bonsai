@@ -225,8 +225,8 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
-// TODO(cgyurgyik): Just pass `col` by reference and update its length as part
-// of this method.
+// TODO(cgyurgyik): Updating line and column should just be done automatically
+// when adding a token rather than manually each time.
 void TokenStream::addToken(Token::Type type, uint32_t line, uint32_t col,
                            uint32_t len) {
     Token newToken;
