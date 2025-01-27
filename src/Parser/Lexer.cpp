@@ -52,6 +52,9 @@ class Lexer {
     // TODO(cgyurgyik): Fail more gracefully, and ensure column aligns
     // with error location.
     void reportError(std::string_view message) {
+        // Add an error token.
+        addToken(TokenType::ERROR);
+
         std::ifstream file(getFileName());
 
         std::string line;
@@ -199,7 +202,6 @@ void Lexer::lex() {
                     addToken(TokenType::AND, /*length=*/2);
                 } else {
                     reportError("SINGLE `&` not implemented");
-                    addToken(TokenType::ERROR);
                 }
                 break;
             case '|': {
