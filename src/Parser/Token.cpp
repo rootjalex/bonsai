@@ -56,109 +56,109 @@ std::string escape(const std::string &str) {
 }
 } // namespace
 
-std::string Token::tokenTypeString(Token::Type type) {
+std::string Token::tokenTypeString(TokenType type) {
     switch (type) {
-    case Token::Type::INT_LITERAL:
+    case TokenType::INT_LITERAL:
         return "int";
-    case Token::Type::UINT_LITERAL:
+    case TokenType::UINT_LITERAL:
         return "uint";
-    case Token::Type::FLOAT_LITERAL:
+    case TokenType::FLOAT_LITERAL:
         return "float";
-    case Token::Type::STRING_LITERAL:
+    case TokenType::STRING_LITERAL:
         return "string";
-    case Token::Type::IDENTIFIER:
+    case TokenType::IDENTIFIER:
         return "id";
-    case Token::Type::IMPORT:
+    case TokenType::IMPORT:
         return "import";
-    case Token::Type::ELEMENT:
+    case TokenType::ELEMENT:
         return "element";
-    case Token::Type::INTERFACE:
+    case TokenType::INTERFACE:
         return "interface";
-    case Token::Type::EXTERN:
+    case TokenType::EXTERN:
         return "extern";
-    case Token::Type::FUNC:
+    case TokenType::FUNC:
         return "func";
-    case Token::Type::MUT:
+    case TokenType::MUT:
         return "mut";
-    case Token::Type::RARROW:
+    case TokenType::RARROW:
         return "rarrow";
-    case Token::Type::RETURN:
+    case TokenType::RETURN:
         return "return";
-    case Token::Type::FOR:
+    case TokenType::FOR:
         return "for";
-    case Token::Type::IN:
+    case TokenType::IN:
         return "in";
-    case Token::Type::IF:
+    case TokenType::IF:
         return "if";
-    case Token::Type::ELIF:
+    case TokenType::ELIF:
         return "elif";
-    case Token::Type::ELSE:
+    case TokenType::ELSE:
         return "else";
-    case Token::Type::TRUE:
+    case TokenType::TRUE:
         return "true";
-    case Token::Type::FALSE:
+    case TokenType::FALSE:
         return "false";
-    case Token::Type::LPAREN:
+    case TokenType::LPAREN:
         return "lparen";
-    case Token::Type::RPAREN:
+    case TokenType::RPAREN:
         return "rparen";
-    case Token::Type::LBRACKET:
+    case TokenType::LBRACKET:
         return "lbracket";
-    case Token::Type::RBRACKET:
+    case TokenType::RBRACKET:
         return "rbracket";
-    case Token::Type::LSQUIGGLE:
+    case TokenType::LSQUIGGLE:
         return "lsquiggle";
-    case Token::Type::RSQUIGGLE:
+    case TokenType::RSQUIGGLE:
         return "rsquiggle";
-    case Token::Type::BAR:
+    case TokenType::BAR:
         return "bar";
-    case Token::Type::COMMA:
+    case TokenType::COMMA:
         return "comma";
-    case Token::Type::PERIOD:
+    case TokenType::PERIOD:
         return "period";
-    case Token::Type::COL:
+    case TokenType::COL:
         return "col";
-    case Token::Type::SEMICOL:
+    case TokenType::SEMICOL:
         return "semicol";
-    case Token::Type::ASSIGN:
+    case TokenType::ASSIGN:
         return "assign";
-    case Token::Type::AND:
+    case TokenType::AND:
         return "and";
-    case Token::Type::AT:
+    case TokenType::AT:
         return "at";
-    case Token::Type::LOR:
+    case TokenType::LOR:
         return "logical-or";
-    case Token::Type::XOR:
+    case TokenType::XOR:
         return "xor";
-    case Token::Type::NOT:
+    case TokenType::NOT:
         return "not";
-    case Token::Type::PLUS:
+    case TokenType::PLUS:
         return "plus";
-    case Token::Type::INC:
+    case TokenType::INC:
         return "inc";
-    case Token::Type::MINUS:
+    case TokenType::MINUS:
         return "minus";
-    case Token::Type::DEC:
+    case TokenType::DEC:
         return "dec";
-    case Token::Type::STAR:
+    case TokenType::STAR:
         return "star";
-    case Token::Type::SLASH:
+    case TokenType::SLASH:
         return "slash";
-    case Token::Type::MOD:
+    case TokenType::MOD:
         return "mod";
-    case Token::Type::EQ:
+    case TokenType::EQ:
         return "eq";
-    case Token::Type::NEQ:
+    case TokenType::NEQ:
         return "neq";
-    case Token::Type::LEQ:
+    case TokenType::LEQ:
         return "leq";
-    case Token::Type::GEQ:
+    case TokenType::GEQ:
         return "geq";
-    case Token::Type::LT:
+    case TokenType::LT:
         return "lt";
-    case Token::Type::GT:
+    case TokenType::GT:
         return "gt";
-    case Token::Type::ERROR:
+    case TokenType::ERROR:
         return "error";
     default:
         internal_error << "Unknown token type: " << static_cast<int>(type);
@@ -168,28 +168,28 @@ std::string Token::tokenTypeString(Token::Type type) {
 
 std::string Token::toString() const {
     switch (type) {
-    case Token::Type::INT_LITERAL: {
+    case TokenType::INT_LITERAL: {
         internal_assert(std::holds_alternative<int64_t>(value))
             << "Expected INT_LITERAL to hold integer";
         return "'" + std::to_string(std::get<int64_t>(value)) + "'";
     }
-    case Token::Type::UINT_LITERAL: {
+    case TokenType::UINT_LITERAL: {
         internal_assert(std::holds_alternative<uint64_t>(value))
             << "Expected UINT_LITERAL to hold unsigned integer";
         return "'" + std::to_string(std::get<uint64_t>(value)) + "'";
     }
-    case Token::Type::FLOAT_LITERAL: {
+    case TokenType::FLOAT_LITERAL: {
         internal_assert(std::holds_alternative<double>(value))
             << "Expected FLOAT_LITERAL to hold double";
         return "'" + std::to_string(std::get<double>(value)) + "'";
     }
-    case Token::Type::STRING_LITERAL: {
+    case TokenType::STRING_LITERAL: {
         internal_assert(std::holds_alternative<std::string>(value))
             << "Expected STRING_LITERAL to hold string";
         const std::string &str = std::get<std::string>(value);
         return "'\"" + escape(str) + "\"'";
     }
-    case Token::Type::IDENTIFIER: {
+    case TokenType::IDENTIFIER: {
         internal_assert(std::holds_alternative<std::string>(value))
             << "Expected INDENTIFIER to hold string";
         return std::get<std::string>(value);
@@ -202,19 +202,19 @@ std::string Token::toString() const {
 std::ostream &operator<<(std::ostream &out, const Token &token) {
     out << "(" << Token::tokenTypeString(token.type);
     switch (token.type) {
-    case Token::Type::INT_LITERAL:
+    case TokenType::INT_LITERAL:
         out << ", " << std::get<int64_t>(token.value);
         break;
-    case Token::Type::UINT_LITERAL:
+    case TokenType::UINT_LITERAL:
         out << ", " << std::get<uint64_t>(token.value);
         break;
-    case Token::Type::FLOAT_LITERAL:
+    case TokenType::FLOAT_LITERAL:
         out << ", " << std::get<double>(token.value);
         break;
-    case Token::Type::STRING_LITERAL:
+    case TokenType::STRING_LITERAL:
         out << ", \"" << std::get<std::string>(token.value) << "\"";
         break;
-    case Token::Type::IDENTIFIER:
+    case TokenType::IDENTIFIER:
         out << ", " << std::get<std::string>(token.value);
         break;
     default:
@@ -225,22 +225,18 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
-// TODO(cgyurgyik): Updating line and column should just be done automatically
-// when adding a token rather than manually each time.
-void TokenStream::addToken(Token::Type type, uint32_t line, uint32_t col,
-                           uint32_t len) {
-    Token newToken;
-
-    newToken.type = type;
-    newToken.lineBegin = line;
-    newToken.colBegin = col;
-    newToken.lineEnd = line;
-    newToken.colEnd = col + len - 1;
-
-    tokens.push_back(newToken);
+void TokenStream::addToken(Token::Type type, uint64_t line, uint64_t column,
+                           uint32_t length) {
+    tokens.push_back(Token{
+        .type = type,
+        .lineBegin = line,
+        .colBegin = column,
+        .lineEnd = line,
+        .colEnd = column + length - 1,
+    });
 }
 
-bool TokenStream::consume(Token::Type type) {
+bool TokenStream::consume(TokenType type) {
     if (tokens.front().type == type) {
         tokens.pop_front();
         return true;
@@ -253,7 +249,7 @@ Token TokenStream::peek(uint32_t count) const {
     if (count == 0) {
         if (tokens.empty()) {
             Token endToken = Token();
-            endToken.type = Token::Type::ERROR;
+            endToken.type = TokenType::ERROR;
             return endToken;
         }
         return tokens.front();
@@ -265,7 +261,7 @@ Token TokenStream::peek(uint32_t count) const {
 
     if (it == tokens.cend()) {
         Token endToken = Token();
-        endToken.type = Token::Type::ERROR;
+        endToken.type = TokenType::ERROR;
         return endToken;
     }
 

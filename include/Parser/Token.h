@@ -78,10 +78,10 @@ struct Token {
     Type type;
     std::variant<std::monostate, int64_t, uint64_t, double, std::string> value;
 
-    uint32_t lineBegin;
-    uint32_t colBegin;
-    uint32_t lineEnd;
-    uint32_t colEnd;
+    uint64_t lineBegin;
+    uint64_t colBegin;
+    uint64_t lineEnd;
+    uint64_t colEnd;
 
     static std::string tokenTypeString(Token::Type);
 
@@ -92,13 +92,12 @@ struct Token {
 
 struct TokenStream {
     void addToken(Token newToken) { tokens.push_back(newToken); }
-    void addToken(Token::Type, uint32_t line, uint32_t col,
-                  uint32_t length = 1);
+    void addToken(Token::Type, uint64_t, uint64_t, uint32_t);
 
     Token peek(uint32_t count) const;
 
     void skip() { tokens.pop_front(); }
-    Token back() { return tokens.back(); }
+
     bool consume(Token::Type);
 
     bool empty() const { return tokens.empty(); }
@@ -108,6 +107,8 @@ struct TokenStream {
   private:
     std::list<Token> tokens;
 };
+
+using TokenType = Token::Type;
 
 } // namespace parser
 } // namespace bonsai
