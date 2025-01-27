@@ -39,22 +39,22 @@ struct Token {
         TRUE,  // true
         FALSE, // false
 
-        LPAREN,      // (
-        RPAREN,      // )
-        LBRACKET,    // [
-        RBRACKET,    // ]
-        LSQUIGGLE,   // {
-        RSQUIGGLE,   // }
-        COMMA,       // ,
-        PERIOD,      // .
-        COL,         // :
-        SEMICOL,     // ;
-        LAMBDA_PIPE, // |
+        LPAREN,    // (
+        RPAREN,    // )
+        LBRACKET,  // [
+        RBRACKET,  // ]
+        LSQUIGGLE, // {
+        RSQUIGGLE, // }
+        COMMA,     // ,
+        PERIOD,    // .
+        COL,       // :
+        SEMICOL,   // ;
+        BAR,       // |
 
         ASSIGN, // =
         AND,    // &&
         AT,     // @
-        OR,     // ||
+        LOR,    // ||
         XOR,    // ^
         NOT,    // !
         PLUS,   // +

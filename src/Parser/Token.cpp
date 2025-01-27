@@ -110,8 +110,8 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "lsquiggle";
     case Token::Type::RSQUIGGLE:
         return "rsquiggle";
-    case Token::Type::LAMBDA_PIPE:
-        return "lambdapipe";
+    case Token::Type::BAR:
+        return "bar";
     case Token::Type::COMMA:
         return "comma";
     case Token::Type::PERIOD:
@@ -126,8 +126,8 @@ std::string Token::tokenTypeString(Token::Type type) {
         return "and";
     case Token::Type::AT:
         return "at";
-    case Token::Type::OR:
-        return "or";
+    case Token::Type::LOR:
+        return "logical-or";
     case Token::Type::XOR:
         return "xor";
     case Token::Type::NOT:
@@ -225,6 +225,8 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
+// TODO(cgyurgyik): Just pass `col` by reference and update its length as part
+// of this method.
 void TokenStream::addToken(Token::Type type, uint32_t line, uint32_t col,
                            uint32_t len) {
     Token newToken;

@@ -693,7 +693,7 @@ struct Parser {
         return parseBinOpWithPrecedence<1>(
             // TODO: logical and!
             [this]() { return parseXor(); },
-            {{{ir::BinOp::Or, Token::Type::OR}}});
+            {{{ir::BinOp::Or, Token::Type::LOR}}});
     }
 
     // base_expr := '(' expr ')' | name (('.' field) | ('[' index (, index)* ']'
@@ -736,17 +736,19 @@ struct Parser {
             const double value = std::get<double>(token.value);
             // default (pre-type casting) is f32
             return ir::FloatImm::make(f32, value);
-        } else if (consume(Token::Type::LAMBDA_PIPE)) {
+        } else if (consume(Token::Type::BAR)) {
             std::vector<ir::Lambda::Argument> args = parseLambdaArgs();
             new_frame();
             for (const auto &arg : args) {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
             }
-            internal_assert(consume(Token::Type::LSQUIGGLE).has_value());
-            internal_assert(peek().type != Token::Type::RSQUIGGLE)
-                << "lambda with empty body";
+            // Optionally allow squiggles for lambda expression body.
+            bool hasSquiggles = (peek().type == Token::Type::LSQUIGGLE);
+            if (hasSquiggles)
+                expect(Token::Type::LSQUIGGLE);
             ir::Expr expr = parseExpr();
-            internal_assert(consume(Token::Type::RSQUIGGLE).has_value());
+            if (hasSquiggles)
+                expect(Token::Type::RSQUIGGLE);
             end_frame();
             return ir::Lambda::make(std::move(args), std::move(expr));
         } else if (consume(Token::Type::LSQUIGGLE)) {
@@ -1173,7 +1175,7 @@ struct Parser {
                 << "TODO: support mutable arguments in lambdas. Argument: "
                 << def.name << " marked as mutable.";
             args.push_back({std::move(def.name), std::move(def.type)});
-        } while (!consume(Token::Type::LAMBDA_PIPE));
+        } while (!consume(Token::Type::BAR));
         return args;
     }
 

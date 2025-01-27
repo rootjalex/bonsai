@@ -4,21 +4,21 @@ func foo() -> i32 {
     c = a || b || false;
     d = true || b;
 
-    L1 = |x: i32| { x + 1 };
-    L2 = |x: i32 y: i32| { x + 1 + y };
-    L3 = |e: bool f: bool| { e || f };
-    L4 = | e: bool f: bool |  {  e || f  };
-    L5 = |y: i32|{y};
-    L6 = |x: i32 y: i32|{x+y};
-    L7 = |x: i32| { |y: i32| { y } };
+    L1 = |x: i32| x + 1;
+    L2 = |x: i32 y: i32|  x + 1 + y ;
+    L3 = |e: bool f: bool| e || f ;
+    L4 = | e: bool f: bool  |    e || f  ;
+    L5 = |y: i32| y;
+    L6 = |x: i32 y: i32| x+y;
+    L7 = |x: i32| { |y: i32|  { y } };
     
     // Currently, lambdas with no body are illegal.
     // L8 = |x: i32| { };
     
     // Currently, lambdas with no arguments are illegal.
-    // L9 = || { 1 + 1 }
+    // L9 = || 1 + 1;
 
     return 0;
 }
 
-func relu(v: set[i32]) = filter(|x : i32| { x > 0 }, v);
+func relu(v: set[i32]) = filter(|x : i32| x > 0, v);

@@ -73,14 +73,6 @@ static bool isValidIdentifierStart(int32_t c) {
     return c == '_' || std::isalpha(c);
 }
 
-// Consumes the character ' ' in the stream until a non-' ' is found.
-static void consumeWhiteSpace(std::istream &programStream, uint32_t &column) {
-    while (programStream.peek() == ' ') {
-        programStream.get();
-        ++column;
-    }
-}
-
 TokenStream Lexer::lex(std::istream &programStream) {
     TokenStream tokens;
     uint32_t line = 1;
@@ -181,32 +173,12 @@ TokenStream Lexer::lex(std::istream &programStream) {
             case '|': {
                 programStream.get();
                 if (programStream.peek() == '|') {
-                    // This is an OR expression.
                     programStream.get();
-                    tokens.addToken(Token::Type::OR, line, col, /*length=*/2);
+                    tokens.addToken(Token::Type::LOR, line, col, /*length=*/2);
                     col += 2;
                     break;
                 }
-                // We do this after looking for an OR token to avoid an invalid
-                // OR representation, e.g., `true | | false`.
-                consumeWhiteSpace(programStream, col);
-
-                constexpr Token::Type Pipe = Token::Type::LAMBDA_PIPE;
-                if (isValidIdentifierStart(programStream.peek())) {
-                    // We assume a lambda expression has at least one argument.
-                    // This is the opening lambda pipe.
-                    tokens.addToken(Pipe, line, col++);
-                    break;
-                }
-                // Currently, we always assume a lambda body begins with `{`.
-                if (programStream.peek() == '{') {
-                    // This is the closing lambda pipe.
-                    tokens.addToken(Pipe, line, col++);
-                    break;
-                }
-                // TODO: what to do?
-                reportError("SINGLE | not supported", line, col);
-                tokens.addToken(Token::Type::ERROR, line, col++);
+                tokens.addToken(Token::Type::BAR, line, col++);
             } break;
             case '^':
                 programStream.get();
