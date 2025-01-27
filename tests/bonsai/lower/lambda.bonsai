@@ -11,12 +11,6 @@ func foo() -> i32 {
     L5 = |y: i32| y;
     L6 = |x: i32 y: i32| x+y;
     L7 = |x: i32| { |y: i32|  { y } };
-    
-    // Currently, lambdas with no body are illegal.
-    // L8 = |x: i32| { };
-    
-    // Currently, lambdas with no arguments are illegal.
-    // L9 = || 1 + 1;
 
     return 0;
 }

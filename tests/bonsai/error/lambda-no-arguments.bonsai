@@ -1,0 +1,6 @@
+func foo() -> i32 {
+    // Currently, lambdas with no body are illegal.
+    L1 = |x: i32| { };
+
+    return 0;
+}

@@ -743,9 +743,8 @@ struct Parser {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
             }
             // Optionally allow squiggles for lambda expression body.
-            bool hasSquiggles = (peek().type == Token::Type::LSQUIGGLE);
-            if (hasSquiggles)
-                expect(Token::Type::LSQUIGGLE);
+            const bool hasSquiggles =
+                consume(Token::Type::LSQUIGGLE).has_value();
             ir::Expr expr = parseExpr();
             if (hasSquiggles)
                 expect(Token::Type::RSQUIGGLE);
