@@ -1,7 +1,7 @@
 #include "Lower/Canonicalize.h"
 
 #include "IR/Mutator.h"
-#include "Lower/LowerOption.h"
+#include "Lower/Options.h"
 
 #include "Error.h"
 #include "Utils.h"
