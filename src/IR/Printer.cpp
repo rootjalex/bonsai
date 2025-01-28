@@ -131,7 +131,7 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
     os << ") -> " << func.ret_type << " {\n";
     printer.set_indent(1);
     func.body.accept(&printer);
-    os << "\n}";
+    os << "}";
     return os;
 }
 
