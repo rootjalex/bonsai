@@ -128,8 +128,7 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
 
 Type replace(const std::map<std::string, Type> &repls, const Type &type) {
     struct Replacer : public Mutator {
-        Replacer(const std::map<std::string, Type> &_repls)
-            : repls(_repls) {}
+        Replacer(const std::map<std::string, Type> &_repls) : repls(_repls) {}
 
       private:
         const std::map<std::string, Type> &repls;
@@ -140,8 +139,7 @@ Type replace(const std::map<std::string, Type> &repls, const Type &type) {
             // if not, then we have some sort of nested
             // generics, I think? For now, disallow.
             internal_assert(repls.contains(node->name))
-                << "Did not find replacement for generic: "
-                << node->name;
+                << "Did not find replacement for generic: " << node->name;
             // TODO: recursively mutate...?
             return repls.at(node->name);
         }

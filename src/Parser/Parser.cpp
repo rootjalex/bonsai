@@ -41,7 +41,8 @@ struct Parser {
     TokenStream tokens;
     ir::Program program;
     std::list<std::map<std::string, std::pair<ir::Type, bool>>> frames;
-    // TODO: if we allow nested functions or any other way to allow nested generics, we need this to be a stack!
+    // TODO: if we allow nested functions or any other way to allow nested
+    // generics, we need this to be a stack!
     std::map<std::string, ir::Type> current_generics;
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
                    f32 = ir::Float_t::make(32);
@@ -338,16 +339,20 @@ struct Parser {
         ir::Function::InterfaceList interfaces;
         if (consume(Token::Type::LT)) {
             // Parse generics.
-            internal_assert(current_generics.empty()) << "Nested generics in definition of: " << name;
+            internal_assert(current_generics.empty())
+                << "Nested generics in definition of: " << name;
 
             do {
                 const Token itoken = expect(Token::Type::IDENTIFIER);
                 const std::string iname = std::get<std::string>(itoken.value);
-                internal_assert(!current_generics.contains(iname)) << "Duplicate interface name: " << iname << " in definition of func: " << name;
+                internal_assert(!current_generics.contains(iname))
+                    << "Duplicate interface name: " << iname
+                    << " in definition of func: " << name;
                 expect(Token::Type::COL);
                 ir::Interface interface = parseInterface();
                 interfaces.emplace_back(iname, interface);
-                current_generics[iname] = ir::Generic_t::make(iname, std::move(interface));
+                current_generics[iname] =
+                    ir::Generic_t::make(iname, std::move(interface));
 
             } while (consume(Token::Type::COMMA));
             expect(Token::Type::GT);
@@ -410,7 +415,8 @@ struct Parser {
         // that the return type is defined for recursive calls, or implement
         // really good type unification or something.
         program.funcs[name] = std::make_shared<ir::Function>(
-            name, std::move(args), std::move(ret_type), ir::Stmt(), std::move(interfaces));
+            name, std::move(args), std::move(ret_type), ir::Stmt(),
+            std::move(interfaces));
 
         ir::Stmt body;
 
@@ -857,22 +863,20 @@ struct Parser {
                 parseExprListUntil(Token::Type::RPAREN);
 
             if (fields.empty()) {
-                // Checking program.funcs first means that users can override built-in functions.
-                // That could be dangerous.
+                // Checking program.funcs first means that users can override
+                // built-in functions. That could be dangerous.
                 if (program.funcs.contains(name)) {
                     const auto &func = program.funcs[name];
                     // TODO: handle default params!
                     internal_assert(args.size() == func->args.size())
-                        << "Call to: " << name << " at line "
-                        << token.lineBegin
+                        << "Call to: " << name << " at line " << token.lineBegin
                         << " has incorrect number of arguments.\n"
-                        << "Expected: " << func->args.size()
-                        << " but parsed " << args.size()
-                        << " at line: " << token.lineBegin;
+                        << "Expected: " << func->args.size() << " but parsed "
+                        << args.size() << " at line: " << token.lineBegin;
 
-                    internal_assert(func->interfaces.size() == template_types.size())
-                        << "Call to: " << name << " at line "
-                        << token.lineBegin
+                    internal_assert(func->interfaces.size() ==
+                                    template_types.size())
+                        << "Call to: " << name << " at line " << token.lineBegin
                         << " has incorrect number of template paramters.\n"
                         << "Expected: " << func->interfaces.size()
                         << " but parsed " << template_types.size()
@@ -882,15 +886,19 @@ struct Parser {
 
                     std::map<std::string, ir::Type> instantiations;
                     for (size_t i = 0; i < n_generics; i++) {
-                        instantiations[func->interfaces[i].first] = template_types[i];
+                        instantiations[func->interfaces[i].first] =
+                            template_types[i];
 
-                        internal_assert(ir::satisfies(template_types[i], func->interfaces[i].second))
-                            << "Template type: " << template_types[i] << " in call to " << name
-                            << " does not satisfy interface: " << func->interfaces[i].second;
+                        internal_assert(ir::satisfies(
+                            template_types[i], func->interfaces[i].second))
+                            << "Template type: " << template_types[i]
+                            << " in call to " << name
+                            << " does not satisfy interface: "
+                            << func->interfaces[i].second;
                     }
 
-                    // TODO(ajr): may want to lift this into an analysis function,
-                    // for reuse in type inference.
+                    // TODO(ajr): may want to lift this into an analysis
+                    // function, for reuse in type inference.
                     const size_t n_args = func->args.size();
                     std::vector<ir::Type> arg_types(n_args);
 
@@ -900,15 +908,16 @@ struct Parser {
                         // we know the arg types. That mixes type
                         // inference with parsing though, not sure we
                         // want that (more than we already do...).
-                        ir::Type expected_type = func->interfaces.empty() ? func->args[i].type : replace(instantiations, func->args[i].type);
-                        internal_assert(!args[i].type().defined() ||
-                                        ir::equals(expected_type,
-                                                    args[i].type()))
-                            << "Argument " << i
-                            << " of call to function " << name
-                            << " on line " << token.lineBegin
-                            << " has incorrect type. Expected "
-                            << expected_type
+                        ir::Type expected_type =
+                            func->interfaces.empty()
+                                ? func->args[i].type
+                                : replace(instantiations, func->args[i].type);
+                        internal_assert(
+                            !args[i].type().defined() ||
+                            ir::equals(expected_type, args[i].type()))
+                            << "Argument " << i << " of call to function "
+                            << name << " on line " << token.lineBegin
+                            << " has incorrect type. Expected " << expected_type
                             << " but parsed: " << args[i].type();
                     }
 
@@ -920,17 +929,18 @@ struct Parser {
                     // the error handling in IR/Type.cpp
                     // For now, leave ftype undefined in the else case
                     if (func->ret_type.defined()) {
-                        ftype = ir::Function_t::make(func->ret_type, std::move(arg_types));
+                        ftype = ir::Function_t::make(func->ret_type,
+                                                     std::move(arg_types));
                     }
 
                     ir::Expr f = ir::Var::make(ftype, name);
 
                     if (!func->interfaces.empty()) {
-                        f = ir::Instantiate::make(std::move(f), std::move(instantiations));
+                        f = ir::Instantiate::make(std::move(f),
+                                                  std::move(instantiations));
                     }
                     return ir::Call::make(std::move(f), std::move(args));
                 }
-
 
                 if (name == "cast") {
                     internal_assert(template_types.size() == 1)
@@ -1141,8 +1151,10 @@ struct Parser {
                 // TODO: type inference via interface?
                 ir::Expr expr = makeExpr();
                 internal_assert(template_types.empty())
-                    << "TODO: support passing template types to a method access: "
-                    << expr << " received " << template_types.size() << " at line: " << token.lineBegin;
+                    << "TODO: support passing template types to a method "
+                       "access: "
+                    << expr << " received " << template_types.size()
+                    << " at line: " << token.lineBegin;
                 return ir::Call::make(std::move(expr), std::move(args));
             }
         }
@@ -1365,7 +1377,8 @@ struct Parser {
         }
     }
 
-    // interface = iPrimitive | iVector[[interface]] | interface (`|` interface)*
+    // interface = iPrimitive | iVector[[interface]] | interface (`|`
+    // interface)*
     ir::Interface parseInterface() {
         // TODO: Support interface unions and UDIs!
         return parsePrimitiveInterface();

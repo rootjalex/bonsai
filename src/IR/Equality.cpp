@@ -39,13 +39,15 @@ Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
 
     // Must both be the same node type.
     switch (i0.node_type()) {
-        case IRInterfaceEnum::IEmpty: return Cmp::Equals;
-        case IRInterfaceEnum::IFloat: return Cmp::Equals;
-        case IRInterfaceEnum::IVector: {
-            const IVector *v0 = i0.as<IVector>();
-            const IVector *v1 = i1.as<IVector>();
-            return compare_interfaces(v0->etype, v1->etype);
-        }
+    case IRInterfaceEnum::IEmpty:
+        return Cmp::Equals;
+    case IRInterfaceEnum::IFloat:
+        return Cmp::Equals;
+    case IRInterfaceEnum::IVector: {
+        const IVector *v0 = i0.as<IVector>();
+        const IVector *v1 = i1.as<IVector>();
+        return compare_interfaces(v0->etype, v1->etype);
+    }
     }
 }
 
@@ -164,7 +166,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         if (g0->name != g1->name) {
             return compare_primitives(g0->name, g1->name);
         }
-        // TODO: can we ever have two generics of the same name with different interfaces??
+        // TODO: can we ever have two generics of the same name with different
+        // interfaces??
         return compare_interfaces(g0->interface, g1->interface);
     }
     }

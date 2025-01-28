@@ -44,7 +44,8 @@ Type Mutator::mutate(const Type &type) {
 }
 
 Interface Mutator::mutate(const Interface &interface) {
-    return interface.defined() ? interface.get()->mutate_interface(this) : Interface();
+    return interface.defined() ? interface.get()->mutate_interface(this)
+                               : Interface();
 }
 
 Expr Mutator::mutate(const Expr &expr) {

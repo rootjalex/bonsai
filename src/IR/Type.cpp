@@ -229,8 +229,7 @@ Type Function_t::make(Type ret_type, std::vector<Type> arg_types) {
 }
 
 Type Generic_t::make(std::string name, Interface interface) {
-    internal_assert(!name.empty())
-        << "Generic_t::make received empty name";
+    internal_assert(!name.empty()) << "Generic_t::make received empty name";
     internal_assert(interface.defined())
         << "Generic_t::make received undefined interface for " << name;
     Generic_t *node = new Generic_t;
@@ -267,12 +266,16 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
 
 bool satisfies(const Type &type, const Interface &interface) {
     switch (interface.node_type()) {
-        case IRInterfaceEnum::IEmpty: return true;
-        case IRInterfaceEnum::IFloat: return type.is_float();
-        case IRInterfaceEnum::IVector: {
-            const IVector *iv = interface.as<IVector>();
-            return type.is<Vector_t>() && (!iv->etype.defined() || satisfies(type.as<Vector_t>()->etype, iv->etype));
-        }
+    case IRInterfaceEnum::IEmpty:
+        return true;
+    case IRInterfaceEnum::IFloat:
+        return type.is_float();
+    case IRInterfaceEnum::IVector: {
+        const IVector *iv = interface.as<IVector>();
+        return type.is<Vector_t>() &&
+               (!iv->etype.defined() ||
+                satisfies(type.as<Vector_t>()->etype, iv->etype));
+    }
     }
 }
 

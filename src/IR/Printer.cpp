@@ -222,13 +222,9 @@ void Printer::visit(const Generic_t *node) {
     os << ")";
 }
 
-void Printer::visit(const IEmpty *node) {
-    os << "IEmpty";
-}
+void Printer::visit(const IEmpty *node) { os << "IEmpty"; }
 
-void Printer::visit(const IFloat *node) {
-    os << "IFloat";
-}
+void Printer::visit(const IFloat *node) { os << "IFloat"; }
 
 void Printer::visit(const IVector *node) {
     os << "IVector";
@@ -274,9 +270,7 @@ void Printer::visit(const BoolImm *node) {
     os << str;
 }
 
-void Printer::visit(const Var *node) {
-    os << node->name;
-}
+void Printer::visit(const Var *node) { os << node->name; }
 
 void Printer::open() {
     if (!implicit_parens) {
@@ -539,7 +533,7 @@ void Printer::visit(const Instantiate *node) {
     print_no_parens(node->expr);
     os << "[[";
     bool first = true;
-    for (const auto& [key, value] : node->types) {
+    for (const auto &[key, value] : node->types) {
         if (!first) {
             os << ", ";
         }

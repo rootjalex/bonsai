@@ -46,7 +46,9 @@ struct Interface : public IRHandle<IRInterfaceNode> {
 
     /** Override get() to return a BaseInterfaceNode * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
-    const BaseInterfaceNode *get() const { return (const BaseInterfaceNode *)ptr; }
+    const BaseInterfaceNode *get() const {
+        return (const BaseInterfaceNode *)ptr;
+    }
 
     // TODO: implement copy/move semantics!
 };
@@ -86,7 +88,8 @@ struct IUnion : InterfaceNode<IUnion> {
 } // namespace ir
 
 template <>
-inline RefCount &ref_count<ir::IRInterfaceNode>(const ir::IRInterfaceNode *t) noexcept {
+inline RefCount &
+ref_count<ir::IRInterfaceNode>(const ir::IRInterfaceNode *t) noexcept {
     return t->ref_count;
 }
 

@@ -61,17 +61,13 @@ void Visitor::visit(const Function_t *node) {
     visit_list(this, node->arg_types);
 }
 
-void Visitor::visit(const Generic_t *node) {
-    node->interface.accept(this);
-}
+void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
 
 void Visitor::visit(const IEmpty *) {}
 
 void Visitor::visit(const IFloat *) {}
 
-void Visitor::visit(const IVector *node) {
-    node->etype.accept(this);
-}
+void Visitor::visit(const IVector *node) { node->etype.accept(this); }
 
 void Visitor::visit(const IntImm *) {}
 

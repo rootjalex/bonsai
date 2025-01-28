@@ -158,7 +158,8 @@ ir::Program lower_option(const ir::Program &program) {
         ir::Stmt body = lower_option(func->body);
 
         new_program.funcs[f] = std::make_shared<ir::Function>(
-            func->name, std::move(args), std::move(ret_type), std::move(body), func->interfaces);
+            func->name, std::move(args), std::move(ret_type), std::move(body),
+            func->interfaces);
     }
 
     new_program.main_body = lower_option(program.main_body);

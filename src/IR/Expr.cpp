@@ -860,9 +860,11 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
 }
 
 Expr Instantiate::make(Expr expr, Instantiate::TypeMap types) {
-    internal_assert(expr.defined()) << "Instantiate::make received undefined expr";
-    internal_assert(std::all_of(types.cbegin(), types.cend(),
-                                [](const auto &p) { return p.second.defined(); }))
+    internal_assert(expr.defined())
+        << "Instantiate::make received undefined expr";
+    internal_assert(
+        std::all_of(types.cbegin(), types.cend(),
+                    [](const auto &p) { return p.second.defined(); }))
         << "Instantiate::make received undefined type to expr: " << expr;
 
     Instantiate *node = new Instantiate;
@@ -871,7 +873,9 @@ Expr Instantiate::make(Expr expr, Instantiate::TypeMap types) {
         type_enforcement_enabled() || expr.type().defined();
 
     if (infer_types) {
-        internal_assert(contains_generics(expr.type(), types)) << "Instantiation does not contain generics: " << expr << " : " << expr.type();
+        internal_assert(contains_generics(expr.type(), types))
+            << "Instantiation does not contain generics: " << expr << " : "
+            << expr.type();
         node->type = replace(types, expr.type());
     }
 
