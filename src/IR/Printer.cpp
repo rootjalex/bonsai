@@ -75,7 +75,7 @@ std::ostream &operator<<(std::ostream &os, const Stmt &stmt) {
 }
 
 std::ostream &operator<<(std::ostream &stream, const Indentation &indentation) {
-    for (int i = 0; i < indentation.indent; i++) {
+    for (int i = 0; i < indentation.indent * 2; i++) {
         stream << " ";
     }
     return stream;
@@ -88,6 +88,50 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
     } else {
         os << "(undef-loc)";
     }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Function &func) {
+    Printer printer(os);
+    os << "func " << func.name;
+    if (!func.interfaces.empty()) {
+        os << "<";
+        bool first = true;
+        for (const auto &[name, interface] : func.interfaces) {
+            if (!first) {
+                os << ", ";
+            }
+            first = false;
+
+            os << name;
+            if (!interface.is<IEmpty>()) {
+                os << " : ";
+                printer.print(interface);
+            }
+        }
+        os << ">";
+    }
+    os << "(";
+    bool first = true;
+    for (const auto &arg : func.args) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+
+        os << arg.name;
+        if (arg.type.defined()) {
+            os << " : " << arg.type;
+        }
+        if (arg.default_value.defined()) {
+            os << " = " << arg.default_value;
+        }
+    }
+
+    os << ") -> " << func.ret_type << " {\n";
+    printer.set_indent(1);
+    func.body.accept(&printer);
+    os << "\n}";
     return os;
 }
 
@@ -217,9 +261,13 @@ void Printer::visit(const Function_t *node) {
 }
 
 void Printer::visit(const Generic_t *node) {
-    os << "(" << node->name << " : ";
-    print(node->interface);
-    os << ")";
+    if (node->interface.is<IEmpty>()) {
+        os << node->name;
+    } else {
+        os << "(" << node->name << " : ";
+        print(node->interface);
+        os << ")";
+    }
 }
 
 void Printer::visit(const IEmpty *node) { os << "IEmpty"; }

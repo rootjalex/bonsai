@@ -4,6 +4,7 @@
 #include <string>
 
 #include "Expr.h"
+#include "Function.h"
 #include "Scope.h"
 #include "Stmt.h"
 #include "Visitor.h"
@@ -25,6 +26,8 @@ std::string to_string(const Stmt &stmt);
 std::ostream &operator<<(std::ostream &os, const Stmt &stmt);
 
 std::ostream &operator<<(std::ostream &os, const WriteLoc &loc);
+
+std::ostream &operator<<(std::ostream &os, const Function &func);
 
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
@@ -102,6 +105,9 @@ struct Printer : public Visitor {
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
 
+    void set_indent(int _indent) {
+        indent = _indent;
+    }
   protected:
     /** The stream on which we're outputting */
     std::ostream &os;

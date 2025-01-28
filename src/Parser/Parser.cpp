@@ -348,8 +348,7 @@ struct Parser {
                 internal_assert(!current_generics.contains(iname))
                     << "Duplicate interface name: " << iname
                     << " in definition of func: " << name;
-                expect(Token::Type::COL);
-                ir::Interface interface = parseInterface();
+                ir::Interface interface = consume(Token::Type::COL).has_value() ? parseInterface() : ir::IEmpty::make();
                 interfaces.emplace_back(iname, interface);
                 current_generics[iname] =
                     ir::Generic_t::make(iname, std::move(interface));
