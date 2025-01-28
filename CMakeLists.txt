@@ -12,9 +12,16 @@ set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(TESTS_DIR ${CMAKE_SOURCE_DIR}/tests)
 
 # Find LLVM
-set(LLVM_BUILD_DIR $ENV{LLVM_BUILD_DIR})
-set(LLVM_INSTALL_DIR $ENV{LLVM_INSTALL_DIR})
-list(APPEND CMAKE_PREFIX_PATH ${LLVM_INSTALL_DIR}/lib/cmake/llvm)
+set(LLVM_ROOT "")
+if (EXISTS "${CMAKE_SOURCE_DIR}/deps/llvm-install")
+    set(LLVM_ROOT "${CMAKE_SOURCE_DIR}/deps/llvm-install")
+elseif(DEFINED ENV{LLVM_ROOT} AND NOT "$ENV{LLVM_ROOT}" STREQUAL "")
+    set(LLVM_ROOT "$ENV{LLVM_ROOT}")
+else()
+    message(FATAL_ERROR "LLVM must be installed. Either use the submodule at deps/llvm-install or set the LLVM_ROOT environment variable to an installation of LLVM 19.1.6")
+endif()
+
+list(APPEND CMAKE_PREFIX_PATH ${LLVM_ROOT}/lib/cmake/llvm)
 
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
@@ -23,7 +30,7 @@ include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
 # Add LLVM library directory to the linker search paths
-link_directories(${LLVM_INSTALL_DIR}/lib)
+link_directories(${LLVM_ROOT}/lib)
 
 # Specify LLVM components
 llvm_map_components_to_libnames(LLVM_LIBS 
@@ -41,7 +48,7 @@ llvm_map_components_to_libnames(LLVM_LIBS
 )
 
 # Set RPATH for runtime library search on macOS
-set(CMAKE_INSTALL_RPATH "${LLVM_INSTALL_DIR}/lib")
+set(CMAKE_INSTALL_RPATH "${LLVM_ROOT}/lib")
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
 # Gather source files for the library
