@@ -693,7 +693,7 @@ struct Parser {
         return parseBinOpWithPrecedence<1>(
             // TODO: logical and!
             [this]() { return parseXor(); },
-            {{{ir::BinOp::Or, Token::Type::OR}}});
+            {{{ir::BinOp::Or, Token::Type::LOR}}});
     }
 
     // base_expr := '(' expr ')' | name (('.' field) | ('[' index (, index)* ']'
@@ -736,13 +736,18 @@ struct Parser {
             const double value = std::get<double>(token.value);
             // default (pre-type casting) is f32
             return ir::FloatImm::make(f32, value);
-        } else if (consume(Token::Type::LAMBDA)) {
+        } else if (consume(Token::Type::BAR)) {
             std::vector<ir::Lambda::Argument> args = parseLambdaArgs();
             new_frame();
             for (const auto &arg : args) {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
             }
+            // Optionally allow squiggles for lambda expression body.
+            const bool hasSquiggles =
+                consume(Token::Type::LSQUIGGLE).has_value();
             ir::Expr expr = parseExpr();
+            if (hasSquiggles)
+                expect(Token::Type::RSQUIGGLE);
             end_frame();
             return ir::Lambda::make(std::move(args), std::move(expr));
         } else if (consume(Token::Type::LSQUIGGLE)) {
@@ -1169,7 +1174,7 @@ struct Parser {
                 << "TODO: support mutable arguments in lambdas. Argument: "
                 << def.name << " marked as mutable.";
             args.push_back({std::move(def.name), std::move(def.type)});
-        } while (!consume(Token::Type::ASSIGN));
+        } while (!consume(Token::Type::BAR));
         return args;
     }
 
