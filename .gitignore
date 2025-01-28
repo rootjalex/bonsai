@@ -41,3 +41,7 @@ venv
 *.s
 *.ll
 *.bir
+
+# Build dependencies
+deps/llvm-build
+deps/llvm-install
