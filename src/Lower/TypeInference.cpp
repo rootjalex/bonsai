@@ -353,6 +353,8 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
                            : ir::get_return_type(ftypes->body);
     ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
 
+    ftypes->interfaces = fnotypes->interfaces;
+
     // TODO: is there more that we can do?
 
     internal_assert(!has_undef_expr_types(ftypes->body))
@@ -365,7 +367,6 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
 } // namespace
 
 ir::Program infer_types(const ir::Program &program) {
-    // program.dump(std::cout);
     ir::Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;
