@@ -105,9 +105,8 @@ struct Printer : public Visitor {
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
 
-    void set_indent(int _indent) {
-        indent = _indent;
-    }
+    void set_indent(int _indent) { indent = _indent; }
+
   protected:
     /** The stream on which we're outputting */
     std::ostream &os;

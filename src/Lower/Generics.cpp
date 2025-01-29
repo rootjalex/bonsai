@@ -1,7 +1,7 @@
 #include "Lower/Generics.h"
 
-#include "IR/Function.h"
 #include "IR/Equality.h"
+#include "IR/Function.h"
 #include "IR/Printer.h"
 
 #include "Utils.h"
@@ -33,9 +33,7 @@ std::pair<FuncMap, FuncMap> partition_generics(const FuncMap &funcs) {
 bool contains_generics(const Type &type) {
     struct ContainsGenerics : Visitor {
         bool found = false;
-        void visit(const Generic_t *) override {
-            found = true;
-        }
+        void visit(const Generic_t *) override { found = true; }
     };
     ContainsGenerics checker;
     type.accept(&checker);
@@ -44,29 +42,39 @@ bool contains_generics(const Type &type) {
 
 std::string short_type_name(const Type &type) {
     switch (type.node_type()) {
-        case IRTypeEnum::Int_t: return "i" + std::to_string(type.as<Int_t>()->bits);
-        case IRTypeEnum::UInt_t: return "u" + std::to_string(type.as<UInt_t>()->bits);
-        case IRTypeEnum::Float_t: return "f" + std::to_string(type.as<Float_t>()->bits);
-        case IRTypeEnum::Bool_t: return "bool";
-        case IRTypeEnum::Ptr_t: return "^" + short_type_name(type.as<Ptr_t>()->etype);
-        case IRTypeEnum::Vector_t: return short_type_name(type.as<Vector_t>()->etype) + "x" + std::to_string(type.as<Vector_t>()->lanes);
-        case IRTypeEnum::Struct_t: return "#" + type.as<Struct_t>()->name;
-        case IRTypeEnum::Tuple_t: {
-            std::string name = "_";
-            for (const auto &t : type.as<Tuple_t>()->etypes) {
-                name += short_type_name(t) + "_";
-            }
-            return name;
+    case IRTypeEnum::Int_t:
+        return "i" + std::to_string(type.as<Int_t>()->bits);
+    case IRTypeEnum::UInt_t:
+        return "u" + std::to_string(type.as<UInt_t>()->bits);
+    case IRTypeEnum::Float_t:
+        return "f" + std::to_string(type.as<Float_t>()->bits);
+    case IRTypeEnum::Bool_t:
+        return "bool";
+    case IRTypeEnum::Ptr_t:
+        return "^" + short_type_name(type.as<Ptr_t>()->etype);
+    case IRTypeEnum::Vector_t:
+        return short_type_name(type.as<Vector_t>()->etype) + "x" +
+               std::to_string(type.as<Vector_t>()->lanes);
+    case IRTypeEnum::Struct_t:
+        return "#" + type.as<Struct_t>()->name;
+    case IRTypeEnum::Tuple_t: {
+        std::string name = "_";
+        for (const auto &t : type.as<Tuple_t>()->etypes) {
+            name += short_type_name(t) + "_";
         }
-        case IRTypeEnum::Option_t: return "o?" + short_type_name(type.as<Ptr_t>()->etype);
-        default: {
-            internal_error << "No short_type_name for type: " << type;
-            return "";
-        }
+        return name;
+    }
+    case IRTypeEnum::Option_t:
+        return "o?" + short_type_name(type.as<Ptr_t>()->etype);
+    default: {
+        internal_error << "No short_type_name for type: " << type;
+        return "";
+    }
     }
 }
 
-std::string unique_generic_name(const std::string &name, const Instantiate::TypeMap &types) {
+std::string unique_generic_name(const std::string &name,
+                                const Instantiate::TypeMap &types) {
     // TypeMap is a std::map, so sorted on key.
     // This gives a unique ordering, and therefore,
     // a unique name.
@@ -84,7 +92,9 @@ std::string unique_generic_name(const std::string &name, const Instantiate::Type
 
 FuncMap handle_instantiations(const FuncMap &funcs) {
     struct FindInstantiations : Mutator {
-        std::map<std::string, std::map<Type, Instantiate::TypeMap, TypeLessThan>> instants;
+        std::map<std::string,
+                 std::map<Type, Instantiate::TypeMap, TypeLessThan>>
+            instants;
         bool updated = false;
         std::map<std::string, Expr> repls;
 
@@ -94,9 +104,11 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             if (node->expr.is<Var>()) {
                 internal_assert(node->type.defined());
                 internal_assert(node->type.is<Function_t>());
-                internal_assert(!contains_generics(node->type)) << "TODO: handle nested generics: " << Expr(node);
+                internal_assert(!contains_generics(node->type))
+                    << "TODO: handle nested generics: " << Expr(node);
                 const std::string call_name = node->expr.as<Var>()->name;
-                const std::string nongeneric_call_name = unique_generic_name(call_name, node->types);
+                const std::string nongeneric_call_name =
+                    unique_generic_name(call_name, node->types);
 
                 if (!instants[call_name].contains(node->type)) {
                     // Not seen before.
@@ -111,7 +123,8 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
                     return repls[nongeneric_call_name];
                 }
             } else {
-                internal_error << "TODO: analyze Instantiate of non-Var: " << Expr(node);
+                internal_error << "TODO: analyze Instantiate of non-Var: "
+                               << Expr(node);
                 return Expr();
             }
         }
@@ -127,7 +140,6 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             } else {
                 return Mutator::visit(node);
             }
-            
         }
     };
 
@@ -145,10 +157,13 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
 
     FindInstantiations f;
 
-    // Always eval nongenerics first, they are roots of the call tree of generics.
+    // Always eval nongenerics first, they are roots of the call tree of
+    // generics.
     for (const auto &[name, func] : nongenerics) {
         Stmt body = f.mutate(func->body);
-        new_funcs[name] = std::make_shared<Function>(name, func->args, func->ret_type, std::move(body), func->interfaces);
+        new_funcs[name] =
+            std::make_shared<Function>(name, func->args, func->ret_type,
+                                       std::move(body), func->interfaces);
     }
 
     const auto copy_instants = f.instants;
@@ -163,7 +178,9 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             for (size_t i = 0; i < n_args; i++) {
                 ir::Type new_type = replace(_types, func->args[i].type);
                 internal_assert(!contains_generics(new_type));
-                args[i] = Function::Argument(func->args[i].name, std::move(new_type), func->args[i].default_value);
+                args[i] =
+                    Function::Argument(func->args[i].name, std::move(new_type),
+                                       func->args[i].default_value);
             }
 
             Type ret_type = replace(_types, func->ret_type);
@@ -171,14 +188,18 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
 
             f.type_repls = &_types;
             Stmt body = f.mutate(func->body);
-            internal_assert(!f.updated) << "TODO: implement recursive template filling for func: " << name;
+            internal_assert(!f.updated)
+                << "TODO: implement recursive template filling for func: "
+                << name;
             f.type_repls = nullptr;
 
             Function::InterfaceList interfaces = {};
 
             std::string new_name = unique_generic_name(name, _types);
 
-            new_funcs[new_name] = std::make_shared<Function>(new_name, std::move(args), std::move(ret_type), std::move(body), std::move(interfaces));
+            new_funcs[new_name] = std::make_shared<Function>(
+                new_name, std::move(args), std::move(ret_type), std::move(body),
+                std::move(interfaces));
         }
     }
 
