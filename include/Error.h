@@ -20,6 +20,12 @@ class ErrorReport {
         std::string F(file);
         const size_t pos = F.find(rootDirectory);
         F = F.substr(pos, F.length());
+        if (std::string G = F.substr(1, rootDirectory.length());
+            G == rootDirectory) {
+            // Handle `bonsai/bonsai` seen in Github Actions. Yes, this is
+            // terrible and we need a better solution.
+            F = F.substr(1 + rootDirectory.length(), F.length());
+        }
         stream << "[internal] Error: ";
         stream << F << ":" << line << "\n";
         if (cond_str == nullptr)
