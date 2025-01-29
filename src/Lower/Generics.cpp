@@ -99,44 +99,44 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
         const std::map<std::string, Type> *type_repls = nullptr;
 
         Expr visit(const Instantiate *node) override {
-            if (node->expr.is<Var>()) {
-                internal_assert(node->type.defined());
-                internal_assert(node->type.is<Function_t>());
-                internal_assert(!contains_generics(node->type))
-                    << "TODO: handle nested generics: " << Expr(node);
-                const std::string call_name = node->expr.as<Var>()->name;
-                const std::string nongeneric_call_name =
-                    unique_generic_name(call_name, node->types);
-
-                if (!instants[call_name].contains(node->type)) {
-                    // Not seen before.
-                    instants[call_name][node->type] = node->types;
-                    Expr call = Var::make(node->type, nongeneric_call_name);
-                    repls[nongeneric_call_name] = call;
-                    updated = true;
-                    return call;
-                } else {
-                    // Seen before.
-                    internal_assert(repls.contains(nongeneric_call_name));
-                    return repls[nongeneric_call_name];
-                }
-            } else {
+            if (!node->expr.is<Var>()) {
                 internal_error << "TODO: analyze Instantiate of non-Var: "
                                << Expr(node);
                 return Expr();
             }
+
+            internal_assert(node->type.defined());
+            internal_assert(node->type.is<Function_t>());
+            internal_assert(!contains_generics(node->type))
+                << "TODO: handle nested generics: " << Expr(node);
+            const std::string call_name = node->expr.as<Var>()->name;
+            const std::string nongeneric_call_name =
+                unique_generic_name(call_name, node->types);
+
+            if (!instants[call_name].contains(node->type)) {
+                // Not seen before.
+                instants[call_name][node->type] = node->types;
+                Expr call = Var::make(node->type, nongeneric_call_name);
+                repls[nongeneric_call_name] = call;
+                updated = true;
+                return call;
+            } else {
+                // Seen before.
+                internal_assert(repls.contains(nongeneric_call_name));
+                return repls[nongeneric_call_name];
+            }
         }
 
         Expr visit(const Var *node) override {
-            if (type_repls) {
-                Type type = replace(*type_repls, node->type);
-                if (type.same_as(node->type)) {
-                    return node;
-                } else {
-                    return Var::make(std::move(type), node->name);
-                }
-            } else {
+            if (!type_repls) {
                 return Mutator::visit(node);
+            }
+
+            Type type = replace(*type_repls, node->type);
+            if (type.same_as(node->type)) {
+                return node;
+            } else {
+                return Var::make(std::move(type), node->name);
             }
         }
     };
