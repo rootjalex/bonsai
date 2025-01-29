@@ -27,8 +27,7 @@ struct Program {
 
     Program() {}
 
-    Program(std::vector<std::pair<std::string, Type>> _externs,
-            FuncMap _funcs,
+    Program(std::vector<std::pair<std::string, Type>> _externs, FuncMap _funcs,
             std::map<std::string, Type> _types, Stmt _main_body)
         : externs(std::move(_externs)), funcs(std::move(_funcs)),
           types(std::move(_types)), main_body(std::move(_main_body)) {}

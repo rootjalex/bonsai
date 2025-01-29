@@ -18,7 +18,7 @@ Cmp compare_primitives(const T &t0, const T &t1) {
     }
 }
 
-template<typename T>
+template <typename T>
 std::optional<Cmp> compare_node_types(const T &a, const T &b) {
     if (!a.defined()) {
         if (!b.defined()) {
