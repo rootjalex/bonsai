@@ -152,7 +152,6 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
     }
 
     FuncMap new_funcs;
-
     FindInstantiations f;
 
     // Always eval nongenerics first, they are roots of the call tree of
