@@ -20,7 +20,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        path: github-actions-repository
+        path: br # Bonsai repository
 
     # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
     # this, but as of 29 January 2025, they do not support LLVM19 yet. We resort
@@ -41,11 +41,11 @@ jobs:
     
     - name: Configure CMake
       run: |
-        cmake -S . -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        cmake -S . -B ${{github.workspace}}/br/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
     - name: Build Bonsai
       run: |
-        cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        cmake --build ${{github.workspace}}/br/build --config ${{env.BUILD_TYPE}}
       
     - name: Install runt
       uses: baptiste0928/cargo-install@v3
@@ -54,5 +54,5 @@ jobs:
         version: "0.4.1"
       
     - name: Test
-      working-directory: ${{ github.workspace }}
+      working-directory: ${{ github.workspace }}/br
       run: runt -d
