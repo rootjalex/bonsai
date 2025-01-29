@@ -30,16 +30,19 @@ ParsedOptions parse_cli(int argc, char *argv[]) {
             options.jit = true;
             arg++;
         } else if (_arg == "-asm") {
-            bonsai::internal_assert(arg + 1 < argc)
-                << "-asm flag requires output file to follow.";
             options.gen_asm = true;
-            options.output_filename = argv[arg + 1];
-            arg += 2;
+            if (arg + 1 < argc) {
+                options.output_filename = argv[arg + 1];
+                ++arg;
+            }
+            ++arg;
         } else if (_arg == "-llvm") {
             options.gen_llvm = true;
-            if (arg + 1 < argc)
+            if (arg + 1 < argc) {
                 options.output_filename = argv[arg + 1];
-            arg += 2;
+                ++arg;
+            }
+            ++arg;
         } else if (_arg == "-o") {
             bonsai::internal_assert(arg + 1 < argc)
                 << "-o flag requires output file to follow.";

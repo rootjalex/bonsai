@@ -1,0 +1,47 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @first(<3 x float> %v) local_unnamed_addr #0 {
+first_entry:
+  %0 = extractelement <3 x float> %v, i64 0
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @idx(<3 x float> %v, i32 %i) local_unnamed_addr #0 {
+idx_entry:
+  %0 = extractelement <3 x float> %v, i32 %i
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @safe_idx(<3 x float> %v, i32 %i) local_unnamed_addr #0 {
+safe_idx_entry:
+  %0 = icmp ult i32 %i, 3
+  %1 = extractelement <3 x float> %v, i32 %i
+  %common.ret.op = select i1 %0, float %1, float 0.000000e+00
+  ret float %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @safe_oob(<3 x float> %v) local_unnamed_addr #0 {
+safe_oob_entry:
+  ret float 0.000000e+00
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @second(<3 x float> %v) local_unnamed_addr #0 {
+second_entry:
+  %0 = extractelement <3 x float> %v, i64 1
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @third(<3 x float> %v) local_unnamed_addr #0 {
+third_entry:
+  %0 = extractelement <3 x float> %v, i64 2
+  ret float %0
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

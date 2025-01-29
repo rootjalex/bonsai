@@ -1,0 +1,23 @@
+// -llvm
+
+func first(v : vector[f32, 3]) = v[0];
+
+func second(v : vector[f32, 3]) = v[1];
+
+func third(v : vector[f32, 3]) = v[2];
+
+func idx(v : vector[f32, 3], i : u32) = v[i];
+
+func safe_idx(v : vector[f32, 3], i : i32) {
+    if i >= 0 && i < 3 {
+        return v[i];
+    } else {
+        return 0.0;
+    }
+}
+
+func safe_oob(v : vector[f32, 3]) = safe_idx(v, 4);
+
+// TODO: LLVM doesn't support nested vectors, need to handle.
+// func origin(v : vector[vector[f32, 4], 4]) = v[0, 0];
+

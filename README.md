@@ -64,15 +64,6 @@ uses `runt.toml` to define the test suites and configure them.
 2. Install `runt`: `cargo install runt`
 3. Run all snapshot tests: `runt -d`
 
-## C++ Unit Tests
-
-Run Bonsai C++ unit tests:
-
-```bash
-cd build # or build-dbg
-make run_tests # runs cpp tests
-```
-
 ### Acknowledgements
 
 A significant portion of the code in this repository is modeled after, or directly taken from, the [Halide](https://github.com/halide/Halide) compiler. That is because they both have done incredible work, and because it is the compiler that I (AJR) am most familiar with navigating and understanding. As a result, this repository benefits heavily from over a decade of hard work from the Halide developers.
