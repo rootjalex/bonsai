@@ -51,7 +51,22 @@ cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg --config Debug -j<N PARALLELISM>
 ```
 
-4. Run `bonsai` tests:
+# Testing
+
+## Runt
+Runt (Run Tests) is the expectation testing framework for Bonsai. It organizes
+collections of tests into test suites and specifies configuration for them. Runt 
+uses `runt.toml` to define the test suites and configure them.
+
+### Install 
+
+1. Install [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+2. Install `runt`: `cargo install runt`
+3. Run all snapshot tests: `runt -d`
+
+## C++ Unit Tests
+
+Run Bonsai C++ unit tests:
 
 ```bash
 cd build # or build-dbg

@@ -1,0 +1,31 @@
+
+
+func first(v : f32x3) -> f32 {
+return (f32x3)v[(i32)0]
+}
+
+func idx(v : f32x3,i : u32) -> f32 {
+return (f32x3)v[(u32)i]
+}
+
+func safe_idx(v : f32x3,i : i32) -> f32 {
+if (((i32)0 <= (i32)i) && ((i32)i < (i32)3)) {
+ return (f32x3)v[(i32)i]
+} else {
+ return 0f
+}
+}
+
+func safe_oob(v : f32x3) -> f32 {
+return safe_idx((f32x3)v, (i32)4)
+}
+
+func second(v : f32x3) -> f32 {
+return (f32x3)v[(i32)1]
+}
+
+func third(v : f32x3) -> f32 {
+return (f32x3)v[(i32)2]
+}
+
+

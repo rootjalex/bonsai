@@ -68,7 +68,7 @@ target_link_libraries(compiler ${LLVM_LIBS})
 
 # Tests
 enable_testing()
-file(GLOB_RECURSE TEST_FILES ${TESTS_DIR}/*.cpp)
+file(GLOB_RECURSE TEST_FILES ${TESTS_DIR}/cpp/*.cpp)
 
 foreach(TEST_FILE IN LISTS TEST_FILES)
     get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
