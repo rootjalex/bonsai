@@ -21,18 +21,19 @@ jobs:
     - uses: actions/checkout@v4
 
     # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
-    # this, but as of 29 January 2025, they do not support LLVM19 yet.
+    # this, but as of 29 January 2025, they do not support LLVM19 yet. We resort
+    # to manual install à la brew. When transitioning to multi-platform, it'll
+    # be nice to rely on this action (hopefully it is updated).
     - name: Install LLVM
       run: |
         brew update
-        brew install llvm@19.1.6
+        brew install llvm@19
 
     - name: Add LLVM to PATH
       run: |
-        echo "LLVM_ROOT=$(brew --prefix llvm)" >> $GITHUB_ENV
-        echo "LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config" >> $GITHUB_ENV
+        echo "LLVM_ROOT=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+        echo "LLVM_CONFIG=$(brew --prefix llvm@19)/bin/llvm-config" >> $GITHUB_ENV
     
-
     - name: Configure CMake
       run: |
         cmake -S . -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
