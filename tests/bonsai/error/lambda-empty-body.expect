@@ -1,0 +1,5 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: bonsai/src/Parser/Parser.cpp:768
+Unknown token in parseBaseExpr: rsquiggle at line: 3

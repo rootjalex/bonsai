@@ -1,0 +1,40 @@
+type Ray = Ray
+type Ray1 = Ray1
+type Ray2 = Ray2
+type Ray3 = Ray3
+type vec3f = f32x3
+
+
+func build_ray() -> Ray {
+return build<Ray>()
+}
+
+func build_ray1() -> Ray1 {
+return build<Ray1>()
+}
+
+func build_ray2() -> Ray2 {
+return build<Ray2>()
+}
+
+func build_ray3() -> Ray3 {
+return build<Ray3>()
+}
+
+func build_ray_params(o : f32x3,d : f32x3,t : f32) -> Ray {
+return build<Ray>((f32x3)o, (f32x3)d, (f32)t)
+}
+
+func build_ray_params1(o : f32x3,d : f32x3) -> Ray {
+return build<Ray>((f32x3)o, (f32x3)d, 0f)
+}
+
+func build_ray_params2(o : f32x3,d : f32x3) -> Ray {
+return build<Ray>((f32x3)o, (f32x3)d, 0f)
+}
+
+func build_ray_params3(oall : f32,dall : f32) -> Ray {
+return build<Ray>(x3((f32)oall), x3((f32)dall), 0f)
+}
+
+

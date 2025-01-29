@@ -65,21 +65,3 @@ target_link_libraries(bonsai_objects ${LLVM_LIBS})
 add_executable(compiler compiler.cpp $<TARGET_OBJECTS:bonsai_objects>)
 target_include_directories(compiler PRIVATE ${INCLUDE_DIR})
 target_link_libraries(compiler ${LLVM_LIBS})
-
-# Tests
-enable_testing()
-file(GLOB_RECURSE TEST_FILES ${TESTS_DIR}/*.cpp)
-
-foreach(TEST_FILE IN LISTS TEST_FILES)
-    get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
-    add_executable(${TEST_NAME} ${TEST_FILE} $<TARGET_OBJECTS:bonsai_objects>)
-    target_include_directories(${TEST_NAME} PRIVATE ${INCLUDE_DIR})
-    target_link_libraries(${TEST_NAME} ${LLVM_LIBS})
-    add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
-endforeach()
-
-# Custom target for running all tests
-add_custom_target(run_tests
-    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS ${TEST_NAME}
-)

@@ -1,0 +1,43 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%"?option0" = type { i32, i1 }
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %"?option0" @make_option0(i32 %i) local_unnamed_addr #0 {
+make_option0_entry:
+  %0 = insertvalue %"?option0" poison, i32 %i, 0
+  %1 = insertvalue %"?option0" %0, i1 true, 1
+  ret %"?option0" %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %"?option0" @make_option1(i32 %i) local_unnamed_addr #0 {
+make_option1_entry:
+  %0 = icmp sgt i32 %i, 0
+  %1 = insertvalue %"?option0" poison, i32 %i, 0
+  %2 = insertvalue %"?option0" %1, i1 true, 1
+  %common.ret.op = select i1 %0, %"?option0" %2, %"?option0" zeroinitializer
+  ret %"?option0" %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define i32 @use_option(%"?option0" %i) local_unnamed_addr #0 {
+use_option_entry:
+  %0 = extractvalue %"?option0" %i, 1
+  %1 = extractvalue %"?option0" %i, 0
+  %common.ret.op = select i1 %0, i32 %1, i32 0
+  ret i32 %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define i32 @use_option1(%"?option0" %i) local_unnamed_addr #0 {
+use_option1_entry:
+  %0 = extractvalue %"?option0" %i, 1
+  %1 = extractvalue %"?option0" %i, 0
+  %2 = add i32 %1, 10
+  %common.ret.op = select i1 %0, i32 %2, i32 0
+  ret i32 %common.ret.op
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

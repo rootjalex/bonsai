@@ -1,0 +1,8 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: bonsai/src/Lower/TypeInference.cpp:105
+
+--> !visiting.contains(fname)
+Type inference found a cycle containing function: rec
+You may need to specify return types on one or more functions to break the cycle

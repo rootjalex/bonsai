@@ -1,0 +1,22 @@
+
+
+func foo() -> i32 {
+let a = true in
+let b = false in
+let c = ((bool)a || (bool)b) || false in
+let d = true || (bool)b in
+let L1 = |x : i32| ((i32)x + (i32)1) in
+let L2 = |x : i32, y : i32| (((i32)x + (i32)1) + (i32)y) in
+let L3 = |e : bool, f : bool| ((bool)e || (bool)f) in
+let L4 = |e : bool, f : bool| ((bool)e || (bool)f) in
+let L5 = |y : i32| (i32)y in
+let L6 = |x : i32, y : i32| ((i32)x + (i32)y) in
+let L7 = |x : i32| |y : i32| (i32)y in
+return (i32)0
+}
+
+func relu(v : set<i32>) -> set<i32> {
+return filter(|x : i32| ((i32)0 < (i32)x), (set<i32>)v)
+}
+
+

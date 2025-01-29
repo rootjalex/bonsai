@@ -30,17 +30,19 @@ ParsedOptions parse_cli(int argc, char *argv[]) {
             options.jit = true;
             arg++;
         } else if (_arg == "-asm") {
-            bonsai::internal_assert(arg + 1 < argc)
-                << "-asm flag requires output file to follow.";
             options.gen_asm = true;
-            options.output_filename = argv[arg + 1];
-            arg += 2;
+            if (arg + 1 < argc) {
+                options.output_filename = argv[arg + 1];
+                ++arg;
+            }
+            ++arg;
         } else if (_arg == "-llvm") {
-            bonsai::internal_assert(arg + 1 < argc)
-                << "-llvm flag requires output file to follow.";
             options.gen_llvm = true;
-            options.output_filename = argv[arg + 1];
-            arg += 2;
+            if (arg + 1 < argc) {
+                options.output_filename = argv[arg + 1];
+                ++arg;
+            }
+            ++arg;
         } else if (_arg == "-o") {
             bonsai::internal_assert(arg + 1 < argc)
                 << "-o flag requires output file to follow.";
@@ -58,11 +60,6 @@ ParsedOptions parse_cli(int argc, char *argv[]) {
     }
     bonsai::internal_assert(!options.input_filename.empty())
         << "Failed to parse input file name.";
-
-    if (options.output_filename.empty()) {
-        options.output_filename = "output.bir";
-    }
-
     return options;
 }
 
@@ -88,6 +85,10 @@ int main(int argc, char *argv[]) {
     if (!(options.jit || options.gen_asm || options.gen_llvm)) {
         // Just dump to output filename.
         // Create an output file stream
+        if (options.output_filename.empty()) {
+            program.dump(std::cout);
+            return 0;
+        }
         std::ofstream os(options.output_filename);
         bonsai::internal_assert(os.is_open())
             << "Could not open output file: " << options.output_filename;
@@ -113,8 +114,12 @@ int main(int argc, char *argv[]) {
     if (options.gen_llvm) {
         bonsai::CodeGen_LLVM codegen;
         auto _module = codegen.compile_program(program);
+        if (options.output_filename.empty()) {
+            _module->print(llvm::outs(), /*AAW=*/nullptr);
+            return 0;
+        }
         auto fd_os = bonsai::make_raw_fd_ostream(options.output_filename);
-        _module->print(*fd_os, nullptr);
+        _module->print(*fd_os, /*AAW=*/nullptr);
     }
 
     return 0;
