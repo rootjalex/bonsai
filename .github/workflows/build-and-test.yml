@@ -20,23 +20,21 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configure CMake
-      run: cmake -S . -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@v2
       with:
         version: "19.1.6"
         directory: ${{ runner.temp }}/llvm
 
-    - name: Build Bonsai
+    - name: Configure CMake
       env:
         LLVM_ROOT: ${{ env.LLVM_PATH }}
         LLVM_CONFIG: ${{ env.LLVM_ROOT }}/bin/llvm-config
       run: |
-        echo $LLVM_ROOT
-        echo $LLVM_CONFIG
-        echo ${{ env.LLVM_PATH }}
+        cmake -S . -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build Bonsai
+      run: |
         cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
       
     - name: Install runt
