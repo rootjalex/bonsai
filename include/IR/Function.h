@@ -30,7 +30,23 @@ struct Function {
     std::vector<Argument> args;
     Type ret_type;
     Stmt body;
-    typedef std::vector<std::pair<std::string, Interface>> InterfaceList;
+    struct NamedInterface {
+        std::string name;
+        Interface interface;
+
+        NamedInterface();
+
+        NamedInterface(std::string _name, Interface _interface)
+            : name(std::move(_name)), interface(std::move(_interface)) {}
+
+        NamedInterface(const NamedInterface &) = default;
+        NamedInterface(NamedInterface &&) noexcept = default;
+        NamedInterface &operator=(const NamedInterface &) = default;
+        NamedInterface &operator=(NamedInterface &&) noexcept = default;
+        ~NamedInterface() = default;
+    };
+    // Intentionally ordered.
+    using InterfaceList = std::vector<NamedInterface>;
     InterfaceList interfaces;
 
     Function() {}

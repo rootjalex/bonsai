@@ -1,0 +1,73 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%Ray = type { <3 x float>, <3 x float>, float }
+%Ray1 = type { <3 x float>, <3 x float>, float }
+%Ray2 = type { <3 x float>, <3 x float>, float }
+%Ray3 = type { <3 x float>, <3 x float>, float }
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray @build_ray() local_unnamed_addr #0 {
+build_ray_entry:
+  ret %Ray zeroinitializer
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray1 @build_ray1() local_unnamed_addr #0 {
+build_ray1_entry:
+  ret %Ray1 { <3 x float> zeroinitializer, <3 x float> zeroinitializer, float 1.000000e+00 }
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray2 @build_ray2() local_unnamed_addr #0 {
+build_ray2_entry:
+  ret %Ray2 { <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, float 1.000000e+00 }
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray3 @build_ray3() local_unnamed_addr #0 {
+build_ray3_entry:
+  ret %Ray3 { <3 x float> zeroinitializer, <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, float 1.000000e+00 }
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray @build_ray_params(<3 x float> %o, <3 x float> %d, float %t) local_unnamed_addr #0 {
+build_ray_params_entry:
+  %0 = insertvalue %Ray poison, <3 x float> %o, 0
+  %1 = insertvalue %Ray %0, <3 x float> %d, 1
+  %2 = insertvalue %Ray %1, float %t, 2
+  ret %Ray %2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray @build_ray_params1(<3 x float> %o, <3 x float> %d) local_unnamed_addr #0 {
+build_ray_params1_entry:
+  %0 = insertvalue %Ray poison, <3 x float> %o, 0
+  %1 = insertvalue %Ray %0, <3 x float> %d, 1
+  %2 = insertvalue %Ray %1, float 0.000000e+00, 2
+  ret %Ray %2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray @build_ray_params2(<3 x float> %o, <3 x float> %d) local_unnamed_addr #0 {
+build_ray_params2_entry:
+  %0 = insertvalue %Ray poison, <3 x float> %o, 0
+  %1 = insertvalue %Ray %0, <3 x float> %d, 1
+  %2 = insertvalue %Ray %1, float 0.000000e+00, 2
+  ret %Ray %2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Ray @build_ray_params3(float %oall, float %dall) local_unnamed_addr #0 {
+build_ray_params3_entry:
+  %.splatinsert = insertelement <3 x float> poison, float %oall, i64 0
+  %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
+  %.splatinsert1 = insertelement <3 x float> poison, float %dall, i64 0
+  %.splat2 = shufflevector <3 x float> %.splatinsert1, <3 x float> poison, <3 x i32> zeroinitializer
+  %0 = insertvalue %Ray poison, <3 x float> %.splat, 0
+  %1 = insertvalue %Ray %0, <3 x float> %.splat2, 1
+  %2 = insertvalue %Ray %1, float 0.000000e+00, 2
+  ret %Ray %2
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

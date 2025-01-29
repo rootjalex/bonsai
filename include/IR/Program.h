@@ -9,6 +9,8 @@
 namespace bonsai {
 namespace ir {
 
+using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
+
 struct Program {
     // TODO: more things?
 
@@ -16,7 +18,7 @@ struct Program {
     // executable.
     std::vector<std::pair<std::string, Type>> externs;
     // All function declarations except for main()
-    std::map<std::string, std::shared_ptr<Function>> funcs;
+    FuncMap funcs;
     // All types (including aliases).
     std::map<std::string, Type> types;
     // TODO: interfaces / inheritance?
@@ -25,8 +27,7 @@ struct Program {
 
     Program() {}
 
-    Program(std::vector<std::pair<std::string, Type>> _externs,
-            std::map<std::string, std::shared_ptr<Function>> _funcs,
+    Program(std::vector<std::pair<std::string, Type>> _externs, FuncMap _funcs,
             std::map<std::string, Type> _types, Stmt _main_body)
         : externs(std::move(_externs)), funcs(std::move(_funcs)),
           types(std::move(_types)), main_body(std::move(_main_body)) {}

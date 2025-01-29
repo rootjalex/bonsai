@@ -18,23 +18,31 @@ Cmp compare_primitives(const T &t0, const T &t1) {
     }
 }
 
-Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
-    if (!i0.defined()) {
-        if (!i1.defined()) {
+template <typename T>
+std::optional<Cmp> compare_node_types(const T &a, const T &b) {
+    if (!a.defined()) {
+        if (!b.defined()) {
             return Cmp::Equals;
         } else {
             return Cmp::Less;
         }
-    } else if (!i1.defined()) {
+    } else if (!b.defined()) {
         return Cmp::Greater;
     }
 
     // Must both be defined.
 
-    if (i0.node_type() < i1.node_type()) {
+    if (a.node_type() < b.node_type()) {
         return Cmp::Less;
-    } else if (i0.node_type() > i1.node_type()) {
+    } else if (a.node_type() > b.node_type()) {
         return Cmp::Greater;
+    }
+    return {};
+}
+
+Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
+    if (std::optional<Cmp> nodes_cmp = compare_node_types(i0, i1)) {
+        return *nodes_cmp;
     }
 
     // Must both be the same node type.
@@ -52,22 +60,8 @@ Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
 }
 
 Cmp compare_types(const Type &t0, const Type &t1) {
-    if (!t0.defined()) {
-        if (!t1.defined()) {
-            return Cmp::Equals;
-        } else {
-            return Cmp::Less;
-        }
-    } else if (!t1.defined()) {
-        return Cmp::Greater;
-    }
-
-    // Must both be defined.
-
-    if (t0.node_type() < t1.node_type()) {
-        return Cmp::Less;
-    } else if (t0.node_type() > t1.node_type()) {
-        return Cmp::Greater;
+    if (std::optional<Cmp> nodes_cmp = compare_node_types(t0, t1)) {
+        return *nodes_cmp;
     }
 
     // Must both be the same node type.

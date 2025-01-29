@@ -1,0 +1,29 @@
+type vec2h = f16x2
+type vec4 = f32x4
+
+
+func _fma$f16_f16x2(a : f16x2, b : f16x2, c : f16x2) -> f16x2 {
+  return (a * b) + c
+}
+
+func _fma$f32_f32x4(a : f32x4, b : f32x4, c : f32x4) -> f32x4 {
+  return (a * b) + c
+}
+
+func _fma_x2h(a : f16x2, b : f16x2, c : f16x2) -> f16x2 {
+  return _fma$f16_f16x2(a, b, c)
+}
+
+func _fma_x4(a : f32x4, b : f32x4, c : f32x4) -> f32x4 {
+  return _fma$f32_f32x4(a, b, c)
+}
+
+func foo(a : f32x4) -> f32x4 {
+  return _fma_x4(a, a, a)
+}
+
+func foo_typed(a : f32x4) -> f32x4 {
+  return _fma_x4(a, a, a)
+}
+
+

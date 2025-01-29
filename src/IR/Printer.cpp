@@ -524,7 +524,7 @@ void Printer::visit(const Lambda *node) {
         }
     }
     os << "| ";
-    print(node->value);
+    print_no_parens(node->value);
 }
 
 std::string to_string(const GeomOp::OpType &op) {

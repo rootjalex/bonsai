@@ -1,0 +1,52 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <2 x half> @"_fma$f16_f16x2"(<2 x half> %a, <2 x half> %b, <2 x half> %c) local_unnamed_addr #0 {
+"_fma$f16_f16x2_entry":
+  %0 = fmul <2 x half> %a, %b
+  %1 = fadd <2 x half> %0, %c
+  ret <2 x half> %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @"_fma$f32_f32x4"(<4 x float> %a, <4 x float> %b, <4 x float> %c) local_unnamed_addr #0 {
+"_fma$f32_f32x4_entry":
+  %0 = fmul <4 x float> %a, %b
+  %1 = fadd <4 x float> %0, %c
+  ret <4 x float> %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <2 x half> @_fma_x2h(<2 x half> %a, <2 x half> %b, <2 x half> %c) local_unnamed_addr #0 {
+_fma_x2h_entry:
+  %0 = fmul <2 x half> %a, %b
+  %1 = fadd <2 x half> %0, %c
+  ret <2 x half> %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @_fma_x4(<4 x float> %a, <4 x float> %b, <4 x float> %c) local_unnamed_addr #0 {
+_fma_x4_entry:
+  %0 = fmul <4 x float> %a, %b
+  %1 = fadd <4 x float> %0, %c
+  ret <4 x float> %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @foo(<4 x float> %a) local_unnamed_addr #0 {
+foo_entry:
+  %0 = fmul <4 x float> %a, %a
+  %1 = fadd <4 x float> %0, %a
+  ret <4 x float> %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @foo_typed(<4 x float> %a) local_unnamed_addr #0 {
+foo_typed_entry:
+  %0 = fmul <4 x float> %a, %a
+  %1 = fadd <4 x float> %0, %a
+  ret <4 x float> %1
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

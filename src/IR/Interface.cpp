@@ -19,8 +19,8 @@ Interface IFloat::make() {
 }
 
 Interface IVector::make(Interface etype) {
-    // internal_assert(etype.defined())
-    //     << "Cannot make IVector with undefined etype";
+    internal_assert(etype.defined())
+        << "Cannot make IVector with undefined etype";
     IVector *node = new IVector;
     node->etype = std::move(etype);
     return node;

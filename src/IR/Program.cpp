@@ -16,7 +16,7 @@ void Program::dump(std::ostream &os) const {
     }
     os << std::endl;
     for (const auto &[name, func] : funcs) {
-        os << *func << "\n";
+        os << *func << "\n\n";
     }
     os << std::endl;
     if (main_body.defined()) {

@@ -1,0 +1,14 @@
+
+func fib<T>(i : i32) -> T {
+    if (i <= 0) {
+        return 0;
+    } else if (i == 1) {
+        return 1;
+    } else {
+        return fib[[T]](i - 1) + fib[[T]](i - 2);
+    }
+}
+
+func fib_i8(i : i32) = fib[[i8]](i);
+
+func fib_i15(i : i32) = fib[[i15]](i);

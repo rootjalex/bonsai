@@ -887,15 +887,15 @@ struct Parser {
 
                     std::map<std::string, ir::Type> instantiations;
                     for (size_t i = 0; i < n_generics; i++) {
-                        instantiations[func->interfaces[i].first] =
+                        instantiations[func->interfaces[i].name] =
                             template_types[i];
 
                         internal_assert(ir::satisfies(
-                            template_types[i], func->interfaces[i].second))
+                            template_types[i], func->interfaces[i].interface))
                             << "Template type: " << template_types[i]
                             << " in call to " << name
                             << " does not satisfy interface: "
-                            << func->interfaces[i].second;
+                            << func->interfaces[i].interface;
                     }
 
                     // TODO(ajr): may want to lift this into an analysis
@@ -943,9 +943,11 @@ struct Parser {
                     return ir::Call::make(std::move(f), std::move(args));
                 } else if (name_in_scope(name)) {
                     internal_assert(template_types.empty())
-                        << "Error: cannot pass template parameters to lambda " << name
-                        << " definition on line: " << token.lineBegin << ":" << token.colBegin;
-                    ir::Type var_type = get_type_from_frame(name); // never undefined.
+                        << "Error: cannot pass template parameters to lambda "
+                        << name << " definition on line: " << token.lineBegin
+                        << ":" << token.colBegin;
+                    ir::Type var_type =
+                        get_type_from_frame(name); // never undefined.
                     ir::Expr expr = ir::Var::make(var_type, name);
                     return ir::Call::make(std::move(expr), std::move(args));
                 }
@@ -1034,9 +1036,11 @@ struct Parser {
                             break;
                         }
                         internal_assert(args.size() == p.n_args)
-                            << p.name << " takes " << p.n_args << " argument(s), "
-                            << "received " << args.size() << " instead, on line "
-                            << token.lineBegin << ":" << token.colBegin;
+                            << p.name << " takes " << p.n_args
+                            << " argument(s), "
+                            << "received " << args.size()
+                            << " instead, on line " << token.lineBegin << ":"
+                            << token.colBegin;
                         return ir::Intrinsic::make(p.op, std::move(args));
                     }
                 }
@@ -1058,9 +1062,11 @@ struct Parser {
                     if (name == p.name) {
                         internal_assert(args.size() == 2)
                             << p.name << " takes 2 arguments, "
-                            << "received " << args.size() << " instead, on line "
-                            << token.lineBegin << ":" << token.colBegin;
-                        return ir::SetOp::make(p.op, std::move(args[0]), std::move(args[1]));
+                            << "received " << args.size()
+                            << " instead, on line " << token.lineBegin << ":"
+                            << token.colBegin;
+                        return ir::SetOp::make(p.op, std::move(args[0]),
+                                               std::move(args[1]));
                     }
                 }
 
@@ -1080,9 +1086,11 @@ struct Parser {
                     if (name == p.name) {
                         internal_assert(args.size() == 2)
                             << p.name << " takes 2 arguments, "
-                            << "received " << args.size() << " instead, on line "
-                            << token.lineBegin << ":" << token.colBegin;
-                        return ir::GeomOp::make(p.op, std::move(args[0]), std::move(args[1]));
+                            << "received " << args.size()
+                            << " instead, on line " << token.lineBegin << ":"
+                            << token.colBegin;
+                        return ir::GeomOp::make(p.op, std::move(args[0]),
+                                                std::move(args[1]));
                     }
                 }
 
@@ -1107,8 +1115,9 @@ struct Parser {
                     if (name == p.name) {
                         internal_assert(args.size() == 1)
                             << p.name << " takes 1 argument, "
-                            << "received " << args.size() << " instead, on line "
-                            << token.lineBegin << ":" << token.colBegin;
+                            << "received " << args.size()
+                            << " instead, on line " << token.lineBegin << ":"
+                            << token.colBegin;
                         return ir::VectorReduce::make(p.op, std::move(args[0]));
                     }
                 }
@@ -1367,6 +1376,8 @@ struct Parser {
                 inner = parseInterface();
                 expect(Token::Type::RBRACKET);
                 expect(Token::Type::RBRACKET);
+            } else {
+                inner = ir::IEmpty::make();
             }
             return ir::IVector::make(std::move(inner));
         } else if (current_generics.contains(name)) {

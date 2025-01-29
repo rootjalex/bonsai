@@ -346,7 +346,7 @@ struct Call : ExprNode<Call> {
 struct Instantiate : ExprNode<Instantiate> {
     Expr expr;
     // Generic_t name -> replacement
-    typedef std::map<std::string, Type> TypeMap;
+    using TypeMap = std::map<std::string, Type>;
     TypeMap types;
 
     static Expr make(Expr expr, TypeMap types);

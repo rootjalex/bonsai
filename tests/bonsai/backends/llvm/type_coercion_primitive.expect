@@ -1,0 +1,64 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define i32 @a(i32 %x) local_unnamed_addr #0 {
+a_entry:
+  %0 = add i32 %x, 5
+  ret i32 %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define double @b(double %x) local_unnamed_addr #0 {
+b_entry:
+  %0 = fadd double %x, 3.000000e+00
+  ret double %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define double @c(double %x) local_unnamed_addr #0 {
+c_entry:
+  %0 = fadd double %x, 3.000000e+00
+  ret double %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define half @d(half %x) local_unnamed_addr #0 {
+d_entry:
+  %0 = fadd half %x, 0xH4200
+  ret half %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @ret_f32x4(<4 x float> %x) local_unnamed_addr #0 {
+ret_f32x4_entry:
+  %0 = fadd <4 x float> %x, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
+  ret <4 x float> %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @ret_fone() local_unnamed_addr #0 {
+ret_fone_entry:
+  ret float 1.000000e+00
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @ret_fzero() local_unnamed_addr #0 {
+ret_fzero_entry:
+  ret float 0.000000e+00
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @ret_zero() local_unnamed_addr #0 {
+ret_zero_entry:
+  ret i32 0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define i32 @reti32(i32 %i) local_unnamed_addr #0 {
+reti32_entry:
+  %0 = add i32 %i, 2
+  ret i32 %0
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

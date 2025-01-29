@@ -139,8 +139,8 @@ struct Struct_t : TypeNode<Struct_t> {
     // intentionally ordered.
     // TODO: re-implement an unordered version (for the front-end):
     // UnorderedStruct_t
-    typedef std::vector<std::pair<std::string, Type>> Map;
-    typedef std::map<std::string, Expr> DefMap;
+    using Map = std::vector<std::pair<std::string, Type>>;
+    using DefMap = std::map<std::string, Expr>;
     std::string name;
     Map fields;
     DefMap defaults;
