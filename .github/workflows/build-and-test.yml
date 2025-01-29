@@ -41,11 +41,11 @@ jobs:
     
     - name: Configure CMake
       run: |
-        cmake -S . -B ${{github.workspace}}/br/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        cmake -S . -B bonsai/br/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
     - name: Build Bonsai
       run: |
-        cmake --build ${{github.workspace}}/br/build --config ${{env.BUILD_TYPE}}
+        cmake --build bonsai/br/build --config ${{env.BUILD_TYPE}}
       
     - name: Install runt
       uses: baptiste0928/cargo-install@v3
@@ -54,5 +54,5 @@ jobs:
         version: "0.4.1"
       
     - name: Test
-      working-directory: ${{ github.workspace }}/br
+      working-directory: bonsai/br
       run: runt -d
