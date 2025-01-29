@@ -25,6 +25,9 @@ jobs:
     # to manual install à la brew. When transitioning to multi-platform, it'll
     # be nice to rely on this action (hopefully it is updated).
     - name: Install LLVM
+      env:
+        # https://github.com/Homebrew/brew/issues/14516#issuecomment-1418593313
+        HOMEBREW_NO_INSTALL_FROM_API: 1
       run: |
         brew update
         brew install llvm@19
