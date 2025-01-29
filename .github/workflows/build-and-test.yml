@@ -29,10 +29,10 @@ jobs:
         directory: ${{ runner.temp }}/llvm
 
     - name: Build Bonsai
-      # TODO(cgyurgyik): is this allowed and even valid in Github Actions?
-      # run: export LLVM_ROOT=${{ env.LLVM_PATH }}; export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
-      # run: export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      run: |
+        export LLVM_ROOT=${{ env.LLVM_PATH }}
+        export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
+        cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
       
     - name: Install runt
       uses: baptiste0928/cargo-install@v3
