@@ -20,16 +20,20 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install LLVM and Clang
-      uses: KyleMayes/install-llvm-action@v2
-      with:
-        version: "18" # TODO(cgyurgyik): currently this action doesn't support LLVM19.
-        directory: ${{ runner.temp }}/llvm
+    # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
+    # this, but as of 29 January 2025, they do not support LLVM19 yet.
+    - name: Install LLVM
+      run: |
+        brew update
+        brew install llvm@19.1.6
+
+    - name: Add LLVM to PATH
+      run: |
+        echo "LLVM_ROOT=$(brew --prefix llvm)" >> $GITHUB_ENV
+        echo "LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config" >> $GITHUB_ENV
+    
 
     - name: Configure CMake
-      env:
-        LLVM_ROOT: ${{ env.LLVM_PATH }}
-        LLVM_CONFIG: ${{ env.LLVM_ROOT }}/bin/llvm-config
       run: |
         cmake -S . -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
