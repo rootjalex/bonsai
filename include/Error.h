@@ -16,12 +16,16 @@ class ErrorReport {
         : triggered(!cond) {
         [[likely]] if (!triggered) { return; }
         // Print the file path proceeding the root directory (inclusive).
-        constexpr char rootDirectory[] = "bonsai";
+        constexpr std::string_view rootDirectory = "bonsai";
         std::string F(file);
-        const size_t pos = F.find(rootDirectory);
-        if (pos != std::string::npos) {
-            F = F.substr(pos + std::strlen(rootDirectory) + 1);
+
+        // TODO(cgyurgyik): Fix this hack.
+        // Finds the last occurrence of `bonsai` to conform with Github Actions,
+        // where both the WORKSPACE and the REPOSITORY are named `bonsai`.
+        if (size_t pos = F.rfind(rootDirectory); pos != std::string::npos) {
+            F = F.substr(pos + rootDirectory.length() + 1);
         }
+
         stream << "[internal] Error: ";
         stream << F << ":" << line << "\n";
         if (cond_str == nullptr)
