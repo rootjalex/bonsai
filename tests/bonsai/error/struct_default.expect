@@ -1,5 +1,5 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: bonsai/src/Parser/Parser.cpp:55
+[internal] Error: src/Parser/Parser.cpp:55
 Cannot check type of unknown var: o required at line: 5

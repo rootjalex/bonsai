@@ -19,19 +19,11 @@ class ErrorReport {
         constexpr std::string_view rootDirectory = "bonsai";
         std::string F(file);
 
-        const size_t pos = F.find(rootDirectory);
-        F = F.substr(pos, F.length());
-        // TODO(cgyurgyik): Get rid of this hack. Handle `bonsai/bonsai` seen in
-        // Github Actions. This occurs because `bonsai` is the Github Actions
-        // WORKSPACE, and then we checkout the `bonsai` repository. I tried just
-        // changing the repository name but this resulted in other errors I need
-        // to figure out.
-        constexpr size_t L = rootDirectory.length();
-        if (F.length() > L) {
-            if (std::string G = F.substr(L, F.length());
-                G.length() > L && G.substr(1, L) == rootDirectory) {
-                F = F.substr(1 + L, F.length());
-            }
+        // TODO(cgyurgyik): Fix this hack.
+        // Finds the last occurrence of `bonsai` to conform with Github Actions,
+        // where both the WORKSPACE and the REPOSITORY are named `bonsai`.
+        if (size_t pos = F.rfind(rootDirectory); pos != std::string::npos) {
+            F = F.substr(pos + rootDirectory.length() + 1);
         }
 
         stream << "[internal] Error: ";

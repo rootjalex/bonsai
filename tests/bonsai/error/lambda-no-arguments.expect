@@ -1,5 +1,5 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: bonsai/src/Parser/Parser.cpp:768
+[internal] Error: src/Parser/Parser.cpp:768
 Unknown token in parseBaseExpr: logical-or at line: 3
