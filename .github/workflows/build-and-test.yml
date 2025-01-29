@@ -13,9 +13,9 @@ jobs:
   # TODO(cgyurgyik): Run clang-format, clang-tidy. (The CIRCT project has this set up [1].)
   # [1]: https://github.com/llvm/circt/blob/main/.github/workflows/buildAndTest.yml
   build-and-test:
-    # Currently we are only running this on ubuntu. For multi-platform:
+    # Currently we are only running this on mac-os. For multi-platform:
     # https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@v2
       with:
-        version: "19.1.6"
+        version: "18" # TODO(cgyurgyik): currently this action doesn't support LLVM19.
         directory: ${{ runner.temp }}/llvm
 
     - name: Configure CMake
