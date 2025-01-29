@@ -29,7 +29,7 @@ class ErrorReport {
         constexpr size_t L = rootDirectory.length();
         if (F.length() > L) {
             if (std::string G = F.substr(L, F.length());
-                G.length() > L && G.substr(0, L) == rootDirectory) {
+                G.length() > L && G.substr(1, L) == rootDirectory) {
                 F = F.substr(1 + L, F.length());
             }
         }
