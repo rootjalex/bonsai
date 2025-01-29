@@ -52,5 +52,5 @@ jobs:
         version: "0.4.1"
       
     - name: Test
-      working-directory: ${{github.workspace}}/bonsai
+      working-directory: ${{github.repository}}
       run: runt -d
