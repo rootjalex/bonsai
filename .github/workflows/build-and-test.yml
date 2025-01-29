@@ -19,8 +19,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        path: bonsai-repository
 
     # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
     # this, but as of 29 January 2025, they do not support LLVM19 yet. We resort
@@ -54,5 +52,5 @@ jobs:
         version: "0.4.1"
       
     - name: Test
-      working-directory: ${{ github.workspace }}/bonsai-repository
+      working-directory: ${{ github.workspace }}
       run: runt -d
