@@ -1,0 +1,8 @@
+func: fib produces: 2 instantiations
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Lower/Generics.cpp:105
+
+--> !contains_generics(node->type)
+TODO: handle nested generics: fib[[T -> T]]

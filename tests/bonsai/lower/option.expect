@@ -1,31 +1,31 @@
 
 
 func make_option0(i : i32) -> ?option0 {
-return build<?option0>((i32)i, true)
+  return build<?option0>(i, true)
 }
 
 func make_option1(i : i32) -> ?option0 {
-if ((i32)0 < (i32)i) {
- return build<?option0>((i32)i, true)
-} else {
- return build<?option0>()
-}
+  if ((i32)0 < i) {
+    return build<?option0>(i, true)
+  } else {
+    return build<?option0>()
+  }
 }
 
 func use_option(i : ?option0) -> i32 {
-if ((?option0)i.set) {
- return (?option0)i.value
-} else {
- return (i32)0
-}
+  if (i.set) {
+    return i.value
+  } else {
+    return (i32)0
+  }
 }
 
 func use_option1(i : ?option0) -> i32 {
-if ((?option0)i.set) {
- return (?option0)i.value + (i32)10
-} else {
- return (i32)0
-}
+  if (i.set) {
+    return i.value + (i32)10
+  } else {
+    return (i32)0
+  }
 }
 
 

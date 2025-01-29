@@ -62,7 +62,7 @@ uses `runt.toml` to define the test suites and configure them.
 
 1. Install [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 2. Install `runt`: `cargo install runt`
-3. Run all snapshot tests: `runt -d`
+3. Run all snapshot tests: `runt -d`. This assumes you have built Bonsai and `./build/compiler` exists.
 
 ### Acknowledgements
 

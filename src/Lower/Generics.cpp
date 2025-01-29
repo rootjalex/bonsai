@@ -196,7 +196,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             std::string new_name = unique_generic_name(name, _types);
 
             new_funcs[new_name] = std::make_shared<Function>(
-                std::move(new_name), std::move(args), std::move(ret_type),
+                new_name, std::move(args), std::move(ret_type),
                 std::move(body), std::move(interfaces));
         }
     }

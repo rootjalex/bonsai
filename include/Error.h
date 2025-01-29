@@ -19,7 +19,9 @@ class ErrorReport {
         constexpr char rootDirectory[] = "bonsai";
         std::string F(file);
         const size_t pos = F.find(rootDirectory);
-        F = F.substr(pos, F.length());
+        if (pos != std::string::npos) {
+            F = F.substr(pos + std::strlen(rootDirectory) + 1);
+        }
         stream << "[internal] Error: ";
         stream << F << ":" << line << "\n";
         if (cond_str == nullptr)
