@@ -1,6 +1,3 @@
-func: _fma produces: 2 instantiations
-making: _fma$f16_f16x2 of type: Fn(f16x2, f16x2, f16x2) -> f16x2
-making: _fma$f32_f32x4 of type: Fn(f32x4, f32x4, f32x4) -> f32x4
 type vec2h = f16x2
 type vec4 = f32x4
 

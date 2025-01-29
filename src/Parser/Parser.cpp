@@ -1397,6 +1397,8 @@ struct Parser {
                 inner = parseInterface();
                 expect(Token::Type::RBRACKET);
                 expect(Token::Type::RBRACKET);
+            } else {
+                inner = ir::IEmpty::make();
             }
             return ir::IVector::make(std::move(inner));
         } else if (current_generics.contains(name)) {

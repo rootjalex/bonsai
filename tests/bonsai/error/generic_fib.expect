@@ -1,4 +1,3 @@
-func: fib produces: 2 instantiations
 ---CODE---
 -1
 ---STDERR---
