@@ -18,14 +18,22 @@ class ErrorReport {
         // Print the file path proceeding the root directory (inclusive).
         constexpr std::string_view rootDirectory = "bonsai";
         std::string F(file);
+
         const size_t pos = F.find(rootDirectory);
         F = F.substr(pos, F.length());
-        if (constexpr size_t Length = rootDirectory.length();
-            F.length() > Length && F.substr(1, Length) == rootDirectory) {
-            // TODO(cgyurgyik): Get rid of this hack.
-            // Handle `bonsai/bonsai` seen in Github Actions.
-            F = F.substr(1 + Length, F.length());
+        // TODO(cgyurgyik): Get rid of this hack. Handle `bonsai/bonsai` seen in
+        // Github Actions. This occurs because `bonsai` is the Github Actions
+        // WORKSPACE, and then we checkout the `bonsai` repository. I tried just
+        // changing the repository name but this resulted in other errors I need
+        // to figure out.
+        constexpr size_t L = rootDirectory.length();
+        if (F.length() > L) {
+            if (std::string G = F.substr(L, F.length());
+                G.length() > L && G.substr(0, L) == rootDirectory) {
+                F = F.substr(1 + L, F.length());
+            }
         }
+
         stream << "[internal] Error: ";
         stream << F << ":" << line << "\n";
         if (cond_str == nullptr)
