@@ -1,0 +1,112 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    types: [assigned, opened, synchronize, reopened]
+
+env:
+  BUILD_TYPE: Debug
+
+jobs:
+  sanity-check:
+    name: Sanity Check
+    runs-on: macos-latest
+    steps:
+      # Clone the Bonsai repository and (shallow) clone its submodules.
+      - name: Get Bonsai
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+          submodules: "false"
+      
+      # --------
+      # Lint the Bonsai C++ code (...graciously borrowed from the CIRCT project).
+      # -------
+
+      # Choose the git commit to diff against for the purposes of linting.
+      # Since this workflow is triggered on both pushes and pull requests, we
+      # have to determine if the pull request target branch is set (which it
+      # will only be on the PR triggered flow). If it's not, then compare
+      # against the last commit.
+      - name: choose-commit
+        if: ${{ always() }}
+        env:
+          # Base ref is the target branch, in text form (not hash)
+          PR_BASE: ${{ github.base_ref }}
+        run: |
+          # Run clang-format
+          if [ -z "$PR_BASE" ]; then
+            DIFF_COMMIT_NAME="HEAD^"
+          else
+            DIFF_COMMIT_NAME="$PR_BASE"
+          fi
+          echo "DIFF_COMMIT_NAME=$DIFF_COMMIT_NAME" >> $GITHUB_ENV
+
+      # Since we did a shallow fetch for this repo, we must fetch the commit
+      # upon which we be diff'ing. The last step set the ref name in the
+      # $DIFF_COMMIT_NAME environment variable. When running the fetch, resolve
+      # it to the commit hash and pass that hash along to subsequent steps.
+      - name: git fetch base commit
+        continue-on-error: true
+        run: |
+          if echo "$DIFF_COMMIT_NAME" | grep -q HEAD; then
+            DIFF_COMMIT_SHA=$( git rev-parse $DIFF_COMMIT_NAME )
+          else
+            git fetch --recurse-submodules=no origin $DIFF_COMMIT_NAME
+            DIFF_COMMIT_SHA=$( git rev-parse origin/$DIFF_COMMIT_NAME )
+          fi
+          echo "DIFF_COMMIT=$DIFF_COMMIT_SHA" >> $GITHUB_ENV
+
+      # Run 'git clang-format', comparing against the target commit hash. If
+      # clang-format fixed anything, fail and output a patch.
+      - name: clang-format
+        if: ${{ always() }}
+        run: |
+          # Run clang-format
+          git clang-format $DIFF_COMMIT
+          git diff --ignore-submodules > clang-format.patch
+          if [ -s clang-format.patch ]; then
+            echo "Clang-format found formatting problems in the following " \
+              "files. See diff in the clang-format.patch artifact."
+            git diff --ignore-submodules --name-only
+            git checkout .
+            exit 1
+          fi
+          echo "Clang-format found no formatting problems"
+          exit 0
+  
+  build-and-test-bonsai:
+    # Currently we are only running this on mac-os. For multi-platform:
+    # https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure CMake
+      run: cmake -S . -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Install LLVM and Clang
+      uses: KyleMayes/install-llvm-action@v2
+      with:
+        version: "19.1.6"
+        directory: ${{ runner.temp }}/llvm
+
+    - name: Build Bonsai
+      # TODO(cgyurgyik): is this allowed and even valid in Github Actions?
+      # run: export LLVM_ROOT=${{ env.LLVM_PATH }}; export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
+      # run: export LLVM_CONFIG=$LLVM_ROOT/bin/llvm-config
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      
+    - name: Install runt
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: runt
+        version: "0.4.1"
+      
+    - name: Test
+      working-directory: ${{github.workspace}}
+      run: runt -d
+
