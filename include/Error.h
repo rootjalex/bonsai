@@ -16,14 +16,14 @@ class ErrorReport {
         : triggered(!cond) {
         [[likely]] if (!triggered) { return; }
         // Print the file path proceeding the root directory (inclusive).
-        constexpr char rootDirectory[] = "bonsai";
+        constexpr std::string_view rootDirectory[] = "bonsai";
         std::string F(file);
         const size_t pos = F.find(rootDirectory);
         F = F.substr(pos, F.length());
-        if (std::string G = F.substr(1, rootDirectory.length());
-            G == rootDirectory) {
-            // Handle `bonsai/bonsai` seen in Github Actions. Yes, this is
-            // terrible and we need a better solution.
+        if (F.length() > rootDirectory.length() &&
+            substr(1, rootDirectory.length()) rootDirectory) {
+            // TODO(cgyurgyik): Get rid of this hack.
+            // Handle `bonsai/bonsai` seen in Github Actions.
             F = F.substr(1 + rootDirectory.length(), F.length());
         }
         stream << "[internal] Error: ";
