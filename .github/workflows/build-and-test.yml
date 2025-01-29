@@ -19,7 +19,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - with:
+      with:
         path: bonsai-repository
 
     # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
