@@ -941,8 +941,16 @@ struct Parser {
                                                   std::move(instantiations));
                     }
                     return ir::Call::make(std::move(f), std::move(args));
+                } else if (name_in_scope(name)) {
+                    internal_assert(template_types.empty())
+                        << "Error: cannot pass template parameters to lambda " << name
+                        << " definition on line: " << token.lineBegin << ":" << token.colBegin;
+                    ir::Type var_type = get_type_from_frame(name); // never undefined.
+                    ir::Expr expr = ir::Var::make(var_type, name);
+                    return ir::Call::make(std::move(expr), std::move(args));
                 }
 
+                // Special built-ins with template parameters.
                 if (name == "cast") {
                     internal_assert(template_types.size() == 1)
                         << "cast() expects a template parameter, instead "
@@ -979,150 +987,8 @@ struct Parser {
                     << " does not take template parameters, but received: "
                     << template_types.size() << " at line: " << token.lineBegin;
 
-                // TODO: generalize intrinsic parsing.
-                if (name == "abs") {
-                    internal_assert(args.size() == 1)
-                        << "abs takes a single argument, received: "
-                        << args.size();
-                    return ir::Intrinsic::make(ir::Intrinsic::abs,
-                                               std::move(args));
-                } else if (name == "sqrt") {
-                    internal_assert(args.size() == 1)
-                        << "sqrt takes a single argument, received: "
-                        << args.size();
-                    return ir::Intrinsic::make(ir::Intrinsic::sqrt,
-                                               std::move(args));
-                } else if (name == "sin") {
-                    internal_assert(args.size() == 1)
-                        << "sin takes a single argument, received: "
-                        << args.size();
-                    return ir::Intrinsic::make(ir::Intrinsic::sin,
-                                               std::move(args));
-                } else if (name == "cos") {
-                    internal_assert(args.size() == 1)
-                        << "cos takes a single argument, received: "
-                        << args.size();
-                    return ir::Intrinsic::make(ir::Intrinsic::cos,
-                                               std::move(args));
-                } else if (name == "cross") {
-                    internal_assert(args.size() == 2)
-                        << "cross takes two arguments, received: "
-                        << args.size();
-                    return ir::Intrinsic::make(ir::Intrinsic::cross,
-                                               std::move(args));
-                } else if (name == "fma") {
-                    internal_assert(args.size() == 3)
-                        << "fma takes two arguments, received: " << args.size();
-                    return ir::Intrinsic::make(ir::Intrinsic::fma,
-                                               std::move(args));
-                } else if (name == "argmin") {
-                    internal_assert(args.size() == 2)
-                        << "argmin takes two arguments, received: "
-                        << args.size();
-                    return ir::SetOp::make(ir::SetOp::argmin,
-                                           std::move(args[0]),
-                                           std::move(args[1]));
-                } else if (name == "filter") {
-                    internal_assert(args.size() == 2)
-                        << "filter takes two arguments, received: "
-                        << args.size();
-                    return ir::SetOp::make(ir::SetOp::filter,
-                                           std::move(args[0]),
-                                           std::move(args[1]));
-                } else if (name == "map") {
-                    internal_assert(args.size() == 2)
-                        << "map takes two arguments, received: " << args.size();
-                    return ir::SetOp::make(ir::SetOp::map, std::move(args[0]),
-                                           std::move(args[1]));
-                } else if (name == "product") {
-                    internal_assert(args.size() == 2)
-                        << "product takes two arguments, received: "
-                        << args.size();
-                    return ir::SetOp::make(ir::SetOp::product,
-                                           std::move(args[0]),
-                                           std::move(args[1]));
-                } else if (name == "distance") {
-                    internal_assert(args.size() == 2)
-                        << "distance takes two arguments, received: "
-                        << args.size();
-                    return ir::GeomOp::make(ir::GeomOp::distance,
-                                            std::move(args[0]),
-                                            std::move(args[1]));
-                } else if (name == "intersects") {
-                    internal_assert(args.size() == 2)
-                        << "intersects takes two arguments, received: "
-                        << args.size();
-                    return ir::GeomOp::make(ir::GeomOp::intersects,
-                                            std::move(args[0]),
-                                            std::move(args[1]));
-                } else if (name == "contains") {
-                    internal_assert(args.size() == 2)
-                        << "contains takes two arguments, received: "
-                        << args.size();
-                    return ir::GeomOp::make(ir::GeomOp::contains,
-                                            std::move(args[0]),
-                                            std::move(args[1]));
-                } else if (name == "sum") {
-                    internal_assert(args.size() == 1)
-                        << "sum takes a single argument, received: "
-                        << args.size();
-                    return ir::VectorReduce::make(ir::VectorReduce::Add,
-                                                  std::move(args[0]));
-                } else if (name == "idxmin") {
-                    internal_assert(args.size() == 1)
-                        << "idxmin takes a single argument, received: "
-                        << args.size();
-                    return ir::VectorReduce::make(ir::VectorReduce::Idxmin,
-                                                  std::move(args[0]));
-                } else if (name == "idxmax") {
-                    internal_assert(args.size() == 1)
-                        << "idxmax takes a single argument, received: "
-                        << args.size();
-                    return ir::VectorReduce::make(ir::VectorReduce::Idxmax,
-                                                  std::move(args[0]));
-                } else if (name == "max") {
-                    if (args.size() == 1) {
-                        // Vector reduce
-                        return ir::VectorReduce::make(ir::VectorReduce::Max,
-                                                      std::move(args[0]));
-                    } else {
-                        internal_assert(args.size() == 2)
-                            << "max() currently only supports binary and "
-                               "unary, instead "
-                               "received: "
-                            << args.size() << " arguments at line "
-                            << token.lineBegin;
-                        return ir::Intrinsic::make(ir::Intrinsic::max,
-                                                   std::move(args));
-                    }
-                } else if (name == "min") {
-                    if (args.size() == 1) {
-                        // Vector reduce
-                        return ir::VectorReduce::make(ir::VectorReduce::Min,
-                                                      std::move(args[0]));
-                    } else {
-                        internal_assert(args.size() == 2)
-                            << "min() currently only supports binary and "
-                               "unary, instead "
-                               "received: "
-                            << args.size() << " arguments at line "
-                            << token.lineBegin;
-                        return ir::Intrinsic::make(ir::Intrinsic::min,
-                                                   std::move(args));
-                    }
-                } else if (name == "any") {
-                    internal_assert(args.size() == 1)
-                        << "any takes a single argument, received: "
-                        << args.size();
-                    return ir::VectorReduce::make(ir::VectorReduce::Or,
-                                                  std::move(args[0]));
-                } else if (name == "all") {
-                    internal_assert(args.size() == 1)
-                        << "all takes a single argument, received: "
-                        << args.size();
-                    return ir::VectorReduce::make(ir::VectorReduce::And,
-                                                  std::move(args[0]));
-                } else if (name == "permute") {
+                // Special built-ins without template parameters
+                if (name == "permute") {
                     internal_assert(args.size() == 2)
                         << "permute takes two arguments, received: "
                         << args.size();
@@ -1141,12 +1007,116 @@ struct Parser {
                     return ir::Select::make(std::move(args[0]),
                                             std::move(args[1]),
                                             std::move(args[2]));
-                } else {
-                    // Not intrinsic or set op, not sure what this is.
-                    // TODO: could be a ctor of a type?
-                    internal_error << "Unknown function call " << name;
-                    return ir::Expr();
                 }
+
+                // Numerical intrinsics
+                struct IntrinsicPattern {
+                    const std::string name;
+                    size_t n_args;
+                    ir::Intrinsic::OpType op;
+                    bool skippable = false;
+                };
+
+                static const IntrinsicPattern ipatterns[] = {
+                    {"abs", 1, ir::Intrinsic::abs},
+                    {"cos", 1, ir::Intrinsic::cos},
+                    {"cross", 2, ir::Intrinsic::cross},
+                    {"fma", 3, ir::Intrinsic::fma},
+                    {"max", 2, ir::Intrinsic::max, /* skippable */ true},
+                    {"min", 2, ir::Intrinsic::min, /* skippable */ true},
+                    {"sin", 1, ir::Intrinsic::sin},
+                    {"sqrt", 1, ir::Intrinsic::sqrt},
+                };
+
+                for (const auto &p : ipatterns) {
+                    if (name == p.name) {
+                        if (p.skippable && args.size() != p.n_args) {
+                            break;
+                        }
+                        internal_assert(args.size() == p.n_args)
+                            << p.name << " takes " << p.n_args << " argument(s), "
+                            << "received " << args.size() << " instead, on line "
+                            << token.lineBegin << ":" << token.colBegin;
+                        return ir::Intrinsic::make(p.op, std::move(args));
+                    }
+                }
+
+                // Set operations
+                struct SetPattern {
+                    const std::string name;
+                    ir::SetOp::OpType op;
+                };
+
+                static const SetPattern spatterns[] = {
+                    {"argmin", ir::SetOp::argmin},
+                    {"filter", ir::SetOp::filter},
+                    {"map", ir::SetOp::map},
+                    {"product", ir::SetOp::product},
+                };
+
+                for (const auto &p : spatterns) {
+                    if (name == p.name) {
+                        internal_assert(args.size() == 2)
+                            << p.name << " takes 2 arguments, "
+                            << "received " << args.size() << " instead, on line "
+                            << token.lineBegin << ":" << token.colBegin;
+                        return ir::SetOp::make(p.op, std::move(args[0]), std::move(args[1]));
+                    }
+                }
+
+                // Geometry operations
+                struct GeomPattern {
+                    const std::string name;
+                    ir::GeomOp::OpType op;
+                };
+
+                static const GeomPattern gpatterns[] = {
+                    {"distance", ir::GeomOp::distance},
+                    {"intersects", ir::GeomOp::intersects},
+                    {"contains", ir::GeomOp::contains},
+                };
+
+                for (const auto &p : gpatterns) {
+                    if (name == p.name) {
+                        internal_assert(args.size() == 2)
+                            << p.name << " takes 2 arguments, "
+                            << "received " << args.size() << " instead, on line "
+                            << token.lineBegin << ":" << token.colBegin;
+                        return ir::GeomOp::make(p.op, std::move(args[0]), std::move(args[1]));
+                    }
+                }
+
+                // Vector reductions
+                struct ReducePatterns {
+                    const std::string name;
+                    ir::VectorReduce::OpType op;
+                };
+
+                static const ReducePatterns rpatterns[] = {
+                    {"sum", ir::VectorReduce::Add},
+                    {"all", ir::VectorReduce::And},
+                    {"idxmax", ir::VectorReduce::Idxmax},
+                    {"idxmin", ir::VectorReduce::Idxmin},
+                    {"max", ir::VectorReduce::Max},
+                    {"min", ir::VectorReduce::Min},
+                    {"prod", ir::VectorReduce::Mul},
+                    {"any", ir::VectorReduce::Or},
+                };
+
+                for (const auto &p : rpatterns) {
+                    if (name == p.name) {
+                        internal_assert(args.size() == 1)
+                            << p.name << " takes 1 argument, "
+                            << "received " << args.size() << " instead, on line "
+                            << token.lineBegin << ":" << token.colBegin;
+                        return ir::VectorReduce::make(p.op, std::move(args[0]));
+                    }
+                }
+
+                // Not intrinsic or set op, not sure what this is.
+                // TODO: could be a ctor of a type?
+                internal_error << "Unknown function call " << name;
+                return ir::Expr();
             } else {
                 // method access!
                 // TODO: type inference via interface?

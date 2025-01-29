@@ -12,7 +12,7 @@ func foo() -> i32 {
     L6 = |x: i32 y: i32| x+y;
     L7 = |x: i32| { |y: i32|  { y } };
 
-    return 0;
+    return L1(0);
 }
 
 func relu(v: set[i32]) = filter(|x : i32| x > 0, v);
