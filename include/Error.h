@@ -16,15 +16,15 @@ class ErrorReport {
         : triggered(!cond) {
         [[likely]] if (!triggered) { return; }
         // Print the file path proceeding the root directory (inclusive).
-        constexpr std::string_view rootDirectory[] = "bonsai";
+        constexpr std::string_view rootDirectory = "bonsai";
         std::string F(file);
         const size_t pos = F.find(rootDirectory);
         F = F.substr(pos, F.length());
-        if (F.length() > rootDirectory.length() &&
-            substr(1, rootDirectory.length()) rootDirectory) {
+        if (constexpr size_t Length = rootDirectory.length();
+            F.length() > Length && F.substr(1, Length) == rootDirectory) {
             // TODO(cgyurgyik): Get rid of this hack.
             // Handle `bonsai/bonsai` seen in Github Actions.
-            F = F.substr(1 + rootDirectory.length(), F.length());
+            F = F.substr(1 + Length, F.length());
         }
         stream << "[internal] Error: ";
         stream << F << ":" << line << "\n";
