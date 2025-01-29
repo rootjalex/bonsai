@@ -1,0 +1,19 @@
+// -llvm
+
+func reti32(i : i32) = i + 2;
+
+func ret_zero() -> i32 = 0;
+
+func ret_fzero() -> f32 = 0;
+
+func ret_fone() -> f32 = 1;
+
+func ret_f32x4(x : vector[f32, 4]) = x + 2;
+
+func a(x : u32) = x + 5u;
+
+func b(x : f64) = x + 3.0;
+
+func c(x : f64) = x + 3;
+
+func d(x : f16) = x + 3;
