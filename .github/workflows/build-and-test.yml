@@ -12,7 +12,7 @@ env:
 jobs:
   # TODO(cgyurgyik): Run clang-format, clang-tidy. (The CIRCT project has this set up [1].)
   # [1]: https://github.com/llvm/circt/blob/main/.github/workflows/buildAndTest.yml
-  build-and-test-Bonsai:
+  build-and-test:
     # Currently we are only running this on mac-os. For multi-platform:
     # https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: macos-latest
