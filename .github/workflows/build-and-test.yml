@@ -34,6 +34,9 @@ jobs:
         LLVM_ROOT: ${{ env.LLVM_PATH }}
         LLVM_CONFIG: ${{ env.LLVM_ROOT }}/bin/llvm-config
       run: |
+        echo $LLVM_ROOT
+        echo $LLVM_CONFIG
+        echo ${{ env.LLVM_PATH }}
         cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
       
     - name: Install runt
