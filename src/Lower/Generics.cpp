@@ -16,8 +16,6 @@ using namespace ir;
 
 namespace {
 
-typedef std::map<std::string, std::shared_ptr<Function>> FuncMap;
-
 std::pair<FuncMap, FuncMap> partition_generics(const FuncMap &funcs) {
     FuncMap generics, nongenerics;
     for (const auto &[name, func] : funcs) {
@@ -59,7 +57,7 @@ std::string short_type_name(const Type &type) {
         return "#" + type.as<Struct_t>()->name;
     case IRTypeEnum::Tuple_t: {
         std::string name = "_";
-        for (const auto &t : type.as<Tuple_t>()->etypes) {
+        for (const Type &t : type.as<Tuple_t>()->etypes) {
             name += short_type_name(t) + "_";
         }
         return name;
@@ -198,7 +196,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             std::string new_name = unique_generic_name(name, _types);
 
             new_funcs[new_name] = std::make_shared<Function>(
-                new_name, std::move(args), std::move(ret_type), std::move(body),
+                std::move(new_name), std::move(args), std::move(ret_type), std::move(body),
                 std::move(interfaces));
         }
     }

@@ -887,15 +887,15 @@ struct Parser {
 
                     std::map<std::string, ir::Type> instantiations;
                     for (size_t i = 0; i < n_generics; i++) {
-                        instantiations[func->interfaces[i].first] =
+                        instantiations[func->interfaces[i].name] =
                             template_types[i];
 
                         internal_assert(ir::satisfies(
-                            template_types[i], func->interfaces[i].second))
+                            template_types[i], func->interfaces[i].interface))
                             << "Template type: " << template_types[i]
                             << " in call to " << name
                             << " does not satisfy interface: "
-                            << func->interfaces[i].second;
+                            << func->interfaces[i].interface;
                     }
 
                     // TODO(ajr): may want to lift this into an analysis
