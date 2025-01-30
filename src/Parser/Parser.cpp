@@ -118,8 +118,6 @@ struct Parser {
         // Add Intrinsic types!
     }
 
-    void invalidCaseStyle() {}
-
     ir::Program parseProgram() {
         internal_assert(frames.empty());
         new_frame();
