@@ -58,15 +58,16 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: runt -d
     
-    - uses: ZedThree/clang-tidy-review@v0.20.1
-      id: review
-      if: github.event_name == 'pull_request'
-      with:
-        config_file: '.clang-tidy'
-        build_dir: build
+    # TODO(cgyurgyik): This will only work on ubuntu. Ugh.
+    # - uses: ZedThree/clang-tidy-review@v0.20.1
+    #   id: review
+    #   if: github.event_name == 'pull_request'
+    #   with:
+    #     config_file: '.clang-tidy'
+    #     build_dir: build
 
-    - uses: ZedThree/clang-tidy-review/upload@v0.20.1
-      id: upload-review
-      # If there are any comments, fail the check.
-    - if: steps.review.outputs.total_comments > 0
-      run: exit 1
+    # - uses: ZedThree/clang-tidy-review/upload@v0.20.1
+    #   id: upload-review
+    #   # If there are any comments, fail the check.
+    # - if: steps.review.outputs.total_comments > 0
+    #   run: exit 1
