@@ -67,7 +67,6 @@ jobs:
       with:
         fetch-depth: 2 # Required for clang-tidy / clang-format checks.
 
-    # TODO(cgyurgyik): This will only work on Linux. Ugh.
     - uses: ZedThree/clang-tidy-review@v0.20.1
       id: review
       if: github.event_name == 'pull_request'
