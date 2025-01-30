@@ -832,7 +832,7 @@ struct Parser {
     ir::Expr try_match_intrinsics(const std::string &name, std::vector<ir::Expr> args, size_t line, size_t col) {
         // Numerical intrinsics
         struct IntrinsicPattern {
-            const char *name;
+            const std::string_view name;
             size_t n_args;
             ir::Intrinsic::OpType op;
             bool skippable = false;
@@ -856,7 +856,7 @@ struct Parser {
 
         // Set operations
         struct SetPattern {
-            const char *name;
+            const std::string_view name;
             ir::SetOp::OpType op;
         };
 
@@ -873,7 +873,7 @@ struct Parser {
 
         // Geometry operations
         struct GeomPattern {
-            const char *name;
+            const std::string_view name;
             ir::GeomOp::OpType op;
         };
 
@@ -889,7 +889,7 @@ struct Parser {
 
         // Vector reductions
         struct ReducePattern {
-            const char *name;
+            const std::string_view name;
             ir::VectorReduce::OpType op;
         };
 
