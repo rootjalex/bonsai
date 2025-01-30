@@ -8,7 +8,7 @@
 namespace bonsai {
 namespace parser {
 
-TokenStream lex(const std::string &filename);
+  TokenStream lex(const std::string &filename);
 
 } // namespace parser
 } // namespace bonsai
