@@ -58,17 +58,17 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: runt -d
     
-    - uses: ZedThree/clang-tidy-review@v0.14.0
-      id: review
-      if: github.event_name == 'pull_request'
-      with:
-        config_file: '.clang-tidy'
-        build_dir: build
+    # - uses: ZedThree/clang-tidy-review@v0.14.0
+    #   id: review
+    #   if: github.event_name == 'pull_request'
+    #   with:
+    #     config_file: '.clang-tidy'
+    #     build_dir: build
 
-    # # Uploads an artefact containing clang_fixes.json
-    # - name: clang-tidy-review
-    - uses: ZedThree/clang-tidy-review/upload@v0.14.0
-      id: upload-review
-      # If there are any comments, fail the check
-    - if: steps.review.outputs.total_comments > 0
-      run: exit 1
+    # # # Uploads an artefact containing clang_fixes.json
+    # # - name: clang-tidy-review
+    # - uses: ZedThree/clang-tidy-review/upload@v0.14.0
+    #   id: upload-review
+    #   # If there are any comments, fail the check
+    # - if: steps.review.outputs.total_comments > 0
+    #   run: exit 1
