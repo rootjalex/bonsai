@@ -11,6 +11,8 @@ set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(TESTS_DIR ${CMAKE_SOURCE_DIR}/tests)
 
+set(CMAKE_CXX_CLANG_TIDY "clang-tidy")
+
 # Find LLVM
 set(LLVM_ROOT "")
 if (EXISTS "${CMAKE_SOURCE_DIR}/deps/llvm-install")
