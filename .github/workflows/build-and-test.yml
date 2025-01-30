@@ -17,8 +17,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 2 # Required for clang-tidy / clang-format checks.
 
     # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
     # this, but as of 29 January 2025, they do not support LLVM19 yet. We resort
@@ -58,16 +56,24 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: runt -d
     
-    # TODO(cgyurgyik): This will only work on Linux. Ugh.
-    # - uses: ZedThree/clang-tidy-review@v0.20.1
-    #   id: review
-    #   if: github.event_name == 'pull_request'
-    #   with:
-    #     config_file: '.clang-tidy'
-    #     build_dir: build
+  clang-tidy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2 # Required for clang-tidy / clang-format checks.
 
-    # - uses: ZedThree/clang-tidy-review/upload@v0.20.1
-    #   id: upload-review
-    #   # If there are any comments, fail the check.
-    # - if: steps.review.outputs.total_comments > 0
-    #   run: exit 1
+    # TODO(cgyurgyik): This will only work on Linux. Ugh.
+    - uses: ZedThree/clang-tidy-review@v0.20.1
+      id: review
+      if: github.event_name == 'pull_request'
+      with:
+        config_file: '.clang-tidy'
+        build_dir: build
+
+    - uses: ZedThree/clang-tidy-review/upload@v0.20.1
+      id: upload-review
+      # If there are any comments, fail the check.
+    - if: steps.review.outputs.total_comments > 0
+      run: exit 1
