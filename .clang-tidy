@@ -14,5 +14,7 @@ CheckOptions:
     value:           lower_case
   - key:             readability-identifier-naming.VariableCase
     value:           lower_case
+  - key:             readability-identifier-naming.ConstexprVariableCase
+    value:           UPPER_CASE
   - key:             modernize-use-default-member-init.UseAssignment
     value:           1
