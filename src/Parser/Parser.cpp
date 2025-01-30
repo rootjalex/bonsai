@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <regex>
+#include <span>
 #include <sstream>
 
 #include "Error.h"
@@ -801,6 +802,34 @@ struct Parser {
         }
     }
 
+    template <typename OpType, typename Pattern>
+    std::optional<OpType> try_match_pattern(const std::string &name, const size_t arg_count, const Pattern *patterns, size_t pattern_size, size_t n_args, size_t line, size_t col) {
+        for (const Pattern &p : std::span(patterns, pattern_size)) {
+            if (name == p.name) {
+                if constexpr (requires { p.skippable; }) {
+                    if (p.skippable && arg_count != p.n_args) {
+                        return {};
+                    }
+                }
+                if constexpr (requires { p.n_args; }) {
+                    internal_assert(arg_count == p.n_args)
+                        << p.name << " takes " << p.n_args
+                        << " argument(s), received " << arg_count
+                        << " instead, on line " << line << ":" << col;
+                } else {
+                    internal_assert(arg_count == n_args)
+                        << p.name << " takes " << n_args
+                        << " argument(s), received " << arg_count
+                        << " instead, on line " << line << ":" << col;
+                }
+
+                return p.op;
+            }
+        }
+        return {};
+    }
+
+
     ir::Expr parseIdentifier() {
         const Token token = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(token.value);
@@ -1013,94 +1042,68 @@ struct Parser {
 
                 // Numerical intrinsics
                 struct IntrinsicPattern {
-                    const std::string name;
+                    const char *name;
                     size_t n_args;
                     ir::Intrinsic::OpType op;
                     bool skippable = false;
                 };
 
-                static const IntrinsicPattern ipatterns[] = {
+                static constexpr IntrinsicPattern IPATTERNS[] = {
                     {"abs", 1, ir::Intrinsic::abs},
                     {"cos", 1, ir::Intrinsic::cos},
                     {"cross", 2, ir::Intrinsic::cross},
                     {"fma", 3, ir::Intrinsic::fma},
-                    {"max", 2, ir::Intrinsic::max, /* skippable */ true},
-                    {"min", 2, ir::Intrinsic::min, /* skippable */ true},
+                    // These two are skippable because they might be parsed as single-argument reductions below.
+                    {"max", 2, ir::Intrinsic::max, .skippable=true},
+                    {"min", 2, ir::Intrinsic::min, .skippable=true},
                     {"sin", 1, ir::Intrinsic::sin},
                     {"sqrt", 1, ir::Intrinsic::sqrt},
                 };
 
-                for (const auto &p : ipatterns) {
-                    if (name == p.name) {
-                        if (p.skippable && args.size() != p.n_args) {
-                            break;
-                        }
-                        internal_assert(args.size() == p.n_args)
-                            << p.name << " takes " << p.n_args
-                            << " argument(s), "
-                            << "received " << args.size()
-                            << " instead, on line " << token.lineBegin << ":"
-                            << token.colBegin;
-                        return ir::Intrinsic::make(p.op, std::move(args));
-                    }
+                if (auto op = try_match_pattern<ir::Intrinsic::OpType>(name, args.size(), IPATTERNS, std::size(IPATTERNS), 0, token.lineBegin, token.colBegin)) {
+                    return ir::Intrinsic::make(*op, std::move(args));
                 }
 
                 // Set operations
                 struct SetPattern {
-                    const std::string name;
+                    const char *name;
                     ir::SetOp::OpType op;
                 };
 
-                static const SetPattern spatterns[] = {
+                static constexpr SetPattern SPATTERNS[] = {
                     {"argmin", ir::SetOp::argmin},
                     {"filter", ir::SetOp::filter},
                     {"map", ir::SetOp::map},
                     {"product", ir::SetOp::product},
                 };
 
-                for (const auto &p : spatterns) {
-                    if (name == p.name) {
-                        internal_assert(args.size() == 2)
-                            << p.name << " takes 2 arguments, "
-                            << "received " << args.size()
-                            << " instead, on line " << token.lineBegin << ":"
-                            << token.colBegin;
-                        return ir::SetOp::make(p.op, std::move(args[0]),
-                                               std::move(args[1]));
-                    }
+                if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(), SPATTERNS, std::size(SPATTERNS), 2, token.lineBegin, token.colBegin)) {
+                    return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
                 }
 
                 // Geometry operations
                 struct GeomPattern {
-                    const std::string name;
+                    const char *name;
                     ir::GeomOp::OpType op;
                 };
 
-                static const GeomPattern gpatterns[] = {
+                static const GeomPattern GPATTERNS[] = {
                     {"distance", ir::GeomOp::distance},
                     {"intersects", ir::GeomOp::intersects},
                     {"contains", ir::GeomOp::contains},
                 };
 
-                for (const auto &p : gpatterns) {
-                    if (name == p.name) {
-                        internal_assert(args.size() == 2)
-                            << p.name << " takes 2 arguments, "
-                            << "received " << args.size()
-                            << " instead, on line " << token.lineBegin << ":"
-                            << token.colBegin;
-                        return ir::GeomOp::make(p.op, std::move(args[0]),
-                                                std::move(args[1]));
-                    }
+                if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(), GPATTERNS, std::size(GPATTERNS), 2, token.lineBegin, token.colBegin)) {
+                    return ir::GeomOp::make(*op, std::move(args[0]), std::move(args[1]));
                 }
 
                 // Vector reductions
                 struct ReducePatterns {
-                    const std::string name;
+                    const char *name;
                     ir::VectorReduce::OpType op;
                 };
 
-                static const ReducePatterns rpatterns[] = {
+                static const ReducePatterns RPATTERNS[] = {
                     {"sum", ir::VectorReduce::Add},
                     {"all", ir::VectorReduce::And},
                     {"idxmax", ir::VectorReduce::Idxmax},
@@ -1111,15 +1114,8 @@ struct Parser {
                     {"any", ir::VectorReduce::Or},
                 };
 
-                for (const auto &p : rpatterns) {
-                    if (name == p.name) {
-                        internal_assert(args.size() == 1)
-                            << p.name << " takes 1 argument, "
-                            << "received " << args.size()
-                            << " instead, on line " << token.lineBegin << ":"
-                            << token.colBegin;
-                        return ir::VectorReduce::make(p.op, std::move(args[0]));
-                    }
+                if (auto op = try_match_pattern<ir::VectorReduce::OpType>(name, args.size(), RPATTERNS, std::size(RPATTERNS), 2, token.lineBegin, token.colBegin)) {
+                    return ir::VectorReduce::make(*op, std::move(args[0]));
                 }
 
                 // Not intrinsic or set op, not sure what this is.
