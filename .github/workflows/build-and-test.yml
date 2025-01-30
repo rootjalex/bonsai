@@ -17,6 +17,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2 # Required for clang-tidy / clang-format checks.
 
     # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
     # this, but as of 29 January 2025, they do not support LLVM19 yet. We resort
