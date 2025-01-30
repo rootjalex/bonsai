@@ -79,6 +79,7 @@ jobs:
       with:
         config_file: '.clang-tidy'
         build_dir: build
+        lgtm_comment_body: "" # No comments upon success.
 
     - uses: ZedThree/clang-tidy-review/upload@v0.20.1
       id: upload-review
