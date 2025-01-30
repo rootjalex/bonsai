@@ -248,9 +248,7 @@ bool TokenStream::consume(Token::Type type) {
 Token TokenStream::peek(uint32_t count) const {
     if (count == 0) {
         if (tokens.empty()) {
-            Token end_token = Token();
-            end_token.type = Token::Type::ERROR;
-            return end_token;
+            return Token{.type = Token::Type::ERROR};
         }
         return tokens.front();
     }
