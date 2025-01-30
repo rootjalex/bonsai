@@ -37,7 +37,7 @@ jobs:
     
     - name: Configure CMake
       run: |
-        cmake -S . -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        cmake -S . -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra"
 
     - name: Build Bonsai
       run: |
@@ -98,8 +98,7 @@ jobs:
       working-directory: ${{ github.workspace }}
       if: ${{ always() }}
       run: |
-        git update-index --chmod=+x .github/workflows/clang-tidy-diff.py
-        if git diff -U0 $DIFF_COMMIT...HEAD | python3 .github/workflows/clang-tidy-diff.py -path build -p1 -fix ; then
+        if git diff -U0 $DIFF_COMMIT...HEAD | clang-tidy-diff -path build -p1 -fix ; then
           exit 0
         fi
         if git diff --quiet --ignore-submodules; then
