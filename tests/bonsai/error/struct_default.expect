@@ -1,5 +1,5 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:58
+[internal] Error: src/Parser/Parser.cpp:59
 Cannot check type of unknown var: o required at line: 5

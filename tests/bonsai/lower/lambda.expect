@@ -12,7 +12,7 @@ func foo() -> i32 {
   let L5 = |y : i32| y in
   let L6 = |x : i32, y : i32| x + y in
   let L7 = |x : i32| |y : i32| y in
-  return (i32)0
+  return L1((i32)0)
 }
 
 func relu(v : set<i32>) -> set<i32> {

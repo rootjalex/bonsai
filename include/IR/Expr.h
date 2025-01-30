@@ -195,14 +195,14 @@ struct Broadcast : ExprNode<Broadcast> {
 struct VectorReduce : ExprNode<VectorReduce> {
     enum OpType {
         Add,
-        Idxmin, // argmin
+        And,
         Idxmax, // argmax
-        Mul,
-        Min,
+        Idxmin, // argmin
         Max,
-        // TODO: and, or, saturating_add?
+        Min,
+        Mul,
         Or,
-        And
+        // TODO: saturating_add?
     };
 
     OpType op;
