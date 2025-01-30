@@ -264,7 +264,7 @@ struct Parser {
             } while (consume(Token::Type::COMMA));
 
             expect(Token::Type::COL);
-            ir::Type type = parseType();
+                      ir::Type type = parseType();
             for (const auto &field_name : names) {
                 internal_assert(fields.cend() ==
                                 std::find_if(fields.cbegin(), fields.cend(),
