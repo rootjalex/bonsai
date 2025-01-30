@@ -45,11 +45,14 @@ jobs:
       run: |
         cmake --build ${{ github.workspace }}/build --config ${{env.BUILD_TYPE}}
       
-    - name: Install runt
-      uses: baptiste0928/cargo-install@v4
+    - name: Set up Rust (stable)
+      uses: actions-rs/toolchain@v1
       with:
-        crate: runt
-        version: "0.4.1"
+        toolchain: stable
+        override: true
+
+    - name: Install runt 
+      run: cargo install runt
       
     - name: Test
       working-directory: ${{ github.workspace }}
