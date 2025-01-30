@@ -96,6 +96,7 @@ jobs:
     # does this if supplied with the diff.
     - name: clang-tidy
       working-directory: ${{ github.workspace }}
+      if: ${{ always() }}
       run: |
         git update-index --chmod=+x .github/workflows/clang-tidy-diff.py
         if git diff -U0 $DIFF_COMMIT...HEAD | python3 .github/workflows/clang-tidy-diff.py -path build -p1 -fix ; then
