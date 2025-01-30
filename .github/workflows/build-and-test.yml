@@ -54,53 +54,18 @@ jobs:
     - name: Test
       working-directory: ${{ github.workspace }}
       run: runt -d
-
-      # --------
-      # Lint the Bonsai C++ code (graciously borrowed from the CIRCT workflow). 
-      # We purposefully do this after tests are run so users can quickly iterate.
-      # -------
-
-      # Choose the git commit to diff against for the purposes of linting.
-      # Since this workflow is triggered on both pushes and pull requests, we
-      # have to determine if the pull request target branch is set (which it
-      # will only be on the PR triggered flow). If it's not, then compare
-      # against the last commit.
-    - name: choose-commit
-      if: ${{ always() }}
-      env:
-        # Base ref is the target branch, in text form (not hash)
-        PR_BASE: ${{ github.base_ref }}
-      run: |
-        # Run clang-format
-        if [ -z "$PR_BASE" ]; then
-          DIFF_COMMIT_NAME="HEAD^"
-        else
-          DIFF_COMMIT_NAME="$PR_BASE"
-        fi
-        echo "DIFF_COMMIT_NAME=$DIFF_COMMIT_NAME" >> $GITHUB_ENV
-
-    # Since we did a shallow fetch for this repo, we must fetch the commit
-    # upon which we be diff'ing. The last step set the ref name in the
-    # $DIFF_COMMIT_NAME environment variable. When running the fetch, resolve
-    # it to the commit hash and pass that hash along to subsequent steps.
-    - name: git fetch base commit
-      continue-on-error: true
-      run: |
-        if echo "$DIFF_COMMIT_NAME" | grep -q HEAD; then
-          DIFF_COMMIT_SHA=$( git rev-parse $DIFF_COMMIT_NAME )
-        else
-          git fetch --recurse-submodules=no origin $DIFF_COMMIT_NAME
-          DIFF_COMMIT_SHA=$( git rev-parse origin/$DIFF_COMMIT_NAME )
-        fi
-        echo "DIFF_COMMIT=$DIFF_COMMIT_SHA" >> $GITHUB_ENV
-
+    
     - uses: ZedThree/clang-tidy-review@v0.14.0
       id: review
+      if: github.event_name == 'pull_request'
+      with:
+        config_file: '.clang-tidy'
+        build_dir: build
 
-    # Uploads an artefact containing clang_fixes.json
+    # # Uploads an artefact containing clang_fixes.json
+    # - name: clang-tidy-review
     - uses: ZedThree/clang-tidy-review/upload@v0.14.0
       id: upload-review
-
-    # If there are any comments, fail the check
+      # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
       run: exit 1
