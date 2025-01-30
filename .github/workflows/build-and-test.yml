@@ -98,7 +98,7 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: |
         git update-index --chmod=+x .github/workflows/clang-tidy-diff.py
-        if git diff -U0 $DIFF_COMMIT...HEAD | .github/workflows/clang-tidy-diff.py -path build -p1 -fix ; then
+        if git diff -U0 $DIFF_COMMIT...HEAD | python3 .github/workflows/clang-tidy-diff.py -path build -p1 -fix ; then
           exit 0
         fi
         if git diff --quiet --ignore-submodules; then
