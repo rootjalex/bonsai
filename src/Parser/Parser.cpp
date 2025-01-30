@@ -803,13 +803,9 @@ struct Parser {
         }
     }
 
-    // TODO(cgyurgyik): clean up parsing methods and add error reporting
-    // throughout.
+    // TODO(cgyurgyik): clean up parsing methods and add error reporting throughout.
     template <typename OpType, typename Container>
-    std::optional<OpType>
-    try_match_pattern(const std::string &name, const size_t arg_count,
-                      const Container &patterns, size_t n_args, size_t line,
-                      size_t col) {
+    std::optional<OpType> try_match_pattern(const std::string &name, const size_t arg_count, const Container &patterns, size_t n_args, size_t line, size_t col) {
         for (const auto &p : patterns) {
             if (name == p.name) {
                 if constexpr (requires { p.skippable; }) {
@@ -835,9 +831,7 @@ struct Parser {
         return {};
     }
 
-    ir::Expr try_match_intrinsics(const std::string &name,
-                                  std::vector<ir::Expr> args, size_t line,
-                                  size_t col) {
+    ir::Expr try_match_intrinsics(const std::string &name, std::vector<ir::Expr> args, size_t line, size_t col) {
         // Numerical intrinsics
         struct IntrinsicPattern {
             const std::string_view name;
@@ -851,16 +845,14 @@ struct Parser {
             {"cos", 1, ir::Intrinsic::cos},
             {"cross", 2, ir::Intrinsic::cross},
             {"fma", 3, ir::Intrinsic::fma},
-            // These two are skippable because they might be parsed as
-            // single-argument reductions below.
-            {"max", 2, ir::Intrinsic::max, .skippable = true},
-            {"min", 2, ir::Intrinsic::min, .skippable = true},
+            // These two are skippable because they might be parsed as single-argument reductions below.
+            {"max", 2, ir::Intrinsic::max, .skippable=true},
+            {"min", 2, ir::Intrinsic::min, .skippable=true},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
         });
 
-        if (auto op = try_match_pattern<ir::Intrinsic::OpType>(
-                name, args.size(), IPATTERNS, 0, line, col)) {
+        if (auto op = try_match_pattern<ir::Intrinsic::OpType>(name, args.size(), IPATTERNS, 0, line, col)) {
             return ir::Intrinsic::make(*op, std::move(args));
         }
 
@@ -877,8 +869,7 @@ struct Parser {
             {"product", ir::SetOp::product},
         });
 
-        if (auto op = try_match_pattern<ir::SetOp::OpType>(
-                name, args.size(), SPATTERNS, 2, line, col)) {
+        if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(), SPATTERNS, 2, line, col)) {
             return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
         }
 
@@ -894,10 +885,8 @@ struct Parser {
             {"contains", ir::GeomOp::contains},
         });
 
-        if (auto op = try_match_pattern<ir::GeomOp::OpType>(
-                name, args.size(), GPATTERNS, 2, line, col)) {
-            return ir::GeomOp::make(*op, std::move(args[0]),
-                                    std::move(args[1]));
+        if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(), GPATTERNS, 2, line, col)) {
+            return ir::GeomOp::make(*op, std::move(args[0]), std::move(args[1]));
         }
 
         // Vector reductions
@@ -917,13 +906,13 @@ struct Parser {
             {"any", ir::VectorReduce::Or},
         });
 
-        if (auto op = try_match_pattern<ir::VectorReduce::OpType>(
-                name, args.size(), RPATTERNS, 2, line, col)) {
+        if (auto op = try_match_pattern<ir::VectorReduce::OpType>(name, args.size(), RPATTERNS, 2, line, col)) {
             return ir::VectorReduce::make(*op, std::move(args[0]));
         }
 
         return ir::Expr();
     }
+
 
     ir::Expr parseIdentifier() {
         const Token token = expect(Token::Type::IDENTIFIER);
@@ -1135,8 +1124,7 @@ struct Parser {
                                             std::move(args[2]));
                 }
 
-                ir::Expr intrinsic = try_match_intrinsics(
-                    name, std::move(args), token.lineBegin, token.colBegin);
+                ir::Expr intrinsic = try_match_intrinsics(name, std::move(args), token.lineBegin, token.colBegin);
                 if (intrinsic.defined()) {
                     return intrinsic;
                 }
