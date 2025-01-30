@@ -10,7 +10,7 @@ namespace parser {
 
 TokenStream lex(const std::string &filename);
 
-static void invalidCaseStyle() {}
+static void invalidCaseSyle() {}
 
 } // namespace parser
 } // namespace bonsai
