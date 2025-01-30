@@ -94,46 +94,13 @@ jobs:
         fi
         echo "DIFF_COMMIT=$DIFF_COMMIT_SHA" >> $GITHUB_ENV
 
-    # Run clang-tidy against only the changes. The 'clang-tidy-diff' script
-    # does this if supplied with the diff.
-    - name: clang-tidy
-      working-directory: ${{ github.workspace }}
-      run: |
-        echo "/usr/local/opt/llvm/bin" >> $GITHUB_PATH # So `clang-tidy` script is accessible.
-        git update-index --chmod=+x .github/workflows/clang-tidy-diff.py
-        if git diff -U0 $DIFF_COMMIT...HEAD | python3 .github/workflows/clang-tidy-diff.py -path build -p1 -fix ; then
-          exit 0
-        fi
-        if git diff --quiet --ignore-submodules; then
-          exit 1
-        fi
-        git clang-format -f $DIFF_COMMIT
-        echo "Fixups available for the following files:"
-        git diff --ignore-submodules --name-only
-        echo "See diff in the clang-tidy.patch artifact."
-        git diff --ignore-submodules > clang-tidy.patch
-        git checkout .
-        exit 1
+    - uses: ZedThree/clang-tidy-review@v0.14.0
+      id: review
 
-    # Upload the tidy patches to an artifact (zip'd) associated
-    # with the workflow run. Only run this on a failure.
-    - name: Upload tidy patches
-      uses: actions/upload-artifact@v4
-      continue-on-error: true
-      if: ${{ failure() }}
-      with:
-        name: clang-tidy-patches
-        path: clang-*.patch
+    # Uploads an artefact containing clang_fixes.json
+    - uses: ZedThree/clang-tidy-review/upload@v0.14.0
+      id: upload-review
 
-    # Unfortunately, artifact uploads are always zips so display the diff as
-    # well to provide feedback at a glance.
-    - name: clang tidy patches display
-      if: ${{ failure() }}
-      continue-on-error: true
-      run: |
-        if [ ! -z clang-tidy.patch ]; then
-          echo "Clang-tidy patch"
-          echo "================"
-          cat clang-tidy.patch
-          echo "================"
-        fi
+    # If there are any comments, fail the check
+    - if: steps.review.outputs.total_comments > 0
+      run: exit 1
