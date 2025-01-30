@@ -10,8 +10,6 @@ env:
   BUILD_TYPE: Debug
 
 jobs:
-  # TODO(cgyurgyik): Run clang-format, clang-tidy. (The CIRCT project has this set up [1].)
-  # [1]: https://github.com/llvm/circt/blob/main/.github/workflows/buildAndTest.yml
   build-and-test:
     # Currently we are only running this on mac-os. For multi-platform:
     # https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
@@ -54,3 +52,84 @@ jobs:
     - name: Test
       working-directory: ${{ github.workspace }}
       run: runt -d
+
+      # --------
+      # Lint the Bonsai C++ code (graciously borrowed from the CIRCT workflow). 
+      # We purposefully do this after tests are run so users can quickly iterate.
+      # -------
+
+      # Choose the git commit to diff against for the purposes of linting.
+      # Since this workflow is triggered on both pushes and pull requests, we
+      # have to determine if the pull request target branch is set (which it
+      # will only be on the PR triggered flow). If it's not, then compare
+      # against the last commit.
+    - name: choose-commit
+      if: ${{ always() }}
+      env:
+        # Base ref is the target branch, in text form (not hash)
+        PR_BASE: ${{ github.base_ref }}
+      run: |
+        # Run clang-format
+        if [ -z "$PR_BASE" ]; then
+          DIFF_COMMIT_NAME="HEAD^"
+        else
+          DIFF_COMMIT_NAME="$PR_BASE"
+        fi
+        echo "DIFF_COMMIT_NAME=$DIFF_COMMIT_NAME" >> $GITHUB_ENV
+
+    # Since we did a shallow fetch for this repo, we must fetch the commit
+    # upon which we be diff'ing. The last step set the ref name in the
+    # $DIFF_COMMIT_NAME environment variable. When running the fetch, resolve
+    # it to the commit hash and pass that hash along to subsequent steps.
+    - name: git fetch base commit
+      continue-on-error: true
+      run: |
+        if echo "$DIFF_COMMIT_NAME" | grep -q HEAD; then
+          DIFF_COMMIT_SHA=$( git rev-parse $DIFF_COMMIT_NAME )
+        else
+          git fetch --recurse-submodules=no origin $DIFF_COMMIT_NAME
+          DIFF_COMMIT_SHA=$( git rev-parse origin/$DIFF_COMMIT_NAME )
+        fi
+        echo "DIFF_COMMIT=$DIFF_COMMIT_SHA" >> $GITHUB_ENV
+
+    # Run clang-tidy against only the changes. The 'clang-tidy-diff' script
+    # does this if supplied with the diff.
+    - name: clang-tidy
+      if: ${{ always() }}
+      run: |
+        if git diff -U0 $DIFF_COMMIT...HEAD | clang-tidy-diff -path build -p1 -fix -j$(nproc); then
+          exit 0
+        fi
+        if git diff --quiet --ignore-submodules; then
+          exit 1
+        fi
+        git clang-format -f $DIFF_COMMIT
+        echo "Fixups available for the following files:"
+        git diff --ignore-submodules --name-only
+        echo "See diff in the clang-tidy.patch artifact."
+        git diff --ignore-submodules > clang-tidy.patch
+        git checkout .
+        exit 1
+
+    # Upload the tidy patches to an artifact (zip'd) associated
+    # with the workflow run. Only run this on a failure.
+    - name: Upload tidy patches
+      uses: actions/upload-artifact@v4
+      continue-on-error: true
+      if: ${{ failure() }}
+      with:
+        name: clang-tidy-patches
+        path: clang-*.patch
+
+    # Unfortunately, artifact uploads are always zips so display the diff as
+    # well to provide feedback at a glance.
+    - name: clang tidy patches display
+      if: ${{ failure() }}
+      continue-on-error: true
+      run: |
+        if [ ! -z clang-tidy.patch ]; then
+          echo "Clang-tidy patch"
+          echo "================"
+          cat clang-tidy.patch
+          echo "================"
+        fi
