@@ -802,9 +802,9 @@ struct Parser {
         }
     }
 
-    template <typename OpType, typename Pattern>
-    std::optional<OpType> try_match_pattern(const std::string &name, const size_t arg_count, const Pattern *patterns, size_t pattern_size, size_t n_args, size_t line, size_t col) {
-        for (const Pattern &p : std::span(patterns, pattern_size)) {
+    template <typename OpType, typename Container>
+    std::optional<OpType> try_match_pattern(const std::string &name, const size_t arg_count, const Container &patterns, size_t n_args, size_t line, size_t col) {
+        for (const auto &p : patterns) {
             if (name == p.name) {
                 if constexpr (requires { p.skippable; }) {
                     if (p.skippable && arg_count != p.n_args) {
@@ -827,6 +827,88 @@ struct Parser {
             }
         }
         return {};
+    }
+
+    ir::Expr try_match_intrinsics(const std::string &name, std::vector<ir::Expr> args, size_t line, size_t col) {
+        // Numerical intrinsics
+        struct IntrinsicPattern {
+            const char *name;
+            size_t n_args;
+            ir::Intrinsic::OpType op;
+            bool skippable = false;
+        };
+
+        static constexpr auto IPATTERNS = std::to_array<IntrinsicPattern>({
+            {"abs", 1, ir::Intrinsic::abs},
+            {"cos", 1, ir::Intrinsic::cos},
+            {"cross", 2, ir::Intrinsic::cross},
+            {"fma", 3, ir::Intrinsic::fma},
+            // These two are skippable because they might be parsed as single-argument reductions below.
+            {"max", 2, ir::Intrinsic::max, .skippable=true},
+            {"min", 2, ir::Intrinsic::min, .skippable=true},
+            {"sin", 1, ir::Intrinsic::sin},
+            {"sqrt", 1, ir::Intrinsic::sqrt},
+        });
+
+        if (auto op = try_match_pattern<ir::Intrinsic::OpType>(name, args.size(), IPATTERNS, 0, line, col)) {
+            return ir::Intrinsic::make(*op, std::move(args));
+        }
+
+        // Set operations
+        struct SetPattern {
+            const char *name;
+            ir::SetOp::OpType op;
+        };
+
+        static constexpr auto SPATTERNS = std::to_array<SetPattern>({
+            {"argmin", ir::SetOp::argmin},
+            {"filter", ir::SetOp::filter},
+            {"map", ir::SetOp::map},
+            {"product", ir::SetOp::product},
+        });
+
+        if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(), SPATTERNS, 2, line, col)) {
+            return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
+        }
+
+        // Geometry operations
+        struct GeomPattern {
+            const char *name;
+            ir::GeomOp::OpType op;
+        };
+
+        static const auto GPATTERNS = std::to_array<GeomPattern>({
+            {"distance", ir::GeomOp::distance},
+            {"intersects", ir::GeomOp::intersects},
+            {"contains", ir::GeomOp::contains},
+        });
+
+        if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(), GPATTERNS, 2, line, col)) {
+            return ir::GeomOp::make(*op, std::move(args[0]), std::move(args[1]));
+        }
+
+        // Vector reductions
+        struct ReducePattern {
+            const char *name;
+            ir::VectorReduce::OpType op;
+        };
+
+        static const auto RPATTERNS = std::to_array<ReducePattern>({
+            {"sum", ir::VectorReduce::Add},
+            {"all", ir::VectorReduce::And},
+            {"idxmax", ir::VectorReduce::Idxmax},
+            {"idxmin", ir::VectorReduce::Idxmin},
+            {"max", ir::VectorReduce::Max},
+            {"min", ir::VectorReduce::Min},
+            {"prod", ir::VectorReduce::Mul},
+            {"any", ir::VectorReduce::Or},
+        });
+
+        if (auto op = try_match_pattern<ir::VectorReduce::OpType>(name, args.size(), RPATTERNS, 2, line, col)) {
+            return ir::VectorReduce::make(*op, std::move(args[0]));
+        }
+
+        return ir::Expr();
     }
 
 
@@ -1040,82 +1122,9 @@ struct Parser {
                                             std::move(args[2]));
                 }
 
-                // Numerical intrinsics
-                struct IntrinsicPattern {
-                    const char *name;
-                    size_t n_args;
-                    ir::Intrinsic::OpType op;
-                    bool skippable = false;
-                };
-
-                static constexpr IntrinsicPattern IPATTERNS[] = {
-                    {"abs", 1, ir::Intrinsic::abs},
-                    {"cos", 1, ir::Intrinsic::cos},
-                    {"cross", 2, ir::Intrinsic::cross},
-                    {"fma", 3, ir::Intrinsic::fma},
-                    // These two are skippable because they might be parsed as single-argument reductions below.
-                    {"max", 2, ir::Intrinsic::max, .skippable=true},
-                    {"min", 2, ir::Intrinsic::min, .skippable=true},
-                    {"sin", 1, ir::Intrinsic::sin},
-                    {"sqrt", 1, ir::Intrinsic::sqrt},
-                };
-
-                if (auto op = try_match_pattern<ir::Intrinsic::OpType>(name, args.size(), IPATTERNS, std::size(IPATTERNS), 0, token.lineBegin, token.colBegin)) {
-                    return ir::Intrinsic::make(*op, std::move(args));
-                }
-
-                // Set operations
-                struct SetPattern {
-                    const char *name;
-                    ir::SetOp::OpType op;
-                };
-
-                static constexpr SetPattern SPATTERNS[] = {
-                    {"argmin", ir::SetOp::argmin},
-                    {"filter", ir::SetOp::filter},
-                    {"map", ir::SetOp::map},
-                    {"product", ir::SetOp::product},
-                };
-
-                if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(), SPATTERNS, std::size(SPATTERNS), 2, token.lineBegin, token.colBegin)) {
-                    return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
-                }
-
-                // Geometry operations
-                struct GeomPattern {
-                    const char *name;
-                    ir::GeomOp::OpType op;
-                };
-
-                static const GeomPattern GPATTERNS[] = {
-                    {"distance", ir::GeomOp::distance},
-                    {"intersects", ir::GeomOp::intersects},
-                    {"contains", ir::GeomOp::contains},
-                };
-
-                if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(), GPATTERNS, std::size(GPATTERNS), 2, token.lineBegin, token.colBegin)) {
-                    return ir::GeomOp::make(*op, std::move(args[0]), std::move(args[1]));
-                }
-
-                // Vector reductions
-                struct ReducePatterns {
-                    const char *name;
-                    ir::VectorReduce::OpType op;
-                };
-
-                static const ReducePatterns RPATTERNS[] = {
-                    {"sum", ir::VectorReduce::Add},
-                    {"all", ir::VectorReduce::And},
-                    {"idxmax", ir::VectorReduce::Idxmax},
-                    {"idxmin", ir::VectorReduce::Idxmin},
-                    {"max", ir::VectorReduce::Max},
-                    {"min", ir::VectorReduce::Min},
-                    {"prod", ir::VectorReduce::Mul},
-                    {"any", ir::VectorReduce::Or},
-                };
-
-                if (auto op = try_match_pattern<ir::VectorReduce::OpType>(name, args.size(), RPATTERNS, std::size(RPATTERNS), 2, token.lineBegin, token.colBegin)) {
-                    return ir::VectorReduce::make(*op, std::move(args[0]));
+                ir::Expr intrinsic = try_match_intrinsics(name, std::move(args), token.lineBegin, token.colBegin);
+                if (intrinsic.defined()) {
+                    return intrinsic;
                 }
 
                 // Not intrinsic or set op, not sure what this is.
