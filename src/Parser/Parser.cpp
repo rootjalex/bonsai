@@ -802,6 +802,7 @@ struct Parser {
         }
     }
 
+    // TODO(cgyurgyik): clean up parsing methods and add error reporting throughout.
     template <typename OpType, typename Container>
     std::optional<OpType> try_match_pattern(const std::string &name, const size_t arg_count, const Container &patterns, size_t n_args, size_t line, size_t col) {
         for (const auto &p : patterns) {
