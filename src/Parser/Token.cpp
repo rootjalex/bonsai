@@ -56,7 +56,7 @@ std::string escape(const std::string &str) {
 }
 } // namespace
 
-std::string Token::tokenTypeString(Token::Type type) {
+std::string Token::token_type_string(Token::Type type) {
     switch (type) {
     case Token::Type::INT_LITERAL:
         return "int";
@@ -166,7 +166,7 @@ std::string Token::tokenTypeString(Token::Type type) {
     }
 }
 
-std::string Token::toString() const {
+std::string Token::to_string() const {
     switch (type) {
     case Token::Type::INT_LITERAL: {
         internal_assert(std::holds_alternative<int64_t>(value))
@@ -195,12 +195,12 @@ std::string Token::toString() const {
         return std::get<std::string>(value);
     }
     default:
-        return tokenTypeString(type);
+        return token_type_string(type);
     }
 }
 
 std::ostream &operator<<(std::ostream &out, const Token &token) {
-    out << "(" << Token::tokenTypeString(token.type);
+    out << "(" << Token::token_type_string(token.type);
     switch (token.type) {
     case Token::Type::INT_LITERAL:
         out << ", " << std::get<int64_t>(token.value);
@@ -225,8 +225,8 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
-void TokenStream::addToken(Token::Type type, uint64_t line, uint64_t column,
-                           uint32_t length) {
+void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column,
+                            uint32_t length) {
     tokens.push_back(Token{
         .type = type,
         .lineBegin = line,
@@ -248,9 +248,9 @@ bool TokenStream::consume(Token::Type type) {
 Token TokenStream::peek(uint32_t count) const {
     if (count == 0) {
         if (tokens.empty()) {
-            Token endToken = Token();
-            endToken.type = Token::Type::ERROR;
-            return endToken;
+            Token end_token = Token();
+            end_token.type = Token::Type::ERROR;
+            return end_token;
         }
         return tokens.front();
     }
@@ -260,9 +260,9 @@ Token TokenStream::peek(uint32_t count) const {
     }
 
     if (it == tokens.cend()) {
-        Token endToken = Token();
-        endToken.type = Token::Type::ERROR;
-        return endToken;
+        Token end_token = Token();
+        end_token.type = Token::Type::ERROR;
+        return end_token;
     }
 
     return *it;

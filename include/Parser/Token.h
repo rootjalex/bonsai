@@ -83,16 +83,16 @@ struct Token {
     uint64_t lineEnd;
     uint64_t colEnd;
 
-    static std::string tokenTypeString(Token::Type);
+    static std::string token_type_string(Token::Type);
 
-    std::string toString() const;
+    std::string to_string() const;
 
     friend std::ostream &operator<<(std::ostream &, const Token &);
 };
 
 struct TokenStream {
-    void addToken(Token newToken) { tokens.push_back(newToken); }
-    void addToken(Token::Type, uint64_t, uint64_t, uint32_t);
+    void add_token(Token new_token) { tokens.push_back(std::move(new_token)); }
+    void add_token(Token::Type, uint64_t, uint64_t, uint32_t);
 
     Token peek(uint32_t count) const;
 
