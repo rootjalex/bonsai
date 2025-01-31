@@ -5,6 +5,8 @@
 namespace bonsai {
 namespace ir {
 
+namespace {
+
 // Conversion routines to and from float cribbed from Christian Rau's
 // half library (half.sourceforge.net)
 uint16_t float_to_float16(float value) {
@@ -423,6 +425,8 @@ float float16_to_float(const uint16_t &value) {
         (mantissa_table[offset] + exponent_table[sign_and_exponent]);
     return reinterpret_bits<float>(bits);
 }
+
+} // namespace
 
 double cast_to_float16(const double value) {
     uint16_t f16 = float_to_float16(value);

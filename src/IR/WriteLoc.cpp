@@ -13,11 +13,11 @@ void WriteLoc::add_struct_access(const std::string &field) {
     // that the current type must be a struct with this field defined...
     const bool infer_types = type_enforcement_enabled() || type.defined();
     if (infer_types) {
-        ir::Type _type = get_field_type(type, field);
-        internal_assert(_type.defined())
+        ir::Type field_type = get_field_type(type, field);
+        internal_assert(field_type.defined())
             << "Write location type inference produced undefined type: "
-            << _type << " from field access " << field << " of type " << type;
-        type = std::move(_type);
+            << field_type << " from field access " << field << " of type " << type;
+        type = std::move(field_type);
     }
 }
 
@@ -36,21 +36,21 @@ void WriteLoc::add_index_access(const Expr &index) {
         internal_assert(type.is<Vector_t>())
             << "Write location of non-vector received index: " << index
             << " but has type: " << type;
-        ir::Type _type = type.element_of();
-        internal_assert(_type.defined())
+        ir::Type etype = type.element_of();
+        internal_assert(etype.defined())
             << "Write location type inference produced undefined type: "
-            << _type << " from index " << index << " of type " << type;
-        type = std::move(_type);
+            << etype << " from index " << index << " of type " << type;
+        type = std::move(etype);
     }
 }
 
-WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
-    internal_assert(_type.defined())
+WriteLoc WriteLoc::rebuild_with_base_type(Type base_type) const {
+    internal_assert(base_type.defined())
         << "Write location rebuild triggered with undefined type for base: "
         << base;
     internal_assert(type_enforcement_enabled())
         << "Write location rebuild triggered without type enforcement enabled";
-    WriteLoc rebuilt(this->base, _type);
+    WriteLoc rebuilt(this->base, base_type);
     for (const auto &value : this->accesses) {
         if (std::holds_alternative<std::string>(value)) {
             rebuilt.add_struct_access(std::get<std::string>(value));

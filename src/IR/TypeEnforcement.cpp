@@ -7,7 +7,7 @@ namespace ir {
 
 namespace {
 static bool TYPE_ENFORCMENT = true;
-}
+} // namespace
 
 void global_disable_type_enforcement() { TYPE_ENFORCMENT = false; }
 

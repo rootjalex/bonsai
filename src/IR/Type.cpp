@@ -9,11 +9,11 @@ namespace bonsai {
 namespace ir {
 
 uint32_t Type::bits() const {
-    if (auto as_int = this->as<Int_t>()) {
+    if (const auto *as_int = this->as<Int_t>()) {
         return as_int->bits;
-    } else if (auto as_uint = this->as<UInt_t>()) {
+    } else if (const auto *as_uint = this->as<UInt_t>()) {
         return as_uint->bits;
-    } else if (auto as_float = this->as<Float_t>()) {
+    } else if (const auto *as_float = this->as<Float_t>()) {
         return as_float->bits;
     } else {
         internal_error << "Called bits() on bad type: " << *this;
@@ -22,7 +22,7 @@ uint32_t Type::bits() const {
 }
 
 uint32_t Type::lanes() const {
-    if (auto as_vec = this->as<Vector_t>()) {
+    if (const auto *as_vec = this->as<Vector_t>()) {
         // TODO: handle recursive vectors?
         return as_vec->lanes;
     } else {

@@ -14,12 +14,12 @@ std::pair<std::vector<T>, bool> visit_list(Mutator *v,
                                            const std::vector<T> &l) {
     bool not_changed = true;
     const size_t n = l.size();
-    std::vector<T> _l(n);
+    std::vector<T> new_l(n);
     for (size_t i = 0; i < n; i++) {
-        _l[i] = v->mutate(l[i]);
-        not_changed = not_changed && _l[i].same_as(l[i]);
+        new_l[i] = v->mutate(l[i]);
+        not_changed = not_changed && new_l[i].same_as(l[i]);
     }
-    return {std::move(_l), not_changed};
+    return {std::move(new_l), not_changed};
 }
 
 std::pair<WriteLoc, bool> mutate_writeloc(Mutator *v, const WriteLoc &loc) {

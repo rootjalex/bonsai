@@ -226,15 +226,15 @@ std::unique_ptr<llvm::TargetMachine>
 make_target_machine(const llvm::Module &module) {
     std::string error_string;
 
-    std::string targetTriple = llvm::sys::getDefaultTargetTriple();
+    std::string target_triple = llvm::sys::getDefaultTargetTriple();
 
     const llvm::Target *llvm_target =
-        llvm::TargetRegistry::lookupTarget(targetTriple, error_string);
+        llvm::TargetRegistry::lookupTarget(target_triple, error_string);
     if (!llvm_target) {
         std::cout << error_string << "\n";
         llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::outs());
     }
-    auto triple = llvm::Triple(targetTriple);
+    auto triple = llvm::Triple(target_triple);
     internal_assert(llvm_target)
         << "Could not create LLVM target for " << triple.str();
 
@@ -1390,20 +1390,18 @@ void CodeGen_LLVM::declare_struct_types(
     // First insert empty StructTypes into struct_types, to handle
     // weird ordering on types.
     // TODO: maybe make sure there's never an infinitely-recursive type?
-    for (const auto &_struct : structs) {
-        struct_types[_struct->name] =
-            llvm::StructType::create(*context, _struct->name);
-        // llvm::errs() << "created: " << *struct_types[_struct->name] << "\n";
+    for (const auto &struct_type : structs) {
+        struct_types[struct_type->name] =
+            llvm::StructType::create(*context, struct_type->name);
     }
     // Now build bodies, possibly referencing other struct types.
-    for (const auto &_struct : structs) {
-        std::vector<llvm::Type *> types(_struct->fields.size());
+    for (const auto &struct_type : structs) {
+        std::vector<llvm::Type *> types(struct_type->fields.size());
         size_t i = 0;
-        for (const auto &[key, value] : _struct->fields) {
+        for (const auto &[key, value] : struct_type->fields) {
             types[i++] = codegen_type(value);
         }
-        struct_types[_struct->name]->setBody(types);
-        // llvm::errs() << "built: " << *struct_types[_struct->name] << "\n";
+        struct_types[struct_type->name]->setBody(types);
     }
 }
 
@@ -1522,9 +1520,9 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
                            << " in loc: " << loc;
         } else {
             Expr idx = std::get<Expr>(value);
-            llvm::Value *_idx = codegen_expr(idx);
+            llvm::Value *llvm_idx = codegen_expr(idx);
             name += "_idx";
-            ptr = builder->CreateGEP(ptype, ptr, {_idx}, name);
+            ptr = builder->CreateGEP(ptype, ptr, {llvm_idx}, name);
             // TODO: update ptype?
         }
     }

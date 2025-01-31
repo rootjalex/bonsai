@@ -105,8 +105,8 @@ Expr cast_to(const Type &t, const Expr &e) {
 
 Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
     struct Replacer : public Mutator {
-        Replacer(const std::string &_var_name, Expr _repl)
-            : var_name(_var_name), repl(std::move(_repl)) {}
+        Replacer(const std::string &var_name, Expr repl)
+            : var_name(var_name), repl(std::move(repl)) {}
 
       private:
         const std::string &var_name;
