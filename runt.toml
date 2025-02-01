@@ -24,7 +24,7 @@ cmd = """
 """
 
 [[tests]]
-name = "[ir] backends"
+name = "backends"
 paths = ["tests/bonsai/backends/**/*.bonsai"]
 cmd = """
 flags="$(head -n 1 {} | cut -c 3-)"

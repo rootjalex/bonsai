@@ -823,12 +823,6 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
 }
 
 Expr Call::make(Expr func, std::vector<Expr> args) {
-    if (func.is<ir::Var>() && func.as<ir::Var>()->name == "print") {
-        Print *node = new Print;
-        internal_assert(args.size() == 1);
-        node->value = std::move(args.front());
-        return node;
-    }
     internal_assert(func.defined()) << "Call::make received undefined func";
     internal_assert(std::all_of(args.cbegin(), args.cend(),
                                 [](const Expr &e) { return e.defined(); }))

@@ -1066,8 +1066,8 @@ struct Parser {
                     }
                     return ir::Call::make(std::move(f), std::move(args));
                 } else if (name == "print") {
-                    ir::Expr f = ir::Var::make(ir::Type(), name);
-                    return ir::Call::make(f, std::move(args));
+                    internal_assert(args.size() == 1);
+                    return ir::Print::make(std::move(args.front()));
                 } else if (name_in_scope(name)) {
                     internal_assert(template_types.empty())
                         << "Error: cannot pass template parameters to lambda "

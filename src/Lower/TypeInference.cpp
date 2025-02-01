@@ -269,6 +269,10 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
         }
 
         ir::Stmt visit(const ir::LetStmt *node) override {
+            if (node->value.is<ir::Print>()) {
+                // Special case for side-effecting expressions.
+                return node;
+            }
             undef_types = undef_types || !node->value.type().defined();
             if (undef_types) {
                 return node;
@@ -357,10 +361,10 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
 
     // TODO: is there more that we can do?
 
-    // internal_assert(!has_undef_expr_types(ftypes->body))
-    //     << "Type inference failed to infer all types of:\n"
-    //     << fnotypes->body << "\n\nInferred:\n"
-    //     << ftypes->body;
+    internal_assert(!has_undef_expr_types(ftypes->body))
+        << "Type inference failed to infer all types of:\n"
+        << fnotypes->body << "\n\nInferred:\n"
+        << ftypes->body;
     return ftypes;
 }
 

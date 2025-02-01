@@ -406,6 +406,12 @@ void Printer::visit(const Cast *node) {
     os << ")";
 }
 
+void Printer::visit(const Print *node) {
+    os << "print(";
+    print_no_parens(node->value);
+    os << ")";
+}
+
 void Printer::visit(const Broadcast *node) {
     os << "x" << node->lanes << "(";
     print_no_parens(node->value);
