@@ -27,17 +27,17 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
         this->ptr->accept(v);
     }
 
-    /** Downcast this ir node to its actual type (e.g. Add, or
-     * Select). This returns nullptr if the node is not of the requested
-     * type. Example usage:
-     *
-     * if (const Add *add = node->as<Add>()) {
-     *   // This is an add node
-     * }
-     */
+    // Downcast this ir node to its actual type (e.g. Add, or Select). This
+    // returns nullptr if the node is not of the requested type. This is similar
+    // to `llvm::dyn_cast` and C++'s dynamic_cast. For example,
+    //
+    //      if (const Add *add = node->as<Add>()) {
+    //        // This is an add node.
+    //      }
+    //
     template <typename T>
     const T *as() const {
-        if (this->ptr && this->ptr->node_type == T::_node_type) {
+        if (this->ptr && node_type() == T::_node_type) {
             return (const T *)this->ptr;
         }
         return nullptr;
@@ -45,7 +45,20 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
 
     template <typename T>
     bool is() const {
-        return (this->ptr && this->ptr->node_type == T::_node_type);
+        return (this->ptr && node_type() == T::_node_type);
+    }
+
+    // Returns whether this instruction is side-effecting.
+    bool is_side_effecting() const {
+        if (this->ptr == nullptr)
+            return false;
+
+        switch (node_type()) {
+        case IRNode::TypeEnum::Print:
+            return true;
+        default:
+            return false;
+        }
     }
 
     typename IRNode::TypeEnum node_type() const { return this->ptr->node_type; }
