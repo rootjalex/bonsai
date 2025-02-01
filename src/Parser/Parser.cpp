@@ -1340,6 +1340,8 @@ struct Parser {
             return ir::Float_t::make(bits);
         } else if (name == "bool") {
             return ir::Bool_t::make();
+        } else if (name == "void") {
+            return ir::Void_t::make();
         }
         // Now look for built-ins
         else if (name == "vector") {

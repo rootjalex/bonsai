@@ -32,6 +32,8 @@ void visit_writeloc(Visitor *v, const WriteLoc &loc) {
 }
 } // namespace
 
+void Visitor::visit(const Void_t *) {}
+
 void Visitor::visit(const Int_t *) {}
 
 void Visitor::visit(const UInt_t *) {}

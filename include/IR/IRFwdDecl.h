@@ -5,6 +5,7 @@ namespace ir {
 
 // Types
 struct Type;
+struct Void_t;
 struct Int_t;
 struct UInt_t;
 struct Float_t;

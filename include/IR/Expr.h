@@ -178,6 +178,7 @@ struct Select : ExprNode<Select> {
 
 struct Print : ExprNode<Print> {
     Expr value;
+    Type type = ir::Void_t::make();
 
     static Expr make(Expr value);
 

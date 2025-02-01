@@ -196,6 +196,8 @@ void Printer::print(const WriteLoc &loc) {
     }
 }
 
+void Printer::visit(const Void_t *node) { os << "void"; }
+
 void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
 
 void Printer::visit(const UInt_t *node) { os << "u" << node->bits; }

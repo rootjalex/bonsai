@@ -13,6 +13,7 @@ struct Mutator {
 
     // protected:
     // Types
+    virtual Type visit(const Void_t *);
     virtual Type visit(const Int_t *);
     virtual Type visit(const UInt_t *);
     virtual Type visit(const Float_t *);

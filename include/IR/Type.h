@@ -16,6 +16,7 @@ namespace ir {
 struct Type;
 
 enum class IRTypeEnum {
+    Void_t,
     Int_t,
     UInt_t,
     Float_t,
@@ -87,6 +88,12 @@ template <typename T>
 Type TypeNode<T>::mutate_type(Mutator *m) const {
     return m->visit((const T *)this);
 }
+
+struct Void_t : TypeNode<Void_t> {
+    static Type make();
+
+    static const IRTypeEnum _node_type = IRTypeEnum::Void_t;
+};
 
 struct Int_t : TypeNode<Int_t> {
     uint32_t bits;

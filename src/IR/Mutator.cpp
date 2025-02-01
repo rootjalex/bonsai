@@ -56,6 +56,8 @@ Stmt Mutator::mutate(const Stmt &stmt) {
     return stmt.defined() ? stmt.get()->mutate_stmt(this) : Stmt();
 }
 
+Type Mutator::visit(const Void_t *node) { return node; }
+
 Type Mutator::visit(const Int_t *node) { return node; }
 
 Type Mutator::visit(const UInt_t *node) { return node; }

@@ -66,6 +66,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
 
     // Must both be the same node type.
     switch (t0.node_type()) {
+    case IRTypeEnum::Void_t: {
+        return Cmp::Equals;
+    }
     case IRTypeEnum::Int_t: {
         return compare_primitives(t0.as<Int_t>()->bits, t1.as<Int_t>()->bits);
     }

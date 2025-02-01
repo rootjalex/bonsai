@@ -69,9 +69,6 @@ int main(int argc, char *argv[]) {
     // Parse the input file
     bonsai::ir::Program program = bonsai::parser::parse(options.input_filename);
 
-    // Basics checks to ensure program is well formed.
-    bonsai::lower::verify(program);
-
     // Perform type inference.
     program = bonsai::lower::infer_types(program);
 

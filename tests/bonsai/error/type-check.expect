@@ -1,0 +1,7 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:1042
+
+--> !args[i].type().defined() || ir::equals(expected_type, args[i].type())
+Argument 0 of call to function foo on line 8 has incorrect type. Expected i32 but parsed: void
