@@ -154,7 +154,6 @@ void CodeGen_LLVM::init_context() {
     fast_flags.setAllowContract(true);
     fast_flags.setApproxFunc();
     */
-
     builder->setFastMathFlags(fast_flags);
 
     // Define some types

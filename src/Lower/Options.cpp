@@ -1,4 +1,4 @@
-#include "Lower/Options.h"
+#include "Lower/Canonicalize.h"
 
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
