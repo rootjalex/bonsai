@@ -66,6 +66,27 @@ static llvm::Function *retrieve_printf(llvm::Module &m) {
     return printf;
 }
 
+// Returns the printf format specifier for this value, or error if it is not
+// implemented yet.
+// TODO(cgyurgyik): Support strings and more complex structures.
+static std::string get_specifier(llvm::Value *e) {
+    llvm::Type *type = e->getType();
+    if (type->isIntegerTy()) {
+        switch (type->getIntegerBitWidth()) {
+        case 64:
+            return "%ld";
+        default:
+            return "%d";
+        }
+    }
+    if (type->isFloatTy() || type->isDoubleTy()) {
+        return "%f";
+    }
+
+    internal_error << "specifier not implemented: " << e;
+    return "";
+}
+
 } // namespace
 
 using namespace ir;
@@ -780,15 +801,8 @@ void CodeGen_LLVM::visit(const Print *node) {
     std::vector<llvm::Value *> args;
     llvm::Value *expr = codegen_expr(node->value);
 
-    std::string specifier;
-    if (llvm::isa<llvm::ConstantInt>(expr))
-        specifier = "%d";
-    else if (llvm::isa<llvm::ConstantFP>(expr))
-        specifier = "%f";
-    else
-        internal_assert("unexpected type") << expr;
-
-    specifier += "\n"; // TODO(cgyurgyik): do we want to support strings?
+    std::string specifier = get_specifier(expr);
+    specifier += "\n";
     args.push_back(builder->CreateGlobalStringPtr(specifier));
     args.push_back(expr);
     value = builder->CreateCall(func, args);
