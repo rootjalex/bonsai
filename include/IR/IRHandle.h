@@ -61,7 +61,9 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
         }
     }
 
-    typename IRNode::TypeEnum node_type() const { return this->ptr->node_type; }
+    inline typename IRNode::TypeEnum node_type() const {
+        return this->ptr->node_type;
+    }
 };
 
 } // namespace ir
