@@ -1,0 +1,6 @@
+// -llvm
+
+func foo(i : i32) -> i32 {
+    j = print(i);
+    return 0;
+}

@@ -25,6 +25,7 @@ enum class IRExprEnum {
     UnOp,
     Select,
     Cast,
+    Print,
     // Vector ops
     Broadcast,
     VectorReduce,
@@ -173,6 +174,14 @@ struct Select : ExprNode<Select> {
     static Expr make(Expr cond, Expr tvalue, Expr fvalue);
 
     static const IRExprEnum _node_type = IRExprEnum::Select;
+};
+
+struct Print : ExprNode<Print> {
+    Expr value;
+
+    static Expr make(Expr value);
+
+    static const IRExprEnum _node_type = IRExprEnum::Print;
 };
 
 struct Cast : ExprNode<Cast> {

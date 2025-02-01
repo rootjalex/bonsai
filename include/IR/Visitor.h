@@ -32,6 +32,7 @@ struct Visitor {
     virtual void visit(const BinOp *);
     virtual void visit(const UnOp *);
     virtual void visit(const Select *);
+    virtual void visit(const Print *);
     virtual void visit(const Cast *);
     virtual void visit(const Broadcast *);
     virtual void visit(const VectorReduce *);

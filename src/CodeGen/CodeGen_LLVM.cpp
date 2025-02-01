@@ -45,6 +45,27 @@
 #include <sstream>
 
 namespace bonsai {
+namespace {
+
+// Returns the `printf` function for this module. If none exists, it is created.
+static llvm::Function *retrieve_printf(llvm::Module &M) {
+    llvm::Function *printf;
+    if (printf = M.getFunction("printf"); printf)
+        return printf;
+
+    llvm::LLVMContext &C = M.getContext();
+    auto *functy = llvm::FunctionType::get(
+        llvm::IntegerType::get(C, 32),
+        llvm::PointerType::get(llvm::IntegerType::get(C, 8),
+                               /*AddressSpace=*/0),
+        /*isVarArg=*/true);
+    printf = llvm::Function::Create(functy, llvm::GlobalValue::ExternalLinkage,
+                                    "printf", M);
+    printf->setCallingConv(llvm::CallingConv::C);
+    return printf;
+}
+
+} // namespace
 
 using namespace ir;
 
@@ -111,6 +132,10 @@ void CodeGen_LLVM::init_context() {
     fast_flags.setAllowContract(true);
     fast_flags.setApproxFunc();
     */
+
+    // TODO(cgyurgyik): IMO there should be some optimization level associated
+    // with fast math, fast math can be difficult to debug. The alternative is
+    // turning off fast math for debug mode, but that seems wrong.
     builder->setFastMathFlags(fast_flags);
 
     // Define some types
@@ -1005,6 +1030,19 @@ void CodeGen_LLVM::visit(const SetOp *node) {
 }
 
 void CodeGen_LLVM::visit(const Call *node) {
+    if (const ir::Expr F = node->func;
+        F.is<ir::Var>() && F.as<ir::Var>()->name == "print") {
+        llvm::Function *func = retrieve_printf(*module);
+        std::vector<llvm::Value *> args;
+
+        internal_assert(node->args.size() == 1);
+        for (ir::Expr arg : node->args) {
+            args.push_back(builder->CreateGlobalStringPtr("%d"));
+            args.push_back(codegen_expr(arg));
+        }
+        value = builder->CreateCall(func, args);
+        return;
+    }
     llvm::Function *func = codegen_func_ptr(node->func);
     internal_assert(func) << "Failed to codegen function pointer to: "
                           << Expr(node);

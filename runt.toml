@@ -24,9 +24,16 @@ cmd = """
 """
 
 [[tests]]
-name = "backends"
+name = "[ir] backends"
 paths = ["tests/bonsai/backends/**/*.bonsai"]
 cmd = """
 flags="$(head -n 1 {} | cut -c 3-)"
 ./build/compiler {} $flags
+"""
+
+[[tests]]
+name = "[correctness] llvm"
+paths = ["tests/bonsai/correctness/llvm/*.bonsai"]
+cmd = """
+./build/compiler {} -run
 """

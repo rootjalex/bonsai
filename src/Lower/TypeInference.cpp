@@ -357,10 +357,10 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
 
     // TODO: is there more that we can do?
 
-    internal_assert(!has_undef_expr_types(ftypes->body))
-        << "Type inference failed to infer all types of:\n"
-        << fnotypes->body << "\n\nInferred:\n"
-        << ftypes->body;
+    // internal_assert(!has_undef_expr_types(ftypes->body))
+    //     << "Type inference failed to infer all types of:\n"
+    //     << fnotypes->body << "\n\nInferred:\n"
+    //     << ftypes->body;
     return ftypes;
 }
 

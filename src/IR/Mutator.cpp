@@ -199,6 +199,8 @@ Expr Mutator::visit(const Select *node) {
     return Select::make(std::move(cond), std::move(tvalue), std::move(fvalue));
 }
 
+Expr Mutator::visit(const Print *node) { return node; }
+
 Expr Mutator::visit(const Cast *node) {
     // TODO: should we mutate node->type here?
     Expr value = mutate(node->value);

@@ -340,6 +340,13 @@ Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
     return node;
 }
 
+Expr Print::make(Expr value) {
+    assert(value.defined());
+    Print *node = new Print;
+    node->value = std::move(value);
+    return node;
+}
+
 Expr Cast::make(Type type, Expr value) {
     internal_assert(type.defined())
         << "Cannot cast to undefined type: " << value;
@@ -816,6 +823,12 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
 }
 
 Expr Call::make(Expr func, std::vector<Expr> args) {
+    if (func.is<ir::Var>() && func.as<ir::Var>()->name == "print") {
+        Call *node = new Call;
+        node->func = std::move(func);
+        node->args = std::move(args);
+        return node;
+    }
     internal_assert(func.defined()) << "Call::make received undefined func";
     internal_assert(std::all_of(args.cbegin(), args.cend(),
                                 [](const Expr &e) { return e.defined(); }))
