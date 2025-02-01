@@ -39,7 +39,6 @@ struct Mutator {
     virtual Expr visit(const BinOp *);
     virtual Expr visit(const UnOp *);
     virtual Expr visit(const Select *);
-    virtual Expr visit(const Print *);
     virtual Expr visit(const Cast *);
     virtual Expr visit(const Broadcast *);
     virtual Expr visit(const VectorReduce *);
@@ -55,6 +54,7 @@ struct Mutator {
     virtual Expr visit(const Call *);
     virtual Expr visit(const Instantiate *);
     // Stmts
+    virtual Stmt visit(const Print *);
     virtual Stmt visit(const Return *);
     virtual Stmt visit(const Store *);
     virtual Stmt visit(const LetStmt *);

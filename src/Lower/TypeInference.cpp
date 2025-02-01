@@ -269,11 +269,6 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
         }
 
         ir::Stmt visit(const ir::LetStmt *node) override {
-            if (node->value.is_side_effecting()) {
-                // Side-effecting instructions are not type checked; their
-                // output should never be used.
-                return node;
-            }
             undef_types = undef_types || !node->value.type().defined();
             if (undef_types) {
                 return node;

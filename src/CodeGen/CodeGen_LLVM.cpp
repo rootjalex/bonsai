@@ -134,9 +134,6 @@ void CodeGen_LLVM::init_context() {
     fast_flags.setApproxFunc();
     */
 
-    // TODO(cgyurgyik): IMO there should be some optimization level or other
-    // flag associated with fast math, fast math can lead to very surprising
-    // codegen.
     builder->setFastMathFlags(fast_flags);
 
     // Define some types

@@ -84,6 +84,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "rarrow";
     case Token::Type::RETURN:
         return "return";
+    case Token::Type::PRINT:
+        return "print";
     case Token::Type::FOR:
         return "for";
     case Token::Type::IN:

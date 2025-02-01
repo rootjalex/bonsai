@@ -114,8 +114,8 @@ Type Type::element_of() const {
 }
 
 Type Void_t::make() {
-    Void_t *node = new Void_t;
-    return node;
+    static Type global_void = new Bool_t;
+    return global_void;
 }
 
 Type Int_t::make(uint32_t bits) {

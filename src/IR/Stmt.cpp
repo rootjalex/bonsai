@@ -6,7 +6,7 @@ namespace bonsai {
 namespace ir {
 
 Stmt Print::make(Expr value) {
-    assert(value.defined());
+    internal_assert(value.defined()) << "Undefined value in Print::make";
     Print *node = new Print;
     node->value = std::move(value);
     return node;

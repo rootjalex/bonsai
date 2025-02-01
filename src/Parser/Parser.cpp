@@ -504,7 +504,7 @@ struct Parser {
             ir::Expr ret = parseExpr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
-        } else if (Token::Type::PRINT) {
+        } else if (consume(Token::Type::PRINT)) {
             expect(Token::Type::LPAREN);
             ir::Expr value = parseExpr();
             expect(Token::Type::RPAREN);
