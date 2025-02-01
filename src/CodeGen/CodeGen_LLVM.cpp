@@ -50,8 +50,9 @@ namespace {
 // Returns the `printf` function for this module. If none exists, it is created.
 static llvm::Function *retrieve_printf(llvm::Module &M) {
     llvm::Function *printf;
-    if (printf = M.getFunction("printf"); printf)
+    if ((printf = M.getFunction("printf"))) {
         return printf;
+    }
 
     llvm::LLVMContext &C = M.getContext();
     auto *functy = llvm::FunctionType::get(
@@ -133,9 +134,9 @@ void CodeGen_LLVM::init_context() {
     fast_flags.setApproxFunc();
     */
 
-    // TODO(cgyurgyik): IMO there should be some optimization level associated
-    // with fast math, fast math can be difficult to debug. The alternative is
-    // turning off fast math for debug mode, but that seems wrong.
+    // TODO(cgyurgyik): IMO there should be some optimization level or other
+    // flag associated with fast math, fast math can lead to very surprising
+    // codegen.
     builder->setFastMathFlags(fast_flags);
 
     // Define some types
@@ -780,9 +781,19 @@ void CodeGen_LLVM::visit(const Select *node) {
 void CodeGen_LLVM::visit(const Print *node) {
     llvm::Function *func = retrieve_printf(*module);
     std::vector<llvm::Value *> args;
-    args.push_back(builder->CreateGlobalStringPtr("%d"));
-    args.push_back(codegen_expr(node->value));
+    llvm::Value *expr = codegen_expr(node->value);
 
+    std::string specifier;
+    if (llvm::isa<llvm::ConstantInt>(expr))
+        specifier = "%d";
+    else if (llvm::isa<llvm::ConstantFP>(expr))
+        specifier = "%f";
+    else
+        internal_assert("unexpected type") << expr;
+
+    specifier += "\n"; // TODO(cgyurgyik): do we want to support strings?
+    args.push_back(builder->CreateGlobalStringPtr(specifier));
+    args.push_back(expr);
     value = builder->CreateCall(func, args);
 }
 

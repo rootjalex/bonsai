@@ -1,4 +1,7 @@
 func main() -> i32 {
-    _ = print(42);
+    i: i32 = 42;
+    _1 = print(i);
+    j: f32 = 42.0;
+    _2 = print(j);
     return 0;
 }
