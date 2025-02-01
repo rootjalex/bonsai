@@ -102,6 +102,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::MUT;
     if (token == "return")
         return Token::Type::RETURN;
+    if (token == "print")
+        return Token::Type::PRINT;
     if (token == "for")
         return Token::Type::FOR;
     if (token == "if")

@@ -35,7 +35,6 @@ struct Var;
 struct BinOp;
 struct UnOp;
 struct Select;
-struct Print;
 struct Cast;
 struct Broadcast;
 struct VectorReduce;
@@ -53,6 +52,7 @@ struct Instantiate;
 
 // Stmts
 struct Stmt;
+struct Print;
 struct Return;
 struct Store;
 struct LetStmt;

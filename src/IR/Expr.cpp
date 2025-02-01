@@ -340,13 +340,6 @@ Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
     return node;
 }
 
-Expr Print::make(Expr value) {
-    assert(value.defined());
-    Print *node = new Print;
-    node->value = std::move(value);
-    return node;
-}
-
 Expr Cast::make(Type type, Expr value) {
     internal_assert(type.defined())
         << "Cannot cast to undefined type: " << value;

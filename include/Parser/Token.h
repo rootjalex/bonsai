@@ -29,6 +29,7 @@ struct Token {
         MUT,    // mut
         RARROW, // ->
         RETURN, // return
+        PRINT,  // print
 
         // WHILE, // while
         FOR,   // for

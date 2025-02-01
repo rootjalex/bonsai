@@ -48,19 +48,6 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
         return (this->ptr && node_type() == T::_node_type);
     }
 
-    // Returns whether this instruction is side-effecting.
-    bool is_side_effecting() const {
-        if (this->ptr == nullptr)
-            return false;
-
-        switch (node_type()) {
-        case IRNode::TypeEnum::Print:
-            return true;
-        default:
-            return false;
-        }
-    }
-
     inline typename IRNode::TypeEnum node_type() const {
         return this->ptr->node_type;
     }

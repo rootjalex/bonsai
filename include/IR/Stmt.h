@@ -16,6 +16,7 @@ namespace ir {
 struct Stmt;
 
 enum class IRStmtEnum {
+    Print,
     Return,
     Store,
     LetStmt,
@@ -59,6 +60,14 @@ template <typename T>
 Stmt StmtNode<T>::mutate_stmt(Mutator *m) const {
     return m->visit((const T *)this);
 }
+
+struct Print : StmtNode<Print> {
+    Expr value;
+
+    static Stmt make(Expr value);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::Print;
+};
 
 struct Return : StmtNode<Return> {
     Expr value;

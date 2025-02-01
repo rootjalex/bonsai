@@ -504,6 +504,12 @@ struct Parser {
             ir::Expr ret = parseExpr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
+        } else if (Token::Type::PRINT) {
+            expect(Token::Type::LPAREN);
+            ir::Expr value = parseExpr();
+            expect(Token::Type::RPAREN);
+            expect(Token::Type::SEMICOL);
+            return ir::Print::make(value);
         } else if (peek().type == Token::Type::IDENTIFIER) {
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?
@@ -1065,9 +1071,6 @@ struct Parser {
                                                   std::move(instantiations));
                     }
                     return ir::Call::make(std::move(f), std::move(args));
-                } else if (name == "print") {
-                    internal_assert(args.size() == 1);
-                    return ir::Print::make(std::move(args.front()));
                 } else if (name_in_scope(name)) {
                     internal_assert(template_types.empty())
                         << "Error: cannot pass template parameters to lambda "
