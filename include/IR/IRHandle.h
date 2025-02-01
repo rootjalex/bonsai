@@ -29,7 +29,7 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
 
     // Downcast this ir node to its actual type (e.g. Add, or Select). This
     // returns nullptr if the node is not of the requested type. This is similar
-    // to `llvm::dyn_cast` and C++'s dynamic_cast. For example,
+    // to `llvm::dyn_cast_or_null` and C++'s `dynamic_cast`. For example,
     //
     //      if (const Add *add = node->as<Add>()) {
     //        // This is an add node.
