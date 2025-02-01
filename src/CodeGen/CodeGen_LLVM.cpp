@@ -48,20 +48,20 @@ namespace bonsai {
 namespace {
 
 // Returns the `printf` function for this module. If none exists, it is created.
-static llvm::Function *retrieve_printf(llvm::Module &M) {
+static llvm::Function *retrieve_printf(llvm::Module &m) {
     llvm::Function *printf;
-    if ((printf = M.getFunction("printf"))) {
+    if ((printf = m.getFunction("printf"))) {
         return printf;
     }
 
-    llvm::LLVMContext &C = M.getContext();
+    llvm::LLVMContext &context = m.getContext();
     auto *functy = llvm::FunctionType::get(
-        llvm::IntegerType::get(C, 32),
-        llvm::PointerType::get(llvm::IntegerType::get(C, 8),
+        llvm::IntegerType::get(context, 32),
+        llvm::PointerType::get(llvm::IntegerType::get(context, 8),
                                /*AddressSpace=*/0),
         /*isVarArg=*/true);
     printf = llvm::Function::Create(functy, llvm::GlobalValue::ExternalLinkage,
-                                    "printf", M);
+                                    "printf", m);
     printf->setCallingConv(llvm::CallingConv::C);
     return printf;
 }
