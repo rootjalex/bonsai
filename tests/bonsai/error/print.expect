@@ -1,0 +1,7 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Lower/Verify.cpp:25
+
+--> !results.contains(v->name)
+result from side-effecting (effectively void) instruction used: _1
