@@ -17,7 +17,7 @@ struct Function {
 
         Argument() {}
 
-        Argument(std::string _name, Type _type, Expr _default_value)
+        Argument(std::string _name, Type _type, Expr _default_value = Expr())
             : name(std::move(_name)), type(std::move(_type)),
               default_value(std::move(_default_value)) {}
 
