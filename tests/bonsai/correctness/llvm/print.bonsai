@@ -5,7 +5,7 @@ func main() -> i32 {
     j: f32 = 42.0;
     print(j);
     
-    k: u32 = 0u - 1u;
+    k: u32 = 4294967295u;
     print(k);
     
     return 0;
