@@ -68,22 +68,26 @@ static llvm::Function *retrieve_printf(llvm::Module &m) {
 
 // Returns the printf format specifier for this value, or error if it is not
 // implemented yet.
-// TODO(cgyurgyik): Support strings and more complex structures.
-static std::string get_specifier(llvm::Value *e) {
-    llvm::Type *type = e->getType();
-    if (type->isIntegerTy()) {
-        switch (type->getIntegerBitWidth()) {
-        case 64:
+static std::string get_specifier(const ir::Type &type) {
+    std::string specifier = "%";
+    if (type.is_int()) {
+        if (type.bits() > 32)
             return "%ld";
-        default:
-            return "%d";
-        }
+        return "%d";
     }
-    if (type->isFloatTy() || type->isDoubleTy()) {
+    if (type.is_uint() || type.is_bool()) {
+        if (type.bits() > 32)
+            return "%lu";
+        return "%u";
+    }
+    if (type.is_float()) {
+        // C will convert float (f32) to double (f64) for variadic
+        // argument functions (to include printf). Handling non-standard
+        // floating point types will be interesting.
         return "%f";
     }
 
-    internal_error << "specifier not implemented: " << e;
+    internal_error << "[unimplemented] LLVM print: " << type;
     return "";
 }
 
@@ -796,14 +800,17 @@ void CodeGen_LLVM::visit(const Select *node) {
 }
 
 void CodeGen_LLVM::visit(const Print *node) {
-    llvm::Function *func = retrieve_printf(*module);
-    std::vector<llvm::Value *> args;
-    llvm::Value *expr = codegen_expr(node->value);
+    // TODO(cgyurgyik): Support strings and more complex structures.
+    ir::Expr v = node->value;
 
-    std::string specifier = get_specifier(expr);
+    std::string specifier = get_specifier(v.type());
     specifier += "\n";
+    llvm::Value *expr = codegen_expr(v);
+
+    std::vector<llvm::Value *> args;
     args.push_back(builder->CreateGlobalStringPtr(specifier));
     args.push_back(expr);
+    llvm::Function *func = retrieve_printf(*module);
     value = builder->CreateCall(func, args);
 }
 

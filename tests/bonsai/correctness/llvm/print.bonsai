@@ -1,7 +1,12 @@
 func main() -> i32 {
-    i: i32 = 42;
+    i: i32 = -42;
     print(i);
+    
     j: f32 = 42.0;
     print(j);
+    
+    k: u32 = 0u - 1u;
+    print(k);
+    
     return 0;
 }

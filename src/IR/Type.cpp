@@ -114,7 +114,7 @@ Type Type::element_of() const {
 }
 
 Type Void_t::make() {
-    static Type global_void = new Bool_t;
+    static Type global_void = new Void_t;
     return global_void;
 }
 
