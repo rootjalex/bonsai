@@ -15,14 +15,16 @@ namespace {
 
 static const ir::Type u32 = ir::UInt_t::make(32);
 
-// Canonicalize a lambda expression into a function and subsequently cleans up
-// call sites.
-struct RewriteLambda : public ir::Mutator {
-    RewriteLambda(std::vector<ir::Function> &functions)
+// Canonicalize a lambda expression into a function.
+struct ConvertLambdaToFunction : public ir::Mutator {
+    ConvertLambdaToFunction(
+        std::vector<std::shared_ptr<ir::Function>> &functions)
         : functions(functions), counter(0) {};
 
   private:
-    std::vector<ir::Function> &functions;
+    // TODO(cgyurgyik): Save a pointer to the lambda as well.
+    // Then, convert call(lambda) => call(function). Finally, remove lambda.
+    std::vector<std::shared_ptr<ir::Function>> &functions;
     int64_t counter; // A counter for name hygiene.
     ir::Expr visit(const ir::Lambda *lambda) override {
         // Convert lambda arguments to function arguments.
@@ -34,18 +36,19 @@ struct RewriteLambda : public ir::Mutator {
 
         // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
         std::string name = "?lambda";
-        name += counter++;
+        name += std::to_string(counter++);
         ir::Type type = lambda->value.type();
 
-        functions.push_back(
-            ir::Function(name, arguments,
-                         /*return_type=*/type,
-                         /*body=*/ir::Return::make(lambda->value),
-                         /*interfaces=*/{}));
+        functions.push_back(std::make_shared<ir::Function>(
+            name, arguments,
+            /*return_type=*/type,
+            /*body=*/ir::Return::make(lambda->value),
+            /*interfaces=*/ir::Function::InterfaceList{}));
 
         // 1. Replace lambdas with functions.
         // 2. Replace calls to lambdas with calls to that function.
         // TODO(cgyurgyik): map from lambda to function.
+        return lambda;
     };
 };
 
@@ -112,9 +115,10 @@ struct RewriteVectorFields : public ir::Mutator {
     }
 };
 
-ir::Stmt canonicalize(ir::Stmt stmt) {
+ir::Stmt canonicalize(ir::Stmt stmt,
+                      std::vector<std::shared_ptr<ir::Function>> &functions) {
     stmt = RewriteVectorFields().mutate(stmt);
-    stmt = RewriteLambda().mutate(stmt);
+    stmt = ConvertLambdaToFunction(functions).mutate(stmt);
     // TODO: more canonicalizations.
     return stmt;
 }
@@ -126,16 +130,19 @@ ir::Program canonicalize(const ir::Program &program) {
     new_program.externs = program.externs;
     new_program.types = program.types;
 
+    std::vector<std::shared_ptr<ir::Function>> functions;
+
     for (const auto &[f, func] : program.funcs) {
-        ir::Stmt body = canonicalize(std::move(func->body));
-        new_program.funcs[f] = std::make_shared<ir::Function>(
-            func->name, func->args, func->ret_type, body, func->interfaces);
+        ir::Stmt body = canonicalize(std::move(func->body), functions);
+        functions.push_back(std::make_shared<ir::Function>(
+            func->name, func->args, func->ret_type, body, func->interfaces));
     }
 
-    new_program.main_body = canonicalize(program.main_body);
+    new_program.main_body = canonicalize(program.main_body, functions);
+    for (const auto &f : functions)
+        new_program.funcs[f->name] = f;
 
     new_program = lower_option(new_program);
-
     new_program = lower_generics(new_program);
     // TODO: more canonicalizations
     return new_program;
