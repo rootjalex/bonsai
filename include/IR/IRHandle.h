@@ -43,9 +43,19 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
         return nullptr;
     }
 
-    template <typename T>
+    // Returns whether this IR is one of type `Ts`. For example,
+    //
+    //      // Executes if op is one of these two types.
+    //      if (op.is<ir::Lambda, ir::Function>()) { ... }
+    //
+    template <typename... Ts>
     bool is() const {
-        return (this->ptr && node_type() == T::_node_type);
+        if (this->ptr == nullptr)
+            return false;
+        if (((node_type() == Ts::_node_type) || ...)) {
+            return true;
+        }
+        return false;
     }
 
     inline typename IRNode::TypeEnum node_type() const {

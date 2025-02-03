@@ -27,9 +27,11 @@ struct Function {
         Argument &operator=(Argument &&) noexcept = default;
         ~Argument() = default;
     };
+
     std::vector<Argument> args;
     Type ret_type;
     Stmt body;
+
     struct NamedInterface {
         std::string name;
         Interface interface;
@@ -45,6 +47,7 @@ struct Function {
         NamedInterface &operator=(NamedInterface &&) noexcept = default;
         ~NamedInterface() = default;
     };
+
     // Intentionally ordered.
     using InterfaceList = std::vector<NamedInterface>;
     InterfaceList interfaces;
@@ -56,6 +59,17 @@ struct Function {
         : name(std::move(_name)), args(std::move(_args)),
           ret_type(std::move(_ret_type)), body(std::move(_body)),
           interfaces(std::move(_interfaces)) {}
+
+    std::vector<ir::Type> argument_types() const {
+        std::vector<ir::Type> types;
+        const size_t e = args.size();
+        types.reserve(e);
+
+        for (size_t i = 0; i != e; ++i) {
+            types.push_back(args[i].type);
+        }
+        return types;
+    }
 
     Function(const Function &) = default;
     Function(Function &&) noexcept = default;
