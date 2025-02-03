@@ -60,14 +60,12 @@ struct Function {
           ret_type(std::move(_ret_type)), body(std::move(_body)),
           interfaces(std::move(_interfaces)) {}
 
+    // Returns the argument types of this function. This is *not* memoized.
     std::vector<ir::Type> argument_types() const {
         std::vector<ir::Type> types;
-        const size_t e = args.size();
-        types.reserve(e);
-
-        for (size_t i = 0; i != e; ++i) {
-            types.push_back(args[i].type);
-        }
+        std::transform(
+            args.begin(), args.end(), std::back_inserter(types),
+            [](const Function::Argument &argument) { return argument.type; });
         return types;
     }
 

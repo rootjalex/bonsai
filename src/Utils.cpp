@@ -42,14 +42,14 @@ bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
         return false;
-    } else if (const Broadcast *b = e.as<Broadcast>()) {
-        return is_const(b->value);
-    } else if (const Build *b = e.as<Build>()) {
-        return b->values.empty(); // default is constant!
-    } else {
-        return e.is<IntImm>() || e.is<UIntImm>() || e.is<FloatImm>() ||
-               e.is<BoolImm>();
     }
+    if (const Broadcast *b = e.as<Broadcast>()) {
+        return is_const(b->value);
+    }
+    if (const Build *b = e.as<Build>()) {
+        return b->values.empty(); // default is constant!
+    }
+    return e.is<IntImm, UIntImm, FloatImm, BoolImm>();
 }
 
 Expr make_zero(const Type &t) { return make_const(t, 0); }

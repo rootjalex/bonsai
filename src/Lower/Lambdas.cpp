@@ -93,16 +93,13 @@ struct ConvertLambdaToFunction : public ir::Mutator {
             return call;
 
         // Note: we assume there will be a small constant number of lambdas.
-        std::shared_ptr<ir::Function> f = nullptr;
-        for (const auto &kv : map) {
+        auto it = std::find_if(map.begin(), map.end(), [&](const auto &kv) {
             const Metadata &m = kv.second;
-            if (v->name != m.name)
-                continue;
-            f = m.function;
-        }
-        if (f == nullptr)
-            // This is a function call.
-            return call;
+            return m.name == v->name;
+        });
+        if (it == map.end())
+            return call; // This is a function call.
+        std::shared_ptr<ir::Function> &f = it->second.function;
 
         ir::Type type = ir::Function_t::make(f->ret_type, f->argument_types());
         return ir::Call::make(ir::Var::make(type, f->name), call->args);
