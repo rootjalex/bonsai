@@ -80,6 +80,7 @@ jobs:
         config_file: '.clang-tidy'
         build_dir: build
         lgtm_comment_body: "" # No comments upon success.
+        cmake_command: cmake . -DCMAKE_EXPORT_COMPILE_COMMANDS=on
 
     - uses: ZedThree/clang-tidy-review/upload@v0.20.1
       id: upload-review

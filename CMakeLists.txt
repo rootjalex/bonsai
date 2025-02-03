@@ -14,6 +14,9 @@ set(TESTS_DIR ${CMAKE_SOURCE_DIR}/tests)
 # TODO(cgyurgyik): We have way too many clang-tidy errors right now, but this should eventually be the default.
 # set(CMAKE_CXX_CLANG_TIDY "clang-tidy")
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Required to point clang-tidy to the relative path for error diagnostics.
+
+
 # Find LLVM
 set(LLVM_ROOT "")
 if (EXISTS "${CMAKE_SOURCE_DIR}/deps/llvm-install")
