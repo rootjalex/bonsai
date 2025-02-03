@@ -66,6 +66,23 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 2 # Required for clang-tidy / clang-format checks.
+
+    - name: Install LLVM
+      env:
+        # https://github.com/Homebrew/brew/issues/14516#issuecomment-1418593313
+        HOMEBREW_NO_INSTALL_FROM_API: 1
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y lsb-release wget gnupg
+        wget https://apt.llvm.org/llvm.sh # Download and run the official LLVM installation script
+        chmod +x llvm.sh
+        # You can specify 'all' to install clang, lld, lldb, etc.:
+        sudo ./llvm.sh 19 all
+
+    - name: Add LLVM to PATH
+      run: |
+        echo "LLVM_ROOT=/usr/lib/llvm-19" >> $GITHUB_ENV
+        echo "LLVM_CONFIG=/usr/lib/llvm-19/bin/llvm-config" >> $GITHUB_ENV
     
     # Clang format 
     - uses: jidicula/clang-format-action@v4.14.0
