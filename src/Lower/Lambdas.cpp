@@ -26,8 +26,9 @@ struct Metadata {
 struct ConvertLambdaToFunction : public ir::Mutator {
     ConvertLambdaToFunction(
         std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata,
-        const std::unordered_set<const ir::Lambda *> &blacklist)
-        : lambda_metadata(lambda_metadata), blacklist(blacklist), counter(0) {};
+        const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas)
+        : lambda_metadata(lambda_metadata),
+          blacklisted_lambdas(blacklisted_lambdas), counter(0) {};
 
   private:
     // A mapping from a lambda to metadata required for said lambda.
@@ -42,7 +43,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
     }
 
     // A set of lambdas that should not be converted.
-    const std::unordered_set<const ir::Lambda *> &blacklist;
+    const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas;
     int64_t counter; // A counter for name hygiene.
 
     ir::Stmt visit(const ir::LetStmt *let) override {
@@ -70,7 +71,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Lambda *lambda) override {
-        if (blacklist.contains(lambda))
+        if (blacklisted_lambdas.contains(lambda))
             return lambda;
 
         // Convert lambda arguments to function arguments.
@@ -118,10 +119,12 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 // Visitor class to retrieve a list of lambdas that should *not* be converted.
 class Blacklist : public ir::Visitor {
   public:
-    const std::unordered_set<const ir::Lambda *> &get() { return blacklist; }
+    const std::unordered_set<const ir::Lambda *> &get() {
+        return blacklisted_lambdas;
+    }
 
   private:
-    std::unordered_set<const ir::Lambda *> blacklist;
+    std::unordered_set<const ir::Lambda *> blacklisted_lambdas;
 
     void visit(const ir::SetOp *node) override {
         switch (node->op) {
@@ -134,7 +137,7 @@ class Blacklist : public ir::Visitor {
             internal_assert(op) << "first operand of a ir::SetOp should have "
                                    "type ir::Lambda, received: "
                                 << node->a;
-            blacklist.insert(op);
+            blacklisted_lambdas.insert(op);
         }
         }
     }
@@ -146,17 +149,17 @@ ir::Program lower(const ir::Program &old_program) {
     std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
 
     // Some lambdas, e.g., those used in set queries, will not be converted.
-    Blacklist blacklist;
+    Blacklist blacklisted_lambdas;
     for (const auto &[_, f] : old_program.funcs) {
         if (const ir::Stmt &body = f->body; body.defined()) {
-            body.accept(&blacklist);
+            body.accept(&blacklisted_lambdas);
         }
     }
     if (const ir::Stmt &main = old_program.main_body; main.defined()) {
-        main.accept(&blacklist);
+        main.accept(&blacklisted_lambdas);
     }
 
-    ConvertLambdaToFunction cltf(lambda_metadata, blacklist.get());
+    ConvertLambdaToFunction cltf(lambda_metadata, blacklisted_lambdas.get());
     ir::Program new_program;
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
