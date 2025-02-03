@@ -65,11 +65,13 @@ struct ConvertLambdaToFunction : public ir::Mutator {
             return lambda;
 
         // Convert lambda arguments to function arguments.
+        const std::vector<ir::Lambda::Argument> &before = lambda->args;
         std::vector<ir::Function::Argument> arguments;
-        std::vector<ir::Lambda::Argument> la_arguments = lambda->args;
-        arguments.reserve(la_arguments.size());
-        for (const auto &arg : lambda->args)
-            arguments.push_back(ir::Function::Argument(arg.name, arg.type));
+        std::transform(before.begin(), before.end(),
+                       std::back_inserter(arguments),
+                       [](const ir::Lambda::Argument &a) {
+                           return ir::Function::Argument(a.name, a.type);
+                       });
 
         // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
         std::string name = "?lambda";
@@ -98,7 +100,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
             return m.name == v->name;
         });
         if (it == map.end())
-            return call; // This is a function call.
+            return call; // This is a call to a function.
         std::shared_ptr<ir::Function> &f = it->second.function;
 
         ir::Type type = ir::Function_t::make(f->ret_type, f->argument_types());
