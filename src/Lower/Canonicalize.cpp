@@ -92,10 +92,10 @@ ir::Program canonicalize(const ir::Program &program) {
     new_program.externs = program.externs;
     new_program.types = program.types;
 
-    for (const auto &[f, func] : program.funcs) {
-        ir::Stmt body = canonicalize(std::move(func->body));
-        new_program.funcs[f] = std::make_shared<ir::Function>(
-            func->name, func->args, func->ret_type, body, func->interfaces);
+    for (const auto &[name, func] : program.funcs) {
+        ir::Stmt body = canonicalize(func->body);
+        new_program.funcs[name] = std::make_shared<ir::Function>(
+            name, func->args, func->ret_type, body, func->interfaces);
     }
     new_program.main_body = canonicalize(program.main_body);
 

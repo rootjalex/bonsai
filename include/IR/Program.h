@@ -23,6 +23,9 @@ struct Program {
     std::map<std::string, Type> types;
     // TODO: interfaces / inheritance?
 
+    // TODO(cgyurgyik): remove this just treat the entry point as another
+    // function. We can hard-code it to main and have an additional program
+    // argument if a user wants a different name.
     Stmt main_body;
 
     Program() {}

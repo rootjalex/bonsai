@@ -25,13 +25,22 @@ struct Metadata {
 // Performs necessary mutations to convert lambdas to functions.
 struct ConvertLambdaToFunction : public ir::Mutator {
     ConvertLambdaToFunction(
-        std::unordered_map<const ir::Lambda *, Metadata> &map,
+        std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata,
         const std::unordered_set<const ir::Lambda *> &blacklist)
-        : map(map), blacklist(blacklist), counter(0) {};
+        : lambda_metadata(lambda_metadata), blacklist(blacklist), counter(0) {};
 
   private:
     // A mapping from a lambda to metadata required for said lambda.
-    std::unordered_map<const ir::Lambda *, Metadata> &map;
+    std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata;
+
+    // Returns a unique name for the function replacing this lambda.
+    // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
+    std::string generate_name() {
+        std::string name = "?lambda";
+        name += std::to_string(counter++);
+        return name;
+    }
+
     // A set of lambdas that should not be converted.
     const std::unordered_set<const ir::Lambda *> &blacklist;
     int64_t counter; // A counter for name hygiene.
@@ -52,9 +61,9 @@ struct ConvertLambdaToFunction : public ir::Mutator {
         // Visit this lambda.
         rhs = visit(lambda);
         lambda = rhs.as<ir::Lambda>();
-        internal_assert(map.contains(lambda));
+        internal_assert(lambda_metadata.contains(lambda));
 
-        auto it = map.find(lambda);
+        auto it = lambda_metadata.find(lambda);
         Metadata &m = it->second;
         m.name = lhs.base;
         return let;
@@ -73,15 +82,11 @@ struct ConvertLambdaToFunction : public ir::Mutator {
                            return ir::Function::Argument(a.name, a.type);
                        });
 
-        // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
-        std::string name = "?lambda";
-        name += std::to_string(counter++);
         ir::Type type = lambda->value.type();
-
-        auto [it, _] = map.try_emplace(lambda, Metadata{});
+        auto [it, _] = lambda_metadata.try_emplace(lambda, Metadata{});
         Metadata &m = it->second;
         m.function = std::make_shared<ir::Function>(
-            name, arguments,
+            generate_name(), arguments,
             /*return_type=*/type,
             /*body=*/ir::Return::make(lambda->value),
             /*interfaces=*/ir::Function::InterfaceList{});
@@ -95,12 +100,14 @@ struct ConvertLambdaToFunction : public ir::Mutator {
             return call;
 
         // Note: we assume there will be a small constant number of lambdas.
-        auto it = std::find_if(map.begin(), map.end(), [&](const auto &kv) {
-            const Metadata &m = kv.second;
-            return m.name == v->name;
-        });
-        if (it == map.end())
-            return call; // This is a call to a function.
+        auto it = std::find_if(lambda_metadata.begin(), lambda_metadata.end(),
+                               [&](const auto &kv) {
+                                   const Metadata &m = kv.second;
+                                   return m.name == v->name;
+                               });
+        if (it == lambda_metadata.end()) {
+            return call; // This is a call to a non-lambda.
+        }
         std::shared_ptr<ir::Function> &f = it->second.function;
 
         ir::Type type = ir::Function_t::make(f->ret_type, f->argument_types());
@@ -136,18 +143,20 @@ class Blacklist : public ir::Visitor {
 // Performs the orchestration for lambda lowering.
 ir::Program lower(const ir::Program &old_program) {
     // A mapping from lambda to metadata required for safe replacement.
-    std::unordered_map<const ir::Lambda *, Metadata> map;
+    std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
 
     // Some lambdas, e.g., those used in set queries, will not be converted.
     Blacklist blacklist;
     for (const auto &[_, f] : old_program.funcs) {
-        if (const ir::Stmt &body = f->body; body.defined())
+        if (const ir::Stmt &body = f->body; body.defined()) {
             body.accept(&blacklist);
+        }
     }
-    if (const ir::Stmt &main = old_program.main_body; main.defined())
+    if (const ir::Stmt &main = old_program.main_body; main.defined()) {
         main.accept(&blacklist);
+    }
 
-    ConvertLambdaToFunction cltf(map, blacklist.get());
+    ConvertLambdaToFunction cltf(lambda_metadata, blacklist.get());
     ir::Program new_program;
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
@@ -160,8 +169,9 @@ ir::Program lower(const ir::Program &old_program) {
 
     // Guarantee deterministic ordering for insertion.
     std::vector<std::shared_ptr<ir::Function>> functions;
-    functions.reserve(map.size());
-    std::transform(map.begin(), map.end(), std::back_inserter(functions),
+    functions.reserve(lambda_metadata.size());
+    std::transform(lambda_metadata.begin(), lambda_metadata.end(),
+                   std::back_inserter(functions),
                    [](const auto &kv) { return kv.second.function; });
     std::sort(
         functions.begin(), functions.end(),
