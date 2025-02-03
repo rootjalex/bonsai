@@ -78,7 +78,7 @@ jobs:
       if: github.event_name == 'pull_request'
       with:
         config_file: '.clang-tidy'
-        build_dir: build
+        build_dir: ${{ github.workspace }}/build
         lgtm_comment_body: "" # No comments upon success.
         cmake_command: cmake . -DCMAKE_EXPORT_COMPILE_COMMANDS=on
 
