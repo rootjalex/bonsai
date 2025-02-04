@@ -1,5 +1,6 @@
 #include "IR/Expr.h"
 
+#include <algorithm>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
