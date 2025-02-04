@@ -818,7 +818,12 @@ void CodeGen_LLVM::visit(const Print *node) {
 
     std::vector<llvm::Value *> args;
     args.push_back(builder->CreateGlobalStringPtr(specifier));
+    if (v.type().is_float()) {
+        // floating point types are required to be explicitly typed as float.
+        expr = builder->CreateBitCast(expr, f32_t);
+    }
     args.push_back(expr);
+
     llvm::Function *func = retrieve_printf(*module);
     value = builder->CreateCall(func, args);
 }
