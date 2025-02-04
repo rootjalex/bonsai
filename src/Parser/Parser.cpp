@@ -865,8 +865,14 @@ struct Parser {
             {"fma", 3, ir::Intrinsic::fma},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
-            {"max", 2, ir::Intrinsic::max, .skippable = true},
-            {"min", 2, ir::Intrinsic::min, .skippable = true},
+            {.name = "max",
+             .n_args = 2,
+             .op = ir::Intrinsic::max,
+             .skippable = true},
+            {.name = "min",
+             .n_args = 2,
+             .op = ir::Intrinsic::min,
+             .skippable = true},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
         });
