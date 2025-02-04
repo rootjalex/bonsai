@@ -3,8 +3,10 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <string>
+#include <type_traits>
 
 typedef float Float;
 #define PBRT_CPU_GPU
