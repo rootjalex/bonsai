@@ -10,6 +10,7 @@
 #include "Scope.h"
 #include "Utils.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>

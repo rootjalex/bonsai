@@ -5,6 +5,10 @@
 #include "Stmt.h"
 #include "Type.h"
 
+#include <pair>
+#include <string>
+#include <vector>
+
 namespace bonsai {
 namespace ir {
 

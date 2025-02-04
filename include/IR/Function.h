@@ -4,6 +4,8 @@
 #include "Type.h"
 
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace bonsai {
 namespace ir {

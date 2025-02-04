@@ -7,6 +7,7 @@
  */
 
 #include <memory>
+#include <string>
 
 #include "IR/Frame.h"
 #include "IR/Function.h"

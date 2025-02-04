@@ -43,6 +43,8 @@
 #include "Utils.h"
 
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace bonsai {
 namespace {

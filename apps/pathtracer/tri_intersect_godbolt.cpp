@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <string>
 
 typedef float Float;
 #define PBRT_CPU_GPU
