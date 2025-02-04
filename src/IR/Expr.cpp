@@ -1,6 +1,7 @@
 #include "IR/Expr.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>

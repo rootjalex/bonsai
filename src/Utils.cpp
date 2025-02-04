@@ -3,6 +3,8 @@
 #include "IR/Equality.h"
 #include "IR/Printer.h"
 
+#include <cstdint>
+
 namespace bonsai {
 
 using namespace ir;

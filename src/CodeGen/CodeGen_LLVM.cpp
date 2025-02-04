@@ -42,6 +42,7 @@
 
 #include "Utils.h"
 
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <utility>

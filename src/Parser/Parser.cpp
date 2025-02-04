@@ -9,6 +9,7 @@
 #include "IR/Type.h"
 #include "IR/TypeEnforcement.h"
 
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <regex>

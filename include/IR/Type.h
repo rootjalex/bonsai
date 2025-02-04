@@ -7,6 +7,7 @@
 #include "Mutator.h"
 #include "Visitor.h"
 
+#include <cstdint>
 #include <map>
 #include <string>
 
