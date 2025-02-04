@@ -1,0 +1,11 @@
+type Float = f32
+type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+
+extern triangles : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>
+
+func trace(ray : Ray) -> Triangle {
+  return argmin(|tri : Triangle| distance(ray, tri), filter(|tri : Triangle| intersects(ray, tri), triangles))
+}
+
+

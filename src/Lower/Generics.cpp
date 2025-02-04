@@ -210,7 +210,6 @@ Program lower_generics(const Program &program) {
     new_program.externs = program.externs;
     new_program.types = program.types;
     new_program.funcs = handle_instantiations(program.funcs);
-    new_program.main_body = program.main_body;
     return new_program;
 }
 

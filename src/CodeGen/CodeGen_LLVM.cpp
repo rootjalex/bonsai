@@ -258,9 +258,6 @@ CodeGen_LLVM::compile_program(const Program &program) {
         this->compile_function(*func, func_map[fname]);
     }
 
-    // TODO: now compile main function from program.main_body with arguments
-    // defined by program.externs
-
     frames.pop_frame();
 
     // std::cout << "\n\n\nBefore:\n\n\n" << std::endl;

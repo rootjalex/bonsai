@@ -252,11 +252,6 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program) {
         t.accept(&gather);
     }
 
-    if (program.main_body.defined()) {
-        // TODO: main should *always* be defined!
-        program.main_body.accept(&gather);
-    }
-
     return std::move(gather.struct_types);
 }
 

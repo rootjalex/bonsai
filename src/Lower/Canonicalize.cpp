@@ -97,8 +97,6 @@ ir::Program canonicalize(const ir::Program &program) {
             func->name, func->args, func->ret_type, body, func->interfaces);
     }
 
-    new_program.main_body = canonicalize(program.main_body);
-
     new_program = lower_option(new_program);
 
     new_program = lower_generics(new_program);
