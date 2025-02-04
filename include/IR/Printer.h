@@ -44,7 +44,8 @@ std::ostream &operator<<(std::ostream &os, const Indentation &);
 struct Printer : public Visitor {
     explicit Printer(std::ostream &_os) : os(_os) {}
 
-    explicit Printer(std::ostream &_os, bool verbose) : os(_os), verbose(verbose) {}
+    explicit Printer(std::ostream &_os, bool verbose)
+        : os(_os), verbose(verbose) {}
 
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);

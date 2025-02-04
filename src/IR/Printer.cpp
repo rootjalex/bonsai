@@ -225,7 +225,7 @@ void Printer::visit(const Struct_t *node) {
     if (verbose) {
         os << "{ ";
         bool first = true;
-        for (const auto& [key, value] : node->fields) {
+        for (const auto &[key, value] : node->fields) {
             if (!first) {
                 os << "; ";
             }

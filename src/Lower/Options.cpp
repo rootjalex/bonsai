@@ -132,9 +132,7 @@ bool contains_option(const ir::Type &type) {
     struct ContainsOption : ir::Visitor {
         bool found = false;
 
-        void visit(const ir::Option_t *) override {
-            found = true;
-        }
+        void visit(const ir::Option_t *) override { found = true; }
     };
     ContainsOption check;
     type.accept(&check);

@@ -46,8 +46,7 @@ struct Program {
 
     Program(Program &&other) noexcept
         : externs(std::move(other.externs)), funcs(std::move(other.funcs)),
-          types(std::move(other.types)) {
-    }
+          types(std::move(other.types)) {}
 
     Program &operator=(Program &&other) noexcept {
         if (this != &other) {
