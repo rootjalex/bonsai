@@ -86,8 +86,8 @@ jobs:
 
     - name: Build Bonsai
       run: |
-        cmake -S . -B build 
-        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=on --build build
+        cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=on 
+        cmake --build build 
     
     # Clang format 
     - uses: jidicula/clang-format-action@v4.14.0
