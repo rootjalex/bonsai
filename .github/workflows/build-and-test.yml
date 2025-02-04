@@ -83,6 +83,11 @@ jobs:
       run: |
         echo "LLVM_ROOT=/usr/lib/llvm-19" >> $GITHUB_ENV
         echo "LLVM_CONFIG=/usr/lib/llvm-19/bin/llvm-config" >> $GITHUB_ENV
+
+    - name: Build Bonsai
+      run: |
+        cmake -S . -B build 
+        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=on --build build
     
     # Clang format 
     - uses: jidicula/clang-format-action@v4.14.0
@@ -97,7 +102,6 @@ jobs:
         config_file: '.clang-tidy'
         build_dir: ${{ github.workspace }}/build
         lgtm_comment_body: "" # No comments upon success.
-        cmake_command: cmake . -DCMAKE_EXPORT_COMPILE_COMMANDS=on
 
     - uses: ZedThree/clang-tidy-review/upload@v0.20.1
       id: upload-review
