@@ -1,7 +1,7 @@
-type Ray = Ray
-type Ray1 = Ray1
-type Ray2 = Ray2
-type Ray3 = Ray3
+type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
+type Ray1 = struct Ray1{ o : f32x3; d : f32x3; t : f32 }
+type Ray2 = struct Ray2{ o : f32x3; d : f32x3; t : f32 }
+type Ray3 = struct Ray3{ o : f32x3; d : f32x3; t : f32 }
 type vec3f = f32x3
 
 

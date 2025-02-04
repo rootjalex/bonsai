@@ -44,6 +44,9 @@ std::ostream &operator<<(std::ostream &os, const Indentation &);
 struct Printer : public Visitor {
     explicit Printer(std::ostream &_os) : os(_os) {}
 
+    explicit Printer(std::ostream &_os, bool verbose)
+        : os(_os), verbose(verbose) {}
+
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
@@ -112,6 +115,7 @@ struct Printer : public Visitor {
   protected:
     /** The stream on which we're outputting */
     std::ostream &os;
+    bool verbose = false;
 
     Indentation get_indent() const { return Indentation{indent}; }
 

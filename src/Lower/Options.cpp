@@ -128,7 +128,16 @@ ir::Stmt lower_option(const ir::Stmt &stmt) {
     return RewriteOptions().mutate(stmt);
 }
 
-bool contains_option(const ir::Type &type) { return true; }
+bool contains_option(const ir::Type &type) {
+    struct ContainsOption : ir::Visitor {
+        bool found = false;
+
+        void visit(const ir::Option_t *) override { found = true; }
+    };
+    ContainsOption check;
+    type.accept(&check);
+    return check.found;
+}
 
 } // namespace
 
@@ -162,7 +171,6 @@ ir::Program lower_option(const ir::Program &program) {
             func->interfaces);
     }
 
-    new_program.main_body = lower_option(program.main_body);
     return new_program;
 }
 

@@ -198,9 +198,6 @@ struct Parser {
                            << " with message: " << e.what();
         }
 
-        // TODO: disregard like Python does?
-        internal_assert(!imported.main_body.defined())
-            << "Imported file: " << name << " contains main() function.";
         // Can't import externs, those are function arguments to the generated
         // stub.
         internal_assert(imported.externs.empty())

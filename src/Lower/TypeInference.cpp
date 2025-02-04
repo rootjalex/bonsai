@@ -391,12 +391,6 @@ ir::Program infer_types(const ir::Program &program) {
         }
     }
 
-    new_program.main_body = infer_types(program.main_body, func_types);
-    internal_assert(!has_undef_expr_types(new_program.main_body))
-        << "Type inference failed to infer all types of main body:\n"
-        << program.main_body << "\n\nInferred:\n"
-        << new_program.main_body;
-
     // std::cout << "\n\nInferred types:\n";
     // new_program.dump(std::cout);
 

@@ -97,7 +97,6 @@ ir::Program canonicalize(const ir::Program &program) {
         new_program.funcs[name] = std::make_shared<ir::Function>(
             name, func->args, func->ret_type, body, func->interfaces);
     }
-    new_program.main_body = canonicalize(program.main_body);
 
     new_program = lower_lambda(new_program);
     new_program = lower_option(new_program);

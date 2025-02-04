@@ -146,6 +146,9 @@ class Blacklist : public ir::Visitor {
                                    "type ir::Lambda, received: "
                                 << node->a;
             blacklisted_lambdas.insert(op);
+            if (const auto *b = node->b.as<ir::SetOp>()) {
+                visit(b);
+            }
         }
         }
     }
@@ -163,9 +166,6 @@ ir::Program lower(const ir::Program &old_program) {
             body.accept(&blacklisted_lambdas);
         }
     }
-    if (const ir::Stmt &main = old_program.main_body; main.defined()) {
-        main.accept(&blacklisted_lambdas);
-    }
 
     ConvertLambdaToFunction cltf(lambda_metadata, blacklisted_lambdas.get());
     ir::Program new_program;
@@ -176,7 +176,6 @@ ir::Program lower(const ir::Program &old_program) {
         new_program.funcs[f] = std::make_shared<ir::Function>(
             func->name, func->args, func->ret_type, body, func->interfaces);
     }
-    new_program.main_body = cltf.mutate(old_program.main_body);
 
     // Guarantee deterministic ordering for insertion.
     std::vector<std::shared_ptr<ir::Function>> functions;

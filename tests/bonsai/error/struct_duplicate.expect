@@ -1,7 +1,7 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:273
+[internal] Error: src/Parser/Parser.cpp:270
 
 --> fields.cend() == std::find_if(fields.cbegin(), fields.cend(), [&field_name](const auto &p) { return p.first == field_name; })
 Duplicate field name: o in element definition: Ray

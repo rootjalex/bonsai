@@ -218,23 +218,24 @@ void Printer::visit(const Vector_t *node) {
 }
 
 void Printer::visit(const Struct_t *node) {
-    os << node->name;
-    /*
-    os << "struct " << node->name << "{ ";
-    // TODO: intended verbosity?
-    // TODO: lift to a print_map function?
-    bool first = true;
-    for (const auto& [key, value] : node->fields) {
-        if (!first) {
-            os << "; ";
-        }
-        first = false;
-        // TODO: flip? if easier to read.
-        os << key << " : ";
-        print(value);
+    if (verbose) {
+        os << "struct ";
     }
-    os << " }";
-    */
+    os << node->name;
+    if (verbose) {
+        os << "{ ";
+        bool first = true;
+        for (const auto &[key, value] : node->fields) {
+            if (!first) {
+                os << "; ";
+            }
+            first = false;
+            // TODO: flip? if easier to read.
+            os << key << " : ";
+            print(value);
+        }
+        os << " }";
+    }
 }
 
 void Printer::visit(const Tuple_t *node) {

@@ -23,45 +23,36 @@ struct Program {
     std::map<std::string, Type> types;
     // TODO: interfaces / inheritance?
 
-    // TODO(cgyurgyik): remove this just treat the entry point as another
-    // function. We can hard-code it to main and have an additional program
-    // argument if a user wants a different name.
-    Stmt main_body;
-
     Program() {}
 
     Program(std::vector<std::pair<std::string, Type>> _externs, FuncMap _funcs,
-            std::map<std::string, Type> _types, Stmt _main_body)
+            std::map<std::string, Type> _types)
         : externs(std::move(_externs)), funcs(std::move(_funcs)),
-          types(std::move(_types)), main_body(std::move(_main_body)) {}
+          types(std::move(_types)) {}
 
     ~Program() = default;
 
     Program(const Program &other)
-        : externs(other.externs), funcs(other.funcs), types(other.types),
-          main_body(other.main_body) {}
+        : externs(other.externs), funcs(other.funcs), types(other.types) {}
 
     Program &operator=(const Program &other) {
         if (this != &other) {
             externs = other.externs;
             funcs = other.funcs;
             types = other.types;
-            main_body = other.main_body;
         }
         return *this;
     }
 
     Program(Program &&other) noexcept
         : externs(std::move(other.externs)), funcs(std::move(other.funcs)),
-          types(std::move(other.types)), main_body(std::move(other.main_body)) {
-    }
+          types(std::move(other.types)) {}
 
     Program &operator=(Program &&other) noexcept {
         if (this != &other) {
             externs = std::move(other.externs);
             funcs = std::move(other.funcs);
             types = std::move(other.types);
-            main_body = std::move(other.main_body);
         }
         return *this;
     }
