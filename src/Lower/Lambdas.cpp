@@ -88,7 +88,11 @@ struct ConvertLambdaToFunction : public ir::Mutator {
                        });
 
         ir::Type type = lambda->value.type();
-        auto [it, _] = lambda_metadata.try_emplace(lambda, Metadata{});
+        auto [it, succeeded] = lambda_metadata.try_emplace(lambda, Metadata{});
+        if (!succeeded) {
+            // This lambda has already been visited, and a function created.
+            return lambda;
+        }
         Metadata &m = it->second;
         m.function = std::make_shared<ir::Function>(
             generate_name(), arguments,
