@@ -11,6 +11,7 @@
 #include "Utils.h"
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 

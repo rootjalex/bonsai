@@ -1,5 +1,7 @@
 #include "IR/Equality.h"
 
+#include <optional>
+
 namespace bonsai {
 namespace ir {
 

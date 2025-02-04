@@ -10,6 +10,7 @@
 #include "IR/TypeEnforcement.h"
 
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <span>
 #include <sstream>
