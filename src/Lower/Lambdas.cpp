@@ -56,7 +56,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
         ir::Expr rhs = let->value;
         if (const ir::Call *call = rhs.as<ir::Call>()) {
-            return ir::LetStmt::make(lhs, visit(call));
+            return ir::Mutator::visit(let);
         }
         const ir::Lambda *lambda = rhs.as<ir::Lambda>();
         if (lambda == nullptr) {
