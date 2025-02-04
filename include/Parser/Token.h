@@ -1,9 +1,7 @@
 #pragma once
 
 #include <list>
-#include <optional>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace bonsai {

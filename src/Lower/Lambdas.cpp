@@ -5,9 +5,12 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <algorithm>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace bonsai {
 namespace lower {
