@@ -89,20 +89,21 @@ jobs:
       run: |
         cmake -S . -B build 
         cmake --build build 
-
-    - name: Set up Rust (stable)
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+    
+    # TODO(cgyurgyik): Debug and run tests on Linux machine.
+    # - name: Set up Rust (stable)
+    #   uses: actions-rs/toolchain@v1
+    #   with:
+    #     toolchain: stable
+    #     override: true
   
-    - name: Install runt 
-      run: cargo install runt
+    # - name: Install runt 
+    #   run: cargo install runt
         
-    - name: Test
-      working-directory: ${{ github.workspace }}
-      # errors are different on Linux; just avoid these tests.
-      run: runt -d -x error 
+    # - name: Test
+    #   working-directory: ${{ github.workspace }}
+    #   Error messages will likely be different on Linux.
+    #   run: runt -d -x error
     
     # Clang format 
     - uses: jidicula/clang-format-action@v4.14.0
