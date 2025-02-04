@@ -15,6 +15,8 @@
 
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 
+#include <optional>
+
 #include "Error.h"
 
 namespace bonsai {

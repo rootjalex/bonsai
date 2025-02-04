@@ -5,6 +5,7 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
