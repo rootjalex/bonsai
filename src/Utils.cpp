@@ -3,6 +3,7 @@
 #include "IR/Equality.h"
 #include "IR/Printer.h"
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
