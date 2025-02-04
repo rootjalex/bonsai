@@ -10,6 +10,10 @@
 
 #include "Type.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 namespace bonsai {
 namespace ir {
 

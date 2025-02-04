@@ -6,6 +6,10 @@
 
 #include "Error.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 namespace bonsai {
 
 const int64_t *as_const_int(const ir::Expr &e);

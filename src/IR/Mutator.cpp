@@ -4,6 +4,9 @@
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 
+#include <utility>
+#include <vector>
+
 namespace bonsai {
 namespace ir {
 

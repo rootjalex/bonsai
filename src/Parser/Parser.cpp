@@ -14,6 +14,10 @@
 #include <regex>
 #include <span>
 #include <sstream>
+#include <string>
+#include <utility
+#include <map>
+#include <vector>
 
 #include "Error.h"
 #include "Utils.h"

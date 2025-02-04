@@ -6,8 +6,11 @@
 
 #include "Utils.h"
 
+#include <map>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace bonsai {
 namespace lower {

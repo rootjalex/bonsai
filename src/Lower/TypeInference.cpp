@@ -15,6 +15,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace bonsai {
 namespace lower {

@@ -1,6 +1,7 @@
 #include "Bonsai.h"
 #include <fstream>
 #include <iostream>
+#include <string>
 
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/Support/FileSystem.h>
