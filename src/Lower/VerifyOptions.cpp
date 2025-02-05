@@ -11,7 +11,7 @@
 #include "Utils.h"
 
 #include <string>
-#include <unordered_set>
+#include <vector>
 
 namespace bonsai {
 namespace lower {
@@ -63,9 +63,8 @@ class OptionVisitor : public ir::Visitor {
         ir::Expr condition = node->cond;
         uint32_t before = dereferenced_options.size();
         if (const ir::Cast *c = condition.as<ir::Cast>()) {
-            if (const ir::Var *v = c->value.as<ir::Var>()) {
-
-                if (const ir::Option_t *type = v->type.as<ir::Option_t>()) {
+            if (const auto *v = c->value.as<ir::Var>()) {
+                if (v->type.is<ir::Option_t>()) {
                     dereferenced_options.push_back(v->name);
                 }
             }
