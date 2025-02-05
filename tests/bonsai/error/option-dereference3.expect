@@ -1,0 +1,5 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Lower/VerifyOptions.cpp:127
+illegal dereference of `i: option<i32>`

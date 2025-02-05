@@ -1,0 +1,5 @@
+// TODO(cgyurgyik): This should be legal, but currently fails upon copy.
+func use_option(i : option[i32]) -> i32 {
+    k: option[i32] = i;
+    if k { return k; }
+}
