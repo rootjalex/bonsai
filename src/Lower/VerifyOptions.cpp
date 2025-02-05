@@ -64,6 +64,8 @@ class OptionVisitor : public ir::Visitor {
                 return count;
             }
         }
+
+        return count;
     }
 
     void visit(const ir::IfElse *node) override {

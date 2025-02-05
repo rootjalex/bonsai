@@ -1,0 +1,12 @@
+
+
+func use_option(i : ?option0, j : ?option0) -> i32 {
+  if ((i && j).set) {
+    return (i + j).value
+  }
+  if ((i || j).set) {
+    return (i + j).value
+  }
+}
+
+
