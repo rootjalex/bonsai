@@ -44,23 +44,14 @@ class OptionVisitor : public ir::Visitor {
         if (const ir::BinOp *node = e.as<ir::BinOp>()) {
             switch (node->op) {
             case ir::BinOp::Or: {
-                // We cannot make any assumptions about the short circuit case.
-                return valid_dereference_count(node->a);
+                // We cannot make any assumptions about these.
+                return count;
             }
             case ir::BinOp::And: {
                 return valid_dereference_count(node->a) +
                        valid_dereference_count(node->b);
             }
-            case ir::BinOp::Xor:
-            case ir::BinOp::Div:
-            case ir::BinOp::Mul:
-            case ir::BinOp::Mod:
-            case ir::BinOp::Add:
-            case ir::BinOp::Sub:
-            case ir::BinOp::Eq:
-            case ir::BinOp::Neq:
-            case ir::BinOp::Le:
-            case ir::BinOp::Lt:
+            default:
                 return count;
             }
         }
