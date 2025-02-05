@@ -1,0 +1,3 @@
+func use_option(v : option[i32]) -> i32 {
+    return v;
+}

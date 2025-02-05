@@ -66,6 +66,8 @@ class OptionVisitor : public ir::Visitor {
                 }
             }
         }
+        // We make the following (strict) assumption: an option is only legally
+        // dereferenced in the `then-body` of an `if` statement.
         visit_statement(node->then_body);
         if (uint32_t after = dereferenced_options.size(); before != after) {
             internal_assert(!dereferenced_options.empty());
