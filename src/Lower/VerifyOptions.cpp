@@ -29,36 +29,6 @@ class OptionVisitor : public ir::Visitor {
     // some ordered hash set in the future for faster lookup.
     std::vector<std::string> dereferenced_options;
 
-    void visit_statement(const ir::Stmt &node) {
-        if (const auto *op = node.as<ir::Sequence>()) {
-            for (const ir::Stmt &statement : op->stmts) {
-                visit_statement(statement);
-            }
-        } else if (const auto *op = node.as<ir::IfElse>()) {
-            visit(op);
-        } else if (const auto *op = node.as<ir::Print>()) {
-            visit(op);
-        } else if (const auto *op = node.as<ir::Return>()) {
-            visit(op);
-        } else if (const auto *op = node.as<ir::LetStmt>()) {
-            visit(op);
-        } else if (const auto *op = node.as<ir::Store>()) {
-            visit(op);
-        } else if (const auto *op = node.as<ir::Assign>()) {
-            visit(op);
-        } else if (const auto *op = node.as<ir::Accumulate>()) {
-            visit(op);
-        }
-    }
-
-    void visit_expression(const ir::Expr &node) {
-        if (auto *v = node.as<ir::Var>()) {
-            visit(v);
-        } else if (auto *v = node.as<ir::Cast>()) {
-            visit(v);
-        }
-    }
-
     void visit(const ir::IfElse *node) override {
         ir::Expr condition = node->cond;
         uint32_t before = dereferenced_options.size();
@@ -71,38 +41,14 @@ class OptionVisitor : public ir::Visitor {
         }
         // We make the following (strict) assumption: an option is only legally
         // dereferenced in the `then-body` of an `if` statement.
-        visit_statement(node->then_body);
+        node->then_body.accept(this);
         if (uint32_t after = dereferenced_options.size(); before != after) {
             internal_assert(!dereferenced_options.empty());
             dereferenced_options.pop_back();
         }
         if (ir::Stmt else_body = node->else_body; else_body.defined()) {
-            visit_statement(else_body);
+            else_body.accept(this);
         }
-    }
-
-    void visit(const ir::Print *node) override {
-        visit_expression(node->value);
-    }
-
-    void visit(const ir::Return *node) override {
-        visit_expression(node->value);
-    }
-
-    void visit(const ir::LetStmt *node) override {
-        visit_expression(node->value);
-    }
-
-    void visit(const ir::Store *node) override {
-        visit_expression(node->value);
-    }
-
-    void visit(const ir::Assign *node) override {
-        visit_expression(node->value);
-    }
-
-    void visit(const ir::Accumulate *node) override {
-        visit_expression(node->value);
     }
 
     void visit(const ir::Cast *node) override {
