@@ -6,8 +6,9 @@
 namespace bonsai {
 namespace lower {
 
-// Statically verifies that options are always legally accessed. Due to its
-// static nature, this results in incompleteness but enables the compiler to
+// Verifies that options are always legally accessed. Due to its static nature,
+// this results in incompleteness, i.e., there may exist valid option
+// dereferences that are marked invalid, but enables the compiler to heavily
 // optimize `option` types. For example,
 //
 //      i: option<i32> = foo();
