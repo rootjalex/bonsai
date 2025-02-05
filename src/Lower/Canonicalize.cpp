@@ -5,6 +5,7 @@
 #include "Lower/Generics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Options.h"
+#include "Lower/VerifyOptions.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -99,6 +100,7 @@ ir::Program canonicalize(const ir::Program &program) {
     }
 
     new_program = lower_lambda(new_program);
+    verify_options(new_program);
     new_program = lower_option(new_program);
     new_program = lower_generics(new_program);
     // TODO: more canonicalizations
