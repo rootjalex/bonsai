@@ -1,0 +1,6 @@
+func use_option(i : option[i32]) -> i32 {
+    if (!i) {
+        return 42;
+    }
+    return i;
+}

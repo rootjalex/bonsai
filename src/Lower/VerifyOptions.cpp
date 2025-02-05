@@ -27,24 +27,63 @@ class OptionVisitor : public ir::Visitor {
   private:
     // Tracks the (legally) dereferenced options in FIFO manner. We may want
     // some ordered hash set in the future for faster lookup.
-    std::vector<std::string> dereferenced_options;
+    std::vector<std::string> frame;
 
-    void visit(const ir::IfElse *node) override {
-        ir::Expr condition = node->cond;
-        uint32_t before = dereferenced_options.size();
-        if (const ir::Cast *c = condition.as<ir::Cast>()) {
+    // Returns the valid dereference count.
+    uint32_t valid_dereference_count(const ir::Expr &e) {
+        uint32_t count = 0;
+        if (const ir::Cast *c = e.as<ir::Cast>()) {
             if (const auto *v = c->value.as<ir::Var>()) {
                 if (v->type.is<ir::Option_t>()) {
-                    dereferenced_options.push_back(v->name);
+                    frame.push_back(v->name);
+                    return ++count;
                 }
             }
         }
-        // We make the following (strict) assumption: an option is only legally
-        // dereferenced in the `then-body` of an `if` statement.
+
+        if (const ir::BinOp *node = e.as<ir::BinOp>()) {
+            switch (node->op) {
+            case ir::BinOp::Or: {
+                // We cannot make any assumptions about the short circuit case.
+                return valid_dereference_count(node->a);
+            }
+            case ir::BinOp::And: {
+                return valid_dereference_count(node->a) +
+                       valid_dereference_count(node->b);
+            }
+            case ir::BinOp::Xor:
+            case ir::BinOp::Div:
+            case ir::BinOp::Mul:
+            case ir::BinOp::Mod:
+            case ir::BinOp::Add:
+            case ir::BinOp::Sub:
+            case ir::BinOp::Eq:
+            case ir::BinOp::Neq:
+            case ir::BinOp::Le:
+            case ir::BinOp::Lt:
+                return count;
+            }
+        }
+
+        if (const ir::UnOp *node = e.as<ir::UnOp>()) {
+            switch (node->op) {
+            case ir::UnOp::Not:
+                return valid_dereference_count(node->a);
+            case ir::UnOp::Neg:
+                return count;
+            }
+        }
+    }
+
+    void visit(const ir::IfElse *node) override {
+        ir::Expr condition = node->cond;
+        const uint32_t count = valid_dereference_count(condition);
+
+        // We make the following (strict) assumption: an option is only
+        // legally dereferenced in the `then-body` of an `if` statement.
         node->then_body.accept(this);
-        if (uint32_t after = dereferenced_options.size(); before != after) {
-            internal_assert(!dereferenced_options.empty());
-            dereferenced_options.pop_back();
+        for (uint32_t i = 0; i != count; ++i) {
+            frame.pop_back();
         }
         if (ir::Stmt else_body = node->else_body; else_body.defined()) {
             else_body.accept(this);
@@ -66,9 +105,8 @@ class OptionVisitor : public ir::Visitor {
             return;
         }
         std::string_view name = node->name;
-        if (auto it = std::find(dereferenced_options.begin(),
-                                dereferenced_options.end(), name);
-            it == dereferenced_options.end()) {
+        if (auto it = std::find(frame.begin(), frame.end(), name);
+            it == frame.end()) {
             internal_error << "illegal dereference of `" << name << ": "
                            << node->type << "`";
         }
