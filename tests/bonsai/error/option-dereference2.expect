@@ -1,5 +1,5 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Lower/VerifyOptions.cpp:123
+[internal] Error: src/Lower/VerifyOptions.cpp:127
 illegal dereference of `v: option<i32>`

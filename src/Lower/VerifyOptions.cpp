@@ -18,6 +18,10 @@ namespace lower {
 
 namespace {
 
+// TODO(cgyurgyik): This is bare bones. Other static analysis can be performed
+// here to validate options, e.g.,
+//      i: option[i32] = 42;
+//      use(i); // Legal, but will result in error.
 class OptionVisitor : public ir::Visitor {
   public:
   private:
