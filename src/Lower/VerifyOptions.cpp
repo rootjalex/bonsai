@@ -28,7 +28,7 @@ OptionSets get_option_sets(const ir::Expr &expr) {
     if (const ir::Cast *cast = expr.as<ir::Cast>()) {
         if (cast->value.type().is<ir::Option_t>()) {
             internal_assert(cast->value.is<ir::Var>()) << "Found non-variable option as bool: " << expr;
-            const std::string &singleton = cast->value.as<ir::Var>()->name;
+            const std::string_view singleton = cast->value.as<ir::Var>()->name;
             return OptionSets{.positive={singleton}};
         }
         return {}; // Don't peak through bool casts.
