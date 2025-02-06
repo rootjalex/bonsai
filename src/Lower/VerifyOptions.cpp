@@ -77,7 +77,7 @@ class OptionVisitor : public ir::Visitor {
     std::vector<OptionSets> frames;
     std::set<std::string> always_safe;
 
-    bool is_safe_to_deref(const std::string &name) const {
+    bool is_safe_to_deref(std::string_view name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
             if (it->positive.count(name)) {
                 return true;
