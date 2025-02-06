@@ -1,7 +1,0 @@
----CODE---
--1
----STDERR---
-[internal] Error: src/IR/Expr.cpp:299
-
---> a.type().is_int_or_uint() || a.type().is_bool()
-Cannot not non-([u]int | bool): !i

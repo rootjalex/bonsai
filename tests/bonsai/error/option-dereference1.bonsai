@@ -1,6 +1,5 @@
 func use_option(i : option[i32], j: option[i32]) -> i32 {
     if i {
-        return i;
         if j { 
             k = i;     // LEGAL
             return j;  // LEGAL

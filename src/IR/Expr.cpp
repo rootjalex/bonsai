@@ -173,8 +173,15 @@ namespace {
 
 void try_match_types(Expr &a, Expr &b) {
     if (a.type().defined() && b.type().defined()) {
-        if (equals(a.type(), b.type()))
+        if (equals(a.type(), b.type())) {
+            if (a.type().is<Option_t>()) {
+                a = Cast::make(a.type().as<Option_t>()->etype, a);
+                b = Cast::make(b.type().as<Option_t>()->etype, b);
+                try_match_types(a, b);
+                return;
+            }
             return;
+        }
         if (a.type().is<Option_t>()) {
             if (b.type().is_bool()) {
                 a = Cast::make(Bool_t::make(), a);
@@ -269,7 +276,7 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
                              (a.type().defined() && b.type().defined());
     if (infer_types) {
         internal_assert(equals(a.type(), b.type()))
-            << "BinOp of mismatched types: " << a << to_string(op) << b;
+            << "BinOp of mismatched types: " << a << " : " << a.type() << " " << to_string(op) << " " << b << " : " << b.type();
 
         if (BinOp::is_numeric_op(op)) {
             node->type = a.type();
@@ -295,6 +302,9 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
+            if (a.type().is<Option_t>()) {
+                a = Cast::make(Bool_t::make(), a);
+            }
             // not on only integers and boolean? what does not of float mean
             internal_assert(a.type().is_int_or_uint() || a.type().is_bool())
                 << "Cannot not non-([u]int | bool): " << to_string(op) << a;

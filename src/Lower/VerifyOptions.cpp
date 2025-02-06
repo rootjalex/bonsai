@@ -10,6 +10,7 @@
 #include "Scope.h"
 #include "Utils.h"
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,52 @@ namespace lower {
 
 namespace {
 
+struct OptionSets {
+    std::set<std::string> positive, negative;
+};
+
+OptionSets get_option_sets(const ir::Expr &expr) {
+    internal_assert(expr.type().is_bool()) << expr;
+    if (const ir::Cast *cast = expr.as<ir::Cast>()) {
+        if (cast->value.type().is<ir::Option_t>()) {
+            internal_assert(cast->value.is<ir::Var>()) << "Found non-variable option as bool: " << expr;
+            const std::string &singleton = cast->value.as<ir::Var>()->name;
+            return OptionSets{.positive={singleton}};
+        }
+        return {}; // Don't peak through bool casts.
+    }
+
+    if (const ir::BinOp *node = expr.as<ir::BinOp>()) {
+        switch (node->op) {
+        // sets(a && b) = union(sets(a), sets(b))
+        case ir::BinOp::And: {
+            OptionSets a_sets = get_option_sets(node->a);
+            OptionSets b_sets = get_option_sets(node->b);
+            a_sets.positive.insert(b_sets.positive.cbegin(), b_sets.positive.cend());
+            a_sets.negative.insert(b_sets.negative.cbegin(), b_sets.negative.cend());
+            return a_sets;
+        }
+        default:
+            // TODO(rootjalex): Is there something we can do with a || b?
+            // Consider that !(a || b) -> !a && !b = {.negative={a, b}}, which we do not handle.
+            return {};
+        }
+    }
+
+    if (const ir::UnOp *node = expr.as<ir::UnOp>()) {
+        switch (node->op) {
+        case ir::UnOp::Not: {
+            OptionSets a_sets = get_option_sets(node->a);
+            return OptionSets{.positive=std::move(a_sets.negative), .negative=std::move(a_sets.positive)};
+        }
+        default:
+            return {};
+        }
+    }
+
+    return {};
+}
+
 // TODO(cgyurgyik): This is bare bones. Other static analysis can be performed
 // here to validate options, e.g.,
 //      i: option[i32] = 42;
@@ -25,99 +72,87 @@ namespace {
 class OptionVisitor : public ir::Visitor {
   public:
   private:
-    // Tracks the (legally) dereferenced options in FIFO manner. We may want
-    // some ordered hash set in the future for faster lookup.
-    std::vector<std::string> frame;
+    // Tracks which options can be safely dereferenced in the current stack
+    // frame.
+    std::vector<OptionSets> frames;
+    std::set<std::string> always_safe;
 
-    // Returns the valid dereference count.
-    uint32_t valid_dereference_count(const ir::Expr &e) {
-        uint32_t count = 0;
-        if (const ir::Cast *c = e.as<ir::Cast>()) {
-            if (const auto *v = c->value.as<ir::Var>()) {
-                if (v->type.is<ir::Option_t>()) {
-                    frame.push_back(v->name);
-                    return ++count;
-                }
+    bool is_safe_to_deref(const std::string &name) const {
+        for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
+            if (it->positive.count(name)) {
+                return true;
             }
         }
+        return always_safe.count(name);
+    }
 
-        if (const ir::BinOp *node = e.as<ir::BinOp>()) {
-            switch (node->op) {
-            case ir::BinOp::Or: {
-                // We cannot make any assumptions about these.
-                return count;
-            }
-            case ir::BinOp::And: {
-                return valid_dereference_count(node->a) +
-                       valid_dereference_count(node->b);
-            }
-            default:
-                return count;
-            }
-        }
+    void push_frame() {
+        frames.emplace_back();
+    }
 
-        if (const ir::UnOp *node = e.as<ir::UnOp>()) {
-            switch (node->op) {
-            case ir::UnOp::Not:
-                return valid_dereference_count(node->a);
-            case ir::UnOp::Neg:
-                return count;
-            }
-        }
+    void push_frame(OptionSets options) {
+        frames.emplace_back(std::move(options));
+    }
 
-        return count;
+    void replace_frame(OptionSets options) {
+        frames.back() = options;
+    }
+
+    void pop_frame() {
+        frames.pop_back();
+    }
+
+    void make_always_safe(std::set<std::string> safe) {
+        always_safe.insert(safe.begin(), safe.end());
     }
 
     void visit(const ir::IfElse *node) override {
-        ir::Expr condition = node->cond;
-        const uint32_t count = valid_dereference_count(condition);
-
-        // We make the following (strict) assumption: an option is only
-        // legally dereferenced in the `then-body` of an `if` statement.
+        // positives in the condition are safe to access in the then_body.
+        OptionSets options = get_option_sets(node->cond);
+        push_frame(options);
         node->then_body.accept(this);
-        for (uint32_t i = 0; i != count; ++i) {
-            frame.pop_back();
-        }
-        if (ir::Stmt else_body = node->else_body; else_body.defined()) {
-            else_body.accept(this);
-        }
-    }
 
-    void visit(const ir::Cast *node) override {
-        if (node->type.is<ir::Option_t>()) {
-            return; // This is a newly created Option.
+        OptionSets swapped = {.positive = std::move(options.negative), .negative = std::move(options.positive)};
+
+        // negatives in the condition are safe to access in the else_body
+        if (node->else_body.defined()) {
+            replace_frame(swapped);
+            node->else_body.accept(this);
         }
-        if (const ir::Var *v = node->value.as<ir::Var>()) {
-            visit(v);
+        pop_frame();
+
+        // If then_body always returns, negatives are now always safe.
+        // If else_body always returns, positives are now always safe.
+        const bool then_returns = ir::always_returns(node->then_body);
+        const bool else_returns = node->else_body.defined() && ir::always_returns(node->else_body);
+
+        if (then_returns && else_returns) {
+            return;
+        } else if (then_returns) {
+            make_always_safe(swapped.positive);
+        } else if (else_returns) {
+            make_always_safe(swapped.negative);
         }
     }
 
     void visit(const ir::Var *node) override {
-        const ir::Option_t *type = node->type.as<ir::Option_t>();
-        if (type == nullptr) {
-            return;
-        }
-        std::string_view name = node->name;
-        if (auto it = std::find(frame.begin(), frame.end(), name);
-            it == frame.end()) {
-            internal_error << "illegal dereference of `" << name << ": "
-                           << node->type << "`";
+        if (node->type.is<ir::Option_t>()) {
+            // TODO: needs `way` better error reporting.
+            // std::cout << "checking if " << node->name << " is safe\n";
+            internal_assert(is_safe_to_deref(node->name)) << "illegal dereference of `" << node->name << ": " << node->type << "`";
         }
     }
 };
 
-void verify(const ir::Program &program) {
-    for (const auto &[_, f] : program.funcs) {
-        if (const ir::Stmt &body = f->body; body.defined()) {
-            OptionVisitor visitor;
-            body.accept(&visitor);
-        }
-    }
-}
-
 } // namespace
 
-void verify_options(const ir::Program &program) { verify(program); }
+void verify_options(const ir::Program &program) {
+    for (const auto &[_, f] : program.funcs) {
+        internal_assert(f->body.defined());
+        OptionVisitor visitor;
+        f->body.accept(&visitor);
+    }
+}
 
 } // namespace lower
 } // namespace bonsai

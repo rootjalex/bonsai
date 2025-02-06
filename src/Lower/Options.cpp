@@ -16,8 +16,6 @@ struct RewriteOptions : public ir::Mutator {
     std::map<ir::Type, ir::Type, ir::TypeLessThan> rewrite_map;
     // number of option etypes rewritten
     size_t counter = 0;
-    // whether an expression is being interpreted as a boolean value or not.
-    bool as_bool = false;
 
     ir::Type construct_option_struct(const ir::Type &etype) {
         std::string struct_name = "?option" + std::to_string(counter++);
