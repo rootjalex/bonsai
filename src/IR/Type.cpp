@@ -174,8 +174,8 @@ Type Float_t::make_f16() {
 }
 
 uint32_t Float_t::bits() const {
-    constexpr uint32_t SIGN = 1;
-    return SIGN + this->exponent + this->mantissa;
+    // +1 for the sign bit.
+    return 1 + this->exponent + this->mantissa;
 }
 
 bool Float_t::is_ieee754() const {
