@@ -76,8 +76,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         return compare_primitives(t0.as<UInt_t>()->bits, t1.as<UInt_t>()->bits);
     }
     case IRTypeEnum::Float_t: {
-        return compare_primitives(t0.as<Float_t>()->bits,
-                                  t1.as<Float_t>()->bits);
+        return compare_primitives(t0.as<Float_t>()->bits(),
+                                  t1.as<Float_t>()->bits());
     }
     case IRTypeEnum::Bool_t: {
         return Cmp::Equals;

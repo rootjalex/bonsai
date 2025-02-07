@@ -111,10 +111,34 @@ struct UInt_t : TypeNode<UInt_t> {
     static const IRTypeEnum _node_type = IRTypeEnum::UInt_t;
 };
 
+// A subset of the real numbers. This typically consists of a sign bit, mantissa
+// (or significand) bits, and exponent bits.
 struct Float_t : TypeNode<Float_t> {
-    uint32_t bits;
+    // Determines the precision of the number.
+    uint32_t exponent;
+    // Determines the magnitude of the number.
+    uint32_t mantissa;
 
-    static Type make(uint32_t bits);
+    static Type make(uint32_t exponent, uint32_t mantissa);
+
+    // Creates an f64 (double-precision) type under IEEE754 standard.
+    // https://en.wikipedia.org/wiki/Double-precision_floating-point_format
+    static Type make_f64();
+
+    // Creates an f32 (single-precision) type under IEEE754 standard.
+    // https://en.wikipedia.org/wiki/Single-precision_floating-point_format
+    static Type make_f32();
+
+    // Creates an f16 (half-precision) type under IEEE754 standard.
+    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    static Type make_f16();
+
+    // Returns the total number of bits:
+    // sign bit + exponent bits + mantissa bits
+    uint32_t bits() const;
+
+    // Returns whether this floating point type conforms to IEEE-754 standard.
+    bool is_ieee754() const;
 
     static const IRTypeEnum _node_type = IRTypeEnum::Float_t;
 };

@@ -46,7 +46,7 @@ struct Parser {
     // generics, we need this to be a stack!
     std::map<std::string, ir::Type> current_generics;
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
-                   f32 = ir::Float_t::make(32);
+                   f32 = ir::Float_t::make_f32();
 
     ir::Type get_type_from_frame(const std::string &name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
@@ -1337,7 +1337,18 @@ struct Parser {
             return ir::UInt_t::make(bits);
         } else if (std::regex_match(name, match, float_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
-            return ir::Float_t::make(bits);
+            // Assume default types for floating precision is IEEE-754 standard.
+            switch (bits) {
+            case 64:
+                return ir::Float_t::make_f64();
+            case 32:
+                return ir::Float_t::make_f32();
+            case 16:
+                return ir::Float_t::make_f16();
+            default:
+                internal_error << "unsupported floating point type: f" << bits;
+            }
+
         } else if (name == "bool") {
             return ir::Bool_t::make();
         } else if (name == "void") {

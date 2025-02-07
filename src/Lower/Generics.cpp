@@ -45,7 +45,7 @@ std::string short_type_name(const Type &type) {
     case IRTypeEnum::UInt_t:
         return "u" + std::to_string(type.as<UInt_t>()->bits);
     case IRTypeEnum::Float_t:
-        return "f" + std::to_string(type.as<Float_t>()->bits);
+        return "f" + std::to_string(type.as<Float_t>()->bits());
     case IRTypeEnum::Bool_t:
         return "bool";
     case IRTypeEnum::Ptr_t:

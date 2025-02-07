@@ -477,24 +477,30 @@ void CodeGen_LLVM::visit(const Bool_t *node) {
 }
 
 void CodeGen_LLVM::visit(const Float_t *node) {
-    switch (node->bits) {
-    // TODO: I need f8 on GPUs.
-    // do we ever need it on CPUs?
-    case 16:
-        // assumes we're not deeling with bfloat
-        type = llvm::Type::getHalfTy(*context);
-        return;
-    case 32:
-        type = llvm::Type::getFloatTy(*context);
-        return;
+    switch (const uint32_t bits = node->bits(); bits) {
     case 64:
-        type = llvm::Type::getDoubleTy(*context);
-        return;
+        if (node->is_ieee754()) {
+            type = llvm::Type::getDoubleTy(*context);
+            return;
+        }
+        break;
+    case 32:
+        if (node->is_ieee754()) {
+            type = llvm::Type::getFloatTy(*context);
+            return;
+        }
+        break;
+    case 16:
+        if (node->is_ieee754()) {
+            type = llvm::Type::getHalfTy(*context);
+            return;
+        }
+        break;
+    case 8: // TODO: I need f8 on GPUs. Do we ever need it on CPUs?
     default:
-        internal_error
-            << "There is no llvm type matching this floating-point bit width: "
-            << Type(node);
+        break;
     }
+    internal_error << "unimplemented: " << Type(node);
 }
 
 void CodeGen_LLVM::visit(const Ptr_t *node) {
