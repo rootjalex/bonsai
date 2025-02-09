@@ -553,7 +553,8 @@ struct Parser {
         if (const auto *build = value.as<ir::Build>();
             build && !type.defined()) {
             // When assigning a vector with an initializer list, this may occur,
-            // e.g., `v: vector[i32, 3] = {1, 2, 3};`
+            // e.g., `v: vector[i32, 2] = {1, 2};`, which is parsed as:
+            //       `v: vector[i32, 2] = build<unknown>((i32)1, (i32)2)`
             if (const auto *label = type_label.as<ir::Vector_t>()) {
                 ir::Type element_type = label->etype;
                 const std::vector<ir::Expr> &vs = build->values;
