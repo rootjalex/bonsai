@@ -4,4 +4,4 @@
 [internal] Error: src/Parser/Parser.cpp:564
 
 --> std::all_of(vs.begin(), vs.end(), [&](const ir::Expr &v) { return ir::equals(v.type(), element_type); })
-Mismatching assignment: v is labelled with type: i32x3 but build<unknown>((u32)1, (i32)0, (i32)0) has a mismatched element type
+Mismatching assignment: d is labelled with type: i32x3 but build<unknown>((u32)1, (i32)0, (i32)0) has a mismatched element type
