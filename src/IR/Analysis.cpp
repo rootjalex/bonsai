@@ -260,8 +260,7 @@ bool is_constant_expr(const Expr &expr) {
     // TODO: constant fold first?
     if (expr.is<IntImm, UIntImm, FloatImm, BoolImm>()) {
         return true;
-    }
-    if (expr.is<Broadcast>()) {
+    } else if (expr.is<Broadcast>()) {
         return is_constant_expr(expr.as<Broadcast>()->value);
     } else if (expr.is<VectorReduce>()) {
         return is_constant_expr(expr.as<VectorReduce>()->value);
