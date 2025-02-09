@@ -565,7 +565,7 @@ struct Parser {
                     << "Mismatching assignment: " << loc
                     << " is labelled with type: " << type_label << " but "
                     << value << " has a mismatched element type";
-                value = ir::Build::make(type_label, vs);
+                value = ir::Build::make(type_label, std::move(build->values));
             }
         }
 
