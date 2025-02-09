@@ -1,4 +1,4 @@
-func main() -> i32 {
+func main(v: vector[i32, 3]) -> i32 {
     i: i32 = -42;
     print(i);
     
@@ -7,6 +7,9 @@ func main() -> i32 {
     
     k: u32 = 4294967295u;
     print(k);
+
+    // DO NOT SUBMIT: declare and initialize v.
+    print(v);
     
     return 0;
 }

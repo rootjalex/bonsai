@@ -804,15 +804,42 @@ void CodeGen_LLVM::visit(const Select *node) {
 void CodeGen_LLVM::visit(const Print *node) {
     // TODO(cgyurgyik): Support strings and more complex structures.
     ir::Expr v = node->value;
-
-    std::string specifier = get_specifier(v.type());
-    specifier += "\n";
+    ir::Type t = v.type();
     llvm::Value *expr = codegen_expr(v);
 
-    std::vector<llvm::Value *> args;
-    args.push_back(builder->CreateGlobalStringPtr(specifier));
-    args.push_back(expr);
+    // Retrieve (or create) the printf function.
     llvm::Function *func = retrieve_printf(*module);
+
+    // This carries the print format specifiers and any other characters that
+    // will be printed, i.e., the first argument of `printf`.
+    std::string payload;
+    std::vector<llvm::Value *> args;
+    if (auto *vtype = t.as<ir::Vector_t>()) {
+        payload += "[";
+        // Get the vector element type specifier.
+        const std::string specifier = get_specifier(vtype->etype);
+        // Print each value in the vector.
+        for (uint32_t i = 0, e = vtype->lanes; i != e; ++i) {
+            args.push_back(builder->CreateExtractElement(/*Vec=*/expr, i));
+            payload += specifier;
+            if (i + 1 == e)
+                continue;
+            payload += ", ";
+        }
+        payload += "]";
+        payload += "\n";
+        args.insert(args.begin(), builder->CreateGlobalStringPtr(payload));
+        value = builder->CreateCall(func, args);
+        return;
+    }
+
+    internal_assert((t.is<ir::Int_t, ir::UInt_t, ir::Float_t, ir::Bool_t>()))
+        << "unimplemented `Print` support for type: " << t;
+    payload += get_specifier(t);
+    payload += "\n";
+
+    args.push_back(builder->CreateGlobalStringPtr(payload));
+    args.push_back(expr);
     value = builder->CreateCall(func, args);
 }
 
