@@ -153,21 +153,21 @@ Type Float_t::make(uint32_t mantissa, uint32_t exponent) {
 }
 
 Type Float_t::make_f64() {
-    Float_t *node = new Float_t;
+    static Float_t *node = new Float_t;
     node->exponent = IEEE754_F64.exponent;
     node->mantissa = IEEE754_F64.mantissa;
     return node;
 }
 
 Type Float_t::make_f32() {
-    Float_t *node = new Float_t;
+    static Float_t *node = new Float_t;
     node->exponent = IEEE754_F32.exponent;
     node->mantissa = IEEE754_F32.mantissa;
     return node;
 }
 
 Type Float_t::make_f16() {
-    Float_t *node = new Float_t;
+    static Float_t *node = new Float_t;
     node->exponent = IEEE754_F16.exponent;
     node->mantissa = IEEE754_F16.mantissa;
     return node;

@@ -477,7 +477,7 @@ void CodeGen_LLVM::visit(const Bool_t *node) {
 }
 
 void CodeGen_LLVM::visit(const Float_t *node) {
-    switch (const uint32_t bits = node->bits(); bits) {
+    switch (node->bits()) {
     case 64:
         if (node->is_ieee754()) {
             type = llvm::Type::getDoubleTy(*context);
