@@ -547,16 +547,36 @@ struct Parser {
 
         expect(Token::Type::ASSIGN);
         ir::Expr value = parseExpr();
+        ir::Type type = value.type();
         expect(Token::Type::SEMICOL);
 
+        if (const auto *build = value.as<ir::Build>();
+            build && !type.defined()) {
+            // When assigning a vector with an initializer list, this may occur,
+            // e.g., `v: vector[i32, 3] = {1, 2, 3};`
+            if (const auto *label = type_label.as<ir::Vector_t>()) {
+                ir::Type element_type = label->etype;
+                const std::vector<ir::Expr> &vs = build->values;
+                internal_assert(std::all_of(vs.begin(), vs.end(),
+                                            [&](const ir::Expr &v) {
+                                                return ir::equals(v.type(),
+                                                                  element_type);
+                                            }))
+                    << "Mismatching assignment: " << loc
+                    << " is labelled with type: " << type_label << " but "
+                    << value << " has a mismatched element type";
+                value = ir::Build::make(type_label, vs);
+            }
+        }
+
         // TODO: do type-forcing here!
-        if (type_label.defined() && value.type().defined()) {
+        if (type_label.defined() && type.defined()) {
             internal_assert(ir::equals(type_label, value.type()))
                 << "Mismatching assignment: " << loc
                 << " is labelled with type: " << type_label << " but " << value
-                << " has type " << value.type();
+                << " has type " << type;
         }
-        ir::Type write_type = type_label.defined() ? type_label : value.type();
+        ir::Type write_type = type_label.defined() ? type_label : type;
 
         add_type_to_frame(loc.base, write_type, _mutable);
 

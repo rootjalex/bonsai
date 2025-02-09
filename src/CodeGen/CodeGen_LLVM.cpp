@@ -72,6 +72,9 @@ static llvm::Function *retrieve_printf(llvm::Module &m) {
 static std::string get_specifier(const ir::Type &type) {
     std::string specifier = "%";
     const uint32_t width = type.bits();
+    if (type.is_bool()) {
+        return "%d";
+    }
     if (!(type.is_numeric() && (width == 32 || width == 64))) {
         internal_error << "[unimplemented] LLVM print: " << type;
         return "";
@@ -819,7 +822,7 @@ void CodeGen_LLVM::visit(const Print *node) {
         // Get the vector element type specifier.
         const std::string specifier = get_specifier(vtype->etype);
         // Print each value in the vector.
-        for (uint32_t i = 0, e = vtype->lanes; i != e; ++i) {
+        for (uint32_t i = 0, e = vtype->lanes; i < e; ++i) {
             args.push_back(builder->CreateExtractElement(/*Vec=*/expr, i));
             payload += specifier;
             if (i + 1 == e)

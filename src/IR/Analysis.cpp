@@ -258,10 +258,10 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program) {
 // TODO: merge with is_const ?
 bool is_constant_expr(const Expr &expr) {
     // TODO: constant fold first?
-    if (expr.is<IntImm>() || expr.is<UIntImm>() || expr.is<FloatImm>() ||
-        expr.is<BoolImm>()) {
+    if (expr.is<IntImm, UIntImm, FloatImm, BoolImm>()) {
         return true;
-    } else if (expr.is<Broadcast>()) {
+    }
+    if (expr.is<Broadcast>()) {
         return is_constant_expr(expr.as<Broadcast>()->value);
     } else if (expr.is<VectorReduce>()) {
         return is_constant_expr(expr.as<VectorReduce>()->value);

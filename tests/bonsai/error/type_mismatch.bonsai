@@ -1,0 +1,4 @@
+func main() -> i32 {
+    v : vector[i32, 3] = {1u, 0, 0};
+    return 0;
+}
