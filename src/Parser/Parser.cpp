@@ -547,16 +547,25 @@ struct Parser {
 
         expect(Token::Type::ASSIGN);
         ir::Expr value = parseExpr();
+        ir::Type type = value.type();
         expect(Token::Type::SEMICOL);
 
+        if (const auto *build = value.as<ir::Build>();
+            build && !type.defined()) {
+            // When assigning a vector with an initializer list, this may occur,
+            // e.g., `v: vector[i32, 2] = {1, 2};`, which is parsed as:
+            //       `v: vector[i32, 2] = build<unknown>((i32)1, (i32)2)`
+            value = ir::Build::make(type_label, std::move(build->values));
+        }
+
         // TODO: do type-forcing here!
-        if (type_label.defined() && value.type().defined()) {
+        if (type_label.defined() && type.defined()) {
             internal_assert(ir::equals(type_label, value.type()))
                 << "Mismatching assignment: " << loc
                 << " is labelled with type: " << type_label << " but " << value
-                << " has type " << value.type();
+                << " has type " << type;
         }
-        ir::Type write_type = type_label.defined() ? type_label : value.type();
+        ir::Type write_type = type_label.defined() ? type_label : type;
 
         add_type_to_frame(loc.base, write_type, _mutable);
 

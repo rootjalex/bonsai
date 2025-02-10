@@ -72,6 +72,10 @@ static llvm::Function *retrieve_printf(llvm::Module &m) {
 static std::string get_specifier(const ir::Type &type) {
     std::string specifier = "%";
     const uint32_t width = type.bits();
+    if (type.is_bool()) {
+        // Boolean values are printed as strings ("true", "false").
+        return "%s";
+    }
     if (!(type.is_numeric() && (width == 32 || width == 64))) {
         internal_error << "[unimplemented] LLVM print: " << type;
         return "";
@@ -81,7 +85,7 @@ static std::string get_specifier(const ir::Type &type) {
             return "%ld";
         return "%d";
     }
-    if (type.is_uint() || type.is_bool()) {
+    if (type.is_uint()) {
         if (width > 32)
             return "%lu";
         return "%u";
@@ -807,19 +811,82 @@ void CodeGen_LLVM::visit(const Select *node) {
     value = builder->CreateSelect(cond, tvalue, fvalue);
 }
 
-void CodeGen_LLVM::visit(const Print *node) {
-    // TODO(cgyurgyik): Support strings and more complex structures.
-    ir::Expr v = node->value;
+void CodeGen_LLVM::print_helper(const ir::Expr &node,
+                                std::vector<llvm::Value *> &args,
+                                std::string &to_print, uint32_t indent_level) {
+    ir::Type t = node.type();
+    // Returns a string with the given indentation level.
+    auto indent = [&](uint32_t level) -> std::string {
+        return std::string(level, ' ');
+    };
 
-    std::string specifier = get_specifier(v.type());
-    specifier += "\n";
-    llvm::Value *expr = codegen_expr(v);
+    if (auto *vtype = t.as<ir::Vector_t>()) {
+        to_print += "[";
+        // Print each value in the vector.
+        for (uint32_t i = 0, e = vtype->lanes; i < e; ++i) {
+            static const ir::Type u32 = ir::UInt_t::make(32);
+            ir::Expr extract = ir::Extract::make(node, make_const(u32, i));
+            print_helper(extract, args, to_print, indent_level);
+            if (i + 1 == e)
+                continue;
+            to_print += ", ";
+        }
+        to_print += "]";
+        return;
+    }
 
-    std::vector<llvm::Value *> args;
-    args.push_back(builder->CreateGlobalStringPtr(specifier));
+    if (const auto *stype = t.as<ir::Struct_t>()) {
+        to_print += stype->name;
+        to_print += " {\n";
+        bool first = true;
+        for (const auto &[name, type] : stype->fields) {
+            if (!first) {
+                to_print += "\n";
+            }
+            first = false;
+
+            // Print the member name.
+            to_print += indent(indent_level + 2);
+            to_print += name;
+            to_print += ": ";
+            // Print the member value.
+            ir::Expr access = ir::Access::make(/*field=*/name, /*value=*/node);
+            print_helper(access, args, to_print, indent_level + 2);
+        }
+        to_print += "\n";
+        to_print += indent(indent_level);
+        to_print += "}";
+        return;
+    }
+
+    internal_assert((t.is<ir::Int_t, ir::UInt_t, ir::Float_t, ir::Bool_t>()))
+        << "unimplemented `Print` support for type: " << t;
+    to_print += get_specifier(t);
+    llvm::Value *expr = codegen_expr(node);
+    if (t.is_bool()) {
+        // Convert boolean types to their human readable form.
+        auto *type = cast<llvm::IntegerType>(expr->getType());
+        const uint32_t width = type->getBitWidth();
+        internal_assert(width == 1) << "expected i1, received: i" << width;
+        llvm::Value *t = builder->CreateGlobalStringPtr("true");
+        llvm::Value *f = builder->CreateGlobalStringPtr("false");
+        expr = builder->CreateSelect(expr, t, f);
+    }
     args.push_back(expr);
-    llvm::Function *func = retrieve_printf(*module);
-    value = builder->CreateCall(func, args);
+}
+
+void CodeGen_LLVM::visit(const Print *node) {
+    // The string to be printed in the call to `printf`...
+    std::string to_print;
+    // ...and the respective arguments for the format specifiers.
+    std::vector<llvm::Value *> args;
+    // Placeholder for the string - this is always the 1st argument.
+    args.push_back(nullptr);
+
+    print_helper(node->value, args, to_print);
+    args.front() = builder->CreateGlobalStringPtr(to_print + "\n");
+
+    value = builder->CreateCall(retrieve_printf(*module), args);
 }
 
 void CodeGen_LLVM::visit(const Cast *node) {

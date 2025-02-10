@@ -22,11 +22,14 @@ uint32_t Type::bits() const {
     if (auto *as_int = this->as<Int_t>()) {
         return as_int->bits;
     }
-    if (auto *as_uint = this->as<UInt_t>()) {
+    if (auto as_uint = this->as<UInt_t>()) {
         return as_uint->bits;
     }
-    if (auto *as_float = this->as<Float_t>()) {
+    if (auto as_float = this->as<Float_t>()) {
         return as_float->bits();
+    }
+    if (auto as_bool = this->as<Bool_t>()) {
+        return 1;
     }
     internal_error << "Called bits() on bad type: " << *this;
     return 0;
