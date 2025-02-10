@@ -202,7 +202,17 @@ void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
 
 void Printer::visit(const UInt_t *node) { os << "u" << node->bits; }
 
-void Printer::visit(const Float_t *node) { os << "f" << node->bits(); }
+void Printer::visit(const Float_t *node) {
+    if (node->is_ieee754()) {
+        os << "f" << node->bits();
+        return;
+    }
+    if (node->is_bfloat16()) {
+        os << "bf" << node->bits();
+        return;
+    }
+    os << "f" << node->exponent << "." << node->mantissa;
+}
 
 void Printer::visit(const Bool_t *node) { os << "bool"; }
 

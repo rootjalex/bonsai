@@ -142,16 +142,21 @@ struct Parser {
         return token;
     }
 
-    Token expect(Token::Type type) {
-        if (auto token = consume(type)) {
+    Token expect(Token::Type type, bool validate_identifier = true) {
+        std::optional<Token> token = consume(type);
+        if (token.has_value()) {
+            if (validate_identifier && token->type == Token::Type::IDENTIFIER) {
+                const std::string name = std::get<std::string>(token->value);
+                internal_assert(name.find('.') == std::string::npos)
+                    << "unexpected `.` in token identifier: `" << name
+                    << "`. This is only valid in type identifiers.";
+            }
             return *token;
-        } else {
-            internal_error << "Expected " << Token::token_type_string(type)
-                           << ", instead received: " + peek().to_string()
-                           << " at line: " << peek().lineBegin << ":"
-                           << peek().colBegin;
-            return Token{};
         }
+        internal_error << "Expected " << Token::token_type_string(type)
+                       << ", instead received: " + peek().to_string()
+                       << " at line: " << peek().lineBegin << ":"
+                       << peek().colBegin;
     }
 
     void parseProgramElement() {
@@ -1325,27 +1330,44 @@ struct Parser {
         return loc;
     }
 
-    // type := i[N] | u[N] | f[N] | bool | vector[type, int] | option[type] |
-    // declared_type
+    // type := i[N] | u[N]
+    //         | f[N] | bf[N] | f[N].[N]
+    //         | bool | vector[type, int]
+    //         | option[type] | declared_type
     ir::Type parseType() {
         // TODO: support tuples of types! AKA unnamed structs.
-        const Token id = expect(Token::Type::IDENTIFIER);
+        const Token id =
+            expect(Token::Type::IDENTIFIER, /*validate_identifier=*/false);
         const std::string name = std::get<std::string>(id.value);
-
-        // First look for numeric types
+        // Signed integer types.
         std::regex int_pattern("^i(\\d+)$");
+        // Unsigned integer types.
         std::regex uint_pattern("^u(\\d+)$");
-        std::regex float_pattern("^f(\\d+)$");
-        std::smatch match;
+        // Floating point types.
+        std::regex float_pattern("^b?f(\\d+)$");
+        // Explicit declaration of exponent and mantissa bits.
+        std::regex float_pattern_explicit("^f(\\d+)\\.(\\d+)$");
+        // TODO(cgyurgyik): Support explicit declaration for fixed point.
 
+        std::smatch match;
         if (std::regex_match(name, match, int_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
             return ir::Int_t::make(bits);
         } else if (std::regex_match(name, match, uint_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
             return ir::UInt_t::make(bits);
+        } else if (std::regex_match(name, match, float_pattern_explicit)) {
+            const uint32_t exponent = std::stoul(match[1].str());
+            const uint32_t mantissa = std::stoul(match[2].str());
+            return ir::Float_t::make(exponent, mantissa);
         } else if (std::regex_match(name, match, float_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
+            if (!name.empty() && name.front() == 'b') {
+                internal_assert(bits == 16)
+                    << "brain float (bfloat) only comes in width 16";
+                return ir::Float_t::make_bf16();
+            }
+
             // Assume default types for floating precision is IEEE-754 standard.
             switch (bits) {
             case 64:
@@ -1357,7 +1379,6 @@ struct Parser {
             default:
                 internal_error << "unsupported floating point type: f" << bits;
             }
-
         } else if (name == "bool") {
             return ir::Bool_t::make();
         } else if (name == "void") {

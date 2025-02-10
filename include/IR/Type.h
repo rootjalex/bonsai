@@ -133,12 +133,19 @@ struct Float_t : TypeNode<Float_t> {
     // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
     static Type make_f16();
 
+    // Creates a bf16 (half-precision) type.
+    // https://en.wikipedia.org/wiki/Bfloat16_floating-point_format
+    static Type make_bf16();
+
     // Returns the total number of bits:
     // sign bit + exponent bits + mantissa bits
     uint32_t bits() const;
 
     // Returns whether this floating point type conforms to IEEE-754 standard.
     bool is_ieee754() const;
+
+    // Returns whether this floating point type is brain float (bf16).
+    bool is_bfloat16() const;
 
     static const IRTypeEnum _node_type = IRTypeEnum::Float_t;
 };

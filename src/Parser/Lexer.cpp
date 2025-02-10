@@ -123,8 +123,12 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
 
 // Returns whether this is a valid start character of an identifier or keyword,
 // i.e., [A-Za-z_]
-static bool isValidIdentifierStart(int32_t c) {
+static bool is_valid_identifier_start(int32_t c) {
     return c == '_' || std::isalpha(c);
+}
+
+static bool is_valid_identifier_token(int32_t c) {
+    return is_valid_identifier_start(c) || std::isdigit(c);
 }
 
 void Lexer::lex() {
@@ -136,12 +140,25 @@ void Lexer::lex() {
 
     while (program_stream.peek() != EOF) {
         // Try to parse a name of the form [A-Za-z_][A-Za-z0-9_].
-        if (isValidIdentifierStart(program_stream.peek())) {
+        if (is_valid_identifier_start(program_stream.peek())) {
             std::string token_string(1, program_stream.get());
-            // [A-Za-z0-9_]
-            while (isValidIdentifierStart(program_stream.peek()) ||
-                   std::isdigit(program_stream.peek())) {
-                token_string += program_stream.get();
+            for (char previous = token_string.front();;
+                 previous = token_string.back()) {
+                const char peek = program_stream.peek();
+                // Case 1: this is a valid identifier.
+                if (is_valid_identifier_token(peek)) {
+                    token_string += program_stream.get();
+                    continue;
+                }
+                // Case 2: this is a numeric type: [0-9].[0-9].
+                if (std::isdigit(previous) && peek == '.') {
+                    token_string += program_stream.get();
+                    if (!std::isdigit(program_stream.peek())) {
+                        report_error("invalid identifier");
+                    }
+                    continue;
+                }
+                break;
             }
 
             Token new_token{

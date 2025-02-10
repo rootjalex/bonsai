@@ -4,19 +4,10 @@
 #include <utility>
 
 #include "IR/Printer.h"
+#include "Utils.h"
 
 namespace bonsai {
 namespace ir {
-namespace {
-// Bit layout (not including sign bit) for floating point representations.
-struct FloatLayout {
-    uint32_t exponent;
-    uint32_t mantissa;
-};
-constexpr auto IEEE754_F64 = FloatLayout{.exponent = 11, .mantissa = 52};
-constexpr auto IEEE754_F32 = FloatLayout{.exponent = 8, .mantissa = 23};
-constexpr auto IEEE754_F16 = FloatLayout{.exponent = 5, .mantissa = 10};
-} // namespace
 
 uint32_t Type::bits() const {
     if (auto *as_int = this->as<Int_t>()) {
@@ -148,10 +139,10 @@ Type UInt_t::make(uint32_t bits) {
     return node;
 }
 
-Type Float_t::make(uint32_t mantissa, uint32_t exponent) {
+Type Float_t::make(uint32_t exponent, uint32_t mantissa) {
     Float_t *node = new Float_t;
-    node->mantissa = mantissa;
     node->exponent = exponent;
+    node->mantissa = mantissa;
     return node;
 }
 
@@ -176,6 +167,13 @@ Type Float_t::make_f16() {
     return node;
 }
 
+Type Float_t::make_bf16() {
+    static Float_t *node = new Float_t;
+    node->exponent = BFLOAT16.exponent;
+    node->mantissa = BFLOAT16.mantissa;
+    return node;
+}
+
 uint32_t Float_t::bits() const {
     // +1 for the sign bit.
     return 1 + this->exponent + this->mantissa;
@@ -196,6 +194,11 @@ bool Float_t::is_ieee754() const {
     default:
         return false;
     }
+}
+
+bool Float_t::is_bfloat16() const {
+    return this->exponent == BFLOAT16.exponent &&
+           this->mantissa == BFLOAT16.mantissa;
 }
 
 Type Bool_t::make() {

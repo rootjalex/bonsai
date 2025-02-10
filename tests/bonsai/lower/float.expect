@@ -1,0 +1,15 @@
+
+
+func id1(x : bf16) -> bf16 {
+  return x
+}
+
+func id2(x : bf16) -> bf16 {
+  return x
+}
+
+func id3(x : f7.8) -> f7.8 {
+  return x
+}
+
+

@@ -499,6 +499,10 @@ void CodeGen_LLVM::visit(const Float_t *node) {
             type = llvm::Type::getHalfTy(*context);
             return;
         }
+        if (node->is_bfloat16()) {
+            type = llvm::Type::getBFloatTy(*context);
+            return;
+        }
         break;
     case 8: // TODO: I need f8 on GPUs. Do we ever need it on CPUs?
     default:
