@@ -64,8 +64,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual std::string get_allocation_name(const std::string &n) { return n; }
 
     // Additionally preprocessing step during LLVM printing that converts an i1
-    // type
-    // to a human readable string, i.e., {1 => "true", 0 => "false"}.
+    // type to a human readable string, i.e., {1 => "true", 0 => "false"}.
     llvm::Value *bool_to_string(llvm::Value *value);
 
     // Types

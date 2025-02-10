@@ -73,6 +73,7 @@ static std::string get_specifier(const ir::Type &type) {
     std::string specifier = "%";
     const uint32_t width = type.bits();
     if (type.is_bool()) {
+        // Boolean values are printed as strings ("true", "false").
         return "%s";
     }
     if (!(type.is_numeric() && (width == 32 || width == 64))) {
