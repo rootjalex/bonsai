@@ -73,7 +73,7 @@ static std::string get_specifier(const ir::Type &type) {
     std::string specifier = "%";
     const uint32_t width = type.bits();
     if (type.is_bool()) {
-        return "%d";
+        return "%s";
     }
     if (!(type.is_numeric() && (width == 32 || width == 64))) {
         internal_error << "[unimplemented] LLVM print: " << type;
@@ -804,6 +804,18 @@ void CodeGen_LLVM::visit(const Select *node) {
     value = builder->CreateSelect(cond, tvalue, fvalue);
 }
 
+// Additionally preprocessing step during LLVM printing that converts an i1 type
+// to a human readable string, i.e., {1 => "true", 0 => "false"}.
+llvm::Value *CodeGen_LLVM::bool_to_string(llvm::Value *value) {
+    if (auto *type = dyn_cast<llvm::IntegerType>(value->getType());
+        type && type->getBitWidth() == 1) {
+        llvm::Value *t = builder->CreateGlobalStringPtr("true");
+        llvm::Value *f = builder->CreateGlobalStringPtr("false");
+        return builder->CreateSelect(value, t, f);
+    }
+    return value;
+}
+
 void CodeGen_LLVM::visit(const Print *node) {
     // TODO(cgyurgyik): Support strings and more complex structures.
     ir::Expr v = node->value;
@@ -820,10 +832,18 @@ void CodeGen_LLVM::visit(const Print *node) {
     if (auto *vtype = t.as<ir::Vector_t>()) {
         payload += "[";
         // Get the vector element type specifier.
-        const std::string specifier = get_specifier(vtype->etype);
+        const ir::Type element_type = vtype->etype;
+        const std::string specifier = get_specifier(element_type);
         // Print each value in the vector.
         for (uint32_t i = 0, e = vtype->lanes; i < e; ++i) {
-            args.push_back(builder->CreateExtractElement(/*Vec=*/expr, i));
+            llvm::Value *arg =
+                builder->CreateExtractElement(/*Vec=*/expr, /*Idx=*/i);
+            if (element_type.is_bool()) {
+                // We assume that i1 and bool are distinct types, i.e., only
+                // perform this conversion when this is a boolean type.
+                arg = bool_to_string(arg);
+            }
+            args.push_back(arg);
             payload += specifier;
             if (i + 1 == e)
                 continue;

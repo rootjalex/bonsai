@@ -555,19 +555,7 @@ struct Parser {
             // When assigning a vector with an initializer list, this may occur,
             // e.g., `v: vector[i32, 2] = {1, 2};`, which is parsed as:
             //       `v: vector[i32, 2] = build<unknown>((i32)1, (i32)2)`
-            if (const auto *label = type_label.as<ir::Vector_t>()) {
-                ir::Type element_type = label->etype;
-                const std::vector<ir::Expr> &vs = build->values;
-                internal_assert(std::all_of(vs.begin(), vs.end(),
-                                            [&](const ir::Expr &v) {
-                                                return ir::equals(v.type(),
-                                                                  element_type);
-                                            }))
-                    << "Mismatching assignment: " << loc
-                    << " is labelled with type: " << type_label << " but "
-                    << value << " has a mismatched element type";
-                value = ir::Build::make(type_label, std::move(build->values));
-            }
+            value = ir::Build::make(type_label, std::move(build->values));
         }
 
         // TODO: do type-forcing here!

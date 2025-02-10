@@ -63,6 +63,11 @@ struct CodeGen_LLVM : public ir::Visitor {
      * when multiple Allocate nodes shared the same memory. */
     virtual std::string get_allocation_name(const std::string &n) { return n; }
 
+    // Additionally preprocessing step during LLVM printing that converts an i1
+    // type
+    // to a human readable string, i.e., {1 => "true", 0 => "false"}.
+    llvm::Value *bool_to_string(llvm::Value *value);
+
     // Types
     virtual void visit(const ir::Int_t *) override;
     virtual void visit(const ir::UInt_t *) override;
