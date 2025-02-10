@@ -10,7 +10,7 @@ func main() -> i32 {
 
     l: bool = true;
     print(l);
-    
+
     m: bool = false;
     print(m);
 

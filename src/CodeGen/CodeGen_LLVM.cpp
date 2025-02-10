@@ -85,7 +85,7 @@ static std::string get_specifier(const ir::Type &type) {
             return "%ld";
         return "%d";
     }
-    if (type.is_uint() || type.is_bool()) {
+    if (type.is_uint()) {
         if (width > 32)
             return "%lu";
         return "%u";
