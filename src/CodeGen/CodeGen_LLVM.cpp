@@ -862,9 +862,9 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         auto *type = cast<llvm::IntegerType>(expr->getType());
         const uint32_t width = type->getBitWidth();
         internal_assert(width == 1) << "expected i1, received: i" << width;
-        llvm::Value *t = bldr().CreateGlobalStringPtr("true");
-        llvm::Value *f = bldr().CreateGlobalStringPtr("false");
-        expr = bldr().CreateSelect(expr, t, f);
+        llvm::Value *t = builder->CreateGlobalStringPtr("true");
+        llvm::Value *f = builder->CreateGlobalStringPtr("false");
+        expr = builder->CreateSelect(expr, t, f);
     }
     args.push_back(expr);
 }
@@ -878,9 +878,9 @@ void CodeGen_LLVM::visit(const Print *node) {
     args.push_back(nullptr);
 
     print_helper(node->value, args, to_print);
-    args.front() = bldr().CreateGlobalStringPtr(to_print + "\n");
+    args.front() = builder->CreateGlobalStringPtr(to_print + "\n");
 
-    value = bldr().CreateCall(retrieve_printf(*module), args);
+    value = builder->CreateCall(retrieve_printf(*module), args);
 }
 
 void CodeGen_LLVM::visit(const Cast *node) {

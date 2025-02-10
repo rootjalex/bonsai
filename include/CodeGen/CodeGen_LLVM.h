@@ -114,9 +114,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Accumulate *) override;
 
   private:
-    // Returns the IR builder for this module.
-    llvm::IRBuilder<> &bldr() { return *builder; }
-
     // Recursively creates IR that will print the given expression. This
     // performs exactly one call to C's `printf` with the string `to_print` and
     // the arguments `args`.
