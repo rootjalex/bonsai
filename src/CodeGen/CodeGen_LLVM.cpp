@@ -862,7 +862,7 @@ void CodeGen_LLVM::visit(const Print *node) {
     payload += "\n";
 
     args.push_back(builder->CreateGlobalStringPtr(payload));
-    args.push_back(expr);
+    args.push_back(t.is_bool() ? bool_to_string(expr) : expr);
     value = builder->CreateCall(func, args);
 }
 
