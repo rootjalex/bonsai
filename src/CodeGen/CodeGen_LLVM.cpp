@@ -855,18 +855,16 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
 
     internal_assert((t.is<ir::Int_t, ir::UInt_t, ir::Float_t, ir::Bool_t>()))
         << "unimplemented `Print` support for type: " << t;
-    // This carries the print format specifiers and any other characters that
-    // will be printed, i.e., the first argument of `printf`.
     to_print += get_specifier(t);
     llvm::Value *expr = codegen_expr(node);
     if (t.is_bool()) {
         // Convert boolean types to their human readable form.
-        if (auto *type = dyn_cast<llvm::IntegerType>(expr->getType());
-            type && type->getBitWidth() == 1) {
-            llvm::Value *t = b().CreateGlobalStringPtr("true");
-            llvm::Value *f = b().CreateGlobalStringPtr("false");
-            expr = b().CreateSelect(expr, t, f);
-        }
+        auto *type = cast<llvm::IntegerType>(expr->getType());
+        const uint32_t width = type->getBitWidth();
+        internal_assert(width == 1) << "expected i1, received: i" << width;
+        llvm::Value *t = b().CreateGlobalStringPtr("true");
+        llvm::Value *f = b().CreateGlobalStringPtr("false");
+        expr = b().CreateSelect(expr, t, f);
     }
     args.push_back(expr);
 }
@@ -876,7 +874,7 @@ void CodeGen_LLVM::visit(const Print *node) {
     std::string to_print;
     // ...and the respective arguments for the format specifiers.
     std::vector<llvm::Value *> args;
-    // Leave a placeholder for the string to be printed.
+    // Placeholder for the string - this is always the 1st argument.
     args.push_back(nullptr);
 
     print_helper(node->value, args, to_print);
