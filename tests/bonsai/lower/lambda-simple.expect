@@ -9,13 +9,11 @@ func ?lambda1(x : i32) -> i32 {
 }
 
 func foo() -> i32 {
-  let L1 = |x : i32| x + (i32)1 in
   let y = ?lambda0((i32)0) in
   return y
 }
 
 func main() -> i32 {
-  let L1 = |x : i32| x - (i32)1 in
   let y = ?lambda1((i32)0) in
   return y
 }

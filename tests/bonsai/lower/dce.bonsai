@@ -1,0 +1,9 @@
+func foo(x : i32) -> i32 {
+    y = x;
+    return x;
+}
+
+func bar(x : i32) -> i32 {
+    L1 = |y: i32| y + 1;
+    return L1(x);
+}
