@@ -20,3 +20,12 @@ func get_flpat(n : NumberOption) {
         return 0.0;
     }
 }
+
+element S {
+    i : option[i32];
+}
+
+func use_option(s: S) -> i32 {
+    if s.i { return s.i; }
+    return 42;
+}

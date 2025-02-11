@@ -193,12 +193,37 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
         accs != Cmp::Equals) {
         return accs;
     }
-    if (w0.accesses.size() == 0) {
+    const size_t n = w0.accesses.size();
+    if (n == 0) {
         return Cmp::Equals;
     }
+    // Compare accesses.
+    for (size_t i = 0; i < n; i++) {
+        const bool is_string0 =
+            std::holds_alternative<std::string>(w0.accesses[i]);
+        const bool is_string1 =
+            std::holds_alternative<std::string>(w1.accesses[i]);
+        if (is_string0 && is_string1) {
+            const std::string_view s0 = std::get<std::string>(w0.accesses[i]);
+            const std::string_view s1 = std::get<std::string>(w1.accesses[i]);
+
+            if (const Cmp fields = compare_primitives(s0, s1);
+                fields != Cmp::Equals) {
+                return fields;
+            }
+        } else if (is_string0) {
+            return Cmp::Less;
+        } else if (is_string1) {
+            return Cmp::Greater;
+        } else {
+            // TODO(ajr): need Expr equality to compare indexes.
+            internal_error
+                << "TODO: implement Expr equality for WriteLoc::accesses " << w0
+                << " versus " << w1;
+        }
+    }
+
     // Same base, same types, same number of accesses.
-    internal_error << "TODO: implement Expr equality for WriteLoc::accesses "
-                   << w0 << " versus " << w1;
     return Cmp::Equals;
 }
 

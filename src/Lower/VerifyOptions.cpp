@@ -28,6 +28,7 @@ struct OptionSets {
     WriteLocSet positive, negative;
 };
 
+// Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
 ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
     if (expr.is<ir::Var>()) {
         const ir::Var *var = expr.as<ir::Var>();
@@ -76,9 +77,9 @@ OptionSets get_option_sets(const ir::Expr &expr) {
     if (const ir::UnOp *node = expr.as<ir::UnOp>()) {
         switch (node->op) {
         case ir::UnOp::Not: {
-            OptionSets a_sets = get_option_sets(node->a);
-            return OptionSets{.positive = std::move(a_sets.negative),
-                              .negative = std::move(a_sets.positive)};
+            OptionSets a = get_option_sets(node->a);
+            return OptionSets{.positive = std::move(a.negative),
+                              .negative = std::move(a.positive)};
         }
         default:
             return {};
@@ -88,8 +89,8 @@ OptionSets get_option_sets(const ir::Expr &expr) {
     return {};
 }
 
-// TODO(cgyurgyik): This is bare bones. Other static analysis can be performed
-// here to validate options, e.g.,
+// TODO(cgyurgyik): This is very simple static analysis. Other static analysis
+// can be performed here to validate options, e.g.,
 //      i: option[i32] = 42;
 //      use(*i); // Legal, but will result in error.
 class OptionVisitor : public ir::Visitor {
