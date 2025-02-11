@@ -28,7 +28,7 @@ OptionSets get_option_sets(const ir::Expr &expr) {
     if (const ir::Cast *cast = expr.as<ir::Cast>()) {
         if (cast->value.type().is<ir::Option_t>()) {
             internal_assert(cast->value.is<ir::Var>()) << "Found non-variable option as bool: " << expr;
-            const std::string &singleton = cast->value.as<ir::Var>()->name;
+            const std::string_view singleton = cast->value.as<ir::Var>()->name;
             return OptionSets{.positive={singleton}};
         }
         return {}; // Don't peak through bool casts.
@@ -38,11 +38,12 @@ OptionSets get_option_sets(const ir::Expr &expr) {
         switch (node->op) {
         // sets(a && b) = union(sets(a), sets(b))
         case ir::BinOp::And: {
-            OptionSets a_sets = get_option_sets(node->a);
-            OptionSets b_sets = get_option_sets(node->b);
-            a_sets.positive.insert(b_sets.positive.cbegin(), b_sets.positive.cend());
-            a_sets.negative.insert(b_sets.negative.cbegin(), b_sets.negative.cend());
-            return a_sets;
+            using mv = std::make_move_iterator;
+            OptionSets a = get_option_sets(node->a);
+            OptionSets b = get_option_sets(node->b);
+            a.positive.insert(mv(b.positive.begin()), mv(b.positive.end()));
+            a.negative.insert(mv(b.negative.begin()), mv(b.negative.end()));
+            return a;
         }
         default:
             // TODO(rootjalex): Is there something we can do with a || b?
@@ -77,7 +78,7 @@ class OptionVisitor : public ir::Visitor {
     std::vector<OptionSets> frames;
     std::set<std::string> always_safe;
 
-    bool is_safe_to_deref(const std::string &name) const {
+    bool is_safe_to_deref(std::string_view name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
             if (it->positive.count(name)) {
                 return true;
