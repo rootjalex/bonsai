@@ -59,8 +59,10 @@ OptionSets get_option_sets(const ir::Expr &expr) {
         case ir::BinOp::And: {
             OptionSets a = get_option_sets(node->a);
             OptionSets b = get_option_sets(node->b);
-            a.positive.insert(std::make_move_iterator(b.positive.begin()), std::make_move_iterator(b.positive.end()));
-            a.negative.insert(std::make_move_iterator(b.negative.begin()), std::make_move_iterator(b.negative.end()));
+            a.positive.insert(std::make_move_iterator(b.positive.begin()),
+                              std::make_move_iterator(b.positive.end()));
+            a.negative.insert(std::make_move_iterator(b.negative.begin()),
+                              std::make_move_iterator(b.negative.end()));
             return a;
         }
         default:
@@ -155,17 +157,18 @@ class OptionVisitor : public ir::Visitor {
 
     void visit(const ir::Cast *node) override {
         ir::Visitor::visit(node);
-        if (const ir::Option_t *as_opt = node->value.type().as<ir::Option_t>()) {
+        if (const ir::Option_t *as_opt =
+                node->value.type().as<ir::Option_t>()) {
             if (node->type.is_bool()) {
                 return;
             }
             internal_assert(ir::equals(as_opt->etype, node->type))
-                << "Dereference of option[" << as_opt->etype << " into " << node->type << " is invalid.";
+                << "Dereference of option[" << as_opt->etype << " into "
+                << node->type << " is invalid.";
             internal_assert(is_safe_to_deref(node->value))
                 << "illegal dereference of `" << node->value << ": "
                 << node->type << "`";
         }
-        
     }
 };
 

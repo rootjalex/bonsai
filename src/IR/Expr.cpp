@@ -261,16 +261,17 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
             }
         } else {
             internal_assert(a.type().is_numeric() || a.type().is_bool())
-                << "BinOp of non-number or boolean types: " << a << " : " << a.type() << " "
-                << to_string(op) << " " << b << " : " << b.type();
+                << "BinOp of non-number or boolean types: " << a << " : "
+                << a.type() << " " << to_string(op) << " " << b << " : "
+                << b.type();
 
             if (BinOp::is_numeric_op(op)) {
                 node->type = a.type();
             } else if (BinOp::is_boolean_op(op)) {
                 node->type = a.type().to_bool();
             } else {
-                internal_error << "Cannot infer output type: " << a << to_string(op)
-                            << b;
+                internal_error << "Cannot infer output type: " << a
+                               << to_string(op) << b;
             }
         }
     }
