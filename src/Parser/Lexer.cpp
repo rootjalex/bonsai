@@ -142,25 +142,9 @@ void Lexer::lex() {
         // Try to parse a name of the form [A-Za-z_][A-Za-z0-9_].
         if (is_valid_identifier_start(program_stream.peek())) {
             std::string token_string(1, program_stream.get());
-            for (char previous = token_string.front();;
-                 previous = token_string.back()) {
-                const char peek = program_stream.peek();
-                // Case 1: this is a valid identifier token.
-                if (is_valid_identifier_token(peek)) {
-                    token_string += program_stream.get();
-                    continue;
-                }
-                // Case 2: this is a numeric type: [0-9].[0-9].
-                if (std::isdigit(previous) && peek == '.') {
-                    token_string += program_stream.get();
-                    if (!std::isdigit(program_stream.peek())) {
-                        report_error("invalid identifier");
-                    }
-                    continue;
-                }
-                break;
+            while (is_valid_identifier_token(program_stream.peek())) {
+                token_string += program_stream.get();
             }
-
             Token new_token{
                 .type = get_token_type(token_string),
                 .lineBegin = line_no(),

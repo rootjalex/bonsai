@@ -15,12 +15,12 @@ element vec2h = vector[f16, 2];
 func _fma_x2h(a : vec2h, b : vec2h, c : vec2h) = _fma[[f16, vec2h]](a, b, c);
 
 // Try bfloat16, but with explicitly stated eXmY.
-element vec2bf16 = vector[f8.7, 2];
-func _fma_x2bf16(a : vec2bf16, b : vec2bf16, c : vec2bf16) = _fma[[f8.7, vec2bf16]](a, b, c);
+element vec2bf16 = vector[f8_7, 2];
+func _fma_x2bf16(a : vec2bf16, b : vec2bf16, c : vec2bf16) = _fma[[f8_7, vec2bf16]](a, b, c);
 
 // Try non-standard floating point type.
-element vec2f99 = vector[f9.9, 2];
-func _fma_x2f99(a : vec2f99, b : vec2f99, c : vec2f99) = _fma[[f9.9, vec2f99]](a, b, c);
+element vec2f99 = vector[f9_9, 2];
+func _fma_x2f99(a : vec2f99, b : vec2f99, c : vec2f99) = _fma[[f9_9, vec2f99]](a, b, c);
 
 // TODO: allow implicit template parameters (via inference).
 // func _fma_x2_v2(a : vector[f32, 2], b : vector[f32, 2], c : vector[f32, 2]) = _fma(a, b, c);

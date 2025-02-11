@@ -1,8 +1,0 @@
----CODE---
--1
----STDERR---
-tests/bonsai/error/invalid_name2.bonsai:2:7: lex error: invalid identifier
-    x8.a : i32 = 0;
-       ^
-[internal] Error: src/Parser/Parser.cpp:530
-TODO: implement parseStmt for error

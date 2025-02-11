@@ -208,7 +208,7 @@ void Printer::visit(const Float_t *node) {
     } else if (node->is_bfloat16()) {
         os << "bf" << node->bits();
     } else {
-        os << "f" << node->exponent << "." << node->mantissa;
+        os << "f" << node->exponent << "_" << node->mantissa;
     }
 }
 

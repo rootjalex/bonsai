@@ -142,15 +142,8 @@ struct Parser {
         return token;
     }
 
-    Token expect(Token::Type type, bool validate_identifier = true) {
-        std::optional<Token> token = consume(type);
-        if (token.has_value()) {
-            if (validate_identifier && token->type == Token::Type::IDENTIFIER) {
-                const std::string name = std::get<std::string>(token->value);
-                internal_assert(name.find('.') == std::string::npos)
-                    << "unexpected `.` in token identifier: `" << name
-                    << "`. This is only valid in type identifiers.";
-            }
+    Token expect(Token::Type type) {
+        if (std::optional<Token> token = consume(type)) {
             return *token;
         }
         internal_error << "Expected " << Token::token_type_string(type)
@@ -1331,13 +1324,12 @@ struct Parser {
     }
 
     // type := i[N] | u[N]
-    //         | f[N] | bf[N] | f[N].[N]
+    //         | f[N] | bf[N] | f[N]_[N]
     //         | bool | vector[type, int]
     //         | option[type] | declared_type
     ir::Type parseType() {
         // TODO: support tuples of types! AKA unnamed structs.
-        const Token id =
-            expect(Token::Type::IDENTIFIER, /*validate_identifier=*/false);
+        const Token id = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(id.value);
         // Signed integer types.
         std::regex int_pattern("^i(\\d+)$");
@@ -1346,7 +1338,7 @@ struct Parser {
         // Floating point types.
         std::regex float_pattern("^b?f(\\d+)$");
         // Explicit declaration of exponent and mantissa bits.
-        std::regex float_pattern_explicit("^f(\\d+)\\.(\\d+)$");
+        std::regex float_pattern_explicit("^f(\\d+)_(\\d+)$");
         // TODO(cgyurgyik): Support explicit declaration for fixed point.
 
         std::smatch match;

@@ -1,5 +1,0 @@
----CODE---
--1
----STDERR---
-[internal] Error: src/Parser/Parser.cpp:156
-Expected id, instead received: '8' at line: 2:5

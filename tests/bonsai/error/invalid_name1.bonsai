@@ -1,4 +1,0 @@
-func main() -> i32 {
-    f.8 : i32 = 0;
-    return 0;
-}
