@@ -41,12 +41,8 @@ OptionSets get_option_sets(const ir::Expr &expr) {
         case ir::BinOp::And: {
             OptionSets a = get_option_sets(node->a);
             OptionSets b = get_option_sets(node->b);
-            a.positive.insert(b.positive.cbegin(), b.positive.cend());
-            a.negative.insert(b.negative.cbegin(), b.negative.cend());
-            // TODO(ajr): why doesn't this work?
-            // using mv = std::make_move_iterator;
-            // a.positive.insert(mv(b.positive.begin()), mv(b.positive.end()));
-            // a.negative.insert(mv(b.negative.begin()), mv(b.negative.end()));
+            a.positive.insert(std::make_move_iterator(b.positive.begin()), std::make_move_iterator(b.positive.end()));
+            a.negative.insert(std::make_move_iterator(b.negative.begin()), std::make_move_iterator(b.negative.end()));
             return a;
         }
         default:
