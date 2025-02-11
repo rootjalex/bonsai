@@ -51,6 +51,8 @@ struct Interface : public IRHandle<IRInterfaceNode> {
     }
 
     // TODO: implement copy/move semantics!
+
+    bool is_numeric() const;
 };
 
 template <typename T>

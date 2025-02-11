@@ -1,5 +1,7 @@
 #include "IR/Equality.h"
 
+#include "IR/Printer.h"
+
 namespace bonsai {
 namespace ir {
 
@@ -170,6 +172,27 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     }
 }
 
+Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
+    if (const Cmp types = compare_types(w0.base_type, w1.base_type); types != Cmp::Equals) {
+        return types;
+    }
+    if (const Cmp base_types = compare_types(w0.type, w1.type); base_types != Cmp::Equals) {
+        return base_types;
+    }
+    if (const Cmp names = compare_primitives(w0.base, w1.base); names != Cmp::Equals) {
+        return names;
+    }
+    if (const Cmp accs = compare_primitives(w0.accesses.size(), w1.accesses.size()); accs != Cmp::Equals) {
+        return accs;
+    }
+    if (w0.accesses.size() == 0) {
+        return Cmp::Equals;
+    }
+    // Same base, same types, same number of accesses.
+    internal_error << "TODO: implement Expr equality for WriteLoc::accesses " << w0 << " versus " << w1;
+    return Cmp::Equals;
+}
+
 } // namespace
 
 bool equals(const Type &t0, const Type &t1) {
@@ -178,6 +201,10 @@ bool equals(const Type &t0, const Type &t1) {
 
 bool TypeLessThan::operator()(const Type &t0, const Type &t1) const {
     return compare_types(t0, t1) == Cmp::Less;
+}
+
+bool WriteLocLessThan::operator()(const WriteLoc &w0, const WriteLoc &w1) const {
+    return compare_writelocs(w0, w1) == Cmp::Less;
 }
 
 } // namespace ir

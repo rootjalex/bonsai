@@ -8,6 +8,11 @@
 namespace bonsai {
 namespace ir {
 
+bool Interface::is_numeric() const {
+    return is<IFloat>() ||
+           (is<IVector>() && as<IVector>()->etype.is_numeric());
+}
+
 Interface IEmpty::make() {
     static Interface iempty = new IEmpty;
     return iempty;

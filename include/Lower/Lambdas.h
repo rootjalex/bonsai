@@ -18,7 +18,6 @@ namespace lower {
 //
 //     func ?lambda(x: i32) -> i32 { return x - 1; }
 //     func foo() -> void {
-//       L1 = |x: i32| x - 1;
 //       y: i32 = ?lambda(0);
 //     }
 //

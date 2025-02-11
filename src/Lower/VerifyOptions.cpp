@@ -19,18 +19,36 @@ namespace lower {
 
 namespace {
 
+using WriteLocSet = std::set<ir::WriteLoc, ir::WriteLocLessThan>;
+
+// List of locations that are options
 struct OptionSets {
-    std::set<std::string> positive, negative;
+    // Positive locations are safe to deref,
+    // negative are explicitly not safe to deref.
+    WriteLocSet positive, negative;
 };
+
+ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
+    if (expr.is<ir::Var>()) {
+        const ir::Var *var = expr.as<ir::Var>();
+        return ir::WriteLoc(var->name, var->type);
+    } else if (expr.is<ir::Access>()) {
+        const ir::Access *acc = expr.as<ir::Access>();
+        ir::WriteLoc rec = read_to_writeloc(acc->value);
+        rec.add_struct_access(acc->field);
+        return rec;
+    }
+    // TODO(ajr): handle Index as well.
+    internal_error << "Cannot convert to WriteLoc: " << expr;
+    return ir::WriteLoc();
+}
 
 OptionSets get_option_sets(const ir::Expr &expr) {
     internal_assert(expr.type().is_bool()) << expr;
     if (const ir::Cast *cast = expr.as<ir::Cast>()) {
         if (cast->value.type().is<ir::Option_t>()) {
-            internal_assert(cast->value.is<ir::Var>())
-                << "Found non-variable option as bool: " << expr;
-            const std::string &singleton = cast->value.as<ir::Var>()->name;
-            return OptionSets{.positive = {singleton}};
+            ir::WriteLoc singleton = read_to_writeloc(cast->value);
+            return OptionSets{.positive = {std::move(singleton)}};
         }
         return {}; // Don't peak through bool casts.
     }
@@ -75,22 +93,23 @@ OptionSets get_option_sets(const ir::Expr &expr) {
 // TODO(cgyurgyik): This is bare bones. Other static analysis can be performed
 // here to validate options, e.g.,
 //      i: option[i32] = 42;
-//      use(i); // Legal, but will result in error.
+//      use(*i); // Legal, but will result in error.
 class OptionVisitor : public ir::Visitor {
   public:
   private:
     // Tracks which options can be safely dereferenced in the current stack
     // frame.
     std::vector<OptionSets> frames;
-    std::set<std::string> always_safe;
+    WriteLocSet always_safe;
 
-    bool is_safe_to_deref(const std::string &name) const {
+    bool is_safe_to_deref(const ir::Expr &expr) const {
+        ir::WriteLoc loc = read_to_writeloc(expr);
         for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
-            if (it->positive.count(name)) {
+            if (it->positive.count(loc)) {
                 return true;
             }
         }
-        return always_safe.count(name);
+        return always_safe.count(loc);
     }
 
     void push_frame() { frames.emplace_back(); }
@@ -103,7 +122,7 @@ class OptionVisitor : public ir::Visitor {
 
     void pop_frame() { frames.pop_back(); }
 
-    void make_always_safe(std::set<std::string> safe) {
+    void make_always_safe(WriteLocSet safe) {
         always_safe.insert(safe.begin(), safe.end());
     }
 
@@ -132,20 +151,25 @@ class OptionVisitor : public ir::Visitor {
         if (then_returns && else_returns) {
             return;
         } else if (then_returns) {
-            make_always_safe(swapped.positive);
+            make_always_safe(std::move(swapped.positive));
         } else if (else_returns) {
-            make_always_safe(swapped.negative);
+            make_always_safe(std::move(swapped.negative));
         }
     }
 
-    void visit(const ir::Var *node) override {
-        if (node->type.is<ir::Option_t>()) {
-            // TODO: needs `way` better error reporting.
-            // std::cout << "checking if " << node->name << " is safe\n";
-            internal_assert(is_safe_to_deref(node->name))
-                << "illegal dereference of `" << node->name << ": "
+    void visit(const ir::Cast *node) override {
+        ir::Visitor::visit(node);
+        if (const ir::Option_t *as_opt = node->value.type().as<ir::Option_t>()) {
+            if (node->type.is_bool()) {
+                return;
+            }
+            internal_assert(ir::equals(as_opt->etype, node->type))
+                << "Dereference of option[" << as_opt->etype << " into " << node->type << " is invalid.";
+            internal_assert(is_safe_to_deref(node->value))
+                << "illegal dereference of `" << node->value << ": "
                 << node->type << "`";
         }
+        
     }
 };
 

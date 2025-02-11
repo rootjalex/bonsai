@@ -12,8 +12,8 @@ namespace lower {
 // optimize `option` types. For example,
 //
 //      i: option[i32] = foo();
-//      if i { use(i); } // LEGAL
-//      use(i);          // ILLEGAL
+//      if i { use(*i); } // LEGAL
+//      use(*i);          // ILLEGAL
 void verify_options(const ir::Program &program);
 
 } // namespace lower
