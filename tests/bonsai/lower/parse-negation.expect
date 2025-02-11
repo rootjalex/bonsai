@@ -1,0 +1,11 @@
+
+
+func bar(i : i32) -> i32 {
+  return -i
+}
+
+func foo() -> i32 {
+  return (i32)-1
+}
+
+
