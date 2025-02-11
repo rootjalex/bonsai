@@ -1,0 +1,4 @@
+func main() -> i32 {
+    x8.8 : i32 = 0;
+    return 0;
+}

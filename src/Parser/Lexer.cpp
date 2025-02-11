@@ -145,7 +145,7 @@ void Lexer::lex() {
             for (char previous = token_string.front();;
                  previous = token_string.back()) {
                 const char peek = program_stream.peek();
-                // Case 1: this is a valid identifier.
+                // Case 1: this is a valid identifier token.
                 if (is_valid_identifier_token(peek)) {
                     token_string += program_stream.get();
                     continue;
