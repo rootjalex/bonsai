@@ -174,39 +174,16 @@ namespace {
 void try_match_types(Expr &a, Expr &b) {
     if (a.type().defined() && b.type().defined()) {
         if (equals(a.type(), b.type())) {
-            if (a.type().is<Option_t>()) {
-                a = Cast::make(a.type().as<Option_t>()->etype, a);
-                b = Cast::make(b.type().as<Option_t>()->etype, b);
-                try_match_types(a, b);
-                return;
-            }
             return;
         }
-        if (a.type().is<Option_t>()) {
-            if (b.type().is_bool()) {
-                a = Cast::make(Bool_t::make(), a);
-                return;
-            } else {
-                internal_assert(
-                    ir::equals(a.type().as<Option_t>()->etype, b.type()))
-                    << "Attempt to match types of option: " << a
-                    << " with: " << b << "failed.";
-                a = Cast::make(b.type(), a);
-                return;
-            }
-        } else if (b.type().is<Option_t>()) {
-            if (a.type().is_bool()) {
-                b = Cast::make(Bool_t::make(), b);
-                return;
-            } else {
-                internal_assert(
-                    ir::equals(b.type().as<Option_t>()->etype, a.type()))
-                    << "Attempt to match types of option: " << b
-                    << " with: " << a << "failed.";
-                b = Cast::make(a.type(), b);
-                return;
-            }
+        if (a.type().is<Option_t>() && b.type().is_bool()) {
+            a = Cast::make(Bool_t::make(), a);
+        } else if (b.type().is<Option_t>() && a.type().is_bool()) {
+            b = Cast::make(Bool_t::make(), b);
+            return;
         }
+        internal_assert(!a.type().is<Option_t>()) << "Trying to match option type: " << a << " with: " << b;
+        internal_assert(!b.type().is<Option_t>()) << "Trying to match: " << a << " with option type: " << b;
 
         // Try broadcasting
         if (a.type().is_vector() && b.type().is_scalar()) {
@@ -242,21 +219,11 @@ void try_match_types(Expr &a, Expr &b) {
         //                    b.type();
         // }
     } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
-        if (a.type().is<Option_t>()) {
-            const ir::Type &etype = a.type().as<Option_t>()->etype;
-            b = constant_cast(etype, b);
-            a = Cast::make(etype, a);
-        } else {
-            b = constant_cast(a.type(), b);
-        }
+        internal_assert(!a.type().is<Option_t>());
+        b = constant_cast(a.type(), b);
     } else if (b.type().defined() && !a.type().defined() && is_const(a)) {
-        if (b.type().is<Option_t>()) {
-            const ir::Type &etype = b.type().as<Option_t>()->etype;
-            a = constant_cast(etype, a);
-            b = Cast::make(etype, b);
-        } else {
-            a = constant_cast(b.type(), a);
-        }
+        internal_assert(!b.type().is<Option_t>());
+        a = constant_cast(b.type(), a);
     }
     // otherwise can't (currently) do better.
 }
@@ -278,7 +245,17 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
         internal_assert(equals(a.type(), b.type()))
             << "BinOp of mismatched types: " << a << " : " << a.type() << " " << to_string(op) << " " << b << " : " << b.type();
 
-        if (BinOp::is_numeric_op(op)) {
+        if (op == BinOp::And || op == BinOp::Or) {
+            if (a.type().is<Option_t>() || b.type().is<Option_t>()) {
+                // TODO: handle vectors of options?
+                node->type = Bool_t::make();
+                a = Cast::make(node->type, std::move(a));
+                b = Cast::make(node->type, std::move(b));
+            } else {
+                // And and Or propagate operand types.
+                node->type = a.type();
+            }
+        } else if (BinOp::is_numeric_op(op)) {
             node->type = a.type();
         } else if (BinOp::is_boolean_op(op)) {
             node->type = a.type().to_bool();

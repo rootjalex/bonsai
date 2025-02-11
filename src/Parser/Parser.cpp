@@ -1136,6 +1136,17 @@ struct Parser {
                     return ir::Select::make(std::move(args[0]),
                                             std::move(args[1]),
                                             std::move(args[2]));
+                } else if (name == "deref") {
+                    // Option dereference.
+                    internal_assert(args.size() == 1)
+                        << "deref takes 1 argument, received: "
+                        << args.size();
+                    ir::Expr arg = std::move(args[0]);
+                    internal_assert(arg.type().defined() && arg.type().is<ir::Option_t>())
+                        << "Parsed dereference of non-option: " << arg;
+                        ir::Type etype = arg.type().as<ir::Option_t>()->etype;
+                        // TODO(ajr): do we want an explicit Deref IR node?
+                        return ir::Cast::make(std::move(etype), std::move(arg));
                 }
 
                 ir::Expr intrinsic = try_match_intrinsics(

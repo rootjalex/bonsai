@@ -2,4 +2,6 @@
 -1
 ---STDERR---
 [internal] Error: src/Lower/VerifyOptions.cpp:142
+
+--> is_safe_to_deref(node->name)
 illegal dereference of `i: option<i32>`
