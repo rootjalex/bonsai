@@ -150,6 +150,7 @@ struct Parser {
                        << ", instead received: " + peek().to_string()
                        << " at line: " << peek().lineBegin << ":"
                        << peek().colBegin;
+        return Token{};
     }
 
     void parseProgramElement() {
@@ -1406,12 +1407,11 @@ struct Parser {
             return ir::Set_t::make(std::move(etype));
         } else if (current_generics.contains(name)) {
             return current_generics[name];
-        } else {
-            // Must be a user-defined type, or an error.
-            internal_assert(program.types.contains(name))
-                << "Unknown type: " << name;
-            return program.types[name];
         }
+        // Must be a user-defined type, or an error.
+        internal_assert(program.types.contains(name))
+            << "Unknown type: " << name;
+        return program.types[name];
     }
 
     // interface = iPrimitive | iVector[[interface]] | interface (`|`
