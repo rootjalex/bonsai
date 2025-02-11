@@ -730,7 +730,7 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
             // TODO: distance could have any value, it's user-defined...
             // TODO: do we need Real_t?
             // For now, just assume f32
-            node->type = Float_t::make(32);
+            node->type = Float_t::make_f32();
         } else {
             node->type = Bool_t::make();
         }

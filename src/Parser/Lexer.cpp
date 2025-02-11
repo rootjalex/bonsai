@@ -125,7 +125,7 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
 
 // Returns whether this is a valid start character of an identifier or keyword,
 // i.e., [A-Za-z_]
-static bool isValidIdentifierStart(int32_t c) {
+static bool is_valid_identifier_start(int32_t c) {
     return c == '_' || std::isalpha(c);
 }
 
@@ -244,6 +244,10 @@ Token Lexer::lex_number(std::ifstream &program_stream) {
     return new_token;
 }
 
+static bool is_valid_identifier_token(int32_t c) {
+    return is_valid_identifier_start(c) || std::isdigit(c);
+}
+
 void Lexer::lex() {
     std::ifstream program_stream(file_name());
     internal_assert(program_stream.is_open())
@@ -253,14 +257,11 @@ void Lexer::lex() {
 
     while (program_stream.peek() != EOF) {
         // Try to parse a name of the form [A-Za-z_][A-Za-z0-9_].
-        if (isValidIdentifierStart(program_stream.peek())) {
+        if (is_valid_identifier_start(program_stream.peek())) {
             std::string token_string(1, program_stream.get());
-            // [A-Za-z0-9_]
-            while (isValidIdentifierStart(program_stream.peek()) ||
-                   std::isdigit(program_stream.peek())) {
+            while (is_valid_identifier_token(program_stream.peek())) {
                 token_string += program_stream.get();
             }
-
             Token new_token{
                 .type = get_token_type(token_string),
                 .lineBegin = line_no(),
