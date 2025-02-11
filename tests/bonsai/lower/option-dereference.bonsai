@@ -4,6 +4,6 @@ func foo(i : option[i32], j: option[i32]) -> i32 {
     } else if !j {
         return 0;
     } else {
-        return deref(i) + deref(j);
+        return *i + *j;
     }
 }

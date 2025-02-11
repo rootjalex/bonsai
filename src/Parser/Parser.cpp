@@ -798,6 +798,14 @@ struct Parser {
                 return ir::Build::make(ir::Type(), std::move(args));
             }
             // TODO: should also support e.g. Type{} notation.
+        } else if (consume(Token::Type::STAR)) {
+            // Option dereference.
+            ir::Expr arg = parseIdentifier();
+            internal_assert(arg.type().defined() && arg.type().is<ir::Option_t>())
+                << "Parsed dereference of non-option: " << arg;
+            ir::Type etype = arg.type().as<ir::Option_t>()->etype;
+            // TODO(ajr): do we want an explicit Deref IR node?
+            return ir::Cast::make(std::move(etype), std::move(arg));
         } else {
             internal_error << "Unknown token in parseBaseExpr: "
                            << peek().to_string()
@@ -1136,17 +1144,6 @@ struct Parser {
                     return ir::Select::make(std::move(args[0]),
                                             std::move(args[1]),
                                             std::move(args[2]));
-                } else if (name == "deref") {
-                    // Option dereference.
-                    internal_assert(args.size() == 1)
-                        << "deref takes 1 argument, received: "
-                        << args.size();
-                    ir::Expr arg = std::move(args[0]);
-                    internal_assert(arg.type().defined() && arg.type().is<ir::Option_t>())
-                        << "Parsed dereference of non-option: " << arg;
-                        ir::Type etype = arg.type().as<ir::Option_t>()->etype;
-                        // TODO(ajr): do we want an explicit Deref IR node?
-                        return ir::Cast::make(std::move(etype), std::move(arg));
                 }
 
                 ir::Expr intrinsic = try_match_intrinsics(
