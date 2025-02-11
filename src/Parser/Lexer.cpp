@@ -85,6 +85,8 @@ class Lexer {
     }
 
     char handle_escaped_char(std::istream &program_stream);
+
+    Token lex_number(std::ifstream &program_stream);
 };
 
 Token::Type Lexer::get_token_type(const std::string_view token) {
@@ -125,6 +127,121 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
 // i.e., [A-Za-z_]
 static bool isValidIdentifierStart(int32_t c) {
     return c == '_' || std::isalpha(c);
+}
+
+Token Lexer::lex_number(std::ifstream &program_stream) {
+    // Try to parse a(n) (int uint, float) literal.
+    // TODO: currently float literals like .0f are illegal due to
+    // PERIOD parsing above. this might be fixable in the parser
+    // itself though, .int -> float?
+    if (!std::isdigit(program_stream.peek())) {
+        std::stringstream error_message;
+        error_message << "unexpected symbol (expected digit) '"
+                        << (char)program_stream.peek() << "'";
+        report_error(error_message.str());
+        while (program_stream.peek() != EOF &&
+                !std::isspace(program_stream.peek())) {
+            program_stream.get();
+            incr_column();
+        }
+        return Token{};
+    }
+
+    Token new_token{
+        .type = Token::Type::INT_LITERAL,
+        .lineBegin = line_no(),
+        .colBegin = column_no(),
+    };
+    std::string token_string;
+    while (std::isdigit(program_stream.peek())) {
+        token_string += program_stream.get();
+        incr_column();
+    }
+
+    // Handle decimal.
+    if (program_stream.peek() == '.') {
+        new_token.type = Token::Type::FLOAT_LITERAL;
+        token_string += program_stream.get();
+        incr_column();
+
+        if (!std::isdigit(program_stream.peek())) {
+            std::stringstream error_message;
+            error_message
+                << "unexpected symbol (expected digit for "
+                    "decimal) '"
+                << static_cast<char>(program_stream.peek()) << "'";
+            report_error(error_message.str());
+
+            while (program_stream.peek() != EOF &&
+                    !std::isspace(program_stream.peek())) {
+                program_stream.get();
+                incr_column();
+            }
+            return Token{};
+        }
+        do {
+            token_string += program_stream.get();
+            incr_column();
+        } while (std::isdigit(program_stream.peek()));
+    }
+
+    // handle exponent
+    if (program_stream.peek() == 'e' ||
+        program_stream.peek() == 'E') {
+        new_token.type = Token::Type::FLOAT_LITERAL;
+        token_string += program_stream.get();
+        incr_column();
+
+        if (program_stream.peek() == '+' ||
+            program_stream.peek() == '-') {
+            token_string += program_stream.get();
+            incr_column();
+        }
+
+        if (!std::isdigit(program_stream.peek())) {
+            std::stringstream error_message;
+            error_message
+                << "unexpected symbol (expected digit for "
+                    "exponent) '"
+                << static_cast<char>(program_stream.peek()) << "'";
+            report_error(error_message.str());
+
+            while (program_stream.peek() != EOF &&
+                    !std::isspace(program_stream.peek())) {
+                program_stream.get();
+                incr_column();
+            }
+            return Token{};
+        }
+        do {
+            token_string += program_stream.get();
+            incr_column();
+        } while (std::isdigit(program_stream.peek()));
+    }
+
+    // TODO: Handle f (float), h (half) modifiers.
+
+    // Handle u (unsigned) modifier.
+    if (program_stream.peek() == 'u') {
+        program_stream.get();
+        new_token.type = Token::Type::UINT_LITERAL;
+        incr_column();
+        new_token.value =
+            static_cast<uint64_t>(std::stoull(token_string));
+    } else if (new_token.type == Token::Type::INT_LITERAL) {
+        new_token.type = Token::Type::INT_LITERAL;
+        new_token.value =
+            static_cast<int64_t>(std::stoll(token_string));
+    } else {
+        internal_assert(new_token.type ==
+                        Token::Type::FLOAT_LITERAL)
+            << "State error in literal parsing: " << token_string;
+        new_token.value =
+            static_cast<double>(std::stold(token_string));
+    }
+    new_token.lineEnd = line_no();
+    new_token.colEnd = column_no() - 1;
+    return new_token;
 }
 
 void Lexer::lex() {
@@ -256,11 +373,23 @@ void Lexer::lex() {
                 if (program_stream.peek() == '>') {
                     program_stream.get();
                     add_token(Token::Type::RARROW, /*length=*/2);
-
                 } else if (program_stream.peek() == '-') {
                     program_stream.get();
                     add_token(Token::Type::DEC, /*length=*/2);
-
+                } else if (std::isdigit(program_stream.peek())) {
+                    Token token = lex_number(program_stream);
+                    incr_column();
+                    token.colEnd++;
+                    if (std::holds_alternative<int64_t>(token.value)) {
+                        token.value = -std::get<int64_t>(token.value);
+                    } else if (std::holds_alternative<uint64_t>(token.value)) {
+                        report_error("negated unsigned integer");
+                    } else if (std::holds_alternative<double>(token.value)) {
+                        token.value = -std::get<double>(token.value);
+                    } else {
+                        report_error("Negated literal, unsure how to parse.");
+                    }
+                    add_token(token);
                 } else {
                     add_token(Token::Type::MINUS);
                 }
@@ -368,118 +497,7 @@ void Lexer::lex() {
                 incr_column();
                 break;
             default: {
-                // Try to parse a(n) (int uint, float) literal.
-                // TODO: currently float literals like .0f are illegal due to
-                // PERIOD parsing above. this might be fixable in the parser
-                // itself though, .int -> float?
-                if (!std::isdigit(program_stream.peek())) {
-                    std::stringstream error_message;
-                    error_message << "unexpected symbol (expected digit) '"
-                                  << (char)program_stream.peek() << "'";
-                    report_error(error_message.str());
-                    while (program_stream.peek() != EOF &&
-                           !std::isspace(program_stream.peek())) {
-                        program_stream.get();
-                        incr_column();
-                    }
-                    break;
-                }
-
-                Token new_token{
-                    .type = Token::Type::INT_LITERAL,
-                    .lineBegin = line_no(),
-                    .colBegin = column_no(),
-                };
-                std::string token_string;
-                while (std::isdigit(program_stream.peek())) {
-                    token_string += program_stream.get();
-                    incr_column();
-                }
-
-                // Handle decimal.
-                if (program_stream.peek() == '.') {
-                    new_token.type = Token::Type::FLOAT_LITERAL;
-                    token_string += program_stream.get();
-                    incr_column();
-
-                    if (!std::isdigit(program_stream.peek())) {
-                        std::stringstream error_message;
-                        error_message
-                            << "unexpected symbol (expected digit for "
-                               "decimal) '"
-                            << static_cast<char>(program_stream.peek()) << "'";
-                        report_error(error_message.str());
-
-                        while (program_stream.peek() != EOF &&
-                               !std::isspace(program_stream.peek())) {
-                            program_stream.get();
-                            incr_column();
-                        }
-                        break;
-                    }
-                    do {
-                        token_string += program_stream.get();
-                        incr_column();
-                    } while (std::isdigit(program_stream.peek()));
-                }
-
-                // handle exponent
-                if (program_stream.peek() == 'e' ||
-                    program_stream.peek() == 'E') {
-                    new_token.type = Token::Type::FLOAT_LITERAL;
-                    token_string += program_stream.get();
-                    incr_column();
-
-                    if (program_stream.peek() == '+' ||
-                        program_stream.peek() == '-') {
-                        token_string += program_stream.get();
-                        incr_column();
-                    }
-
-                    if (!std::isdigit(program_stream.peek())) {
-                        std::stringstream error_message;
-                        error_message
-                            << "unexpected symbol (expected digit for "
-                               "exponent) '"
-                            << static_cast<char>(program_stream.peek()) << "'";
-                        report_error(error_message.str());
-
-                        while (program_stream.peek() != EOF &&
-                               !std::isspace(program_stream.peek())) {
-                            program_stream.get();
-                            incr_column();
-                        }
-                        break;
-                    }
-                    do {
-                        token_string += program_stream.get();
-                        incr_column();
-                    } while (std::isdigit(program_stream.peek()));
-                }
-
-                // TODO: Handle f (float), h (half) modifiers.
-
-                // Handle u (unsigned) modifier.
-                if (program_stream.peek() == 'u') {
-                    program_stream.get();
-                    new_token.type = Token::Type::UINT_LITERAL;
-                    incr_column();
-                    new_token.value =
-                        static_cast<uint64_t>(std::stoull(token_string));
-                } else if (new_token.type == Token::Type::INT_LITERAL) {
-                    new_token.type = Token::Type::INT_LITERAL;
-                    new_token.value =
-                        static_cast<int64_t>(std::stoll(token_string));
-                } else {
-                    internal_assert(new_token.type ==
-                                    Token::Type::FLOAT_LITERAL)
-                        << "State error in literal parsing: " << token_string;
-                    new_token.value =
-                        static_cast<double>(std::stold(token_string));
-                }
-                new_token.lineEnd = line_no();
-                new_token.colEnd = column_no() - 1;
-                add_token(new_token);
+                add_token(lex_number(program_stream));
                 break;
             }
             }

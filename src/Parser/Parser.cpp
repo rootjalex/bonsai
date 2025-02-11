@@ -551,6 +551,9 @@ struct Parser {
 
         // TODO: do type-forcing here!
         if (type_label.defined() && value.type().defined()) {
+            if (!ir::equals(type_label, value.type()) && is_const(value)) {
+                value = constant_cast(type_label, value);
+            }
             internal_assert(ir::equals(type_label, value.type()))
                 << "Mismatching assignment: " << loc
                 << " is labelled with type: " << type_label << " but " << value

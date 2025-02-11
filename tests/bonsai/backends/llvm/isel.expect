@@ -1,0 +1,15 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x i8> @sat_add(<8 x i8> %x, <8 x i8> %y) local_unnamed_addr #0 {
+sat_add_entry:
+  %0 = tail call <8 x i8> @llvm.sadd.sat.v8i8(<8 x i8> %x, <8 x i8> %y)
+  ret <8 x i8> %0
+}
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x i8> @llvm.sadd.sat.v8i8(<8 x i8>, <8 x i8>) #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
