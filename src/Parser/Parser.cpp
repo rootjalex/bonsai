@@ -801,7 +801,8 @@ struct Parser {
         } else if (consume(Token::Type::STAR)) {
             // Option dereference.
             ir::Expr arg = parseIdentifier();
-            internal_assert(arg.type().defined() && arg.type().is<ir::Option_t>())
+            internal_assert(arg.type().defined() &&
+                            arg.type().is<ir::Option_t>())
                 << "Parsed dereference of non-option: " << arg;
             ir::Type etype = arg.type().as<ir::Option_t>()->etype;
             // TODO(ajr): do we want an explicit Deref IR node?

@@ -1,5 +1,6 @@
 #include "IR/Type.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 

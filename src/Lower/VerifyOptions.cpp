@@ -27,9 +27,10 @@ OptionSets get_option_sets(const ir::Expr &expr) {
     internal_assert(expr.type().is_bool()) << expr;
     if (const ir::Cast *cast = expr.as<ir::Cast>()) {
         if (cast->value.type().is<ir::Option_t>()) {
-            internal_assert(cast->value.is<ir::Var>()) << "Found non-variable option as bool: " << expr;
-            const std::string_view singleton = cast->value.as<ir::Var>()->name;
-            return OptionSets{.positive={singleton}};
+            internal_assert(cast->value.is<ir::Var>())
+                << "Found non-variable option as bool: " << expr;
+            const std::string &singleton = cast->value.as<ir::Var>()->name;
+            return OptionSets{.positive = {singleton}};
         }
         return {}; // Don't peak through bool casts.
     }
@@ -38,16 +39,20 @@ OptionSets get_option_sets(const ir::Expr &expr) {
         switch (node->op) {
         // sets(a && b) = union(sets(a), sets(b))
         case ir::BinOp::And: {
-            using mv = std::make_move_iterator;
             OptionSets a = get_option_sets(node->a);
             OptionSets b = get_option_sets(node->b);
-            a.positive.insert(mv(b.positive.begin()), mv(b.positive.end()));
-            a.negative.insert(mv(b.negative.begin()), mv(b.negative.end()));
+            a.positive.insert(b.positive.cbegin(), b.positive.cend());
+            a.negative.insert(b.negative.cbegin(), b.negative.cend());
+            // TODO(ajr): why doesn't this work?
+            // using mv = std::make_move_iterator;
+            // a.positive.insert(mv(b.positive.begin()), mv(b.positive.end()));
+            // a.negative.insert(mv(b.negative.begin()), mv(b.negative.end()));
             return a;
         }
         default:
             // TODO(rootjalex): Is there something we can do with a || b?
-            // Consider that !(a || b) -> !a && !b = {.negative={a, b}}, which we do not handle.
+            // Consider that !(a || b) -> !a && !b = {.negative={a, b}}, which
+            // we do not handle.
             return {};
         }
     }
@@ -56,7 +61,8 @@ OptionSets get_option_sets(const ir::Expr &expr) {
         switch (node->op) {
         case ir::UnOp::Not: {
             OptionSets a_sets = get_option_sets(node->a);
-            return OptionSets{.positive=std::move(a_sets.negative), .negative=std::move(a_sets.positive)};
+            return OptionSets{.positive = std::move(a_sets.negative),
+                              .negative = std::move(a_sets.positive)};
         }
         default:
             return {};
@@ -78,7 +84,7 @@ class OptionVisitor : public ir::Visitor {
     std::vector<OptionSets> frames;
     std::set<std::string> always_safe;
 
-    bool is_safe_to_deref(std::string_view name) const {
+    bool is_safe_to_deref(const std::string &name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
             if (it->positive.count(name)) {
                 return true;
@@ -87,21 +93,15 @@ class OptionVisitor : public ir::Visitor {
         return always_safe.count(name);
     }
 
-    void push_frame() {
-        frames.emplace_back();
-    }
+    void push_frame() { frames.emplace_back(); }
 
     void push_frame(OptionSets options) {
         frames.emplace_back(std::move(options));
     }
 
-    void replace_frame(OptionSets options) {
-        frames.back() = options;
-    }
+    void replace_frame(OptionSets options) { frames.back() = options; }
 
-    void pop_frame() {
-        frames.pop_back();
-    }
+    void pop_frame() { frames.pop_back(); }
 
     void make_always_safe(std::set<std::string> safe) {
         always_safe.insert(safe.begin(), safe.end());
@@ -113,7 +113,8 @@ class OptionVisitor : public ir::Visitor {
         push_frame(options);
         node->then_body.accept(this);
 
-        OptionSets swapped = {.positive = std::move(options.negative), .negative = std::move(options.positive)};
+        OptionSets swapped = {.positive = std::move(options.negative),
+                              .negative = std::move(options.positive)};
 
         // negatives in the condition are safe to access in the else_body
         if (node->else_body.defined()) {
@@ -125,7 +126,8 @@ class OptionVisitor : public ir::Visitor {
         // If then_body always returns, negatives are now always safe.
         // If else_body always returns, positives are now always safe.
         const bool then_returns = ir::always_returns(node->then_body);
-        const bool else_returns = node->else_body.defined() && ir::always_returns(node->else_body);
+        const bool else_returns =
+            node->else_body.defined() && ir::always_returns(node->else_body);
 
         if (then_returns && else_returns) {
             return;
@@ -140,7 +142,9 @@ class OptionVisitor : public ir::Visitor {
         if (node->type.is<ir::Option_t>()) {
             // TODO: needs `way` better error reporting.
             // std::cout << "checking if " << node->name << " is safe\n";
-            internal_assert(is_safe_to_deref(node->name)) << "illegal dereference of `" << node->name << ": " << node->type << "`";
+            internal_assert(is_safe_to_deref(node->name))
+                << "illegal dereference of `" << node->name << ": "
+                << node->type << "`";
         }
     }
 };

@@ -1,5 +1,6 @@
 #include "IR/Expr.h"
 
+#include <algorithm>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
@@ -182,8 +183,10 @@ void try_match_types(Expr &a, Expr &b) {
             b = Cast::make(Bool_t::make(), b);
             return;
         }
-        internal_assert(!a.type().is<Option_t>()) << "Trying to match option type: " << a << " with: " << b;
-        internal_assert(!b.type().is<Option_t>()) << "Trying to match: " << a << " with option type: " << b;
+        internal_assert(!a.type().is<Option_t>())
+            << "Trying to match option type: " << a << " with: " << b;
+        internal_assert(!b.type().is<Option_t>())
+            << "Trying to match: " << a << " with option type: " << b;
 
         // Try broadcasting
         if (a.type().is_vector() && b.type().is_scalar()) {
@@ -243,7 +246,8 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
                              (a.type().defined() && b.type().defined());
     if (infer_types) {
         internal_assert(equals(a.type(), b.type()))
-            << "BinOp of mismatched types: " << a << " : " << a.type() << " " << to_string(op) << " " << b << " : " << b.type();
+            << "BinOp of mismatched types: " << a << " : " << a.type() << " "
+            << to_string(op) << " " << b << " : " << b.type();
 
         if (op == BinOp::And || op == BinOp::Or) {
             if (a.type().is<Option_t>() || b.type().is<Option_t>()) {
