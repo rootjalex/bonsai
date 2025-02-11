@@ -55,7 +55,7 @@ std::string short_type_name(const Type &type) {
             return name;
         }
         name += std::to_string(f->exponent);
-        name += ".";
+        name += "_";
         name += std::to_string(f->mantissa);
         return name;
     }

@@ -12,4 +12,12 @@ func id3(x : f7.8) -> f7.8 {
   return x
 }
 
+func id4(x : f22.41) -> f22.41 {
+  return x
+}
+
+func id5(x : f64) -> f64 {
+  return x
+}
+
 

@@ -1,5 +1,3 @@
-// -llvm
-
 // Default type.
 func id1(x: bf16) -> bf16 { return x; }
 
@@ -8,3 +6,9 @@ func id2(x: f8.7) -> f8.7 { return x; }
 
 // Non-standard eXmY.
 func id3(x: f7.8) -> f7.8 { return x; }
+
+// Two digit exponent/mantissa still functions as expected.
+func id4(x: f22.41) -> f22.41 { return x; }
+
+// This should lower to ieee754 f64.
+func id5(x: f11.52) -> f11.52 { return x; }
