@@ -44,8 +44,21 @@ std::string short_type_name(const Type &type) {
         return "i" + std::to_string(type.as<Int_t>()->bits);
     case IRTypeEnum::UInt_t:
         return "u" + std::to_string(type.as<UInt_t>()->bits);
-    case IRTypeEnum::Float_t:
-        return "f" + std::to_string(type.as<Float_t>()->bits);
+    case IRTypeEnum::Float_t: {
+        const auto *f = type.as<Float_t>();
+        if (f->is_bfloat16()) {
+            return "bf" + std::to_string(f->bits());
+        }
+        std::string name = "f";
+        if (f->is_ieee754()) {
+            name += std::to_string(f->bits());
+            return name;
+        }
+        name += std::to_string(f->exponent);
+        name += "_";
+        name += std::to_string(f->mantissa);
+        return name;
+    }
     case IRTypeEnum::Bool_t:
         return "bool";
     case IRTypeEnum::Ptr_t:

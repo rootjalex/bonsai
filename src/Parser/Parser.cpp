@@ -46,7 +46,7 @@ struct Parser {
     // generics, we need this to be a stack!
     std::map<std::string, ir::Type> current_generics;
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
-                   f32 = ir::Float_t::make(32);
+                   f32 = ir::Float_t::make_f32();
 
     ir::Type get_type_from_frame(const std::string &name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
@@ -143,15 +143,14 @@ struct Parser {
     }
 
     Token expect(Token::Type type) {
-        if (auto token = consume(type)) {
+        if (std::optional<Token> token = consume(type)) {
             return *token;
-        } else {
-            internal_error << "Expected " << Token::token_type_string(type)
-                           << ", instead received: " + peek().to_string()
-                           << " at line: " << peek().lineBegin << ":"
-                           << peek().colBegin;
-            return Token{};
         }
+        internal_error << "Expected " << Token::token_type_string(type)
+                       << ", instead received: " + peek().to_string()
+                       << " at line: " << peek().lineBegin << ":"
+                       << peek().colBegin;
+        return Token{};
     }
 
     void parseProgramElement() {
@@ -547,16 +546,25 @@ struct Parser {
 
         expect(Token::Type::ASSIGN);
         ir::Expr value = parseExpr();
+        ir::Type type = value.type();
         expect(Token::Type::SEMICOL);
 
+        if (const auto *build = value.as<ir::Build>();
+            build && !type.defined()) {
+            // When assigning a vector with an initializer list, this may occur,
+            // e.g., `v: vector[i32, 2] = {1, 2};`, which is parsed as:
+            //       `v: vector[i32, 2] = build<unknown>((i32)1, (i32)2)`
+            value = ir::Build::make(type_label, std::move(build->values));
+        }
+
         // TODO: do type-forcing here!
-        if (type_label.defined() && value.type().defined()) {
+        if (type_label.defined() && type.defined()) {
             internal_assert(ir::equals(type_label, value.type()))
                 << "Mismatching assignment: " << loc
                 << " is labelled with type: " << type_label << " but " << value
-                << " has type " << value.type();
+                << " has type " << type;
         }
-        ir::Type write_type = type_label.defined() ? type_label : value.type();
+        ir::Type write_type = type_label.defined() ? type_label : type;
 
         add_type_to_frame(loc.base, write_type, _mutable);
 
@@ -1325,28 +1333,54 @@ struct Parser {
         return loc;
     }
 
-    // type := i[N] | u[N] | f[N] | bool | vector[type, int] | option[type] |
-    // declared_type
+    // type := i[N] | u[N]
+    //         | f[N] | bf[N] | f[N]_[N]
+    //         | bool | vector[type, int]
+    //         | option[type] | declared_type
     ir::Type parseType() {
         // TODO: support tuples of types! AKA unnamed structs.
         const Token id = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(id.value);
-
-        // First look for numeric types
+        // Signed integer types.
         std::regex int_pattern("^i(\\d+)$");
+        // Unsigned integer types.
         std::regex uint_pattern("^u(\\d+)$");
-        std::regex float_pattern("^f(\\d+)$");
-        std::smatch match;
+        // Floating point types.
+        std::regex float_pattern("^b?f(\\d+)$");
+        // Explicit declaration of exponent and mantissa bits.
+        std::regex float_pattern_explicit("^f(\\d+)_(\\d+)$");
+        // TODO(cgyurgyik): Support explicit declaration for fixed point.
 
+        std::smatch match;
         if (std::regex_match(name, match, int_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
             return ir::Int_t::make(bits);
         } else if (std::regex_match(name, match, uint_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
             return ir::UInt_t::make(bits);
+        } else if (std::regex_match(name, match, float_pattern_explicit)) {
+            const uint32_t exponent = std::stoul(match[1].str());
+            const uint32_t mantissa = std::stoul(match[2].str());
+            return ir::Float_t::make(exponent, mantissa);
         } else if (std::regex_match(name, match, float_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
-            return ir::Float_t::make(bits);
+            if (!name.empty() && name.front() == 'b') {
+                internal_assert(bits == 16)
+                    << "brain float (bfloat) only comes in width 16";
+                return ir::Float_t::make_bf16();
+            }
+
+            // Assume default types for floating precision is IEEE-754 standard.
+            switch (bits) {
+            case 64:
+                return ir::Float_t::make_f64();
+            case 32:
+                return ir::Float_t::make_f32();
+            case 16:
+                return ir::Float_t::make_f16();
+            default:
+                internal_error << "unsupported floating point type: f" << bits;
+            }
         } else if (name == "bool") {
             return ir::Bool_t::make();
         } else if (name == "void") {
@@ -1382,12 +1416,11 @@ struct Parser {
             return ir::Set_t::make(std::move(etype));
         } else if (current_generics.contains(name)) {
             return current_generics[name];
-        } else {
-            // Must be a user-defined type, or an error.
-            internal_assert(program.types.contains(name))
-                << "Unknown type: " << name;
-            return program.types[name];
         }
+        // Must be a user-defined type, or an error.
+        internal_assert(program.types.contains(name))
+            << "Unknown type: " << name;
+        return program.types[name];
     }
 
     // interface = iPrimitive | iVector[[interface]] | interface (`|`

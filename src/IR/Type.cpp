@@ -5,21 +5,26 @@
 #include <utility>
 
 #include "IR/Printer.h"
+#include "Utils.h"
 
 namespace bonsai {
 namespace ir {
 
 uint32_t Type::bits() const {
-    if (auto as_int = this->as<Int_t>()) {
+    if (auto *as_int = this->as<Int_t>()) {
         return as_int->bits;
-    } else if (auto as_uint = this->as<UInt_t>()) {
-        return as_uint->bits;
-    } else if (auto as_float = this->as<Float_t>()) {
-        return as_float->bits;
-    } else {
-        internal_error << "Called bits() on bad type: " << *this;
-        return 0;
     }
+    if (auto *as_uint = this->as<UInt_t>()) {
+        return as_uint->bits;
+    }
+    if (auto *as_float = this->as<Float_t>()) {
+        return as_float->bits();
+    }
+    if (auto *as_bool = this->as<Bool_t>()) {
+        return 1;
+    }
+    internal_error << "Called bits() on bad type: " << *this;
+    return 0;
 }
 
 uint32_t Type::lanes() const {
@@ -94,7 +99,7 @@ Type Type::to_uint() const {
     if (this->is<Int_t>()) {
         return UInt_t::make(this->as<Int_t>()->bits);
     } else if (this->is<Float_t>()) {
-        return UInt_t::make(this->as<Float_t>()->bits);
+        return UInt_t::make(this->as<Float_t>()->bits());
     } else if (this->is<Vector_t>()) {
         const Vector_t *v = this->as<Vector_t>();
         return Vector_t::make(v->etype.to_uint(), v->lanes);
@@ -136,12 +141,66 @@ Type UInt_t::make(uint32_t bits) {
     return node;
 }
 
-Type Float_t::make(uint32_t bits) {
-    internal_assert(bits == 16 || bits == 32 || bits == 64)
-        << "Unsupported bitwidth in Float_t: " << bits;
+Type Float_t::make(uint32_t exponent, uint32_t mantissa) {
     Float_t *node = new Float_t;
-    node->bits = bits;
+    node->exponent = exponent;
+    node->mantissa = mantissa;
     return node;
+}
+
+Type Float_t::make_f64() {
+    static Float_t *node = new Float_t;
+    node->exponent = IEEE754_F64.exponent;
+    node->mantissa = IEEE754_F64.mantissa;
+    return node;
+}
+
+Type Float_t::make_f32() {
+    static Float_t *node = new Float_t;
+    node->exponent = IEEE754_F32.exponent;
+    node->mantissa = IEEE754_F32.mantissa;
+    return node;
+}
+
+Type Float_t::make_f16() {
+    static Float_t *node = new Float_t;
+    node->exponent = IEEE754_F16.exponent;
+    node->mantissa = IEEE754_F16.mantissa;
+    return node;
+}
+
+Type Float_t::make_bf16() {
+    static Float_t *node = new Float_t;
+    node->exponent = BFLOAT16.exponent;
+    node->mantissa = BFLOAT16.mantissa;
+    return node;
+}
+
+uint32_t Float_t::bits() const {
+    // +1 for the sign bit.
+    return 1 + this->exponent + this->mantissa;
+}
+
+bool Float_t::is_ieee754() const {
+    const uint32_t e = this->exponent, m = this->mantissa;
+    switch (const uint32_t bits = this->bits(); bits) {
+    case 256:
+    case 128:
+        internal_error << "unimplemented: f" << bits;
+    case 64:
+        return e == IEEE754_F64.exponent && m == IEEE754_F64.mantissa;
+    case 32:
+        return e == IEEE754_F32.exponent && m == IEEE754_F32.mantissa;
+    case 16:
+        return e == IEEE754_F16.exponent && m == IEEE754_F16.mantissa;
+    default:
+        return false;
+    }
+}
+
+bool Float_t::is_bfloat16() const {
+    return this->exponent == BFLOAT16.exponent &&
+           this->mantissa == BFLOAT16.mantissa;
 }
 
 Type Bool_t::make() {
