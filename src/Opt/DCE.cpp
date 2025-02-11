@@ -32,7 +32,8 @@ struct ComputeUseCounts : ir::Visitor {
 
     void visit(const ir::Lambda *node) override {
         // TODO(ajr): We should erase unused arguments to Lambdas and Functions.
-        //            This requires mutating the definitions and all calls, which can get tricky.
+        //  This requires mutating the definitions and all calls, which can get
+        //  tricky.
         for (const auto &arg : node->args) {
             // TODO: std::map::contains ?
             internal_assert(use_counts.find(arg.name) == use_counts.cend());
@@ -53,25 +54,33 @@ struct ComputeUseCounts : ir::Visitor {
     }
 
     void visit(const ir::LetStmt *node) override {
-        internal_assert(curr_var.empty()) << "Unexpected nested LetStmt: " << ir::Stmt(node) << " when traversing for: " << curr_var;
-        // TODO(ajr): Should LetStmts just contain a string name for writes? Can never immutably write to an access.
-        internal_assert(node->loc.accesses.empty()) << "unimplemented: " << ir::Stmt(node);
+        internal_assert(curr_var.empty())
+            << "Unexpected nested LetStmt: " << ir::Stmt(node)
+            << " when traversing for: " << curr_var;
+        // TODO(ajr): Should LetStmts just contain a string name for writes? Can
+        // never immutably write to an access.
+        internal_assert(node->loc.accesses.empty())
+            << "unimplemented: " << ir::Stmt(node);
         // TODO: std::map::contains ?
         internal_assert(use_counts.find(node->loc.base) == use_counts.end())
             << "ComputeUseCounts already active for var: " << node->loc.base;
-        internal_assert(dependent_use_counts.find(node->loc.base) == dependent_use_counts.end())
-            << "ComputeUseCounts already active for var (dependent): " << node->loc.base;
+        internal_assert(dependent_use_counts.find(node->loc.base) ==
+                        dependent_use_counts.end())
+            << "ComputeUseCounts already active for var (dependent): "
+            << node->loc.base;
         curr_var = node->loc.base;
         node->value.accept(this);
         curr_var.clear();
     }
 
     void visit(const ir::Assign *node) override {
-        internal_error << "TODO: handle Assign in ComputeUseCounts: " << ir::Stmt(node);
+        internal_error << "TODO: handle Assign in ComputeUseCounts: "
+                       << ir::Stmt(node);
     }
 
     void visit(const ir::Accumulate *node) override {
-        internal_error << "TODO: handle Accumulate in ComputeUseCounts: " << ir::Stmt(node);
+        internal_error << "TODO: handle Accumulate in ComputeUseCounts: "
+                       << ir::Stmt(node);
     }
 };
 
@@ -81,16 +90,24 @@ struct DeadCodeElimination : ir::Mutator {
     // How many times does a variable definition reference another variable.
     std::map<std::string, UseCountMap> dependent_use_counts;
 
-    DeadCodeElimination(UseCountMap use_counts, std::map<std::string, UseCountMap> dependent_use_counts)
-        : use_counts(std::move(use_counts)), dependent_use_counts(std::move(dependent_use_counts)) {}
+    DeadCodeElimination(UseCountMap use_counts,
+                        std::map<std::string, UseCountMap> dependent_use_counts)
+        : use_counts(std::move(use_counts)),
+          dependent_use_counts(std::move(dependent_use_counts)) {}
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        internal_assert(node->loc.accesses.empty()) << "unimplemented: " << ir::Stmt(node);
+        internal_assert(node->loc.accesses.empty())
+            << "unimplemented: " << ir::Stmt(node);
         if (use_counts[node->loc.base] == 0) {
             // Delete this LetStmt. Erase it's impact on use_counts.
-            if (const auto cmap = dependent_use_counts.find(node->loc.base); cmap != dependent_use_counts.cend()) {
+            if (const auto cmap = dependent_use_counts.find(node->loc.base);
+                cmap != dependent_use_counts.cend()) {
                 for (const auto &[var, count] : cmap->second) {
-                    internal_assert(use_counts[var] >= count) << "Overflow failure in DCE: " << var << " has count: " << use_counts[var] << " but is used: " << count << " times in declaration of: " << node->loc.base;
+                    internal_assert(use_counts[var] >= count)
+                        << "Overflow failure in DCE: " << var
+                        << " has count: " << use_counts[var]
+                        << " but is used: " << count
+                        << " times in declaration of: " << node->loc.base;
                     use_counts[var] -= count;
                 }
             }
@@ -100,12 +117,14 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        internal_error << "TODO: handle Assign in DeadCodeElimination: " << ir::Stmt(node);
+        internal_error << "TODO: handle Assign in DeadCodeElimination: "
+                       << ir::Stmt(node);
         return ir::Stmt();
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        internal_error << "TODO: handle Accumulate in DeadCodeElimination: " << ir::Stmt(node);
+        internal_error << "TODO: handle Accumulate in DeadCodeElimination: "
+                       << ir::Stmt(node);
         return ir::Stmt();
     }
 
@@ -131,7 +150,8 @@ struct DeadCodeElimination : ir::Mutator {
     ir::Stmt visit(const ir::Sequence *node) override {
         bool not_changed = true;
         std::vector<ir::Stmt> rstmts;
-        for (auto iter = node->stmts.rbegin(); iter != node->stmts.rend(); iter++) {
+        for (auto iter = node->stmts.rbegin(); iter != node->stmts.rend();
+             iter++) {
             ir::Stmt stmt = mutate(*iter);
             if (stmt.defined()) {
                 not_changed = not_changed && stmt.same_as(*iter);
@@ -149,20 +169,20 @@ struct DeadCodeElimination : ir::Mutator {
 
         // TODO: best way to reverse a std::vector?
         std::vector<ir::Stmt> stmts;
-        std::transform(
-            rstmts.rbegin(), rstmts.rend(), std::back_inserter(stmts),
-            [](auto &stmt) { return std::move(stmt); });
+        std::transform(rstmts.rbegin(), rstmts.rend(),
+                       std::back_inserter(stmts),
+                       [](auto &stmt) { return std::move(stmt); });
         return ir::Sequence::make(std::move(stmts));
     }
 };
-
 
 } // namespace
 
 ir::Stmt dce(const ir::Stmt &stmt) {
     ComputeUseCounts analyzer;
     stmt.accept(&analyzer);
-    DeadCodeElimination optimizer(std::move(analyzer.use_counts), std::move(analyzer.dependent_use_counts));
+    DeadCodeElimination optimizer(std::move(analyzer.use_counts),
+                                  std::move(analyzer.dependent_use_counts));
     return optimizer.mutate(stmt);
 }
 

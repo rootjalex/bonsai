@@ -137,10 +137,10 @@ Token Lexer::lex_number(std::ifstream &program_stream) {
     if (!std::isdigit(program_stream.peek())) {
         std::stringstream error_message;
         error_message << "unexpected symbol (expected digit) '"
-                        << (char)program_stream.peek() << "'";
+                      << (char)program_stream.peek() << "'";
         report_error(error_message.str());
         while (program_stream.peek() != EOF &&
-                !std::isspace(program_stream.peek())) {
+               !std::isspace(program_stream.peek())) {
             program_stream.get();
             incr_column();
         }
@@ -166,14 +166,13 @@ Token Lexer::lex_number(std::ifstream &program_stream) {
 
         if (!std::isdigit(program_stream.peek())) {
             std::stringstream error_message;
-            error_message
-                << "unexpected symbol (expected digit for "
-                    "decimal) '"
-                << static_cast<char>(program_stream.peek()) << "'";
+            error_message << "unexpected symbol (expected digit for "
+                             "decimal) '"
+                          << static_cast<char>(program_stream.peek()) << "'";
             report_error(error_message.str());
 
             while (program_stream.peek() != EOF &&
-                    !std::isspace(program_stream.peek())) {
+                   !std::isspace(program_stream.peek())) {
                 program_stream.get();
                 incr_column();
             }
@@ -186,28 +185,25 @@ Token Lexer::lex_number(std::ifstream &program_stream) {
     }
 
     // handle exponent
-    if (program_stream.peek() == 'e' ||
-        program_stream.peek() == 'E') {
+    if (program_stream.peek() == 'e' || program_stream.peek() == 'E') {
         new_token.type = Token::Type::FLOAT_LITERAL;
         token_string += program_stream.get();
         incr_column();
 
-        if (program_stream.peek() == '+' ||
-            program_stream.peek() == '-') {
+        if (program_stream.peek() == '+' || program_stream.peek() == '-') {
             token_string += program_stream.get();
             incr_column();
         }
 
         if (!std::isdigit(program_stream.peek())) {
             std::stringstream error_message;
-            error_message
-                << "unexpected symbol (expected digit for "
-                    "exponent) '"
-                << static_cast<char>(program_stream.peek()) << "'";
+            error_message << "unexpected symbol (expected digit for "
+                             "exponent) '"
+                          << static_cast<char>(program_stream.peek()) << "'";
             report_error(error_message.str());
 
             while (program_stream.peek() != EOF &&
-                    !std::isspace(program_stream.peek())) {
+                   !std::isspace(program_stream.peek())) {
                 program_stream.get();
                 incr_column();
             }
@@ -226,18 +222,14 @@ Token Lexer::lex_number(std::ifstream &program_stream) {
         program_stream.get();
         new_token.type = Token::Type::UINT_LITERAL;
         incr_column();
-        new_token.value =
-            static_cast<uint64_t>(std::stoull(token_string));
+        new_token.value = static_cast<uint64_t>(std::stoull(token_string));
     } else if (new_token.type == Token::Type::INT_LITERAL) {
         new_token.type = Token::Type::INT_LITERAL;
-        new_token.value =
-            static_cast<int64_t>(std::stoll(token_string));
+        new_token.value = static_cast<int64_t>(std::stoll(token_string));
     } else {
-        internal_assert(new_token.type ==
-                        Token::Type::FLOAT_LITERAL)
+        internal_assert(new_token.type == Token::Type::FLOAT_LITERAL)
             << "State error in literal parsing: " << token_string;
-        new_token.value =
-            static_cast<double>(std::stold(token_string));
+        new_token.value = static_cast<double>(std::stold(token_string));
     }
     new_token.lineEnd = line_no();
     new_token.colEnd = column_no() - 1;
