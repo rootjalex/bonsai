@@ -52,6 +52,7 @@ struct Interface : public IRHandle<IRInterfaceNode> {
 
     // TODO: implement copy/move semantics!
 
+    // Does this interface support numeric operations like +/*/etc?
     bool is_numeric() const;
 };
 

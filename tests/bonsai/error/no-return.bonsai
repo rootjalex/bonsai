@@ -1,0 +1,7 @@
+func foo(i : i32) -> i32 {
+    if i == 0 {
+        return i;
+    } else if i < 0 {
+        return -1;
+    }
+}
