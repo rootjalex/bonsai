@@ -134,14 +134,14 @@ static bool is_valid_identifier_start(int32_t c) {
 }
 
 char Lexer::consume(std::ifstream &program_stream) {
-  char c = program_stream.get();
-  incr_column();
-  return c;
+    char c = program_stream.get();
+    incr_column();
+    return c;
 }
 
 void Lexer::consume_until_space(std::ifstream &program_stream) {
     while (program_stream.peek() != EOF &&
-            !std::isspace(program_stream.peek())) {
+           !std::isspace(program_stream.peek())) {
         consume(program_stream);
     }
 }
