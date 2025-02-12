@@ -1,0 +1,10 @@
+
+
+func foo(i : i32x8) -> u32x8 {
+  if (!((i32)0 < reduce<+>(i))) {
+    print(i)
+  }
+  return abs(i)
+}
+
+
