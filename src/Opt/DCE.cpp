@@ -23,7 +23,7 @@ struct ComputeUseCounts : ir::Visitor {
     std::string curr_var;
 
     void visit(const ir::Var *node) override {
-        use_counts[node->name]++;
+        ++use_counts[node->name];
         if (!curr_var.empty()) {
             // Inside a LetStmt
             dependent_use_counts[curr_var][node->name]++;
