@@ -932,7 +932,7 @@ struct Parser {
         });
 
         if (auto op = try_match_pattern<ir::VectorReduce::OpType>(
-                name, args.size(), RPATTERNS, 2, line, col)) {
+                name, args.size(), RPATTERNS, 1, line, col)) {
             return ir::VectorReduce::make(*op, std::move(args[0]));
         }
 

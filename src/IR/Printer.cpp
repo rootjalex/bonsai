@@ -394,9 +394,7 @@ std::string to_string(const UnOp::OpType &op) {
 
 void Printer::visit(const UnOp *node) {
     os << to_string(node->op);
-    open();
-    print_no_parens(node->a);
-    close();
+    print(node->a);
 }
 
 void Printer::visit(const Select *node) {
@@ -413,12 +411,6 @@ void Printer::visit(const Cast *node) {
     os << "cast<";
     print(node->type);
     os << ">(";
-    print_no_parens(node->value);
-    os << ")";
-}
-
-void Printer::visit(const Print *node) {
-    os << "print(";
     print_no_parens(node->value);
     os << ")";
 }
@@ -607,6 +599,13 @@ void Printer::visit(const Instantiate *node) {
         print(value);
     }
     os << "]]";
+}
+
+void Printer::visit(const Print *node) {
+    os << get_indent();
+    os << "print(";
+    print_no_parens(node->value);
+    os << ")\n";
 }
 
 void Printer::visit(const Return *node) {
