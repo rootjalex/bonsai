@@ -10,6 +10,7 @@
 #include "Scope.h"
 #include "Utils.h"
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -238,6 +239,10 @@ ir::Stmt coerce_return_types(const ir::Stmt &stmt, const ir::Type &ret_type) {
     internal_assert(ret_type.defined())
         << "Cannot coerce with undefined return type: " << stmt;
 
+    if (ret_type.is<ir::Void_t>()) {
+        return stmt;
+    }
+
     CoerceReturnTypes coercer(ret_type);
     return coercer.mutate(stmt);
 }
@@ -352,6 +357,11 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
                            ? fnotypes->ret_type
                            : ir::get_return_type(ftypes->body);
     ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
+
+    internal_assert(ftypes->ret_type.is<ir::Void_t>() ||
+                    always_returns(ftypes->body))
+        << "Function: " << ftypes->name
+        << " does not return in all code paths.";
 
     ftypes->interfaces = fnotypes->interfaces;
 

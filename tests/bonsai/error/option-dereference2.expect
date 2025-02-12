@@ -1,0 +1,7 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Lower/VerifyOptions.cpp:169
+
+--> is_safe_to_deref(node->value)
+illegal dereference of `v: i32`

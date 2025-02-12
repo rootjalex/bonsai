@@ -4,5 +4,5 @@
 tests/bonsai/error/negate-unsigned.bonsai:3:16: lex error: negated unsigned integer
     return -1u;
                 ^
-[internal] Error: src/Parser/Parser.cpp:813
+[internal] Error: src/Parser/Parser.cpp:822
 Unknown token in parseBaseExpr: error at line: 3

@@ -1,0 +1,28 @@
+type NumberOption = struct NumberOption{ i : struct ?option0{ value : i32; set : bool }; f : struct ?option1{ value : f32; set : bool } }
+type S = struct S{ i : struct ?option0{ value : i32; set : bool } }
+
+
+func get_flpat(n : NumberOption) -> f32 {
+  if (n.f.set) {
+    return n.f.value
+  } else {
+    return 0f
+  }
+}
+
+func get_int(n : NumberOption) -> i32 {
+  if (n.i.set) {
+    return n.i.value
+  } else {
+    return (i32)0
+  }
+}
+
+func use_option(s : S) -> i32 {
+  if (s.i.set) {
+    return s.i.value
+  }
+  return (i32)42
+}
+
+

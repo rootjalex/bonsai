@@ -16,8 +16,6 @@ struct RewriteOptions : public ir::Mutator {
     std::map<ir::Type, ir::Type, ir::TypeLessThan> rewrite_map;
     // number of option etypes rewritten
     size_t counter = 0;
-    // whether an expression is being interpreted as a boolean value or not.
-    bool as_bool = false;
 
     ir::Type construct_option_struct(const ir::Type &etype) {
         std::string struct_name = "?option" + std::to_string(counter++);
@@ -78,29 +76,45 @@ struct RewriteOptions : public ir::Mutator {
         }
     }
 
-    // rewrite cast<option>(value) -> build<struct_option>(value)
     ir::Expr visit(const ir::Cast *node) override {
-        ir::Expr expr = ir::Mutator::visit(node);
-        const ir::Cast *_node = expr.as<ir::Cast>();
-        internal_assert(_node);
-        if (_node->type.is<ir::Option_t>()) {
-            ir::Type new_type = mutate(_node->type);
-            std::vector<ir::Expr> args = {_node->value,
-                                          ir::BoolImm::make(true)};
-            return ir::Build::make(std::move(new_type), std::move(args));
-        } else if (_node->type.is<ir::Bool_t>() &&
-                   node->value.type().is<ir::Option_t>()) {
-            return ir::Access::make("set", _node->value);
-        } else if (node->value.type().is<ir::Option_t>()) {
-            ir::Expr deref = ir::Access::make("value", _node->value);
-            internal_assert(ir::equals(_node->type, deref.type()))
-                << "Lowering of option access: " << node->value
-                << " resulted in: " << _node->value
-                << " which does not match cast type: " << deref.type();
-            return deref;
-        } else {
-            return expr;
+        ir::Expr value = mutate(node->value);
+        ir::Type type = mutate(node->type);
+        const ir::Type &vtype = value.type();
+        const ir::Type &old_vtype = node->value.type();
+        const ir::Type &old_type = node->type;
+
+        if (const ir::Option_t *as_op = old_type.as<ir::Option_t>()) {
+            const ir::Type &otype = as_op->etype;
+            if (ir::equals(vtype, otype)) {
+                // cast<option>(value) -> build<struct_option>(value)
+                std::vector<ir::Expr> args = {std::move(value),
+                                              ir::BoolImm::make(true)};
+                return ir::Build::make(std::move(type), std::move(args));
+            }
         }
+
+        // cast<bool>(option) -> option.set
+        if (type.is<ir::Bool_t>() && old_vtype.is<ir::Option_t>()) {
+            return ir::Access::make("set", std::move(value));
+        }
+
+        // cast<T>(option) -> option.value
+        if (const ir::Option_t *v_as_op = old_vtype.as<ir::Option_t>()) {
+            ir::Expr deref = ir::Access::make("value", std::move(value));
+            internal_assert(ir::equals(type, deref.type()))
+                << "Lowering of option access: " << ir::Expr(node)
+                << " lowered to deref: " << deref
+                << " which is the wrong type: " << deref.type()
+                << " instead of " << type;
+            return deref;
+        }
+
+        internal_assert(!type.is<ir::Option_t>() && !vtype.is<ir::Option_t>());
+
+        if (value.same_as(node->value) && type.same_as(node->type)) {
+            return node;
+        }
+        return ir::Cast::make(std::move(type), std::move(value));
     }
 
     ir::Expr visit(const ir::Var *node) override {

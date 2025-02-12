@@ -1,7 +1,7 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Lower/TypeInference.cpp:105
+[internal] Error: src/Lower/TypeInference.cpp:106
 
 --> !visiting.contains(fname)
 Type inference found a cycle containing function: rec

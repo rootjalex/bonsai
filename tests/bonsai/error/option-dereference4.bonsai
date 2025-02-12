@@ -1,0 +1,6 @@
+func use_option(i : option[i32], j: option[i32]) -> i32 {
+    if i || j {
+        return *i + *j; // ILLEGAL
+    }
+    return -1;
+}

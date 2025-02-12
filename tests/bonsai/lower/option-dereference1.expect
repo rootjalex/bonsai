@@ -1,0 +1,15 @@
+
+
+func foo(i : ?option0, j : ?option0) -> i32 {
+  if (i.set && j.set) {
+    return i.value + j.value
+  } else if (i.set) {
+    return i.value
+  } else if (j.set) {
+    return j.value
+  } else {
+    return (i32)0
+  }
+}
+
+

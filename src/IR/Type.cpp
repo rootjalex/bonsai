@@ -1,5 +1,6 @@
 #include "IR/Type.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -54,7 +55,9 @@ bool Type::is_int_or_uint() const {
 
 bool Type::is_float() const {
     return this->is<Float_t>() ||
-           (this->is<Vector_t>() && this->as<Vector_t>()->etype.is_float());
+           (this->is<Vector_t>() && this->as<Vector_t>()->etype.is_float()) ||
+           (this->is<Generic_t>() &&
+            this->as<Generic_t>()->interface.is_numeric());
 }
 
 bool Type::is_bool() const {

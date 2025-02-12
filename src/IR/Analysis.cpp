@@ -97,7 +97,7 @@ struct AlwaysReturns : public Visitor {
             stmt.accept(this);
             internal_assert(!returns)
                 << "Sequence always returns in the middle of computation: "
-                << node;
+                << Stmt(node);
         }
         node->stmts.back().accept(this);
     }
