@@ -106,12 +106,11 @@ ir::Program canonicalize(const ir::Program &program) {
     new_program = lower_option(new_program);
     new_program = lower_generics(new_program);
     // TODO: more canonicalizations
-    // TODO: make DCE a function that takes a Program?
-    // This needs to run after lower_lambda.
-    // std::cout << "before DCE!\n";
-    // new_program.dump(std::cout);
 
+    // This needs to run after lower_lambda.
     new_program = opt::dce(new_program);
+    // TODO: more optimizations
+
     return new_program;
 }
 
