@@ -1,12 +1,12 @@
 #pragma once
 
-#include "IR/Stmt.h"
+#include "IR/Program.h"
 
 namespace bonsai {
 namespace opt {
 
-// Performs dead code elimination on `stmt`.
-ir::Stmt dce(const ir::Stmt &stmt);
+// Performs dead code elimination on `program`.
+ir::Program dce(const ir::Program &program);
 
 } // namespace opt
 } // namespace bonsai

@@ -31,10 +31,7 @@ struct ComputeUseCounts : ir::Visitor {
     }
 
     void visit(const ir::Lambda *node) override {
-        // TODO(ajr): We should erase unused arguments to Lambdas and Functions.
-        //  This requires mutating the definitions and all calls, which can get
-        //  tricky.
-        for (const auto &arg : node->args) {
+        for (const ir::Lambda::Argument &arg : node->args) {
             // TODO: std::map::contains ?
             internal_assert(use_counts.find(arg.name) == use_counts.cend());
             if (!curr_var.empty()) {
@@ -149,34 +146,28 @@ struct DeadCodeElimination : ir::Mutator {
 
     ir::Stmt visit(const ir::Sequence *node) override {
         bool not_changed = true;
-        std::vector<ir::Stmt> rstmts;
+        std::vector<ir::Stmt> stmts;
         for (auto iter = node->stmts.rbegin(); iter != node->stmts.rend();
              iter++) {
             ir::Stmt stmt = mutate(*iter);
             if (stmt.defined()) {
                 not_changed = not_changed && stmt.same_as(*iter);
-                rstmts.emplace_back(std::move(stmt));
+                stmts.emplace_back(std::move(stmt));
             } else {
                 not_changed = false;
             }
         }
 
-        if (rstmts.empty()) {
+        if (stmts.empty()) {
             return ir::Stmt();
         } else if (not_changed) {
             return node;
         }
 
-        // TODO: best way to reverse a std::vector?
-        std::vector<ir::Stmt> stmts;
-        std::transform(rstmts.rbegin(), rstmts.rend(),
-                       std::back_inserter(stmts),
-                       [](auto &stmt) { return std::move(stmt); });
+        std::reverse(stmts.begin(), stmts.end());
         return ir::Sequence::make(std::move(stmts));
     }
 };
-
-} // namespace
 
 ir::Stmt dce(const ir::Stmt &stmt) {
     ComputeUseCounts analyzer;
@@ -184,6 +175,22 @@ ir::Stmt dce(const ir::Stmt &stmt) {
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts));
     return optimizer.mutate(stmt);
+}
+
+} // namespace
+
+ir::Program dce(const ir::Program &program) {
+    ir::Program new_program = program;
+
+    // TODO(ajr): We should also erase unused arguments to Lambdas and
+    // Functions. This requires mutating the definitions and all calls,
+    // which can get tricky.
+
+    for (auto &[name, func] : new_program.funcs) {
+        func->body = dce(func->body);
+    }
+
+    return new_program;
 }
 
 } // namespace opt

@@ -106,9 +106,7 @@ ir::Program canonicalize(const ir::Program &program) {
     // TODO: more canonicalizations
     // TODO: make DCE a function that takes a Program?
     // This needs to run after lower_lambda.
-    for (auto &[name, func] : new_program.funcs) {
-        func->body = opt::dce(func->body);
-    }
+    new_program = opt::dce(new_program);
     return new_program;
 }
 
