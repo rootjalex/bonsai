@@ -196,7 +196,7 @@ ir::Program lower(const ir::Program &old_program) {
 
 } // namespace
 
-ir::Program LowerLambda::lower_lambda(const ir::Program &program) {
+ir::Program LowerLambda::run(const ir::Program &program) {
     return lower(program);
 }
 
