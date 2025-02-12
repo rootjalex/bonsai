@@ -70,4 +70,9 @@ static constexpr auto IEEE754_F32 = FloatLayout<8, 23>{};
 static constexpr auto IEEE754_F16 = FloatLayout<5, 10>{};
 static constexpr auto BFLOAT16 = FloatLayout<8, 7>{};
 
+// Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
+ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
+// Whether we can convert an expression into a WriteLoc.
+bool is_writeloc(const ir::Expr &expr);
+
 } // namespace bonsai

@@ -568,13 +568,12 @@ struct Parser {
                 << " has type " << type;
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
-
         add_type_to_frame(loc.base, write_type, _mutable);
 
+        loc = ir::WriteLoc(loc.base, std::move(write_type));
         if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
-            loc = ir::WriteLoc(loc.base, std::move(write_type));
             return ir::Assign::make(std::move(loc), std::move(value),
                                     /*mutating*/ false);
         }

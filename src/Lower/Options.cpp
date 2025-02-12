@@ -6,6 +6,8 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <variant>
+
 namespace bonsai {
 namespace lower {
 
@@ -124,6 +126,53 @@ struct RewriteOptions : public ir::Mutator {
         } else {
             return ir::Var::make(std::move(type), node->name);
         }
+    }
+
+    // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
+    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) {
+        ir::Type base_type = mutate(loc.base_type);
+        bool not_changed = base_type.same_as(loc.base_type);
+        ir::WriteLoc new_loc(loc.base, std::move(base_type));
+
+        for (const auto &value : loc.accesses) {
+            if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {
+                ir::Expr new_value = mutate(*expr);
+                not_changed =
+                    not_changed && new_value.same_as(*expr);
+                new_loc.add_index_access(std::move(new_value));
+            } else {
+                new_loc.add_struct_access(std::get<std::string>(value));
+            }
+        }
+        return {std::move(new_loc), not_changed};
+    }
+
+    // These three need to mutate the types of the writelocs.
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        auto [loc, not_changed] = mutate_writeloc(node->loc);
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::LetStmt::make(std::move(loc), std::move(value));
+    }
+
+    ir::Stmt visit(const ir::Assign *node) override {
+        auto [loc, not_changed] = mutate_writeloc(node->loc);
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Assign::make(std::move(loc), std::move(value), node->mutating);
+    }
+
+    ir::Stmt visit(const ir::Accumulate *node) override {
+        auto [loc, not_changed] = mutate_writeloc(node->loc);
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
     }
 
     // TODO: which other relevant nodes are there?

@@ -1,0 +1,15 @@
+func foo(i : i32) -> u32 {
+    // j should be DCEed away
+    j : mut = i + 2;
+    k = abs(i);
+    j += cast[[i32]](k);
+    return k;
+}
+
+func bar(i : i32) -> u32 {
+    // j should not be DCEed away
+    j : mut = i + 2;
+    k = abs(i);
+    j += cast[[i32]](k);
+    return cast[[u32]](j);
+}

@@ -28,22 +28,6 @@ struct OptionSets {
     WriteLocSet positive, negative;
 };
 
-// Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
-ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
-    if (expr.is<ir::Var>()) {
-        const ir::Var *var = expr.as<ir::Var>();
-        return ir::WriteLoc(var->name, var->type);
-    } else if (expr.is<ir::Access>()) {
-        const ir::Access *acc = expr.as<ir::Access>();
-        ir::WriteLoc rec = read_to_writeloc(acc->value);
-        rec.add_struct_access(acc->field);
-        return rec;
-    }
-    // TODO(ajr): handle Index as well.
-    internal_error << "Cannot convert to WriteLoc: " << expr;
-    return ir::WriteLoc();
-}
-
 OptionSets get_option_sets(const ir::Expr &expr) {
     internal_assert(expr.type().is_bool()) << expr;
     if (const ir::Cast *cast = expr.as<ir::Cast>()) {

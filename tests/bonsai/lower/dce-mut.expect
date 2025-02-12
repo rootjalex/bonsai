@@ -1,0 +1,15 @@
+
+
+func bar(i : i32) -> u32 {
+  j = i + (i32)2
+  let k = abs(i) in
+  j += cast<i32>(k)
+  return cast<u32>(j)
+}
+
+func foo(i : i32) -> u32 {
+  let k = abs(i) in
+  return k
+}
+
+

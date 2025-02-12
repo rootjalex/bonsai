@@ -6,3 +6,4 @@ func foo(i : vector[i32, 8]) -> vector[u32, 8] {
     }
     return abs(i);
 }
+

@@ -234,7 +234,8 @@ bool TypeLessThan::operator()(const Type &t0, const Type &t1) const {
 
 bool WriteLocLessThan::operator()(const WriteLoc &w0,
                                   const WriteLoc &w1) const {
-    return compare_writelocs(w0, w1) == Cmp::Less;
+    const auto res = compare_writelocs(w0, w1);
+    return res == Cmp::Less;
 }
 
 } // namespace ir

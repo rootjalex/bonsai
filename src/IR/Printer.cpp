@@ -184,6 +184,11 @@ void Printer::print_expr_list(const std::vector<Expr> &exprs) {
 void Printer::print(const Stmt &stmt) { stmt->accept(this); }
 
 void Printer::print(const WriteLoc &loc) {
+    if (verbose) {
+        os << "(";
+        print(loc.type);
+        os << ")";
+    }
     os << loc.base;
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<std::string>(value)) {

@@ -199,4 +199,32 @@ double machine_epsilon(const Type &t) {
     }
 }
 
+// Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
+ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
+    if (const ir::Var *var = expr.as<ir::Var>()) {
+        return ir::WriteLoc(var->name, var->type);
+    } else if (const ir::Access *acc = expr.as<ir::Access>()) {
+        ir::WriteLoc rec = read_to_writeloc(acc->value);
+        rec.add_struct_access(acc->field);
+        return rec;
+    } else if (const ir::Extract *idx = expr.as<ir::Extract>()) {
+        ir::WriteLoc rec = read_to_writeloc(idx->vec);
+        rec.add_index_access(idx->idx);
+        return rec;
+    }
+    internal_error << "Cannot convert to WriteLoc: " << expr;
+    return ir::WriteLoc();
+}
+
+bool is_writeloc(const ir::Expr &expr) {
+    if (expr.as<ir::Var>()) {
+        return true;
+    } else if (const ir::Access *acc = expr.as<ir::Access>()) {
+        return is_writeloc(acc->value);
+    } else if (const ir::Extract *idx = expr.as<ir::Extract>()) {
+        return is_writeloc(idx->vec);
+    }
+    return false;
+}
+
 } // namespace bonsai
