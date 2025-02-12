@@ -150,12 +150,12 @@ struct DeadCodeElimination : ir::Mutator {
         for (auto iter = node->stmts.rbegin(); iter != node->stmts.rend();
              iter++) {
             ir::Stmt stmt = mutate(*iter);
-            if (stmt.defined()) {
-                not_changed = not_changed && stmt.same_as(*iter);
-                stmts.emplace_back(std::move(stmt));
-            } else {
+            if (!stmt.defined()) {
                 not_changed = false;
+                continue;
             }
+            not_changed = not_changed && stmt.same_as(*iter);
+            stmts.emplace_back(std::move(stmt));
         }
 
         if (stmts.empty()) {
