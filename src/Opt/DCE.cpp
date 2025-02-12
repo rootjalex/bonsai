@@ -26,7 +26,7 @@ struct ComputeUseCounts : ir::Visitor {
         ++use_counts[node->name];
         if (!curr_var.empty()) {
             // Inside a LetStmt
-            dependent_use_counts[curr_var][node->name]++;
+            ++dependent_use_counts[curr_var][node->name];
         }
     }
 
