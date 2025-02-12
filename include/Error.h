@@ -7,6 +7,52 @@
 
 namespace bonsai {
 
+// An error class for error propagation. For example,
+//
+// auto E1 = Error::failure() << "failed pre-condition X: " << x;
+// if (E1.failed()) { return E1.with_message("additional error message"); }
+//
+// auto E2 = Error::success();
+// if (E2) { return 0; }
+struct Error {
+
+    static Error failure() { return Error(/*has_error=*/true); }
+    static Error success() { return Error(/*has_error=*/false); }
+
+    template <typename T>
+    Error &operator<<(const T &value) {
+        internal_assert(has_error);
+        std::ostringstream os;
+        os << value;
+        error_message += os.str();
+        return *this;
+    }
+
+    // Returns whether this has an error.
+    bool failed() const { return has_error; }
+
+    // Returns whether this was successful with no errors.
+    bool succeeded() const { return !failed(); }
+
+    // Enables implicit conversion to bool, e.g.,
+    // if (auto E = foo()) { abort(); }
+    explicit operator bool() const { return has_error; }
+
+    // Returns the message associated with this error.
+    std::string message() const { return error_message; }
+
+  private:
+    Error(bool has_error) : has_error(has_error) {}
+
+    // Whether this carry an error.
+    bool has_error;
+
+    // The error message associated with this class.
+    std::string error_message;
+};
+
+std::ostream &operator<<(std::ostream &, const Error &);
+
 // TODO: Halide's has some weird magic I don't understand, but I probably should
 // try to...
 
@@ -39,11 +85,10 @@ class ErrorReport {
         return *this;
     }
     ~ErrorReport() noexcept(false) {
-        if (triggered) {
-            stream << "\n";
-            std::cerr << stream.str();
-            abort();
-        }
+        [[likely]] if (!triggered) { return; }
+        stream << "\n";
+        std::cerr << stream.str();
+        abort();
     }
 
   private:

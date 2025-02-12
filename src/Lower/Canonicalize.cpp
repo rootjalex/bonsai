@@ -98,7 +98,12 @@ ir::Program canonicalize(const ir::Program &program) {
             name, func->args, func->ret_type, body, func->interfaces);
     }
 
-    new_program = lower_lambda(new_program);
+    // TODO(cgyurgyik): This error should eventually propagate to main, i.e.,
+    // canonicalize (which probably should be renamed to `lower`?)
+    if (Error e = LowerLambda().run(new_program); e.failed()) {
+        internal_error << e << " in pass: " << LowerLambda().name();
+    }
+
     new_program = lower_option(new_program);
     new_program = lower_generics(new_program);
     // TODO: more canonicalizations

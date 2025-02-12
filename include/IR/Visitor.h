@@ -5,6 +5,7 @@
 namespace bonsai {
 namespace ir {
 
+// TODO(cgyurgyik): This should support error propagation and early exit.
 struct Visitor {
     // Types
     virtual void visit(const Void_t *);

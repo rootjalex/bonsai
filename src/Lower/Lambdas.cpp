@@ -196,7 +196,9 @@ ir::Program lower(const ir::Program &old_program) {
 
 } // namespace
 
-ir::Program lower_lambda(const ir::Program &program) { return lower(program); }
+ir::Program LowerLambda::lower_lambda(const ir::Program &program) {
+    return lower(program);
+}
 
 } // namespace lower
 } // namespace bonsai
