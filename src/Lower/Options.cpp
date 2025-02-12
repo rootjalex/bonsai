@@ -88,7 +88,7 @@ struct RewriteOptions : public ir::Mutator {
             if (ir::equals(vtype, otype)) {
                 // cast<option>(value) -> build<struct_option>(value)
                 std::vector<ir::Expr> args = {std::move(value),
-                                            ir::BoolImm::make(true)};
+                                              ir::BoolImm::make(true)};
                 return ir::Build::make(std::move(type), std::move(args));
             }
         }
@@ -103,8 +103,9 @@ struct RewriteOptions : public ir::Mutator {
             ir::Expr deref = ir::Access::make("value", std::move(value));
             internal_assert(ir::equals(type, deref.type()))
                 << "Lowering of option access: " << ir::Expr(node)
-                << " lowered to deref: " << deref << " which is the wrong type: "
-                << deref.type() << " instead of " << type;
+                << " lowered to deref: " << deref
+                << " which is the wrong type: " << deref.type()
+                << " instead of " << type;
             return deref;
         }
 

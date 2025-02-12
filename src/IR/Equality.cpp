@@ -199,10 +199,8 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
     }
     // Compare accesses.
     for (size_t i = 0; i < n; i++) {
-        const std::string* s0 =
-            std::get_if<std::string>(&w0.accesses[i]);
-        const std::string* s1 =
-            std::get_if<std::string>(&w1.accesses[i]);
+        const std::string *s0 = std::get_if<std::string>(&w0.accesses[i]);
+        const std::string *s1 = std::get_if<std::string>(&w1.accesses[i]);
         if (s0 && s1) {
             if (const Cmp fields = compare_primitives(*s0, *s1);
                 fields != Cmp::Equals) {

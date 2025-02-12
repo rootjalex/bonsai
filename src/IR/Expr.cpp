@@ -531,8 +531,8 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                             << "Build<Struct_t> requires matching field types, "
                                "expected: "
                             << fields[i].second << " but received " << values[i]
-                            << " of type " << values[i].type()
-                            << " for field " << fields[i].first;
+                            << " of type " << values[i].type() << " for field "
+                            << fields[i].first;
                     }
                 } else {
                     // field_count < value_count

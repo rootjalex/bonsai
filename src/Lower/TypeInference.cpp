@@ -358,8 +358,10 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
                            : ir::get_return_type(ftypes->body);
     ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
 
-    internal_assert(ftypes->ret_type.is<ir::Void_t>() || always_returns(ftypes->body))
-        << "Function: " << ftypes->name << " does not return in all code paths.";
+    internal_assert(ftypes->ret_type.is<ir::Void_t>() ||
+                    always_returns(ftypes->body))
+        << "Function: " << ftypes->name
+        << " does not return in all code paths.";
 
     ftypes->interfaces = fnotypes->interfaces;
 
