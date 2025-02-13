@@ -7,8 +7,8 @@ namespace bonsai {
 
 // This instructs the compiler which backend to target.
 enum class BackendTarget {
-    NONE = 0, // No backend; this will just produce Bonsai code.
-    ASM = 1,  // Generate the assembly code.
+    NONE = 0, // No backend; this will just produce Bonsai IR.
+    ASM = 1,  // Generate the assembly code for the host machine.
     LLVM = 2, // Generate LLVM IR.
 };
 
