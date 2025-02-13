@@ -175,12 +175,13 @@ class OptionVisitor : public ir::Visitor {
 
 } // namespace
 
-void verify_options(const ir::Program &program) {
+ir::Program VerifyOptions::lower(const ir::Program &program) const {
     for (const auto &[_, f] : program.funcs) {
         internal_assert(f->body.defined());
         OptionVisitor visitor;
         f->body.accept(&visitor);
     }
+    return program;
 }
 
 } // namespace lower
