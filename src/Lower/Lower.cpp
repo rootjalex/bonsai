@@ -12,6 +12,8 @@
 #include "Utils.h"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace bonsai {
 namespace lower {
