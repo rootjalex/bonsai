@@ -83,7 +83,8 @@ struct ComputeUseCounts : ir::Visitor {
             << " when traversing for: " << curr_var;
         internal_assert(!node->mutating || !use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var: " << node->loc;
-        internal_assert(!node->mutating || !dependent_use_counts.contains(node->loc.base))
+        internal_assert(!node->mutating ||
+                        !dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
@@ -104,8 +105,7 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(use_counts.contains(node->loc.base))
             << "ComputeUseCounts not active for var: " << node->loc;
         internal_assert(dependent_use_counts.contains(node->loc.base))
-            << "ComputeUseCounts not active for var (dependent): "
-            << node->loc;
+            << "ComputeUseCounts not active for var (dependent): " << node->loc;
         curr_var = node->loc.base;
         node->value.accept(this);
         curr_var.clear();
@@ -116,14 +116,14 @@ struct HasSideEffects : ir::Visitor {
     bool found = false;
     const std::set<std::string> &function_has_side_effects;
 
-    HasSideEffects(const std::set<std::string> &side_effects_functions) : function_has_side_effects(side_effects_functions) {}
+    HasSideEffects(const std::set<std::string> &side_effects_functions)
+        : function_has_side_effects(side_effects_functions) {}
 
-    void visit(const ir::Print *) override {
-        found = true;
-    }
+    void visit(const ir::Print *) override { found = true; }
 
     void visit(const ir::Var *node) override {
-        if (node->type.is<ir::Function_t>() && function_has_side_effects.contains(node->name)) {
+        if (node->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(node->name)) {
             found = true;
         }
     }
@@ -135,7 +135,8 @@ struct HasSideEffects : ir::Visitor {
 };
 
 std::set<std::string> find_side_effects(const ir::Program &program) {
-    const std::vector<std::string> topo_order = lower::func_topological_order(program, /*undef_calls=*/false);
+    const std::vector<std::string> topo_order =
+        lower::func_topological_order(program, /*undef_calls=*/false);
     std::set<std::string> side_effects;
     HasSideEffects checker(side_effects);
     for (const std::string &func : topo_order) {
@@ -159,8 +160,9 @@ struct DeadCodeElimination : ir::Mutator {
     // Which functions have side effects.
     const std::set<std::string> &side_effects_functions;
 
-
-    DeadCodeElimination(UseCountMap use_counts, DepUseCountMap dependent_use_counts, const std::set<std::string> &side_effects_functions)
+    DeadCodeElimination(UseCountMap use_counts,
+                        DepUseCountMap dependent_use_counts,
+                        const std::set<std::string> &side_effects_functions)
         : use_counts(std::move(use_counts)),
           dependent_use_counts(std::move(dependent_use_counts)),
           side_effects_functions(side_effects_functions) {}
@@ -170,7 +172,6 @@ struct DeadCodeElimination : ir::Mutator {
         expr.accept(&checker);
         return checker.found;
     }
-
 
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
@@ -222,7 +223,8 @@ struct DeadCodeElimination : ir::Mutator {
         } else if (!then_body.defined() && !else_body.defined()) {
             return ir::Stmt();
         } else if (then_body.defined() && else_body.defined()) {
-            return ir::IfElse::make(node->cond, std::move(then_body), std::move(else_body));
+            return ir::IfElse::make(node->cond, std::move(then_body),
+                                    std::move(else_body));
         } else if (then_body.defined()) {
             return ir::IfElse::make(node->cond, std::move(then_body));
         } else {

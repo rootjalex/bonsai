@@ -280,7 +280,8 @@ ir::Program infer_types(const ir::Program &program) {
     new_program.types = program.types;
     ir::global_enable_type_enforcement();
 
-    std::vector<std::string> topo_order = func_topological_order(program, /*undef_calls=*/true);
+    std::vector<std::string> topo_order =
+        func_topological_order(program, /*undef_calls=*/true);
     std::map<std::string, ir::Type> func_types;
 
     // TODO: set all assignment types.

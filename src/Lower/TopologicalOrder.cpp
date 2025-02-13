@@ -76,7 +76,6 @@ struct CallGraphBuilder : public ir::Visitor {
     }
 };
 
-
 CallGraph build_call_graph(const ir::Program &program, const bool undef_calls) {
     CallGraphBuilder builder(undef_calls);
     CallGraph call_graph;
@@ -95,7 +94,8 @@ CallGraph build_call_graph(const ir::Program &program, const bool undef_calls) {
 
 } // namespace
 
-std::vector<std::string> func_topological_order(const ir::Program &program, const bool undef_calls) {
+std::vector<std::string> func_topological_order(const ir::Program &program,
+                                                const bool undef_calls) {
     // Return the order that type inference should run in.
     const CallGraph call_graph = build_call_graph(program, undef_calls);
     // DFS-based topological sorting,
@@ -113,8 +113,8 @@ std::vector<std::string> func_topological_order(const ir::Program &program, cons
             internal_assert(!visiting.contains(fname))
                 << "Type inference found a cycle containing function: " << fname
                 << "\nYou may need to specify return types on one or more "
-                "functions to "
-                "break the cycle";
+                   "functions to "
+                   "break the cycle";
         }
         visiting.insert(fname);
         for (const auto &gname : call_graph.at(fname)) {

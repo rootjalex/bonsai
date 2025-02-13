@@ -137,8 +137,7 @@ struct RewriteOptions : public ir::Mutator {
         for (const auto &value : loc.accesses) {
             if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {
                 ir::Expr new_value = mutate(*expr);
-                not_changed =
-                    not_changed && new_value.same_as(*expr);
+                not_changed = not_changed && new_value.same_as(*expr);
                 new_loc.add_index_access(std::move(new_value));
             } else {
                 new_loc.add_struct_access(std::get<std::string>(value));
@@ -163,7 +162,8 @@ struct RewriteOptions : public ir::Mutator {
         if (not_changed && value.same_as(node->value)) {
             return node;
         }
-        return ir::Assign::make(std::move(loc), std::move(value), node->mutating);
+        return ir::Assign::make(std::move(loc), std::move(value),
+                                node->mutating);
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
