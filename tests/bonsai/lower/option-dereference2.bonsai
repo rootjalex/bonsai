@@ -1,0 +1,12 @@
+func use_option(i : option[i32]) -> i32 {
+    k: option[i32] = i;
+    if k { return k; } // the dereference is implicit based on the return value
+    return 0;
+}
+
+// these are equivalent
+func use_option1(i : option[i32]) {
+    k: option[i32] = i;
+    if k { return *k; }
+    return 0;
+}

@@ -1,0 +1,29 @@
+element NumberOption {
+    i : option[i32];
+    f : option[f32];
+}
+
+func get_int(n : NumberOption) {
+    if n.i {
+        return *n.i;
+    } else {
+        return 0;
+    }
+}
+
+func get_flpat(n : NumberOption) {
+    if n.f {
+        return *n.f;
+    } else {
+        return 0.0;
+    }
+}
+
+element S {
+    i : option[i32];
+}
+
+func use_option(s: S) -> i32 {
+    if s.i { return s.i; }
+    return 42;
+}

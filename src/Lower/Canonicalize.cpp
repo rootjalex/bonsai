@@ -93,6 +93,7 @@ ir::Program Canonicalize::lower(const ir::Program &program) const {
         new_program.funcs[name] = std::make_shared<ir::Function>(
             name, func->args, func->ret_type, body, func->interfaces);
     }
+
     return new_program;
 }
 

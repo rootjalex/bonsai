@@ -1,0 +1,14 @@
+
+
+func use_nested_option(i : ?option1) -> i32 {
+  if (i.set) {
+    let j = i.value in
+    if (j.set) {
+      return j.value
+    }
+    return (i32)0
+  }
+  return -(i32)1
+}
+
+

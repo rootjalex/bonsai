@@ -1,0 +1,10 @@
+func use_nested_option(i : option[option[i32]]) -> i32 {
+    if i {
+        j = *i;
+        if j {
+            return *j;
+        }
+        return 0;
+    }
+    return -1;
+}

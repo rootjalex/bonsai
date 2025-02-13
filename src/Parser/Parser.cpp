@@ -806,6 +806,15 @@ struct Parser {
                 return ir::Build::make(ir::Type(), std::move(args));
             }
             // TODO: should also support e.g. Type{} notation.
+        } else if (consume(Token::Type::STAR)) {
+            // Option dereference.
+            ir::Expr arg = parseIdentifier();
+            ir::Type atype = arg.type();
+            internal_assert(atype.defined() && atype.is<ir::Option_t>())
+                << "Parsed dereference of non-option: " << arg;
+            ir::Type etype = atype.as<ir::Option_t>()->etype;
+            // TODO(ajr): do we want an explicit Deref IR node?
+            return ir::Cast::make(std::move(etype), std::move(arg));
         } else {
             internal_error << "Unknown token in parseBaseExpr: "
                            << peek().to_string()

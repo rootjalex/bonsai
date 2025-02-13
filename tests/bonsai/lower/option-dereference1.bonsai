@@ -1,0 +1,11 @@
+func foo(i : option[i32], j: option[i32]) -> i32 {
+    if i && j {
+        return *i + *j;
+    } else if i {
+        return *i;
+    } else if j {
+        return *j;
+    } else {
+        return 0;
+    }
+}
