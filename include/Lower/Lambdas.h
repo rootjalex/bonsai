@@ -1,7 +1,7 @@
 #pragma once
 
 #include "IR/Program.h"
-#include "Passes.h"
+#include "Lower/Passes.h"
 #include "Utils.h"
 
 namespace bonsai {
@@ -13,13 +13,13 @@ namespace lower {
 // elimination pass.
 class LowerLambda : Pass {
   public:
-    constexpr std::string_view name() { return "lower-lambda"; }
+    constexpr std::string_view name() override { return "lower-lambda"; }
 
-    Error run(ir::Program &program) { program = lower_lambda(program); }
+    void run(ir::Program &program) override { program = lower_lambda(program); }
 
   private:
     ir::Program lower_lambda(const ir::Program &program);
-}
+};
 
 } // namespace lower
 } // namespace bonsai

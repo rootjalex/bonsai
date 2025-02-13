@@ -2,10 +2,6 @@
 
 #include "IR/Mutator.h"
 
-#include "Lower/Generics.h"
-#include "Lower/Lambdas.h"
-#include "Lower/Options.h"
-
 #include "Error.h"
 #include "Utils.h"
 
@@ -87,7 +83,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 } // namespace
 
-ir::Program canonicalize(const ir::Program &program) {
+ir::Program Canonicalize::lower(const ir::Program &program) {
     ir::Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;
@@ -97,16 +93,6 @@ ir::Program canonicalize(const ir::Program &program) {
         new_program.funcs[name] = std::make_shared<ir::Function>(
             name, func->args, func->ret_type, body, func->interfaces);
     }
-
-    // TODO(cgyurgyik): This error should eventually propagate to main, i.e.,
-    // canonicalize (which probably should be renamed to `lower`?)
-    if (Error e = LowerLambda().run(new_program); e.failed()) {
-        internal_error << e << " in pass: " << LowerLambda().name();
-    }
-
-    new_program = lower_option(new_program);
-    new_program = lower_generics(new_program);
-    // TODO: more canonicalizations
     return new_program;
 }
 

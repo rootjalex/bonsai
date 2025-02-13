@@ -1,4 +1,4 @@
-// -llvm
+// -b llvm
 
 func reti32(i : i32) = i + 2;
 
