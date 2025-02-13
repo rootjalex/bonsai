@@ -7,14 +7,14 @@ namespace bonsai {
 namespace lower {
 
 // Lowers an `option` type to a form more amenable for backend code generation.
-class LowerOption : Pass {
+class LowerOption : public Pass {
   public:
-    constexpr std::string_view name() override { return "lower-option"; }
+    constexpr std::string_view name() const override { return "lower-option"; }
 
-    void run(ir::Program &program) override { program = lower(program); }
+    void run(ir::Program &program) const override { program = lower(program); }
 
   private:
-    ir::Program lower(const ir::Program &program);
+    ir::Program lower(const ir::Program &program) const;
 };
 
 } // namespace lower

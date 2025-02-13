@@ -11,14 +11,14 @@ namespace lower {
 // of lambda expressions will be replaced with calls of functions. This does
 // *not* remove dead lambda expressions; we leave that to a dead code
 // elimination pass.
-class LowerLambda : Pass {
+class LowerLambda : public Pass {
   public:
-    constexpr std::string_view name() override { return "lower-lambda"; }
+    constexpr std::string_view name() const override { return "lower-lambda"; }
 
-    void run(ir::Program &program) override { program = lower(program); }
+    void run(ir::Program &program) const override { program = lower(program); }
 
   private:
-    ir::Program lower(const ir::Program &program);
+    ir::Program lower(const ir::Program &program) const;
 };
 
 } // namespace lower

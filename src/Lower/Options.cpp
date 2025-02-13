@@ -141,7 +141,7 @@ bool contains_option(const ir::Type &type) {
 
 } // namespace
 
-ir::Program LowerOption::lower(const ir::Program &program) {
+ir::Program LowerOption::lower(const ir::Program &program) const {
     ir::Program new_program;
 
     // Can externs have option types? I don't think so.

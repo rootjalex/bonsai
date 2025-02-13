@@ -39,6 +39,7 @@ BackendTarget string_to_backend(std::string_view in) {
     if (in == "none")
         return BackendTarget::NONE;
     internal_error << "unexpected backend target: " << in;
+    return BackendTarget::NONE;
 }
 
 } // namespace bonsai

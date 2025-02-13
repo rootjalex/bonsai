@@ -27,6 +27,9 @@ struct CompilerOptions {
     // The output file name; if this is empty, then defaults to standard I/O.
     std::string output_file;
 
+    // The Bonsai passes to run during lowering.
+    std::vector<std::string> passes;
+
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
 

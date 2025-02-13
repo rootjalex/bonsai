@@ -83,7 +83,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 } // namespace
 
-ir::Program Canonicalize::lower(const ir::Program &program) {
+ir::Program Canonicalize::lower(const ir::Program &program) const {
     ir::Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;

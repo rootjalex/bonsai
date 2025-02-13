@@ -7,13 +7,14 @@
 namespace bonsai {
 namespace lower {
 
-class Pass {
-  public:
+struct Pass {
     // Returns the name of this pass.
-    virtual constexpr std::string_view name() = 0;
+    virtual constexpr std::string_view name() const = 0;
 
     // Runs this pass on program.
-    virtual void run(ir::Program &program) = 0;
+    virtual void run(ir::Program &program) const = 0;
+
+    virtual ~Pass() = default;
 };
 
 } // namespace lower

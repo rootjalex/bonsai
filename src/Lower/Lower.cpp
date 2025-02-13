@@ -10,20 +10,64 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <memory>
+
 namespace bonsai {
 namespace lower {
 
 void lower(ir::Program &program, const CompilerOptions &options) {
-    Canonicalize().run(program);
-    LowerLambda().run(program);
-    LowerOption().run(program);
-    LowerGeneric().run(program);
-    // TODO(s):
-    //  Lower spatial queries
-    //  Perform first round of scheduling.
-    //  Lower data structures.
-    //  Perform second round of scheduling + bit data lowering.
-    //  Perform final code generation
+    // Register passes.
+    PassManager pm = register_passes();
+
+    std::vector<Pass *> passes;
+    for (const std::string &name : options.passes) {
+        if (pm.has_alias(name)) {
+            std::vector<Pass *> ps = pm.get_alias_passes(name);
+            passes.insert(passes.end(), ps.begin(), ps.end());
+            continue;
+        }
+        Pass *p = pm.get_pass(name);
+        passes.push_back(p);
+    }
+
+    // Run the passes.
+    for (Pass *pass : passes) {
+        pass->run(program);
+    }
+}
+
+// TODO(s):
+//  Lower spatial queries
+//  Perform first round of scheduling.
+//  Lower data structures.
+//  Perform second round of scheduling + bit data lowering.
+//  Perform final code generation
+PassManager register_passes() {
+    PassManager manager;
+    // Pass registration.
+    manager.register_pass<Canonicalize>();
+    manager.register_pass<LowerLambda>();
+    manager.register_pass<LowerOption>();
+    manager.register_pass<LowerGeneric>();
+
+    // Core: all passes required to legally lower Bonsai to a backend
+    // (with no optimizations).
+    std::vector<std::unique_ptr<Pass>> core;
+    core.push_back(std::make_unique<Canonicalize>());
+    core.push_back(std::make_unique<LowerLambda>());
+    core.push_back(std::make_unique<LowerOption>());
+    core.push_back(std::make_unique<LowerGeneric>());
+    manager.register_alias("core", core);
+
+    // Default: the default work flow (with optimizations).
+    std::vector<std::unique_ptr<Pass>> d;
+    d.push_back(std::make_unique<Canonicalize>());
+    d.push_back(std::make_unique<LowerLambda>());
+    d.push_back(std::make_unique<LowerOption>());
+    d.push_back(std::make_unique<LowerGeneric>());
+    manager.register_alias("default", d);
+
+    return manager;
 }
 
 } // namespace lower

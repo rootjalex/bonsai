@@ -40,8 +40,8 @@ bonsai::CompilerOptions parse_cli(int argc, char *argv[]) {
         }
         if (arg == "-p" || arg == "--pass") {
             bonsai::internal_assert(i + 1 < argc);
-            // TODO(cgyurgyik): add support for passes.
-            bonsai::internal_error << "unimplemented";
+            options.passes.push_back(argv[i + 1]);
+            ++i;
             continue;
         }
         if (arg == "-o" || arg == "--output") {
@@ -65,6 +65,9 @@ bonsai::CompilerOptions parse_cli(int argc, char *argv[]) {
     }
 
     options.target = target.has_value() ? *target : bonsai::BackendTarget::NONE;
+    if (options.passes.empty()) {
+        options.passes = {"default"};
+    }
     return options;
 }
 
