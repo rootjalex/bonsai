@@ -7,3 +7,16 @@ func foo(i : vector[i32, 8]) -> vector[u32, 8] {
     return abs(i);
 }
 
+func bar(i : vector[i32, 8]) -> vector[u32, 8] {
+    if (sum(i) > 0) {
+        j = foo(i); // this should *not* get DCEed away.
+    } else {
+        print(i);
+    }
+    return abs(i);
+}
+
+func main() -> i32 {
+    i : vector[i32, 8] = -1;
+    return cast[[i32]](sum(bar(i)));
+}

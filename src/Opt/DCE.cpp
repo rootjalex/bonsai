@@ -6,9 +6,12 @@
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
 
+#include "Lower/TopologicalOrder.h"
+
 #include "Error.h"
 
 #include <map>
+#include <set>
 #include <string>
 
 namespace bonsai {
@@ -109,15 +112,65 @@ struct ComputeUseCounts : ir::Visitor {
     }
 };
 
+struct HasSideEffects : ir::Visitor {
+    bool found = false;
+    const std::set<std::string> &function_has_side_effects;
+
+    HasSideEffects(const std::set<std::string> &side_effects_functions) : function_has_side_effects(side_effects_functions) {}
+
+    void visit(const ir::Print *) override {
+        found = true;
+    }
+
+    void visit(const ir::Var *node) override {
+        if (node->type.is<ir::Function_t>() && function_has_side_effects.contains(node->name)) {
+            found = true;
+        }
+    }
+
+    void visit(const ir::Store *) override {
+        // TODO(ajr): This is conservative. How bad is that?
+        found = true;
+    }
+};
+
+std::set<std::string> find_side_effects(const ir::Program &program) {
+    const std::vector<std::string> topo_order = lower::func_topological_order(program, /*undef_calls=*/false);
+    std::set<std::string> side_effects;
+    HasSideEffects checker(side_effects);
+    for (const std::string &func : topo_order) {
+        internal_assert(!checker.function_has_side_effects.contains(func))
+            << "Found cycle involving: " << func;
+        checker.found = false;
+        program.funcs.at(func)->body.accept(&checker);
+        if (checker.found) {
+            side_effects.insert(func);
+        }
+        checker.found = false;
+    }
+    return side_effects;
+}
+
 struct DeadCodeElimination : ir::Mutator {
     // How many times is a variable read.
     UseCountMap use_counts;
     // How many times does a variable definition reference another variable.
     DepUseCountMap dependent_use_counts;
+    // Which functions have side effects.
+    const std::set<std::string> &side_effects_functions;
 
-    DeadCodeElimination(UseCountMap use_counts, DepUseCountMap dependent_use_counts)
+
+    DeadCodeElimination(UseCountMap use_counts, DepUseCountMap dependent_use_counts, const std::set<std::string> &side_effects_functions)
         : use_counts(std::move(use_counts)),
-          dependent_use_counts(std::move(dependent_use_counts)) {}
+          dependent_use_counts(std::move(dependent_use_counts)),
+          side_effects_functions(side_effects_functions) {}
+
+    bool has_side_effects(const ir::Expr &expr) {
+        HasSideEffects checker(side_effects_functions);
+        expr.accept(&checker);
+        return checker.found;
+    }
+
 
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
@@ -135,7 +188,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts[node->loc.base] == 0) {
+        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
             erase_dependents(node->loc);
             return ir::Stmt();
         }
@@ -143,7 +196,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (use_counts[node->loc.base] == 0) {
+        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
             if (!node->mutating) {
                 // Definition of this write loc.
                 erase_dependents(node->loc);
@@ -154,7 +207,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] == 0) {
+        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
             return ir::Stmt();
         }
         return node;
@@ -207,11 +260,12 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
-ir::Stmt dce(const ir::Stmt &stmt) {
+ir::Stmt dce(const ir::Stmt &stmt, const std::set<std::string> &se_functions) {
     ComputeUseCounts analyzer;
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
-                                  std::move(analyzer.dependent_use_counts));
+                                  std::move(analyzer.dependent_use_counts),
+                                  se_functions);
     return optimizer.mutate(stmt);
 }
 
@@ -224,8 +278,10 @@ ir::Program dce(const ir::Program &program) {
     // Functions. This requires mutating the definitions and all calls,
     // which can get tricky.
 
+    std::set<std::string> se_functions = find_side_effects(program);
+
     for (auto &[name, func] : new_program.funcs) {
-        func->body = dce(func->body);
+        func->body = dce(func->body, se_functions);
     }
 
     return new_program;
