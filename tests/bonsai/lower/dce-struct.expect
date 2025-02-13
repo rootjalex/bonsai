@@ -1,0 +1,32 @@
+type Pair = struct Pair{ i : i32; f : f32 }
+
+
+func bar(i : i32, f : f32) -> f32 {
+  return f
+}
+
+func bazz(i : i32, f : f32) -> f32 {
+  j = abs(i)
+  if (0f < f) {
+    j += cast<u32>(f)
+  } else {
+    j += cast<u32>(-f)
+  }
+  return cast<f32>(j)
+}
+
+func fizz(i : i32, f : f32) -> f32 {
+  j = abs(i)
+  if (0f < f) {
+    j += cast<u32>(f)
+  } else {
+    j += cast<u32>(-f)
+  }
+  return cast<f32>(j)
+}
+
+func foo(i : i32, f : f32) -> f32 {
+  return f
+}
+
+
