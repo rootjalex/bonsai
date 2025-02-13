@@ -15,10 +15,10 @@ class LowerLambda : Pass {
   public:
     constexpr std::string_view name() override { return "lower-lambda"; }
 
-    void run(ir::Program &program) override { program = lower_lambda(program); }
+    void run(ir::Program &program) override { program = lower(program); }
 
   private:
-    ir::Program lower_lambda(const ir::Program &program);
+    ir::Program lower(const ir::Program &program);
 };
 
 } // namespace lower

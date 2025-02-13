@@ -70,7 +70,8 @@ bonsai::CompilerOptions parse_cli(int argc, char *argv[]) {
 
 // Executes the Bonsai `program` with the provide compiler `options`. Upon
 // success, returns zero.
-int execute(const ir::Program &program, const CompilerOptions &options) {
+int execute(const bonsai::ir::Program &program,
+            const bonsai::CompilerOptions &options) {
     switch (options.target) {
     case bonsai::BackendTarget::NONE: {
         bonsai::internal_assert(!options.is_execute);
