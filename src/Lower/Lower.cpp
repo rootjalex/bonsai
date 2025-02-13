@@ -50,8 +50,8 @@ PassManager register_passes() {
     manager.register_pass<LowerOption>();
     manager.register_pass<LowerGeneric>();
 
-    // Core: all passes required to legally lower Bonsai to a backend
-    // (with no optimizations).
+    // Core: the minimal set of passes required to legally lower Bonsai IR
+    // (this should *not* include optimizations).
     std::vector<std::unique_ptr<Pass>> core;
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<LowerLambda>());

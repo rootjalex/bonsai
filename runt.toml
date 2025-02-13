@@ -10,7 +10,14 @@ ver = "0.4.1"
 ##### COMPILATION TESTS #####
 
 [[tests]]
-name = "parsing"
+name = "parsing bonsai ir"
+paths = ["tests/bonsai/lower/*.bonsai"]
+cmd = """
+./build/compiler -i {} -p core
+"""
+
+[[tests]]
+name = "lowering bonsai ir"
 paths = ["tests/bonsai/lower/*.bonsai"]
 cmd = """
 ./build/compiler -i {}
@@ -36,5 +43,4 @@ name = "[correctness] llvm"
 paths = ["tests/bonsai/correctness/llvm/*.bonsai"]
 cmd = """
 ./build/compiler -i {} -b llvm -e
-
 """

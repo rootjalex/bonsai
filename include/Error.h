@@ -6,6 +6,7 @@
 #include <string>
 
 namespace bonsai {
+
 // TODO: Halide's has some weird magic I don't understand, but I probably should
 // try to...
 
@@ -32,20 +33,17 @@ class ErrorReport {
         stream << "\n--> " << cond_str << "\n";
     }
 
-    // An internal error that will always trigger.
-    ErrorReport(const char *file, size_t line)
-        : ErrorReport(/*cond=*/false, /*cond_str=*/nullptr, file, line) {}
-
     template <typename T>
     ErrorReport &operator<<(const T &value) {
         [[unlikely]] if (triggered) { stream << value; }
         return *this;
     }
     ~ErrorReport() noexcept(false) {
-        [[likely]] if (!triggered) { return; }
-        stream << "\n";
-        std::cerr << stream.str();
-        abort();
+        if (triggered) {
+            stream << "\n";
+            std::cerr << stream.str();
+            abort();
+        }
     }
 
   private:
@@ -54,6 +52,6 @@ class ErrorReport {
 };
 
 #define internal_assert(cond) ErrorReport((cond), #cond, __FILE__, __LINE__)
-#define internal_error ErrorReport(__FILE__, __LINE__)
+#define internal_error ErrorReport(false, nullptr, __FILE__, __LINE__)
 
 } // namespace bonsai
