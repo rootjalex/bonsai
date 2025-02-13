@@ -1,0 +1,15 @@
+func _print(i : i32) -> i32 {
+    print(i);
+    return i;
+}
+
+func foo(i : i32) -> i32 {
+    if (i > 0) {
+        j = _print(i);
+    }
+    return i;
+}
+
+func main() -> i32 {
+    return foo(10);
+}

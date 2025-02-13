@@ -173,6 +173,22 @@ struct DeadCodeElimination : ir::Mutator {
         return checker.found;
     }
 
+    // Use counts are re-added for side-effecting expressions.
+    void add_use_counts(const ir::Expr &expr) {
+        ComputeUseCounts counter;
+        expr.accept(&counter);
+        internal_assert(counter.dependent_use_counts.empty());
+        for (const auto &[var, count] : counter.use_counts) {
+            internal_assert(use_counts.contains(var));
+            use_counts[var] += count;
+        }
+    }
+
+    uint64_t counter = 0;
+    std::string make_unused_var_name() {
+        return "?unused" + std::to_string(counter++);
+    }
+
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
         if (const auto cmap = dependent_use_counts.find(loc.base);
@@ -197,18 +213,38 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
+        if (use_counts[node->loc.base] == 0) {
             if (!node->mutating) {
                 // Definition of this write loc.
                 erase_dependents(node->loc);
             }
+
+            if (has_side_effects(node->value)) {
+                // TODO(ajr): we could just grab the side effecting Expr
+                // and not compute the rest.
+                // For now, we rewrite this to an unused LetStmt
+                ir::WriteLoc loc(make_unused_var_name(), node->value.type());
+                // We need to keep the cars used by this value.
+                add_use_counts(node->value);
+                return ir::LetStmt::make(std::move(loc), node->value);
+            }
+
             return ir::Stmt();
         }
         return node;
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
+        if (use_counts[node->loc.base] == 0) {
+            if (has_side_effects(node->value)) {
+                // TODO(ajr): we could just grab the side effecting Expr
+                // and not compute the rest.
+                // For now, we rewrite this to an unused LetStmt
+                ir::WriteLoc loc(make_unused_var_name(), node->value.type());
+                // We need to keep the cars used by this value.
+                add_use_counts(node->value);
+                return ir::LetStmt::make(std::move(loc), node->value);
+            }
             return ir::Stmt();
         }
         return node;
