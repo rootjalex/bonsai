@@ -4,6 +4,8 @@
 #include "Lower/Passes.h"
 #include "Utils.h"
 
+#include <string>
+
 namespace bonsai {
 namespace lower {
 
@@ -25,7 +27,7 @@ namespace lower {
 //
 class LowerLambda : public Pass {
   public:
-    constexpr std::string_view name() const override { return "lower-lambda"; }
+    constexpr std::string name() const override { return "lower-lambda"; }
 
     void run(ir::Program &program) const override { program = lower(program); }
 

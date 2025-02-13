@@ -17,7 +17,7 @@ class PassManager {
     template <typename T>
     void register_pass() {
         std::unique_ptr<Pass> pass = std::make_unique<T>();
-        std::string name = std::string(pass->name());
+        const std::string &name = pass->name();
         auto [_, succeeded] =
             registered_passes.try_emplace(name, std::move(pass));
         internal_assert(succeeded) << "pass already inserted: " << name;

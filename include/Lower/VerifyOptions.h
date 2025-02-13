@@ -3,6 +3,8 @@
 #include "IR/Program.h"
 #include "Lower/Passes.h"
 
+#include <string>
+
 namespace bonsai {
 namespace lower {
 
@@ -16,7 +18,7 @@ namespace lower {
 //      use(*i);          // ILLEGAL
 class VerifyOptions : public Pass {
   public:
-    constexpr std::string_view name() const override { return "verify-option"; }
+    constexpr std::string name() const override { return "verify-option"; }
 
     void run(ir::Program &program) const override { program = lower(program); }
 

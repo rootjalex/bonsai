@@ -9,9 +9,9 @@ namespace lower {
 
 struct Pass {
     // Returns the name of this pass.
-    virtual constexpr std::string_view name() const = 0;
+    virtual constexpr std::string name() const = 0;
 
-    // Runs this pass on program.
+    // Runs this pass on `program`.
     virtual void run(ir::Program &program) const = 0;
 
     virtual ~Pass() = default;

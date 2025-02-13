@@ -20,7 +20,7 @@ void PassManager::register_alias(std::string_view alias,
     internal_assert(succeeded) << "alias already inserted: " << alias;
     auto &ps = it->second;
     for (auto &p : passes) {
-        std::string name = std::string(p->name());
+        const std::string &name = p->name();
         ps.push_back(name);
         // When registering an alias we may see the same pass twice; that's ok.
         registered_passes.try_emplace(name, std::move(p));
