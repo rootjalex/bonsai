@@ -13,12 +13,12 @@ namespace {
 std::string command_help() {
     std::stringstream s;
     s << "Bonsai Command Line:\n"
-      << "-b <backend>           | e.g., `-b llvm`\n"
-      << "-p <pass>              | e.g., `-p dce`\n"
-      << "-e (execute),          | e.g., `-e`\n"
-      << "-i <input file name>   | e.g., `-i in.bonsai`\n"
-      << "-o <output file name>  | e.g., `-o out.bonsai`\n"
-      << "-h (help)";
+      << "-b|--backend <backend>         | e.g., `-b llvm`\n"
+      << "-p|--pass <pass>               | e.g., `-p dce`\n"
+      << "-e|--execute,                  | e.g., `-e`\n"
+      << "-i|--input <input file name>   | e.g., `-i in.bonsai`\n"
+      << "-o|--output <output file name> | e.g., `-o out.bonsai`\n"
+      << "-h|--help";
     return s.str();
 }
 
@@ -48,7 +48,7 @@ bonsai::CompilerOptions parse_cli(int argc, char *argv[]) {
             bonsai::internal_assert(options.input_file.empty())
                 << "already received output file: " << options.output_file;
             bonsai::internal_assert(i + 1 < argc);
-            options.output_file = argv[1 + i];
+            options.output_file = argv[i + 1];
             ++i;
             continue;
         }
@@ -56,7 +56,7 @@ bonsai::CompilerOptions parse_cli(int argc, char *argv[]) {
             bonsai::internal_assert(options.input_file.empty())
                 << "already received input file: " << options.input_file;
             bonsai::internal_assert(i + 1 < argc);
-            options.input_file = argv[1 + i];
+            options.input_file = argv[i + 1];
             ++i;
             continue;
         }
@@ -68,21 +68,60 @@ bonsai::CompilerOptions parse_cli(int argc, char *argv[]) {
     return options;
 }
 
+// Executes the Bonsai `program` with the provide compiler `options`. Upon
+// success, returns zero.
+int execute(const ir::Program &program, const CompilerOptions &options) {
+    switch (options.target) {
+    case bonsai::BackendTarget::NONE: {
+        bonsai::internal_assert(!options.is_execute);
+        if (options.output_file.empty()) {
+            program.dump(std::cout);
+            return 0;
+        }
+        std::ofstream os(options.output_file);
+        bonsai::internal_assert(os.is_open())
+            << "failed to open: " << options.output_file;
+        program.dump(os);
+        return 0;
+    }
+    case bonsai::BackendTarget::ASM: {
+        bonsai::internal_assert(!options.is_execute);
+        bonsai::CodeGen_LLVM codegen;
+        bonsai::codegen::to_asm(options.output_file, program, &codegen);
+        return 0;
+    }
+    case bonsai::BackendTarget::LLVM: {
+        bonsai::CodeGen_LLVM codegen;
+        if (options.is_execute) {
+            bonsai::codegen::jit(program, &codegen);
+            return 0;
+        }
+        std::unique_ptr<llvm::Module> module = codegen.compile_program(program);
+        if (options.output_file.empty()) {
+            module->print(llvm::outs(), /*AAW=*/nullptr);
+            return 0;
+        }
+        auto os = bonsai::make_raw_fd_ostream(options.output_file);
+        module->print(*os, /*AAW=*/nullptr);
+        return 0;
+    }
+    }
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
     // If any argument is --help, then return early.
     auto *end = argv + argc;
     if (auto it = std::find_if(argv, end,
-                               [](auto *arg) {
-                                   std::string a(arg);
+                               [](const char *argument) {
+                                   std::string a(argument);
                                    return a == "-h" || a == "--help";
                                });
         it != end) {
         std::cout << command_help();
         return 0;
     }
-
     const bonsai::CompilerOptions options = parse_cli(argc, argv);
     bonsai::verify_options(options);
 
@@ -95,41 +134,6 @@ int main(int argc, char *argv[]) {
     // Lower the program.
     bonsai::lower::lower(program, options);
 
-    switch (options.target) {
-    case bonsai::BackendTarget::NONE: {
-        bonsai::internal_assert(!options.is_execute);
-        if (options.output_file.empty()) {
-            program.dump(std::cout);
-            break;
-        }
-        std::ofstream os(options.output_file);
-        bonsai::internal_assert(os.is_open())
-            << "failed to open: " << options.output_file;
-        program.dump(os);
-        break;
-    }
-    case bonsai::BackendTarget::ASM: {
-        bonsai::internal_assert(!options.is_execute);
-        bonsai::CodeGen_LLVM codegen;
-        bonsai::codegen::to_asm(options.output_file, program, &codegen);
-        break;
-    }
-    case bonsai::BackendTarget::LLVM: {
-        bonsai::CodeGen_LLVM codegen;
-        if (options.is_execute) {
-            bonsai::codegen::jit(program, &codegen);
-            break;
-        }
-        std::unique_ptr<llvm::Module> module = codegen.compile_program(program);
-        if (options.output_file.empty()) {
-            module->print(llvm::outs(), /*AAW=*/nullptr);
-            break;
-        }
-        auto os = bonsai::make_raw_fd_ostream(options.output_file);
-        module->print(*os, /*AAW=*/nullptr);
-        break;
-    }
-    }
-
-    return 0;
+    // Execute the steps specified by the compiler options.
+    return execute(program, options);
 }
