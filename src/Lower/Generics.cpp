@@ -218,7 +218,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
 
 } // namespace
 
-Program lower_generics(const Program &program) {
+Program LowerGeneric::lower(const Program &program) const {
     Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;

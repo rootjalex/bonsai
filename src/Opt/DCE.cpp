@@ -298,7 +298,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
-ir::Stmt dce(const ir::Stmt &stmt, const std::set<std::string> &se_functions) {
+ir::Stmt dce_stmt(const ir::Stmt &stmt, const std::set<std::string> &se_functions) {
     ComputeUseCounts analyzer;
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
@@ -309,7 +309,7 @@ ir::Stmt dce(const ir::Stmt &stmt, const std::set<std::string> &se_functions) {
 
 } // namespace
 
-ir::Program dce(const ir::Program &program) {
+ir::Program DCE::dce(const ir::Program &program) const {
     ir::Program new_program = program;
 
     // TODO(ajr): We should also erase unused arguments to Lambdas and
@@ -319,7 +319,7 @@ ir::Program dce(const ir::Program &program) {
     std::set<std::string> se_functions = find_side_effects(program);
 
     for (auto &[name, func] : new_program.funcs) {
-        func->body = dce(func->body, se_functions);
+        func->body = dce_stmt(func->body, se_functions);
     }
 
     return new_program;

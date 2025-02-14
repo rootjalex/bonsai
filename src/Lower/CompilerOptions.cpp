@@ -1,0 +1,45 @@
+#include "CompilerOptions.h"
+
+namespace bonsai {
+
+std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
+    os << "-b " << backend_to_string(opt.target) << "\n";
+    if (opt.is_execute) {
+        os << "-e " << backend_to_string(opt.target) << "\n";
+    }
+    if (!opt.input_file.empty()) {
+        os << "-i " << opt.input_file << "\n";
+    }
+    if (!opt.output_file.empty()) {
+        os << "-o " << opt.output_file << "\n";
+    }
+    return os;
+}
+
+void verify_options(const CompilerOptions &options) {
+    internal_assert(!options.input_file.empty()) << options;
+}
+
+std::string backend_to_string(BackendTarget target) {
+    switch (target) {
+    case BackendTarget::ASM:
+        return "asm";
+    case BackendTarget::LLVM:
+        return "llvm";
+    case BackendTarget::NONE:
+        return "none";
+    }
+}
+
+BackendTarget string_to_backend(std::string_view in) {
+    if (in == "asm")
+        return BackendTarget::ASM;
+    if (in == "llvm")
+        return BackendTarget::LLVM;
+    if (in == "none")
+        return BackendTarget::NONE;
+    internal_error << "unexpected backend target: " << in;
+    return BackendTarget::NONE;
+}
+
+} // namespace bonsai

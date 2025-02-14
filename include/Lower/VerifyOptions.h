@@ -1,7 +1,9 @@
 #pragma once
 
 #include "IR/Program.h"
-#include "Utils.h"
+#include "Lower/Pass.h"
+
+#include <string>
 
 namespace bonsai {
 namespace lower {
@@ -14,7 +16,15 @@ namespace lower {
 //      i: option[i32] = foo();
 //      if i { use(*i); } // LEGAL
 //      use(*i);          // ILLEGAL
-void verify_options(const ir::Program &program);
+class VerifyOptions : public Pass {
+  public:
+    constexpr std::string name() const override { return "verify-option"; }
+
+    void run(ir::Program &program) const override { program = lower(program); }
+
+  private:
+    ir::Program lower(const ir::Program &program) const;
+};
 
 } // namespace lower
 } // namespace bonsai

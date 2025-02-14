@@ -2,13 +2,6 @@
 
 #include "IR/Mutator.h"
 
-#include "Lower/Generics.h"
-#include "Lower/Lambdas.h"
-#include "Lower/Options.h"
-#include "Lower/VerifyOptions.h"
-
-#include "Opt/DCE.h"
-
 #include "Error.h"
 #include "Utils.h"
 
@@ -90,7 +83,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 } // namespace
 
-ir::Program canonicalize(const ir::Program &program) {
+ir::Program Canonicalize::lower(const ir::Program &program) const {
     ir::Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;
@@ -100,16 +93,6 @@ ir::Program canonicalize(const ir::Program &program) {
         new_program.funcs[name] = std::make_shared<ir::Function>(
             name, func->args, func->ret_type, body, func->interfaces);
     }
-
-    new_program = lower_lambda(new_program);
-    verify_options(new_program);
-    new_program = lower_option(new_program);
-    new_program = lower_generics(new_program);
-    // TODO: more canonicalizations
-
-    // This needs to run after lower_lambda.
-    new_program = opt::dce(new_program);
-    // TODO: more optimizations
 
     return new_program;
 }

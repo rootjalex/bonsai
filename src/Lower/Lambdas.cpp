@@ -155,7 +155,7 @@ class Blacklist : public ir::Visitor {
 };
 
 // Performs the orchestration for lambda lowering.
-ir::Program lower(const ir::Program &old_program) {
+ir::Program lower_program(const ir::Program &old_program) {
     // A mapping from lambda to metadata required for safe replacement.
     std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
 
@@ -196,7 +196,9 @@ ir::Program lower(const ir::Program &old_program) {
 
 } // namespace
 
-ir::Program lower_lambda(const ir::Program &program) { return lower(program); }
+ir::Program LowerLambda::lower(const ir::Program &program) const {
+    return lower_program(program);
+}
 
 } // namespace lower
 } // namespace bonsai

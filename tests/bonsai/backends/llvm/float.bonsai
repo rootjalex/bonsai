@@ -1,4 +1,4 @@
-// -llvm
+// -b llvm
 
 func id1(x: bf16) -> bf16 { return x; }
 // This should also lower to bfloat16 (e8m7).
