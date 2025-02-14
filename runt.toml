@@ -17,6 +17,13 @@ cmd = """
 """
 
 [[tests]]
+name = "parsing bonsai ir"
+paths = ["tests/bonsai/opt/*.bonsai"]
+cmd = """
+./build/compiler -i {} -p default
+"""
+
+[[tests]]
 name = "lowering bonsai ir"
 paths = ["tests/bonsai/lower/*.bonsai"]
 cmd = """
