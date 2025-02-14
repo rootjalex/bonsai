@@ -22,7 +22,6 @@ struct FrameStack {
             }
         }
         internal_error << "Cannot get from frame: " << name;
-        return T();
     }
 
     bool name_in_scope(const std::string &name) const {

@@ -1636,7 +1636,6 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
         return module->getFunction(expr.as<Var>()->name);
     }
     internal_error << "TODO: cannot codegen function pointer from: " << expr;
-    return nullptr;
 }
 
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {

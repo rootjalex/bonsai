@@ -41,7 +41,6 @@ ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
     }
     // TODO(ajr): handle Index as well.
     internal_error << "Cannot convert to WriteLoc: " << expr;
-    return ir::WriteLoc();
 }
 
 OptionSets get_option_sets(const ir::Expr &expr) {

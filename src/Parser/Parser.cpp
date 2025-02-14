@@ -58,7 +58,6 @@ struct Parser {
         }
         internal_error << "Cannot check type of unknown var: " << name
                        << " required at line: " << peek().lineBegin;
-        return ir::Type();
     }
 
     bool name_in_scope(const std::string &name) const {
@@ -150,7 +149,6 @@ struct Parser {
                        << ", instead received: " + peek().to_string()
                        << " at line: " << peek().lineBegin << ":"
                        << peek().colBegin;
-        return Token{};
     }
 
     void parseProgramElement() {
@@ -523,7 +521,6 @@ struct Parser {
         }
         internal_error << "TODO: implement parseStmt for "
                        << peek().to_string();
-        return ir::Stmt();
     }
 
     ir::Stmt parseNameDecl(ir::WriteLoc loc) {
@@ -819,7 +816,6 @@ struct Parser {
             internal_error << "Unknown token in parseBaseExpr: "
                            << peek().to_string()
                            << " at line: " << peek().lineBegin;
-            return ir::Expr();
         }
     }
 
@@ -1164,7 +1160,6 @@ struct Parser {
                 // Not intrinsic or set op, not sure what this is.
                 // TODO: could be a ctor of a type?
                 internal_error << "Unknown function call " << name;
-                return ir::Expr();
             } else {
                 // method access!
                 // TODO: type inference via interface?
@@ -1450,7 +1445,6 @@ struct Parser {
             return current_generics[name].as<ir::Generic_t>()->interface;
         }
         internal_error << "Unrecognized primitive interface: " << name;
-        return ir::Interface();
     }
 
     int64_t parseIntLiteral() {

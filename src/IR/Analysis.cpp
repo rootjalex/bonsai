@@ -285,7 +285,6 @@ bool is_constant_expr(const Expr &expr) {
         return is_constant_expr(expr.as<Access>()->value);
     } else {
         internal_error << "is_constant_expr() called on: " << expr;
-        return false;
         // TODO: Intrinsic, Lambda, GeomOp, SetOp, Call (constant folding)
     }
 }
