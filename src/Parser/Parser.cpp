@@ -1330,7 +1330,8 @@ struct Parser {
         return loc;
     }
 
-    // type := i[N] | u[N]
+    // type := i[N] | u[N] |
+    //         | i[N]_[N] | s[N]_[N]
     //         | f[N] | bf[N] | f[N]_[N]
     //         | bool | vector[type, int]
     //         | option[type] | declared_type
@@ -1346,10 +1347,32 @@ struct Parser {
         std::regex float_pattern("^b?f(\\d+)$");
         // Explicit declaration of exponent and mantissa bits.
         std::regex float_pattern_explicit("^f(\\d+)_(\\d+)$");
-        // TODO(cgyurgyik): Support explicit declaration for fixed point.
+        // Explicit declaration of integer and fraction bits.
+        std::regex signed_fixed_pattern("^s(\\d+)_(\\d+)$");
+        std::regex unsigned_fixed_pattern("^u(\\d+)_(\\d+)$");
 
         std::smatch match;
-        if (std::regex_match(name, match, int_pattern)) {
+        if (std::regex_match(name, match, signed_fixed_pattern)) {
+            const uint32_t integral_bits = std::stoul(match[1].str());
+            const uint32_t fractional_bits = std::stoul(match[2].str());
+            internal_assert(integral_bits > 0)
+                << "signed fixed point should have at least 1 integer "
+                   "bit for the sign, received: s"
+                << integral_bits << "_" << fractional_bits;
+            if (fractional_bits == 0) {
+                return ir::Int_t::make(integral_bits);
+            }
+            return ir::FixedPoint_t::make(integral_bits, fractional_bits,
+                                          /*is_signed=*/true);
+        } else if (std::regex_match(name, match, unsigned_fixed_pattern)) {
+            const uint32_t integral_bits = std::stoul(match[1].str());
+            const uint32_t fractional_bits = std::stoul(match[2].str());
+            if (fractional_bits == 0) {
+                return ir::UInt_t::make(integral_bits);
+            }
+            return ir::FixedPoint_t::make(integral_bits, fractional_bits,
+                                          /*is_signed=*/false);
+        } else if (std::regex_match(name, match, int_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
             return ir::Int_t::make(bits);
         } else if (std::regex_match(name, match, uint_pattern)) {

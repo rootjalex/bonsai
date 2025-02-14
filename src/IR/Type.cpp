@@ -137,6 +137,19 @@ Type UInt_t::make(uint32_t bits) {
     return node;
 }
 
+Type FixedPoint_t::make(uint32_t integral_bits, uint32_t fractional_bits,
+                        bool is_signed) {
+    FixedPoint_t *node = new FixedPoint_t;
+    node->integral_bits = integral_bits;
+    node->fractional_bits = fractional_bits;
+    node->is_signed = is_signed;
+    return node;
+}
+
+uint32_t FixedPoint_t::bits() const {
+    return this->integral_bits + this->fractional_bits;
+}
+
 Type Float_t::make(uint32_t exponent, uint32_t mantissa) {
     Float_t *node = new Float_t;
     node->exponent = exponent;

@@ -19,6 +19,7 @@ enum class IRTypeEnum {
     Void_t,
     Int_t,
     UInt_t,
+    FixedPoint_t,
     Float_t,
     Bool_t,
     Ptr_t,
@@ -109,6 +110,25 @@ struct UInt_t : TypeNode<UInt_t> {
     static Type make(uint32_t bits);
 
     static const IRTypeEnum _node_type = IRTypeEnum::UInt_t;
+};
+
+struct FixedPoint_t : TypeNode<FixedPoint_t> {
+    // Whether this fixed point number is signed. If true, then the sign bit is
+    // included in the integer bits. For example, `s8_8` has 1 sign bit, 7
+    // integer bits, and 8 fraction bits.
+    bool is_signed;
+    // The number of integer bits.
+    uint32_t integral_bits;
+    // The number of fraction bits.
+    uint32_t fractional_bits;
+
+    // Returns the total number of bits: integer bits + fraction bits
+    uint32_t bits() const;
+
+    static Type make(uint32_t integral_bits, uint32_t fractional_bits,
+                     bool is_signed);
+
+    static const IRTypeEnum _node_type = IRTypeEnum::FixedPoint_t;
 };
 
 // A subset of the real numbers. This typically consists of a sign bit, mantissa

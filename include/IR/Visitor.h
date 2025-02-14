@@ -10,6 +10,7 @@ struct Visitor {
     virtual void visit(const Void_t *);
     virtual void visit(const Int_t *);
     virtual void visit(const UInt_t *);
+    virtual void visit(const FixedPoint_t *);
     virtual void visit(const Float_t *);
     virtual void visit(const Bool_t *);
     virtual void visit(const Ptr_t *);
