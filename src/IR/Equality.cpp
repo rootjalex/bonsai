@@ -77,6 +77,16 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::UInt_t: {
         return compare_primitives(t0.as<UInt_t>()->bits, t1.as<UInt_t>()->bits);
     }
+    case IRTypeEnum::FixedPoint_t: {
+        const auto *fp0 = t0.as<FixedPoint_t>(), *fp1 = t1.as<FixedPoint_t>();
+        if (fp0->is_signed != fp1->is_signed) {
+            return compare_primitives(fp0->is_signed, fp1->is_signed);
+        }
+        if (fp0->integral_bits != fp1->integral_bits) {
+            return compare_primitives(fp0->integral_bits, fp1->integral_bits);
+        }
+        return compare_primitives(fp0->fractional_bits, fp1->fractional_bits);
+    }
     case IRTypeEnum::Float_t: {
         const auto *f0 = t0.as<Float_t>(), *f1 = t1.as<Float_t>();
         if (f0->exponent == f1->exponent) {

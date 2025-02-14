@@ -12,3 +12,12 @@ func id4(x: f22_41) -> f22_41 { return x; }
 
 // This should lower to ieee754 f64.
 func id5(x: f11_52) -> f11_52 { return x; }
+
+// This should return the non-standard iXfY.
+func id6(x: s7_8) -> s7_8 { return x; }
+
+// This should return i16.
+func id7(x: s16_0) -> s16_0 { return x; }
+
+// This should return u32.
+func id8(x: u32_0) -> u32_0 { return x; }

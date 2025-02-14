@@ -62,6 +62,8 @@ Type Mutator::visit(const Int_t *node) { return node; }
 
 Type Mutator::visit(const UInt_t *node) { return node; }
 
+Type Mutator::visit(const FixedPoint_t *node) { return node; }
+
 Type Mutator::visit(const Float_t *node) { return node; }
 
 Type Mutator::visit(const Bool_t *node) { return node; }

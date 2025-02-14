@@ -20,4 +20,16 @@ func id5(x : f64) -> f64 {
   return x
 }
 
+func id6(x : s7_8) -> s7_8 {
+  return x
+}
+
+func id7(x : i16) -> i16 {
+  return x
+}
+
+func id8(x : u32) -> u32 {
+  return x
+}
+
 
