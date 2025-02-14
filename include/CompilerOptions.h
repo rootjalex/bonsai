@@ -1,7 +1,7 @@
 #pragma once
 
 #include "IR/Program.h"
-#include "Lower/Passes.h"
+#include "Lower/Pass.h"
 
 namespace bonsai {
 
