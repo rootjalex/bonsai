@@ -224,7 +224,7 @@ struct DeadCodeElimination : ir::Mutator {
                 // and not compute the rest.
                 // For now, we rewrite this to an unused LetStmt
                 ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                // We need to keep the cars used by this value.
+                // We need to keep the locs used by this value.
                 add_use_counts(node->value);
                 return ir::LetStmt::make(std::move(loc), node->value);
             }
@@ -241,7 +241,7 @@ struct DeadCodeElimination : ir::Mutator {
                 // and not compute the rest.
                 // For now, we rewrite this to an unused LetStmt
                 ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                // We need to keep the cars used by this value.
+                // We need to keep the locs used by this value.
                 add_use_counts(node->value);
                 return ir::LetStmt::make(std::move(loc), node->value);
             }

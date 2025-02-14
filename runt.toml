@@ -11,16 +11,9 @@ ver = "0.4.1"
 
 [[tests]]
 name = "parsing bonsai ir"
-paths = ["tests/bonsai/lower/*.bonsai"]
+paths = ["tests/bonsai/parsing/*.bonsai"]
 cmd = """
 ./build/compiler -i {} -p core
-"""
-
-[[tests]]
-name = "parsing bonsai ir"
-paths = ["tests/bonsai/opt/*.bonsai"]
-cmd = """
-./build/compiler -i {} -p default
 """
 
 [[tests]]
@@ -28,6 +21,13 @@ name = "lowering bonsai ir"
 paths = ["tests/bonsai/lower/*.bonsai"]
 cmd = """
 ./build/compiler -i {}
+"""
+
+[[tests]]
+name = "optimizing bonsai ir"
+paths = ["tests/bonsai/opt/*.bonsai"]
+cmd = """
+./build/compiler -i {} -p default
 """
 
 [[tests]]
