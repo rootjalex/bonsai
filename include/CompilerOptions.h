@@ -19,7 +19,7 @@ struct CompilerOptions {
 
     // Whether this code should be executed after lowering. This will return a
     // failure if the chosen backend does not support execution.
-    bool is_execute;
+    bool is_execute = false;
 
     // The input filename. This cannot be empty.
     std::string input_file;
