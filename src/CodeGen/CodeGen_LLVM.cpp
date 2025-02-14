@@ -477,7 +477,6 @@ void CodeGen_LLVM::visit(const UInt_t *node) {
 }
 
 void CodeGen_LLVM::visit(const FixedPoint_t *node) {
-    // LLVM does not distinguish between signed and unsigned integer types.
     internal_error << "unimplemented: " << Type(node);
 }
 
