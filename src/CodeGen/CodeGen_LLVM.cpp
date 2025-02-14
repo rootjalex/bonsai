@@ -1058,6 +1058,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
 
 void CodeGen_LLVM::visit(const Intrinsic *node) {
     llvm::Intrinsic::IndependentIntrinsics intrin;
+    // llvm.abs for integers requires passing a constant `false` to it.
     bool add_false_arg = false;
     switch (node->op) {
     case Intrinsic::abs: {

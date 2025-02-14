@@ -298,7 +298,8 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
-ir::Stmt dce_stmt(const ir::Stmt &stmt, const std::set<std::string> &se_functions) {
+ir::Stmt dce_stmt(const ir::Stmt &stmt,
+                  const std::set<std::string> &se_functions) {
     ComputeUseCounts analyzer;
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
