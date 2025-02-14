@@ -117,7 +117,6 @@ Type Type::element_of() const {
         return this->as<Set_t>()->etype;
     } else {
         internal_error << "Called element_of() on bad type: " << *this;
-        return Type();
     }
 }
 

@@ -41,7 +41,6 @@ bool is_const_one(const Expr &e) {
 bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
-        return false;
     }
     if (const Broadcast *b = e.as<Broadcast>()) {
         return is_const(b->value);
