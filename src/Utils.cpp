@@ -22,7 +22,6 @@ const int64_t *as_const_int(const Expr &e) {
 bool is_const_one(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const_one called on undefined value";
-        return false;
     } else if (const Broadcast *b = e.as<Broadcast>()) {
         return is_const_one(b->value);
     } else if (const IntImm *i = e.as<IntImm>()) {
@@ -41,7 +40,6 @@ bool is_const_one(const Expr &e) {
 bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
-        return false;
     }
     if (const Broadcast *b = e.as<Broadcast>()) {
         return is_const(b->value);
@@ -82,7 +80,6 @@ Expr constant_cast(const Type &t, const Expr &e) {
     } else {
         internal_error << "Unsure how to convert constant to type: " << t
                        << " expr: " << e;
-        return Expr();
     }
 }
 
@@ -164,7 +161,6 @@ size_t find_struct_index(const std::string &field,
         }
     }
     internal_error << "find_struct_index did not find field " << field;
-    return 0;
 }
 
 uint32_t vector_field_lane(const std::string &field) {
@@ -178,7 +174,6 @@ uint32_t vector_field_lane(const std::string &field) {
         return 3;
     }
     internal_error << "Cannot get lane for vector field: " << field;
-    return -1;
 }
 
 double machine_epsilon(const Type &t) {
@@ -194,7 +189,6 @@ double machine_epsilon(const Type &t) {
     }
     default: {
         internal_error << "machine_epsilon() not supported for type: " << t;
-        return 0.0;
     }
     }
 }

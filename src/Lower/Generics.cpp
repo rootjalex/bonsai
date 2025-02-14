@@ -79,7 +79,6 @@ std::string short_type_name(const Type &type) {
         return "o?" + short_type_name(type.as<Ptr_t>()->etype);
     default: {
         internal_error << "No short_type_name for type: " << type;
-        return "";
     }
     }
 }
@@ -115,7 +114,6 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             if (!node->expr.is<Var>()) {
                 internal_error << "TODO: analyze Instantiate of non-Var: "
                                << Expr(node);
-                return Expr();
             }
 
             internal_assert(node->type.defined());

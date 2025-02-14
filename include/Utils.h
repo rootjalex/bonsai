@@ -32,7 +32,6 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
         internal_error
             << "make_const does not know how to build constant of type: " << t
             << " for value: " << v;
-        return ir::Expr();
     }
 }
 

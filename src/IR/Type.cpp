@@ -24,7 +24,6 @@ uint32_t Type::bits() const {
         return 1;
     }
     internal_error << "Called bits() on bad type: " << *this;
-    return 0;
 }
 
 uint32_t Type::lanes() const {
@@ -33,7 +32,6 @@ uint32_t Type::lanes() const {
         return as_vec->lanes;
     } else {
         internal_error << "Called lanes() on bad type: " << *this;
-        return 0;
     }
 }
 
@@ -92,7 +90,6 @@ Type Type::to_bool() const {
         return Vector_t::make(v->etype.to_bool(), v->lanes);
     } else {
         internal_error << "Called to_bool() on bad type: " << *this;
-        return Type();
     }
 }
 
@@ -106,7 +103,6 @@ Type Type::to_uint() const {
         return Vector_t::make(v->etype.to_uint(), v->lanes);
     } else {
         internal_error << "Called to_uint() on bad type: " << *this;
-        return Type();
     }
 }
 
@@ -117,7 +113,6 @@ Type Type::element_of() const {
         return this->as<Set_t>()->etype;
     } else {
         internal_error << "Called element_of() on bad type: " << *this;
-        return Type();
     }
 }
 
@@ -315,7 +310,6 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         }
         internal_error << "Failed to find field: " << field
                        << " in struct type: " << struct_type;
-        return ir::Type();
     } else if (const Vector_t *as_vec = struct_type.as<Vector_t>()) {
         internal_assert((field == "x" && as_vec->lanes > 0) ||
                         (field == "y" && as_vec->lanes > 1) ||
@@ -327,7 +321,6 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
     } else {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;
-        return ir::Type();
     }
 }
 
