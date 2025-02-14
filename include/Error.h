@@ -37,21 +37,21 @@ void error_message(std::ostringstream &os,
 
 // Conditionally report an error. If `triggered` is true, this will abort the
 // program after printing an error message to I/O.
-class CReport {
+class ConditionalErrorReport {
   public:
-    CReport(bool cond, const char *condition_string, const char *file,
-            size_t line)
+    ConditionalErrorReport(bool cond, const char *condition_string,
+                           const char *file, size_t line)
         : triggered(!cond) {
         [[likely]] if (!triggered) { return; }
         error_message(stream, condition_string, file, line);
     }
 
     template <typename T>
-    CReport &operator<<(const T &value) {
+    ConditionalErrorReport &operator<<(const T &value) {
         [[unlikely]] if (triggered) { stream << value; }
         return *this;
     }
-    ~CReport() noexcept(false) {
+    ~ConditionalErrorReport() noexcept(false) {
         [[likely]] if (!triggered) { return; }
         stream << "\n";
         std::cerr << stream.str();
@@ -66,20 +66,20 @@ class CReport {
 
 // Always report an error. This will abort the program after printing an error
 // message to I/O.
-class EReport {
+class ErrorReport {
   public:
-    EReport(const char *file, size_t line) {
+    ErrorReport(const char *file, size_t line) {
         std::optional<const char *> condition_string = std::nullopt;
         error_message(stream, condition_string, file, line);
     }
 
     template <typename T>
-    EReport &operator<<(const T &value) {
+    ErrorReport &operator<<(const T &value) {
         stream << value;
         return *this;
     }
 
-    [[noreturn]] ~EReport() noexcept(false) {
+    [[noreturn]] ~ErrorReport() noexcept(false) {
         stream << "\n";
         std::cerr << stream.str();
         abort();
@@ -89,7 +89,14 @@ class EReport {
     std::ostringstream stream;
 };
 
-#define internal_assert(cond) CReport((cond), #cond, __FILE__, __LINE__)
-#define internal_error EReport(__FILE__, __LINE__)
+// Prints an error message and aborts if `cond` is false, and does nothing
+// otherwise. For example,
+//   internal_assert(1 < 2) << "error message";
+#define internal_assert(cond)                                                  \
+    ConditionalErrorReport((cond), #cond, __FILE__, __LINE__)
+
+// Prints an error message and aborts.  For example,
+//   internal_assert(1 < 2) << "error message";
+#define internal_error ErrorReport(__FILE__, __LINE__)
 
 } // namespace bonsai
