@@ -113,8 +113,7 @@ std::vector<std::string> func_topological_order(const ir::Program &program,
             internal_assert(!visiting.contains(fname))
                 << "Type inference found a cycle containing function: " << fname
                 << "\nYou may need to specify return types on one or more "
-                   "functions to "
-                   "break the cycle";
+                   "functions to break the cycle";
         }
         visiting.insert(fname);
         for (const auto &gname : call_graph.at(fname)) {
