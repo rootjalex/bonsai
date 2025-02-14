@@ -184,6 +184,11 @@ void Printer::print_expr_list(const std::vector<Expr> &exprs) {
 void Printer::print(const Stmt &stmt) { stmt->accept(this); }
 
 void Printer::print(const WriteLoc &loc) {
+    if (verbose) {
+        os << "(";
+        print(loc.type);
+        os << ")";
+    }
     os << loc.base;
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
@@ -202,7 +207,15 @@ void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
 
 void Printer::visit(const UInt_t *node) { os << "u" << node->bits; }
 
-void Printer::visit(const Float_t *node) { os << "f" << node->bits; }
+void Printer::visit(const Float_t *node) {
+    if (node->is_ieee754()) {
+        os << "f" << node->bits();
+    } else if (node->is_bfloat16()) {
+        os << "bf" << node->bits();
+    } else {
+        os << "f" << node->exponent << "_" << node->mantissa;
+    }
+}
 
 void Printer::visit(const Bool_t *node) { os << "bool"; }
 
@@ -386,9 +399,7 @@ std::string to_string(const UnOp::OpType &op) {
 
 void Printer::visit(const UnOp *node) {
     os << to_string(node->op);
-    open();
-    print_no_parens(node->a);
-    close();
+    print(node->a);
 }
 
 void Printer::visit(const Select *node) {
@@ -405,12 +416,6 @@ void Printer::visit(const Cast *node) {
     os << "cast<";
     print(node->type);
     os << ">(";
-    print_no_parens(node->value);
-    os << ")";
-}
-
-void Printer::visit(const Print *node) {
-    os << "print(";
     print_no_parens(node->value);
     os << ")";
 }
@@ -599,6 +604,13 @@ void Printer::visit(const Instantiate *node) {
         print(value);
     }
     os << "]]";
+}
+
+void Printer::visit(const Print *node) {
+    os << get_indent();
+    os << "print(";
+    print_no_parens(node->value);
+    os << ")\n";
 }
 
 void Printer::visit(const Return *node) {

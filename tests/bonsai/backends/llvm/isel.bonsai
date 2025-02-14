@@ -1,0 +1,12 @@
+// -b llvm
+
+element i8x8 = vector[i8, 8];
+element i16x8 = vector[i16, 8];
+
+func sat_add(x : i8x8, y : i8x8) -> i8x8 {
+    wide_x = cast[[i16x8]](x);
+    wide_y = cast[[i16x8]](y);
+    INT8_MAX : i16x8 = 127;
+    INT8_MIN : i16x8 = -128;
+    return cast[[i8x8]](max(min(wide_x + wide_y, INT8_MAX), INT8_MIN));
+}

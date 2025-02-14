@@ -17,7 +17,7 @@ struct Function {
 
         Argument() {}
 
-        Argument(std::string _name, Type _type, Expr _default_value)
+        Argument(std::string _name, Type _type, Expr _default_value = Expr())
             : name(std::move(_name)), type(std::move(_type)),
               default_value(std::move(_default_value)) {}
 
@@ -27,9 +27,11 @@ struct Function {
         Argument &operator=(Argument &&) noexcept = default;
         ~Argument() = default;
     };
+
     std::vector<Argument> args;
     Type ret_type;
     Stmt body;
+
     struct NamedInterface {
         std::string name;
         Interface interface;
@@ -45,6 +47,7 @@ struct Function {
         NamedInterface &operator=(NamedInterface &&) noexcept = default;
         ~NamedInterface() = default;
     };
+
     // Intentionally ordered.
     using InterfaceList = std::vector<NamedInterface>;
     InterfaceList interfaces;
@@ -56,6 +59,15 @@ struct Function {
         : name(std::move(_name)), args(std::move(_args)),
           ret_type(std::move(_ret_type)), body(std::move(_body)),
           interfaces(std::move(_interfaces)) {}
+
+    // Returns the argument types of this function. This is *not* memoized.
+    std::vector<ir::Type> argument_types() const {
+        std::vector<ir::Type> types;
+        std::transform(
+            args.begin(), args.end(), std::back_inserter(types),
+            [](const Function::Argument &argument) { return argument.type; });
+        return types;
+    }
 
     Function(const Function &) = default;
     Function(Function &&) noexcept = default;

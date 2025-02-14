@@ -1,0 +1,23 @@
+
+
+func id1(x : bf16) -> bf16 {
+  return x
+}
+
+func id2(x : bf16) -> bf16 {
+  return x
+}
+
+func id3(x : f7_8) -> f7_8 {
+  return x
+}
+
+func id4(x : f22_41) -> f22_41 {
+  return x
+}
+
+func id5(x : f64) -> f64 {
+  return x
+}
+
+

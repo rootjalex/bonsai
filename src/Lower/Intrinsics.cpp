@@ -41,7 +41,6 @@ ir::Expr argmax(const ir::Expr &a) {
         internal_error << "TODO: implement large argmax lowering: " << a;
         // From Andrew: min_reduce(ramp(0, 1, 8) & v ==
         // broadcast(max_reduce(v)))
-        return ir::Expr();
     }
 }
 

@@ -1,0 +1,4 @@
+func foo() -> u32 {
+    // TODO: fix ^ marker in error message
+    return -1u;
+}

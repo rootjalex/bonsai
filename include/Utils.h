@@ -32,7 +32,6 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
         internal_error
             << "make_const does not know how to build constant of type: " << t
             << " for value: " << v;
-        return ir::Expr();
     }
 }
 
@@ -57,5 +56,22 @@ uint32_t vector_field_lane(const std::string &field);
 
 // TODO: this should be handled in codegen...
 double machine_epsilon(const ir::Type &t);
+
+// Bit layout (not including sign bit) for floating point representations.
+template <uint32_t E, uint32_t M>
+struct FloatLayout {
+    static constexpr uint32_t exponent = E;
+    static constexpr uint32_t mantissa = M;
+};
+
+static constexpr auto IEEE754_F64 = FloatLayout<11, 52>{};
+static constexpr auto IEEE754_F32 = FloatLayout<8, 23>{};
+static constexpr auto IEEE754_F16 = FloatLayout<5, 10>{};
+static constexpr auto BFLOAT16 = FloatLayout<8, 7>{};
+
+// Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
+ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
+// Whether we can convert an expression into a WriteLoc.
+bool is_writeloc(const ir::Expr &expr);
 
 } // namespace bonsai

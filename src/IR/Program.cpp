@@ -7,7 +7,7 @@ namespace bonsai {
 namespace ir {
 
 void Program::dump(std::ostream &os) const {
-    Printer printer(os, /* verbose= */ true);
+    Printer printer(os, /*verbose=*/true);
     for (const auto &[name, type] : types) {
         os << "type " << name << " = ";
         printer.print(type);

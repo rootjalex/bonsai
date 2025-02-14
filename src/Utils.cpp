@@ -22,7 +22,6 @@ const int64_t *as_const_int(const Expr &e) {
 bool is_const_one(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const_one called on undefined value";
-        return false;
     } else if (const Broadcast *b = e.as<Broadcast>()) {
         return is_const_one(b->value);
     } else if (const IntImm *i = e.as<IntImm>()) {
@@ -41,15 +40,14 @@ bool is_const_one(const Expr &e) {
 bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
-        return false;
-    } else if (const Broadcast *b = e.as<Broadcast>()) {
-        return is_const(b->value);
-    } else if (const Build *b = e.as<Build>()) {
-        return b->values.empty(); // default is constant!
-    } else {
-        return e.is<IntImm>() || e.is<UIntImm>() || e.is<FloatImm>() ||
-               e.is<BoolImm>();
     }
+    if (const Broadcast *b = e.as<Broadcast>()) {
+        return is_const(b->value);
+    }
+    if (const Build *b = e.as<Build>()) {
+        return b->values.empty(); // default is constant!
+    }
+    return e.is<IntImm, UIntImm, FloatImm, BoolImm>();
 }
 
 Expr make_zero(const Type &t) { return make_const(t, 0); }
@@ -82,7 +80,6 @@ Expr constant_cast(const Type &t, const Expr &e) {
     } else {
         internal_error << "Unsure how to convert constant to type: " << t
                        << " expr: " << e;
-        return Expr();
     }
 }
 
@@ -164,7 +161,6 @@ size_t find_struct_index(const std::string &field,
         }
     }
     internal_error << "find_struct_index did not find field " << field;
-    return 0;
 }
 
 uint32_t vector_field_lane(const std::string &field) {
@@ -178,7 +174,6 @@ uint32_t vector_field_lane(const std::string &field) {
         return 3;
     }
     internal_error << "Cannot get lane for vector field: " << field;
-    return -1;
 }
 
 double machine_epsilon(const Type &t) {
@@ -194,9 +189,36 @@ double machine_epsilon(const Type &t) {
     }
     default: {
         internal_error << "machine_epsilon() not supported for type: " << t;
-        return 0.0;
     }
     }
+}
+
+// Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
+ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
+    if (const ir::Var *var = expr.as<ir::Var>()) {
+        return ir::WriteLoc(var->name, var->type);
+    } else if (const ir::Access *acc = expr.as<ir::Access>()) {
+        ir::WriteLoc rec = read_to_writeloc(acc->value);
+        rec.add_struct_access(acc->field);
+        return rec;
+    } else if (const ir::Extract *idx = expr.as<ir::Extract>()) {
+        ir::WriteLoc rec = read_to_writeloc(idx->vec);
+        rec.add_index_access(idx->idx);
+        return rec;
+    }
+    internal_error << "Cannot convert to WriteLoc: " << expr;
+    return ir::WriteLoc();
+}
+
+bool is_writeloc(const ir::Expr &expr) {
+    if (expr.as<ir::Var>()) {
+        return true;
+    } else if (const ir::Access *acc = expr.as<ir::Access>()) {
+        return is_writeloc(acc->value);
+    } else if (const ir::Extract *idx = expr.as<ir::Extract>()) {
+        return is_writeloc(idx->vec);
+    }
+    return false;
 }
 
 } // namespace bonsai

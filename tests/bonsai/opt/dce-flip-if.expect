@@ -1,0 +1,49 @@
+
+
+func _print(i : i32) -> i32 {
+  print(i)
+  return i
+}
+
+func bar(i : i32x8) -> u32x8 {
+  if ((i32)0 < reduce<+>(i)) {
+    let j = foo(i) in
+  } else {
+    print(i)
+  }
+  return abs(i)
+}
+
+func bazz(i : i32) -> i32 {
+  j = i + (i32)1
+  if ((i32)0 < i) {
+    let ?unused0 = _print(j) in
+  }
+  return cast<i32>(abs(i))
+}
+
+func fizz(i : i32) -> i32 {
+  if ((i32)0 < i) {
+    let k = x8((i32)-4) in
+    let ?unused0 = cast<i32>(reduce<+>(foo(k))) in
+  } else {
+    print(i)
+  }
+  return cast<i32>(abs(i))
+}
+
+func foo(i : i32x8) -> u32x8 {
+  if (!((i32)0 < reduce<+>(i))) {
+    print(i)
+  }
+  return abs(i)
+}
+
+func main() -> i32 {
+  let i = x8((i32)-1) in
+  let j = fizz((i32)-1) in
+  let k = fizz((i32)12) in
+  return cast<i32>(reduce<+>(bar(i)))
+}
+
+

@@ -1,3 +1,4 @@
+// TODO(ajr): DCE should remove unused lambdas as well...
 func foo() -> i32 {
     a = true;
     b = false;
@@ -12,7 +13,9 @@ func foo() -> i32 {
     L6 = |x: i32 y: i32| x+y;
     L7 = |x: i32| { |y: i32|  { y } };
 
-    return L1(0);
+    x: i32 = L1(0);
+    y: i32 = L2(1, 2);
+    return L6(x, y);
 }
 
 func relu(v: set[i32]) = filter(|x : i32| x > 0, v);

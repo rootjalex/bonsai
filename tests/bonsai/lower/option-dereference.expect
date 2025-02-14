@@ -1,0 +1,13 @@
+
+
+func foo(i : ?option0, j : ?option0) -> i32 {
+  if (!i.set) {
+    return (i32)0
+  } else if (!j.set) {
+    return (i32)0
+  } else {
+    return i.value + j.value
+  }
+}
+
+

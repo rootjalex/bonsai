@@ -1,0 +1,7 @@
+func main() -> i32 {
+    a : vector[i32, 3] = {1, 2, 3};             // OK
+    b : vector[u32, 3] = {1u, 2u, 3u};          // OK
+    c : vector[bool, 3] = {true, false, true};  // OK
+    d : vector[i32, 3] = {1u, 0, 0};            // ILLEGAL
+    return 0;
+}

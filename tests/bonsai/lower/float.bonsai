@@ -1,0 +1,14 @@
+// Default type.
+func id1(x: bf16) -> bf16 { return x; }
+
+// This should also lower to bfloat16 (e8m7).
+func id2(x: f8_7) -> f8_7 { return x; }
+
+// Non-standard eXmY.
+func id3(x: f7_8) -> f7_8 { return x; }
+
+// Two digit exponent/mantissa still functions as expected.
+func id4(x: f22_41) -> f22_41 { return x; }
+
+// This should lower to ieee754 f64.
+func id5(x: f11_52) -> f11_52 { return x; }

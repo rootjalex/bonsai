@@ -1,3 +1,14 @@
+element Position {
+    x: i32;
+    y: i32;
+}
+
+element Foo {
+    a : u32;
+    b : vector[i32, 3];
+    c : Position;
+}
+
 func main() -> i32 {
     i: i32 = -42;
     print(i);
@@ -7,6 +18,26 @@ func main() -> i32 {
     
     k: u32 = 4294967295u;
     print(k);
+
+    l: bool = true;
+    print(l);
+
+    m: bool = false;
+    print(m);
+
+    v : vector[i32, 3] = {1, 2, 3};
+    print(v);
+
+    w : vector[bool, 3] = {true, false, true};
+    print(w);
+
+    position: Position = Position{.x=-1, .y=1};
+    f: Foo = Foo{
+        .a=42u,
+        .b=v,
+        .c=position,
+    };
+    print(f);
     
     return 0;
 }

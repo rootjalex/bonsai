@@ -113,6 +113,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
 
+  private:
+    // Recursively creates IR that will print the given expression. This
+    // performs exactly one call to C's `printf` with the string `to_print` and
+    // the arguments `args`.
+    void print_helper(const ir::Expr &expr, std::vector<llvm::Value *> &args,
+                      std::string &to_print, uint32_t indent_level = 0);
+
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;

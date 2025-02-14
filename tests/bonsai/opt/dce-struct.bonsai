@@ -1,0 +1,46 @@
+element Pair {
+    i : i32;
+    f : f32;
+}
+
+func foo(i : i32, f : f32) -> f32 {
+    p : Pair = {i, f};
+    return f;
+}
+
+func bar(i : i32, f : f32) -> f32 {
+    p : mut Pair = {i, f};
+    p.i *= cast[[i32]](f);
+    return f;
+}
+
+func fizz(i : i32, f : f32) -> f32 {
+    j : mut = abs(i);
+    k : mut = abs(f); // should be removed.
+    if (f > 0) {
+        j += cast[[u32]](f);
+        k *= cast[[f32]](i);
+    } else {
+        j += cast[[u32]](-f);
+        k *= cast[[f32]](-i);
+    }
+    return j;
+}
+
+func bazz(i : i32, f : f32) -> f32 {
+    j : mut = abs(i);
+    k : mut = abs(f); // should be removed.
+    if (f > 0) {
+        j += cast[[u32]](f);
+    } else {
+        j += cast[[u32]](-f);
+    }
+    // This entire ifstmt should be removed as well.
+    if (i > 0) {
+        k *= cast[[f32]](i);
+    } else {
+        k *= cast[[f32]](-i);
+    }
+    return j;
+}
+

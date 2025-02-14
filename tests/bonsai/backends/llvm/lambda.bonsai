@@ -1,0 +1,11 @@
+// -b llvm
+
+func foo(z : i32) -> i32 {
+    L1 = |x: i32| x + 1;
+    y: i32 = L1(z - 4);
+    return y;
+}
+
+func bar(i : i32) -> i32 {
+    return foo(i + 2);
+}

@@ -164,7 +164,6 @@ std::string Token::token_type_string(Token::Type type) {
         return "error";
     default:
         internal_error << "Unknown token type: " << static_cast<int>(type);
-        return "";
     }
 }
 

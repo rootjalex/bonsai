@@ -1,0 +1,50 @@
+func foo(i : vector[i32, 8]) -> vector[u32, 8] {
+    if (sum(i) > 0) {
+        j = i + 1; // this should get DCEed away.
+    } else {
+        print(i);
+    }
+    return abs(i);
+}
+
+func bar(i : vector[i32, 8]) -> vector[u32, 8] {
+    if (sum(i) > 0) {
+        j = foo(i); // this should *not* get DCEed away.
+    } else {
+        print(i);
+    }
+    return abs(i);
+}
+
+func fizz(i : i32) -> i32 {
+    j : mut = i;
+    if (i > 0) {
+        k : vector[i32, 8] = -4;
+        j += cast[[i32]](sum(foo(k))); // this should *not* get DCEed away.
+    } else {
+        print(i);
+    }
+    return abs(i);
+}
+
+func _print(i : i32) -> i32 {
+    print(i);
+    return i;
+}
+
+func bazz(i : i32) -> i32 {
+    j : mut = i + 1;
+    k : mut = i;
+    if (i > 0) {
+        // j cannot be DCEed, k can be, but this stmt needs to stay.
+        k += _print(j);
+    }
+    return abs(i);
+}
+
+func main() -> i32 {
+    i : vector[i32, 8] = -1;
+    j = fizz(-1);
+    k = fizz(12);
+    return cast[[i32]](sum(bar(i)));
+}
