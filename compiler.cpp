@@ -91,7 +91,6 @@ int execute(const bonsai::ir::Program &program,
     case bonsai::BackendTarget::ASM: {
         bonsai::internal_assert(!options.is_execute);
         bonsai::CodeGen_LLVM codegen;
-        // TODO(bonsai/issues/42): Add ASM checks.
         bonsai::codegen::to_asm(options.output_file, program, &codegen);
         return 0;
     }
