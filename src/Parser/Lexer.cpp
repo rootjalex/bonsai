@@ -84,7 +84,9 @@ class Lexer {
                   << std::string(1, '^') << "\n";
     }
 
-    char handle_escaped_char(std::istream &program_stream);
+    // Handles escaped characters, e.g., `\r` or `\t`. If this is an invalid
+    // escaped character, reports an error and returns `std::nullopt`.
+    std::optional<char> handle_escaped_char(std::istream &program_stream);
 
     char consume(std::ifstream &program_stream);
     void consume_until_space(std::ifstream &program_stream);
@@ -435,29 +437,22 @@ void Lexer::lex() {
                 while (program_stream.peek() != EOF &&
                        program_stream.peek() != '"') {
                     if (program_stream.peek() == '\\') {
-                        char escapedChar = handle_escaped_char(program_stream);
-                        if (escapedChar != ' ') {
-                            str += escapedChar;
+                        if (std::optional<char> c =
+                                handle_escaped_char(program_stream)) {
+                            str += *c;
                             program_stream.get();
-                            incr_column(2);
-                        } else {
-                            // error case.
+                            // Additional column increase for the backslash.
                             incr_column();
                         }
                     } else {
                         str += program_stream.get();
-                        incr_column();
                     }
                 }
 
                 new_token.lineEnd = line_no();
                 new_token.value = str;
                 add_token(new_token);
-
-                if (program_stream.peek() == '"') {
-                    program_stream.get();
-                    incr_column();
-                } else {
+                if (program_stream.peek() != '"') {
                     report_error("unclosed string literal");
                 }
                 break;
@@ -493,7 +488,7 @@ void Lexer::lex() {
     }
 }
 
-char Lexer::handle_escaped_char(std::istream &program_stream) {
+std::optional<char> Lexer::handle_escaped_char(std::istream &program_stream) {
     switch (program_stream.peek()) {
     case 'a':
         return '\a';
@@ -518,8 +513,9 @@ char Lexer::handle_escaped_char(std::istream &program_stream) {
     case '?':
         return '\?';
     default:
-        report_error("Unrecognized escape sequence");
-        return ' ';
+        const char c = static_cast<char>(program_stream.peek());
+        report_error("unrecognized escape sequence: \\" + std::string{c});
+        return std::nullopt;
     }
 }
 
