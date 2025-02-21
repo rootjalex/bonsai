@@ -35,12 +35,13 @@ class Lexer {
     }
 
     void add_token(Token::Type type) {
-        stream.add_token(type, line_no(), column_no());
+        stream.add_token(type, line_no(), column_no(), file_name());
         std::optional<Token> t = stream.back();
         incr_column(t->size());
     }
 
     void add_token(Token token) {
+        token.fileName = file_name();
         stream.add_token(std::move(token));
         std::optional<Token> t = stream.back();
         incr_column(t->size());
@@ -74,11 +75,11 @@ class Lexer {
                 return;
         }
 
-        // filename:line:column: lex error: <error-message>
+        // filename:line:column: [lex error] <error-message>
         // <line>
         //   ^
         std::cerr << file_name() << ":" << line_no() << ":" << column_no()
-                  << ": lex error: " << message << "\n"
+                  << ": [lex error] " << message << "\n"
                   << line << "\n"
                   << std::string(std::max<int64_t>(column_no() - 1, 0), ' ')
                   << std::string(1, '^') << "\n";

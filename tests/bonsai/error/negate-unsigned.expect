@@ -1,6 +1,6 @@
 ---CODE---
 -1
 ---STDERR---
-tests/bonsai/error/negate-unsigned.bonsai:2:14: lex error: negated unsigned integer
+tests/bonsai/error/negate-unsigned.bonsai:2:14: [lex error] negated unsigned integer
     return -1u;
              ^

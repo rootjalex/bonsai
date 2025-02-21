@@ -9,6 +9,7 @@
 #include "IR/Type.h"
 #include "IR/TypeEnforcement.h"
 
+#include <fstream>
 #include <iostream>
 #include <regex>
 #include <span>
@@ -21,6 +22,47 @@ namespace bonsai {
 namespace parser {
 
 namespace {
+
+// This provides the ability to report errors using a nicer `<<` interface
+// instead of string concatenation. It should only be used in the Parser class.
+class ParseErrorReport {
+  public:
+    ParseErrorReport(Token current) : current(current) {}
+
+    [[noreturn]] ~ParseErrorReport() {
+        const uint64_t begin_line = current.line_begin(),
+                       begin_column = current.column_begin();
+        const std::string filename = current.file_name();
+        std::ifstream file(filename);
+        std::string line;
+        for (int i = 1; i <= begin_line; ++i) {
+            internal_assert(static_cast<bool>(std::getline(file, line)));
+        }
+
+        std::stringstream ss;
+        ss << filename << ":" << begin_line << ":" << begin_column
+           << ": [parse error] " << os.str() << "\n"
+           << "\n";
+        ss << line << "\n";
+        const std::string pointer = std::string(
+            std::max<int64_t>(current.column_end() - begin_column, 1), '^');
+        const std::string offset =
+            std::string(std::max<int64_t>(begin_column - 1, 0), ' ');
+
+        ss << offset << pointer;
+        internal_error << ss.str();
+    }
+
+    template <typename T>
+    ParseErrorReport &operator<<(const T &value) {
+        os << value;
+        return *this;
+    }
+
+  private:
+    Token current;
+    std::ostringstream os;
+};
 
 /*
 program := program_element*
@@ -38,6 +80,22 @@ func_decl := func IDENTIFIER '( (IDENTIFIER : type)+ ')'
 */
 
 struct Parser {
+  public:
+    Parser(TokenStream _tokens) : tokens(std::move(_tokens)) {
+        // Add Intrinsic types!
+    }
+
+    ir::Program parse_program() {
+        internal_assert(frames.empty());
+        new_frame();
+        while (!tokens.empty()) {
+            parse_program_element();
+        }
+        end_frame();
+        internal_assert(frames.empty());
+        return std::move(program);
+    }
+
   private:
     TokenStream tokens;
     ir::Program program;
@@ -48,6 +106,12 @@ struct Parser {
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
                    f32 = ir::Float_t::make_f32();
 
+    // Reports the error with relevant token location information. This will
+    // always point at the last consumed token.
+    inline ParseErrorReport report_error() const {
+        return ParseErrorReport{tokens.current_token()};
+    }
+
     ir::Type get_type_from_frame(const std::string &name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
@@ -56,8 +120,7 @@ struct Parser {
                 return found->second.first;
             }
         }
-        internal_error << "Cannot check type of unknown var: " << name
-                       << " required at line: " << peek().lineBegin;
+        report_error() << "Cannot check type of unknown var: " << name;
     }
 
     bool name_in_scope(const std::string &name) const {
@@ -79,16 +142,17 @@ struct Parser {
                 return found->second.second;
             }
         }
-        internal_error << "Cannot check mutability of unknown var: " << name;
-        return false;
+        report_error() << "Cannot check mutability of unknown var: " << name;
     }
 
     void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
             const auto &found = frame.find(name);
-            internal_assert(found == frame.cend())
-                << name << " shadows another variable (of the same name)";
+            if (found != frame.cend()) {
+                report_error()
+                    << name << " shadows another variable (of the same name)";
+            }
         }
         frames.back()[name] = {std::move(type), mut};
     }
@@ -104,7 +168,7 @@ struct Parser {
                 return;
             }
         }
-        internal_error << "Cannot modify_type of unknown var: " << name
+        report_error() << "Cannot modify_type of unknown var: " << name
                        << " to type " << type;
     }
 
@@ -112,23 +176,6 @@ struct Parser {
 
     void end_frame() { frames.pop_back(); }
 
-  public:
-    Parser(TokenStream _tokens) : tokens(std::move(_tokens)) {
-        // Add Intrinsic types!
-    }
-
-    ir::Program parseProgram() {
-        internal_assert(frames.empty());
-        new_frame();
-        while (!tokens.empty()) {
-            parseProgramElement();
-        }
-        end_frame();
-        internal_assert(frames.empty());
-        return std::move(program);
-    }
-
-  private:
     Token peek(uint32_t k = 0) const { return tokens.peek(k); }
 
     std::optional<Token> consume(Token::Type type) {
@@ -141,36 +188,43 @@ struct Parser {
         return token;
     }
 
+    // Automatically consumes the token.
+    Token consume() {
+        Token token = peek();
+        tokens.consume(token.type);
+        return token;
+    }
+
+    // Consumes the next token in the stream if the expected type
+    //  is met, and reports an error otherwise.
     Token expect(Token::Type type) {
         if (std::optional<Token> token = consume(type)) {
             return *token;
         }
-        internal_error << "Expected " << Token::token_type_string(type)
-                       << ", instead received: " + peek().to_string()
-                       << " at line: " << peek().lineBegin << ":"
-                       << peek().colBegin;
+        Token current = consume();
+        report_error() << "expected: " << Token::token_type_string(type)
+                       << ", received: "
+                       << Token::token_type_string(current.type);
     }
 
-    void parseProgramElement() {
+    void parse_program_element() {
         switch (peek().type) {
         case Token::Type::IMPORT:
-            return parseImport();
+            return parse_import();
         case Token::Type::ELEMENT:
-            return parseElement();
+            return parse_element();
         case Token::Type::INTERFACE:
-            return parseInterfaceDef();
+            return parse_interface_def();
         case Token::Type::EXTERN:
-            return parseExtern();
+            return parse_extern();
         case Token::Type::FUNC:
-            return parseFunction();
-        default: {
-            internal_error << "Failure in parseProgramElement: " +
-                                  peek().to_string();
-        }
+            return parse_function();
+        default:
+            report_error() << "failure in parse_program_element";
         }
     }
 
-    void parseImport() {
+    void parse_import() {
         // Imports are essentially code inlining. Just load and parse the file.
         // TODO: support source/header separations?
         expect(Token::Type::IMPORT);
@@ -185,13 +239,12 @@ struct Parser {
         }
 
         name += ".bonsai";
-
         ir::Program imported;
         try {
             // TODO: recursive imports break everything. Fix this somehow?
             imported = parse(name);
         } catch (const std::exception &e) {
-            internal_error << "Failure to parse imported file: " << name
+            report_error() << "Failure to parse imported file: " << name
                            << " with message: " << e.what();
         }
 
@@ -215,7 +268,7 @@ struct Parser {
         }
     }
 
-    void parseElement() {
+    void parse_element() {
         expect(Token::Type::ELEMENT);
 
         // TODO: support methods as well.
@@ -229,7 +282,7 @@ struct Parser {
 
         // Support inline aliasing.
         if (consume(Token::Type::ASSIGN)) {
-            ir::Type alias = parseType();
+            ir::Type alias = parse_type();
             expect(Token::Type::SEMICOL);
             program.types[name] = alias;
             return;
@@ -246,9 +299,18 @@ struct Parser {
                 const Token field = expect(Token::Type::IDENTIFIER);
                 const std::string field_name =
                     std::get<std::string>(field.value);
+                // Verify this is not a duplicate.
+                if (std::find_if(fields.cbegin(), fields.cend(),
+                                 [&](const auto &p) {
+                                     return p.first == field_name;
+                                 }) != fields.cend()) {
+                    report_error() << "Duplicate field name: " << field_name
+                                   << " in element definition: " << name;
+                }
                 names.push_back(field_name);
+
                 if (consume(Token::Type::ASSIGN)) {
-                    ir::Expr _default = parseExpr();
+                    ir::Expr _default = parse_expr();
                     internal_assert(ir::is_constant_expr(_default))
                         << "Field default values must be constants, received: "
                         << _default << " for field " << field_name
@@ -258,15 +320,8 @@ struct Parser {
             } while (consume(Token::Type::COMMA));
 
             expect(Token::Type::COL);
-            ir::Type type = parseType();
+            ir::Type type = parse_type();
             for (const auto &field_name : names) {
-                internal_assert(fields.cend() ==
-                                std::find_if(fields.cbegin(), fields.cend(),
-                                             [&field_name](const auto &p) {
-                                                 return p.first == field_name;
-                                             }))
-                    << "Duplicate field name: " << field_name
-                    << " in element definition: " << name;
                 fields.emplace_back(field_name, type);
                 if (defaults.contains(field_name)) {
                     defaults[field_name] =
@@ -275,7 +330,7 @@ struct Parser {
             }
 
             if (consume(Token::Type::ASSIGN)) {
-                ir::Expr _default = parseExpr();
+                ir::Expr _default = parse_expr();
                 internal_assert(ir::is_constant_expr(_default))
                     << "Field default values must be constants, received: "
                     << _default << " for typed fields " << " of element "
@@ -300,11 +355,11 @@ struct Parser {
                                                        std::move(defaults));
     }
 
-    void parseInterfaceDef() {
-        internal_error << "TODO: implement parseInterfaceDef";
+    void parse_interface_def() {
+        internal_error << "TODO: implement parse_interface_def";
     }
 
-    void parseExtern() {
+    void parse_extern() {
         // TODO: what if an extern name-conflicts with a type or something?
         // probably should check conflicts for all symbols?
         expect(Token::Type::EXTERN);
@@ -318,13 +373,13 @@ struct Parser {
             << id.lineBegin;
         // TODO: should we support defaults? that makes passing in args harder.
         expect(Token::Type::COL);
-        ir::Type type = parseType();
+        ir::Type type = parse_type();
         expect(Token::Type::SEMICOL);
         add_type_to_frame(name, type, /* mutable */ false);
         program.externs.emplace_back(name, std::move(type));
     }
 
-    void parseFunction() {
+    void parse_function() {
         expect(Token::Type::FUNC);
         const Token id = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(id.value);
@@ -344,7 +399,7 @@ struct Parser {
                     << "Duplicate interface name: " << iname
                     << " in definition of func: " << name;
                 ir::Interface interface = consume(Token::Type::COL).has_value()
-                                              ? parseInterface()
+                                              ? parse_interface()
                                               : ir::IEmpty::make();
                 interfaces.emplace_back(iname, interface);
                 current_generics[iname] =
@@ -367,8 +422,8 @@ struct Parser {
                 const std::string arg_name =
                     std::get<std::string>(arg_id.value);
                 expect(Token::Type::COL);
-                // TODO: handle `mut`! Use ParseNameDef?
-                ir::Type type = parseType();
+                // TODO: handle `mut`! Use parse_name_def?
+                ir::Type type = parse_type();
 
                 ir::Expr default_value;
 
@@ -378,7 +433,7 @@ struct Parser {
                     // For now, assume that's done in type inference.
                     // TODO: this should not perform computation!
                     // Can we easily prevent that? Enforce is_constant?
-                    default_value = parseExpr();
+                    default_value = parse_expr();
                     internal_assert(ir::is_constant_expr(default_value))
                         << "Function default values must be constants, "
                            "received: "
@@ -398,7 +453,7 @@ struct Parser {
         // Optional RARROW with return_type: otherwise, requires type inference!
         ir::Type ret_type;
         if (consume(Token::Type::RARROW)) {
-            ret_type = parseType();
+            ret_type = parse_type();
         }
         const bool ret_type_set = ret_type.defined();
 
@@ -420,14 +475,14 @@ struct Parser {
         // do inference?
 
         if (consume(Token::Type::ASSIGN)) {
-            ir::Expr expr = parseExpr();
+            ir::Expr expr = parse_expr();
             if (!ret_type_set && expr.type().defined()) {
                 ret_type = expr.type();
             }
             expect(Token::Type::SEMICOL);
             body = ir::Return::make(expr);
         } else {
-            body = parseSequence();
+            body = parse_sequence();
             // TODO: do type checking if they don't match?
             if (!ret_type_set) {
                 ret_type = ir::get_return_type(body);
@@ -448,14 +503,14 @@ struct Parser {
         }
     }
 
-    ir::Stmt parseSequence() {
+    ir::Stmt parse_sequence() {
         std::vector<ir::Stmt> stmts;
         expect(Token::Type::LSQUIGGLE);
         // brackets enclose a new frame!
         new_frame();
 
         while (!consume(Token::Type::RSQUIGGLE)) {
-            stmts.push_back(parseStmt());
+            stmts.push_back(parse_statement());
         }
         // close the frame.
         end_frame();
@@ -478,52 +533,52 @@ struct Parser {
     // name += expr; ?
     // call? no bc no side effects...
     // for? not while.
-    ir::Stmt parseStmt() {
+    ir::Stmt parse_statement() {
         if (peek().type == Token::Type::LSQUIGGLE) {
-            return parseSequence();
+            return parse_sequence();
         } else if (consume(Token::Type::IF)) {
-            ir::Expr cond = parseExpr(); // no required parens
-            ir::Stmt then_case = parseStmt();
+            ir::Expr cond = parse_expr(); // no required parens
+            ir::Stmt then_case = parse_statement();
             internal_assert(!consume(Token::Type::ELIF))
                 << "TODO: implement elif parsing for line: "
                 << peek().lineBegin;
             if (consume(Token::Type::ELSE)) {
-                ir::Stmt else_case = parseStmt();
+                ir::Stmt else_case = parse_statement();
                 return ir::IfElse::make(std::move(cond), std::move(then_case),
                                         std::move(else_case));
             } else {
                 return ir::IfElse::make(std::move(cond), std::move(then_case));
             }
         } else if (consume(Token::Type::RETURN)) {
-            ir::Expr ret = parseExpr();
+            ir::Expr ret = parse_expr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
         } else if (consume(Token::Type::PRINT)) {
             expect(Token::Type::LPAREN);
-            ir::Expr value = parseExpr();
+            ir::Expr value = parse_expr();
             expect(Token::Type::RPAREN);
             expect(Token::Type::SEMICOL);
             return ir::Print::make(value);
         } else if (peek().type == Token::Type::IDENTIFIER) {
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?
-            ir::WriteLoc loc = parseWriteLoc();
+            ir::WriteLoc loc = parse_write_loc();
             if (loc.accesses.empty() && !name_in_scope(loc.base)) {
                 // Just a regular variable write
                 // might be an Assign (if labelled `mut`)
-                return parseNameDecl(std::move(loc));
+                return parse_name_decl(std::move(loc));
             } else if (consume(Token::Type::ASSIGN)) {
-                return parseAssign(std::move(loc));
+                return parse_assign(std::move(loc));
             } else {
                 // Must be an accumulate.
-                return parseAccumulate(std::move(loc));
+                return parse_accumulate(std::move(loc));
             }
         }
-        internal_error << "TODO: implement parseStmt for "
+        internal_error << "[unimplemented] parse_statement for "
                        << peek().to_string();
     }
 
-    ir::Stmt parseNameDecl(ir::WriteLoc loc) {
+    ir::Stmt parse_name_decl(ir::WriteLoc loc) {
         // This is a never-seen-before write to a variable.
         internal_assert(!loc.type.defined());
         ir::Type type_label;
@@ -533,16 +588,16 @@ struct Parser {
             if (consume(Token::Type::MUT)) {
                 _mutable = true;
                 if (peek().type == Token::Type::IDENTIFIER) {
-                    type_label = parseType();
+                    type_label = parse_type();
                 } // otherwise just a `mut` label.
                 // TODO: should we ever allow "just" a mut label?
             } else {
-                type_label = parseType();
+                type_label = parse_type();
             }
         }
 
         expect(Token::Type::ASSIGN);
-        ir::Expr value = parseExpr();
+        ir::Expr value = parse_expr();
         ir::Type type = value.type();
         expect(Token::Type::SEMICOL);
 
@@ -576,8 +631,8 @@ struct Parser {
         }
     }
 
-    ir::Stmt parseAssign(ir::WriteLoc loc) {
-        ir::Expr value = parseExpr();
+    ir::Stmt parse_assign(ir::WriteLoc loc) {
+        ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
 
         // TODO: do type forcing here!
@@ -603,7 +658,7 @@ struct Parser {
         return ir::Assign::make(std::move(loc), std::move(value), mutating);
     }
 
-    ir::Stmt parseAccumulate(ir::WriteLoc loc) {
+    ir::Stmt parse_accumulate(ir::WriteLoc loc) {
         ir::Accumulate::OpType op = ir::Accumulate::OpType::Add;
         // Try to parse an accumulate
         if (consume(Token::Type::PLUS)) {
@@ -611,11 +666,10 @@ struct Parser {
         } else if (consume(Token::Type::STAR)) {
             op = ir::Accumulate::OpType::Mul;
         } else {
-            internal_error << "Unknown token when parsing Accumulate at line: "
-                           << peek().lineBegin;
+            report_error() << "Unknown token when parsing Accumulate at line:";
         }
         expect(Token::Type::ASSIGN);
-        ir::Expr value = parseExpr();
+        ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
         return ir::Accumulate::make(std::move(loc), op, std::move(value));
     }
@@ -638,7 +692,7 @@ struct Parser {
 
     // TODO: parse member access first somehow...?
     // expr := muldivmod_expr
-    ir::Expr parseExpr() { return parseOr(); }
+    ir::Expr parse_expr() { return parse_or(); }
 
     struct BinOperator {
         const ir::BinOp::OpType op;
@@ -647,15 +701,15 @@ struct Parser {
     };
 
     template <size_t N, typename F>
-    ir::Expr parseBinOpWithPrecedence(F parseSubExpr,
-                                      const std::array<BinOperator, N> &ops) {
-        ir::Expr expr = parseSubExpr();
+    ir::Expr
+    parse_bin_op_with_precedence(F parse_sub_expr,
+                                 const std::array<BinOperator, N> &ops) {
+        ir::Expr expr = parse_sub_expr();
         while (true) {
             // Find the first matching operation
-            auto it =
-                std::find_if(ops.begin(), ops.end(), [this](const auto &op) {
-                    return consume(op.token);
-                });
+            auto it = std::find_if(ops.begin(), ops.end(), [&](const auto &op) {
+                return consume(op.token);
+            });
 
             // If no operation is found, we're done here.
             if (it == ops.end()) {
@@ -663,7 +717,7 @@ struct Parser {
             }
 
             // Parse the right-hand side and create the binary operation
-            ir::Expr rhs = parseSubExpr();
+            ir::Expr rhs = parse_sub_expr();
             if (it->flip) {
                 expr = ir::BinOp::make(it->op, std::move(rhs), std::move(expr));
             } else {
@@ -673,9 +727,9 @@ struct Parser {
     }
 
     // muldivmod_expr := addsub_expr (('*' | '/' | '%') addsub_expr)*
-    ir::Expr parseMulDivMod() {
-        return parseBinOpWithPrecedence<3>(
-            [this]() { return parseBaseExpr(); },
+    ir::Expr parse_mul_div_mod() {
+        return parse_bin_op_with_precedence<3>(
+            [this]() { return parse_base_expr(); },
             {{
                 {ir::BinOp::Mul, Token::Type::STAR},
                 {ir::BinOp::Div, Token::Type::SLASH},
@@ -684,9 +738,9 @@ struct Parser {
     }
 
     // addsub_expr := rel_expr (('+' | '-') rel_expr)*
-    ir::Expr parseAddSub() {
-        return parseBinOpWithPrecedence<2>(
-            [this]() { return parseMulDivMod(); },
+    ir::Expr parse_add_sub() {
+        return parse_bin_op_with_precedence<2>(
+            [this]() { return parse_mul_div_mod(); },
             {{
                 {ir::BinOp::Add, Token::Type::PLUS},
                 {ir::BinOp::Sub, Token::Type::MINUS},
@@ -694,9 +748,9 @@ struct Parser {
     }
 
     // rel_expr := eq_expr (('<=' | '<') eq_expr)*
-    ir::Expr parseRels() {
-        return parseBinOpWithPrecedence<4>(
-            [this]() { return parseAddSub(); },
+    ir::Expr parse_rels() {
+        return parse_bin_op_with_precedence<4>(
+            [this]() { return parse_add_sub(); },
             {{
                 {ir::BinOp::Lt, Token::Type::LT},
                 {ir::BinOp::Le, Token::Type::LEQ},
@@ -706,9 +760,9 @@ struct Parser {
     }
 
     // eq_expr := and_expr (('==' | '!=') and_expr)*
-    ir::Expr parseEqs() {
-        return parseBinOpWithPrecedence<2>(
-            [this]() { return parseRels(); },
+    ir::Expr parse_eqs() {
+        return parse_bin_op_with_precedence<2>(
+            [this]() { return parse_rels(); },
             {{
                 {ir::BinOp::Eq, Token::Type::EQ},
                 {ir::BinOp::Neq, Token::Type::NEQ},
@@ -716,44 +770,44 @@ struct Parser {
     }
 
     // and_expr := xor_expr ('^' xor_expr)*
-    ir::Expr parseAnd() {
-        return parseBinOpWithPrecedence<1>(
-            [this]() { return parseEqs(); },
+    ir::Expr parse_and() {
+        return parse_bin_op_with_precedence<1>(
+            [this]() { return parse_eqs(); },
             {{{ir::BinOp::And, Token::Type::AND}}});
     }
 
     // xor_expr := or_expr ('^' or_expr)*
-    ir::Expr parseXor() {
-        return parseBinOpWithPrecedence<1>(
-            [this]() { return parseAnd(); },
+    ir::Expr parse_xor() {
+        return parse_bin_op_with_precedence<1>(
+            [this]() { return parse_and(); },
             {{{ir::BinOp::Xor, Token::Type::XOR}}});
     }
 
     // or_expr := base_expr ('||' base_expr)*
-    ir::Expr parseOr() {
-        return parseBinOpWithPrecedence<1>(
+    ir::Expr parse_or() {
+        return parse_bin_op_with_precedence<1>(
             // TODO: logical and!
-            [this]() { return parseXor(); },
+            [this]() { return parse_xor(); },
             {{{ir::BinOp::Or, Token::Type::LOR}}});
     }
 
     // base_expr := '(' expr ')' | name (('.' field) | ('[' index (, index)* ']'
     // |
     // () ) | lambda args? : expr
-    ir::Expr parseBaseExpr() {
+    ir::Expr parse_base_expr() {
         if (consume(Token::Type::LPAREN)) {
-            ir::Expr inner = parseExpr();
+            ir::Expr inner = parse_expr();
             expect(Token::Type::RPAREN);
             return inner;
             // TODO: do these have the correct precedence?
         } else if (consume(Token::Type::MINUS)) {
-            ir::Expr inner = parseExpr();
+            ir::Expr inner = parse_expr();
             return ir::UnOp::make(ir::UnOp::Neg, std::move(inner));
         } else if (consume(Token::Type::NOT)) {
-            ir::Expr inner = parseExpr();
+            ir::Expr inner = parse_expr();
             return ir::UnOp::make(ir::UnOp::Not, std::move(inner));
         } else if (peek().type == Token::Type::IDENTIFIER) {
-            return parseIdentifier();
+            return parse_identifier();
             // Parse literals.
         } else if (consume(Token::Type::TRUE)) {
             return ir::BoolImm::make(true);
@@ -778,17 +832,18 @@ struct Parser {
             // default (pre-type casting) is f32
             return ir::FloatImm::make(f32, value);
         } else if (consume(Token::Type::BAR)) {
-            std::vector<ir::Lambda::Argument> args = parseLambdaArgs();
+            std::vector<ir::Lambda::Argument> args = parse_lambda_args();
             new_frame();
             for (const auto &arg : args) {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
             }
             // Optionally allow squiggles for lambda expression body.
-            const bool hasSquiggles =
+            const bool has_squiggles =
                 consume(Token::Type::LSQUIGGLE).has_value();
-            ir::Expr expr = parseExpr();
-            if (hasSquiggles)
+            ir::Expr expr = parse_expr();
+            if (has_squiggles) {
                 expect(Token::Type::RSQUIGGLE);
+            }
             end_frame();
             return ir::Lambda::make(std::move(args), std::move(expr));
         } else if (consume(Token::Type::LSQUIGGLE)) {
@@ -800,14 +855,14 @@ struct Parser {
                 return ir::Build::make(ir::Type(), empty);
             } else {
                 std::vector<ir::Expr> args =
-                    parseExprListUntil(Token::Type::RSQUIGGLE);
+                    parse_expr_list_until(Token::Type::RSQUIGGLE);
                 // TODO: can we know the type?
                 return ir::Build::make(ir::Type(), std::move(args));
             }
             // TODO: should also support e.g. Type{} notation.
         } else if (consume(Token::Type::STAR)) {
             // Option dereference.
-            ir::Expr arg = parseIdentifier();
+            ir::Expr arg = parse_identifier();
             ir::Type atype = arg.type();
             internal_assert(atype.defined() && atype.is<ir::Option_t>())
                 << "Parsed dereference of non-option: " << arg;
@@ -817,11 +872,9 @@ struct Parser {
         } else if (peek().type == Token::Type::STRING_LITERAL) {
             internal_error << "[unimplemented] string literals: "
                            << peek().to_string();
-        } else {
-            internal_error << "Unknown token in parseBaseExpr: "
-                           << peek().to_string()
-                           << " at line: " << peek().lineBegin;
         }
+        consume();
+        report_error() << "unexpected token";
     }
 
     // TODO(cgyurgyik): clean up parsing methods and add error reporting
@@ -946,7 +999,7 @@ struct Parser {
         return ir::Expr();
     }
 
-    ir::Expr parseIdentifier() {
+    ir::Expr parse_identifier() {
         const Token token = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(token.value);
         std::vector<std::string> fields; // possibly nested
@@ -976,7 +1029,7 @@ struct Parser {
         if (consume(Token::Type::LBRACKET)) {
             if (consume(Token::Type::LBRACKET)) {
                 // Parse template type list
-                template_types = parseTypeListUntil(Token::Type::RBRACKET);
+                template_types = parse_type_list_until(Token::Type::RBRACKET);
                 expect(Token::Type::RBRACKET);
                 internal_assert(!template_types.empty())
                     << "Template syntax expects type arguments, but did not "
@@ -990,7 +1043,7 @@ struct Parser {
                     << name << " at line: " << token.lineBegin;
             } else {
                 std::vector<ir::Expr> idxs =
-                    parseExprListUntil(Token::Type::RBRACKET);
+                    parse_expr_list_until(Token::Type::RBRACKET);
                 internal_assert(!idxs.empty())
                     << "Indexing into array/vector expects at least one index "
                        "for "
@@ -1006,7 +1059,7 @@ struct Parser {
 
         if (consume(Token::Type::LPAREN)) {
             std::vector<ir::Expr> args =
-                parseExprListUntil(Token::Type::RPAREN);
+                parse_expr_list_until(Token::Type::RPAREN);
 
             if (fields.empty()) {
                 // Checking program.funcs first means that users can override
@@ -1164,7 +1217,7 @@ struct Parser {
 
                 // Not intrinsic or set op, not sure what this is.
                 // TODO: could be a ctor of a type?
-                internal_error << "Unknown function call " << name;
+                report_error() << "Unknown function call " << name;
             } else {
                 // method access!
                 // TODO: type inference via interface?
@@ -1196,7 +1249,7 @@ struct Parser {
                         const std::string field =
                             std::get<std::string>(token.value);
                         expect(Token::Type::ASSIGN);
-                        ir::Expr value = parseExpr();
+                        ir::Expr value = parse_expr();
                         internal_assert(value.defined());
                         args[field] = std::move(value);
                     } while (consume(Token::Type::COMMA) &&
@@ -1205,7 +1258,7 @@ struct Parser {
                     return ir::Build::make(std::move(type), std::move(args));
                 }
                 // Otherwise just a regular list-like struct build.
-                auto args = parseExprListUntil(Token::Type::RSQUIGGLE);
+                auto args = parse_expr_list_until(Token::Type::RSQUIGGLE);
                 return ir::Build::make(std::move(type), std::move(args));
             }
             // otherwise ignore, not a struct build, e.g. maybe `if` expr { body
@@ -1215,33 +1268,33 @@ struct Parser {
         return makeExpr();
     }
 
-    std::vector<ir::Expr> parseExprListUntil(const Token::Type &token) {
+    std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {
         std::vector<ir::Expr> exprs;
         if (consume(token)) {
             return exprs;
         }
         do {
-            ir::Expr expr = parseExpr();
+            ir::Expr expr = parse_expr();
             exprs.emplace_back(std::move(expr));
         } while (consume(Token::Type::COMMA));
         expect(token);
         return exprs;
     }
 
-    std::vector<ir::Type> parseTypeListUntil(const Token::Type &token) {
+    std::vector<ir::Type> parse_type_list_until(const Token::Type &token) {
         std::vector<ir::Type> types;
         if (consume(token)) {
             return types;
         }
         do {
-            ir::Type type = parseType();
+            ir::Type type = parse_type();
             types.emplace_back(std::move(type));
         } while (consume(Token::Type::COMMA));
         expect(token);
         return types;
     }
 
-    std::vector<ir::Lambda::Argument> parseLambdaArgs() {
+    std::vector<ir::Lambda::Argument> parse_lambda_args() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
         // TODO: should we allow no arg lambdas?
@@ -1250,7 +1303,7 @@ struct Parser {
         // but maybe we need that for rng?
         std::vector<ir::Lambda::Argument> args;
         do {
-            auto def = parseNameDef<false, true>(false);
+            auto def = parse_name_def<false, true>(false);
             internal_assert(!def.value.defined())
                 << "Lambdas cannot have default function values! " << def.name
                 << " assigned default: " << def.value;
@@ -1271,7 +1324,7 @@ struct Parser {
 
     // TODO: allow `mut` flag!
     template <bool T_REQUIRED, bool E_CONST>
-    NameDef parseNameDef(const bool expr_allowed) {
+    NameDef parse_name_def(const bool expr_allowed) {
         NameDef def;
 
         const Token token = expect(Token::Type::IDENTIFIER);
@@ -1282,22 +1335,22 @@ struct Parser {
             if (consume(Token::Type::MUT)) {
                 def.mut = true;
             }
-            def.type = parseType();
+            def.type = parse_type();
         } else if (consume(Token::Type::COL)) {
             if (consume(Token::Type::MUT)) {
                 def.mut = true;
                 // might have no type label, just mut
                 if (peek().type != Token::Type::ASSIGN) {
-                    def.type = parseType();
+                    def.type = parse_type();
                 }
             } else {
                 // no mut label, must be type.
-                def.type = parseType();
+                def.type = parse_type();
             }
         }
 
         if (expr_allowed && consume(Token::Type::ASSIGN)) {
-            def.value = parseExpr();
+            def.value = parse_expr();
             if constexpr (E_CONST) {
                 internal_assert(ir::is_constant_expr(def.value))
                     << "Expected constant value for name: " << def.name
@@ -1307,7 +1360,7 @@ struct Parser {
         return def;
     }
 
-    ir::WriteLoc parseWriteLoc() {
+    ir::WriteLoc parse_write_loc() {
         const Token token = expect(Token::Type::IDENTIFIER);
         const std::string base = std::get<std::string>(token.value);
         ir::Type base_type;
@@ -1326,7 +1379,7 @@ struct Parser {
                 loc.add_struct_access(field_name);
             } else {
                 expect(Token::Type::LBRACKET);
-                ir::Expr index = parseExpr();
+                ir::Expr index = parse_expr();
                 loc.add_index_access(std::move(index));
             }
         }
@@ -1337,7 +1390,7 @@ struct Parser {
     //         | f[N] | bf[N] | f[N]_[N]
     //         | bool | vector[type, int]
     //         | option[type] | declared_type
-    ir::Type parseType() {
+    ir::Type parse_type() {
         // TODO: support tuples of types! AKA unnamed structs.
         const Token id = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(id.value);
@@ -1365,9 +1418,10 @@ struct Parser {
         } else if (std::regex_match(name, match, float_pattern)) {
             const uint32_t bits = std::stoul(match[1].str());
             if (!name.empty() && name.front() == 'b') {
-                internal_assert(bits == 16)
-                    << "brain float (bfloat) only comes in width 16";
-                return ir::Float_t::make_bf16();
+                if (bits == 16) {
+                    return ir::Float_t::make_bf16();
+                }
+                report_error() << "brain float (bfloat) expects width 16";
             }
 
             // Assume default types for floating precision is IEEE-754 standard.
@@ -1379,7 +1433,7 @@ struct Parser {
             case 16:
                 return ir::Float_t::make_f16();
             default:
-                internal_error << "unsupported floating point type: f" << bits;
+                report_error() << "unsupported floating point type: f" << bits;
             }
         } else if (name == "bool") {
             return ir::Bool_t::make();
@@ -1389,9 +1443,9 @@ struct Parser {
         // Now look for built-ins
         else if (name == "vector") {
             expect(Token::Type::LBRACKET);
-            ir::Type etype = parseType();
+            ir::Type etype = parse_type();
             expect(Token::Type::COMMA);
-            const int64_t lanes = parseIntLiteral();
+            const int64_t lanes = parse_int_literal();
             // TODO: this upper bound is arbitrary. Can't imagine needing a
             // larger one though?
             internal_assert(lanes > 0 && lanes < 1025)
@@ -1401,16 +1455,17 @@ struct Parser {
                                       static_cast<uint32_t>(lanes));
         } else if (name == "option") {
             expect(Token::Type::LBRACKET);
-            ir::Type etype = parseType();
+            ir::Type etype = parse_type();
+            if (etype.is_bool()) {
+                report_error()
+                    << "Bonsai does not support option[bool] "
+                       "because the semantics are easily misconstrued.";
+            }
             expect(Token::Type::RBRACKET);
-            internal_assert(!etype.is_bool())
-                << "Bonsai does not support option[bool] because the semantics "
-                   "are "
-                   "confusing.";
             return ir::Option_t::make(std::move(etype));
         } else if (name == "set") {
             expect(Token::Type::LBRACKET);
-            ir::Type etype = parseType();
+            ir::Type etype = parse_type();
             expect(Token::Type::RBRACKET);
             // TODO: assert etype is a struct_t? or volume_t?
             return ir::Set_t::make(std::move(etype));
@@ -1418,19 +1473,21 @@ struct Parser {
             return current_generics[name];
         }
         // Must be a user-defined type, or an error.
-        internal_assert(program.types.contains(name))
-            << "Unknown type: " << name;
-        return program.types[name];
+        auto it = program.types.find(name);
+        if (it == program.types.end()) {
+            report_error() << "unknown type: " + name;
+        }
+        return it->second;
     }
 
     // interface = iPrimitive | iVector[[interface]] | interface (`|`
     // interface)*
-    ir::Interface parseInterface() {
+    ir::Interface parse_interface() {
         // TODO: Support interface unions and UDIs!
-        return parsePrimitiveInterface();
+        return parse_primitive_interface();
     }
 
-    ir::Interface parsePrimitiveInterface() {
+    ir::Interface parse_primitive_interface() {
         const Token id = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(id.value);
         if (name == "IFloat") {
@@ -1439,7 +1496,7 @@ struct Parser {
             ir::Interface inner;
             if (consume(Token::Type::LBRACKET)) {
                 expect(Token::Type::LBRACKET);
-                inner = parseInterface();
+                inner = parse_interface();
                 expect(Token::Type::RBRACKET);
                 expect(Token::Type::RBRACKET);
             } else {
@@ -1449,11 +1506,11 @@ struct Parser {
         } else if (current_generics.contains(name)) {
             return current_generics[name].as<ir::Generic_t>()->interface;
         }
-        internal_error << "Unrecognized primitive interface: " << name;
+        report_error() << "Unrecognized primitive interface: " << name;
     }
 
-    int64_t parseIntLiteral() {
-        // TODO: might need a "tryParseIntLiteral"...
+    int64_t parse_int_literal() {
+        // TODO: might need a "tryparse_int_literal"...
         const Token _int = expect(Token::Type::INT_LITERAL);
         return std::get<int64_t>(_int.value);
     }
@@ -1465,7 +1522,7 @@ ir::Program parse(const std::string &filename) {
     TokenStream tokens = lex(filename);
     // Don't enforce types when building ASTs, might need to do some inference.
     ir::global_disable_type_enforcement();
-    return Parser(tokens).parseProgram();
+    return Parser(tokens).parse_program();
 }
 
 } // namespace parser

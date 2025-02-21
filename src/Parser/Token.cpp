@@ -296,16 +296,20 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
-void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column) {
+void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column,
+                            std::string file_name) {
     tokens.push_back(Token{
-        .type = type,
         .lineBegin = line,
         .colBegin = column,
+        .fileName = std::move(file_name),
+        .type = type,
     });
 }
 
 bool TokenStream::consume(Token::Type type) {
-    if (tokens.front().type == type) {
+    Token token = tokens.front();
+    if (token.type == type) {
+        current = token;
         tokens.pop_front();
         return true;
     }

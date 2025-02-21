@@ -1,5 +1,8 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:59
-Cannot check type of unknown var: o required at line: 5
+[internal] Error: src/Parser/Parser.cpp:53
+tests/bonsai/error/struct_default.bonsai:5:17: [parse error] Cannot check type of unknown var: o
+
+    d : vec3f = o; // not allowed: non-constant set value.
+                ^

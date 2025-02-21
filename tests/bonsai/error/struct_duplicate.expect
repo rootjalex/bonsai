@@ -1,7 +1,8 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:267
+[internal] Error: src/Parser/Parser.cpp:53
+tests/bonsai/error/struct_duplicate.bonsai:5:5: [parse error] Duplicate field name: o in element definition: Ray
 
---> fields.cend() == std::find_if(fields.cbegin(), fields.cend(), [&field_name](const auto &p) { return p.first == field_name; })
-Duplicate field name: o in element definition: Ray
+    o : vec3f; // not allowed: duplicate
+    ^

@@ -1,7 +1,8 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:1421
+[internal] Error: src/Parser/Parser.cpp:53
+tests/bonsai/error/invalid_name.bonsai:1:14: [parse error] unknown type: f1_1_1
 
---> program.types.contains(name)
-Unknown type: f1_1_1
+func main(x: f1_1_1) -> i32 {
+             ^^^^^^
