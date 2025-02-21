@@ -1,6 +1,0 @@
----CODE---
--1
----STDERR---
-tests/bonsai/error/spacing.bonsai:2:16: lex error: SINGLE `&` not implemented
-func foo() = x & y;
-               ^

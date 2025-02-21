@@ -1,2 +1,0 @@
-// bonsai cannot infer the return type of this function.
-func foo() = x & y;

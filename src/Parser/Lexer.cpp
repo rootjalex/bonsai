@@ -64,8 +64,7 @@ class Lexer {
 
     static Token::Type get_token_type(std::string_view);
 
-    // TODO(cgyurgyik): Column number isn't always lined up correctly.
-    // This probably needs to be looked at on a case-by-case basis.
+    // Outputs an error message to error I/O and adds an ERROR token to stream.
     void report_error(std::string_view message) {
         add_token(Token::Type::ERROR);
         std::ifstream file(file_name());
