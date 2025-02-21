@@ -78,15 +78,22 @@ struct Token {
         ERROR,
     };
 
-    Type type;
-    std::variant<std::monostate, int64_t, uint64_t, double, std::string> value;
-
     uint64_t lineBegin;
     uint64_t colBegin;
     uint64_t lineEnd;
-    uint64_t colEnd;
+    Type type;
+    std::variant<std::monostate, int64_t, uint64_t, double, std::string> value;
+
+    // Provides a common interface for accessing line/column information.
+    inline uint64_t line_begin() const { return lineBegin; }
+    inline uint64_t line_end() const { return lineEnd; }
+    inline uint64_t column_begin() const { return colBegin; }
+    inline uint64_t column_end() const { return colBegin + size(); }
 
     static std::string token_type_string(Token::Type);
+
+    // Returns the number of characters in this token.
+    uint64_t size() const;
 
     std::string to_string() const;
 
@@ -95,7 +102,7 @@ struct Token {
 
 struct TokenStream {
     void add_token(Token new_token) { tokens.push_back(std::move(new_token)); }
-    void add_token(Token::Type, uint64_t, uint64_t, uint32_t);
+    void add_token(Token::Type, uint64_t, uint64_t);
 
     Token peek(uint32_t count) const;
 
@@ -110,6 +117,14 @@ struct TokenStream {
     bool consume(Token::Type);
 
     bool empty() const { return tokens.empty(); }
+
+    // Returns whether this is a valid token stream.
+    bool is_valid() const {
+        return std::none_of(tokens.begin(), tokens.end(),
+                            [](const Token &token) {
+                                return token.type == Token::Type::ERROR;
+                            });
+    }
 
     friend std::ostream &operator<<(std::ostream &, const TokenStream &);
 

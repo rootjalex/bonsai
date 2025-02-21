@@ -56,6 +56,76 @@ std::string escape(const std::string &str) {
 }
 } // namespace
 
+uint64_t Token::size() const {
+    switch (this->type) {
+    case Token::Type::LPAREN:
+    case Token::Type::RPAREN:
+    case Token::Type::LBRACKET:
+    case Token::Type::RBRACKET:
+    case Token::Type::LSQUIGGLE:
+    case Token::Type::RSQUIGGLE:
+    case Token::Type::COMMA:
+    case Token::Type::PERIOD:
+    case Token::Type::COL:
+    case Token::Type::SEMICOL:
+    case Token::Type::BAR:
+    case Token::Type::ASSIGN:
+    case Token::Type::AT:
+    case Token::Type::XOR:
+    case Token::Type::NOT:
+    case Token::Type::PLUS:
+    case Token::Type::MINUS:
+    case Token::Type::STAR:
+    case Token::Type::SLASH:
+    case Token::Type::MOD:
+    case Token::Type::LT:
+    case Token::Type::GT:
+        return 1;
+    case Token::Type::INC:
+    case Token::Type::AND:
+    case Token::Type::LOR:
+    case Token::Type::DEC:
+    case Token::Type::EQ:
+    case Token::Type::NEQ:
+    case Token::Type::LEQ:
+    case Token::Type::GEQ:
+    case Token::Type::IN:
+    case Token::Type::IF:
+    case Token::Type::RARROW:
+        return 2;
+    case Token::Type::MUT:
+    case Token::Type::FOR:
+        return 3;
+    case Token::Type::ELIF:
+    case Token::Type::ELSE:
+    case Token::Type::TRUE:
+    case Token::Type::FUNC:
+        return 4;
+    case Token::Type::PRINT:
+    case Token::Type::FALSE:
+        return 5;
+    case Token::Type::RETURN:
+    case Token::Type::EXTERN:
+    case Token::Type::IMPORT:
+        return 6;
+    case Token::Type::ELEMENT:
+        return 7;
+    case Token::Type::INTERFACE:
+        return 9;
+    case Token::Type::INT_LITERAL:
+        return std::to_string(std::get<int64_t>(value)).size();
+    case Token::Type::UINT_LITERAL:
+        return std::to_string(std::get<uint64_t>(value)).size();
+    case Token::Type::FLOAT_LITERAL:
+        return std::to_string(std::get<double>(value)).size();
+    case Token::Type::STRING_LITERAL:
+    case Token::Type::IDENTIFIER:
+        return std::get<std::string>(value).size();
+    case Token::Type::ERROR:
+        return 0;
+    }
+}
+
 std::string Token::token_type_string(Token::Type type) {
     switch (type) {
     case Token::Type::INT_LITERAL:
@@ -221,19 +291,16 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     default:
         break;
     }
-    out << ", " << token.lineBegin << ":" << token.colBegin << "-"
-        << token.lineEnd << ":" << token.colEnd << ")";
+    out << ", " << token.line_begin() << ":" << token.column_begin() << "-"
+        << token.line_end() << ":" << token.column_end() << ")";
     return out;
 }
 
-void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column,
-                            uint32_t length) {
+void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column) {
     tokens.push_back(Token{
         .type = type,
         .lineBegin = line,
         .colBegin = column,
-        .lineEnd = line,
-        .colEnd = column + length - 1,
     });
 }
 

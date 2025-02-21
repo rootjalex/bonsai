@@ -9,7 +9,6 @@
 
 namespace bonsai {
 namespace parser {
-
 class Lexer {
   public:
     Lexer(std::string filename) : filename(std::move(filename)) {}
@@ -35,13 +34,22 @@ class Lexer {
         reset_column();
     }
 
-    void add_token(Token::Type type, uint32_t length = 1) {
-        stream.add_token(type, line_no(), column_no(), length);
+    void add_token(Token::Type type) {
+        stream.add_token(type, line_no(), column_no());
+        std::optional<Token> t = stream.back();
+        incr_column(t->size());
     }
 
-    void add_token(Token token) { stream.add_token(std::move(token)); }
+    void add_token(Token token) {
+        stream.add_token(std::move(token));
+        std::optional<Token> t = stream.back();
+        incr_column(t->size());
+    }
 
     const TokenStream &get_tokens() { return stream; }
+
+    // Returns whether the tokens parsed are currently error-free.
+    const bool is_valid() const { return stream.is_valid(); }
 
     std::string file_name() { return filename; }
 
@@ -59,16 +67,8 @@ class Lexer {
     // TODO(cgyurgyik): Column number isn't always lined up correctly.
     // This probably needs to be looked at on a case-by-case basis.
     void report_error(std::string_view message) {
-        // Point past the last legally lex'd token.
-        if (std::optional<Token> last = get_tokens().back()) {
-            incr_column(last->colEnd - last->colBegin + 1);
-        }
-        incr_column(); // Point to this token.
-        // Add an error token.
         add_token(Token::Type::ERROR);
-
         std::ifstream file(file_name());
-
         std::string line;
         for (int i = 1; i <= line_no(); ++i) {
             if (!std::getline(file, line))
@@ -81,8 +81,8 @@ class Lexer {
         std::cerr << file_name() << ":" << line_no() << ":" << column_no()
                   << ": lex error: " << message << "\n"
                   << line << "\n"
-                  << std::string(column_no(), ' ') << std::string(1, '^')
-                  << "\n";
+                  << std::string(std::max<int64_t>(column_no() - 1, 0), ' ')
+                  << std::string(1, '^') << "\n";
     }
 
     char handle_escaped_char(std::istream &program_stream);
@@ -230,7 +230,6 @@ Token Lexer::lex_number(std::ifstream &program_stream) {
         new_token.value = static_cast<double>(std::stold(token_string));
     }
     new_token.lineEnd = line_no();
-    new_token.colEnd = column_no() - 1;
     return new_token;
 }
 
@@ -257,7 +256,6 @@ void Lexer::lex() {
                 .lineBegin = line_no(),
                 .colBegin = column_no(),
                 .lineEnd = line_no(),
-                .colEnd = column_no() + token_string.length() - 1,
             };
             if (new_token.type == Token::Type::IDENTIFIER) {
                 new_token.value = token_string;
@@ -314,7 +312,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '=') {
                     program_stream.get();
-                    add_token(Token::Type::EQ, /*length=*/2);
+                    add_token(Token::Type::EQ);
                 } else {
                     add_token(Token::Type::ASSIGN);
                 }
@@ -323,7 +321,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '&') {
                     program_stream.get();
-                    add_token(Token::Type::AND, /*length=*/2);
+                    add_token(Token::Type::AND);
                 } else {
                     report_error("SINGLE `&` not implemented");
                 }
@@ -332,7 +330,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '|') {
                     program_stream.get();
-                    add_token(Token::Type::LOR, /*length=*/2);
+                    add_token(Token::Type::LOR);
                     break;
                 }
                 add_token(Token::Type::BAR);
@@ -345,7 +343,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '=') {
                     program_stream.get();
-                    add_token(Token::Type::NEQ, /*length=*/2);
+                    add_token(Token::Type::NEQ);
                 } else {
                     add_token(Token::Type::NOT);
                 }
@@ -354,7 +352,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '+') {
                     program_stream.get();
-                    add_token(Token::Type::INC, /*length=*/2);
+                    add_token(Token::Type::INC);
                 } else {
                     add_token(Token::Type::PLUS);
                 }
@@ -363,14 +361,12 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '>') {
                     program_stream.get();
-                    add_token(Token::Type::RARROW, /*length=*/2);
+                    add_token(Token::Type::RARROW);
                 } else if (program_stream.peek() == '-') {
                     program_stream.get();
-                    add_token(Token::Type::DEC, /*length=*/2);
+                    add_token(Token::Type::DEC);
                 } else if (std::isdigit(program_stream.peek())) {
                     Token token = lex_number(program_stream);
-                    incr_column();
-                    token.colEnd++;
                     if (std::holds_alternative<int64_t>(token.value)) {
                         token.value = -std::get<int64_t>(token.value);
                     } else if (std::holds_alternative<uint64_t>(token.value)) {
@@ -415,7 +411,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '=') {
                     program_stream.get();
-                    add_token(Token::Type::LEQ, /*length=*/2);
+                    add_token(Token::Type::LEQ);
                 } else {
                     add_token(Token::Type::LT);
                 }
@@ -424,7 +420,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '=') {
                     program_stream.get();
-                    add_token(Token::Type::GEQ, /*length=*/2);
+                    add_token(Token::Type::GEQ);
                 } else {
                     add_token(Token::Type::GT);
                 }
@@ -456,7 +452,6 @@ void Lexer::lex() {
                 }
 
                 new_token.lineEnd = line_no();
-                new_token.colEnd = column_no();
                 new_token.value = str;
                 add_token(new_token);
 
@@ -533,6 +528,11 @@ TokenStream lex(const std::string &filename) {
     // Lexical analysis
     Lexer lexer(filename);
     lexer.lex();
+
+    if (!lexer.is_valid()) {
+        abort();
+    }
+
     return lexer.get_tokens();
 }
 
