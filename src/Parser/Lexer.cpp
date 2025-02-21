@@ -86,7 +86,7 @@ class Lexer {
 
     // Handles escaped characters, e.g., `\r` or `\t`. If this is an invalid
     // escaped character, reports an error and returns `std::nullopt`.
-    std::optional<char> handle_escaped_char(std::istream &program_stream);
+    std::optional<char> handle_escaped_char(std::ifstream &program_stream);
 
     char consume(std::ifstream &program_stream);
     void consume_until_space(std::ifstream &program_stream);
@@ -441,12 +441,13 @@ void Lexer::lex() {
                         continue;
                     }
                     std::optional<char> c = handle_escaped_char(program_stream);
-                    // Required to avoid infinite loop.
-                    internal_assert(c.has_value());
+                    if (!c.has_value()) {
+                        continue;
+                    }
                     token_value += *c;
-                    program_stream.get();
-                    // Column increase for the character after the backslash.
-                    incr_column();
+                    // This is technically two characters in the input stream
+                    // being lexed so we consume an additional character here.
+                    consume(program_stream);
                 }
 
                 new_token.lineEnd = line_no();
@@ -489,7 +490,7 @@ void Lexer::lex() {
     }
 }
 
-std::optional<char> Lexer::handle_escaped_char(std::istream &program_stream) {
+std::optional<char> Lexer::handle_escaped_char(std::ifstream &program_stream) {
     switch (program_stream.peek()) {
     case 'a':
         return '\a';
@@ -514,7 +515,7 @@ std::optional<char> Lexer::handle_escaped_char(std::istream &program_stream) {
     case '?':
         return '\?';
     default:
-        const char c = static_cast<char>(program_stream.peek());
+        const char c = consume(program_stream);
         report_error("unrecognized escape sequence: \\" + std::string{c});
         return std::nullopt;
     }
