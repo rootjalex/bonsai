@@ -1,0 +1,6 @@
+import tests/bonsai/lower/import_float;
+import tests/bonsai/lower/import_vec3f; // also imports import_float
+
+func foo(v : vec3f) -> Float {
+    return sum(v);
+}
