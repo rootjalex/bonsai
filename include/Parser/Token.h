@@ -91,8 +91,6 @@ struct Token {
     inline uint64_t line_end() const { return lineEnd; }
     inline uint64_t column_begin() const { return colBegin; }
     inline uint64_t column_end() const { return colBegin + size(); }
-    // TODO(cgyurgyik): we probably want to reduce this to some pointer/index
-    // instead of copying the file name to *every* token.
     inline std::string file_name() const { return fileName; }
 
     static std::string token_type_string(Token::Type);
