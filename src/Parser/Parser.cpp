@@ -27,20 +27,20 @@ namespace {
 // instead of string concatenation. It should only be used in the Parser class.
 class ParseErrorReport {
   public:
-    ParseErrorReport(Token current) : current(current) {}
+    ParseErrorReport(std::string file_name, Token current)
+        : file_name(file_name), current(std::move(current)) {}
 
     [[noreturn]] ~ParseErrorReport() {
         const uint64_t begin_line = current.line_begin(),
                        begin_column = current.column_begin();
-        const std::string filename = current.file_name();
-        std::ifstream file(filename);
+        std::ifstream file(file_name);
         std::string line;
         for (int i = 1; i <= begin_line; ++i) {
             internal_assert(static_cast<bool>(std::getline(file, line)));
         }
 
         std::stringstream ss;
-        ss << filename << ":" << begin_line << ":" << begin_column
+        ss << file_name << ":" << begin_line << ":" << begin_column
            << ": [parse error] " << os.str() << "\n"
            << "\n";
         ss << line << "\n";
@@ -60,6 +60,7 @@ class ParseErrorReport {
     }
 
   private:
+    std::string file_name;
     Token current;
     std::ostringstream os;
 };
@@ -106,10 +107,12 @@ struct Parser {
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
                    f32 = ir::Float_t::make_f32();
 
+    const std::string &file_name() const { return tokens.file_name(); }
+
     // Reports the error with relevant token location information. This will
     // always point at the last consumed token.
     inline ParseErrorReport report_error() const {
-        return ParseErrorReport{tokens.current_token()};
+        return ParseErrorReport{file_name(), tokens.current_token()};
     }
 
     ir::Type get_type_from_frame(const std::string &name) const {
@@ -277,7 +280,8 @@ struct Parser {
         const std::string name = std::get<std::string>(id.value);
 
         internal_assert(!program.types.contains(name))
-            << "Redefinition of type: " << name << " on line " << id.lineBegin;
+            << "Redefinition of type: " << name << " on line "
+            << id.line_begin();
 
         // Support inline aliasing.
         if (consume(Token::Type::ASSIGN)) {
@@ -367,9 +371,9 @@ struct Parser {
         internal_assert(
             program.externs.cend() ==
             std::find_if(program.externs.cbegin(), program.externs.cend(),
-                         [&name](const auto &p) { return p.first == name; }))
+                         [&](const auto &p) { return p.first == name; }))
             << "Redefinition of extern: " << name << " on line "
-            << id.lineBegin;
+            << id.line_begin();
         // TODO: should we support defaults? that makes passing in args harder.
         expect(Token::Type::COL);
         ir::Type type = parse_type();
@@ -383,7 +387,8 @@ struct Parser {
         const Token id = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(id.value);
         internal_assert(!program.funcs.contains(name))
-            << "Redefinition of func: " << name << " on line " << id.lineBegin;
+            << "Redefinition of func: " << name << " on line "
+            << id.line_begin();
 
         ir::Function::InterfaceList interfaces;
         if (consume(Token::Type::LT)) {
@@ -515,7 +520,7 @@ struct Parser {
         end_frame();
         internal_assert(!stmts.empty())
             << "Failed to parse a Sequence at line: "
-            << peek().lineBegin; // TODO: this fails when the stream is empty
+            << peek().line_begin(); // TODO: this fails when the stream is empty
         if (stmts.size() == 1) {
             return std::move(stmts[0]);
         } else {
@@ -540,7 +545,7 @@ struct Parser {
             ir::Stmt then_case = parse_statement();
             internal_assert(!consume(Token::Type::ELIF))
                 << "TODO: implement elif parsing for line: "
-                << peek().lineBegin;
+                << peek().line_begin();
             if (consume(Token::Type::ELSE)) {
                 ir::Stmt else_case = parse_statement();
                 return ir::IfElse::make(std::move(cond), std::move(then_case),
@@ -1035,12 +1040,12 @@ struct Parser {
                     << "Template syntax expects type arguments, but did not "
                        "receive "
                        "any for name: "
-                    << name << " at line: " << token.lineBegin;
+                    << name << " at line: " << token.line_begin();
                 internal_assert(peek().type == Token::Type::LPAREN)
                     << "Template syntax supported only for function calls, "
                        "found on "
                        "name: "
-                    << name << " at line: " << token.lineBegin;
+                    << name << " at line: " << token.line_begin();
             } else {
                 std::vector<ir::Expr> idxs =
                     parse_expr_list_until(Token::Type::RBRACKET);
@@ -1048,7 +1053,7 @@ struct Parser {
                     << "Indexing into array/vector expects at least one index "
                        "for "
                        "name: "
-                    << name << " at line: " << token.lineBegin;
+                    << name << " at line: " << token.line_begin();
                 ir::Expr expr = makeExpr();
                 for (auto &idx : idxs) {
                     expr = ir::Extract::make(std::move(expr), std::move(idx));
@@ -1068,18 +1073,20 @@ struct Parser {
                     const auto &func = program.funcs[name];
                     // TODO: handle default params!
                     internal_assert(args.size() == func->args.size())
-                        << "Call to: " << name << " at line " << token.lineBegin
+                        << "Call to: " << name << " at line "
+                        << token.line_begin()
                         << " has incorrect number of arguments.\n"
                         << "Expected: " << func->args.size() << " but parsed "
-                        << args.size() << " at line: " << token.lineBegin;
+                        << args.size() << " at line: " << token.line_begin();
 
                     internal_assert(func->interfaces.size() ==
                                     template_types.size())
-                        << "Call to: " << name << " at line " << token.lineBegin
+                        << "Call to: " << name << " at line "
+                        << token.line_begin()
                         << " has incorrect number of template paramters.\n"
                         << "Expected: " << func->interfaces.size()
                         << " but parsed " << template_types.size()
-                        << " at line: " << token.lineBegin;
+                        << " at line: " << token.line_begin();
 
                     const size_t n_generics = func->interfaces.size();
 
@@ -1115,7 +1122,7 @@ struct Parser {
                             !args[i].type().defined() ||
                             ir::equals(expected_type, args[i].type()))
                             << "Argument " << i << " of call to function "
-                            << name << " on line " << token.lineBegin
+                            << name << " on line " << token.line_begin()
                             << " has incorrect type. Expected " << expected_type
                             << " but parsed: " << args[i].type();
                     }
@@ -1142,8 +1149,8 @@ struct Parser {
                 } else if (name_in_scope(name)) {
                     internal_assert(template_types.empty())
                         << "Error: cannot pass template parameters to lambda "
-                        << name << " definition on line: " << token.lineBegin
-                        << ":" << token.colBegin;
+                        << name << " definition on line: " << token.line_begin()
+                        << ":" << token.column_begin();
                     ir::Type var_type =
                         get_type_from_frame(name); // never undefined.
                     ir::Expr expr = ir::Var::make(var_type, name);
@@ -1156,10 +1163,10 @@ struct Parser {
                         << "cast() expects a template parameter, instead "
                            "received: "
                         << template_types.size()
-                        << " at line: " << token.lineBegin;
+                        << " at line: " << token.line_begin();
                     internal_assert(args.size() == 1)
                         << "cast takes a single argument, received: "
-                        << args.size() << " at line: " << token.lineBegin;
+                        << args.size() << " at line: " << token.line_begin();
                     return ir::Cast::make(std::move(template_types[0]),
                                           std::move(args[0]));
                 } else if (name == "eps") {
@@ -1167,10 +1174,10 @@ struct Parser {
                         << "eps() expects a template parameter, instead "
                            "received: "
                         << template_types.size()
-                        << " at line: " << token.lineBegin;
+                        << " at line: " << token.line_begin();
                     internal_assert(args.size() == 0)
                         << "eps takes no arguments, received: " << args.size()
-                        << " at line: " << token.lineBegin;
+                        << " at line: " << token.line_begin();
                     // TODO: or template?
                     ir::Type type = std::move(template_types[0]);
                     internal_assert(type.is_float())
@@ -1185,7 +1192,8 @@ struct Parser {
                 internal_assert(template_types.empty())
                     << name
                     << " does not take template parameters, but received: "
-                    << template_types.size() << " at line: " << token.lineBegin;
+                    << template_types.size()
+                    << " at line: " << token.line_begin();
 
                 // Special built-ins without template parameters
                 if (name == "permute") {
@@ -1209,8 +1217,9 @@ struct Parser {
                                             std::move(args[2]));
                 }
 
-                ir::Expr intrinsic = try_match_intrinsics(
-                    name, std::move(args), token.lineBegin, token.colBegin);
+                ir::Expr intrinsic = try_match_intrinsics(name, std::move(args),
+                                                          token.line_begin(),
+                                                          token.column_begin());
                 if (intrinsic.defined()) {
                     return intrinsic;
                 }
@@ -1226,14 +1235,14 @@ struct Parser {
                     << "TODO: support passing template types to a method "
                        "access: "
                     << expr << " received " << template_types.size()
-                    << " at line: " << token.lineBegin;
+                    << " at line: " << token.line_begin();
                 return ir::Call::make(std::move(expr), std::move(args));
             }
         }
 
         internal_assert(template_types.empty())
             << "TODO: support template arguments in constructors for: " << name
-            << " at line: " << token.lineBegin;
+            << " at line: " << token.line_begin();
 
         if (peek().type == Token::Type::LSQUIGGLE) {
             if (fields.empty() && program.types.contains(name)) {

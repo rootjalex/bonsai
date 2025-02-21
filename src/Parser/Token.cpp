@@ -300,14 +300,10 @@ std::ostream &operator<<(std::ostream &out, const Token &token) {
     return out;
 }
 
-void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column,
-                            std::string file_name) {
-    tokens.push_back(Token{
-        .lineBegin = line,
-        .colBegin = column,
-        .fileName = std::move(file_name),
-        .type = type,
-    });
+void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column) {
+    tokens.push_back(Token(type,
+                           /*line_begin=*/line,
+                           /*column_begin=*/column));
 }
 
 bool TokenStream::consume(Token::Type type) {
@@ -324,7 +320,7 @@ bool TokenStream::consume(Token::Type type) {
 Token TokenStream::peek(uint32_t count) const {
     if (count == 0) {
         if (tokens.empty()) {
-            return Token{.type = Token::Type::ERROR};
+            return Token::ErrorToken();
         }
         return tokens.front();
     }
@@ -334,11 +330,8 @@ Token TokenStream::peek(uint32_t count) const {
     }
 
     if (it == tokens.cend()) {
-        Token end_token = Token();
-        end_token.type = Token::Type::ERROR;
-        return end_token;
+        return Token::ErrorToken();
     }
-
     return *it;
 }
 
