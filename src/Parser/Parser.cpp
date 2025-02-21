@@ -814,6 +814,9 @@ struct Parser {
             ir::Type etype = atype.as<ir::Option_t>()->etype;
             // TODO(ajr): do we want an explicit Deref IR node?
             return ir::Cast::make(std::move(etype), std::move(arg));
+        } else if (peek().type == Token::Type::STRING_LITERAL) {
+            internal_error << "[unimplemented] string literals: "
+                           << peek().to_string();
         } else {
             internal_error << "Unknown token in parseBaseExpr: "
                            << peek().to_string()

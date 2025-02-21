@@ -432,29 +432,30 @@ void Lexer::lex() {
                 new_token.type = Token::Type::STRING_LITERAL;
                 new_token.lineBegin = line_no();
                 new_token.colBegin = column_no();
-                std::string str;
+                std::string token_value;
 
                 while (program_stream.peek() != EOF &&
                        program_stream.peek() != '"') {
-                    if (program_stream.peek() == '\\') {
-                        if (std::optional<char> c =
-                                handle_escaped_char(program_stream)) {
-                            str += *c;
-                            program_stream.get();
-                            // Additional column increase for the backslash.
-                            incr_column();
-                        }
-                    } else {
-                        str += program_stream.get();
+                    if (program_stream.peek() != '\\') {
+                        token_value += program_stream.get();
+                        continue;
                     }
+                    std::optional<char> c = handle_escaped_char(program_stream);
+                    // Required to avoid infinite loop.
+                    internal_assert(c.has_value());
+                    token_value += *c;
+                    program_stream.get();
+                    // Column increase for the character after the backslash.
+                    incr_column();
                 }
 
                 new_token.lineEnd = line_no();
-                new_token.value = str;
+                new_token.value = token_value;
                 add_token(new_token);
                 if (program_stream.peek() != '"') {
                     report_error("unclosed string literal");
                 }
+                consume(program_stream);
                 break;
             }
             // Whitespace

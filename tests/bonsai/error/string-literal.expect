@@ -1,0 +1,5 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:818
+[unimplemented] string literals: '"abc"'
