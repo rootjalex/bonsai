@@ -126,6 +126,10 @@ uint64_t Token::size() const {
     }
 }
 
+std::string Token::token_type_string(const Token &token) {
+    return Token::token_type_string(token.type);
+}
+
 std::string Token::token_type_string(Token::Type type) {
     switch (type) {
     case Token::Type::INT_LITERAL:

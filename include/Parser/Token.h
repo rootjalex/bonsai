@@ -96,6 +96,7 @@ struct Token {
     inline std::string file_name() const { return fileName; }
 
     static std::string token_type_string(Token::Type);
+    static std::string token_type_string(const Token &);
 
     // Returns the number of characters in this token.
     uint64_t size() const;

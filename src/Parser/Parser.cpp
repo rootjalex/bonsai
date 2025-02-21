@@ -150,8 +150,7 @@ struct Parser {
             const auto &frame = *it;
             const auto &found = frame.find(name);
             if (found != frame.cend()) {
-                report_error()
-                    << name << " shadows another variable (of the same name)";
+                report_error() << name << " shadows another variable";
             }
         }
         frames.back()[name] = {std::move(type), mut};
@@ -873,8 +872,9 @@ struct Parser {
             internal_error << "[unimplemented] string literals: "
                            << peek().to_string();
         }
-        consume();
-        report_error() << "unexpected token";
+        Token token = consume();
+        report_error() << "unexpected token: "
+                       << Token::token_type_string(token);
     }
 
     // TODO(cgyurgyik): clean up parsing methods and add error reporting
@@ -1475,7 +1475,7 @@ struct Parser {
         // Must be a user-defined type, or an error.
         auto it = program.types.find(name);
         if (it == program.types.end()) {
-            report_error() << "unknown type: " + name;
+            report_error() << "unknown type: " << name;
         }
         return it->second;
     }
