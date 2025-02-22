@@ -99,6 +99,7 @@ struct Parser {
         internal_assert(frames.empty());
         return std::move(program);
     }
+
   private:
     // Stores a stack of all program streams.
     std::vector<TokenStream> context;
