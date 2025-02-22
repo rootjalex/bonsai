@@ -99,13 +99,6 @@ struct Parser {
         internal_assert(frames.empty());
         return std::move(program);
     }
-
-    void parse_program_stream(const bool allow_externs) {
-        while (!tokens().empty()) {
-            parse_program_element(allow_externs);
-        }
-    }
-
   private:
     // Stores a stack of all program streams.
     std::vector<TokenStream> context;
@@ -238,6 +231,12 @@ struct Parser {
         report_error() << "expected: " << Token::token_type_string(type)
                        << ", received: "
                        << Token::token_type_string(current.type);
+    }
+
+    void parse_program_stream(const bool allow_externs) {
+        while (!tokens().empty()) {
+            parse_program_element(allow_externs);
+        }
     }
 
     void parse_program_element(const bool allow_externs) {
