@@ -27,9 +27,11 @@ namespace {
 // This provides the ability to report errors using a nicer `<<` interface
 // instead of string concatenation. It should only be used in the Parser class.
 class ParseErrorReport {
-public:
-    ParseErrorReport(std::string back_trace, std::string file_name, Token current)
-        : back_trace(back_trace), file_name(file_name), current(std::move(current)) {}
+  public:
+    ParseErrorReport(std::string back_trace, std::string file_name,
+                     Token current)
+        : back_trace(back_trace), file_name(file_name),
+          current(std::move(current)) {}
 
     [[noreturn]] ~ParseErrorReport() {
         const uint64_t begin_line = current.line_begin(),
@@ -60,7 +62,7 @@ public:
         return *this;
     }
 
-private:
+  private:
     std::string back_trace;
     std::string file_name;
     Token current;
@@ -83,7 +85,7 @@ func_decl := func IDENTIFIER '( (IDENTIFIER : type)+ ')'
 */
 
 struct Parser {
-public:
+  public:
     Parser(TokenStream tokens) {
         context.emplace_back(std::move(tokens));
         // Add Intrinsic types!
@@ -103,20 +105,17 @@ public:
             parse_program_element(allow_externs);
         }
     }
-private:
+
+  private:
     // Stores a stack of all program streams.
     std::vector<TokenStream> context;
     // Filenames of everything visited so far, to
     // avoid double-imports.
     std::set<std::string> visited_files;
 
-    const TokenStream &tokens() const {
-        return context.back();
-    }
+    const TokenStream &tokens() const { return context.back(); }
 
-    TokenStream &tokens() {
-        return context.back();
-    }
+    TokenStream &tokens() { return context.back(); }
 
     ir::Program program;
     // Function variable frames. Maps name to type and mutability.
@@ -143,7 +142,8 @@ private:
     // Reports the error with relevant token location information. This will
     // always point at the last consumed token.
     inline ParseErrorReport report_error() const {
-        return ParseErrorReport{back_trace(), file_name(), tokens().current_token()};
+        return ParseErrorReport{back_trace(), file_name(),
+                                tokens().current_token()};
     }
 
     ir::Type get_type_from_frame(const std::string &name) const {
