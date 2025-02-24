@@ -34,8 +34,14 @@ struct LambdaImplicitCapture : public ir::Mutator {
     LambdaImplicitCapture() {}
 
   private:
+    // Character used when adding explicit arguments to lambdas for their
+    // previously implicit capture.
     static constexpr std::string_view LAMBDA_PREFIX = "$";
+
+    // Demarcates when we are visiting the body of a lambda. This is necessary
+    // to ensure we are only updating variable names located inside the body.
     bool visiting_lambda = false;
+
     // Explicitly captured arguments within the scope of this lambda.
     std::vector<std::string> explicit_variables;
 
@@ -46,6 +52,7 @@ struct LambdaImplicitCapture : public ir::Mutator {
     // update the respective calls.
     std::unordered_map<std::string, const ir::Lambda *> name_to_lambda;
 
+    // Prefixes `v` with the LAMBDA_PREFIX symbol.
     std::string generate_name(std::string_view v) {
         std::string name(LAMBDA_PREFIX);
         name += v;
