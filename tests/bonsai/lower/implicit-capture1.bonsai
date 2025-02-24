@@ -1,0 +1,6 @@
+// Verify simple case of implicit capture.
+func foo() -> i32 {
+    x: i32 = 42;
+    L2 = |y: i32| y + x + 1;
+    return L2(1);
+}

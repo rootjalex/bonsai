@@ -1,0 +1,13 @@
+
+
+func ?lambda0(y : i32, x : i32) -> i32 {
+  return y + x
+}
+
+func foo() -> i32 {
+  let x = (i32)42 in
+  let L3 = ?lambda0((i32)1, x) in
+  return L3
+}
+
+

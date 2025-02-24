@@ -762,8 +762,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected rhs of filter to be a set, instead received: " << b
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
-            internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
+            internal_assert(f->arg_types.size() > 0 &&
+                            equals(f->arg_types.front(), b.type().element_of()))
                 << "Expected filter function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
@@ -778,8 +778,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected rhs of argmin to be a set, instead received: " << b
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
-            internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
+            internal_assert(f->arg_types.size() > 0 &&
+                            equals(f->arg_types.front(), b.type().element_of()))
                 << "Expected argmin function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();

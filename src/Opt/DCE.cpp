@@ -40,7 +40,10 @@ struct ComputeUseCounts : ir::Visitor {
 
     void visit(const ir::Lambda *node) override {
         for (const ir::Lambda::Argument &arg : node->args) {
-            internal_assert(!use_counts.contains(arg.name));
+            // TODO(cgyurgyik): I don't think this is correct. It assumes a
+            // lambda argument will always have a different name than a local
+            // variable.
+            // internal_assert(!use_counts.contains(arg.name));
             if (!curr_var.empty()) {
                 const UseCountMap &dep_map = dependent_use_counts[curr_var];
                 internal_assert(!dep_map.contains(arg.name));
