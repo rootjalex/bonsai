@@ -1,5 +1,7 @@
 #include "CodeGen/ASM.h"
 
+#include <string>
+
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/TargetRegistry.h>
@@ -22,8 +24,8 @@ namespace codegen {
 
 namespace {
 
-void emit_file(std::unique_ptr<llvm::Module> _module,
-               std::unique_ptr<llvm::raw_fd_ostream> &out,
+void emit_file(const std::string &filename,
+               std::unique_ptr<llvm::Module> _module,
                llvm::CodeGenFileType file_type) {
     std::string target_triple = llvm::sys::getDefaultTargetTriple();
     _module->setTargetTriple(target_triple);
@@ -79,7 +81,15 @@ void emit_file(std::unique_ptr<llvm::Module> _module,
     target_machine->Options.MCOptions.AsmVerbose = true;
 
     // Ask the target to add backend passes as necessary.
-    target_machine->addPassesToEmitFile(pass_manager, *out, nullptr, file_type);
+    if (!filename.empty()) {
+        auto os = make_raw_fd_ostream(filename);
+        target_machine->addPassesToEmitFile(pass_manager, *os, nullptr,
+                                            file_type);
+    } else {
+        // Print this to standard I/O.
+        target_machine->addPassesToEmitFile(pass_manager, llvm::outs(), nullptr,
+                                            file_type);
+    }
 
     pass_manager.run(*_module);
 }
@@ -88,11 +98,9 @@ void emit_file(std::unique_ptr<llvm::Module> _module,
 
 void to_asm(const std::string &filename, const ir::Program &program,
             CodeGen_LLVM *gen) {
-    auto _module = gen->compile_program(program);
-    auto _context = gen->steal_context();
-
-    auto out = make_raw_fd_ostream(filename);
-    emit_file(std::move(_module), out, llvm::CodeGenFileType::AssemblyFile);
+    std::unique_ptr<llvm::Module> result = gen->compile_program(program);
+    std::unique_ptr<llvm::LLVMContext> context = gen->steal_context();
+    emit_file(filename, std::move(result), llvm::CodeGenFileType::AssemblyFile);
 }
 
 } // namespace codegen
