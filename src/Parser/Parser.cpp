@@ -276,10 +276,10 @@ struct Parser {
 
         name += ".bonsai";
 
-        if (visited_files.contains(name)) {
+        auto [_, inserted] = visited_files.insert(name);
+        if (!inserted) {
             return; // We've already imported this file.
         }
-        visited_files.insert(name);
 
         for (const auto &tks : context) {
             if (tks.file_name() == name) {
