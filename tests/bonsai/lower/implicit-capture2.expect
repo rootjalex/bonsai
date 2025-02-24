@@ -1,12 +1,13 @@
 
 
-func ?lambda0(y : i32, $x : i32) -> i32 {
-  return y + $x
+func ?lambda0(x : i32, $y : i32, $z : i32) -> i32 {
+  return (x + $y) + $z
 }
 
 func foo() -> i32 {
-  let x = (i32)42 in
-  return ?lambda0((i32)1, x)
+  let z = (i32)40 in
+  let y = (i32)1 in
+  return ?lambda0((i32)1, y, z)
 }
 
 
