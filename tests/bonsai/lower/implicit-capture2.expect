@@ -1,7 +1,7 @@
 
 
-func ?lambda0(y : i32, x : i32) -> i32 {
-  return y + x
+func ?lambda0(y : i32, $x : i32) -> i32 {
+  return y + $x
 }
 
 func foo() -> i32 {

@@ -27,22 +27,30 @@ namespace {
 //   =>
 //
 //     x: i32 = 42;
-//     L = |y: i32, x: i32| y + x + 1;
+//     L = |y: i32, $x: i32| y + $x + 1;
 //     L(1, x);
 struct LambdaImplicitCapture : public ir::Mutator {
   public:
     LambdaImplicitCapture() {}
 
   private:
+    static constexpr std::string_view LAMBDA_PREFIX = "$";
+    bool visiting_lambda = false;
     // Explicitly captured arguments within the scope of this lambda.
     std::vector<std::string> explicit_variables;
 
     // Implicitly captured arguments for this lambda.
-    std::vector<ir::Lambda::Argument> implicit_variables;
+    std::vector<const ir::Var *> implicit_variables;
 
     // A map from lambda variable name to lambda pointer. This is required to
     // update the respective calls.
     std::unordered_map<std::string, const ir::Lambda *> name_to_lambda;
+
+    std::string generate_name(std::string_view v) {
+        std::string name(LAMBDA_PREFIX);
+        name += v;
+        return name;
+    }
 
     ir::Stmt visit(const ir::LetStmt *let) override {
         ir::WriteLoc loc = let->loc;
@@ -61,6 +69,10 @@ struct LambdaImplicitCapture : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Var *var) override {
+        if (!visiting_lambda) {
+            return var;
+        }
+
         if (auto it = std::find(explicit_variables.begin(),
                                 explicit_variables.end(), var->name);
             it != explicit_variables.end()) {
@@ -68,11 +80,10 @@ struct LambdaImplicitCapture : public ir::Mutator {
             return var;
         }
 
-        implicit_variables.push_back(ir::Lambda::Argument{
-            .name = var->name,
-            .type = var->type,
-        });
-        return var;
+        std::string new_name = generate_name(var->name);
+        ir::Expr new_variable = ir::Var::make(var->type, std::move(new_name));
+        implicit_variables.push_back(new_variable.as<ir::Var>());
+        return new_variable;
     }
 
     ir::Expr visit(const ir::Lambda *lambda) override {
@@ -87,11 +98,18 @@ struct LambdaImplicitCapture : public ir::Mutator {
                        [](const ir::Lambda::Argument &a) { return a.name; });
 
         // 2. Visit the lambda body, capturing the implicit variables.
-        (void)this->mutate(lambda->value);
+        visiting_lambda = true;
+        ir::Expr value = this->mutate(lambda->value);
+        visiting_lambda = false;
 
         // 3. Update the lambda arguments with any implicit variables.
-        args.insert(args.end(), implicit_variables.begin(),
-                    implicit_variables.end());
+        std::transform(implicit_variables.begin(), implicit_variables.end(),
+                       std::back_inserter(args), [](const ir::Var *v) {
+                           return ir::Lambda::Argument{
+                               .name = v->name,
+                               .type = v->type,
+                           };
+                       });
 
         // 4. Finally, pop off the explicit/implict variables for this lambda.
         while (explicit_variables.size() > ev_size) {
@@ -105,7 +123,7 @@ struct LambdaImplicitCapture : public ir::Mutator {
             // No additional arguments were added.
             return lambda;
         }
-        return ir::Lambda::make(args, lambda->value);
+        return ir::Lambda::make(args, value);
     }
 
     ir::Expr visit(const ir::Call *call) override {
@@ -130,9 +148,18 @@ struct LambdaImplicitCapture : public ir::Mutator {
         // Update the lambda arguments and type to include the (previously)
         // implicit arguments.
         for (unsigned i = cargs.size(), e = largs.size(); i < e; ++i) {
-            const ir::Lambda::Argument a = largs[i];
-            cargs.push_back(ir::Var::make(a.type, a.name));
-            ctypes.push_back(a.type);
+            const ir::Lambda::Argument &arg = largs[i];
+            // We are copying the implicit arguments from the new lambda
+            // signature, which will be prefixed with a special character (for
+            // name hygiene purposes). However, the values being passed in
+            // should retain their original name, so we remove the prefix.
+            std::string name = arg.name;
+            internal_assert(name.starts_with(LAMBDA_PREFIX))
+                << "implicit arguments should be prefixed with `"
+                << LAMBDA_PREFIX << "`, received: " << name
+                << " for lambda: " << ir::Expr(lambda);
+            cargs.push_back(ir::Var::make(arg.type, name.substr(1)));
+            ctypes.push_back(arg.type);
         }
         ir::Type new_type =
             ir::Function_t::make(vtype->ret_type, std::move(ctypes));
