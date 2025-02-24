@@ -168,9 +168,9 @@ struct LambdaImplicitCapture : public ir::Mutator {
             cargs.push_back(ir::Var::make(arg.type, name.substr(1)));
             ctypes.push_back(arg.type);
         }
-        ir::Type new_type =
-            ir::Function_t::make(vtype->ret_type, std::move(ctypes));
-        return ir::Call::make(ir::Var::make(new_type, v->name), cargs);
+        ir::Expr new_variable = ir::Var::make(
+            ir::Function_t::make(vtype->ret_type, std::move(ctypes)), v->name);
+        return ir::Call::make(std::move(new_variable), std::move(cargs));
     }
 };
 
