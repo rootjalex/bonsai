@@ -2,6 +2,5 @@
 func foo() -> i32 {
   x: i32 = 42;
   L2 = |y: i32| { y + x };
-  L3: i32 = L2(1);
-  return L3;
+  return L2(1);
 }
