@@ -1,4 +1,4 @@
-// TODO(bonsai/issues/#6): This should work, as well as propagating implicit captures.
+// TODO(bonsai/issues/#6): This should work.
 // func bar() -> void {
 //  L = |y: i32| { |x: i32| { x + y } };
 // }
