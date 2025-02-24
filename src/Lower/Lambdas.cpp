@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <optional>
-#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -62,15 +61,15 @@ struct LambdaImplicitCapture : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Var *var) override {
-        const std::string &name = var->name;
         if (auto it = std::find(explicit_variables.begin(),
-                                explicit_variables.end(), name);
+                                explicit_variables.end(), var->name);
             it != explicit_variables.end()) {
             // This variable has already been explicitly captured.
             return var;
         }
+
         implicit_variables.push_back(ir::Lambda::Argument{
-            .name = name,
+            .name = var->name,
             .type = var->type,
         });
         return var;
@@ -116,34 +115,27 @@ struct LambdaImplicitCapture : public ir::Mutator {
 
         auto it = name_to_lambda.find(v->name);
         if (it == name_to_lambda.end()) {
-            // This is a call to a non-lambda.
-            return call;
+            return call; // This is a call to a non-lambda.
         }
 
         const ir::Lambda *lambda = it->second;
         const std::vector<ir::Lambda::Argument> &largs = lambda->args;
         std::vector<ir::Expr> cargs = call->args;
         if (cargs.size() == largs.size()) {
-            // No implicit arguments were added.
-            return call;
+            return call; // No implicit arguments were added.
         }
 
+        const ir::Function_t *vtype = v->type.as<ir::Function_t>();
+        std::vector<ir::Type> ctypes = vtype->arg_types;
         // Update the lambda arguments and type to include the (previously)
         // implicit arguments.
-        const ir::Function_t *ctype = v->type.as<ir::Function_t>();
-        std::vector<ir::Type> new_argument_types;
-        for (unsigned i = 0, e = cargs.size(); i < e; ++i) {
-            new_argument_types.push_back(cargs[i].type());
-        }
-
         for (unsigned i = cargs.size(), e = largs.size(); i < e; ++i) {
             const ir::Lambda::Argument a = largs[i];
             cargs.push_back(ir::Var::make(a.type, a.name));
-            new_argument_types.push_back(a.type);
+            ctypes.push_back(a.type);
         }
-        ir::Type new_type = ir::Function_t::make(ctype->ret_type,
-                                                 std::move(new_argument_types));
-
+        ir::Type new_type =
+            ir::Function_t::make(vtype->ret_type, std::move(ctypes));
         return ir::Call::make(ir::Var::make(new_type, v->name), cargs);
     }
 };

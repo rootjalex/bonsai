@@ -40,9 +40,13 @@ struct ComputeUseCounts : ir::Visitor {
 
     void visit(const ir::Lambda *node) override {
         for (const ir::Lambda::Argument &arg : node->args) {
-            // TODO(cgyurgyik): I don't think this is correct. It assumes a
-            // lambda argument will always have a different name than a local
-            // variable.
+            // DO NOT SUBMIT: this assumes there is no shadowing of lambda
+            // argument names and variable names. That would mean we'd have to
+            // rename lambda arguments when trying to capture implicit
+            // arguments, which in turn means we'd need to rename their uses
+            // within the lambda body. Totally possible, but just means more
+            // complication. So, is this restriction absolutely necessary?
+
             // internal_assert(!use_counts.contains(arg.name));
             if (!curr_var.empty()) {
                 const UseCountMap &dep_map = dependent_use_counts[curr_var];
