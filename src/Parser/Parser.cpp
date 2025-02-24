@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <set>
 #include <span>
 #include <sstream>
 
@@ -27,8 +28,10 @@ namespace {
 // instead of string concatenation. It should only be used in the Parser class.
 class ParseErrorReport {
   public:
-    ParseErrorReport(std::string file_name, Token current)
-        : file_name(file_name), current(std::move(current)) {}
+    ParseErrorReport(std::string back_trace, std::string file_name,
+                     Token current)
+        : back_trace(back_trace), file_name(file_name),
+          current(std::move(current)) {}
 
     [[noreturn]] ~ParseErrorReport() {
         const uint64_t begin_line = current.line_begin(),
@@ -40,7 +43,7 @@ class ParseErrorReport {
         }
 
         std::stringstream ss;
-        ss << file_name << ":" << begin_line << ":" << begin_column
+        ss << back_trace << ":" << begin_line << ":" << begin_column
            << ": [parse error] " << os.str() << "\n"
            << "\n";
         ss << line << "\n";
@@ -60,6 +63,7 @@ class ParseErrorReport {
     }
 
   private:
+    std::string back_trace;
     std::string file_name;
     Token current;
     std::ostringstream os;
@@ -82,24 +86,33 @@ func_decl := func IDENTIFIER '( (IDENTIFIER : type)+ ')'
 
 struct Parser {
   public:
-    Parser(TokenStream _tokens) : tokens(std::move(_tokens)) {
+    Parser(TokenStream tokens) {
+        context.emplace_back(std::move(tokens));
         // Add Intrinsic types!
     }
 
     ir::Program parse_program() {
         internal_assert(frames.empty());
         new_frame();
-        while (!tokens.empty()) {
-            parse_program_element();
-        }
+        parse_program_stream(/*allow_externs=*/true);
         end_frame();
         internal_assert(frames.empty());
         return std::move(program);
     }
 
   private:
-    TokenStream tokens;
+    // Stores a stack of all program streams.
+    std::vector<TokenStream> context;
+    // Filenames of everything visited so far, to
+    // avoid double-imports.
+    std::set<std::string> visited_files;
+
+    const TokenStream &tokens() const { return context.back(); }
+
+    TokenStream &tokens() { return context.back(); }
+
     ir::Program program;
+    // Function variable frames. Maps name to type and mutability.
     std::list<std::map<std::string, std::pair<ir::Type, bool>>> frames;
     // TODO: if we allow nested functions or any other way to allow nested
     // generics, we need this to be a stack!
@@ -107,12 +120,24 @@ struct Parser {
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
                    f32 = ir::Float_t::make_f32();
 
-    const std::string &file_name() const { return tokens.file_name(); }
+    const std::string &file_name() const { return tokens().file_name(); }
+
+    std::string back_trace() const {
+        std::ostringstream out;
+        for (size_t i = 0; i < context.size(); ++i) {
+            out << std::string(2 * i, ' ') << context[i].file_name();
+            if (i + 1 < context.size()) {
+                out << "\n" << std::string(2 * i, ' ') << "-> ";
+            }
+        }
+        return out.str();
+    }
 
     // Reports the error with relevant token location information. This will
     // always point at the last consumed token.
     inline ParseErrorReport report_error() const {
-        return ParseErrorReport{file_name(), tokens.current_token()};
+        return ParseErrorReport{back_trace(), file_name(),
+                                tokens().current_token()};
     }
 
     ir::Type get_type_from_frame(const std::string &name) const {
@@ -178,12 +203,12 @@ struct Parser {
 
     void end_frame() { frames.pop_back(); }
 
-    Token peek(uint32_t k = 0) const { return tokens.peek(k); }
+    Token peek(uint32_t k = 0) const { return tokens().peek(k); }
 
     std::optional<Token> consume(Token::Type type) {
         const Token token = peek();
 
-        if (!tokens.consume(type)) {
+        if (!tokens().consume(type)) {
             return {};
         }
 
@@ -193,7 +218,7 @@ struct Parser {
     // Automatically consumes the token.
     Token consume() {
         Token token = peek();
-        tokens.consume(token.type);
+        tokens().consume(token.type);
         return token;
     }
 
@@ -209,7 +234,13 @@ struct Parser {
                        << Token::token_type_string(current.type);
     }
 
-    void parse_program_element() {
+    void parse_program_stream(const bool allow_externs) {
+        while (!tokens().empty()) {
+            parse_program_element(allow_externs);
+        }
+    }
+
+    void parse_program_element(const bool allow_externs) {
         switch (peek().type) {
         case Token::Type::IMPORT:
             return parse_import();
@@ -218,6 +249,9 @@ struct Parser {
         case Token::Type::INTERFACE:
             return parse_interface_def();
         case Token::Type::EXTERN:
+            if (!allow_externs) {
+                report_error() << "Parsed extern during import.";
+            }
             return parse_extern();
         case Token::Type::FUNC:
             return parse_function();
@@ -241,32 +275,26 @@ struct Parser {
         }
 
         name += ".bonsai";
-        ir::Program imported;
+
+        auto [_, inserted] = visited_files.insert(name);
+        if (!inserted) {
+            return; // We've already imported this file.
+        }
+
+        for (const auto &tks : context) {
+            if (tks.file_name() == name) {
+                report_error() << "Import cycle found.";
+            }
+        }
+
         try {
-            // TODO: recursive imports break everything. Fix this somehow?
-            imported = parse(name);
+            TokenStream tokens = lex(name);
+            context.emplace_back(std::move(tokens));
+            parse_program_stream(/*allow_externs=*/false);
+            context.pop_back();
         } catch (const std::exception &e) {
             report_error() << "Failure to parse imported file: " << name
                            << " with message: " << e.what();
-        }
-
-        // Can't import externs, those are function arguments to the generated
-        // stub.
-        internal_assert(imported.externs.empty())
-            << "Imported file: " << name << " contains externs.";
-
-        for (auto &[fname, func] : imported.funcs) {
-            internal_assert(!program.funcs.contains(fname))
-                << "Redefinition of function: " << fname
-                << " from imported file: " << name;
-            program.funcs[fname] = std::move(func);
-        }
-
-        for (auto &[tname, type] : imported.types) {
-            internal_assert(!program.types.contains(tname))
-                << "Redefinition of type: " << tname
-                << " from imported file: " << name;
-            program.types[tname] = std::move(type);
         }
     }
 

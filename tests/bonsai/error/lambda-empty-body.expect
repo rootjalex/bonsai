@@ -1,7 +1,7 @@
 ---CODE---
 -1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:53
+[internal] Error: src/Parser/Parser.cpp:56
 tests/bonsai/error/lambda-empty-body.bonsai:3:21: [parse error] unexpected token: rsquiggle
 
     L1 = |x: i32| { };

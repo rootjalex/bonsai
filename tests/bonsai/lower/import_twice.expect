@@ -1,0 +1,9 @@
+type Float = f32
+type vec3f = f32x3
+
+
+func foo(v : f32x3) -> f32 {
+  return reduce<+>(v)
+}
+
+

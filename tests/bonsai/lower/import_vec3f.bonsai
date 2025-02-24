@@ -1,0 +1,3 @@
+import tests/bonsai/lower/import_float;
+
+element vec3f = vector[Float, 3];

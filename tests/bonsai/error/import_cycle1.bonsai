@@ -1,0 +1,5 @@
+import tests/bonsai/error/import_cycle0;
+
+func bar() -> i32 {
+    return 0;
+}
