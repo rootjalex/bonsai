@@ -31,9 +31,14 @@ namespace {
 //     L(1, x);
 struct LambdaImplicitCapture : public ir::Mutator {
   public:
-    LambdaImplicitCapture() {}
+    LambdaImplicitCapture(
+        const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas)
+        : blacklisted_lambdas(blacklisted_lambdas) {}
 
   private:
+    // Lambdas that should not be visited.
+    const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas;
+
     // Character used when adding explicit arguments to lambdas for their
     // previously implicit capture.
     static constexpr std::string_view LAMBDA_PREFIX = "$";
@@ -94,6 +99,9 @@ struct LambdaImplicitCapture : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Lambda *lambda) override {
+        if (blacklisted_lambdas.contains(lambda)) {
+            return lambda;
+        }
         const unsigned ev_size = explicit_variables.size(),
                        iv_size = implicit_variables.size();
 
@@ -318,9 +326,18 @@ ir::Program lower_program(const ir::Program &old_program) {
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
 
+    // Some lambdas, e.g., those used in set queries, will not be converted.
+    Blacklist blacklisted_lambdas;
+    for (const auto &[_, f] : old_program.funcs) {
+        if (const ir::Stmt &body = f->body; body.defined()) {
+            body.accept(&blacklisted_lambdas);
+        }
+    }
+
+    LambdaImplicitCapture lic(blacklisted_lambdas.get());
     // Ensure lambdas explicitly capture their implicit arguments.
     for (const auto &[f, func] : old_program.funcs) {
-        ir::Stmt body = LambdaImplicitCapture().mutate(std::move(func->body));
+        ir::Stmt body = lic.mutate(std::move(func->body));
         new_program.funcs[f] = std::make_shared<ir::Function>(
             func->name, func->args, func->ret_type, std::move(body),
             func->interfaces);
@@ -328,14 +345,6 @@ ir::Program lower_program(const ir::Program &old_program) {
 
     // A mapping from lambda to metadata required for safe replacement.
     std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
-
-    // Some lambdas, e.g., those used in set queries, will not be converted.
-    Blacklist blacklisted_lambdas;
-    for (const auto &[_, f] : new_program.funcs) {
-        if (const ir::Stmt &body = f->body; body.defined()) {
-            body.accept(&blacklisted_lambdas);
-        }
-    }
 
     ConvertLambdaToFunction cltf(lambda_metadata, blacklisted_lambdas.get());
     for (const auto &[f, func] : new_program.funcs) {
