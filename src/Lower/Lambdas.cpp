@@ -334,8 +334,8 @@ ir::Program lower_program(const ir::Program &old_program) {
         }
     }
 
-    LambdaImplicitCapture lic(blacklisted_lambdas.get());
     // Ensure lambdas explicitly capture their implicit arguments.
+    LambdaImplicitCapture lic(blacklisted_lambdas.get());
     for (const auto &[f, func] : old_program.funcs) {
         ir::Stmt body = lic.mutate(std::move(func->body));
         new_program.funcs[f] = std::make_shared<ir::Function>(
@@ -345,7 +345,6 @@ ir::Program lower_program(const ir::Program &old_program) {
 
     // A mapping from lambda to metadata required for safe replacement.
     std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
-
     ConvertLambdaToFunction cltf(lambda_metadata, blacklisted_lambdas.get());
     for (const auto &[f, func] : new_program.funcs) {
         ir::Stmt body = cltf.mutate(std::move(func->body));
