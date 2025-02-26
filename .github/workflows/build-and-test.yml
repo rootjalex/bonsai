@@ -29,6 +29,8 @@ jobs:
       uses: KyleMayes/install-llvm-action@v2
       with:
         version: "19.1.7"
+        # install-llvm-action only supports official LLVM binary releases, which does not include mac-os latest (aarch64).
+        # We resort to using the Terra repository's binary release.
         force-url: https://github.com/terralang/llvm-build/releases/download/llvm-19.1.7/clang+llvm-19.1.7-aarch64-apple-darwin.tar.xz
         directory: ${{ runner.temp }}/llvm
         cached: ${{ steps.cache-llvm.outputs.cache-hit }}
