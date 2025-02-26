@@ -18,11 +18,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # TODO: add caching.
+    # TODO(cgyurgyik): add caching.
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@v2
       with:
-        version: "19.1.6"
+        version: "19.1.7"
+        force-url: https://github.com/terralang/llvm-build/releases/download/llvm-19.1.7/clang+llvm-19.1.7-aarch64-apple-darwin.tar.xz
+
 
     - name: Add LLVM to PATH
       run: |
