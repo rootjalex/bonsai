@@ -18,7 +18,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # TODO(cgyurgyik): add caching.
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@v2
       with:
@@ -28,7 +27,7 @@ jobs:
 
     - name: Add LLVM to PATH
       run: |
-        echo "LLVM_ROOT=${{ env.LLVM_PATH }} >> $GITHUB_ENV
+        echo "LLVM_ROOT=${{ env.LLVM_PATH }}" >> $GITHUB_ENV
         echo "LLVM_CONFIG=${{ env.LLVM_PATH }}/bin/llvm-config" >> $GITHUB_ENV
     
     - name: Configure CMake
