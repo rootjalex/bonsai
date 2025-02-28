@@ -26,6 +26,14 @@ struct Metadata {
     std::shared_ptr<ir::Function> function = nullptr;
 };
 
+// Canonicalizes a lambda to a struct. For example,
+//     x: i32 = 42;
+//     L2 = |y: i32| y + x + 1;
+//     L2(1);
+// ->
+//   x: i32 = 42;
+//   let L2 = build<?lambda0>(x)(y : i32){ y + x + 1 }
+//   L2(1);
 class ConvertLambdaToStruct : public ir::Mutator {
   public:
     ConvertLambdaToStruct(
@@ -62,6 +70,7 @@ class ConvertLambdaToStruct : public ir::Mutator {
     // update the respective calls.
     std::unordered_map<std::string, const ir::Lambda *> name_to_lambda;
 
+    // Represents a scoped environment within the Bonsai program.
     struct Frame {
         // Explicitly captured arguments within the scope of this lambda.
         std::vector<std::string> explicit_variables;
@@ -74,6 +83,7 @@ class ConvertLambdaToStruct : public ir::Mutator {
         return frames.back().explicit_variables;
     }
 
+    // Returns whether this is an explicit variable in the current frame.
     bool is_explicit_variable(const ir::Var *variable) {
         const std::vector<std::string> &ev = explicit_variables();
         return std::find(ev.begin(), ev.end(), variable->name) != ev.end();
