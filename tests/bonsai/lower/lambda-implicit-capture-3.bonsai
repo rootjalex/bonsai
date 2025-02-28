@@ -1,0 +1,5 @@
+// Verify implicit capture through function arguments.
+func foo(i: i32) -> i32 {
+  L2 = |y: i32|  y + i;
+  return L2(1);
+}

@@ -32,6 +32,14 @@ class ConvertLambdaToStruct : public ir::Mutator {
         const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas)
         : blacklisted_lambdas(blacklisted_lambdas) {};
 
+    // Clean up data structures between function visits.
+    void clear() {
+        visiting_lambda_body = false;
+        frames.clear();
+        implicit_variables.clear();
+        name_to_lambda.clear();
+    }
+
   private:
     // Lambdas that should not be visited.
     const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas;
@@ -43,26 +51,91 @@ class ConvertLambdaToStruct : public ir::Mutator {
         return name;
     }
 
+    // Demarcates when we are visiting the body of a lambda. This is necessary
+    // to ensure we are only updating variable names located inside the body.
+    bool visiting_lambda_body = false;
+
+    // Implicitly captured arguments for this lambda.
+    std::vector<const ir::Var *> implicit_variables;
+
+    // A map from lambda variable name to lambda pointer. This is required to
+    // update the respective calls.
+    std::unordered_map<std::string, const ir::Lambda *> name_to_lambda;
+
+    struct Frame {
+        // Explicitly captured arguments within the scope of this lambda.
+        std::vector<std::string> explicit_variables;
+    };
+    std::vector<Frame> frames;
+
+    void new_frame() { frames.push_back(Frame{}); }
+
+    std::vector<std::string> &explicit_variables() {
+        return frames.back().explicit_variables;
+    }
+
+    bool is_explicit_variable(const ir::Var *variable) {
+        const std::vector<std::string> &ev = explicit_variables();
+        return std::find(ev.begin(), ev.end(), variable->name) != ev.end();
+    }
+    void pop_frame() { frames.pop_back(); }
+
+    ir::Expr visit(const ir::Var *var) override {
+        if (!visiting_lambda_body) {
+            return var;
+        }
+
+        if (is_explicit_variable(var)) {
+            return var; // This variable has already been explicitly captured.
+        }
+
+        implicit_variables.push_back(var);
+        return var;
+    }
+
     ir::Expr visit(const ir::Lambda *lambda) override {
         if (blacklisted_lambdas.contains(lambda))
             return lambda;
 
-        // DO NOT SUBMIT: add implicitly captured variables.
-        ir::Struct_t::Map fields = {};
+        new_frame();
+        std::vector<ir::Argument> args = lambda->args;
+        std::transform(args.begin(), args.end(),
+                       std::back_inserter(explicit_variables()),
+                       [](const ir::Argument &a) { return a.name; });
+
+        visiting_lambda_body = true;
+        ir::Expr value = mutate(lambda->value);
+        visiting_lambda_body = false;
+
+        ir::Struct_t::Map fields;
+        ir::Struct_t::DefMap values;
+        for (const ir::Var *v : implicit_variables) {
+            if (is_explicit_variable(v)) {
+                continue;
+            }
+            fields.push_back({v->name, v->type});
+            values[v->name] = v;
+        }
+
+        std::vector<const ir::Var *> new_implicit_variables;
+        std::copy_if(
+            implicit_variables.begin(), implicit_variables.end(),
+            std::back_inserter(new_implicit_variables), [&](const ir::Var *v) {
+                const std::vector<std::string> &ev = explicit_variables();
+                return std::find(ev.begin(), ev.end(), v->name) == ev.end();
+            });
+        implicit_variables = std::move(new_implicit_variables);
+        pop_frame();
+
         ir::Type type =
             ir::Struct_t::make(generate_name(), fields, lambda->type);
-
-        ir::Expr value = lambda->value;
-        if (const ir::Lambda *inner = value.as<ir::Lambda>()) {
-            value = visit(inner);
-        }
-        ir::Struct_t::DefMap values = {};
         auto call = ir::Build::Call{
             .args = lambda->args,
-            .value = lambda->value,
+            .value = value,
         };
+
         ir::Expr b = ir::Build::make(type, values, call);
-        return b; // return ir::Access::make(CALL, );
+        return b;
     }
 };
 
@@ -112,6 +185,7 @@ ir::Program lower_program(const ir::Program &old_program) {
     new_program.types = old_program.types;
     for (const auto &[f, func] : old_program.funcs) {
         ir::Stmt body = clts.mutate(std::move(func->body));
+        clts.clear();
         new_program.funcs[f] = std::make_shared<ir::Function>(
             func->name, func->args, func->ret_type, body, func->interfaces);
     }
