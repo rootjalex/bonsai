@@ -256,7 +256,7 @@ struct Parser {
         case Token::Type::FUNC:
             return parse_function();
         case Token::Type::TREE:
-            return parse_tree(); 
+            return parse_tree();
         default:
             report_error() << "failure in parse_program_element";
         }
@@ -1561,19 +1561,21 @@ struct Parser {
 
         if (program.types.contains(parent.name)) {
             report_error() << "Tree named: " << parent.name
-                           << " conflicts with existing type: " << program.types[parent.name];
+                           << " conflicts with existing type: "
+                           << program.types[parent.name];
         }
 
         if (parent.volume.has_value() != !parent.params.empty()) {
             report_error() << "Parsing of tree " << parent.name
-            << " has incompatible volume and params";
+                           << " has incompatible volume and params";
         }
 
         expect(Token::Type::ASSIGN);
         expect(Token::Type::BAR);
 
         if (program.types.contains("ptr")) {
-            report_error() << "Shadowed type `ptr` conflicts with tree def: " << parent.name;
+            report_error() << "Shadowed type `ptr` conflicts with tree def: "
+                           << parent.name;
         }
 
         // Empty struct type name for now.
