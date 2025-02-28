@@ -1215,15 +1215,19 @@ void CodeGen_LLVM::visit(const Build *node) {
             // Create a call function, where a pointer to this struct type is
             // the first argument. For example,
             //
-            // struct F { int operator(int x) { return x + 1; } } f;
+            // struct F {
+            //   int y;
+            //   int operator(int x) { return x + y; }
+            // } foo;
+            // foo.y = y;
             // f(1);
             //
             // ->
             //
-            // $F::operator()(F*, int x) { return x + 1; }
+            // $F::operator()(F*, int x) { return x + y; }
             // %f = alloca %struct.F
             // call i32 @F::operator()(%f, 1);
-            ir::Expr value = call->value;
+            ir::Expr call_value = call->value;
             std::vector<ir::Argument> args = call->args;
             std::vector<ir::Function::Argument> fargs;
             // TODO(cgyurgyik): Pointer to self to access implicit captures.
@@ -1233,8 +1237,8 @@ void CodeGen_LLVM::visit(const Build *node) {
                                return ir::Function::Argument(v.name, v.type);
                            });
             const std::string &name = stype->name;
-            auto anonymous_function = ir::Function(name, fargs, value.type(),
-                                                   Return::make(value), {});
+            auto anonymous_function = ir::Function(
+                name, fargs, call_value.type(), Return::make(call_value), {});
             frames.new_frame();
             auto *declared_function = declare_function(anonymous_function);
             compile_function(anonymous_function, declared_function);
@@ -1243,9 +1247,7 @@ void CodeGen_LLVM::visit(const Build *node) {
 
         if (defaults.empty() && values.empty()) {
             value = llvm::Constant::getNullValue(build_type);
-            return;
-        }
-        if (values.empty()) {
+        } else if (values.empty()) {
             // Is order of codegen important? Default values must be constants
             // (w/o side effects), so I think no?
             std::vector<std::pair<size_t, llvm::Value *>> inserts;
@@ -1267,12 +1269,13 @@ void CodeGen_LLVM::visit(const Build *node) {
                 internal_assert(_value);
                 value = builder->CreateInsertValue(value, _value, idx);
             }
-            return;
-        }
-        internal_assert(defaults.empty() || (values.size() == fields.size()));
-        value = llvm::PoisonValue::get(build_type);
-        for (size_t i = 0; i < values.size(); i++) {
-            value = builder->CreateInsertValue(value, values[i], i);
+        } else {
+            internal_assert(defaults.empty() ||
+                            (values.size() == fields.size()));
+            value = llvm::PoisonValue::get(build_type);
+            for (size_t i = 0; i < values.size(); i++) {
+                value = builder->CreateInsertValue(value, values[i], i);
+            }
         }
         return;
     }

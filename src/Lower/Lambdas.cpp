@@ -117,6 +117,7 @@ class ConvertLambdaToStruct : public ir::Mutator {
             values[v->name] = v;
         }
 
+        // Propagate implicitly captured variables to parent lambdas.
         std::vector<const ir::Var *> new_implicit_variables;
         std::copy_if(
             implicit_variables.begin(), implicit_variables.end(),
@@ -133,9 +134,7 @@ class ConvertLambdaToStruct : public ir::Mutator {
             .args = lambda->args,
             .value = value,
         };
-
-        ir::Expr b = ir::Build::make(type, values, call);
-        return b;
+        return ir::Build::make(type, values, call);
     }
 };
 

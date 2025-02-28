@@ -1,0 +1,8 @@
+// -b llvm
+
+// TODO(cgyurgyik): This should work.
+func foo(z : i32) -> i32 {
+    w: i32 = 0;
+    L1 = |x: i32| w + x;
+    return L1(1);
+}
