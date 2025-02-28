@@ -116,7 +116,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 return compare_primitives(s0->fields[i].first,
                                           s1->fields[i].first);
             }
-            if (const Cmp rec = compare_types(s0->fields[i].second, s1->fields[i].second); rec != Cmp::Equals) {
+            if (const Cmp rec =
+                    compare_types(s0->fields[i].second, s1->fields[i].second);
+                rec != Cmp::Equals) {
                 return rec;
             }
         }
@@ -130,7 +132,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         }
         const size_t n = tt0->etypes.size();
         for (size_t i = 0; i < n; i++) {
-            if (const Cmp rec = compare_types(tt0->etypes[i], tt1->etypes[i]); rec != Cmp::Equals) {
+            if (const Cmp rec = compare_types(tt0->etypes[i], tt1->etypes[i]);
+                rec != Cmp::Equals) {
                 return rec;
             }
         }
@@ -152,7 +155,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         }
         const size_t n = f0->arg_types.size();
         for (size_t i = 0; i < n; i++) {
-            if (const Cmp rec = compare_types(f0->arg_types[i], f1->arg_types[i]); rec != Cmp::Equals) {
+            if (const Cmp rec =
+                    compare_types(f0->arg_types[i], f1->arg_types[i]);
+                rec != Cmp::Equals) {
                 return rec;
             }
         }
@@ -180,46 +185,57 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             return compare_primitives(b0->params.size(), b1->params.size());
         }
 
-        static const auto compare_params = [](const BVH_t::Param &p0, const BVH_t::Param &p1) {
-            if (const Cmp rec = compare_primitives(p0.name, p1.name); rec != Cmp::Equals) {
+        static const auto compare_params = [](const BVH_t::Param &p0,
+                                              const BVH_t::Param &p1) {
+            if (const Cmp rec = compare_primitives(p0.name, p1.name);
+                rec != Cmp::Equals) {
                 return rec;
             }
             return compare_types(p0.type, p1.type);
         };
 
-        static const auto compare_volumes = [](const std::optional<BVH_t::Volume> &vol0, const std::optional<BVH_t::Volume> &vol1) {
-            if (const Cmp valid = compare_primitives(vol0.has_value(), vol1.has_value()); valid != Cmp::Equals) {
-                return valid;
-            }
+        static const auto compare_volumes =
+            [](const std::optional<BVH_t::Volume> &vol0,
+               const std::optional<BVH_t::Volume> &vol1) {
+                if (const Cmp valid =
+                        compare_primitives(vol0.has_value(), vol1.has_value());
+                    valid != Cmp::Equals) {
+                    return valid;
+                }
 
-            if (vol0.has_value()) {
-                internal_assert(vol1.has_value());
-                const auto &v0 = *vol0;
-                const auto &v1 = *vol1;
-                
-                if (const Cmp vtype = compare_types(v0.struct_type, v1.struct_type); vtype != Cmp::Equals) {
-                    return vtype;
-                }
-                if (v0.initializers.size() != v1.initializers.size()) {
-                    return compare_primitives(v0.initializers.size(), v1.initializers.size());
-                }
-                const size_t isize = v0.initializers.size();
-                for (size_t i = 0; i < isize; i++) {
-                    const auto &param0 = v0.initializers[i];
-                    const auto &param1 = v1.initializers[i];
-                    if (const Cmp rec = compare_primitives(param0, param1); rec != Cmp::Equals) {
-                        return rec;
+                if (vol0.has_value()) {
+                    internal_assert(vol1.has_value());
+                    const auto &v0 = *vol0;
+                    const auto &v1 = *vol1;
+
+                    if (const Cmp vtype =
+                            compare_types(v0.struct_type, v1.struct_type);
+                        vtype != Cmp::Equals) {
+                        return vtype;
+                    }
+                    if (v0.initializers.size() != v1.initializers.size()) {
+                        return compare_primitives(v0.initializers.size(),
+                                                  v1.initializers.size());
+                    }
+                    const size_t isize = v0.initializers.size();
+                    for (size_t i = 0; i < isize; i++) {
+                        const auto &param0 = v0.initializers[i];
+                        const auto &param1 = v1.initializers[i];
+                        if (const Cmp rec = compare_primitives(param0, param1);
+                            rec != Cmp::Equals) {
+                            return rec;
+                        }
                     }
                 }
-            }
-            return Cmp::Equals;
-        };
+                return Cmp::Equals;
+            };
 
         const size_t n_params = b0->params.size();
         for (size_t i = 0; i < n_params; i++) {
             const auto &param0 = b0->params[i];
             const auto &param1 = b1->params[i];
-            if (const Cmp rec = compare_params(param0, param1); rec != Cmp::Equals) {
+            if (const Cmp rec = compare_params(param0, param1);
+                rec != Cmp::Equals) {
                 return rec;
             }
         }
@@ -233,25 +249,31 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         for (size_t i = 0; i < n; i++) {
             const auto &node0 = b0->nodes[i];
             const auto &node1 = b1->nodes[i];
-            if (const Cmp rec = compare_primitives(node0.name, node1.name); rec != Cmp::Equals) {
+            if (const Cmp rec = compare_primitives(node0.name, node1.name);
+                rec != Cmp::Equals) {
                 return rec;
             }
             const size_t m = node0.params.size();
-            if (const Cmp size = compare_primitives(m, node1.params.size()); size != Cmp::Equals) {
+            if (const Cmp size = compare_primitives(m, node1.params.size());
+                size != Cmp::Equals) {
                 return size;
             }
             for (size_t j = 0; j < m; j++) {
                 const auto &param0 = node0.params[j];
                 const auto &param1 = node1.params[j];
-                if (const Cmp pname = compare_primitives(param0.name, param1.name); pname != Cmp::Equals) {
+                if (const Cmp pname =
+                        compare_primitives(param0.name, param1.name);
+                    pname != Cmp::Equals) {
                     return pname;
                 }
-                if (const Cmp types = compare_types(param0.type, param1.type); types != Cmp::Equals) {
+                if (const Cmp types = compare_types(param0.type, param1.type);
+                    types != Cmp::Equals) {
                     return types;
                 }
             }
 
-            if (const Cmp volumes = compare_volumes(node0.volume, node1.volume); volumes != Cmp::Equals) {
+            if (const Cmp volumes = compare_volumes(node0.volume, node1.volume);
+                volumes != Cmp::Equals) {
                 return volumes;
             }
         }

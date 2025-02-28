@@ -303,7 +303,9 @@ Type Generic_t::make(std::string name, Interface interface) {
 
 namespace {
 
-bool validate_volume(const BVH_t::Volume &volume, const std::vector<BVH_t::Param> &params, const std::vector<BVH_t::Param> &parent_params) {
+bool validate_volume(const BVH_t::Volume &volume,
+                     const std::vector<BVH_t::Param> &params,
+                     const std::vector<BVH_t::Param> &parent_params) {
     if (!volume.struct_type.is<Struct_t>()) {
         return false;
     }
@@ -316,12 +318,16 @@ bool validate_volume(const BVH_t::Volume &volume, const std::vector<BVH_t::Param
         const std::string &name = volume.initializers[i];
         Type type;
 
-        auto it = std::find_if(params.begin(), params.end(), [&](const BVH_t::Param &p) { return p.name == name; });
+        auto it =
+            std::find_if(params.begin(), params.end(),
+                         [&](const BVH_t::Param &p) { return p.name == name; });
         if (it != params.end()) {
             type = it->type;
         } else {
             // Check parent_params for a match
-            it = std::find_if(parent_params.begin(), parent_params.end(), [&](const BVH_t::Param &p) { return p.name == name; });
+            it = std::find_if(
+                parent_params.begin(), parent_params.end(),
+                [&](const BVH_t::Param &p) { return p.name == name; });
             if (it != parent_params.end()) {
                 type = it->type;
             } else {
@@ -339,7 +345,7 @@ bool validate_volume(const BVH_t::Volume &volume, const std::vector<BVH_t::Param
     return true;
 }
 
-}
+} // namespace
 
 Type BVH_t::make(std::string name, std::vector<Node> nodes) {
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
@@ -347,7 +353,8 @@ Type BVH_t::make(std::string name, std::vector<Node> nodes) {
 
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].volume.has_value()) {
-            internal_assert(validate_volume(*nodes[i].volume, nodes[i].params, {}))
+            internal_assert(
+                validate_volume(*nodes[i].volume, nodes[i].params, {}))
                 << "Failed to validate node " << i << " of " << name;
         }
     }
@@ -358,17 +365,19 @@ Type BVH_t::make(std::string name, std::vector<Node> nodes) {
     return node;
 }
 
-Type BVH_t::make(std::string name, std::vector<BVH_t::Param> params, std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
+Type BVH_t::make(std::string name, std::vector<BVH_t::Param> params,
+                 std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!params.empty()) << "BVH_t::make received empty params";
     internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
 
     internal_assert(validate_volume(volume, params, {}))
-                << "Failed to validate parent volume of " << name;
+        << "Failed to validate parent volume of " << name;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].volume.has_value()) {
-            internal_assert(validate_volume(*nodes[i].volume, nodes[i].params, params))
+            internal_assert(
+                validate_volume(*nodes[i].volume, nodes[i].params, params))
                 << "Failed to validate node " << i << " of " << name;
         }
     }

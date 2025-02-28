@@ -151,7 +151,6 @@ Type Mutator::visit(const Generic_t *node) {
     return Generic_t::make(node->name, std::move(interface));
 }
 
-
 Type Mutator::visit(const BVH_t *node) {
     bool not_changed = true;
     const auto visit_param = [&](const BVH_t::Param &param) {
@@ -162,8 +161,10 @@ Type Mutator::visit(const BVH_t *node) {
         not_changed = false;
         return BVH_t::Param{param.name, std::move(type)};
     };
-    const auto visit_volume = [&](const std::optional<BVH_t::Volume> &volume) -> std::optional<BVH_t::Volume> {
-        if (!volume.has_value()) return volume;
+    const auto visit_volume = [&](const std::optional<BVH_t::Volume> &volume)
+        -> std::optional<BVH_t::Volume> {
+        if (!volume.has_value())
+            return volume;
         Type type = mutate(volume->struct_type);
         if (type.same_as(volume->struct_type)) {
             return volume;
@@ -208,7 +209,8 @@ Type Mutator::visit(const BVH_t *node) {
     if (not_changed) {
         return node;
     } else if (volume.has_value()) {
-        return BVH_t::make(node->name, std::move(params), std::move(nodes), *volume);
+        return BVH_t::make(node->name, std::move(params), std::move(nodes),
+                           *volume);
     } else {
         internal_assert(params.empty());
         return BVH_t::make(node->name, std::move(nodes));

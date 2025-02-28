@@ -65,7 +65,7 @@ void Visitor::visit(const Function_t *node) {
 
 void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
 
-void Visitor::visit(const BVH_t *node) { 
+void Visitor::visit(const BVH_t *node) {
     internal_error << "TODO: implement Visitor::visit(BVH_t)";
 }
 

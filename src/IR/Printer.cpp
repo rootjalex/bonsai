@@ -309,7 +309,9 @@ void Printer::visit(const BVH_t *node) {
         os << ")";
     };
 
-    const auto print_group = [&](const std::string_view &name, const std::vector<BVH_t::Param> &params, const std::optional<BVH_t::Volume> &volume) {
+    const auto print_group = [&](const std::string_view &name,
+                                 const std::vector<BVH_t::Param> &params,
+                                 const std::optional<BVH_t::Volume> &volume) {
         os << name;
         if (params.size()) {
             os << "(";
@@ -338,7 +340,8 @@ void Printer::visit(const BVH_t *node) {
     internal_assert(!node->nodes.empty());
     for (size_t i = 0; i < node->nodes.size(); i++) {
         os << "\n  |";
-        print_group(node->nodes[i].name, node->nodes[i].params, node->nodes[i].volume);
+        print_group(node->nodes[i].name, node->nodes[i].params,
+                    node->nodes[i].volume);
     }
 }
 

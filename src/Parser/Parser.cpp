@@ -1464,33 +1464,31 @@ struct Parser {
         ir::BVH_t::Node parent = parse_node();
 
         internal_assert(!program.types.contains(parent.name))
-            << "Tree named: " << parent.name
-            << " defined at line: " << lineNo
-            << " conflicts with existing type: "
-            << program.types[parent.name];
+            << "Tree named: " << parent.name << " defined at line: " << lineNo
+            << " conflicts with existing type: " << program.types[parent.name];
 
-        // TODO: params of the parent should only show up in the Volume initializers?
+        // TODO: params of the parent should only show up in the Volume
+        // initializers?
         internal_assert(parent.volume.has_value() == !parent.params.empty())
             << "Parsing of tree " << parent.name
             << " has incompatible volume and params"
             << " at line: " << lineNo;
 
         internal_assert(consume(Token::Type::ASSIGN).has_value())
-            << "Unknown token in parse_tree: "
-            << peek().to_string()
+            << "Unknown token in parse_tree: " << peek().to_string()
             << " at line: " << peek().lineBegin;
 
         internal_assert(consume(Token::Type::BAR).has_value())
-            << "Unknown token in parse_tree: "
-            << peek().to_string()
+            << "Unknown token in parse_tree: " << peek().to_string()
             << " at line: " << peek().lineBegin;
 
         internal_assert(!program.types.contains("ptr"))
-            << "Shadowed type `ptr` conflicts with tree def: "
-            << parent.name << " at line: " << lineNo;
+            << "Shadowed type `ptr` conflicts with tree def: " << parent.name
+            << " at line: " << lineNo;
 
         // Empty struct type name for now.
-        program.types["ptr"] = ir::Ptr_t::make(ir::Struct_t::make(parent.name, {}));
+        program.types["ptr"] =
+            ir::Ptr_t::make(ir::Struct_t::make(parent.name, {}));
 
         std::vector<ir::BVH_t::Node> nodes;
 
@@ -1500,15 +1498,16 @@ struct Parser {
         } while (consume(Token::Type::BAR));
 
         internal_assert(consume(Token::Type::SEMICOL).has_value())
-            << "Unknown token in parse_tree: "
-            << peek().to_string()
+            << "Unknown token in parse_tree: " << peek().to_string()
             << " at line: " << peek().lineBegin;
 
-        // TODO: assert that all volumes only have initializers from parent.params or node.params
-        // BVH_t::make asserts this. we should catch that failure, and report a backtrace.
+        // TODO: assert that all volumes only have initializers from
+        // parent.params or node.params BVH_t::make asserts this. we should
+        // catch that failure, and report a backtrace.
         ir::Type type;
         if (parent.volume.has_value()) {
-            type = ir::BVH_t::make(parent.name, std::move(parent.params), std::move(nodes), std::move(*parent.volume));
+            type = ir::BVH_t::make(parent.name, std::move(parent.params),
+                                   std::move(nodes), std::move(*parent.volume));
         } else {
             type = ir::BVH_t::make(parent.name, std::move(nodes));
         }
@@ -1542,7 +1541,8 @@ struct Parser {
         const Token name_token = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(name_token.value);
 
-        internal_assert(program.types.contains(name)) << "Unknown volume type: " << name;
+        internal_assert(program.types.contains(name))
+            << "Unknown volume type: " << name;
         ir::Type type = program.types[name];
 
         expect(Token::Type::LPAREN);
@@ -1571,7 +1571,7 @@ struct Parser {
             do {
                 const Token token = expect(Token::Type::IDENTIFIER);
                 names.push_back(std::get<std::string>(token.value));
-            } while(!consume(Token::Type::COL));
+            } while (!consume(Token::Type::COL));
 
             ir::Type type = parseType();
 

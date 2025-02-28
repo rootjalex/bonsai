@@ -255,7 +255,8 @@ struct BVH_t : TypeNode<BVH_t> {
     // Each node should have a volume set, or are un-optimized.
     static Type make(std::string name, std::vector<Node> nodes);
     // All nodes share the same volume.
-    static Type make(std::string name, std::vector<Param> params, std::vector<Node> nodes, Volume volume);
+    static Type make(std::string name, std::vector<Param> params,
+                     std::vector<Node> nodes, Volume volume);
 
     static const IRTypeEnum _node_type = IRTypeEnum::BVH_t;
 };
