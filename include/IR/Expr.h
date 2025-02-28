@@ -89,7 +89,7 @@ Expr ExprNode<T>::mutate_expr(Mutator *m) const {
     return m->visit((const T *)this);
 }
 
-// Represents an named argument.
+// Represents a named argument.
 struct Argument {
     std::string name;
     Type type; // optional
