@@ -133,6 +133,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     ir::FrameStack<std::pair<llvm::Value *, bool>> frames;
     std::map<std::string, llvm::StructType *> struct_types;
 
+    // (DO NOT SUBMIT): This seems wrong...
+    //
+    // Mapping from a variable to its assigned lambda value.
+    std::map<std::string, std::string> variable_to_lambda;
+
     /** Some useful llvm types */
     // @{
     llvm::Type *void_t, *i1_t, *i8_t, *i16_t, *i32_t, *i64_t, *f16_t, *f32_t,
