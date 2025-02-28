@@ -1,0 +1,9 @@
+---CODE---
+-1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:56
+tests/bonsai/error/import_cycle1.bonsai
+->   tests/bonsai/error/import_cycle0.bonsai:1:40: [parse error] Import cycle found.
+
+import tests/bonsai/error/import_cycle1;
+                                       ^

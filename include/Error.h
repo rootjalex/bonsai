@@ -96,8 +96,8 @@ class ErrorReport {
 #define internal_assert(cond)                                                  \
     ConditionalErrorReport((cond), #cond, __FILE__, __LINE__)
 
-// Prints an error message and aborts.  For example,
-//   internal_assert(1 < 2) << "error message";
+// Prints an error message and aborts. For example,
+//   internal_error << "error message";
 #define internal_error ErrorReport(__FILE__, __LINE__)
 
 } // namespace bonsai

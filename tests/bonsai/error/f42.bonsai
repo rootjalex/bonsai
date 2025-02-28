@@ -1,0 +1,1 @@
+func use_option(i : f42) -> void {}
