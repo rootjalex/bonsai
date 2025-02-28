@@ -554,6 +554,12 @@ void CodeGen_LLVM::visit(const Generic_t *node) {
                    << Type(node);
 }
 
+void CodeGen_LLVM::visit(const BVH_t *node) {
+    internal_error << "BVH types must be lowered before reaching LLVM "
+                      "codegen! Received: "
+                   << Type(node);
+}
+
 void CodeGen_LLVM::visit(const IEmpty *node) {
     // TODO: this would be where the idea of a VisitorRestricted<...Args> would
     // be really useful.

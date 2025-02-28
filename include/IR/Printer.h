@@ -70,6 +70,7 @@ struct Printer : public Visitor {
     void visit(const Set_t *) override;
     void visit(const Function_t *) override;
     void visit(const Generic_t *) override;
+    void visit(const BVH_t *) override;
     // Interfaces
     void visit(const IEmpty *) override;
     void visit(const IFloat *) override;

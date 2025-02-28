@@ -103,6 +103,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::INTERFACE;
     if (token == "extern")
         return Token::Type::EXTERN;
+    if (token == "tree")
+        return Token::Type::TREE;
     if (token == "func")
         return Token::Type::FUNC;
     if (token == "mut")
@@ -111,6 +113,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::RETURN;
     if (token == "print")
         return Token::Type::PRINT;
+    if (token == "with")
+        return Token::Type::WITH;
     if (token == "for")
         return Token::Type::FOR;
     if (token == "if")

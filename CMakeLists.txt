@@ -14,6 +14,10 @@ set(TESTS_DIR ${CMAKE_SOURCE_DIR}/tests)
 # TODO(cgyurgyik): We have way too many clang-tidy errors right now, but this should eventually be the default.
 # set(CMAKE_CXX_CLANG_TIDY "clang-tidy")
 
+# Add useful debugging passes when in debug mode.
+# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
+# set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address,undefined")
+
 # Find LLVM
 set(LLVM_ROOT "")
 if (EXISTS "${CMAKE_SOURCE_DIR}/deps/llvm-install")

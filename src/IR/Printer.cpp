@@ -286,6 +286,62 @@ void Printer::visit(const Generic_t *node) {
     }
 }
 
+void Printer::visit(const BVH_t *node) {
+    const auto print_param = [&](const BVH_t::Param &param) {
+        os << param.name << " : ";
+        print(param.type);
+    };
+
+    const auto print_volume = [&](const BVH_t::Volume &volume) {
+        // ScopedValue<bool> verbosity(verbose, false);
+        // print(volume.struct_type);
+        internal_assert(volume.struct_type.is<Struct_t>());
+        os << volume.struct_type.as<Struct_t>()->name;
+        internal_assert(!volume.initializers.empty());
+        os << "(";
+        for (size_t i = 0; i < volume.initializers.size(); i++) {
+            if (i != 0) {
+                os << ", ";
+            }
+            os << volume.initializers[i];
+            // print_param(volume.initializers[i]);
+        }
+        os << ")";
+    };
+
+    const auto print_group = [&](const std::string_view &name, const std::vector<BVH_t::Param> &params, const std::optional<BVH_t::Volume> &volume) {
+        os << name;
+        if (params.size()) {
+            os << "(";
+            for (size_t i = 0; i < params.size(); i++) {
+                if (i != 0) {
+                    os << ", ";
+                }
+                print_param(params[i]);
+            }
+            os << ")";
+        }
+        if (volume.has_value()) {
+            os << " with ";
+            print_volume(*volume);
+        }
+    };
+
+    os << "tree ";
+    if (!verbose) {
+        os << node->name;
+        return;
+    }
+
+    print_group(node->name, node->params, node->volume);
+
+    internal_assert(!node->nodes.empty());
+    for (size_t i = 0; i < node->nodes.size(); i++) {
+        os << "\n  |";
+        print_group(node->nodes[i].name, node->nodes[i].params, node->nodes[i].volume);
+    }
+}
+
 void Printer::visit(const IEmpty *node) { os << "IEmpty"; }
 
 void Printer::visit(const IFloat *node) { os << "IFloat"; }

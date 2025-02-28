@@ -1,9 +1,12 @@
 // ray.bonsai
 
+// TODO: make sure everything is #pragma once
+import apps/pathtracer/types;
+
 element Ray {
-    o : vector[f32, 3]
-    d : vector[f32, 3]
-    t : f32 // TODO: allow default values = 0
+    o : vector[Float, 3];
+    d : vector[Float, 3];
+    t : Float = 0;
     // TODO: medium
     // TODO: differential?
 }

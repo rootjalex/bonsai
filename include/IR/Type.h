@@ -29,6 +29,7 @@ enum class IRTypeEnum {
     Set_t,
     Function_t,
     Generic_t,
+    BVH_t,
 };
 
 using IRTypeNode = IRNode<Type, IRTypeEnum>;
@@ -229,6 +230,34 @@ struct Generic_t : TypeNode<Generic_t> {
     static Type make(std::string name, Interface interface);
 
     static const IRTypeEnum _node_type = IRTypeEnum::Generic_t;
+};
+
+struct BVH_t : TypeNode<BVH_t> {
+    struct Param {
+        std::string name;
+        Type type;
+    };
+    struct Volume {
+        Type struct_type;
+        std::vector<std::string> initializers;
+    };
+    struct Node {
+        std::string name;
+        std::vector<Param> params;
+        std::optional<Volume> volume;
+    };
+
+    std::string name;
+    std::vector<Param> params;
+    std::vector<Node> nodes;
+    std::optional<Volume> volume;
+
+    // Each node should have a volume set, or are un-optimized.
+    static Type make(std::string name, std::vector<Node> nodes);
+    // All nodes share the same volume.
+    static Type make(std::string name, std::vector<Param> params, std::vector<Node> nodes, Volume volume);
+
+    static const IRTypeEnum _node_type = IRTypeEnum::BVH_t;
 };
 
 // TODO: List_t, Tensor_t

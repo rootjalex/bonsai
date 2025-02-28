@@ -76,6 +76,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Set_t *) override;
     virtual void visit(const ir::Function_t *) override;
     virtual void visit(const ir::Generic_t *) override;
+    virtual void visit(const ir::BVH_t *) override;
     // Interfaces
     virtual void visit(const ir::IEmpty *) override;
     virtual void visit(const ir::IFloat *) override;

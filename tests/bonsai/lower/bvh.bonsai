@@ -1,17 +1,27 @@
 element Float = f32;
+element vec3f = vector[Float, 3];
 
 element Ray {
-    o : vector[Float, 3];
-    d : vector[Float, 3];
+    o : vec3f;
+    d : vec3f;
     t : Float = 0;
     // TODO: medium
     // TODO: differential?
 }
 
 element Triangle {
-    p0, p1, p2 : vector[Float, 3];
+    p0, p1, p2 : vec3f;
 }
 
-extern triangles : set[Triangle];
+element AABB {
+    low, high : vec3f;
+}
+
+// TODO: generic over primitive types!
+tree TriangleBVH(low high : vec3f) with AABB(low, high) =
+| Interior(left : ptr, right : ptr)
+| Leaf(data : Triangle, low high : vec3f);
+
+extern triangles : set[Triangle]; // TODO: = TriangleBVH
 
 func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));

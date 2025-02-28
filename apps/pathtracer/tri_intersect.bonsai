@@ -1,43 +1,16 @@
 import apps/pathtracer/ray;
 import apps/pathtracer/triangle;
-
-// TODO: generic over type!
-func sqlen(v : vector[f32, 3]) -> f32 = sum(v * v);
-
-// static constexpr Float MachineEpsilon = std::numeric_limits<Float>::epsilon() * 0.5;
-
-func gamma(n : i32) -> f32 = (cast[[f32]](n) * eps[[f32]]()) / (1 - cast[[f32]](n) * eps[[f32]]());
-
-// TODO: implement generics!
-func prod_diff(a : f32, b : f32, c : f32, d : f32) -> f32 {
-    cd = c * d;
-    diff = fma(a, b, -cd);
-    err = fma(-c, d, cd);
-    return diff + err;
-}
-
-func _cross(v0 : vector[f32, 3], v1 : vector[f32, 3]) -> vector[f32, 3] {
-    return {prod_diff(v0.y, v1.z, v0.z, v1.y), prod_diff(v0.z, v1.x, v0.x, v1.z), prod_diff(v0.x, v1.y, v0.y, v1.x)};
-}
+import apps/pathtracer/gamma;
+import apps/pathtracer/vecmath;
 
 element TriangleIntersection {
-    b0, b1, b2, t : f32
-}
-
-element Vector3f = vector[f32, 3];
-
-func triangle_intersection1(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
-    // Return no intersection if triangle is degenerate
-    if (sqlen(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
-        return {};
-    else {
-        return TriangleIntersection{1.0, 1.0, 1.0, 0.0};
-    }
+    b0, b1, b2, t : Float;
 }
 
 // pstd::optional<TriangleIntersection> IntersectTriangle
 // shapes.cpp
-func triangle_intersection(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
+// TODO: need special intrinsic parsing!
+func intersects(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
     // Return no intersection if triangle is degenerate
     if (sqlen(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
         return {};
@@ -128,8 +101,4 @@ func triangle_intersection(ray : Ray, tri : Triangle) -> option[TriangleIntersec
 
     // Return _TriangleIntersection_ for intersection
     return TriangleIntersection{b0, b1, b2, t};   
-}
-
-func main() -> i32 {
-    return 1;
 }

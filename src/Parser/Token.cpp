@@ -76,6 +76,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "interface";
     case Token::Type::EXTERN:
         return "extern";
+    case Token::Type::TREE:
+        return "tree";
     case Token::Type::FUNC:
         return "func";
     case Token::Type::MUT:
@@ -86,6 +88,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "return";
     case Token::Type::PRINT:
         return "print";
+    case Token::Type::WITH:
+        return "with";
     case Token::Type::FOR:
         return "for";
     case Token::Type::IN:
