@@ -502,9 +502,9 @@ void Printer::visit(const Build *node) {
     if (std::optional<Build::Call> call = node->call) {
         os << "(";
         print_arg_list(call->args);
-        os << ")" << "{";
+        os << ")" << " { ";
         print_no_parens(call->value);
-        os << "}";
+        os << " }";
     }
 }
 

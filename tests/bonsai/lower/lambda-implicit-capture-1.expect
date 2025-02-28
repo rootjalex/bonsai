@@ -2,7 +2,7 @@
 
 func foo() -> i32 {
   let x = (i32)42 in
-  let L2 = build<?lambda0>(x)(y : i32){(y + x) + (i32)1} in
+  let L2 = build<?lambda0>(x)(y : i32) { (y + x) + (i32)1 } in
   return L2((i32)1)
 }
 

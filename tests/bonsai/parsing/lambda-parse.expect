@@ -5,13 +5,13 @@ func foo() -> i32 {
   let b = false in
   let c = (a || b) || false in
   let d = true || b in
-  let L1 = build<?lambda0>()(x : i32){x + (i32)1} in
-  let L2 = build<?lambda1>()(x : i32, y : i32){(x + (i32)1) + y} in
-  let L3 = build<?lambda2>()(e : bool, f : bool){e || f} in
-  let L4 = build<?lambda3>()(e : bool, f : bool){e || f} in
-  let L5 = build<?lambda4>()(y : i32){y} in
-  let L6 = build<?lambda5>()(x : i32, y : i32){x + y} in
-  let L7 = build<?lambda7>()(x : i32){build<?lambda6>()(y : i32){y}} in
+  let L1 = build<?lambda0>()(x : i32) { x + (i32)1 } in
+  let L2 = build<?lambda1>()(x : i32, y : i32) { (x + (i32)1) + y } in
+  let L3 = build<?lambda2>()(e : bool, f : bool) { e || f } in
+  let L4 = build<?lambda3>()(e : bool, f : bool) { e || f } in
+  let L5 = build<?lambda4>()(y : i32) { y } in
+  let L6 = build<?lambda5>()(x : i32, y : i32) { x + y } in
+  let L7 = build<?lambda7>()(x : i32) { build<?lambda6>()(y : i32) { y } } in
   let x = L1((i32)0) in
   let y = L2((i32)1, (i32)2) in
   return L6(x, y)

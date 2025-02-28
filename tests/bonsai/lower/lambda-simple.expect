@@ -2,13 +2,13 @@
 
 func foo() -> i32 {
   let z = (i32)0 in
-  let L1 = build<?lambda0>(z)(x : i32){x + z} in
+  let L1 = build<?lambda0>(z)(x : i32) { x + z } in
   let y = L1((i32)0) in
   return y
 }
 
 func main() -> i32 {
-  let L1 = build<?lambda1>()(x : i32){x - (i32)1} in
+  let L1 = build<?lambda1>()(x : i32) { x - (i32)1 } in
   let y = L1((i32)0) in
   return y
 }
