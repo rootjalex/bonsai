@@ -152,6 +152,7 @@ Type Mutator::visit(const Generic_t *node) {
 }
 
 Type Mutator::visit(const BVH_t *node) {
+    // Keep track of whether any component of the type has changed or not.
     bool not_changed = true;
     const auto visit_param = [&](const BVH_t::Param &param) {
         Type type = mutate(param.type);

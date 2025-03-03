@@ -232,15 +232,20 @@ struct Generic_t : TypeNode<Generic_t> {
     static const IRTypeEnum _node_type = IRTypeEnum::Generic_t;
 };
 
+// An ADT with Volume information, representing a bounding volume hierarchy.
 struct BVH_t : TypeNode<BVH_t> {
+    // Params are field values, either per Node or per BVH type.
     struct Param {
         std::string name;
         Type type;
     };
+    // A type that should be treated as a bounding volume,
+    // initialized with Params.
     struct Volume {
         Type struct_type;
         std::vector<std::string> initializers;
     };
+    //
     struct Node {
         std::string name;
         std::vector<Param> params;
@@ -248,13 +253,17 @@ struct BVH_t : TypeNode<BVH_t> {
     };
 
     std::string name;
+    // TODO: do we ever want a root Volume or root Params?
+    // Params every Node has.
     std::vector<Param> params;
+    // All possible node types.
     std::vector<Node> nodes;
+    // BV for every node, unless specified in the Node type.
     std::optional<Volume> volume;
 
     // Each node should have a volume set, or are un-optimized.
     static Type make(std::string name, std::vector<Node> nodes);
-    // All nodes share the same volume.
+    // All nodes share the same volume type unless otherwise specified.
     static Type make(std::string name, std::vector<Param> params,
                      std::vector<Node> nodes, Volume volume);
 

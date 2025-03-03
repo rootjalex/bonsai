@@ -1646,8 +1646,6 @@ struct Parser {
 
         expect(Token::Type::RPAREN);
 
-        // std::vector<ir::BVH_t::Param> initializers = parse_tree_params();
-
         return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
     }
 

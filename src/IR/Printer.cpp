@@ -293,8 +293,6 @@ void Printer::visit(const BVH_t *node) {
     };
 
     const auto print_volume = [&](const BVH_t::Volume &volume) {
-        // ScopedValue<bool> verbosity(verbose, false);
-        // print(volume.struct_type);
         internal_assert(volume.struct_type.is<Struct_t>());
         os << volume.struct_type.as<Struct_t>()->name;
         internal_assert(!volume.initializers.empty());
@@ -304,12 +302,11 @@ void Printer::visit(const BVH_t *node) {
                 os << ", ";
             }
             os << volume.initializers[i];
-            // print_param(volume.initializers[i]);
         }
         os << ")";
     };
 
-    const auto print_group = [&](const std::string_view &name,
+    const auto print_group = [&](std::string_view name,
                                  const std::vector<BVH_t::Param> &params,
                                  const std::optional<BVH_t::Volume> &volume) {
         os << name;
@@ -339,7 +336,7 @@ void Printer::visit(const BVH_t *node) {
 
     internal_assert(!node->nodes.empty());
     for (size_t i = 0; i < node->nodes.size(); i++) {
-        os << "\n  |";
+        os << "\n  | ";
         print_group(node->nodes[i].name, node->nodes[i].params,
                     node->nodes[i].volume);
     }
