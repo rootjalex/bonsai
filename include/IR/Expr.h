@@ -243,7 +243,6 @@ struct Extract : ExprNode<Extract> {
 struct Build : ExprNode<Build> {
     std::vector<Expr> values;
 
-    // TODO: add named-field variant (works well with default values).
     static Expr make(Type type, std::vector<Expr> values);
     // Named field constructor (for Struct_t only!)
     static Expr make(Type type, std::map<std::string, Expr> values);

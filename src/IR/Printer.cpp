@@ -247,6 +247,18 @@ void Printer::visit(const Struct_t *node) {
             os << key << " : ";
             print(value);
         }
+
+        // TODO: should we print the full body?
+        for (const auto &[key, method] : node->methods) {
+            if (!first) {
+                os << "; ";
+            }
+            first = false;
+            // TODO: flip? if easier to read.
+            os << key << " : ";
+            print(get_field_type(node, key));
+        }
+
         os << " }";
     }
 }
