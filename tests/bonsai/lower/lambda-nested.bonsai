@@ -1,0 +1,5 @@
+func foo(i : i32, j : i32) -> i32 {
+    l = |x : i32| |y : i32| x + y;
+    a = l(i);
+    return a(j);
+}

@@ -1,5 +1,13 @@
-type ?lambda0 = struct ?lambda0{ call : Fn(i32) -> i32 }
-type ?lambda1 = struct ?lambda1{ call : Fn(i32) -> i32 }
+type ?lambda0 = struct ?lambda0{
+  func call(x : i32) -> i32 {
+    return x + (i32)1
+  }
+}
+type ?lambda1 = struct ?lambda1{
+  func call(x : i32) -> i32 {
+    return x - (i32)1
+  }
+}
 
 
 func foo() -> i32 {

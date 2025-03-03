@@ -1,10 +1,44 @@
-type ?lambda0 = struct ?lambda0{ call : Fn(i32) -> i32 }
-type ?lambda1 = struct ?lambda1{ call : Fn(i32, i32) -> i32 }
-type ?lambda2 = struct ?lambda2{ call : Fn(bool, bool) -> bool }
-type ?lambda3 = struct ?lambda3{ call : Fn(bool, bool) -> bool }
-type ?lambda4 = struct ?lambda4{ call : Fn(i32) -> i32 }
-type ?lambda5 = struct ?lambda5{ call : Fn(i32, i32) -> i32 }
-type ?lambda6 = struct ?lambda6{ y : i32; call : Fn(i32) -> Fn(i32) -> i32 }
+type ?lambda0 = struct ?lambda0{
+  func call(x : i32) -> i32 {
+    return x + (i32)1
+  }
+}
+type ?lambda1 = struct ?lambda1{
+  func call(x : i32, y : i32) -> i32 {
+    return (x + (i32)1) + y
+  }
+}
+type ?lambda2 = struct ?lambda2{
+  func call(e : bool, f : bool) -> bool {
+    return e || f
+  }
+}
+type ?lambda3 = struct ?lambda3{
+  func call(e : bool, f : bool) -> bool {
+    return e || f
+  }
+}
+type ?lambda4 = struct ?lambda4{
+  func call(y : i32) -> i32 {
+    return y
+  }
+}
+type ?lambda5 = struct ?lambda5{
+  func call(x : i32, y : i32) -> i32 {
+    return x + y
+  }
+}
+type ?lambda6 = struct ?lambda6{
+  func call(y : i32) -> i32 {
+    return y
+  }
+}
+type ?lambda7 = struct ?lambda7{
+  y : i32;
+  func call(x : i32) -> Fn(i32) -> i32 {
+    return build<?lambda6>().call
+  }
+}
 
 
 func foo() -> i32 {
@@ -18,7 +52,7 @@ func foo() -> i32 {
   let L4 = build<?lambda3>().call in
   let L5 = build<?lambda4>().call in
   let L6 = build<?lambda5>().call in
-  let L7 = build<?lambda6>(y).call in
+  let L7 = build<?lambda7>(y).call in
   let x = L1((i32)0) in
   let y = L2((i32)1, (i32)2) in
   return L6(x, y)

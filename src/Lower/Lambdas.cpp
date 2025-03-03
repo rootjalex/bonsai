@@ -52,16 +52,19 @@ struct ConvertLambdas : public ir::Mutator {
     ir::Expr visit(const ir::Lambda *node) override {
         static const std::string call_name = "call";
 
+        // Recursively mutate (handles nested lambdas).
+        ir::Expr value = mutate(node->value);
+
         // Build callable Function.
         std::vector<ir::Function::Argument> f_args;
         std::transform(node->args.begin(), node->args.end(),
             std::inserter(f_args, f_args.end()),
             [](const auto &arg) { return ir::Function::Argument(arg.name, arg.type); });
-        ir::Type f_ret_type = node->value.type();
+        ir::Type f_ret_type = value.type();
         internal_assert(f_ret_type.defined())
             << "Lambda lowering called before type inference ran: "
             << ir::Expr(node);
-        ir::Stmt f_body = ir::Return::make(node->value);
+        ir::Stmt f_body = ir::Return::make(std::move(value));
         ir::Function::InterfaceList interfaces; // TODO: will this ever be used?
         std::shared_ptr<ir::Function> f = std::make_shared<ir::Function>(call_name, std::move(f_args), std::move(f_ret_type), std::move(f_body), interfaces);
         ir::Struct_t::MethodMap methods = {{call_name, std::move(f)}};

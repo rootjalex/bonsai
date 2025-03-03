@@ -47,6 +47,7 @@ struct Printer : public Visitor {
     explicit Printer(std::ostream &_os, bool verbose)
         : os(_os), verbose(verbose) {}
 
+    void print(const Function &func);
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
