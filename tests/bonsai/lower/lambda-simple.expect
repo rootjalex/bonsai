@@ -1,20 +1,16 @@
+type ?lambda0 = struct ?lambda0{ call : Fn(i32) -> i32 }
+type ?lambda1 = struct ?lambda1{ call : Fn(i32) -> i32 }
 
-
-func ?lambda0(x : i32) -> i32 {
-  return x + (i32)1
-}
-
-func ?lambda1(x : i32) -> i32 {
-  return x - (i32)1
-}
 
 func foo() -> i32 {
-  let y = ?lambda0((i32)0) in
+  let L1 = build<?lambda0>().call in
+  let y = L1((i32)0) in
   return y
 }
 
 func main() -> i32 {
-  let y = ?lambda1((i32)0) in
+  let L1 = build<?lambda1>().call in
+  let y = L1((i32)0) in
   return y
 }
 
