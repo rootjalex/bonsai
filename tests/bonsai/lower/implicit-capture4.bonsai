@@ -1,0 +1,7 @@
+// TODO(bonsai/issues/#6): This should work.
+// func bar() -> i32 {
+//  z: i32 = 1;
+//  L1 = |y: i32| { |x: i32| { x + y + z } };
+//  L2 = L1(2);
+//  return L2(3);
+// }

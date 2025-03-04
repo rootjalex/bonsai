@@ -40,6 +40,7 @@ struct ComputeUseCounts : ir::Visitor {
 
     void visit(const ir::Lambda *node) override {
         for (const ir::Lambda::Argument &arg : node->args) {
+            // We assume there is no shadowing, so this will always be illegal.
             internal_assert(!use_counts.contains(arg.name));
             if (!curr_var.empty()) {
                 const UseCountMap &dep_map = dependent_use_counts[curr_var];

@@ -1,0 +1,7 @@
+// Verify implicit arguments are captured in subsequent calls.
+func foo() -> i32 {
+  z: i32 = 40;
+  y: i32 = 1;
+  L2 = |x: i32| { x + y + z };
+  return L2(1);
+}
