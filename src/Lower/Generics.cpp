@@ -29,7 +29,7 @@ std::pair<FuncMap, FuncMap> partition_generics(const FuncMap &funcs) {
 }
 
 bool contains_generics(const Type &type) {
-    struct ContainsGenerics : Visitor {
+    struct ContainsGenerics : public Visitor {
         bool found = false;
         void visit(const Generic_t *) override { found = true; }
     };

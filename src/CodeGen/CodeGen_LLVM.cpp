@@ -279,15 +279,15 @@ std::unique_ptr<llvm::TargetMachine>
 make_target_machine(const llvm::Module &module) {
     std::string error_string;
 
-    std::string targetTriple = llvm::sys::getDefaultTargetTriple();
+    std::string target_triple = llvm::sys::getDefaultTargetTriple();
 
     const llvm::Target *llvm_target =
-        llvm::TargetRegistry::lookupTarget(targetTriple, error_string);
+        llvm::TargetRegistry::lookupTarget(target_triple, error_string);
     if (!llvm_target) {
         std::cout << error_string << "\n";
         llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::outs());
     }
-    auto triple = llvm::Triple(targetTriple);
+    auto triple = llvm::Triple(target_triple);
     internal_assert(llvm_target)
         << "Could not create LLVM target for " << triple.str();
 
@@ -409,12 +409,12 @@ void CodeGen_LLVM::optimize_module() {
             llvm::AddressSanitizerOptions
                 asan_options;                  // default values are good...
             asan_options.UseAfterScope = true; // ...except this one
-            constexpr bool use_global_gc = false;
-            constexpr bool use_odr_indicator = true;
-            constexpr auto destructor_kind = llvm::AsanDtorKind::Global;
-            mpm.addPass(llvm::AddressSanitizerPass(asan_options, use_global_gc,
-                                                   use_odr_indicator,
-                                                   destructor_kind));
+            constexpr bool USE_GLOBAL_GC = false;
+            constexpr bool USE_ODR_INDICATOR = true;
+            constexpr auto DESTRUCTOR_KIND = llvm::AsanDtorKind::Global;
+            mpm.addPass(llvm::AddressSanitizerPass(asan_options, USE_GLOBAL_GC,
+                                                   USE_ODR_INDICATOR,
+                                                   DESTRUCTOR_KIND));
         });
     }
 
@@ -605,12 +605,12 @@ void CodeGen_LLVM::visit(const BoolImm *node) {
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
-    auto [_value, _mutable] = frames.from_frames(node->name);
-    if (_mutable) {
-        llvm::Type *_type = codegen_type(node->type);
-        value = builder->CreateLoad(_type, _value);
+    auto [var_value, mut] = frames.from_frames(node->name);
+    if (mut) {
+        llvm::Type *var_type = codegen_type(node->type);
+        value = builder->CreateLoad(var_type, var_value);
     } else {
-        value = _value; // immutable so not pointer.
+        value = var_value; // immutable so not pointer.
     }
 }
 
@@ -787,8 +787,8 @@ void CodeGen_LLVM::visit(const UnOp *node) {
         } else {
             internal_assert(node->type.is_int_or_uint());
             llvm::Type *itype = a->getType();
-            llvm::Constant *_0 = llvm::ConstantInt::get(itype, 0);
-            value = builder->CreateSub(_0, a);
+            llvm::Constant *zero = llvm::ConstantInt::get(itype, 0);
+            value = builder->CreateSub(zero, a);
         }
         return;
     }
@@ -899,7 +899,7 @@ void CodeGen_LLVM::visit(const Print *node) {
 
 void CodeGen_LLVM::visit(const Cast *node) {
     // TODO: upgrade_type_for_arithmetic?
-    llvm::Value *_value = codegen_expr(node->value);
+    llvm::Value *inner = codegen_expr(node->value);
 
     const ir::Type &src = node->value.type();
     const ir::Type &dst = node->type;
@@ -910,7 +910,7 @@ void CodeGen_LLVM::visit(const Cast *node) {
 
     // These just copy Halide's lowering (minus a few pointer things).
     if (src.is_int_or_uint() && dst.is_int_or_uint()) {
-        value = builder->CreateIntCast(_value, llvm_dst,
+        value = builder->CreateIntCast(inner, llvm_dst,
                                        /* isSigned */ src.is_int());
     } else if (src.is_float() && dst.is_int()) {
         value = builder->CreateFPToSI(value, llvm_dst);
@@ -944,8 +944,8 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
 
     llvm::Value *v = codegen_expr(node->value);
 
-    llvm::VectorType *vecType = llvm::cast<llvm::VectorType>(v->getType());
-    llvm::Type *elementType = vecType->getElementType();
+    llvm::VectorType *vec_type = llvm::cast<llvm::VectorType>(v->getType());
+    llvm::Type *element_type = vec_type->getElementType();
 
     // TODO: better instruction selection.
 
@@ -959,7 +959,7 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
         if (node->type.is_float()) {
             intrin = llvm::Intrinsic::vector_reduce_fadd;
             // TODO: is this right? why do we have to do this.
-            init = llvm::ConstantFP::get(elementType, 0.0f);
+            init = llvm::ConstantFP::get(element_type, 0.0f);
         } else {
             intrin = llvm::Intrinsic::vector_reduce_add;
         }
@@ -968,7 +968,7 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
         if (node->type.is_float()) {
             intrin = llvm::Intrinsic::vector_reduce_fmul;
             // TODO: is this right? why do we have to do this.
-            init = llvm::ConstantFP::get(elementType, 1.0f);
+            init = llvm::ConstantFP::get(element_type, 1.0f);
         } else {
             intrin = llvm::Intrinsic::vector_reduce_mul;
         }
@@ -1006,18 +1006,18 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
         // std::cerr << "Calling with init = " << init << "\n";
         // std::cout << "calling intrinsic for: " << ir::Expr(node) <<
         // std::endl;
-        value = builder->CreateIntrinsic(elementType, intrin, {init, v});
+        value = builder->CreateIntrinsic(element_type, intrin, {init, v});
     } else {
         // std::cout << "calling intrinsic for: " << ir::Expr(node) <<
         // std::endl;
-        value = builder->CreateIntrinsic(elementType, intrin, {v});
+        value = builder->CreateIntrinsic(element_type, intrin, {v});
     }
 
     internal_assert(value) << "VectorReduce intrin failure: " << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const VectorShuffle *node) {
-    llvm::Value *_value = codegen_expr(node->value);
+    llvm::Value *inner = codegen_expr(node->value);
     llvm::Type *out_type = codegen_type(node->type);
     // const uint32_t inputSize = node->value.type().lanes();
 
@@ -1042,8 +1042,7 @@ void CodeGen_LLVM::visit(const VectorShuffle *node) {
         }
 
         // llvm::errs() << *_value << " and " << *load_index << "\n";
-        llvm::Value *element =
-            builder->CreateExtractElement(_value, load_index);
+        llvm::Value *element = builder->CreateExtractElement(inner, load_index);
 
         llvm::Constant *store_idx = llvm::ConstantInt::get(i32_t, i);
         result = builder->CreateInsertElement(result, element, store_idx);
@@ -1249,11 +1248,11 @@ void CodeGen_LLVM::visit(const Build *node) {
 }
 
 void CodeGen_LLVM::visit(const Access *node) {
-    llvm::Value *_struct = codegen_expr(node->value);
-    if (_struct->getType()->isStructTy()) {
+    llvm::Value *inner = codegen_expr(node->value);
+    if (inner->getType()->isStructTy()) {
         const size_t idx = find_struct_index(
             node->field, node->value.type().as<Struct_t>()->fields);
-        value = builder->CreateExtractValue(_struct, idx);
+        value = builder->CreateExtractValue(inner, idx);
         return;
     }
     internal_error
@@ -1348,8 +1347,8 @@ void CodeGen_LLVM::visit(const Store *node) {
 }
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
-    llvm::Value *_value = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, {_value, /* mutable */ false});
+    llvm::Value *var = codegen_expr(node->value);
+    frames.add_to_frame(node->loc.base, {var, /* mutable */ false});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -1360,9 +1359,8 @@ void CodeGen_LLVM::visit(const IfElse *node) {
         Expr expr;
         Stmt stmt;
         bool returns;
-        Block(Expr _expr, Stmt _stmt, bool _returns)
-            : expr(std::move(_expr)), stmt(std::move(_stmt)),
-              returns(_returns) {}
+        Block(Expr expr, Stmt stmt, bool returns)
+            : expr(std::move(expr)), stmt(std::move(stmt)), returns(returns) {}
     };
     std::vector<Block> blocks;
     Stmt final_else;
@@ -1424,34 +1422,34 @@ void CodeGen_LLVM::visit(const Assign *node) {
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc
                          << " in assignment: " << ir::Stmt(node);
 
-    llvm::Value *_value = codegen_expr(node->value);
+    llvm::Value *val = codegen_expr(node->value);
 
     builder->CreateStore(
-        _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
+        val, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
     llvm::Value *loc = codegen_write_loc(node->loc);
 
-    llvm::Value *_value = codegen_expr(node->value);
+    llvm::Value *val = codegen_expr(node->value);
 
-    llvm::Value *current = builder->CreateLoad(_value->getType(), loc);
+    llvm::Value *current = builder->CreateLoad(val->getType(), loc);
     llvm::Value *acc = nullptr;
 
     switch (node->op) {
     case Accumulate::Add: {
         if (node->value.type().is_float()) {
-            acc = builder->CreateFAdd(current, _value);
+            acc = builder->CreateFAdd(current, val);
         } else {
-            acc = builder->CreateAdd(current, _value);
+            acc = builder->CreateAdd(current, val);
         }
         break;
     }
     case Accumulate::Mul: {
         if (node->value.type().is_float()) {
-            acc = builder->CreateFMul(current, _value);
+            acc = builder->CreateFMul(current, val);
         } else {
-            acc = builder->CreateMul(current, _value);
+            acc = builder->CreateMul(current, val);
         }
         break;
     }
