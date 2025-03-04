@@ -534,54 +534,9 @@ void CodeGen_LLVM::visit(const Tuple_t *node) {
     internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
 }
 
-void CodeGen_LLVM::visit(const Option_t *node) {
-    internal_error << "TODO: implement Option_t code generation: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const Set_t *node) {
-    internal_error << "TODO: implement Set_t code generation: " << Type(node);
-}
-
 void CodeGen_LLVM::visit(const Function_t *node) {
     internal_error << "TODO: implement Function_t code generation: "
                    << Type(node);
-}
-
-void CodeGen_LLVM::visit(const Generic_t *node) {
-    internal_error << "Generic types must be lowered before reaching LLVM "
-                      "codegen! Received: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const BVH_t *node) {
-    internal_error << "BVH types must be lowered before reaching LLVM "
-                      "codegen! Received: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const IEmpty *node) {
-    // TODO: this would be where the idea of a VisitorRestricted<...Args> would
-    // be really useful.
-    internal_error
-        << "Interfaces must be lowered before reaching LLVM codegen! Received: "
-        << Interface(node);
-}
-
-void CodeGen_LLVM::visit(const IFloat *node) {
-    // TODO: this would be where the idea of a VisitorRestricted<...Args> would
-    // be really useful.
-    internal_error
-        << "Interfaces must be lowered before reaching LLVM codegen! Received: "
-        << Interface(node);
-}
-
-void CodeGen_LLVM::visit(const IVector *node) {
-    // TODO: this would be where the idea of a VisitorRestricted<...Args> would
-    // be really useful.
-    internal_error
-        << "Interfaces must be lowered before reaching LLVM codegen! Received: "
-        << Interface(node);
 }
 
 void CodeGen_LLVM::visit(const IntImm *node) {
@@ -1144,20 +1099,6 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     internal_assert(value) << "Intrinsic codegen failure: " << Expr(node);
 }
 
-void CodeGen_LLVM::visit(const Lambda *node) {
-    internal_error
-        << "Lambda expression should have been canonicalized and eliminated: "
-        << Expr(node);
-}
-
-void CodeGen_LLVM::visit(const GeomOp *node) {
-    internal_error << "TODO: implement GeomOp code generation: " << Expr(node);
-}
-
-void CodeGen_LLVM::visit(const SetOp *node) {
-    internal_error << "TODO: implement SetOp code generation: " << Expr(node);
-}
-
 void CodeGen_LLVM::visit(const Call *node) {
     llvm::Function *func = codegen_func_ptr(node->func);
     internal_assert(func) << "Failed to codegen function pointer to: "
@@ -1174,11 +1115,6 @@ void CodeGen_LLVM::visit(const Call *node) {
     }
 
     value = builder->CreateCall(func, args);
-}
-
-void CodeGen_LLVM::visit(const Instantiate *node) {
-    internal_error << "Instantiate node not lowered prior to codegen: "
-                   << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Build *node) {
@@ -1352,8 +1288,6 @@ void CodeGen_LLVM::visit(const LetStmt *node) {
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
-    // internal_error << "TODO: implement codegen for IfElse: " << Stmt(node);
-
     // Gather the conditions and values in an if-else chain
     struct Block {
         Expr expr;
@@ -1410,14 +1344,7 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     }
 }
 
-// default behavior is fine.
-// void CodeGen_LLVM::visit(const Sequence *node) {
-//     internal_error << "TODO: implement codegen for Sequence!";
-// }
-
 void CodeGen_LLVM::visit(const Assign *node) {
-    // internal_error << "TODO: implement codegen for assign: " << Stmt(node);
-
     llvm::Value *loc = codegen_write_loc(node->loc);
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc
                          << " in assignment: " << ir::Stmt(node);

@@ -2,6 +2,11 @@
 
 #include "IRFwdDecl.h"
 
+#include "Error.h"
+
+#include <type_traits>
+#include <typeinfo>
+
 namespace bonsai {
 namespace ir {
 
@@ -57,6 +62,25 @@ struct Visitor {
     virtual void visit(const Sequence *);
     virtual void visit(const Assign *);
     virtual void visit(const Accumulate *);
+};
+
+// Utility to check if a type is in a list
+template <typename T, typename... Ts>
+inline constexpr bool type_in_list = std::disjunction_v<std::is_same<T, Ts>...>;
+
+// RestrictedVisitor: Blocks overriding for disallowed types
+template <typename... Disallowed>
+struct RestrictedVisitor : Visitor {
+    // Explicitly override and disable visit() for disallowed types
+    template <typename T,
+              std::enable_if_t<type_in_list<T, Disallowed...>, int> = 0>
+    void visit(const T *node) {
+        internal_error << "Node type: " << typeid(T).name()
+                       << " not supported at this stage of lowering\n";
+    }
+
+    // Inherit visit() for allowed types, keeping them overridable
+    using Visitor::visit;
 };
 
 } // namespace ir

@@ -17,7 +17,11 @@
 
 namespace bonsai {
 
-struct CodeGen_LLVM : public ir::Visitor {
+struct CodeGen_LLVM
+    : public ir::RestrictedVisitor<ir::Option_t, ir::Set_t, ir::Generic_t,
+                                   ir::BVH_t, ir::IEmpty, ir::IFloat,
+                                   ir::IVector, ir::Lambda, ir::GeomOp,
+                                   ir::SetOp, ir::Instantiate> {
     CodeGen_LLVM();
 
     /** Takes a bonsai Program and compiles it to an llvm Module. */
@@ -72,15 +76,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Struct_t *) override;
     virtual void visit(const ir::Tuple_t *) override;
-    virtual void visit(const ir::Option_t *) override;
-    virtual void visit(const ir::Set_t *) override;
     virtual void visit(const ir::Function_t *) override;
-    virtual void visit(const ir::Generic_t *) override;
-    virtual void visit(const ir::BVH_t *) override;
-    // Interfaces
-    virtual void visit(const ir::IEmpty *) override;
-    virtual void visit(const ir::IFloat *) override;
-    virtual void visit(const ir::IVector *) override;
     // Expressions
     virtual void visit(const ir::IntImm *) override;
     virtual void visit(const ir::UIntImm *) override;
@@ -99,11 +95,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Build *) override;
     virtual void visit(const ir::Access *) override;
     virtual void visit(const ir::Intrinsic *) override;
-    virtual void visit(const ir::Lambda *) override;
-    virtual void visit(const ir::GeomOp *) override;
-    virtual void visit(const ir::SetOp *) override;
     virtual void visit(const ir::Call *) override;
-    virtual void visit(const ir::Instantiate *) override;
     // Stmts
     virtual void visit(const ir::Print *) override;
     virtual void visit(const ir::Return *) override;
