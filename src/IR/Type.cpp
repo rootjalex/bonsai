@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "IR/Equality.h"
+#include "IR/Function.h"
 #include "IR/Printer.h"
 #include "Utils.h"
 
@@ -255,6 +256,27 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
     return node;
 }
 
+Type Struct_t::make(std::string name, Struct_t::Map fields,
+                    Struct_t::MethodMap methods) {
+    internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
+    internal_assert(
+        std::all_of(fields.cbegin(), fields.cend(),
+                    [](const auto &p) { return p.second.defined(); }))
+        << "Struct_t::make recieved undefined field type in definition of "
+        << name;
+    // TODO: write a Function validator.
+    // internal_assert(std::all_of(methods.cbegin(), methods.cend(),
+    //                             [](const auto &p) {
+    //                                 return validate(p->second);
+    //                             }))
+    //     << "Struct_t::make recieved invalid method";
+    Struct_t *node = new Struct_t;
+    node->name = std::move(name);
+    node->fields = std::move(fields);
+    node->methods = std::move(methods);
+    return node;
+}
+
 Type Tuple_t::make(std::vector<Type> etypes) {
     internal_assert(std::all_of(etypes.cbegin(), etypes.cend(),
                                 [](const Type &t) { return t.defined(); }))
@@ -396,6 +418,12 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         for (const auto &[key, value] : as_struct->fields) {
             if (key == field) {
                 return value;
+            }
+        }
+        for (const auto &[key, method] : as_struct->methods) {
+            if (key == field) {
+                std::vector<Type> arg_types = method->argument_types();
+                return Function_t::make(method->ret_type, std::move(arg_types));
             }
         }
         internal_error << "Failed to find field: " << field

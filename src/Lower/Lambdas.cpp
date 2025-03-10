@@ -7,9 +7,8 @@
 
 #include <algorithm>
 #include <optional>
+#include <set>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace bonsai {
@@ -17,180 +16,100 @@ namespace lower {
 
 namespace {
 
-// Stores data necessary to safely perform a lambda-to-function conversion.
-struct Metadata {
-    // The name of this lambda, if it was stored to a local
-    // variable, and the empty string otherwise.
-    std::string name = "";
-    // The function that will replace it.
-    std::shared_ptr<ir::Function> function = nullptr;
+struct FindImplicitCaptures : public ir::Visitor {
+    const std::set<std::string> &lambda_args;
+
+    ir::Struct_t::Map implicits;
+    std::vector<ir::Expr> build_args;
+    std::set<std::string> seen;
+
+    FindImplicitCaptures(const std::set<std::string> &lambda_args) : lambda_args(lambda_args) {}
+
+    // TODO: could optimize further by capturing accesses, e.g.
+    // x : struct = { . . . }
+    // l = |i : i32| i + x.a; // should (maybe?) capture x.a only.
+
+    void visit(const ir::Var *node) override {
+        if (lambda_args.contains(node->name)) return;
+
+        auto [_, inserted] = seen.insert(node->name);
+        if (inserted) {
+            implicits.emplace_back(node->name, node->type);
+            build_args.emplace_back(node);
+        }
+    }
 };
 
-// Performs necessary mutations to convert lambdas to functions.
-struct ConvertLambdaToFunction : public ir::Mutator {
-    ConvertLambdaToFunction(
-        std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata,
-        const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas)
-        : lambda_metadata(lambda_metadata),
-          blacklisted_lambdas(blacklisted_lambdas), counter(0) {};
+struct ConvertLambdas : public ir::Mutator {
+    std::vector<std::pair<std::string, ir::Type>> ordered_types;
 
-  private:
-    // A mapping from a lambda to metadata required for said lambda.
-    std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata;
+    size_t counter = 0;
 
-    // Returns a unique name for the function replacing this lambda.
-    // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
     std::string generate_name() {
-        std::string name = "?lambda";
-        name += std::to_string(counter++);
-        return name;
+        return "?lambda" + std::to_string(counter++);
     }
 
-    // A set of lambdas that should not be converted.
-    const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas;
-    int64_t counter; // A counter for name hygiene.
+    ir::Expr visit(const ir::Lambda *node) override {
+        static const std::string call_name = "call";
 
-    ir::Stmt visit(const ir::LetStmt *let) override {
-        ir::WriteLoc lhs = let->loc;
-        internal_assert(lhs.accesses.empty()) << "unimplemented";
+        // Recursively mutate (handles nested lambdas).
+        ir::Expr value = mutate(node->value);
 
-        ir::Expr rhs = let->value;
-        if (const ir::Call *call = rhs.as<ir::Call>()) {
-            return ir::Mutator::visit(let);
-        }
-        const ir::Lambda *lambda = rhs.as<ir::Lambda>();
-        if (lambda == nullptr) {
-            return let;
-        }
+        // Build callable Function.
+        std::vector<ir::Function::Argument> f_args;
+        std::transform(node->args.begin(), node->args.end(),
+            std::inserter(f_args, f_args.end()),
+            [](const auto &arg) { return ir::Function::Argument(arg.name, arg.type); });
+        ir::Type f_ret_type = value.type();
+        internal_assert(f_ret_type.defined())
+            << "Lambda lowering called before type inference ran: "
+            << ir::Expr(node);
+        ir::Stmt f_body = ir::Return::make(std::move(value));
+        ir::Function::InterfaceList interfaces; // TODO: will this ever be used?
+        std::shared_ptr<ir::Function> f = std::make_shared<ir::Function>(call_name, std::move(f_args), std::move(f_ret_type), std::move(f_body), interfaces);
+        ir::Struct_t::MethodMap methods = {{call_name, std::move(f)}};
 
-        // Visit this lambda.
-        rhs = visit(lambda);
-        lambda = rhs.as<ir::Lambda>();
-        internal_assert(lambda_metadata.contains(lambda));
+        // Find implicitly-captured variables.
+        std::set<std::string> args;
+        std::transform(node->args.begin(), node->args.end(),
+                   std::inserter(args, args.end()),
+                   [](const auto &arg) { return arg.name; });
+        FindImplicitCaptures finder(args);
+        node->value.accept(&finder);
 
-        auto it = lambda_metadata.find(lambda);
-        Metadata &m = it->second;
-        m.name = lhs.base;
-        return let;
+        // Build a struct with implicitly captured vars as fields,
+        // and a single callable method.
+        std::string struct_name = generate_name();
+        ir::Type type = ir::Struct_t::make(struct_name, std::move(finder.implicits), std::move(methods));
+        ordered_types.emplace_back(std::move(struct_name), type);
+        ir::Expr build = ir::Build::make(std::move(type), std::move(finder.build_args));
+        return ir::Access::make(call_name, std::move(build));
     }
 
-    ir::Expr visit(const ir::Lambda *lambda) override {
-        if (blacklisted_lambdas.contains(lambda))
-            return lambda;
-
-        // Convert lambda arguments to function arguments.
-        const std::vector<ir::Lambda::Argument> &before = lambda->args;
-        std::vector<ir::Function::Argument> arguments;
-        std::transform(before.begin(), before.end(),
-                       std::back_inserter(arguments),
-                       [](const ir::Lambda::Argument &a) {
-                           return ir::Function::Argument(a.name, a.type);
-                       });
-
-        ir::Type type = lambda->value.type();
-        auto [it, succeeded] = lambda_metadata.try_emplace(lambda, Metadata{});
-        if (!succeeded) {
-            // This lambda has already been visited, and a function created.
-            return lambda;
-        }
-        Metadata &m = it->second;
-        m.function = std::make_shared<ir::Function>(
-            generate_name(), arguments,
-            /*return_type=*/type,
-            /*body=*/ir::Return::make(lambda->value),
-            /*interfaces=*/ir::Function::InterfaceList{});
-
-        return lambda;
-    }
-
-    ir::Expr visit(const ir::Call *call) override {
-        const ir::Var *v = call->func.as<ir::Var>();
-        if (v == nullptr)
-            return call;
-
-        // Note: we assume there will be a small constant number of lambdas.
-        auto it = std::find_if(lambda_metadata.begin(), lambda_metadata.end(),
-                               [&](const auto &kv) {
-                                   const Metadata &m = kv.second;
-                                   return m.name == v->name;
-                               });
-        if (it == lambda_metadata.end()) {
-            return call; // This is a call to a non-lambda.
-        }
-        std::shared_ptr<ir::Function> &f = it->second.function;
-
-        ir::Type type = ir::Function_t::make(f->ret_type, f->argument_types());
-        return ir::Call::make(ir::Var::make(type, f->name), call->args);
+    ir::Expr visit(const ir::SetOp *node) override {
+        // internal_error << "SetOps should be lowered before lambdas: " << ir::Expr(node);
+        return node;
     }
 };
 
-// Visitor class to retrieve a list of lambdas that should *not* be converted.
-class Blacklist : public ir::Visitor {
-  public:
-    const std::unordered_set<const ir::Lambda *> &get() {
-        return blacklisted_lambdas;
-    }
-
-  private:
-    std::unordered_set<const ir::Lambda *> blacklisted_lambdas;
-
-    void visit(const ir::SetOp *node) override {
-        switch (node->op) {
-        case ir::SetOp::OpType::product:
-            return;
-        case ir::SetOp::OpType::argmin:
-        case ir::SetOp::OpType::map:
-        case ir::SetOp::OpType::filter: {
-            const ir::Lambda *op = node->a.as<ir::Lambda>();
-            internal_assert(op) << "first operand of a ir::SetOp should have "
-                                   "type ir::Lambda, received: "
-                                << node->a;
-            blacklisted_lambdas.insert(op);
-            if (const auto *b = node->b.as<ir::SetOp>()) {
-                visit(b);
-            }
-        }
-        }
-    }
-};
-
-// Performs the orchestration for lambda lowering.
 ir::Program lower_program(const ir::Program &old_program) {
-    // A mapping from lambda to metadata required for safe replacement.
-    std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
-
-    // Some lambdas, e.g., those used in set queries, will not be converted.
-    Blacklist blacklisted_lambdas;
-    for (const auto &[_, f] : old_program.funcs) {
-        if (const ir::Stmt &body = f->body; body.defined()) {
-            body.accept(&blacklisted_lambdas);
-        }
-    }
-
-    ConvertLambdaToFunction cltf(lambda_metadata, blacklisted_lambdas.get());
     ir::Program new_program;
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
+
+    ConvertLambdas converter;
     for (const auto &[f, func] : old_program.funcs) {
-        ir::Stmt body = cltf.mutate(std::move(func->body));
+        ir::Stmt body = converter.mutate(std::move(func->body));
         new_program.funcs[f] = std::make_shared<ir::Function>(
             func->name, func->args, func->ret_type, body, func->interfaces);
     }
 
-    // Guarantee deterministic ordering for insertion.
-    std::vector<std::shared_ptr<ir::Function>> functions;
-    functions.reserve(lambda_metadata.size());
-    std::transform(lambda_metadata.begin(), lambda_metadata.end(),
-                   std::back_inserter(functions),
-                   [](const auto &kv) { return kv.second.function; });
-    std::sort(
-        functions.begin(), functions.end(),
-        [](const auto &m1, const auto &m2) { return m1->name < m2->name; });
-
-    // Add newly created functions to replace the lambda expressions.
-    for (std::shared_ptr<ir::Function> f : functions) {
-        new_program.funcs[f->name] = f;
+    for (auto &[name, type] : converter.ordered_types) {
+        // Don't std::move(name) because of error message printing.
+        const auto [_, inserted] = new_program.types.try_emplace(name, std::move(type));
+        internal_assert(inserted) << "Lambda struct name already exists in types: " << name;
     }
+
     return new_program;
 }
 

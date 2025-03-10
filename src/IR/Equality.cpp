@@ -122,6 +122,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 return rec;
             }
         }
+        internal_assert(s0->methods.empty() && s1->methods.empty())
+            << "TODO: implement equality checking for struct methods.";
         return Cmp::Equals;
     }
     case IRTypeEnum::Tuple_t: {

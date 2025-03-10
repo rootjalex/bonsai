@@ -13,6 +13,7 @@
 namespace bonsai {
 namespace ir {
 
+struct Function;
 struct Type;
 
 enum class IRTypeEnum {
@@ -180,12 +181,15 @@ struct Struct_t : TypeNode<Struct_t> {
     // UnorderedStruct_t
     using Map = std::vector<std::pair<std::string, Type>>;
     using DefMap = std::map<std::string, Expr>;
+    using MethodMap = std::map<std::string, std::shared_ptr<const Function>>;
     std::string name;
     Map fields;
     DefMap defaults;
+    MethodMap methods;
 
     static Type make(std::string name, Map fields);
     static Type make(std::string name, Map fields, DefMap defaults);
+    static Type make(std::string name, Map fields, MethodMap methods);
 
     static const IRTypeEnum _node_type = IRTypeEnum::Struct_t;
 };

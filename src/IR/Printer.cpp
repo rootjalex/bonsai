@@ -93,7 +93,12 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
-    os << "func " << func.name;
+    printer.print(func);
+    return os;
+}
+
+void Printer::print(const Function &func) {
+    os << get_indent() << "func " << func.name;
     if (!func.interfaces.empty()) {
         os << "<";
         bool first = true;
@@ -106,7 +111,7 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
             os << name;
             if (!interface.is<IEmpty>()) {
                 os << " : ";
-                printer.print(interface);
+                print(interface);
             }
         }
         os << ">";
@@ -129,10 +134,10 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
     }
 
     os << ") -> " << func.ret_type << " {\n";
-    printer.set_indent(1);
-    func.body.accept(&printer);
-    os << "}";
-    return os;
+    indent++;
+    print(func.body);
+    indent--;
+    os << get_indent() << "}";
 }
 
 void Printer::print(const Type &type) {
@@ -236,18 +241,50 @@ void Printer::visit(const Struct_t *node) {
     }
     os << node->name;
     if (verbose) {
-        os << "{ ";
+        const bool multiline = node->fields.size() > 3 || !node->methods.empty();
+
+        if (multiline) {
+            os << "{\n";
+        } else {
+            os << "{ ";
+        }
+
         bool first = true;
         for (const auto &[key, value] : node->fields) {
             if (!first) {
-                os << "; ";
+                if (multiline) {
+                    os << ";\n";
+                } else {
+                    os << "; ";
+                }
             }
             first = false;
-            // TODO: flip? if easier to read.
+
+            if (multiline) {
+                os << "  ";
+            }
             os << key << " : ";
             print(value);
         }
-        os << " }";
+
+        // TODO: should we print the full body?
+        indent++;
+        for (const auto &[key, method] : node->methods) {
+            if (!first) {
+                os << ";\n";
+                first = true; // don't print semicolons after first.
+            }
+
+            ScopedValue<bool> verbosity(verbose, false);
+            print(*method);
+        }
+        indent--;
+
+        if (multiline) {
+            os << "\n}";
+        } else {
+            os << " }";
+        }
     }
 }
 
