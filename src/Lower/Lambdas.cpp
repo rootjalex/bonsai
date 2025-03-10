@@ -196,8 +196,10 @@ ir::Program lower_program(const ir::Program &old_program) {
 
 } // namespace
 
-ir::Program LowerLambda::lower(const ir::Program &program) const {
-    return lower_program(program);
+ir::Program LowerLambda::run(ir::Program &program) const {
+    ir::Program new_program = lower_program(program);
+    new_program.schedules = std::move(program.schedules);
+    return new_program;
 }
 
 } // namespace lower

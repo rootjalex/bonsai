@@ -18,7 +18,7 @@ namespace lower {
 // This is because `bar` can inferred to return an `i32`
 // If `undef_calls` is not set, and there is a cycle, this returns any DFS
 // ordering.
-std::vector<std::string> func_topological_order(const ir::Program &program,
+std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
                                                 const bool undef_calls);
 
 } // namespace lower
