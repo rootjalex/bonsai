@@ -20,7 +20,7 @@ class VerifyOptions : public Pass {
   public:
     constexpr std::string name() const override { return "verify-option"; }
 
-    ir::FuncMap run(ir::FuncMap &funcs) const override;
+    ir::FuncMap run(ir::FuncMap funcs) const override;
 };
 
 } // namespace lower

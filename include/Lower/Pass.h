@@ -12,13 +12,13 @@ struct Pass {
     virtual constexpr std::string name() const = 0;
 
     // Runs this pass on `program`.
-    virtual ir::Program run(ir::Program &program) const;
+    virtual ir::Program run(ir::Program program) const;
 
     // The default behavior of running a pass on each component of `Program`.
     // Runs in types -> externs -> funcs order.
-    virtual ir::TypeMap run(ir::TypeMap &types) const;
-    virtual ir::ExternList run(ir::ExternList &externs) const;
-    virtual ir::FuncMap run(ir::FuncMap &funcs) const;
+    virtual ir::TypeMap run(ir::TypeMap types) const;
+    virtual ir::ExternList run(ir::ExternList externs) const;
+    virtual ir::FuncMap run(ir::FuncMap funcs) const;
 
     virtual ~Pass() = default;
 };

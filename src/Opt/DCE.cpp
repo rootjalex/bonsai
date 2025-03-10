@@ -310,7 +310,7 @@ ir::Stmt dce_stmt(const ir::Stmt &stmt,
 
 } // namespace
 
-ir::FuncMap DCE::run(ir::FuncMap &funcs) const {
+ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     // TODO(ajr): We should also erase unused arguments to Lambdas and
     // Functions. This requires mutating the definitions and all calls,
     // which can get tricky.
@@ -320,7 +320,7 @@ ir::FuncMap DCE::run(ir::FuncMap &funcs) const {
     for (auto &[name, func] : funcs) {
         func->body = dce_stmt(func->body, se_functions);
     }
-    return std::move(funcs);
+    return funcs;
 }
 
 } // namespace opt

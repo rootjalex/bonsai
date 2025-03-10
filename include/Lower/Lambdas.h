@@ -30,7 +30,7 @@ class LowerLambda : public Pass {
     constexpr std::string name() const override { return "lower-lambda"; }
 
     // Requires full-program analysis (updates function list).
-    ir::Program run(ir::Program &program) const override;
+    ir::Program run(ir::Program program) const override;
 };
 
 } // namespace lower
