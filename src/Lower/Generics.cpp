@@ -84,7 +84,7 @@ std::string short_type_name(const Type &type) {
 }
 
 std::string unique_generic_name(const std::string &name,
-                                const Instantiate::TypeMap &types) {
+                                const TypeMap &types) {
     // TypeMap is a std::map, so sorted on key.
     // This gives a unique ordering, and therefore,
     // a unique name.
@@ -103,12 +103,12 @@ std::string unique_generic_name(const std::string &name,
 FuncMap handle_instantiations(const FuncMap &funcs) {
     struct FindInstantiations : Mutator {
         std::map<std::string,
-                 std::map<Type, Instantiate::TypeMap, TypeLessThan>>
+                 std::map<Type, TypeMap, TypeLessThan>>
             instants;
         bool updated = false;
         std::map<std::string, Expr> repls;
 
-        const std::map<std::string, Type> *type_repls = nullptr;
+        const TypeMap *type_repls = nullptr;
 
         Expr visit(const Instantiate *node) override {
             if (!node->expr.is<Var>()) {

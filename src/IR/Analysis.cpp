@@ -66,6 +66,22 @@ struct GatherFreeVars : public Visitor {
         }
         node->value.accept(this);
     }
+
+    void visit(const Match *node) override {
+        internal_error << "TODO: implement GatherFreeFars for Match: " << ir::Stmt(node);
+    }
+
+    void visit(const Yield *node) override {
+        internal_error << "TODO: implement GatherFreeFars for Yield: " << ir::Stmt(node);
+    }
+
+    void visit(const Scan *node) override {
+        internal_error << "TODO: implement GatherFreeFars for Scan: " << ir::Stmt(node);
+    }
+
+    void visit(const YieldFrom *node) override {
+        internal_error << "TODO: implement GatherFreeFars for YieldFrom: " << ir::Stmt(node);
+    }
 };
 
 struct AlwaysReturns : public Visitor {
@@ -113,6 +129,22 @@ struct AlwaysReturns : public Visitor {
         returns = false;
         // node->body.accept(this);
     }
+
+    void visit(const Match *node) override {
+        internal_error << "TODO: implement AlwaysReturns for Match: " << ir::Stmt(node);
+    }
+
+    void visit(const Yield *node) override {
+        internal_error << "TODO: implement AlwaysReturns for Yield: " << ir::Stmt(node);
+    }
+
+    void visit(const Scan *node) override {
+        internal_error << "TODO: implement AlwaysReturns for Scan: " << ir::Stmt(node);
+    }
+
+    void visit(const YieldFrom *node) override {
+        internal_error << "TODO: implement AlwaysReturns for YieldFrom: " << ir::Stmt(node);
+    }
 };
 
 struct ReturnType : public Visitor {
@@ -135,6 +167,22 @@ struct ReturnType : public Visitor {
     void visit(const Accumulate *node) override {
         // TODO: fix this!! bring back SSA
         // node->body.accept(this);
+    }
+
+    void visit(const Match *node) override {
+        internal_error << "TODO: implement ReturnType for Match: " << ir::Stmt(node);
+    }
+
+    void visit(const Yield *node) override {
+        internal_error << "TODO: implement ReturnType for Yield: " << ir::Stmt(node);
+    }
+
+    void visit(const Scan *node) override {
+        internal_error << "TODO: implement ReturnType for Scan: " << ir::Stmt(node);
+    }
+
+    void visit(const YieldFrom *node) override {
+        internal_error << "TODO: implement ReturnType for YieldFrom: " << ir::Stmt(node);
     }
 
     void visit(const IfElse *node) override {
@@ -289,9 +337,9 @@ bool is_constant_expr(const Expr &expr) {
     }
 }
 
-bool contains_generics(const Type &type, const Instantiate::TypeMap &types) {
+bool contains_generics(const Type &type, const TypeMap &types) {
     struct ContainsGenerics : public Visitor {
-        ContainsGenerics(const Instantiate::TypeMap &_types) : types(_types) {}
+        ContainsGenerics(const TypeMap &types) : types(types) {}
 
         void visit(const Generic_t *node) override {
             if (types.contains(node->name)) {
@@ -299,7 +347,7 @@ bool contains_generics(const Type &type, const Instantiate::TypeMap &types) {
             }
         }
 
-        const Instantiate::TypeMap &types;
+        const TypeMap &types;
         std::set<std::string> seen_types;
     };
 

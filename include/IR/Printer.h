@@ -5,8 +5,10 @@
 
 #include "Expr.h"
 #include "Function.h"
+#include "Schedule.h"
 #include "Scope.h"
 #include "Stmt.h"
+#include "Target.h"
 #include "Visitor.h"
 #include "WriteLoc.h"
 
@@ -28,6 +30,9 @@ std::ostream &operator<<(std::ostream &os, const Stmt &stmt);
 std::ostream &operator<<(std::ostream &os, const WriteLoc &loc);
 
 std::ostream &operator<<(std::ostream &os, const Function &func);
+
+std::ostream &operator<<(std::ostream &os, const Target &target);
+std::ostream &operator<<(std::ostream &os, const Schedule &schedule);
 
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
@@ -110,6 +115,10 @@ struct Printer : public Visitor {
     void visit(const Sequence *) override;
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
+    void visit(const Match *) override;
+    void visit(const Yield *) override;
+    void visit(const Scan *) override;
+    void visit(const YieldFrom *) override;
 
     void set_indent(int _indent) { indent = _indent; }
 

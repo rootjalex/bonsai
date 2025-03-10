@@ -135,6 +135,33 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
     return os;
 }
 
+std::ostream &operator<<(std::ostream &os, const Target &target) {
+    // TODO: flesh this out.
+    switch (target) {
+        case Target::Host: {
+            os << "host";
+            break;
+        }
+        default: {
+            internal_error << "Support for non-host target? add printing support!";
+        }
+    }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Schedule &schedule) {
+    Printer printer(os, /*verbose=*/true);
+
+    for (const auto &[name, type] : schedule.tree_types) {
+        os << name << " : ";
+        printer.print(type);
+        os << "\n";
+    }
+    // TODO: the rest of the schedule.
+
+    return os;
+}
+
 void Printer::print(const Type &type) {
     if (type.defined()) {
         type->accept(this);
@@ -762,6 +789,22 @@ void Printer::visit(const Accumulate *node) {
     os << "\n";
     // TODO: fix this!! bring back SSA
     // print(node->body);
+}
+
+void Printer::visit(const Match *node) {
+    internal_error << "TODO: implement Printer for Match: " << ir::Stmt(node);
+}
+
+void Printer::visit(const Yield *node) {
+    internal_error << "TODO: implement Printer for Yield: " << ir::Stmt(node);
+}
+
+void Printer::visit(const Scan *node) {
+    internal_error << "TODO: implement Printer for Scan: " << ir::Stmt(node);
+}
+
+void Printer::visit(const YieldFrom *node) {
+    internal_error << "TODO: implement Printer for YieldFrom: " << ir::Stmt(node);
 }
 
 } // namespace ir

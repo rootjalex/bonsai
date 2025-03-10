@@ -63,6 +63,10 @@ struct Mutator {
     virtual Stmt visit(const Sequence *);
     virtual Stmt visit(const Assign *);
     virtual Stmt visit(const Accumulate *);
+    virtual Stmt visit(const Match *);
+    virtual Stmt visit(const Yield *);
+    virtual Stmt visit(const Scan *);
+    virtual Stmt visit(const YieldFrom *);
 };
 
 } // namespace ir

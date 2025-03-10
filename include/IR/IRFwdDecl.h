@@ -61,6 +61,10 @@ struct IfElse;
 struct Sequence;
 struct Assign;
 struct Accumulate;
+struct Match;
+struct Yield;
+struct Scan;
+struct YieldFrom;
 
 } // namespace ir
 } // namespace bonsai

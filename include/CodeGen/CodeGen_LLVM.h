@@ -113,6 +113,12 @@ struct CodeGen_LLVM : public ir::Visitor {
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
+    virtual void visit(const ir::Match *) override;
+    virtual void visit(const ir::Yield *) override;
+    virtual void visit(const ir::Scan *) override;
+    virtual void visit(const ir::YieldFrom *) override;
+
+
 
   private:
     // Recursively creates IR that will print the given expression. This

@@ -13,17 +13,30 @@ void Program::dump(std::ostream &os) const {
         printer.print(type);
         os << "\n";
     }
-    os << std::endl;
+    if (!types.empty()) {
+        os << std::endl;
+    }
     for (const auto &[name, type] : externs) {
         os << "extern " << name << " : ";
         printer.print(type);
         os << "\n";
     }
-    os << std::endl;
+    if (!externs.empty()) {
+        os << std::endl;
+    }
     for (const auto &[name, func] : funcs) {
         os << *func << "\n\n";
     }
-    os << std::endl;
+    if (!funcs.empty()) {
+        os << std::endl;
+    }
+    for (const auto &[target, schedule] : schedules) {
+        os << "schedule " << target << "{";
+        os << schedule << "\n}";
+    }
+    if (!schedules.empty()) {
+        os << std::endl;
+    }
 }
 
 } // namespace ir

@@ -1464,6 +1464,22 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     builder->CreateStore(acc, loc);
 }
 
+void CodeGen_LLVM::visit(const Match *node) {
+    internal_error << "TODO: implement codegen for Match: " << ir::Stmt(node);
+}
+
+void CodeGen_LLVM::visit(const Yield *node) {
+    internal_error << "TODO: implement codegen for Yield: " << ir::Stmt(node);
+}
+
+void CodeGen_LLVM::visit(const Scan *node) {
+    internal_error << "TODO: implement codegen for Scan: " << ir::Stmt(node);
+}
+
+void CodeGen_LLVM::visit(const YieldFrom *node) {
+    internal_error << "TODO: implement codegen for YieldFrom: " << ir::Stmt(node);
+}
+
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,
                                      const std::string &buffer,
                                      const Expr &index) {

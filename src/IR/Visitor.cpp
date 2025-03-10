@@ -1,6 +1,7 @@
 #include "IR/Visitor.h"
 
 #include "IR/Expr.h"
+#include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 
@@ -189,6 +190,22 @@ void Visitor::visit(const Accumulate *node) {
     node->value.accept(this);
     // TODO: fix this!! bring back SSA
     // node->body.accept(this);
+}
+
+void Visitor::visit(const Match *node) {
+    internal_error << "TODO: implement Visitor for Match: " << ir::Stmt(node);
+}
+
+void Visitor::visit(const Yield *node) {
+    internal_error << "TODO: implement Visitor for Yield: " << ir::Stmt(node);
+}
+
+void Visitor::visit(const Scan *node) {
+    internal_error << "TODO: implement Visitor for Scan: " << ir::Stmt(node);
+}
+
+void Visitor::visit(const YieldFrom *node) {
+    internal_error << "TODO: implement Visitor for YieldFrom: " << ir::Stmt(node);
 }
 
 } // namespace ir

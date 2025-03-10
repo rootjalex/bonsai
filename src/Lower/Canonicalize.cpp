@@ -73,6 +73,17 @@ struct RewriteVectorFields : public ir::Mutator {
                                         std::move(value));
         }
     }
+
+    ir::Stmt visit(const ir::Match *node) override {
+        internal_error << "TODO: implement RewriteVectorFields for Match";
+        // auto [loc, changed] = canonicalize_loc(node->loc);
+        // // TODO: mutate match arms?
+        // if (!changed) {
+        //     return node;
+        // } else {
+        //     return ir::Match::make(std::move(loc), node->arms);
+        // }
+    }
 };
 
 ir::Stmt canonicalize(ir::Stmt stmt) {

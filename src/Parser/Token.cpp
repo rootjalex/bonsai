@@ -112,6 +112,8 @@ uint64_t Token::size() const {
         return 6;
     case Token::Type::ELEMENT:
         return 7;
+    case Token::Type::SCHEDULE:
+        return 8;
     case Token::Type::INTERFACE:
         return 9;
     case Token::Type::INT_LITERAL:
@@ -152,8 +154,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "interface";
     case Token::Type::EXTERN:
         return "extern";
-    case Token::Type::TREE:
-        return "tree";
+    case Token::Type::SCHEDULE:
+        return "schedule";
     case Token::Type::FUNC:
         return "func";
     case Token::Type::MUT:
@@ -164,6 +166,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "return";
     case Token::Type::PRINT:
         return "print";
+    case Token::Type::TREE:
+        return "tree";
     case Token::Type::WITH:
         return "with";
     case Token::Type::FOR:

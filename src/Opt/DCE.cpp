@@ -110,6 +110,22 @@ struct ComputeUseCounts : ir::Visitor {
         node->value.accept(this);
         curr_var.clear();
     }
+
+    void visit(const ir::Match *node) override {
+        internal_error << "TODO: implement ComputeUseCounts for Match";
+    }
+
+    void visit(const ir::Yield *node) override {
+        internal_error << "TODO: implement ComputeUseCounts for Yield";
+    }
+
+    void visit(const ir::Scan *node) override {
+        internal_error << "TODO: implement ComputeUseCounts for Scan";
+    }
+
+    void visit(const ir::YieldFrom *node) override {
+        internal_error << "TODO: implement ComputeUseCounts for YieldFrom";
+    }
 };
 
 struct HasSideEffects : ir::Visitor {

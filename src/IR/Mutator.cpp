@@ -1,6 +1,7 @@
 #include "IR/Mutator.h"
 
 #include "IR/Expr.h"
+#include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 
@@ -462,6 +463,22 @@ Stmt Mutator::visit(const Accumulate *node) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value));
+}
+
+Stmt Mutator::visit(const Match *node) {
+    internal_error << "TODO: implement Mutator for Match: " << ir::Stmt(node);
+}
+
+Stmt Mutator::visit(const Yield *node) {
+    internal_error << "TODO: implement Mutator for Yield: " << ir::Stmt(node);
+}
+
+Stmt Mutator::visit(const Scan *node) {
+    internal_error << "TODO: implement Mutator for Scan: " << ir::Stmt(node);
+}
+
+Stmt Mutator::visit(const YieldFrom *node) {
+    internal_error << "TODO: implement Mutator for YieldFrom: " << ir::Stmt(node);
 }
 
 } // namespace ir

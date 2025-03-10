@@ -24,6 +24,11 @@ enum class IRStmtEnum {
     Sequence,
     Assign,
     Accumulate,
+
+    Match,
+    Yield,
+    Scan,
+    YieldFrom,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -143,6 +148,41 @@ struct Accumulate : StmtNode<Accumulate> {
     static Stmt make(WriteLoc loc, OpType op, Expr value);
 
     static const IRStmtEnum _node_type = IRStmtEnum::Accumulate;
+};
+
+struct Match : StmtNode<Match> {
+    using Arms = std::vector<std::pair<BVH_t::Node, Stmt>>;
+    WriteLoc loc; // Of type BVH_t
+    Arms arms;
+
+    static Stmt make(WriteLoc loc, Arms arms);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::Match;
+};
+
+
+struct Yield : StmtNode<Yield> {
+    Expr value;
+
+    static Stmt make(Expr value);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::Yield;
+};
+
+struct Scan : StmtNode<Scan> {
+    Expr value;
+
+    static Stmt make(Expr value);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::Scan;
+};
+
+struct YieldFrom : StmtNode<YieldFrom> {
+    Expr value;
+
+    static Stmt make(Expr value);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::YieldFrom;
 };
 
 } // namespace ir

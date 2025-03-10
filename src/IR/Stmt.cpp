@@ -94,5 +94,48 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     return node;
 }
 
+Stmt Match::make(WriteLoc loc, Match::Arms arms) {
+    internal_assert(loc.defined())
+        << "Undefined match location in Match::make";
+    internal_assert(!arms.empty())
+        << "Received no match arms in Match::make";
+    internal_assert(loc.type.is<BVH_t>())
+        << "Match is only implemented for BVH_t, received: " << loc;
+    internal_assert(loc.type.as<BVH_t>()->nodes.size() == arms.size())
+        << "Incorrect number of match arms for BVH type: " << loc.type << " with " << arms.size() << " arms.";
+    // Make sure all match arms exist.
+    const size_t n = loc.type.as<BVH_t>()->nodes.size();
+    for (size_t i = 0; i < n; i++) {
+        std::string_view name = loc.type.as<BVH_t>()->nodes[i].name;
+        const bool found = arms.cend() != std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) { return arm.first.name == name; });
+        internal_assert(found) << "Match does not contain match arm: " << name;
+    }
+    Match *node = new Match;
+    node->loc = std::move(loc);
+    node->arms = std::move(arms);
+    return node;
+}
+
+Stmt Yield::make(Expr value) {
+    internal_assert(value.defined()) << "Undefined value in Yield::make";
+    Yield *node = new Yield;
+    node->value = std::move(value);
+    return node;
+}
+
+Stmt Scan::make(Expr value) {
+    internal_assert(value.defined()) << "Undefined value in Scan::make";
+    Scan *node = new Scan;
+    node->value = std::move(value);
+    return node;
+}
+
+Stmt YieldFrom::make(Expr value) {
+    internal_assert(value.defined()) << "Undefined value in YieldFrom::make";
+    YieldFrom *node = new YieldFrom;
+    node->value = std::move(value);
+    return node;
+}
+
 } // namespace ir
 } // namespace bonsai

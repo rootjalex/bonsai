@@ -116,7 +116,7 @@ struct Parser {
     std::list<std::map<std::string, std::pair<ir::Type, bool>>> frames;
     // TODO: if we allow nested functions or any other way to allow nested
     // generics, we need this to be a stack!
-    std::map<std::string, ir::Type> current_generics;
+    ir::TypeMap current_generics;
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
                    f32 = ir::Float_t::make_f32();
 
@@ -255,8 +255,8 @@ struct Parser {
             return parse_extern();
         case Token::Type::FUNC:
             return parse_function();
-        case Token::Type::TREE:
-            return parse_tree();
+        case Token::Type::SCHEDULE:
+            return parse_schedule();
         default:
             report_error() << "failure in parse_program_element";
         }
@@ -1120,7 +1120,7 @@ struct Parser {
 
                     const size_t n_generics = func->interfaces.size();
 
-                    std::map<std::string, ir::Type> instantiations;
+                    ir::TypeMap instantiations;
                     for (size_t i = 0; i < n_generics; i++) {
                         instantiations[func->interfaces[i].name] =
                             template_types[i];
@@ -1550,12 +1550,77 @@ struct Parser {
 
     int64_t parse_int_literal() {
         // TODO: might need a "tryparse_int_literal"...
-        const Token _int = expect(Token::Type::INT_LITERAL);
-        return std::get<int64_t>(_int.value);
+        const Token val = expect(Token::Type::INT_LITERAL);
+        return std::get<int64_t>(val.value);
+    }
+
+    void parse_schedule() {
+        expect(Token::Type::SCHEDULE);
+        // TODO: parse target name / info?
+        expect(Token::Type::LSQUIGGLE);
+
+        ir::Schedule schedule;
+
+        ir::TypeMap trees;
+
+        do {
+            switch (peek().type) {
+                case Token::Type::TREE: {
+                    ir::Type tree = parse_tree();
+                    internal_assert(tree.is<ir::BVH_t>());
+                    internal_assert(!trees.contains(tree.as<ir::BVH_t>()->name));
+                    // Would std::move() but I think rhs is evaluated before lhs.
+                    trees[tree.as<ir::BVH_t>()->name] = tree;
+                    break;
+                }
+                case Token::Type::IDENTIFIER: {
+                    const Token name_token = expect(Token::Type::IDENTIFIER);
+                    const std::string name = std::get<std::string>(name_token.value);
+                    // TODO: if func, is schedule.
+                    // TODO: if type, is ????
+                    // if extern, is tree-assignment
+                    const auto extern_iter = std::find_if(program.externs.cbegin(), program.externs.cend(), [&name](const auto &p) { return p.first == name; });
+                    if (extern_iter != program.externs.cend()) {
+                        // name : tree_type;
+                        if (!extern_iter->second.is<ir::Set_t>()) {
+                            report_error() << "Extern: " << name << " is not a set, cannot be type-reassigned in a schedule.";
+                        }
+
+                        expect(Token::Type::COL);
+
+                        const Token tree_token = expect(Token::Type::IDENTIFIER);
+                        const std::string tree_name = std::get<std::string>(tree_token.value);
+
+                        expect(Token::Type::SEMICOL);
+
+                        const auto tree_iter = trees.find(tree_name);
+
+                        if (tree_iter == trees.cend()) {
+                            report_error() << "Assigning extern: " << name << " to non-tree type: " << tree_name;
+                        }
+
+                        // TODO: assert Set[Primitive] matches Tree type!
+                        schedule.tree_types[name] = tree_iter->second;
+                    } else {
+                        // TODO: support func schedule parsing.
+                        report_error() << "Schedule name: " << name << " is not an extern.";
+                    }
+                    break;
+                }
+                default: {
+                    report_error() << "Unknown schedule statement.";
+                }
+            }
+        } while (!consume(Token::Type::RSQUIGGLE));
+
+        // TODO: figure out schedule merging.
+        internal_assert(program.schedules.empty());
+
+        program.schedules[ir::Target::Host] = schedule;
     }
 
     // tree := `tree` name = (`|` adt_node (`with` volume)?)+
-    void parse_tree() {
+    ir::Type parse_tree() {
         expect(Token::Type::TREE);
         ir::BVH_t::Node parent = parse_node();
 
@@ -1605,7 +1670,7 @@ struct Parser {
         // TODO: should we replace all Ptr_t with correct base type?
         program.types.erase("ptr");
 
-        program.types[parent.name] = std::move(type);
+        return type;
     }
 
     ir::BVH_t::Node parse_node() {
