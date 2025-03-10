@@ -123,12 +123,12 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
     return replacer.mutate(orig);
 }
 
-Type replace(const std::map<std::string, Type> &repls, const Type &type) {
+Type replace(const TypeMap &repls, const Type &type) {
     struct Replacer : public Mutator {
-        Replacer(const std::map<std::string, Type> &_repls) : repls(_repls) {}
+        Replacer(const TypeMap &_repls) : repls(_repls) {}
 
       private:
-        const std::map<std::string, Type> &repls;
+        const TypeMap &repls;
 
       public:
         Type visit(const Generic_t *node) override {

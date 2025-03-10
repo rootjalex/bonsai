@@ -289,9 +289,9 @@ bool is_constant_expr(const Expr &expr) {
     }
 }
 
-bool contains_generics(const Type &type, const Instantiate::TypeMap &types) {
+bool contains_generics(const Type &type, const TypeMap &types) {
     struct ContainsGenerics : public Visitor {
-        ContainsGenerics(const Instantiate::TypeMap &_types) : types(_types) {}
+        ContainsGenerics(const TypeMap &_types) : types(_types) {}
 
         void visit(const Generic_t *node) override {
             if (types.contains(node->name)) {
@@ -299,7 +299,7 @@ bool contains_generics(const Type &type, const Instantiate::TypeMap &types) {
             }
         }
 
-        const Instantiate::TypeMap &types;
+        const TypeMap &types;
         std::set<std::string> seen_types;
     };
 

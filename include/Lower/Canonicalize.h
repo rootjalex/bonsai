@@ -12,10 +12,7 @@ class Canonicalize : public Pass {
   public:
     constexpr std::string name() const override { return "canonicalize"; }
 
-    void run(ir::Program &program) const override { program = lower(program); }
-
-  private:
-    ir::Program lower(const ir::Program &program) const;
+    ir::FuncMap run(ir::FuncMap &funcs) const override;
 };
 
 } // namespace lower

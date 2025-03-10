@@ -858,7 +858,7 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
     return node;
 }
 
-Expr Instantiate::make(Expr expr, Instantiate::TypeMap types) {
+Expr Instantiate::make(Expr expr, TypeMap types) {
     internal_assert(expr.defined())
         << "Instantiate::make received undefined expr";
     internal_assert(

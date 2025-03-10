@@ -76,10 +76,10 @@ struct CallGraphBuilder : public ir::Visitor {
     }
 };
 
-CallGraph build_call_graph(const ir::Program &program, const bool undef_calls) {
+CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls) {
     CallGraphBuilder builder(undef_calls);
     CallGraph call_graph;
-    for (const auto &f : program.funcs) {
+    for (const auto &f : funcs) {
         // TODO: do we need this for funcs with defined ret_types? probably not.
         if (f.second->ret_type.defined()) {
             call_graph[f.first] = {}; // can be evaluated in any order.
@@ -94,10 +94,10 @@ CallGraph build_call_graph(const ir::Program &program, const bool undef_calls) {
 
 } // namespace
 
-std::vector<std::string> func_topological_order(const ir::Program &program,
+std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
                                                 const bool undef_calls) {
     // Return the order that type inference should run in.
-    const CallGraph call_graph = build_call_graph(program, undef_calls);
+    const CallGraph call_graph = build_call_graph(funcs, undef_calls);
     // DFS-based topological sorting,
     // https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
 
@@ -124,7 +124,7 @@ std::vector<std::string> func_topological_order(const ir::Program &program,
         order.push_back(fname);
     };
 
-    for (const auto &f : program.funcs) {
+    for (const auto &f : funcs) {
         visit(f.first);
     }
 

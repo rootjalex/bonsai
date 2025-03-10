@@ -83,18 +83,16 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 } // namespace
 
-ir::Program Canonicalize::lower(const ir::Program &program) const {
-    ir::Program new_program;
-    new_program.externs = program.externs;
-    new_program.types = program.types;
+ir::FuncMap Canonicalize::run(ir::FuncMap &funcs) const {
+    ir::FuncMap new_funcs;
 
-    for (const auto &[name, func] : program.funcs) {
+    for (const auto &[name, func] : funcs) {
         ir::Stmt body = canonicalize(func->body);
-        new_program.funcs[name] = std::make_shared<ir::Function>(
+        new_funcs[name] = std::make_shared<ir::Function>(
             name, func->args, func->ret_type, body, func->interfaces);
     }
 
-    return new_program;
+    return new_funcs;
 }
 
 } // namespace lower

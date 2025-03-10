@@ -116,7 +116,7 @@ struct Parser {
     std::list<std::map<std::string, std::pair<ir::Type, bool>>> frames;
     // TODO: if we allow nested functions or any other way to allow nested
     // generics, we need this to be a stack!
-    std::map<std::string, ir::Type> current_generics;
+    ir::TypeMap current_generics;
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
                    f32 = ir::Float_t::make_f32();
 
@@ -1120,7 +1120,7 @@ struct Parser {
 
                     const size_t n_generics = func->interfaces.size();
 
-                    std::map<std::string, ir::Type> instantiations;
+                    ir::TypeMap instantiations;
                     for (size_t i = 0; i < n_generics; i++) {
                         instantiations[func->interfaces[i].name] =
                             template_types[i];

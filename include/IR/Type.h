@@ -277,6 +277,8 @@ Type get_field_type(const Type &struct_type, const std::string &field);
 
 bool satisfies(const Type &type, const Interface &interface);
 
+using TypeMap = std::map<std::string, Type>;
+
 } // namespace ir
 
 template <>

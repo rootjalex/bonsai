@@ -10,23 +10,23 @@ namespace bonsai {
 namespace ir {
 
 using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
+using ExternList = std::vector<std::pair<std::string, Type>>;
 
 struct Program {
     // TODO: more things?
 
     // Intentionally ordered, this will be the order of arguments to the
     // executable.
-    std::vector<std::pair<std::string, Type>> externs;
+    ExternList externs;
     // All function declarations except for main()
     FuncMap funcs;
     // All types (including aliases).
-    std::map<std::string, Type> types;
+    TypeMap types;
     // TODO: interfaces / inheritance?
 
     Program() {}
 
-    Program(std::vector<std::pair<std::string, Type>> _externs, FuncMap _funcs,
-            std::map<std::string, Type> _types)
+    Program(ExternList _externs, FuncMap _funcs, TypeMap _types)
         : externs(std::move(_externs)), funcs(std::move(_funcs)),
           types(std::move(_types)) {}
 

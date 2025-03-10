@@ -22,15 +22,14 @@ namespace lower {
 
 namespace {
 
-ir::Stmt
-replace_undef_calls(const ir::Stmt &stmt,
-                    const std::map<std::string, ir::Type> &func_types) {
+ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
+                             const ir::TypeMap &func_types) {
     struct ReplaceUndefCalls : public ir::Mutator {
-        ReplaceUndefCalls(const std::map<std::string, ir::Type> &_func_types)
+        ReplaceUndefCalls(const ir::TypeMap &_func_types)
             : func_types(_func_types) {}
 
       private:
-        const std::map<std::string, ir::Type> &func_types;
+        const ir::TypeMap &func_types;
 
       public:
         ir::Expr visit(const ir::Var *node) override {
@@ -228,8 +227,7 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
     return finder.undef_types;
 }
 
-ir::Stmt infer_types(ir::Stmt stmt,
-                     const std::map<std::string, ir::Type> &func_types) {
+ir::Stmt infer_types(ir::Stmt stmt, const ir::TypeMap &func_types) {
     // First, try to use function types inferred so far to replace undefined
     // call sites.
     stmt = replace_undef_calls(stmt, func_types);
@@ -240,8 +238,7 @@ ir::Stmt infer_types(ir::Stmt stmt,
 
 std::shared_ptr<ir::Function>
 infer_types(const std::shared_ptr<ir::Function> &fnotypes,
-            const ir::Program &program,
-            const std::map<std::string, ir::Type> &func_types) {
+            const ir::Program &program, const ir::TypeMap &func_types) {
     auto ftypes = std::make_shared<ir::Function>();
     ftypes->name = fnotypes->name;
     ftypes->args = fnotypes->args;
@@ -281,8 +278,8 @@ ir::Program infer_types(const ir::Program &program) {
     ir::global_enable_type_enforcement();
 
     std::vector<std::string> topo_order =
-        func_topological_order(program, /*undef_calls=*/true);
-    std::map<std::string, ir::Type> func_types;
+        func_topological_order(program.funcs, /*undef_calls=*/true);
+    ir::TypeMap func_types;
 
     // TODO: set all assignment types.
 
