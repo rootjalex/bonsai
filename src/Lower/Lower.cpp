@@ -36,7 +36,7 @@ void lower(ir::Program &program, const CompilerOptions &options) {
 
     // Run the passes.
     for (Pass *pass : passes) {
-        program = pass->run(program);
+        program = pass->run(std::move(program));
     }
 }
 

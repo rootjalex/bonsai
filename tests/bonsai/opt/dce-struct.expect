@@ -1,6 +1,5 @@
 type Pair = struct Pair{ i : i32; f : f32 }
 
-
 func bar(i : i32, f : f32) -> f32 {
   return f
 }

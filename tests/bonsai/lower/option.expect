@@ -1,5 +1,3 @@
-
-
 func make_option0(i : i32) -> ?option0 {
   return build<?option0>(i, true)
 }

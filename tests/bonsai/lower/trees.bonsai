@@ -9,11 +9,16 @@ element AABB {
     low, high : vec3f;
 }
 
-tree TriangleBVH(low high : vec3f) with AABB(low, high) =
-| Interior(left : ptr, right : ptr)
-| Leaf(data : Triangle, low high : vec3f);
+extern tris : set[Triangle];
 
-tree TriangleBVH1 =
-| Interior(left : ptr, right : ptr, low high : vec3f) with AABB(low, high)
-| Leaf(data : Triangle, low high : vec3f);
+schedule {
+    tree TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : ptr, right : ptr)
+    | Leaf(data : Triangle, low high : vec3f);
 
+    tree TriangleBVH1 =
+    | Interior(left : ptr, right : ptr, low high : vec3f) with AABB(low, high)
+    | Leaf(data : Triangle, low high : vec3f);
+
+    tris : TriangleBVH;
+}

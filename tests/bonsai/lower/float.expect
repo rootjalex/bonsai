@@ -1,5 +1,3 @@
-
-
 func id1(x : bf16) -> bf16 {
   return x
 }

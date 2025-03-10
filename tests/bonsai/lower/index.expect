@@ -1,5 +1,3 @@
-
-
 func first(v : f32x3) -> f32 {
   return v[(i32)0]
 }

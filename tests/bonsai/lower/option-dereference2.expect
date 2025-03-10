@@ -1,5 +1,3 @@
-
-
 func use_option(i : ?option0) -> i32 {
   let k = i in
   if (k.set) {

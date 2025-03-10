@@ -1673,25 +1673,6 @@ struct Parser {
         return type;
     }
 
-    ir::BVH_t::Node parse_node() {
-        const Token name_token = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(name_token.value);
-
-        std::vector<ir::BVH_t::Param> params;
-        std::optional<ir::BVH_t::Volume> volume;
-
-        if (consume(Token::Type::LPAREN)) {
-            params = parse_tree_params();
-            expect(Token::Type::RPAREN);
-        }
-
-        if (consume(Token::Type::WITH)) {
-            volume = parse_volume();
-        }
-
-        return ir::BVH_t::Node{name, std::move(params), std::move(volume)};
-    }
-
     ir::BVH_t::Volume parse_volume() {
         const Token name_token = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(name_token.value);
@@ -1714,81 +1695,6 @@ struct Parser {
         return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
     }
 
-    std::vector<ir::BVH_t::Param> parse_tree_params() {
-        // arg := name (':' type)?
-        // args := arg (',' arg)*
-        // no mutability allowed.
-        std::vector<ir::BVH_t::Param> args;
-        do {
-            std::vector<std::string> names;
-            do {
-                const Token token = expect(Token::Type::IDENTIFIER);
-                names.push_back(std::get<std::string>(token.value));
-            } while (!consume(Token::Type::COL));
-
-            ir::Type type = parse_type();
-
-            for (auto &name : names) {
-                args.push_back({std::move(name), type});
-            }
-        } while (consume(Token::Type::COMMA));
-        return args;
-    }
-
-    // tree := `tree` name = (`|` adt_node (`with` volume)?)+
-    void parse_tree() {
-        expect(Token::Type::TREE);
-        ir::BVH_t::Node parent = parse_node();
-
-        if (program.types.contains(parent.name)) {
-            report_error() << "Tree named: " << parent.name
-                           << " conflicts with existing type: "
-                           << program.types[parent.name];
-        }
-
-        if (parent.volume.has_value() != !parent.params.empty()) {
-            report_error() << "Parsing of tree " << parent.name
-                           << " has incompatible volume and params";
-        }
-
-        expect(Token::Type::ASSIGN);
-        expect(Token::Type::BAR);
-
-        if (program.types.contains("ptr")) {
-            report_error() << "Shadowed type `ptr` conflicts with tree def: "
-                           << parent.name;
-        }
-
-        // Empty struct type name for now.
-        program.types["ptr"] =
-            ir::Ptr_t::make(ir::Struct_t::make(parent.name, {}));
-
-        std::vector<ir::BVH_t::Node> nodes;
-
-        do {
-            ir::BVH_t::Node node = parse_node();
-            nodes.emplace_back(std::move(node));
-        } while (consume(Token::Type::BAR));
-
-        expect(Token::Type::SEMICOL);
-
-        // TODO: assert that all volumes only have initializers from
-        // parent.params or node.params BVH_t::make asserts this. we should
-        // catch that failure, and report a backtrace.
-        ir::Type type;
-        if (parent.volume.has_value()) {
-            type = ir::BVH_t::make(parent.name, std::move(parent.params),
-                                   std::move(nodes), std::move(*parent.volume));
-        } else {
-            type = ir::BVH_t::make(parent.name, std::move(nodes));
-        }
-
-        // TODO: should we replace all Ptr_t with correct base type?
-        program.types.erase("ptr");
-
-        program.types[parent.name] = std::move(type);
-    }
-
     ir::BVH_t::Node parse_node() {
         const Token name_token = expect(Token::Type::IDENTIFIER);
         const std::string name = std::get<std::string>(name_token.value);
@@ -1806,28 +1712,6 @@ struct Parser {
         }
 
         return ir::BVH_t::Node{name, std::move(params), std::move(volume)};
-    }
-
-    ir::BVH_t::Volume parse_volume() {
-        const Token name_token = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(name_token.value);
-
-        internal_assert(program.types.contains(name))
-            << "Unknown volume type: " << name;
-        ir::Type type = program.types[name];
-
-        expect(Token::Type::LPAREN);
-
-        std::vector<std::string> initializers;
-        do {
-            const Token token = expect(Token::Type::IDENTIFIER);
-            const std::string iname = std::get<std::string>(token.value);
-            initializers.push_back(iname);
-        } while (consume(Token::Type::COMMA));
-
-        expect(Token::Type::RPAREN);
-
-        return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
     }
 
     std::vector<ir::BVH_t::Param> parse_tree_params() {

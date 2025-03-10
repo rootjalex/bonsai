@@ -196,7 +196,7 @@ ir::Program lower_program(const ir::Program &old_program) {
 
 } // namespace
 
-ir::Program LowerLambda::run(ir::Program &program) const {
+ir::Program LowerLambda::run(ir::Program program) const {
     ir::Program new_program = lower_program(program);
     new_program.schedules = std::move(program.schedules);
     return new_program;

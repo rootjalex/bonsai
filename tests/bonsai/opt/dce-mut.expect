@@ -1,5 +1,3 @@
-
-
 func bar(i : i32) -> u32 {
   j = i + (i32)2
   let k = abs(i) in

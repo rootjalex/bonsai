@@ -213,7 +213,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
 
 } // namespace
 
-ir::FuncMap LowerGeneric::run(ir::FuncMap &funcs) const {
+ir::FuncMap LowerGeneric::run(ir::FuncMap funcs) const {
     return handle_instantiations(funcs);
 }
 

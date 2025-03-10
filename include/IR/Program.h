@@ -31,9 +31,9 @@ struct Program {
 
     Program() {}
 
-    Program(ExternList _externs, FuncMap _funcs, TypeMap _types, ScheduleMap schedules)
-        : externs(std::move(_externs)), funcs(std::move(_funcs)),
-          types(std::move(_types)), schedules(std::move(schedules)) {}
+    Program(ExternList externs, FuncMap funcs, TypeMap types, ScheduleMap schedules)
+        : externs(std::move(externs)), funcs(std::move(funcs)),
+          types(std::move(types)), schedules(std::move(schedules)) {}
 
     ~Program() = default;
 

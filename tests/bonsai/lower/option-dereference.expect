@@ -1,5 +1,3 @@
-
-
 func foo(i : ?option0, j : ?option0) -> i32 {
   if (!i.set) {
     return (i32)0

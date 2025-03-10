@@ -4,7 +4,6 @@ type Ray2 = struct Ray2{ o : f32x3; d : f32x3; t : f32 }
 type Ray3 = struct Ray3{ o : f32x3; d : f32x3; t : f32 }
 type vec3f = f32x3
 
-
 func build_ray() -> Ray {
   return build<Ray>()
 }

@@ -31,8 +31,8 @@ void Program::dump(std::ostream &os) const {
         os << std::endl;
     }
     for (const auto &[target, schedule] : schedules) {
-        os << "schedule " << target << "{";
-        os << schedule << "\n}";
+        os << "schedule " << target << "{\n";
+        os << schedule << "}";
     }
     if (!schedules.empty()) {
         os << std::endl;

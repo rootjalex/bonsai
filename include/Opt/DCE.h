@@ -14,7 +14,7 @@ class DCE : public lower::Pass {
   public:
     constexpr std::string name() const override { return "dce"; }
 
-    ir::FuncMap run(ir::FuncMap &funcs) const override;
+    ir::FuncMap run(ir::FuncMap funcs) const override;
 };
 
 } // namespace opt

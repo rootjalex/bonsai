@@ -159,13 +159,13 @@ class OptionVisitor : public ir::Visitor {
 
 } // namespace
 
-ir::FuncMap VerifyOptions::run(ir::FuncMap &funcs) const {
+ir::FuncMap VerifyOptions::run(ir::FuncMap funcs) const {
     for (const auto &[_, f] : funcs) {
         internal_assert(f->body.defined());
         OptionVisitor visitor;
         f->body.accept(&visitor);
     }
-    return std::move(funcs);
+    return funcs;
 }
 
 } // namespace lower

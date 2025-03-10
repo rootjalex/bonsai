@@ -94,7 +94,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 } // namespace
 
-ir::FuncMap Canonicalize::run(ir::FuncMap &funcs) const {
+ir::FuncMap Canonicalize::run(ir::FuncMap funcs) const {
     ir::FuncMap new_funcs;
 
     for (const auto &[name, func] : funcs) {

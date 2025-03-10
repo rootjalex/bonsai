@@ -17,11 +17,15 @@ element AABB {
     low, high : vec3f;
 }
 
-// TODO: generic over primitive types!
-tree TriangleBVH(low high : vec3f) with AABB(low, high) =
-| Interior(left : ptr, right : ptr)
-| Leaf(data : Triangle, low high : vec3f);
-
-extern triangles : set[Triangle]; // TODO: = TriangleBVH
+extern triangles : set[Triangle];
 
 func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+schedule {
+    // TODO: generic over primitive types!
+    tree TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : ptr, right : ptr)
+    | Leaf(data : Triangle, low high : vec3f);
+
+    triangles : TriangleBVH;
+}

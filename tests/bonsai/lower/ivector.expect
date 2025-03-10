@@ -3,7 +3,6 @@ type vec2f99 = f9_9x2
 type vec2h = f16x2
 type vec4 = f32x4
 
-
 func _fma$bf16_bf16x2(a : bf16x2, b : bf16x2, c : bf16x2) -> bf16x2 {
   return (a * b) + c
 }

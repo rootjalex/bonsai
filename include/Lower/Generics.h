@@ -13,7 +13,7 @@ class LowerGeneric : public Pass {
   public:
     constexpr std::string name() const override { return "lower-generic"; }
 
-    ir::FuncMap run(ir::FuncMap &funcs) const override;
+    ir::FuncMap run(ir::FuncMap funcs) const override;
 };
 
 } // namespace lower

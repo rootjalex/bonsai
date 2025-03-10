@@ -271,10 +271,12 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
 
 } // namespace
 
+// TODO: this is a lowering pass like any other, we should treat it as so.
 ir::Program infer_types(const ir::Program &program) {
     ir::Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;
+    new_program.schedules = program.schedules;
     ir::global_enable_type_enforcement();
 
     std::vector<std::string> topo_order =

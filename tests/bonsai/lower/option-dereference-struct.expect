@@ -1,7 +1,6 @@
 type NumberOption = struct NumberOption{ i : struct ?option0{ value : i32; set : bool }; f : struct ?option1{ value : f32; set : bool } }
 type S = struct S{ i : struct ?option0{ value : i32; set : bool } }
 
-
 func get_flpat(n : NumberOption) -> f32 {
   if (n.f.set) {
     return n.f.value

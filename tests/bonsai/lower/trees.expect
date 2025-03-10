@@ -1,13 +1,12 @@
 type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type Float = f32
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
-type TriangleBVH = tree TriangleBVH(low : f32x3, high : f32x3) with AABB(low, high)
-  | Interior(left : (struct TriangleBVH{  }*), right : (struct TriangleBVH{  }*))
-  | Leaf(data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }, low : f32x3, high : f32x3)
-type TriangleBVH1 = tree TriangleBVH1
-  | Interior(left : (struct TriangleBVH1{  }*), right : (struct TriangleBVH1{  }*), low : f32x3, high : f32x3) with AABB(low, high)
-  | Leaf(data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }, low : f32x3, high : f32x3)
 type vec3f = f32x3
 
+extern tris : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>
 
-
+schedule host{
+tris : tree TriangleBVH(low : f32x3, high : f32x3) with AABB(low, high)
+  | Interior(left : (struct TriangleBVH{  }*), right : (struct TriangleBVH{  }*))
+  | Leaf(data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }, low : f32x3, high : f32x3)
+}

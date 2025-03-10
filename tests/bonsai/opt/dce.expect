@@ -1,5 +1,3 @@
-
-
 func ?lambda0(y : i32) -> i32 {
   return y + (i32)1
 }
