@@ -25,8 +25,8 @@ namespace {
 ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
                              const ir::TypeMap &func_types) {
     struct ReplaceUndefCalls : public ir::Mutator {
-        ReplaceUndefCalls(const ir::TypeMap &_func_types)
-            : func_types(_func_types) {}
+        ReplaceUndefCalls(const ir::TypeMap &func_types)
+            : func_types(func_types) {}
 
       private:
         const ir::TypeMap &func_types;

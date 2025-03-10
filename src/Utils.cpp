@@ -125,7 +125,7 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
 
 Type replace(const TypeMap &repls, const Type &type) {
     struct Replacer : public Mutator {
-        Replacer(const TypeMap &_repls) : repls(_repls) {}
+        Replacer(const TypeMap &repls) : repls(repls) {}
 
       private:
         const TypeMap &repls;

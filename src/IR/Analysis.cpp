@@ -291,7 +291,7 @@ bool is_constant_expr(const Expr &expr) {
 
 bool contains_generics(const Type &type, const TypeMap &types) {
     struct ContainsGenerics : public Visitor {
-        ContainsGenerics(const TypeMap &_types) : types(_types) {}
+        ContainsGenerics(const TypeMap &types) : types(types) {}
 
         void visit(const Generic_t *node) override {
             if (types.contains(node->name)) {
