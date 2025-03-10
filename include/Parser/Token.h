@@ -37,6 +37,7 @@ class Token {
         RARROW, // ->
         RETURN, // return
         PRINT,  // print
+        WITH,   // with
 
         // Data structure specification related keywords
         TREE,      // tree
