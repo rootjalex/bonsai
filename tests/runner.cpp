@@ -12,13 +12,19 @@
 
 // TODO: port to MSVC
 
-enum PIPES { READ, WRITE };
+// In POSIX, the read end of a pipe is numbered 0 and the write end is 1.
+enum Pipes { READ, WRITE };
 
+// Wrap common POSIX IO functions to throw errors on failure.
 namespace io {
 
 template <size_t Size>
 static int read(const int fd, std::array<char, Size> &buffer) {
-    return ::read(fd, buffer.data(), Size - 1);
+    int ret;
+    if ((ret = ::read(fd, buffer.data(), Size - 1)) < 0) {
+        throw std::system_error(errno, std::system_category());
+    }
+    return ret;
 }
 
 static int dup(const int src) {
@@ -50,6 +56,7 @@ static void close(int &fd) {
 
 } // namespace io
 
+// Capture writes to a FILE* (either stdout / stderr) into a std::string
 class Capture {
   public:
     Capture(FILE *file, std::string &output);
@@ -81,13 +88,7 @@ Capture::~Capture() noexcept(false) {
     std::array<char, 1025> buffer;
     int bytes_read = 0;
     do {
-        bytes_read = io::read(pipe[READ], buffer);
-
-        if (bytes_read < 0) {
-            throw std::system_error(errno, std::system_category());
-        }
-
-        if (bytes_read > 0) {
+        if ((bytes_read = io::read(pipe[READ], buffer)) > 0) {
             buffer[bytes_read] = 0;
             stream << buffer.data();
         }
@@ -100,6 +101,9 @@ Capture::~Capture() noexcept(false) {
 }
 
 namespace {
+
+// Prepare command line arguments for a test case. Check the first line for the
+// magic `! flags:` comment.
 std::vector<std::string> get_flags_for_file(const std::string &filename) {
     std::vector<std::string> flags = {"-i", filename};
     std::ifstream file(filename);
@@ -130,10 +134,15 @@ int main(int argc, char *argv[]) {
     std::string stdout_s, stderr_s;
     int code = EXIT_FAILURE;
 
-    {
+    try {
         Capture capout(stdout, stdout_s);
         Capture caperr(stderr, stderr_s);
         code = run(bonsai::cli::parse(get_flags_for_file(input_file)));
+    } catch (const std::system_error &e) {
+        // This might not work if stderr is half-captured, but might as well
+        // try.
+        std::cerr << "Error while capturing output:" << e.what() << std::endl;
+        return EXIT_FAILURE;
     }
 
     std::ofstream output(actual_output_file);
