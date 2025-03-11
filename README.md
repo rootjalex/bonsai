@@ -56,18 +56,8 @@ cmake --build build-dbg --config Debug -j<N PARALLELISM>
 
 # Testing
 
-## Runt
-
-Runt (Run Tests) is the expectation testing framework for Bonsai. It organizes
-collections of tests into test suites and specifies configuration for them. Runt
-uses `runt.toml` to define the test suites and configure them.
-
-### Install
-
-1. Install [Cargo]
-2. Install `runt`: `cargo install runt`
-3. Run all snapshot tests: `runt -d`. This assumes you have built Bonsai and
-   `./build/compiler` exists.
+Just run `ctest --test-dir build`! To regenerate `.expect` files, set the 
+environment variable `BONSAI_UPDATE_EXPECT=1` when running `ctest`.
 
 ### Acknowledgements
 
