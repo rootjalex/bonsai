@@ -42,6 +42,14 @@ jobs:
         with:
           fetch-depth: 2 # Required for clang-tidy / clang-format checks.
 
+      # Install dependencies
+      - run: |
+          sudo apt-get install -y ninja-build
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          rm llvm.sh
+
       # Clang format
       - uses: jidicula/clang-format-action@v4.14.0
         with:
