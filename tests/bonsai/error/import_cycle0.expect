@@ -1,5 +1,5 @@
 ---CODE---
--1
+1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:56
 tests/bonsai/error/import_cycle0.bonsai

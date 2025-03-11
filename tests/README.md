@@ -1,20 +1,19 @@
 ### Cheatsheet
 
-Runt workflow involves two things:
-1. Running tests and comparing differences
-2. Saving new or changed golden files
+CTest is used to manage tests. Run `ctest` in the root of the build directory to
+run all tests. Some flags might be useful:
 
-To run all the tests in a directory, run `runt` with a folder containing `runt.toml`.
+- `-R`: select tests that match a particular regular expression.
+- `-L`: select a label to run. Existing labels include `backends`,
+  `correctness`, `errors`, `llvm`, and `parsing`.
+- `-j`: run on multiple processors
 
-The following commands help focus on specific tests to run:
-- `-i`: Include files that match the given pattern. The pattern is matched against `<suite name>:<file path>` so it can be used to filter both test suites or specific paths. General regex patterns are supported.
-- `-x`: Exclude files that match the pattern
-- `-o`: Filter out reported test results based on test status. Running with `miss` will only show the tests that don't have an `.expect` file.
+To update the golden outputs during a test run, set the environment variable
+`BONSAI_UPDATE_EXPECT` to `1` while running CTest:
 
-**Differences**. `-d` or `--diff` shows differences between the expected test output and the generated output. Use this in conjunction with `-i` to focus on particular failing tests.
+```console
+$ BONSAI_UPDATE_EXPECT=1 ctest -L llvm
+```
 
-**Saving Files**. `-s` is used to save test outputs when they have expected changes. In the case of `miss` tests, i.e. tests that currently don't have any expected output file, this saves a completely new `.expect` file.
-
-**Dry run**. `-n` flag shows the commands that `runt` will run for each test. Use this when you directly want to run the command for the test directly.
-
-For other options, look at `runt --help` which documents other features in `runt`. For instruction on using runt, see the [official documentation](https://docs.rs/runt/latest/runt/).
+Also consult the official CTest
+documentation: https://cmake.org/cmake/help/latest/manual/ctest.1.html

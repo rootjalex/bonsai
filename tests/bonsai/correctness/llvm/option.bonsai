@@ -1,3 +1,5 @@
+//! flags: -b llvm -e
+
 func foo() -> option[i32] {
     return 42;
 }

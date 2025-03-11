@@ -1,0 +1,21 @@
+add_bonsai_tests(
+    LABELS lower
+    FILES
+    bvh.bonsai
+    float.bonsai
+    import_float.bonsai
+    import_twice.bonsai
+    import_vec3f.bonsai
+    index.bonsai
+    ivector.bonsai
+    lambda-simple.bonsai
+    option-dereference-struct.bonsai
+    option-dereference.bonsai
+    option-dereference1.bonsai
+    option-dereference2.bonsai
+    option-nested.bonsai
+    option.bonsai
+    struct_defaults.bonsai
+    trees.bonsai
+    type_coercion_primitive.bonsai
+)

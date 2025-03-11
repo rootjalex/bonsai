@@ -1,4 +1,4 @@
-// -b llvm
+//! flags: -b llvm
 
 element i8x8 = vector[i8, 8];
 element i16x8 = vector[i16, 8];

@@ -33,6 +33,8 @@
 
 build
 build-dbg
+cmake-build-*
+.idea
 .vscode
 venv
 

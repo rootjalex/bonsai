@@ -526,11 +526,7 @@ TokenStream lex(const std::string &filename) {
     // Lexical analysis
     Lexer lexer(filename);
     lexer.lex();
-
-    if (!lexer.is_valid()) {
-        abort();
-    }
-
+    internal_assert(lexer.is_valid()) << "Failed to tokenize " << filename;
     return lexer.get_tokens();
 }
 

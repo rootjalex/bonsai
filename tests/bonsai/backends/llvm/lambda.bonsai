@@ -1,4 +1,4 @@
-// -b llvm
+//! flags: -b llvm
 
 func foo(z : i32) -> i32 {
     L1 = |x: i32| x + 1;

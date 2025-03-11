@@ -1,0 +1,24 @@
+add_bonsai_tests(
+    LABELS error
+    FILES
+    f42.bonsai
+    f_rec_undef.bonsai
+    generic_fib.bonsai
+    import_cycle0.bonsai
+    import_cycle1.bonsai
+    invalid_name.bonsai
+    lambda-empty-body.bonsai
+    lambda-no-arguments.bonsai
+    negate-unsigned.bonsai
+    no-return.bonsai
+    option-dereference1.bonsai
+    option-dereference2.bonsai
+    option-dereference4.bonsai
+    optional_bool.bonsai
+    string-literal.bonsai
+    struct_default.bonsai
+    struct_duplicate.bonsai
+    struct_duplicate_default.bonsai
+    token_type.bonsai
+    type_mismatch.bonsai
+)

@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.30)
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/bonsai-targets.cmake")
+
+get_target_property(_bonsai_configs bonsai::compiler IMPORTED_CONFIGURATIONS)
+if (RELEASE IN_LIST _bonsai_configs)
+    get_target_property(_bonsai_exe bonsai::compiler IMPORTED_LOCATION_RELEASE)
+elseif (_bonsai_configs)
+    list(GET _bonsai_configs 0 _bonsai_config)
+    get_target_property(_bonsai_exe bonsai::compiler "IMPORTED_LOCATION_${_bonsai_config}")
+else ()
+    set(_bonsai_exe "-NOTFOUND")
+endif ()
+
+set_and_check(bonsai_EXECUTABLE "${_bonsai_exe}")
+
+check_required_components(bonsai)

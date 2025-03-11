@@ -1,5 +1,5 @@
 ---CODE---
--1
+1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:56
 tests/bonsai/error/struct_duplicate.bonsai:5:5: [parse error] Duplicate field name: o in element definition: Ray
