@@ -47,6 +47,9 @@ jobs:
         with:
           clang-format-version: '19'
 
+      # Configure CMake
+      - run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
       # Clang tidy
       - uses: ZedThree/clang-tidy-review@v0.20.1
         id: review
