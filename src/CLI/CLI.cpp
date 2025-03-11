@@ -133,7 +133,7 @@ Flags parse(const std::vector<std::string> &args) {
     return {options, false};
 }
 
-int run(Flags flags) {
+int run(const Flags &flags) {
     try {
         const auto &[options, display_help] = flags;
 
