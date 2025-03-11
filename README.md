@@ -56,7 +56,7 @@ cmake --build build-dbg --config Debug -j<N PARALLELISM>
 
 # Testing
 
-Just run `ctest --test-dir build`! To regenerate `.expect` files, set the 
+Just run `ctest --test-dir build`! To regenerate `.expect` files, set the
 environment variable `BONSAI_UPDATE_EXPECT=1` when running `ctest`.
 
 ### Acknowledgements
@@ -70,8 +70,6 @@ from over a decade of hard work from the Halide developers.
 The lexer/parser was largely modeled after the [Simit] lexer/parser, because the
 frontend language looks similar enough. There are a few important changes,
 including support for inline functions, and interfaces.
-
-[Cargo]: https://doc.rust-lang.org/cargo/getting-started/installation.html
 
 [Halide]: https://github.com/halide/Halide
 
