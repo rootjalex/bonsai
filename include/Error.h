@@ -11,13 +11,6 @@ class Error final : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-namespace detail {
-struct Voidifier {
-    template <typename T>
-    void operator&(T &) const {}
-};
-} // namespace detail
-
 class ErrorReport {
   public:
     ErrorReport(const char *cond_str, const char *file, size_t line) {
@@ -56,6 +49,18 @@ class ErrorReport {
   private:
     std::ostringstream stream;
 };
+
+namespace detail {
+// this is a syntax hack that enables placing a << operator after the .ref()
+// method of the ErrorReport class. It can be any binary operator with lower
+// precedence than << and higher than ?: (ternary). This also changes the
+// semantics of `internal_assert(cond) << foo;` so that `foo` is only evaluated
+// when the condition is false.
+struct Voidifier {
+    template <typename T>
+    void operator&(T &) const {}
+};
+} // namespace detail
 
 #define internal_assert(cond)                                                  \
     (cond) ? (void)0                                                           \
