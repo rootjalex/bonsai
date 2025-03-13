@@ -54,6 +54,11 @@ cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg --config Debug -j<N PARALLELISM>
 ```
 
+You may need to point `cmake` to the `deps` install, e.g. via:
+```bash
+cmake -S . -B build -DLLVM_DIR=/Users/ajroot/projects/bonsai/deps/llvm-install/lib/cmake/llvm
+```
+
 # Testing
 
 Just run `ctest --test-dir build`! To regenerate `.expect` files, set the

@@ -100,6 +100,8 @@ target_sources(
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
+    src/Lower/PredicateAnalysis.cpp
+    src/Lower/Trees.cpp
     src/Lower/TopologicalOrder.cpp
     src/Lower/TypeInference.cpp
     src/Lower/VerifyOptions.cpp
@@ -137,7 +139,9 @@ target_sources(
     include/IR/Operators.h
     include/IR/Printer.h
     include/IR/Program.h
+    include/IR/Schedule.h
     include/IR/Stmt.h
+    include/IR/Target.h
     include/IR/Type.h
     include/IR/TypeEnforcement.h
     include/IR/Visitor.h
@@ -152,6 +156,8 @@ target_sources(
     include/Lower/Options.h
     include/Lower/Pass.h
     include/Lower/PassManager.h
+    include/Lower/PredicateAnalysis.h
+    include/Lower/Trees.h
     include/Lower/TopologicalOrder.h
     include/Lower/TypeInference.h
     include/Lower/VerifyOptions.h
