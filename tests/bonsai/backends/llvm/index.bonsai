@@ -1,4 +1,4 @@
-// -b llvm
+//! flags: -b llvm
 
 func first(v : vector[f32, 3]) = v[0];
 
@@ -20,4 +20,3 @@ func safe_oob(v : vector[f32, 3]) = safe_idx(v, 4);
 
 // TODO: LLVM doesn't support nested vectors, need to handle.
 // func origin(v : vector[vector[f32, 4], 4]) = v[0, 0];
-

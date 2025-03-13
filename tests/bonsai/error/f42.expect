@@ -1,5 +1,5 @@
 ---CODE---
--1
+1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:56
 tests/bonsai/error/f42.bonsai:1:21: [parse error] unsupported floating point type: f42

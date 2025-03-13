@@ -1,5 +1,5 @@
 ---CODE---
--1
+1
 ---STDERR---
 [internal] Error: src/IR/Expr.cpp:263
 

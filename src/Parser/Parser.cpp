@@ -33,7 +33,7 @@ class ParseErrorReport {
         : back_trace(back_trace), file_name(file_name),
           current(std::move(current)) {}
 
-    [[noreturn]] ~ParseErrorReport() {
+    [[noreturn]] ~ParseErrorReport() noexcept(false) {
         const uint64_t begin_line = current.line_begin(),
                        begin_column = current.column_begin();
         std::ifstream file(file_name);
@@ -294,6 +294,8 @@ struct Parser {
             context.emplace_back(std::move(tokens));
             parse_program_stream(/*allow_externs=*/false);
             context.pop_back();
+        } catch (const Error &e) {
+            std::rethrow_exception(std::current_exception());
         } catch (const std::exception &e) {
             report_error() << "Failure to parse imported file: " << name
                            << " with message: " << e.what();

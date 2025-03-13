@@ -4,58 +4,33 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    types: [assigned, opened, synchronize, reopened]
+    types: [ assigned, opened, synchronize, reopened ]
 
 env:
-  BUILD_TYPE: Debug
+  CMAKE_GENERATOR: Ninja
+  CMAKE_BUILD_TYPE: Debug
 
 jobs:
   build-and-test:
     # Currently we are only running this on mac-os. For multi-platform:
     # https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: macos-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Install LLVM
+        run: |
+          brew update
+          brew install ninja cmake llvm@19
 
-    # There exists an action `KyleMayes/install-llvm-action@v2` that simplifies 
-    # this, but as of 29 January 2025, they do not support LLVM19 yet. We resort
-    # to manual install à la brew. When transitioning to multi-platform, it'll
-    # be nice to rely on this action (hopefully it is updated).
-    - name: Install LLVM
-      env:
-        # https://github.com/Homebrew/brew/issues/14516#issuecomment-1418593313
-        HOMEBREW_NO_INSTALL_FROM_API: 1
-      run: |
-        brew update
-        brew install llvm@19
+      - name: Configure CMake
+        run: cmake -S . -B build
 
-    - name: Add LLVM to PATH
-      run: |
-        echo "LLVM_ROOT=$(brew --prefix llvm@19)" >> $GITHUB_ENV
-        echo "LLVM_CONFIG=$(brew --prefix llvm@19)/bin/llvm-config" >> $GITHUB_ENV
-    
-    - name: Configure CMake
-      run: |
-        cmake -S . -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+      - name: Build Bonsai
+        run: cmake --build build
 
-    - name: Build Bonsai
-      run: |
-        cmake --build ${{ github.workspace }}/build --config ${{env.BUILD_TYPE}}
-      
-    - name: Set up Rust (stable)
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      - name: Test
+        run: ctest --test-dir build
 
-    - name: Install runt 
-      run: cargo install runt
-      
-    - name: Test
-      working-directory: ${{ github.workspace }}
-      run: runt -d
-    
   clang-tidy:
     runs-on: ubuntu-latest
     permissions:
@@ -63,27 +38,38 @@ jobs:
       contents: write
     
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 2 # Required for clang-tidy / clang-format checks.
-    
-    # Clang format 
-    - uses: jidicula/clang-format-action@v4.14.0
-      with:
-        clang-format-version: '19'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # Required for clang-tidy / clang-format checks.
 
-    # Clang tidy
-    - uses: ZedThree/clang-tidy-review@v0.20.1
-      id: review
-      if: github.event_name == 'pull_request'
-      with:
-        config_file: '.clang-tidy'
-        build_dir: build
-        lgtm_comment_body: "" # No comments upon success.
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y ninja-build
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          rm llvm.sh
 
-      # TODO(cgyurgyik): Enable this again when we figure out how to correctly compile_commands for clang-tidy.
-      # - uses: ZedThree/clang-tidy-review/upload@v0.20.1
-      # id: upload-review
-      # If there are any comments, fail the check.
-      # - if: steps.review.outputs.total_comments > 0
-      #   run: exit 1
+      - name: Clang format
+        uses: jidicula/clang-format-action@v4.14.0
+        with:
+          clang-format-version: '19'
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Clang tidy
+        uses: ZedThree/clang-tidy-review@v0.20.1
+        id: review
+        if: github.event_name == 'pull_request'
+        with:
+          config_file: '.clang-tidy'
+          build_dir: build
+          lgtm_comment_body: "" # No comments upon success.
+
+        # TODO(cgyurgyik): Enable this again when we figure out how to correctly compile_commands for clang-tidy.
+        # - uses: ZedThree/clang-tidy-review/upload@v0.20.1
+        # id: upload-review
+        # If there are any comments, fail the check.
+        # - if: steps.review.outputs.total_comments > 0
+        #   run: exit 1

@@ -1,5 +1,5 @@
 ---CODE---
--1
+1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:56
 tests/bonsai/error/lambda-no-arguments.bonsai:3:10: [parse error] unexpected token: logical-or

@@ -1,5 +1,5 @@
 ---CODE---
--1
+1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:56
 tests/bonsai/error/struct_default.bonsai:5:17: [parse error] Cannot check type of unknown var: o

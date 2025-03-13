@@ -1,3 +1,5 @@
+//! flags: -b llvm -e
+
 element Position {
     x: i32;
     y: i32;

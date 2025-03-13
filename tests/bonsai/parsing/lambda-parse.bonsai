@@ -1,3 +1,5 @@
+//! flags: -p core
+
 // TODO(ajr): DCE should remove unused lambdas as well...
 func foo() -> i32 {
     a = true;

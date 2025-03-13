@@ -1,6 +1,10 @@
 ---CODE---
--1
+1
 ---STDERR---
 tests/bonsai/error/negate-unsigned.bonsai:2:14: [lex error] negated unsigned integer
     return -1u;
              ^
+[internal] Error: src/Parser/Lexer.cpp:529
+
+--> lexer.is_valid()
+Failed to tokenize tests/bonsai/error/negate-unsigned.bonsai
