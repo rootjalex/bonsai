@@ -20,28 +20,6 @@ namespace lower {
 
 namespace {
 
-struct RewriteTree : public ir::Mutator {
-    using RewriteFunc = std::function<ir::Stmt(ir::Expr)>;
-    const RewriteFunc &rewrite_yield;
-    const RewriteFunc &rewrite_scan;
-    const RewriteFunc &rewrite_yieldfrom;
-
-    RewriteTree(const RewriteFunc &yield, const RewriteFunc &scan, const RewriteFunc &from)
-        : rewrite_yield(yield), rewrite_scan(scan), rewrite_yieldfrom(from) {}
-
-    ir::Stmt visit(const ir::Yield *node) override {
-        return rewrite_yield(node->value);
-    }
-
-    ir::Stmt visit(const ir::Scan *node) override {
-        return rewrite_scan(node->value);
-    }
-
-    ir::Stmt visit(const ir::YieldFrom *node) override {
-        return rewrite_yieldfrom(node->value);
-    }
-};
-
 // returns has_data, has_children
 std::pair<std::vector<ir::BVH_t::Param>, std::vector<ir::BVH_t::Param>> analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     std::vector<ir::BVH_t::Param> data, children;

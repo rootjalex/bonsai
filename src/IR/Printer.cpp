@@ -800,7 +800,7 @@ void Printer::visit(const Match *node) {
         print(arm.second);
         indent--;
     }
-    os << "}\n";
+    os << get_indent() << "}\n";
 }
 
 void Printer::visit(const Yield *node) {

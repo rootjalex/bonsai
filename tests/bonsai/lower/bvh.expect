@@ -23,7 +23,7 @@ func ?traverse0(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] Triangle
         yield data
       }
     }
-}
+  }
 }
 
 func alltrace(ray : Ray) -> set<Triangle> {

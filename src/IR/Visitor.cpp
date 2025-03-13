@@ -67,6 +67,7 @@ void Visitor::visit(const Function_t *node) {
 void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
 
 void Visitor::visit(const BVH_t *node) {
+    node->primitive.accept(this);
     // Recursively visit Volume types and Param types.
     for (const auto &subnode : node->nodes) {
         if (subnode.volume.has_value()) {
