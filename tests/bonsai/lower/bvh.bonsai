@@ -19,11 +19,14 @@ element AABB {
 
 extern triangles : set[Triangle];
 
-func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+// func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+
 
 schedule {
     // TODO: generic over primitive types!
-    tree TriangleBVH(low high : vec3f) with AABB(low, high) =
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : ptr, right : ptr)
     | Leaf(data : Triangle, low high : vec3f);
 

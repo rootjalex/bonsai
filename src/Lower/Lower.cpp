@@ -5,6 +5,7 @@
 #include "Lower/Generics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Options.h"
+#include "Lower/Trees.h"
 #include "Lower/VerifyOptions.h"
 #include "Opt/DCE.h"
 
@@ -54,12 +55,15 @@ PassManager register_passes() {
     manager.register_pass<LowerOption>();
     manager.register_pass<VerifyOptions>();
     manager.register_pass<LowerGeneric>();
+    manager.register_pass<opt::DCE>();
+    manager.register_pass<LowerTrees>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
     std::vector<std::unique_ptr<Pass>> core;
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<VerifyOptions>());
+    core.push_back(std::make_unique<LowerTrees>());
     core.push_back(std::make_unique<LowerLambda>());
     core.push_back(std::make_unique<LowerOption>());
     core.push_back(std::make_unique<LowerGeneric>());
@@ -69,6 +73,7 @@ PassManager register_passes() {
     std::vector<std::unique_ptr<Pass>> d;
     d.push_back(std::make_unique<Canonicalize>());
     d.push_back(std::make_unique<VerifyOptions>());
+    d.push_back(std::make_unique<LowerTrees>());
     d.push_back(std::make_unique<LowerLambda>());
     d.push_back(std::make_unique<LowerOption>());
     d.push_back(std::make_unique<LowerGeneric>());

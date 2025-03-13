@@ -3,6 +3,7 @@
 #include "Error.h"
 
 #include "IR/Printer.h"
+#include "IR/Operators.h"
 #include "IR/Visitor.h"
 
 namespace bonsai {
@@ -16,39 +17,51 @@ struct PredicateAnalysis : public ir::Visitor {
 
     PredicateAnalysis(const VolumeMap &bounds) : bounds(bounds) {}
 
-    ir::Expr bound(const std::string &name) const {
+    // empty -> non-varying
+    // undefined -> varying, but no bounding volume
+    // defined -> varying with bounding volume
+    std::optional<ir::Expr> bound(const std::string &name) const {
         const auto iter = bounds.find(name);
         if (iter != bounds.cend()) {
             return iter->second;
         } else {
-            return ir::Expr();
+            return {};
         }
     }
 
+    void set(ir::Expr expr) {
+        interval.min = expr;
+        interval.max = std::move(expr);
+    }
+
+    void set(ir::Expr low, ir::Expr high) {
+        interval.min = std::move(low);
+        interval.max = std::move(high);
+    }
+
+    Interval get(const ir::Expr &expr) {
+        expr.accept(this);
+        return std::move(interval);
+    }
+
     void visit(const ir::IntImm *node) override {
-        interval.min = node;
-        interval.max = node;
+        set(node);
     }
 
     void visit(const ir::UIntImm *node) override {
-        interval.min = node;
-        interval.max = node;
+        set(node);
     }
 
     void visit(const ir::FloatImm *node) override {
-        interval.min = node;
-        interval.max = node;
+        set(node);
     }
 
     void visit(const ir::BoolImm *node) override {
-        interval.min = node;
-        interval.max = node;
+        set(node);
     }
 
     void visit(const ir::Var *node) override {
-        internal_assert(!bounds.contains(node->name));
-        interval.min = node;
-        interval.max = node;
+        set(node);
     }
 
     void visit(const ir::BinOp *node) override {
@@ -104,7 +117,44 @@ struct PredicateAnalysis : public ir::Visitor {
     }
 
     void visit(const ir::GeomOp *node) override {
-        internal_error << "TODO: implement predicate analysis on GeomOp: " << ir::Expr(node);
+        const ir::Var *a_var = node->a.as<ir::Var>();
+        const ir::Var *b_var = node->b.as<ir::Var>();
+        internal_assert(a_var && b_var)
+            << "TODO: support non-variable geometric ops in predicate analysis:"
+            << ir::Expr(node);
+
+        const auto a_vol = bound(a_var->name);
+        const auto b_vol = bound(b_var->name);
+
+        internal_assert(!a_vol.has_value() || a_vol->defined())
+            << "LHS of geom op is varying but has no bounding volume: " << ir::Expr(node);
+        internal_assert(!b_vol.has_value() || b_vol->defined())
+            << "RHS of geom op is varying but has no bounding volume: " << ir::Expr(node);
+
+        const bool a_varying = a_vol.has_value();
+        const bool b_varying = b_vol.has_value();
+
+        if (!a_varying && !b_varying) {
+            set(node);
+            return;
+        }
+
+        switch (node->op) {
+            case ir::GeomOp::intersects: {
+                ir::Expr a = a_varying ? *a_vol : node->a;
+                ir::Expr b = b_varying ? *b_vol : node->b;
+
+                interval.max = ir::intersects(a, b);
+
+                // TODO: handle lower bound? doesn't work for rays...
+                interval.min = ir::Expr();
+
+                return;
+            }
+            default: {
+                internal_error << "TODO: predicate analysis for: " << ir::Expr(node);
+            }
+        }
     }
 
     void visit(const ir::SetOp *node) override {

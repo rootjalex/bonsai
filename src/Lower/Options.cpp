@@ -175,10 +175,6 @@ struct RewriteOptions : public ir::Mutator {
         return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
     }
 
-    ir::Stmt visit(const ir::Match *node) override {
-        internal_error << "TODO: implement RewriteOptions for Match";
-    }
-
     // TODO: which other relevant nodes are there?
     // TODO: need safety checks on dereferencing!
 };

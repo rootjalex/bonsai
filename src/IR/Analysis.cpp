@@ -13,25 +13,26 @@ namespace {
 
 struct GatherFreeVars : public Visitor {
     // return in seen-order
-    std::vector<std::pair<std::string, Type>> free_vars;
+    std::vector<const Var *> free_vars;
     // no duplicates
     std::set<std::string> seen_vars;
 
     void visit(const Var *node) override {
         if (seen_vars.count(node->name) == 0) {
-            free_vars.emplace_back(node->name, node->type);
+            free_vars.push_back(node);
             seen_vars.insert(node->name);
         }
     }
 
     void visit(const Store *node) override {
-        if (seen_vars.count(node->name) == 0) {
-            Type ptr_t = Ptr_t::make(node->value.type());
-            free_vars.emplace_back(node->name, std::move(ptr_t));
-            seen_vars.insert(node->name);
-        }
-        // TODO: consider implications on recursive definition.
-        Visitor::visit(node);
+        internal_error << "TODO: GatherFreeVars of a Store: " << Stmt(node);
+        // if (seen_vars.count(node->name) == 0) {
+        //     Type ptr_t = Ptr_t::make(node->value.type());
+        //     free_vars.emplace_back(node->name, std::move(ptr_t));
+        //     seen_vars.insert(node->name);
+        // }
+        // // TODO: consider implications on recursive definition.
+        // Visitor::visit(node);
     }
 
     void visit(const LetStmt *node) override {
@@ -250,17 +251,17 @@ struct GatherStructTypes : public Visitor {
 
 } // namespace
 
-std::vector<std::pair<std::string, Type>> gather_free_vars(const Expr &expr) {
+std::vector<const ir::Var *> gather_free_vars(const Expr &expr) {
     GatherFreeVars gather;
     expr.accept(&gather);
     return std::move(gather.free_vars);
 }
 
-std::vector<std::pair<std::string, Type>> gather_free_vars(const Stmt &stmt) {
-    GatherFreeVars gather;
-    stmt.accept(&gather);
-    return std::move(gather.free_vars);
-}
+// std::vector<std::pair<std::string, Type>> gather_free_vars(const Stmt &stmt) {
+//     GatherFreeVars gather;
+//     stmt.accept(&gather);
+//     return std::move(gather.free_vars);
+// }
 
 bool always_returns(const Stmt &stmt) {
     AlwaysReturns check;

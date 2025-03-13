@@ -313,7 +313,7 @@ void Printer::visit(const Generic_t *node) {
     }
 }
 
-void Printer::visit(const BVH_t *node) {
+void Printer::print(const BVH_t::Node &node) {
     const auto print_param = [&](const BVH_t::Param &param) {
         os << param.name << " : ";
         print(param.type);
@@ -333,39 +333,35 @@ void Printer::visit(const BVH_t *node) {
         os << ")";
     };
 
-    const auto print_group = [&](std::string_view name,
-                                 const std::vector<BVH_t::Param> &params,
-                                 const std::optional<BVH_t::Volume> &volume) {
-        os << name;
-        if (params.size()) {
-            os << "(";
-            for (size_t i = 0; i < params.size(); i++) {
-                if (i != 0) {
-                    os << ", ";
-                }
-                print_param(params[i]);
+    os << node.name;
+    if (node.params.size()) {
+        os << "(";
+        for (size_t i = 0; i < node.params.size(); i++) {
+            if (i != 0) {
+                os << ", ";
             }
-            os << ")";
+            print_param(node.params[i]);
         }
-        if (volume.has_value()) {
-            os << " with ";
-            print_volume(*volume);
-        }
-    };
+        os << ")";
+    }
+    if (node.volume.has_value()) {
+        os << " with ";
+        print_volume(*node.volume);
+    }
+}
 
-    os << "tree ";
+void Printer::visit(const BVH_t *node) {
+    os << "tree[[";
+    print(node->primitive);
+    os << "]] " << node->name;;
     if (!verbose) {
-        os << node->name;
         return;
     }
-
-    print_group(node->name, node->params, node->volume);
 
     internal_assert(!node->nodes.empty());
     for (size_t i = 0; i < node->nodes.size(); i++) {
         os << "\n  | ";
-        print_group(node->nodes[i].name, node->nodes[i].params,
-                    node->nodes[i].volume);
+        print(node->nodes[i]);
     }
 }
 
@@ -792,19 +788,40 @@ void Printer::visit(const Accumulate *node) {
 }
 
 void Printer::visit(const Match *node) {
-    internal_error << "TODO: implement Printer for Match: " << ir::Stmt(node);
+    os << get_indent();
+    os << "match ";
+    print(node->loc);
+    os << "{\n";
+    for (const auto &arm : node->arms) {
+        os << get_indent() << "| ";
+        print(arm.first);
+        os << " ->\n";
+        indent++;
+        print(arm.second);
+        indent--;
+    }
+    os << "}\n";
 }
 
 void Printer::visit(const Yield *node) {
-    internal_error << "TODO: implement Printer for Yield: " << ir::Stmt(node);
+    os << get_indent();
+    os << "yield ";
+    print_no_parens(node->value);
+    os << "\n";
 }
 
 void Printer::visit(const Scan *node) {
-    internal_error << "TODO: implement Printer for Scan: " << ir::Stmt(node);
+    os << get_indent();
+    os << "scan ";
+    print_no_parens(node->value);
+    os << "\n";
 }
 
 void Printer::visit(const YieldFrom *node) {
-    internal_error << "TODO: implement Printer for YieldFrom: " << ir::Stmt(node);
+    os << get_indent();
+    os << "from ";
+    print_no_parens(node->value);
+    os << "\n";
 }
 
 } // namespace ir

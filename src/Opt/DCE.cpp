@@ -40,7 +40,7 @@ struct ComputeUseCounts : ir::Visitor {
 
     void visit(const ir::Lambda *node) override {
         for (const ir::Lambda::Argument &arg : node->args) {
-            internal_assert(!use_counts.contains(arg.name));
+            internal_assert(!use_counts.contains(arg.name)) << arg.name;
             if (!curr_var.empty()) {
                 const UseCountMap &dep_map = dependent_use_counts[curr_var];
                 internal_assert(!dep_map.contains(arg.name));
@@ -111,21 +111,9 @@ struct ComputeUseCounts : ir::Visitor {
         curr_var.clear();
     }
 
-    void visit(const ir::Match *node) override {
-        internal_error << "TODO: implement ComputeUseCounts for Match";
-    }
-
-    void visit(const ir::Yield *node) override {
-        internal_error << "TODO: implement ComputeUseCounts for Yield";
-    }
-
-    void visit(const ir::Scan *node) override {
-        internal_error << "TODO: implement ComputeUseCounts for Scan";
-    }
-
-    void visit(const ir::YieldFrom *node) override {
-        internal_error << "TODO: implement ComputeUseCounts for YieldFrom";
-    }
+    // void visit(const ir::Match *node) override {
+    //     internal_error << "TODO: implement ComputeUseCounts for Match";
+    // }
 };
 
 struct HasSideEffects : ir::Visitor {
@@ -334,6 +322,7 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     std::set<std::string> se_functions = find_side_effects(funcs);
 
     for (auto &[name, func] : funcs) {
+        // std::cout << "DCEing:\n" << *func;
         func->body = dce_stmt(func->body, se_functions);
     }
     return funcs;

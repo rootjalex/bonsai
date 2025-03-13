@@ -252,20 +252,22 @@ struct BVH_t : TypeNode<BVH_t> {
         std::optional<Volume> volume;
     };
 
+    ir::Type primitive;
     std::string name;
     // TODO: do we ever want a root Volume or root Params?
     // Params every Node has.
-    std::vector<Param> params;
+    // std::vector<Param> params;
     // All possible node types.
     std::vector<Node> nodes;
     // BV for every node, unless specified in the Node type.
-    std::optional<Volume> volume;
+    // std::optional<Volume> volume;
 
     // Each node should have a volume set, or are un-optimized.
-    static Type make(std::string name, std::vector<Node> nodes);
+    static Type make(ir::Type primitive, std::string name, std::vector<Node> nodes);
     // All nodes share the same volume type unless otherwise specified.
-    static Type make(std::string name, std::vector<Param> params,
-                     std::vector<Node> nodes, Volume volume);
+    static Type make(ir::Type primitive, std::string name,
+                     std::vector<Param> params, std::vector<Node> nodes,
+                     Volume volume);
 
     static const IRTypeEnum _node_type = IRTypeEnum::BVH_t;
 };

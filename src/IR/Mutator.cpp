@@ -15,12 +15,12 @@ std::pair<std::vector<T>, bool> visit_list(Mutator *v,
                                            const std::vector<T> &l) {
     bool not_changed = true;
     const size_t n = l.size();
-    std::vector<T> _l(n);
+    std::vector<T> new_l(n);
     for (size_t i = 0; i < n; i++) {
-        _l[i] = v->mutate(l[i]);
-        not_changed = not_changed && _l[i].same_as(l[i]);
+        new_l[i] = v->mutate(l[i]);
+        not_changed = not_changed && new_l[i].same_as(l[i]);
     }
-    return {std::move(_l), not_changed};
+    return {std::move(new_l), not_changed};
 }
 
 std::pair<WriteLoc, bool> mutate_writeloc(Mutator *v, const WriteLoc &loc) {
@@ -154,7 +154,9 @@ Type Mutator::visit(const Generic_t *node) {
 
 Type Mutator::visit(const BVH_t *node) {
     // Keep track of whether any component of the type has changed or not.
-    bool not_changed = true;
+    ir::Type primitive = mutate(node->primitive);
+    bool not_changed = primitive.same_as(node->primitive);
+
     const auto visit_param = [&](const BVH_t::Param &param) {
         Type type = mutate(param.type);
         if (type.same_as(param.type)) {
@@ -192,12 +194,12 @@ Type Mutator::visit(const BVH_t *node) {
         return BVH_t::Node{node.name, std::move(params), std::move(volume)};
     };
 
-    const size_t nparams = node->params.size();
-    std::vector<BVH_t::Param> params(nparams);
+    // const size_t nparams = node->params.size();
+    // std::vector<BVH_t::Param> params(nparams);
 
-    for (size_t i = 0; i < nparams; i++) {
-        params[i] = visit_param(node->params[i]);
-    }
+    // for (size_t i = 0; i < nparams; i++) {
+    //     params[i] = visit_param(node->params[i]);
+    // }
 
     const size_t nnodes = node->nodes.size();
     std::vector<BVH_t::Node> nodes(nnodes);
@@ -206,16 +208,16 @@ Type Mutator::visit(const BVH_t *node) {
         nodes[i] = visit_node(node->nodes[i]);
     }
 
-    std::optional<BVH_t::Volume> volume = visit_volume(node->volume);
+    // std::optional<BVH_t::Volume> volume = visit_volume(node->volume);
 
     if (not_changed) {
         return node;
-    } else if (volume.has_value()) {
-        return BVH_t::make(node->name, std::move(params), std::move(nodes),
-                           *volume);
+    // } else if (volume.has_value()) {
+    //     return BVH_t::make(node->name, std::move(params), std::move(nodes),
+    //                        *volume);
     } else {
-        internal_assert(params.empty());
-        return BVH_t::make(node->name, std::move(nodes));
+        // internal_assert(params.empty());
+        return BVH_t::make(std::move(primitive), node->name, std::move(nodes));
     }
 }
 
@@ -466,19 +468,45 @@ Stmt Mutator::visit(const Accumulate *node) {
 }
 
 Stmt Mutator::visit(const Match *node) {
-    internal_error << "TODO: implement Mutator for Match: " << ir::Stmt(node);
+    ir::Expr loc = mutate(node->loc);
+    bool not_changed = loc.same_as(node->loc);
+    const size_t n = node->arms.size();
+    Match::Arms new_arms(n);
+    for (size_t i = 0; i < n; i++) {
+        ir::Stmt stmt = mutate(node->arms[i].second);
+        not_changed = not_changed && stmt.same_as(node->arms[i].second);
+        new_arms[i] = {node->arms[i].first, std::move(stmt)};
+    }
+
+    if (not_changed){
+        return node;
+    } else {
+        return Match::make(std::move(loc), std::move(new_arms));
+    }
 }
 
 Stmt Mutator::visit(const Yield *node) {
-    internal_error << "TODO: implement Mutator for Yield: " << ir::Stmt(node);
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return Yield::make(std::move(value));
 }
 
 Stmt Mutator::visit(const Scan *node) {
-    internal_error << "TODO: implement Mutator for Scan: " << ir::Stmt(node);
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return Scan::make(std::move(value));
 }
 
 Stmt Mutator::visit(const YieldFrom *node) {
-    internal_error << "TODO: implement Mutator for YieldFrom: " << ir::Stmt(node);
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return YieldFrom::make(std::move(value));
 }
 
 } // namespace ir

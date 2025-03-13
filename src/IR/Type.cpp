@@ -112,6 +112,8 @@ Type Type::element_of() const {
         return this->as<Vector_t>()->etype;
     } else if (this->is<Set_t>()) {
         return this->as<Set_t>()->etype;
+    } else if (this->is<BVH_t>()) {
+        return this->as<BVH_t>()->primitive;
     } else {
         internal_error << "Called element_of() on bad type: " << *this;
     }
@@ -347,10 +349,12 @@ bool validate_volume(const BVH_t::Volume &volume,
 
 } // namespace
 
-Type BVH_t::make(std::string name, std::vector<Node> nodes) {
+Type BVH_t::make(ir::Type primitive, std::string name, std::vector<Node> nodes) {
+    internal_assert(primitive.defined()) << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
 
+    // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].volume.has_value()) {
             internal_assert(
@@ -360,13 +364,15 @@ Type BVH_t::make(std::string name, std::vector<Node> nodes) {
     }
 
     BVH_t *node = new BVH_t;
+    node->primitive = std::move(primitive);
     node->name = std::move(name);
     node->nodes = std::move(nodes);
     return node;
 }
 
-Type BVH_t::make(std::string name, std::vector<BVH_t::Param> params,
+Type BVH_t::make(ir::Type primitive, std::string name, std::vector<BVH_t::Param> params,
                  std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
+    internal_assert(primitive.defined()) << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!params.empty()) << "BVH_t::make received empty params";
     internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
@@ -374,19 +380,22 @@ Type BVH_t::make(std::string name, std::vector<BVH_t::Param> params,
     internal_assert(validate_volume(volume, params, {}))
         << "Failed to validate parent volume of " << name;
 
+    // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].volume.has_value()) {
-            internal_assert(
-                validate_volume(*nodes[i].volume, nodes[i].params, params))
-                << "Failed to validate node " << i << " of " << name;
+        // Insert params into the front of nodes[i].params
+        nodes[i].params.insert(nodes[i].params.begin(), params.begin(), params.end());
+        if (!nodes[i].volume.has_value()) {
+            nodes[i].volume = volume;
         }
+        internal_assert(
+            validate_volume(*nodes[i].volume, nodes[i].params, params))
+            << "Failed to validate node " << i << " of " << name;
     }
 
     BVH_t *node = new BVH_t;
+    node->primitive = std::move(primitive);
     node->name = std::move(name);
     node->nodes = std::move(nodes);
-    node->params = std::move(params);
-    node->volume = std::move(volume);
     return node;
 }
 

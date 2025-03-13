@@ -1622,6 +1622,11 @@ struct Parser {
     // tree := `tree` name = (`|` adt_node (`with` volume)?)+
     ir::Type parse_tree() {
         expect(Token::Type::TREE);
+        expect(Token::Type::LBRACKET);
+        expect(Token::Type::LBRACKET);
+        ir::Type primitive = parse_type();
+        expect(Token::Type::RBRACKET);
+        expect(Token::Type::RBRACKET);
         ir::BVH_t::Node parent = parse_node();
 
         if (program.types.contains(parent.name)) {
@@ -1661,10 +1666,10 @@ struct Parser {
         // catch that failure, and report a backtrace.
         ir::Type type;
         if (parent.volume.has_value()) {
-            type = ir::BVH_t::make(parent.name, std::move(parent.params),
+            type = ir::BVH_t::make(std::move(primitive), parent.name, std::move(parent.params),
                                    std::move(nodes), std::move(*parent.volume));
         } else {
-            type = ir::BVH_t::make(parent.name, std::move(nodes));
+            type = ir::BVH_t::make(std::move(primitive), parent.name, std::move(nodes));
         }
 
         // TODO: should we replace all Ptr_t with correct base type?

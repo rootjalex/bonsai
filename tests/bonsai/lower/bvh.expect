@@ -4,15 +4,32 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type vec3f = f32x3
 
-extern triangles : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>
+extern triangles : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriangleBVH
+  | Interior(low : f32x3, high : f32x3, left : (struct TriangleBVH{  }*), right : (struct TriangleBVH{  }*)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }, low : f32x3, high : f32x3) with AABB(low, high)
 
-func trace(ray : Ray) -> Triangle {
-  return argmin(|tri : Triangle| distance(ray, tri), filter(|tri : Triangle| intersects(ray, tri), triangles))
+func ?traverse0(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] TriangleBVH) -> set<Triangle> {
+  match triangles{
+  | Interior(low : f32x3, high : f32x3, left : (TriangleBVH*), right : (TriangleBVH*)) with AABB(low, high) ->
+    if (intersects(ray, triangles.volume)) {
+      from filter(|tri : Triangle| intersects(ray, tri), left)
+    }
+    if (intersects(ray, triangles.volume)) {
+      from filter(|tri : Triangle| intersects(ray, tri), right)
+    }
+  | Leaf(low : f32x3, high : f32x3, data : Triangle, low : f32x3, high : f32x3) with AABB(low, high) ->
+    if (intersects(ray, triangles.volume)) {
+      if (intersects(ray, data)) {
+        yield data
+      }
+    }
+}
+}
+
+func alltrace(ray : Ray) -> set<Triangle> {
+  return ?traverse0(ray, tri, triangles)
 }
 
 
 schedule host{
-triangles : tree TriangleBVH(low : f32x3, high : f32x3) with AABB(low, high)
-  | Interior(left : (struct TriangleBVH{  }*), right : (struct TriangleBVH{  }*))
-  | Leaf(data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }, low : f32x3, high : f32x3)
 }

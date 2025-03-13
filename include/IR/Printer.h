@@ -60,6 +60,7 @@ struct Printer : public Visitor {
     void print_expr_list(const std::vector<Expr> &exprs);
     void print(const Stmt &stmt);
     void print(const WriteLoc &loc);
+    void print(const BVH_t::Node &node);
 
     // Types
     void visit(const Void_t *) override;

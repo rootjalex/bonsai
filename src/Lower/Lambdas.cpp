@@ -119,7 +119,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
         }
         std::shared_ptr<ir::Function> &f = it->second.function;
 
-        ir::Type type = ir::Function_t::make(f->ret_type, f->argument_types());
+        ir::Type type = f->call_type();
         return ir::Call::make(ir::Var::make(type, f->name), call->args);
     }
 };

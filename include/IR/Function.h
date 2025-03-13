@@ -69,6 +69,11 @@ struct Function {
         return types;
     }
 
+    ir::Type call_type() const {
+        internal_assert(ret_type.defined());
+        return ir::Function_t::make(ret_type, this->argument_types());
+    }
+
     Function(const Function &) = default;
     Function(Function &&) noexcept = default;
     Function &operator=(const Function &) = default;

@@ -152,10 +152,10 @@ struct Accumulate : StmtNode<Accumulate> {
 
 struct Match : StmtNode<Match> {
     using Arms = std::vector<std::pair<BVH_t::Node, Stmt>>;
-    WriteLoc loc; // Of type BVH_t
+    Expr loc; // Of type BVH_t
     Arms arms;
 
-    static Stmt make(WriteLoc loc, Arms arms);
+    static Stmt make(Expr loc, Arms arms);
 
     static const IRStmtEnum _node_type = IRStmtEnum::Match;
 };

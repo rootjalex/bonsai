@@ -181,9 +181,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         }
 
         // Compare parameters.
-        if (b0->params.size() != b1->params.size()) {
-            return compare_primitives(b0->params.size(), b1->params.size());
-        }
+        // if (b0->params.size() != b1->params.size()) {
+        //     return compare_primitives(b0->params.size(), b1->params.size());
+        // }
 
         static const auto compare_params = [](const BVH_t::Param &p0,
                                               const BVH_t::Param &p1) {
@@ -230,15 +230,15 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 return Cmp::Equals;
             };
 
-        const size_t n_params = b0->params.size();
-        for (size_t i = 0; i < n_params; i++) {
-            const auto &param0 = b0->params[i];
-            const auto &param1 = b1->params[i];
-            if (const Cmp rec = compare_params(param0, param1);
-                rec != Cmp::Equals) {
-                return rec;
-            }
-        }
+        // const size_t n_params = b0->params.size();
+        // for (size_t i = 0; i < n_params; i++) {
+        //     const auto &param0 = b0->params[i];
+        //     const auto &param1 = b1->params[i];
+        //     if (const Cmp rec = compare_params(param0, param1);
+        //         rec != Cmp::Equals) {
+        //         return rec;
+        //     }
+        // }
 
         // Compare node types.
         if (b0->nodes.size() != b1->nodes.size()) {
@@ -261,14 +261,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             for (size_t j = 0; j < m; j++) {
                 const auto &param0 = node0.params[j];
                 const auto &param1 = node1.params[j];
-                if (const Cmp pname =
-                        compare_primitives(param0.name, param1.name);
-                    pname != Cmp::Equals) {
-                    return pname;
-                }
-                if (const Cmp types = compare_types(param0.type, param1.type);
-                    types != Cmp::Equals) {
-                    return types;
+                if (const Cmp peq = compare_params(param0, param1); peq != Cmp::Equals) {
+                    return peq;
                 }
             }
 
@@ -277,7 +271,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 return volumes;
             }
         }
-        return compare_volumes(b0->volume, b1->volume);
+        // return compare_volumes(b0->volume, b1->volume);
+        return Cmp::Equals;
     }
     }
 }

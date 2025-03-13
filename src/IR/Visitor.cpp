@@ -67,7 +67,15 @@ void Visitor::visit(const Function_t *node) {
 void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
 
 void Visitor::visit(const BVH_t *node) {
-    internal_error << "TODO: implement Visitor::visit(BVH_t)";
+    // Recursively visit Volume types and Param types.
+    for (const auto &subnode : node->nodes) {
+        if (subnode.volume.has_value()) {
+            subnode.volume->struct_type.accept(this);
+        }
+        for (const auto &param : subnode.params) {
+            param.type.accept(this);
+        }
+    }
 }
 
 void Visitor::visit(const IEmpty *) {}
@@ -193,20 +201,17 @@ void Visitor::visit(const Accumulate *node) {
 }
 
 void Visitor::visit(const Match *node) {
-    internal_error << "TODO: implement Visitor for Match: " << ir::Stmt(node);
+    node->loc.accept(this);
+    for (const auto &[_, stmt] : node->arms) {
+        stmt.accept(this);
+    }
 }
 
-void Visitor::visit(const Yield *node) {
-    internal_error << "TODO: implement Visitor for Yield: " << ir::Stmt(node);
-}
+void Visitor::visit(const Yield *node) { node->value.accept(this); }
 
-void Visitor::visit(const Scan *node) {
-    internal_error << "TODO: implement Visitor for Scan: " << ir::Stmt(node);
-}
+void Visitor::visit(const Scan *node) { node->value.accept(this); }
 
-void Visitor::visit(const YieldFrom *node) {
-    internal_error << "TODO: implement Visitor for YieldFrom: " << ir::Stmt(node);
-}
+void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }
 
 } // namespace ir
 } // namespace bonsai
