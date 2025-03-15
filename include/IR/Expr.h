@@ -271,15 +271,6 @@ struct Access : ExprNode<Access> {
     static const IRExprEnum _node_type = IRExprEnum::Access;
 };
 
-// Return a reference to a value (presumably a struct)
-struct Ref : ExprNode<Ref> {
-    Expr value;
-
-    static Expr make(Expr value);
-
-    static const IRExprEnum _node_type = IRExprEnum::Ref;
-};
-
 struct Intrinsic : ExprNode<Intrinsic> {
     // For now, just supporting (seemingly relevant) LLVM intrinsic ops:
     // https://llvm.org/docs/LangRef.html#standard-c-c-library-intrinsics

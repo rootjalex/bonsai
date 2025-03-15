@@ -183,7 +183,7 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
             ir::WriteLoc temp_loc(temp, value_t);
             ir::Stmt let = ir::LetStmt::make(std::move(temp_loc), std::move(value));
 
-            std::vector<ir::Expr> values = {ir::Var::make(value_t, temp), ir::Ref::make(node->value)};
+            std::vector<ir::Expr> values = {ir::Var::make(value_t, temp), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
             ir::Stmt body = ir::IfElse::make(var < best, ir::Assign::make(loc, std::move(update), /*mutating=*/true));
 
@@ -213,19 +213,17 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
     const ir::Lambda *lambda = metric.as<ir::Lambda>();
     internal_assert(lambda) << "Metric is not a lambda: " << metric;
     ir::Type metric_t = lambda->value.type();
-    // TODO: figure out reference?
-    ir::Type ref_t = ir::Ptr_t::make(ret_type);
 
-    ir::Type tuple_t = ir::Tuple_t::make({metric_t, ref_t});
+    ir::Type tuple_t = ir::Tuple_t::make({metric_t, ret_type});
 
     static size_t counter = 0;
     std::string name = "?best" + std::to_string(counter++);
     ir::WriteLoc loc(name, tuple_t);
 
     ir::Expr inf = ir::Infinity::make(std::move(metric_t));
-    // TODO: be less hacky here...
-    ir::Expr expr_nullptr = ir::Cast::make(std::move(ref_t), ir::IntImm::make(ir::Int_t::make(64), 0));
-    std::vector<ir::Expr> values = {std::move(inf), std::move(expr_nullptr)};
+    static const std::vector<ir::Expr> empty_list = {};
+    ir::Expr empty = ir::Build::make(ret_type, empty_list);
+    std::vector<ir::Expr> values = {std::move(inf), std::move(empty)};
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
     // Alocate
@@ -235,6 +233,7 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
     ir::Expr best_ref = ir::Extract::make(ret_var, 1);
     // TODO: should this be a Return?
+    // TODO: should this be an If (best[0] != inf) yield best[1] else {} ?
     ir::Stmt footer = ir::Yield::make(std::move(best_ref));
     ir::Expr best_metric = ir::Extract::make(std::move(ret_var), 0);
 

@@ -43,7 +43,6 @@ struct Visitor {
     virtual void visit(const Extract *);
     virtual void visit(const Build *);
     virtual void visit(const Access *);
-    virtual void visit(const Ref *);
     virtual void visit(const Intrinsic *);
     virtual void visit(const Lambda *);
     virtual void visit(const GeomOp *);

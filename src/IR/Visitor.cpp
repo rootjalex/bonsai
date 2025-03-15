@@ -138,8 +138,6 @@ void Visitor::visit(const Build *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const Access *node) { node->value.accept(this); }
 
-void Visitor::visit(const Ref *node) { node->value.accept(this); }
-
 void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Lambda *node) { node->value.accept(this); }

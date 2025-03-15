@@ -27,7 +27,7 @@ func ?traverse0(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] Triangle
 }
 
 func ?traverse1(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] TriangleBVH) -> Triangle {
-  ?best0 := build<(f32, (Triangle*))>((f32)inf, cast<(Triangle*)>((i64)0))
+  ?best0 := build<(f32, Triangle)>((f32)inf, build<Triangle>())
   match triangles{
   | Interior(low : f32x3, high : f32x3, left : (TriangleBVH*), right : (TriangleBVH*)) with AABB(low, high) ->
     if (intersects(ray, triangles.volume)) {
@@ -42,7 +42,7 @@ func ?traverse1(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] Triangle
         if (distance(ray, triangles.volume) < ?best0[(i32)0]) {
           let ?best0_temp0 = distance(ray, data) in
           if (?best0_temp0 < ?best0[(i32)0]) {
-            ?best0 = build<(f32, (Triangle*))>(?best0_temp0, ref<>(data))
+            ?best0 = build<(f32, Triangle)>(?best0_temp0, data)
           }
         }
       }

@@ -99,7 +99,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Extract *) override;
     virtual void visit(const ir::Build *) override;
     virtual void visit(const ir::Access *) override;
-    virtual void visit(const ir::Ref *) override;
     virtual void visit(const ir::Intrinsic *) override;
     virtual void visit(const ir::Lambda *) override;
     virtual void visit(const ir::GeomOp *) override;

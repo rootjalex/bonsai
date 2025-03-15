@@ -49,7 +49,6 @@ struct Mutator {
     virtual Expr visit(const Extract *);
     virtual Expr visit(const Build *);
     virtual Expr visit(const Access *);
-    virtual Expr visit(const Ref *);
     virtual Expr visit(const Intrinsic *);
     virtual Expr visit(const Lambda *);
     virtual Expr visit(const GeomOp *);

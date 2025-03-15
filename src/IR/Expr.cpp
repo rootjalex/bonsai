@@ -690,23 +690,6 @@ Expr Access::make(std::string field, Expr value) {
     return node;
 }
 
-
-Expr Ref::make(Expr value) {
-    internal_assert(value.defined())
-        << "Empty value for Ref::make()";
-
-    Ref *node = new Ref;
-
-    const bool infer_types =
-        type_enforcement_enabled() || value.type().defined();
-    if (infer_types) {
-        node->type = Ptr_t::make(value.type());
-    }
-
-    node->value = std::move(value);
-    return node;
-}
-
 Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     internal_assert(!args.empty() &&
                     std::all_of(args.cbegin(), args.cend(),

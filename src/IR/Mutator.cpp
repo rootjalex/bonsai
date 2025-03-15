@@ -343,14 +343,6 @@ Expr Mutator::visit(const Access *node) {
     return Access::make(node->field, std::move(value));
 }
 
-Expr Mutator::visit(const Ref *node) {
-    Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
-        return node;
-    }
-    return Ref::make(std::move(value));
-}
-
 Expr Mutator::visit(const Intrinsic *node) {
     auto [args, not_changed] = visit_list(this, node->args);
     if (not_changed) {

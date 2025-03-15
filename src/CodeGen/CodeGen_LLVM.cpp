@@ -1265,10 +1265,6 @@ void CodeGen_LLVM::visit(const Access *node) {
         << Expr(node);
 }
 
-void CodeGen_LLVM::visit(const Ref *node) {
-    internal_error << "TODO: implement Ref codegen for value: " << node->value;
-}
-
 void CodeGen_LLVM::visit(const Return *node) {
     llvm::Value *ret_val = codegen_expr(node->value);
     // Add return statement.

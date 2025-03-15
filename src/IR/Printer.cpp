@@ -580,13 +580,6 @@ void Printer::visit(const Access *node) {
     os << "." << node->field;
 }
 
-void Printer::visit(const Ref *node) {
-    // TODO: print type?
-    os << "ref<>(";
-    print_no_parens(node->value);
-    os << ")";
-}
-
 std::string to_string(const Intrinsic::OpType &op) {
     switch (op) {
     case Intrinsic::abs:

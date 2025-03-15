@@ -112,10 +112,6 @@ struct PredicateAnalysis : public ir::Visitor {
         internal_error << "TODO: implement predicate analysis on Access: " << ir::Expr(node);
     }
 
-    void visit(const ir::Ref *node) override {
-        internal_error << "Called predicate analysis on Ref: " << ir::Expr(node);
-    }
-
     void visit(const ir::Intrinsic *node) override {
         internal_error << "TODO: implement predicate analysis on Intrinsic: " << ir::Expr(node);
     }
