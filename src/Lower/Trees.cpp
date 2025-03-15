@@ -33,37 +33,54 @@ std::pair<std::vector<ir::BVH_t::Param>, std::vector<ir::BVH_t::Param>> analyze_
     return {data, children};
 }
 
+struct Rewriter : public ir::Mutator {
+    std::vector<ir::Expr> volumes;
+
+    ir::Stmt visit(const ir::Match *node) final override {
+        const ir::Var *var = node->loc.as<ir::Var>();
+        internal_assert(var) << "TODO: handle Match on non-Var";
+
+        const size_t n = node->arms.size();
+        ir::Match::Arms new_arms(n);
+        for (size_t i = 0; i < n; i++) {
+            if (node->arms[i].first.volume.has_value()) {
+                // TODO: this needs to have special lowering later!
+                ir::Expr vol = ir::Var::make(node->arms[i].first.volume->struct_type, var->name + ".volume");
+                volumes.emplace_back(std::move(vol));
+            } else {
+                volumes.emplace_back(); // undef volume
+            }
+            ir::Stmt stmt = mutate(node->arms[i].second);
+            volumes.pop_back();
+            new_arms[i] = {node->arms[i].first, std::move(stmt)};
+        }
+
+        return ir::Match::make(node->loc, std::move(new_arms));
+    }
+
+    VolumeMap make_volume_map(const std::vector<ir::Lambda::Argument> &args) const {
+        VolumeMap vols;
+        const size_t n = volumes.size();
+        internal_assert(n == args.size())
+            << "Making volume map with incorrect number of arguments: " << args.size() << " vs. " << n;
+        for (size_t i = 0; i < n; i++) {
+            // Even if a volume is undefined, needs to be added so
+            // predicate analysis knows it's non-varying.
+            vols[args[i].name] = volumes[i];
+        }
+        return vols;
+    }
+
+    using ir::Mutator::visit;
+};
+
 ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
-    struct RewriteFilter : public ir::Mutator {
+    struct RewriteFilter : public Rewriter {
         ir::Expr predicate;
 
         RewriteFilter(ir::Expr pred) : predicate(std::move(pred)) {}
 
-        std::vector<ir::Expr> volumes;
-
-        ir::Stmt visit(const ir::Match *node) override {
-            const ir::Var *var = node->loc.as<ir::Var>();
-            internal_assert(var) << "TODO: handle Match on non-Var";
-
-            const size_t n = node->arms.size();
-            ir::Match::Arms new_arms(n);
-            for (size_t i = 0; i < n; i++) {
-                // static_assert(false);
-                // Insert volume as Var::make
-                if (node->arms[i].first.volume.has_value()) {
-                    // TODO: this needs to have special lowering later!
-                    ir::Expr vol = ir::Var::make(node->arms[i].first.volume->struct_type, var->name + ".volume");
-                    volumes.emplace_back(std::move(vol));
-                } else {
-                    volumes.emplace_back(); // undef volume
-                }
-                ir::Stmt stmt = mutate(node->arms[i].second);
-                volumes.pop_back();
-                new_arms[i] = {node->arms[i].first, std::move(stmt)};
-            }
-
-            return ir::Match::make(node->loc, std::move(new_arms));
-        }
+        using ir::Mutator::visit;
 
         ir::Stmt visit(const ir::Yield *node) override {
             internal_assert(!volumes.empty());
@@ -78,25 +95,18 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
             // if (predicate) yield data
             ir::Stmt body = ir::IfElse::make(std::move(cond), node);
 
-            // If any volumes are defined, use predicate analysis.
-            if (std::any_of(volumes.cbegin(), volumes.cend(), [](const auto &vol) { return vol.defined(); })) {
-                VolumeMap vols;
-                const size_t n = volumes.size();
-                for (size_t i = 0; i < n; i++) {
-                    // Even if a volume is undefined, needs to be added so
-                    // predicate analysis knows it's non-varying.
-                    vols[lambda->args[i].name] = volumes[i];
-                }
-                Interval bounds = predicate_analysis(lambda->value, vols);
-                if (bounds.max.defined()) {
-                    // Maybe true.
-                    body = ir::IfElse::make(std::move(bounds.max), std::move(body));
-                }
-                if (bounds.min.defined()) {
-                    // Always true.
-                    body = ir::IfElse::make(std::move(bounds.min), node, std::move(body));
-                }
+            VolumeMap vols = make_volume_map(lambda->args);
+
+            Interval bounds = predicate_analysis(lambda->value, vols);
+            if (bounds.max.defined()) {
+                // Maybe true.
+                body = ir::IfElse::make(std::move(bounds.max), std::move(body));
             }
+            if (bounds.min.defined()) {
+                // Always true.
+                body = ir::IfElse::make(std::move(bounds.min), node, std::move(body));
+            }
+
             return body;
         }
 
@@ -108,39 +118,131 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
-            if (std::any_of(volumes.cbegin(), volumes.cend(), [](const auto &vol) { return vol.defined(); })) {
-                VolumeMap vols;
-                const size_t n = volumes.size();
-                for (size_t i = 0; i < n; i++) {
-                    // Even if a volume is undefined, needs to be added so
-                    // predicate analysis knows it's non-varying.
-                    vols[lambda->args[i].name] = volumes[i];
-                }
-                Interval bounds = predicate_analysis(lambda->value, vols);
-                internal_assert(bounds.max.defined())
-                    << "Cannot accelerate predicate: " << predicate << " on: " << ir::Stmt(node);
+            VolumeMap vols = make_volume_map(lambda->args);
 
-                // Make a recursive call
-                ir::Stmt body = ir::YieldFrom::make(ir::filter(predicate, node->value));
-                // Add the maybe case -> recursive call
-                body = ir::IfElse::make(std::move(bounds.max), std::move(body));
+            Interval bounds = predicate_analysis(lambda->value, vols);
+            internal_assert(bounds.max.defined())
+                << "Cannot accelerate predicate: " << predicate << " on: " << ir::Stmt(node);
 
-                // Check for always case
-                if (bounds.min.defined()) {
-                    body = ir::IfElse::make(std::move(bounds.min), node, std::move(body));
-                }
-                return body;
-            } else {
-                internal_error << "Cannot lower filter on scan (no volumes): " << predicate << " on " << ir::Stmt(node);
+            // Make a recursive call
+            ir::Stmt body = ir::YieldFrom::make(ir::filter(predicate, node->value));
+            // Add the maybe case -> recursive call
+            body = ir::IfElse::make(std::move(bounds.max), std::move(body));
+
+            // Check for always case
+            if (bounds.min.defined()) {
+                body = ir::IfElse::make(std::move(bounds.min), node, std::move(body));
             }
+            return body;
         }
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
-            internal_error << "TODO: " << ir::Stmt(node);
+            return ir::YieldFrom::make(ir::filter(predicate, node->value));
         }
     };
 
     return RewriteFilter(std::move(predicate)).mutate(body);
+}
+
+ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
+    struct RewriteArgmin : public Rewriter {
+        ir::Expr metric;
+        ir::WriteLoc loc;
+        ir::Expr best;
+        ir::Type tuple_t;
+
+        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Expr b, ir::Type t)
+            : metric(std::move(met)), loc(std::move(l)), best(std::move(b)),
+              tuple_t(std::move(t)) {}
+
+        size_t counter = 0;
+
+        std::string make_temp_name() {
+            return  loc.base + "_temp" + std::to_string(counter++);
+        }
+
+        using ir::Mutator::visit;
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            internal_assert(!volumes.empty());
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+            internal_assert(ir::equals(lambda->args[0].type, node->value.type()));
+            ir::Expr value = replace(lambda->args[0].name, node->value, lambda->value);
+
+            std::string temp = make_temp_name();
+
+            ir::Type value_t = value.type();
+            ir::Expr var = ir::Var::make(value_t, temp);
+
+            // let temp = metric(data)
+            // if (temp < best[0]) update best
+            ir::WriteLoc temp_loc(temp, value_t);
+            ir::Stmt let = ir::LetStmt::make(std::move(temp_loc), std::move(value));
+
+            std::vector<ir::Expr> values = {ir::Var::make(value_t, temp), ir::Ref::make(node->value)};
+            ir::Expr update = ir::Build::make(tuple_t, std::move(values));
+            ir::Stmt body = ir::IfElse::make(var < best, ir::Assign::make(loc, std::move(update), /*mutating=*/true));
+
+            body = ir::Sequence::make({std::move(let), std::move(body)});
+            VolumeMap vols = make_volume_map(lambda->args);
+
+            Interval bounds = predicate_analysis(lambda->value, vols);
+            if (bounds.min.defined()) {
+                // Could find something better
+                body = ir::IfElse::make(bounds.min < best, std::move(body));
+            }
+            internal_assert(!bounds.max.defined()) << "TODO: use bounds.max for argmin?";
+
+            return body;
+        }
+
+        ir::Stmt visit(const ir::Scan *node) override {
+            internal_error << "Handle Scan in argmin: " << node->value;
+        }
+
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            // TODO: this isn't quite right...? I think the semantics of yieldfrom are unclear.
+            return ir::YieldFrom::make(ir::argmin(metric, node->value));
+        }
+    };
+
+    const ir::Lambda *lambda = metric.as<ir::Lambda>();
+    internal_assert(lambda) << "Metric is not a lambda: " << metric;
+    ir::Type metric_t = lambda->value.type();
+    // TODO: figure out reference?
+    ir::Type ref_t = ir::Ptr_t::make(ret_type);
+
+    ir::Type tuple_t = ir::Tuple_t::make({metric_t, ref_t});
+
+    static size_t counter = 0;
+    std::string name = "?best" + std::to_string(counter++);
+    ir::WriteLoc loc(name, tuple_t);
+
+    ir::Expr inf = ir::Infinity::make(std::move(metric_t));
+    // TODO: be less hacky here...
+    ir::Expr expr_nullptr = ir::Cast::make(std::move(ref_t), ir::IntImm::make(ir::Int_t::make(64), 0));
+    std::vector<ir::Expr> values = {std::move(inf), std::move(expr_nullptr)};
+    ir::Expr init = ir::Build::make(tuple_t, std::move(values));
+
+    // Alocate
+    ir::Stmt header = ir::Assign::make(loc, std::move(init), /*mutating=*/false);
+
+    // Make return
+    ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
+    ir::Expr best_ref = ir::Extract::make(ret_var, 1);
+    // TODO: should this be a Return?
+    ir::Stmt footer = ir::Yield::make(std::move(best_ref));
+    ir::Expr best_metric = ir::Extract::make(std::move(ret_var), 0);
+
+
+    ir::Stmt inner = RewriteArgmin(std::move(metric), std::move(loc), std::move(best_metric), std::move(tuple_t)).mutate(body);
+
+
+    return ir::Sequence::make({std::move(header), std::move(inner), std::move(footer)});
 }
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
@@ -191,6 +293,10 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
         case ir::SetOp::filter: {
             ir::Stmt body = build_traversal(as_set->b, tree_types);
             return build_filter(body, as_set->a);
+        }
+        case ir::SetOp::argmin: {
+            ir::Stmt body = build_traversal(as_set->b, tree_types);
+            return build_argmin(body, as_set->a, as_set->b.type().element_of());
         }
         default: {
             internal_error << "TODO: " << expr;

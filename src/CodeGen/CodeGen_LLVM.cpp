@@ -604,6 +604,10 @@ void CodeGen_LLVM::visit(const BoolImm *node) {
                                    /* IsSigned */ false);
 }
 
+void CodeGen_LLVM::visit(const Infinity *node) {
+    internal_error << "TODO: implement Infinity codegen for type: " << node->type;
+}
+
 void CodeGen_LLVM::visit(const Var *node) {
     auto [_value, _mutable] = frames.from_frames(node->name);
     if (_mutable) {
@@ -1249,16 +1253,20 @@ void CodeGen_LLVM::visit(const Build *node) {
 }
 
 void CodeGen_LLVM::visit(const Access *node) {
-    llvm::Value *_struct = codegen_expr(node->value);
-    if (_struct->getType()->isStructTy()) {
+    llvm::Value *inner = codegen_expr(node->value);
+    if (inner->getType()->isStructTy()) {
         const size_t idx = find_struct_index(
             node->field, node->value.type().as<Struct_t>()->fields);
-        value = builder->CreateExtractValue(_struct, idx);
+        value = builder->CreateExtractValue(inner, idx);
         return;
     }
     internal_error
         << "Lowering of an Access's value did not result in a struct type: "
         << Expr(node);
+}
+
+void CodeGen_LLVM::visit(const Ref *node) {
+    internal_error << "TODO: implement Ref codegen for value: " << node->value;
 }
 
 void CodeGen_LLVM::visit(const Return *node) {

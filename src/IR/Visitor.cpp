@@ -93,6 +93,8 @@ void Visitor::visit(const FloatImm *) {}
 
 void Visitor::visit(const BoolImm *) {}
 
+void Visitor::visit(const Infinity *) {}
+
 void Visitor::visit(const Var *) {}
 
 void Visitor::visit(const BinOp *node) {
@@ -135,6 +137,8 @@ void Visitor::visit(const Extract *node) {
 void Visitor::visit(const Build *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const Access *node) { node->value.accept(this); }
+
+void Visitor::visit(const Ref *node) { node->value.accept(this); }
 
 void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 

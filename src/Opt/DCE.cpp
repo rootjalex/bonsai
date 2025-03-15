@@ -81,10 +81,10 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Assign: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(!node->mutating || !use_counts.contains(node->loc.base))
-            << "ComputeUseCounts already active for var: " << node->loc;
+        internal_assert(!node->mutating || use_counts.contains(node->loc.base))
+            << "ComputeUseCounts already active for var: " << node->loc << " in stmt: " << ir::Stmt(node);
         internal_assert(!node->mutating ||
-                        !dependent_use_counts.contains(node->loc.base))
+                        dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
@@ -322,7 +322,6 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     std::set<std::string> se_functions = find_side_effects(funcs);
 
     for (auto &[name, func] : funcs) {
-        // std::cout << "DCEing:\n" << *func;
         func->body = dce_stmt(func->body, se_functions);
     }
     return funcs;

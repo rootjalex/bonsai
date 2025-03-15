@@ -13,7 +13,7 @@ func bar(i : i32x8) -> u32x8 {
 }
 
 func bazz(i : i32) -> i32 {
-  j = i + (i32)1
+  j := i + (i32)1
   if ((i32)0 < i) {
     let ?unused0 = _print(j) in
   }

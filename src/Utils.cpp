@@ -47,7 +47,7 @@ bool is_const(const Expr &e) {
     if (const Build *b = e.as<Build>()) {
         return b->values.empty(); // default is constant!
     }
-    return e.is<IntImm, UIntImm, FloatImm, BoolImm>();
+    return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity>();
 }
 
 Expr make_zero(const Type &t) { return make_const(t, 0); }

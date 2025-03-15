@@ -21,6 +21,7 @@ enum class IRExprEnum {
     FloatImm,
     BoolImm,
     Var,
+    Infinity,
     BinOp,
     UnOp,
     Select,
@@ -34,6 +35,7 @@ enum class IRExprEnum {
     // Struct ops.
     Build,
     Access,
+    Ref,
     // Calls
     Intrinsic,
     Lambda,
@@ -127,6 +129,13 @@ struct Var : ExprNode<Var> {
     static Expr make(Type t, const std::string &name);
 
     static const IRExprEnum _node_type = IRExprEnum::Var;
+};
+
+// Maximum value of a type (inf for float)
+struct Infinity : ExprNode<Infinity> {
+    static Expr make(Type tan);
+
+    static const IRExprEnum _node_type = IRExprEnum::Infinity;
 };
 
 struct BinOp : ExprNode<BinOp> {
@@ -234,6 +243,7 @@ struct Ramp : ExprNode<Ramp> {
 struct Extract : ExprNode<Extract> {
     Expr vec, idx;
 
+    static Expr make(Expr vec, int idx);
     static Expr make(Expr vec, Expr idx);
 
     static const IRExprEnum _node_type = IRExprEnum::Extract;
@@ -252,7 +262,6 @@ struct Build : ExprNode<Build> {
 };
 
 // Access a value of a Struct_t
-// TODO: implement for Vector_t?
 struct Access : ExprNode<Access> {
     std::string field;
     Expr value;
@@ -260,6 +269,15 @@ struct Access : ExprNode<Access> {
     static Expr make(std::string field, Expr value);
 
     static const IRExprEnum _node_type = IRExprEnum::Access;
+};
+
+// Return a reference to a value (presumably a struct)
+struct Ref : ExprNode<Ref> {
+    Expr value;
+
+    static Expr make(Expr value);
+
+    static const IRExprEnum _node_type = IRExprEnum::Ref;
 };
 
 struct Intrinsic : ExprNode<Intrinsic> {

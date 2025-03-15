@@ -32,7 +32,7 @@ Stmt Store::make(std::string name, Expr index, Expr value) {
 // Stmt LetStmt::make(std::string name, Expr value, Stmt body) {
 Stmt LetStmt::make(WriteLoc loc, Expr value) {
     internal_assert(loc.defined())
-        << "Undefined write location in Assign::make";
+        << "Undefined write location in LetStmt::make";
     internal_assert(value.defined()) << "Undefined value in LetStmt::make";
     // internal_assert(body.defined()) << "Undefined body in LetStmt::make";
     LetStmt *node = new LetStmt;

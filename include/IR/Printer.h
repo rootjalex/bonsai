@@ -86,6 +86,7 @@ struct Printer : public Visitor {
     void visit(const UIntImm *) override;
     void visit(const FloatImm *) override;
     void visit(const BoolImm *) override;
+    void visit(const Infinity *) override;
     void visit(const Var *) override;
     void print(const BinOp::OpType &op);
     void visit(const BinOp *) override;
@@ -101,6 +102,7 @@ struct Printer : public Visitor {
     void visit(const Extract *) override;
     void visit(const Build *) override;
     void visit(const Access *) override;
+    void visit(const Ref *) override;
     void visit(const Intrinsic *) override;
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;

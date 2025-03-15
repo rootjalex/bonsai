@@ -45,7 +45,7 @@ Expr IntImm::make(Type t, int64_t value) {
     }
 
     IntImm *node = new IntImm;
-    node->type = t;
+    node->type = std::move(t);
     node->value = value;
     return node;
 }
@@ -67,7 +67,7 @@ Expr UIntImm::make(Type t, uint64_t value) {
     }
 
     UIntImm *node = new UIntImm;
-    node->type = t;
+    node->type = std::move(t);
     node->value = value;
     return node;
 }
@@ -97,7 +97,7 @@ Expr FloatImm::make(Type t, double value) {
     }
 
     FloatImm *node = new FloatImm;
-    node->type = t;
+    node->type = std::move(t);
     node->value = value;
     return node;
 }
@@ -117,6 +117,15 @@ Expr BoolImm::make(bool value) {
     }();
 
     return value ? global_true : global_false;
+}
+
+Expr Infinity::make(Type t) {
+    internal_assert(t.defined() && t.is_numeric())
+        << "Infinity can be made for numeric types only: " << t;
+
+    Infinity *node = new Infinity;
+    node->type = std::move(t);
+    return node;
 }
 
 Expr Var::make(Type type, const std::string &name) {
@@ -461,6 +470,32 @@ Expr Ramp::make(Expr base, Expr stride, int lanes) {
     return node;
 }
 
+Expr Extract::make(Expr vec, int idx) {
+    internal_assert(vec.defined()) << "Extract of undefined vector";
+    internal_assert(idx >= 0) << "Extract with negative idx of: " << idx << " for " << vec;
+
+    Extract *node = new Extract;
+
+    const bool infer_types = type_enforcement_enabled() || vec.type().defined();
+    if (infer_types) {
+        if (vec.type().is<Vector_t>()) {
+            internal_assert(idx < vec.type().lanes())
+                << "Constant integer Extract has OOB index on vector: " << vec << " idx: " << idx;
+            node->type = vec.type().element_of();
+        } else {
+            const Tuple_t *tuple_t = vec.type().as<Tuple_t>();
+            internal_assert(tuple_t) << "Constant integer Extract on non-tuple: " << vec.type();
+            internal_assert(idx < tuple_t->etypes.size())
+                << "Constant integer Extract has OOB index on tuple: " << vec << " idx: " << idx;
+            node->type = tuple_t->etypes[idx];
+        }
+    }
+
+    node->vec = std::move(vec);
+    node->idx = idx;
+    return node;
+}
+
 Expr Extract::make(Expr vec, Expr idx) {
     internal_assert(vec.defined()) << "Extract of undefined vector";
     internal_assert(idx.defined()) << "Extract with undefined idx of: " << vec;
@@ -469,7 +504,7 @@ Expr Extract::make(Expr vec, Expr idx) {
 
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        internal_assert(vec.type().is_vector())
+        internal_assert(vec.type().is<Vector_t>())
             << "Extract of non-vector: " << vec;
         internal_assert(idx.type().is_int_or_uint())
             << "Extract with non-integer index: " << idx;
@@ -574,9 +609,25 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     << "Cannot build option type: " << type
                     << " from base: " << values[0];
             }
+        } else if (const Tuple_t *as_tuple = type.as<Tuple_t>()) {
+            if (!values.empty()) {
+                internal_assert(values.size() == as_tuple->etypes.size())
+                    << "Incorrect number of arguments to tuple construction: "
+                    << type << " takes " << as_tuple->etypes.size() << " elements"
+                    << " but received " << values.size();
+
+                for (size_t i = 0; i < values.size(); i++) {
+                    internal_assert(
+                        equals(as_tuple->etypes[i], values[i].type()))
+                        << "Build<Tuple_t> requires matching field types, "
+                        << "expected: " << as_tuple->etypes[i]
+                        << " but received " << values[i] << " of type "
+                        << values[i].type() << " for index: " << i;
+                }
+            }
         } else {
             internal_error
-                << "Build::make with non-(vector, struct, option) type: "
+                << "Build::make with non-(vector, struct, option, tuple) type: "
                 << type;
         }
     }
@@ -635,6 +686,23 @@ Expr Access::make(std::string field, Expr value) {
     }
 
     node->field = std::move(field);
+    node->value = std::move(value);
+    return node;
+}
+
+
+Expr Ref::make(Expr value) {
+    internal_assert(value.defined())
+        << "Empty value for Ref::make()";
+
+    Ref *node = new Ref;
+
+    const bool infer_types =
+        type_enforcement_enabled() || value.type().defined();
+    if (infer_types) {
+        node->type = Ptr_t::make(value.type());
+    }
+
     node->value = std::move(value);
     return node;
 }
@@ -774,7 +842,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected lhs of argmin to be a numeric function, instead "
                    "received: "
                 << a << " : " << a.type();
-            internal_assert(b.type().is<Set_t>())
+            internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
                 << "Expected rhs of argmin to be a set, instead received: " << b
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();

@@ -409,8 +409,15 @@ void Printer::visit(const FloatImm *node) {
 }
 
 void Printer::visit(const BoolImm *node) {
-    auto str = node->value ? "true" : "false";
+    const auto *str = node->value ? "true" : "false";
     os << str;
+}
+
+void Printer::visit(const Infinity *node) {
+    os << "(";
+    print(node->type);
+    os << ")";
+    os << "inf";
 }
 
 void Printer::visit(const Var *node) { os << node->name; }
@@ -571,6 +578,13 @@ void Printer::visit(const Access *node) {
     // TODO: parens?
     print(node->value);
     os << "." << node->field;
+}
+
+void Printer::visit(const Ref *node) {
+    // TODO: print type?
+    os << "ref<>(";
+    print_no_parens(node->value);
+    os << ")";
 }
 
 std::string to_string(const Intrinsic::OpType &op) {
@@ -757,7 +771,11 @@ void Printer::visit(const Sequence *node) {
 void Printer::visit(const Assign *node) {
     os << get_indent();
     print(node->loc);
-    os << " = ";
+    if (node->mutating) {
+        os << " = ";
+    } else {
+        os << " := ";
+    }
     print_no_parens(node->value);
     os << "\n";
     // TODO: fix this!! bring back SSA

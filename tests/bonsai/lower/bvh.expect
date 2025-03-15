@@ -26,8 +26,37 @@ func ?traverse0(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] Triangle
   }
 }
 
+func ?traverse1(ray : Ray, tri : Triangle, triangles : tree[[Triangle]] TriangleBVH) -> Triangle {
+  ?best0 := build<(f32, (Triangle*))>((f32)inf, cast<(Triangle*)>((i64)0))
+  match triangles{
+  | Interior(low : f32x3, high : f32x3, left : (TriangleBVH*), right : (TriangleBVH*)) with AABB(low, high) ->
+    if (intersects(ray, triangles.volume)) {
+      from argmin(|tri : Triangle| distance(ray, tri), filter(|tri : Triangle| intersects(ray, tri), left))
+    }
+    if (intersects(ray, triangles.volume)) {
+      from argmin(|tri : Triangle| distance(ray, tri), filter(|tri : Triangle| intersects(ray, tri), right))
+    }
+  | Leaf(low : f32x3, high : f32x3, data : Triangle, low : f32x3, high : f32x3) with AABB(low, high) ->
+    if (intersects(ray, triangles.volume)) {
+      if (intersects(ray, data)) {
+        if (distance(ray, triangles.volume) < ?best0[(i32)0]) {
+          let ?best0_temp0 = distance(ray, data) in
+          if (?best0_temp0 < ?best0[(i32)0]) {
+            ?best0 = build<(f32, (Triangle*))>(?best0_temp0, ref<>(data))
+          }
+        }
+      }
+    }
+  }
+  yield ?best0[(i32)1]
+}
+
 func alltrace(ray : Ray) -> set<Triangle> {
   return ?traverse0(ray, tri, triangles)
+}
+
+func trace(ray : Ray) -> Triangle {
+  return ?traverse1(ray, tri, triangles)
 }
 
 

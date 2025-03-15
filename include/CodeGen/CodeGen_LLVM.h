@@ -86,6 +86,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::UIntImm *) override;
     virtual void visit(const ir::FloatImm *) override;
     virtual void visit(const ir::BoolImm *) override;
+    virtual void visit(const ir::Infinity *) override;
     virtual void visit(const ir::Var *) override;
     virtual void visit(const ir::BinOp *) override;
     virtual void visit(const ir::UnOp *) override;
@@ -98,6 +99,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Extract *) override;
     virtual void visit(const ir::Build *) override;
     virtual void visit(const ir::Access *) override;
+    virtual void visit(const ir::Ref *) override;
     virtual void visit(const ir::Intrinsic *) override;
     virtual void visit(const ir::Lambda *) override;
     virtual void visit(const ir::GeomOp *) override;

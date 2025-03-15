@@ -1049,7 +1049,7 @@ struct Parser {
         }
 
         // Only use if not an intrinsic!
-        auto makeExpr = [&]() {
+        auto make_expr = [&]() {
             // Just a variable, possibly with field accesses.
             // the type might have been provided already, or
             // might need to be inferred later.
@@ -1086,7 +1086,7 @@ struct Parser {
                        "for "
                        "name: "
                     << name << " at line: " << token.line_begin();
-                ir::Expr expr = makeExpr();
+                ir::Expr expr = make_expr();
                 for (auto &idx : idxs) {
                     expr = ir::Extract::make(std::move(expr), std::move(idx));
                 }
@@ -1262,7 +1262,7 @@ struct Parser {
             } else {
                 // method access!
                 // TODO: type inference via interface?
-                ir::Expr expr = makeExpr();
+                ir::Expr expr = make_expr();
                 internal_assert(template_types.empty())
                     << "TODO: support passing template types to a method "
                        "access: "
@@ -1306,7 +1306,7 @@ struct Parser {
             // }
         }
 
-        return makeExpr();
+        return make_expr();
     }
 
     std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {

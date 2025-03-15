@@ -60,6 +60,10 @@ struct PredicateAnalysis : public ir::Visitor {
         set(node);
     }
 
+    void visit(const ir::Infinity *node) override {
+        set(node);
+    }
+
     void visit(const ir::Var *node) override {
         set(node);
     }
@@ -108,6 +112,10 @@ struct PredicateAnalysis : public ir::Visitor {
         internal_error << "TODO: implement predicate analysis on Access: " << ir::Expr(node);
     }
 
+    void visit(const ir::Ref *node) override {
+        internal_error << "Called predicate analysis on Ref: " << ir::Expr(node);
+    }
+
     void visit(const ir::Intrinsic *node) override {
         internal_error << "TODO: implement predicate analysis on Intrinsic: " << ir::Expr(node);
     }
@@ -148,6 +156,17 @@ struct PredicateAnalysis : public ir::Visitor {
 
                 // TODO: handle lower bound? doesn't work for rays...
                 interval.min = ir::Expr();
+
+                return;
+            }
+            case ir::GeomOp::distance: {
+                ir::Expr a = a_varying ? *a_vol : node->a;
+                ir::Expr b = b_varying ? *b_vol : node->b;
+
+                interval.min = ir::distance(a, b);
+
+                // TODO: handle upper bound?
+                interval.max = ir::Expr();
 
                 return;
             }

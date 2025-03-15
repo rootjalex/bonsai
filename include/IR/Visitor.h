@@ -30,6 +30,7 @@ struct Visitor {
     virtual void visit(const UIntImm *);
     virtual void visit(const FloatImm *);
     virtual void visit(const BoolImm *);
+    virtual void visit(const Infinity *);
     virtual void visit(const Var *);
     virtual void visit(const BinOp *);
     virtual void visit(const UnOp *);
@@ -42,6 +43,7 @@ struct Visitor {
     virtual void visit(const Extract *);
     virtual void visit(const Build *);
     virtual void visit(const Access *);
+    virtual void visit(const Ref *);
     virtual void visit(const Intrinsic *);
     virtual void visit(const Lambda *);
     virtual void visit(const GeomOp *);
