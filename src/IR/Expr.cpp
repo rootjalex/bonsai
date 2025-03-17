@@ -586,21 +586,18 @@ Expr Build::make(Type type, std::vector<Expr> values) {
     return node;
 }
 
-Expr Build::make(Type type, std::map<std::string, Expr> values) {
-    internal_assert(type.is<Struct_t>())
-        << "Cannot build with named fields for non-struct: " << type;
+Expr Build::make(Type type, std::map<std::string, Expr> values,
+                 std::optional<Call> call) {
+    const Struct_t *stype = type.as<Struct_t>();
+    internal_assert(stype) << "Cannot build with named fields for non-struct: "
+                           << type;
 
-    internal_assert(!values.empty())
-        << "Cannot build with named fields without any fields for type: "
-        << type;
-
-    // Always do type inference, we have enough information here.
-
-    const auto &fields = type.as<Struct_t>()->fields;
-    const auto &defaults = type.as<Struct_t>()->defaults;
+    const ir::Struct_t::Map &fields = stype->fields;
+    const ir::Struct_t::DefMap &defaults = stype->defaults;
 
     std::vector<Expr> args;
-
+    args.reserve(values.size());
+    // Always do type inference, we have enough information here.
     for (const auto &field : fields) {
         internal_assert(values.contains(field.first) ||
                         defaults.contains(field.first))
@@ -619,6 +616,12 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
     Build *node = new Build;
     node->type = std::move(type);
     node->values = std::move(args);
+    if (call.has_value()) {
+        const Function_t *ftype = stype->call.as<Function_t>();
+        internal_assert(ftype)
+            << "expected function type, received: " << stype->call;
+        node->call = std::move(*call);
+    }
     return node;
 }
 
@@ -674,7 +677,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     return node;
 }
 
-Expr Lambda::make(std::vector<Lambda::Argument> args, Expr value) {
+Expr Lambda::make(std::vector<Argument> args, Expr value) {
     internal_assert(value.defined()) << "Lambda::make received undefined value";
     for (const auto &arg : args) {
         internal_assert(!arg.name.empty())

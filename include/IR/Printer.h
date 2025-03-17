@@ -53,6 +53,7 @@ struct Printer : public Visitor {
     void print(const Expr &expr);
     void print_no_parens(const Expr &expr);
     void print_expr_list(const std::vector<Expr> &exprs);
+    void print_arg_list(const std::vector<Argument> &args);
     void print(const Stmt &stmt);
     void print(const WriteLoc &loc);
 

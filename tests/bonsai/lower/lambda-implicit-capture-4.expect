@@ -1,0 +1,12 @@
+
+
+func bar() -> i32 {
+  let w = (i32)1 in
+  let L1 = build<?lambda2>(w)(x : i32) { build<?lambda1>(w, x)(y : i32) { build<?lambda0>(w, x, y)(z : i32) { ((w + x) + y) + z } } } in
+  let L2 = L1((i32)2) in
+  let L3 = L2((i32)3) in
+  let L4 = L3((i32)4) in
+  return L4
+}
+
+

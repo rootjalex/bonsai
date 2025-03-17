@@ -221,7 +221,7 @@ Type Vector_t::make(Type etype, uint32_t lanes) {
     return node;
 }
 
-Type Struct_t::make(std::string name, Struct_t::Map fields) {
+Type Struct_t::make(std::string name, Struct_t::Map fields, Type call) {
     internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
     internal_assert(
         std::all_of(fields.cbegin(), fields.cend(),
@@ -231,11 +231,16 @@ Type Struct_t::make(std::string name, Struct_t::Map fields) {
     Struct_t *node = new Struct_t;
     node->name = std::move(name);
     node->fields = std::move(fields);
+
+    internal_assert(!call.defined() || call.is<Function_t>())
+        << "expected function type for struct_t call operator, received: "
+        << call;
+    node->call = std::move(call);
     return node;
 }
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
-                    Struct_t::DefMap defaults) {
+                    Struct_t::DefMap defaults, Type call) {
     internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
     internal_assert(
         std::all_of(fields.cbegin(), fields.cend(),
@@ -252,6 +257,11 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
     node->name = std::move(name);
     node->fields = std::move(fields);
     node->defaults = std::move(defaults);
+
+    internal_assert(!call.defined() || call.is<Function_t>())
+        << "expected function type for struct_t call operator, received: "
+        << call;
+    node->call = std::move(call);
     return node;
 }
 

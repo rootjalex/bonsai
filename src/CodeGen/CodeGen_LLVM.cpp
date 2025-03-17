@@ -199,7 +199,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     }
 
     llvm::FunctionType *ftype =
-        llvm::FunctionType::get(ret_type, arg_types, /* isVarArg */ false);
+        llvm::FunctionType::get(ret_type, arg_types, /*isVarArg=*/false);
     return llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage,
                                   func.name, module.get());
 }
@@ -207,10 +207,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
 void CodeGen_LLVM::compile_function(const Function &func,
                                     llvm::Function *function) {
     frames.new_frame();
-
-    // TODO: allow nested functions? Can LLVM even do that?
-    internal_assert(current_function == nullptr);
-    internal_assert(function);
+    internal_assert(function) << func;
     current_function = function;
 
     uint32_t arg_idx = 0;
@@ -544,8 +541,13 @@ void CodeGen_LLVM::visit(const Set_t *node) {
 }
 
 void CodeGen_LLVM::visit(const Function_t *node) {
-    internal_error << "TODO: implement Function_t code generation: "
-                   << Type(node);
+    std::vector<llvm::Type *> argument_types;
+    for (const ir::Type &arg : node->arg_types) {
+        arg.accept(this);
+        argument_types.push_back(type);
+    }
+    node->ret_type.accept(this);
+    type = llvm::FunctionType::get(type, argument_types, /*isVarArg=*/false);
 }
 
 void CodeGen_LLVM::visit(const Generic_t *node) {
@@ -1166,12 +1168,17 @@ void CodeGen_LLVM::visit(const Call *node) {
 
     // TODO: figure out how to make sure we have the right
     // number of arguments here for better error handling.
+    std::vector<llvm::Value *> args;
+    const std::string &name = node->func.as<Var>()->name;
+    // (DO NOT SUBMIT)
 
-    const size_t n_args = node->args.size();
-    std::vector<llvm::Value *> args(n_args);
+    if (auto it = variable_to_lambda.find(name);
+        it != variable_to_lambda.end()) {
+        args.push_back(codegen_expr(node->func));
+    }
 
-    for (size_t i = 0; i < n_args; i++) {
-        args[i] = codegen_expr(node->args[i]);
+    for (size_t i = 0, e = node->args.size(); i < e; ++i) {
+        args.push_back(codegen_expr(node->args[i]));
     }
 
     value = builder->CreateCall(func, args);
@@ -1199,17 +1206,53 @@ void CodeGen_LLVM::visit(const Build *node) {
             value = builder->CreateInsertElement(value, values[i], i);
         }
         return;
-    } else if (build_type->isStructTy()) {
-        internal_assert(node->type.is<Struct_t>());
-        internal_assert(
-            values.empty() ||
-            (values.size() == node->type.as<Struct_t>()->fields.size()))
+    }
+
+    if (build_type->isStructTy()) {
+        const Struct_t *stype = node->type.as<Struct_t>();
+        internal_assert(stype);
+
+        const ir::Struct_t::DefMap &defaults = stype->defaults;
+        const ir::Struct_t::Map &fields = stype->fields;
+        internal_assert(values.empty() || (values.size() == fields.size()))
             << "TODO: implement partial build codegen for: " << Expr(node);
-        const auto &defaults = node->type.as<Struct_t>()->defaults;
-        const auto &fields = node->type.as<Struct_t>()->fields;
+
+        if (std::optional<ir::Build::Call> call = node->call) {
+            // Create a call function, where a pointer to this struct type is
+            // the first argument. For example,
+            //
+            // struct F {
+            //   int y;
+            //   int operator(int x) { return x + y; }
+            // } foo;
+            // foo.y = y;
+            // f(1);
+            //
+            // ->
+            //
+            // $F::operator()(F*, int x) { return x + y; }
+            // %f = alloca %struct.F
+            // call i32 @F::operator()(%f, 1);
+            ir::Expr call_value = call->value;
+            std::vector<ir::Argument> args = call->args;
+            std::vector<ir::Function::Argument> fargs;
+            // TODO(cgyurgyik): Pointer to self to access implicit captures.
+            // fargs.push_back(ir::Function::Argument("self", node->type));
+            std::transform(args.begin(), args.end(), std::back_inserter(fargs),
+                           [](const ir::Argument &v) {
+                               return ir::Function::Argument(v.name, v.type);
+                           });
+            const std::string &name = stype->name;
+            auto anonymous_function = ir::Function(
+                name, fargs, call_value.type(), Return::make(call_value), {});
+            frames.new_frame();
+            auto *declared_function = declare_function(anonymous_function);
+            compile_function(anonymous_function, declared_function);
+            frames.pop_frame();
+        }
+
         if (defaults.empty() && values.empty()) {
             value = llvm::Constant::getNullValue(build_type);
-            return;
         } else if (values.empty()) {
             // Is order of codegen important? Default values must be constants
             // (w/o side effects), so I think no?
@@ -1232,7 +1275,6 @@ void CodeGen_LLVM::visit(const Build *node) {
                 internal_assert(_value);
                 value = builder->CreateInsertValue(value, _value, idx);
             }
-            return;
         } else {
             internal_assert(defaults.empty() ||
                             (values.size() == fields.size()));
@@ -1240,12 +1282,10 @@ void CodeGen_LLVM::visit(const Build *node) {
             for (size_t i = 0; i < values.size(); i++) {
                 value = builder->CreateInsertValue(value, values[i], i);
             }
-            return;
         }
-    } else {
-        internal_error << "Unexpected llvm Type in Build lowering: "
-                       << Expr(node);
+        return;
     }
+    internal_error << "Unexpected llvm Type in Build lowering: " << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Access *node) {
@@ -1348,8 +1388,17 @@ void CodeGen_LLVM::visit(const Store *node) {
 }
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
-    llvm::Value *_value = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, {_value, /* mutable */ false});
+    const std::string &lhs = node->loc.base;
+    llvm::Value *rhs = codegen_expr(node->value);
+
+    // (DO NOT SUBMIT)
+    if (const Build *build = node->value.as<Build>()) {
+        if (std::optional<Build::Call> call = build->call) {
+            const Struct_t *type = build->type.as<Struct_t>();
+            variable_to_lambda[lhs] = type->name;
+        }
+    }
+    frames.add_to_frame(lhs, {rhs, /*mutable=*/false});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -1418,8 +1467,6 @@ void CodeGen_LLVM::visit(const IfElse *node) {
 // }
 
 void CodeGen_LLVM::visit(const Assign *node) {
-    // internal_error << "TODO: implement codegen for assign: " << Stmt(node);
-
     llvm::Value *loc = codegen_write_loc(node->loc);
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc
                          << " in assignment: " << ir::Stmt(node);
@@ -1427,7 +1474,7 @@ void CodeGen_LLVM::visit(const Assign *node) {
     llvm::Value *_value = codegen_expr(node->value);
 
     builder->CreateStore(
-        _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
+        _value, loc, /*isVolatile=*/false); // TODO: when is isVolatile true?
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
@@ -1644,8 +1691,14 @@ llvm::Type *CodeGen_LLVM::codegen_type(const Type &t) {
 }
 
 llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
-    if (expr.is<Var>()) {
-        return module->getFunction(expr.as<Var>()->name);
+    if (auto *var = expr.as<Var>()) {
+        const std::string &name = var->name;
+        // (DO NOT SUBMIT)
+        auto it = variable_to_lambda.find(name);
+        if (it == variable_to_lambda.end()) {
+            return module->getFunction(name);
+        }
+        return module->getFunction(it->second);
     }
     internal_error << "TODO: cannot codegen function pointer from: " << expr;
 }

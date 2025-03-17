@@ -1,0 +1,10 @@
+
+
+func foo() -> i32 {
+  let z = (i32)40 in
+  let y = (i32)1 in
+  let L2 = build<?lambda0>(y, z)(x : i32) { (x + y) + z } in
+  return L2((i32)1)
+}
+
+

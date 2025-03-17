@@ -184,8 +184,14 @@ struct Struct_t : TypeNode<Struct_t> {
     Map fields;
     DefMap defaults;
 
-    static Type make(std::string name, Map fields);
-    static Type make(std::string name, Map fields, DefMap defaults);
+    // The (optional) function type of the call operator for this struct.
+    // This is equivalent to the call operator() in C++. If not defined, then no
+    // call operator exists.
+    Type call;
+
+    static Type make(std::string name, Map fields, Type call = Type{});
+    static Type make(std::string name, Map fields, DefMap defaults,
+                     Type call = Type{});
 
     static const IRTypeEnum _node_type = IRTypeEnum::Struct_t;
 };

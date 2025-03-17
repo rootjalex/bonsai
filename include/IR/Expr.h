@@ -89,6 +89,12 @@ Expr ExprNode<T>::mutate_expr(Mutator *m) const {
     return m->visit((const T *)this);
 }
 
+// Represents a named argument.
+struct Argument {
+    std::string name;
+    Type type; // optional
+};
+
 struct IntImm : ExprNode<IntImm> {
     int64_t value;
 
@@ -243,10 +249,16 @@ struct Extract : ExprNode<Extract> {
 struct Build : ExprNode<Build> {
     std::vector<Expr> values;
 
-    // TODO: add named-field variant (works well with default values).
+    struct Call {
+        std::vector<Argument> args;
+        Expr value;
+    };
+    std::optional<Call> call;
+
     static Expr make(Type type, std::vector<Expr> values);
     // Named field constructor (for Struct_t only!)
-    static Expr make(Type type, std::map<std::string, Expr> values);
+    static Expr make(Type type, std::map<std::string, Expr> values,
+                     std::optional<Call> call = std::nullopt);
 
     static const IRExprEnum _node_type = IRExprEnum::Build;
 };
@@ -286,10 +298,6 @@ struct Intrinsic : ExprNode<Intrinsic> {
 };
 
 struct Lambda : ExprNode<Lambda> {
-    struct Argument {
-        std::string name;
-        Type type; // optional
-    };
     std::vector<Argument> args;
     Expr value;
 

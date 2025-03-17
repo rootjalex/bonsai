@@ -26,101 +26,125 @@ struct Metadata {
     std::shared_ptr<ir::Function> function = nullptr;
 };
 
-// Performs necessary mutations to convert lambdas to functions.
-struct ConvertLambdaToFunction : public ir::Mutator {
-    ConvertLambdaToFunction(
-        std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata,
+// Canonicalizes a lambda to a struct. For example,
+//     x: i32 = 42;
+//     L2 = |y: i32| y + x + 1;
+//     L2(1);
+// ->
+//   x: i32 = 42;
+//   let L2 = build<?lambda0>(x)(y : i32){ y + x + 1 }
+//   L2(1);
+class ConvertLambdaToStruct : public ir::Mutator {
+  public:
+    ConvertLambdaToStruct(
         const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas)
-        : lambda_metadata(lambda_metadata),
-          blacklisted_lambdas(blacklisted_lambdas), counter(0) {};
+        : blacklisted_lambdas(blacklisted_lambdas) {};
+
+    // Clean up data structures between function visits.
+    void clear() {
+        visiting_lambda_body = false;
+        frames.clear();
+        implicit_variables.clear();
+        name_to_lambda.clear();
+    }
 
   private:
-    // A mapping from a lambda to metadata required for said lambda.
-    std::unordered_map<const ir::Lambda *, Metadata> &lambda_metadata;
+    // Lambdas that should not be visited.
+    const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas;
 
-    // Returns a unique name for the function replacing this lambda.
-    // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
+    int64_t counter = 0;
     std::string generate_name() {
         std::string name = "?lambda";
         name += std::to_string(counter++);
         return name;
     }
 
-    // A set of lambdas that should not be converted.
-    const std::unordered_set<const ir::Lambda *> &blacklisted_lambdas;
-    int64_t counter; // A counter for name hygiene.
+    // Demarcates when we are visiting the body of a lambda. This is necessary
+    // to ensure we are only updating variable names located inside the body.
+    bool visiting_lambda_body = false;
 
-    ir::Stmt visit(const ir::LetStmt *let) override {
-        ir::WriteLoc lhs = let->loc;
-        internal_assert(lhs.accesses.empty()) << "unimplemented";
+    // Implicitly captured arguments for this lambda.
+    std::vector<const ir::Var *> implicit_variables;
 
-        ir::Expr rhs = let->value;
-        if (const ir::Call *call = rhs.as<ir::Call>()) {
-            return ir::Mutator::visit(let);
+    // A map from lambda variable name to lambda pointer. This is required to
+    // update the respective calls.
+    std::unordered_map<std::string, const ir::Lambda *> name_to_lambda;
+
+    // Represents a scoped environment within the Bonsai program.
+    struct Frame {
+        // Explicitly captured arguments within the scope of this lambda.
+        std::vector<std::string> explicit_variables;
+    };
+    std::vector<Frame> frames;
+
+    void new_frame() { frames.push_back(Frame{}); }
+
+    std::vector<std::string> &explicit_variables() {
+        return frames.back().explicit_variables;
+    }
+
+    // Returns whether this is an explicit variable in the current frame.
+    bool is_explicit_variable(const ir::Var *variable) {
+        const std::vector<std::string> &ev = explicit_variables();
+        return std::find(ev.begin(), ev.end(), variable->name) != ev.end();
+    }
+    void pop_frame() { frames.pop_back(); }
+
+    ir::Expr visit(const ir::Var *var) override {
+        if (!visiting_lambda_body) {
+            return var;
         }
-        const ir::Lambda *lambda = rhs.as<ir::Lambda>();
-        if (lambda == nullptr) {
-            return let;
+
+        if (is_explicit_variable(var)) {
+            return var; // This variable has already been explicitly captured.
         }
 
-        // Visit this lambda.
-        rhs = visit(lambda);
-        lambda = rhs.as<ir::Lambda>();
-        internal_assert(lambda_metadata.contains(lambda));
-
-        auto it = lambda_metadata.find(lambda);
-        Metadata &m = it->second;
-        m.name = lhs.base;
-        return let;
+        implicit_variables.push_back(var);
+        return var;
     }
 
     ir::Expr visit(const ir::Lambda *lambda) override {
         if (blacklisted_lambdas.contains(lambda))
             return lambda;
 
-        // Convert lambda arguments to function arguments.
-        const std::vector<ir::Lambda::Argument> &before = lambda->args;
-        std::vector<ir::Function::Argument> arguments;
-        std::transform(before.begin(), before.end(),
-                       std::back_inserter(arguments),
-                       [](const ir::Lambda::Argument &a) {
-                           return ir::Function::Argument(a.name, a.type);
-                       });
+        new_frame();
+        std::vector<ir::Argument> args = lambda->args;
+        std::transform(args.begin(), args.end(),
+                       std::back_inserter(explicit_variables()),
+                       [](const ir::Argument &a) { return a.name; });
 
-        ir::Type type = lambda->value.type();
-        auto [it, succeeded] = lambda_metadata.try_emplace(lambda, Metadata{});
-        if (!succeeded) {
-            // This lambda has already been visited, and a function created.
-            return lambda;
+        visiting_lambda_body = true;
+        ir::Expr value = mutate(lambda->value);
+        visiting_lambda_body = false;
+
+        ir::Struct_t::Map fields;
+        ir::Struct_t::DefMap values;
+        for (const ir::Var *v : implicit_variables) {
+            if (is_explicit_variable(v)) {
+                continue;
+            }
+            fields.push_back({v->name, v->type});
+            values[v->name] = v;
         }
-        Metadata &m = it->second;
-        m.function = std::make_shared<ir::Function>(
-            generate_name(), arguments,
-            /*return_type=*/type,
-            /*body=*/ir::Return::make(lambda->value),
-            /*interfaces=*/ir::Function::InterfaceList{});
 
-        return lambda;
-    }
+        // Propagate implicitly captured variables to parent lambdas.
+        std::vector<const ir::Var *> new_implicit_variables;
+        std::copy_if(
+            implicit_variables.begin(), implicit_variables.end(),
+            std::back_inserter(new_implicit_variables), [&](const ir::Var *v) {
+                const std::vector<std::string> &ev = explicit_variables();
+                return std::find(ev.begin(), ev.end(), v->name) == ev.end();
+            });
+        implicit_variables = std::move(new_implicit_variables);
+        pop_frame();
 
-    ir::Expr visit(const ir::Call *call) override {
-        const ir::Var *v = call->func.as<ir::Var>();
-        if (v == nullptr)
-            return call;
-
-        // Note: we assume there will be a small constant number of lambdas.
-        auto it = std::find_if(lambda_metadata.begin(), lambda_metadata.end(),
-                               [&](const auto &kv) {
-                                   const Metadata &m = kv.second;
-                                   return m.name == v->name;
-                               });
-        if (it == lambda_metadata.end()) {
-            return call; // This is a call to a non-lambda.
-        }
-        std::shared_ptr<ir::Function> &f = it->second.function;
-
-        ir::Type type = ir::Function_t::make(f->ret_type, f->argument_types());
-        return ir::Call::make(ir::Var::make(type, f->name), call->args);
+        ir::Type type =
+            ir::Struct_t::make(generate_name(), fields, lambda->type);
+        auto call = ir::Build::Call{
+            .args = lambda->args,
+            .value = value,
+        };
+        return ir::Build::make(type, values, call);
     }
 };
 
@@ -156,9 +180,6 @@ class Blacklist : public ir::Visitor {
 
 // Performs the orchestration for lambda lowering.
 ir::Program lower_program(const ir::Program &old_program) {
-    // A mapping from lambda to metadata required for safe replacement.
-    std::unordered_map<const ir::Lambda *, Metadata> lambda_metadata;
-
     // Some lambdas, e.g., those used in set queries, will not be converted.
     Blacklist blacklisted_lambdas;
     for (const auto &[_, f] : old_program.funcs) {
@@ -167,30 +188,17 @@ ir::Program lower_program(const ir::Program &old_program) {
         }
     }
 
-    ConvertLambdaToFunction cltf(lambda_metadata, blacklisted_lambdas.get());
+    ConvertLambdaToStruct clts(blacklisted_lambdas.get());
     ir::Program new_program;
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
     for (const auto &[f, func] : old_program.funcs) {
-        ir::Stmt body = cltf.mutate(std::move(func->body));
+        ir::Stmt body = clts.mutate(std::move(func->body));
+        clts.clear();
         new_program.funcs[f] = std::make_shared<ir::Function>(
             func->name, func->args, func->ret_type, body, func->interfaces);
     }
 
-    // Guarantee deterministic ordering for insertion.
-    std::vector<std::shared_ptr<ir::Function>> functions;
-    functions.reserve(lambda_metadata.size());
-    std::transform(lambda_metadata.begin(), lambda_metadata.end(),
-                   std::back_inserter(functions),
-                   [](const auto &kv) { return kv.second.function; });
-    std::sort(
-        functions.begin(), functions.end(),
-        [](const auto &m1, const auto &m2) { return m1->name < m2->name; });
-
-    // Add newly created functions to replace the lambda expressions.
-    for (std::shared_ptr<ir::Function> f : functions) {
-        new_program.funcs[f->name] = f;
-    }
     return new_program;
 }
 

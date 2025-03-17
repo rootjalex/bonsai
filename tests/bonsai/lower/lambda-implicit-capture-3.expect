@@ -1,0 +1,8 @@
+
+
+func foo(i : i32) -> i32 {
+  let L2 = build<?lambda0>(i)(y : i32) { y + i } in
+  return L2((i32)1)
+}
+
+

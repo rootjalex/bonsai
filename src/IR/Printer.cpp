@@ -181,6 +181,19 @@ void Printer::print_expr_list(const std::vector<Expr> &exprs) {
     }
 }
 
+void Printer::print_arg_list(const std::vector<Argument> &args) {
+    for (size_t i = 0, n = args.size(); i < n; ++i) {
+        os << args[i].name;
+        if (args[i].type.defined()) {
+            os << " : ";
+            print(args[i].type);
+        }
+        if (i < n - 1) {
+            os << ", ";
+        }
+    }
+}
+
 void Printer::print(const Stmt &stmt) { stmt->accept(this); }
 
 void Printer::print(const WriteLoc &loc) {
@@ -542,6 +555,13 @@ void Printer::visit(const Build *node) {
     os << ">(";
     print_expr_list(node->values);
     os << ")";
+    if (std::optional<Build::Call> call = node->call) {
+        os << "(";
+        print_arg_list(call->args);
+        os << ")" << " { ";
+        print_no_parens(call->value);
+        os << " }";
+    }
 }
 
 void Printer::visit(const Access *node) {
@@ -578,21 +598,9 @@ void Printer::visit(const Intrinsic *node) {
     os << ")";
 }
 
-// TODO: work on syntax?
 void Printer::visit(const Lambda *node) {
     os << "|";
-    const size_t n = node->args.size();
-    // TODO: might need Lambdas to store arg types as well...
-    for (size_t i = 0; i < n; i++) {
-        os << node->args[i].name;
-        if (node->args[i].type.defined()) {
-            os << " : ";
-            print(node->args[i].type);
-        }
-        if (i < n - 1) {
-            os << ", ";
-        }
-    }
+    print_arg_list(node->args);
     os << "| ";
     print_no_parens(node->value);
 }
