@@ -813,11 +813,18 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected rhs of filter to be a set, instead received: " << b
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
-            internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
-                << "Expected filter function to accept element of type: "
-                << b.type().element_of() << " instead got " << a << " : "
-                << a.type();
+            if (f->arg_types.size() == 1) {
+                internal_assert(equals(f->arg_types[0], b.type().element_of()))
+                    << "Expected filter function to accept element of type: "
+                    << b.type().element_of() << " instead got " << a << " : "
+                    << a.type();
+            } else {
+                internal_assert(b.type().element_of().is<Tuple_t>() &&
+                                b.type().element_of().as<Tuple_t>()->etypes.size() == f->arg_types.size())
+                    << "Expected filter function to accept elements of group: "
+                    << b.type().element_of() << " instead got " << a << " : "
+                    << a.type();
+            }
             node->type = b.type();
         } else if (op == SetOp::argmin) {
             internal_assert(a.type().is<Function_t>() &&
@@ -855,7 +862,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << a << " : " << a.type() << " and " << b << " : " << b.type();
             Type atype = a.type().element_of();
             Type btype = b.type().element_of();
-            node->type = Tuple_t::make({std::move(atype), std::move(btype)});
+            Type tuple_t = Tuple_t::make({std::move(atype), std::move(btype)});
+            node->type = ir::Set_t::make(std::move(tuple_t));
         }
     }
 

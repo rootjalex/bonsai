@@ -68,6 +68,17 @@ struct GatherFreeVars : public Visitor {
         node->value.accept(this);
     }
 
+    void visit(const ir::Lambda *node) override {
+        for (const auto &arg : node->args) {
+            internal_assert(!seen_vars.contains(arg.name));
+            seen_vars.insert(arg.name);
+        }
+        node->value.accept(this);
+        for (const auto &arg : node->args) {
+            seen_vars.erase(arg.name);
+        }
+    }
+
     void visit(const Match *node) override {
         internal_error << "TODO: implement GatherFreeFars for Match: " << ir::Stmt(node);
     }

@@ -45,6 +45,7 @@ struct Rewriter : public ir::Mutator {
         for (size_t i = 0; i < n; i++) {
             if (node->arms[i].first.volume.has_value()) {
                 // TODO: this needs to have special lowering later!
+                // TODO: this should be an Access!
                 ir::Expr vol = ir::Var::make(node->arms[i].first.volume->struct_type, var->name + ".volume");
                 volumes.emplace_back(std::move(vol));
             } else {
@@ -87,10 +88,24 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda) << "Predicate is not a lambda: " << predicate;
             internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
-            internal_assert(ir::equals(lambda->args[0].type, node->value.type()));
-            ir::Expr cond = replace(lambda->args[0].name, node->value, lambda->value);
+            const size_t n_args = lambda->args.size();
+
+            std::map<std::string, ir::Expr> repls;
+
+            if (n_args == 1) {
+                internal_assert(ir::equals(lambda->args[0].type, node->value.type()));
+                repls[lambda->args[0].name] = node->value;
+            } else {
+                internal_assert(node->value.type().is<ir::Tuple_t>());
+                for (size_t i = 0; i < n_args; i++) {
+                    // TODO: this needs to simplify or have CSE for it to be efficient!
+                    ir::Expr value = ir::Extract::make(node->value, i);
+                    internal_assert(ir::equals(value.type(), lambda->args[i].type));
+                    repls[lambda->args[i].name] = std::move(value);
+                }
+            }
+
+            ir::Expr cond = replace(repls, lambda->value);
 
             // if (predicate) yield data
             ir::Stmt body = ir::IfElse::make(std::move(cond), node);
@@ -115,8 +130,6 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda) << "Predicate is not a lambda: " << predicate;
             internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
 
             VolumeMap vols = make_volume_map(lambda->args);
 
@@ -125,7 +138,10 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
                 << "Cannot accelerate predicate: " << predicate << " on: " << ir::Stmt(node);
 
             // Make a recursive call
-            ir::Stmt body = ir::YieldFrom::make(ir::filter(predicate, node->value));
+            // TODO: this should be wrapped in a filter, for cases with simplified predicates.
+            // This is required for proper predicate analysis of conjunctions/disjunctions.
+            // ir::Stmt body = ir::YieldFrom::make(ir::filter(predicate, node->value));
+            ir::Stmt body = ir::YieldFrom::make(node->value);
             // Add the maybe case -> recursive call
             body = ir::IfElse::make(std::move(bounds.max), std::move(body));
 
@@ -137,7 +153,10 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
         }
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
-            return ir::YieldFrom::make(ir::filter(predicate, node->value));
+            // TODO: this should be wrapped in a filter, for cases with simplified predicates.
+            // This is required for proper predicate analysis of conjunctions/disjunctions.
+            // return ir::YieldFrom::make(ir::filter(predicate, node->value));
+            return node;
         }
     };
 
@@ -205,8 +224,11 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
         }
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
-            // TODO: this isn't quite right...? I think the semantics of yieldfrom are unclear.
-            return ir::YieldFrom::make(ir::argmin(metric, node->value));
+            // TODO: this should be wrapped in a argmin, for cases with simplified predicates.
+            // This is required for proper predicate analysis of conjunctions/disjunctions.
+            // // TODO: this isn't quite right...? I think the semantics of yieldfrom are unclear.
+            // return ir::YieldFrom::make(ir::argmin(metric, node->value));
+            return node;
         }
     };
 
@@ -237,12 +259,79 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
     ir::Stmt footer = ir::Yield::make(std::move(best_ref));
     ir::Expr best_metric = ir::Extract::make(std::move(ret_var), 0);
 
-
     ir::Stmt inner = RewriteArgmin(std::move(metric), std::move(loc), std::move(best_metric), std::move(tuple_t)).mutate(body);
-
 
     return ir::Sequence::make({std::move(header), std::move(inner), std::move(footer)});
 }
+
+ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
+    struct RewriteProduct : public Rewriter {
+        ir::Stmt b_body;
+        ir::Type ret_type;
+
+        RewriteProduct(ir::Stmt b_body, ir::Type ret_type)
+            : b_body(std::move(b_body)), ret_type(std::move(ret_type)) {}
+
+        using ir::Mutator::visit;
+
+        ir::Stmt a_body;
+
+        ir::Expr make_tuple(ir::Expr a, ir::Expr b) {
+            ir::Type tuple_t = ir::Tuple_t::make({a.type(), b.type()});
+            std::vector<ir::Expr> values = {std::move(a), std::move(b)};
+            return ir::Build::make(std::move(tuple_t), std::move(values));
+        }
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            if (!a_body.defined()) {
+                a_body = node;
+                ir::Stmt ret = mutate(b_body);
+                a_body = ir::Stmt();
+                return ret;
+            } else {
+                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    return ir::Yield::make(make_tuple(yield->value, node->value));
+                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
+                    return ir::Scan::make(make_tuple(scan->value, node->value));
+                } else if (const ir::YieldFrom *from = a_body.as<ir::YieldFrom>()) {
+                    internal_error << "TODO: lower Yield + YieldFrom properly: " << a_body << " and " << ir::Stmt(node);
+                } else {
+                    internal_error << "Failure in lowering product: " << a_body << " and " << ir::Stmt(node);
+                }
+            }
+        }
+
+        ir::Stmt visit(const ir::Scan *node) override {
+            if (!a_body.defined()) {
+                a_body = node;
+                ir::Stmt ret = mutate(b_body);
+                a_body = ir::Stmt();
+                return ret;
+            } else {
+                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    return ir::Scan::make(make_tuple(yield->value, node->value));
+                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
+                    return ir::Scan::make(make_tuple(scan->value, node->value));
+                } else if (const ir::YieldFrom *from = a_body.as<ir::YieldFrom>()) {
+                    internal_error << "TODO: lower Scan + YieldFrom properly: " << a_body << " and " << ir::Stmt(node);
+                } else {
+                    internal_error << "Failure in lowering product: " << a_body << " and " << ir::Stmt(node);
+                }
+            }
+        }
+
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            // TODO: this should be wrapped in a product, for cases with simplified predicates.
+            // This is required for proper predicate analysis of conjunctions/disjunctions.
+            internal_error << "Failure in lowering product: " << a_body << " and " << ir::Stmt(node);
+            // return node;
+        }
+    };
+
+    // TODO: is ordering scheduable?
+    return RewriteProduct(std::move(b_body), std::move(ret_type)).mutate(a_body);
+}
+
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
     // TODO: not necessarily always a Var, could be e.g. an Access.
@@ -264,11 +353,13 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
             std::vector<ir::Stmt> stmts(data.size() + children.size());
             // TODO: visit order should be scheduable?
             for (size_t i = 0; i < data.size(); i++) {
-                stmts[i] = ir::Yield::make(ir::Var::make(data[i].type, data[i].name));
+                // TODO: this should be an Access!
+                stmts[i] = ir::Yield::make(ir::Var::make(data[i].type, as_var->name + "." + data[i].name));
             }
             for (size_t j = 0; j < children.size(); j++) {
-                // Type is recursively a tree!
-                stmts[data.size() + j] = ir::Scan::make(ir::Var::make(tree, children[j].name));
+                // Type is recursively a tree.
+                // TODO: this should be an Access!
+                stmts[data.size() + j] = ir::Scan::make(ir::Var::make(tree, as_var->name + "." + children[j].name));
             }
 
             arms[i].first = bvh->nodes[i];
@@ -296,6 +387,11 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
         case ir::SetOp::argmin: {
             ir::Stmt body = build_traversal(as_set->b, tree_types);
             return build_argmin(body, as_set->a, as_set->b.type().element_of());
+        }
+        case ir::SetOp::product: {
+            ir::Stmt a_body = build_traversal(as_set->a, tree_types);
+            ir::Stmt b_body = build_traversal(as_set->b, tree_types);
+            return build_product(a_body, b_body, expr.type().element_of());
         }
         default: {
             internal_error << "TODO: " << expr;

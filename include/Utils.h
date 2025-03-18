@@ -39,8 +39,10 @@ ir::Expr constant_cast(const ir::Type &t, const ir::Expr &e);
 // Handles broadcasting if necessary.
 ir::Expr cast_to(const ir::Type &t, const ir::Expr &e);
 
-// TODO: a more generic version might be useful too.
 ir::Expr replace(const std::string &var_name, ir::Expr repl,
+                 const ir::Expr &orig);
+
+ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
                  const ir::Expr &orig);
 
 ir::Type replace(const ir::TypeMap &repls, const ir::Type &type);

@@ -23,6 +23,9 @@ func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects
 
 func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
+extern triangles2 : set[Triangle];
+
+func collisions() = filter(|t0 t1| intersects(t0, t1), product(triangles, triangles2));
 
 schedule {
     // TODO: generic over primitive types!
@@ -31,4 +34,5 @@ schedule {
     | Leaf(data : Triangle, low high : vec3f);
 
     triangles : TriangleBVH;
+    triangles2 : TriangleBVH;
 }

@@ -67,21 +67,30 @@ ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
                 // Perform lambda type setting
                 internal_assert(b.type().defined() && b.type().is<ir::Set_t>())
                     << "Cannot set lambda type with unknown argument type: "
-                    << node;
+                    << ir::Expr(node) << " b type: " << b.type();
+                ir::Type etype = b.type().element_of();
                 internal_assert(a.is<ir::Lambda>())
                     << "Cannot set lambda type if operand is not a lambda: "
                     << node;
-                const ir::Lambda *f = a.as<ir::Lambda>();
                 // TODO: if this were a func object, this would give us the
                 // required return type.
-                internal_assert(f->args.size() == 1)
-                    << "Expected SetOp lambda to have one argument: " << node;
-                const std::string &var_name = f->args[0].name;
-                ir::Type var_type = b.type().element_of();
-                ir::Expr new_var = ir::Var::make(var_type, var_name);
-                ir::Expr new_lambda_expr = replace(var_name, new_var, f->value);
+                const ir::Lambda *f = a.as<ir::Lambda>();
+                const size_t expected_args = etype.is<ir::Tuple_t>() ? etype.as<ir::Tuple_t>()->etypes.size() : 1;
+                internal_assert(f->args.size() == expected_args)
+                    << "Expected SetOp lambda to have: " << expected_args << " argument(s)"
+                    << " but has " << f->args.size() << " argument(s): " << ir::Expr(node);
+
+                std::map<std::string, ir::Expr> replacements;
+                std::vector<ir::Lambda::Argument> lambda_args(expected_args);
+                for (size_t i = 0; i < expected_args; i++) {
+                    ir::Type type = etype.is<ir::Tuple_t>() ? etype.as<ir::Tuple_t>()->etypes[i] : etype;
+                    replacements[f->args[i].name] = ir::Var::make(type, f->args[i].name);
+                    lambda_args[i] = ir::Lambda::Argument{f->args[i].name, std::move(type)};
+                }
+
+                ir::Expr new_lambda_expr = replace(std::move(replacements), f->value);
                 ir::Expr new_lambda =
-                    ir::Lambda::make({{var_name, std::move(var_type)}},
+                    ir::Lambda::make(std::move(lambda_args),
                                      std::move(new_lambda_expr));
                 return ir::SetOp::make(node->op, new_lambda, std::move(b));
             } else if (a.same_as(node->a) && b.same_as(node->b)) {
