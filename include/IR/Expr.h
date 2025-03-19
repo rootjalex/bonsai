@@ -35,7 +35,6 @@ enum class IRExprEnum {
     // Struct ops.
     Build,
     Access,
-    Ref,
     // Calls
     Intrinsic,
     Lambda,
