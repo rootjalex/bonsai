@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 
 #include "Function.h"
 #include "Schedule.h"
