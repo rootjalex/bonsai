@@ -349,8 +349,10 @@ bool validate_volume(const BVH_t::Volume &volume,
 
 } // namespace
 
-Type BVH_t::make(ir::Type primitive, std::string name, std::vector<Node> nodes) {
-    internal_assert(primitive.defined()) << "BVH_t::make received undefined prim_t";
+Type BVH_t::make(ir::Type primitive, std::string name,
+                 std::vector<Node> nodes) {
+    internal_assert(primitive.defined())
+        << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
 
@@ -370,9 +372,11 @@ Type BVH_t::make(ir::Type primitive, std::string name, std::vector<Node> nodes) 
     return node;
 }
 
-Type BVH_t::make(ir::Type primitive, std::string name, std::vector<BVH_t::Param> params,
+Type BVH_t::make(ir::Type primitive, std::string name,
+                 std::vector<BVH_t::Param> params,
                  std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
-    internal_assert(primitive.defined()) << "BVH_t::make received undefined prim_t";
+    internal_assert(primitive.defined())
+        << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!params.empty()) << "BVH_t::make received empty params";
     internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
@@ -383,7 +387,8 @@ Type BVH_t::make(ir::Type primitive, std::string name, std::vector<BVH_t::Param>
     // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < nodes.size(); i++) {
         // Insert params into the front of nodes[i].params
-        nodes[i].params.insert(nodes[i].params.begin(), params.begin(), params.end());
+        nodes[i].params.insert(nodes[i].params.begin(), params.begin(),
+                               params.end());
         if (!nodes[i].volume.has_value()) {
             nodes[i].volume = volume;
         }

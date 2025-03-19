@@ -1567,51 +1567,59 @@ struct Parser {
 
         do {
             switch (peek().type) {
-                case Token::Type::TREE: {
-                    ir::Type tree = parse_tree();
-                    internal_assert(tree.is<ir::BVH_t>());
-                    internal_assert(!trees.contains(tree.as<ir::BVH_t>()->name));
-                    // Would std::move() but I think rhs is evaluated before lhs.
-                    trees[tree.as<ir::BVH_t>()->name] = tree;
-                    break;
-                }
-                case Token::Type::IDENTIFIER: {
-                    const Token name_token = expect(Token::Type::IDENTIFIER);
-                    const std::string name = std::get<std::string>(name_token.value);
-                    // TODO: if func, is schedule.
-                    // TODO: if type, is ????
-                    // if extern, is tree-assignment
-                    const auto extern_iter = std::find_if(program.externs.cbegin(), program.externs.cend(), [&name](const auto &p) { return p.first == name; });
-                    if (extern_iter != program.externs.cend()) {
-                        // name : tree_type;
-                        if (!extern_iter->second.is<ir::Set_t>()) {
-                            report_error() << "Extern: " << name << " is not a set, cannot be type-reassigned in a schedule.";
-                        }
-
-                        expect(Token::Type::COL);
-
-                        const Token tree_token = expect(Token::Type::IDENTIFIER);
-                        const std::string tree_name = std::get<std::string>(tree_token.value);
-
-                        expect(Token::Type::SEMICOL);
-
-                        const auto tree_iter = trees.find(tree_name);
-
-                        if (tree_iter == trees.cend()) {
-                            report_error() << "Assigning extern: " << name << " to non-tree type: " << tree_name;
-                        }
-
-                        // TODO: assert Set[Primitive] matches Tree type!
-                        schedule.tree_types[name] = tree_iter->second;
-                    } else {
-                        // TODO: support func schedule parsing.
-                        report_error() << "Schedule name: " << name << " is not an extern.";
+            case Token::Type::TREE: {
+                ir::Type tree = parse_tree();
+                internal_assert(tree.is<ir::BVH_t>());
+                internal_assert(!trees.contains(tree.as<ir::BVH_t>()->name));
+                // Would std::move() but I think rhs is evaluated before lhs.
+                trees[tree.as<ir::BVH_t>()->name] = tree;
+                break;
+            }
+            case Token::Type::IDENTIFIER: {
+                const Token name_token = expect(Token::Type::IDENTIFIER);
+                const std::string name =
+                    std::get<std::string>(name_token.value);
+                // TODO: if func, is schedule.
+                // TODO: if type, is ????
+                // if extern, is tree-assignment
+                const auto extern_iter = std::find_if(
+                    program.externs.cbegin(), program.externs.cend(),
+                    [&name](const auto &p) { return p.first == name; });
+                if (extern_iter != program.externs.cend()) {
+                    // name : tree_type;
+                    if (!extern_iter->second.is<ir::Set_t>()) {
+                        report_error() << "Extern: " << name
+                                       << " is not a set, cannot be "
+                                          "type-reassigned in a schedule.";
                     }
-                    break;
+
+                    expect(Token::Type::COL);
+
+                    const Token tree_token = expect(Token::Type::IDENTIFIER);
+                    const std::string tree_name =
+                        std::get<std::string>(tree_token.value);
+
+                    expect(Token::Type::SEMICOL);
+
+                    const auto tree_iter = trees.find(tree_name);
+
+                    if (tree_iter == trees.cend()) {
+                        report_error() << "Assigning extern: " << name
+                                       << " to non-tree type: " << tree_name;
+                    }
+
+                    // TODO: assert Set[Primitive] matches Tree type!
+                    schedule.tree_types[name] = tree_iter->second;
+                } else {
+                    // TODO: support func schedule parsing.
+                    report_error()
+                        << "Schedule name: " << name << " is not an extern.";
                 }
-                default: {
-                    report_error() << "Unknown schedule statement.";
-                }
+                break;
+            }
+            default: {
+                report_error() << "Unknown schedule statement.";
+            }
             }
         } while (!consume(Token::Type::RSQUIGGLE));
 
@@ -1668,10 +1676,12 @@ struct Parser {
         // catch that failure, and report a backtrace.
         ir::Type type;
         if (parent.volume.has_value()) {
-            type = ir::BVH_t::make(std::move(primitive), parent.name, std::move(parent.params),
-                                   std::move(nodes), std::move(*parent.volume));
+            type = ir::BVH_t::make(std::move(primitive), parent.name,
+                                   std::move(parent.params), std::move(nodes),
+                                   std::move(*parent.volume));
         } else {
-            type = ir::BVH_t::make(std::move(primitive), parent.name, std::move(nodes));
+            type = ir::BVH_t::make(std::move(primitive), parent.name,
+                                   std::move(nodes));
         }
 
         // TODO: should we replace all Ptr_t with correct base type?

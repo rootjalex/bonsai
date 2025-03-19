@@ -82,7 +82,8 @@ struct ComputeUseCounts : ir::Visitor {
             << "Unexpected nested Assign: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
         internal_assert(!node->mutating || use_counts.contains(node->loc.base))
-            << "ComputeUseCounts already active for var: " << node->loc << " in stmt: " << ir::Stmt(node);
+            << "ComputeUseCounts already active for var: " << node->loc
+            << " in stmt: " << ir::Stmt(node);
         internal_assert(!node->mutating ||
                         dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "

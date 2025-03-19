@@ -119,8 +119,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Scan *) override;
     virtual void visit(const ir::YieldFrom *) override;
 
-
-
   private:
     // Recursively creates IR that will print the given expression. This
     // performs exactly one call to C's `printf` with the string `to_print` and

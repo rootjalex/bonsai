@@ -261,7 +261,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             for (size_t j = 0; j < m; j++) {
                 const auto &param0 = node0.params[j];
                 const auto &param1 = node1.params[j];
-                if (const Cmp peq = compare_params(param0, param1); peq != Cmp::Equals) {
+                if (const Cmp peq = compare_params(param0, param1);
+                    peq != Cmp::Equals) {
                     return peq;
                 }
             }

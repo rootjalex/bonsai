@@ -212,9 +212,10 @@ Type Mutator::visit(const BVH_t *node) {
 
     if (not_changed) {
         return node;
-    // } else if (volume.has_value()) {
-    //     return BVH_t::make(node->name, std::move(params), std::move(nodes),
-    //                        *volume);
+        // } else if (volume.has_value()) {
+        //     return BVH_t::make(node->name, std::move(params),
+        //     std::move(nodes),
+        //                        *volume);
     } else {
         // internal_assert(params.empty());
         return BVH_t::make(std::move(primitive), node->name, std::move(nodes));
@@ -480,7 +481,7 @@ Stmt Mutator::visit(const Match *node) {
         new_arms[i] = {node->arms[i].first, std::move(stmt)};
     }
 
-    if (not_changed){
+    if (not_changed) {
         return node;
     } else {
         return Match::make(std::move(loc), std::move(new_arms));

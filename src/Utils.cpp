@@ -126,8 +126,7 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
 ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
                  const ir::Expr &orig) {
     struct Replacer : public Mutator {
-        Replacer(const std::map<std::string, ir::Expr> &repls)
-            : repls(repls) {}
+        Replacer(const std::map<std::string, ir::Expr> &repls) : repls(repls) {}
 
       private:
         const std::map<std::string, ir::Expr> &repls;

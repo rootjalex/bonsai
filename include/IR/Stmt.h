@@ -160,7 +160,6 @@ struct Match : StmtNode<Match> {
     static const IRStmtEnum _node_type = IRStmtEnum::Match;
 };
 
-
 struct Yield : StmtNode<Yield> {
     Expr value;
 

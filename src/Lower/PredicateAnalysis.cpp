@@ -2,8 +2,8 @@
 
 #include "Error.h"
 
-#include "IR/Printer.h"
 #include "IR/Operators.h"
+#include "IR/Printer.h"
 #include "IR/Visitor.h"
 
 namespace bonsai {
@@ -44,80 +44,82 @@ struct PredicateAnalysis : public ir::Visitor {
         return std::move(interval);
     }
 
-    void visit(const ir::IntImm *node) override {
-        set(node);
-    }
+    void visit(const ir::IntImm *node) override { set(node); }
 
-    void visit(const ir::UIntImm *node) override {
-        set(node);
-    }
+    void visit(const ir::UIntImm *node) override { set(node); }
 
-    void visit(const ir::FloatImm *node) override {
-        set(node);
-    }
+    void visit(const ir::FloatImm *node) override { set(node); }
 
-    void visit(const ir::BoolImm *node) override {
-        set(node);
-    }
+    void visit(const ir::BoolImm *node) override { set(node); }
 
-    void visit(const ir::Infinity *node) override {
-        set(node);
-    }
+    void visit(const ir::Infinity *node) override { set(node); }
 
-    void visit(const ir::Var *node) override {
-        set(node);
-    }
+    void visit(const ir::Var *node) override { set(node); }
 
     void visit(const ir::BinOp *node) override {
-        internal_error << "TODO: implement predicate analysis on BinOp: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on BinOp: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::UnOp *node) override {
-        internal_error << "TODO: implement predicate analysis on UnOp: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on UnOp: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Select *node) override {
-        internal_error << "TODO: implement predicate analysis on Select: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Select: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Cast *node) override {
-        internal_error << "TODO: implement predicate analysis on Cast: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Cast: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Broadcast *node) override {
-        internal_error << "TODO: implement predicate analysis on Broadcast: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Broadcast: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::VectorReduce *node) override {
-        internal_error << "TODO: implement predicate analysis on VectorReduce: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on VectorReduce: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::VectorShuffle *node) override {
-        internal_error << "TODO: implement predicate analysis on VectorShuffle: " << ir::Expr(node);
+        internal_error
+            << "TODO: implement predicate analysis on VectorShuffle: "
+            << ir::Expr(node);
     }
 
     void visit(const ir::Ramp *node) override {
-        internal_error << "TODO: implement predicate analysis on Ramp: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Ramp: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Extract *node) override {
-        internal_error << "TODO: implement predicate analysis on Extract: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Extract: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Build *node) override {
-        internal_error << "TODO: implement predicate analysis on Build: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Build: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Access *node) override {
-        internal_error << "TODO: implement predicate analysis on Access: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Access: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Intrinsic *node) override {
-        internal_error << "TODO: implement predicate analysis on Intrinsic: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Intrinsic: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Lambda *node) override {
-        internal_error << "TODO: implement predicate analysis on Lambda: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Lambda: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::GeomOp *node) override {
@@ -131,9 +133,11 @@ struct PredicateAnalysis : public ir::Visitor {
         const auto b_vol = bound(b_var->name);
 
         internal_assert(!a_vol.has_value() || a_vol->defined())
-            << "LHS of geom op is varying but has no bounding volume: " << ir::Expr(node);
+            << "LHS of geom op is varying but has no bounding volume: "
+            << ir::Expr(node);
         internal_assert(!b_vol.has_value() || b_vol->defined())
-            << "RHS of geom op is varying but has no bounding volume: " << ir::Expr(node);
+            << "RHS of geom op is varying but has no bounding volume: "
+            << ir::Expr(node);
 
         const bool a_varying = a_vol.has_value();
         const bool b_varying = b_vol.has_value();
@@ -144,48 +148,50 @@ struct PredicateAnalysis : public ir::Visitor {
         }
 
         switch (node->op) {
-            case ir::GeomOp::intersects: {
-                ir::Expr a = a_varying ? *a_vol : node->a;
-                ir::Expr b = b_varying ? *b_vol : node->b;
+        case ir::GeomOp::intersects: {
+            ir::Expr a = a_varying ? *a_vol : node->a;
+            ir::Expr b = b_varying ? *b_vol : node->b;
 
-                interval.max = ir::intersects(a, b);
+            interval.max = ir::intersects(a, b);
 
-                // TODO: handle lower bound? doesn't work for rays...
-                interval.min = ir::Expr();
+            // TODO: handle lower bound? doesn't work for rays...
+            interval.min = ir::Expr();
 
-                return;
-            }
-            case ir::GeomOp::distance: {
-                ir::Expr a = a_varying ? *a_vol : node->a;
-                ir::Expr b = b_varying ? *b_vol : node->b;
+            return;
+        }
+        case ir::GeomOp::distance: {
+            ir::Expr a = a_varying ? *a_vol : node->a;
+            ir::Expr b = b_varying ? *b_vol : node->b;
 
-                interval.min = ir::distance(a, b);
+            interval.min = ir::distance(a, b);
 
-                // TODO: handle upper bound?
-                interval.max = ir::Expr();
+            // TODO: handle upper bound?
+            interval.max = ir::Expr();
 
-                return;
-            }
-            default: {
-                internal_error << "TODO: predicate analysis for: " << ir::Expr(node);
-            }
+            return;
+        }
+        default: {
+            internal_error << "TODO: predicate analysis for: "
+                           << ir::Expr(node);
+        }
         }
     }
 
     void visit(const ir::SetOp *node) override {
-        internal_error << "TODO: implement predicate analysis on SetOp: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on SetOp: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Call *node) override {
-        internal_error << "TODO: implement predicate analysis on Call: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Call: "
+                       << ir::Expr(node);
     }
 
     void visit(const ir::Instantiate *node) override {
-        internal_error << "TODO: implement predicate analysis on Instantiate: " << ir::Expr(node);
+        internal_error << "TODO: implement predicate analysis on Instantiate: "
+                       << ir::Expr(node);
     }
 };
-
-
 
 } // namespace
 

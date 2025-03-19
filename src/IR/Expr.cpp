@@ -472,7 +472,8 @@ Expr Ramp::make(Expr base, Expr stride, int lanes) {
 
 Expr Extract::make(Expr vec, int idx) {
     internal_assert(vec.defined()) << "Extract of undefined vector";
-    internal_assert(idx >= 0) << "Extract with negative idx of: " << idx << " for " << vec;
+    internal_assert(idx >= 0)
+        << "Extract with negative idx of: " << idx << " for " << vec;
 
     Extract *node = new Extract;
 
@@ -480,13 +481,16 @@ Expr Extract::make(Expr vec, int idx) {
     if (infer_types) {
         if (vec.type().is<Vector_t>()) {
             internal_assert(idx < vec.type().lanes())
-                << "Constant integer Extract has OOB index on vector: " << vec << " idx: " << idx;
+                << "Constant integer Extract has OOB index on vector: " << vec
+                << " idx: " << idx;
             node->type = vec.type().element_of();
         } else {
             const Tuple_t *tuple_t = vec.type().as<Tuple_t>();
-            internal_assert(tuple_t) << "Constant integer Extract on non-tuple: " << vec.type();
+            internal_assert(tuple_t)
+                << "Constant integer Extract on non-tuple: " << vec.type();
             internal_assert(idx < tuple_t->etypes.size())
-                << "Constant integer Extract has OOB index on tuple: " << vec << " idx: " << idx;
+                << "Constant integer Extract has OOB index on tuple: " << vec
+                << " idx: " << idx;
             node->type = tuple_t->etypes[idx];
         }
     }
@@ -613,7 +617,8 @@ Expr Build::make(Type type, std::vector<Expr> values) {
             if (!values.empty()) {
                 internal_assert(values.size() == as_tuple->etypes.size())
                     << "Incorrect number of arguments to tuple construction: "
-                    << type << " takes " << as_tuple->etypes.size() << " elements"
+                    << type << " takes " << as_tuple->etypes.size()
+                    << " elements"
                     << " but received " << values.size();
 
                 for (size_t i = 0; i < values.size(); i++) {
@@ -819,8 +824,10 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                     << b.type().element_of() << " instead got " << a << " : "
                     << a.type();
             } else {
-                internal_assert(b.type().element_of().is<Tuple_t>() &&
-                                b.type().element_of().as<Tuple_t>()->etypes.size() == f->arg_types.size())
+                internal_assert(
+                    b.type().element_of().is<Tuple_t>() &&
+                    b.type().element_of().as<Tuple_t>()->etypes.size() ==
+                        f->arg_types.size())
                     << "Expected filter function to accept elements of group: "
                     << b.type().element_of() << " instead got " << a << " : "
                     << a.type();

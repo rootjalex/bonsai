@@ -138,13 +138,13 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
 std::ostream &operator<<(std::ostream &os, const Target &target) {
     // TODO: flesh this out.
     switch (target) {
-        case Target::Host: {
-            os << "host";
-            break;
-        }
-        default: {
-            internal_error << "Support for non-host target? add printing support!";
-        }
+    case Target::Host: {
+        os << "host";
+        break;
+    }
+    default: {
+        internal_error << "Support for non-host target? add printing support!";
+    }
     }
     return os;
 }
@@ -353,7 +353,8 @@ void Printer::print(const BVH_t::Node &node) {
 void Printer::visit(const BVH_t *node) {
     os << "tree[[";
     print(node->primitive);
-    os << "]] " << node->name;;
+    os << "]] " << node->name;
+    ;
     if (!verbose) {
         return;
     }

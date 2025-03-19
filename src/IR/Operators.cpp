@@ -56,11 +56,13 @@ Expr contains(Expr a, Expr b) {
 }
 
 Expr filter(Expr predicate, Expr set) {
-    return ir::SetOp::make(ir::SetOp::filter, std::move(predicate), std::move(set));
+    return ir::SetOp::make(ir::SetOp::filter, std::move(predicate),
+                           std::move(set));
 }
 
 Expr argmin(Expr metric, Expr set) {
-    return ir::SetOp::make(ir::SetOp::argmin, std::move(metric), std::move(set));
+    return ir::SetOp::make(ir::SetOp::argmin, std::move(metric),
+                           std::move(set));
 }
 
 } // namespace ir

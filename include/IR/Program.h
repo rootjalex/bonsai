@@ -31,14 +31,16 @@ struct Program {
 
     Program() {}
 
-    Program(ExternList externs, FuncMap funcs, TypeMap types, ScheduleMap schedules)
+    Program(ExternList externs, FuncMap funcs, TypeMap types,
+            ScheduleMap schedules)
         : externs(std::move(externs)), funcs(std::move(funcs)),
           types(std::move(types)), schedules(std::move(schedules)) {}
 
     ~Program() = default;
 
     Program(const Program &other)
-        : externs(other.externs), funcs(other.funcs), types(other.types), schedules(other.schedules) {}
+        : externs(other.externs), funcs(other.funcs), types(other.types),
+          schedules(other.schedules) {}
 
     Program &operator=(const Program &other) {
         if (this != &other) {
@@ -52,7 +54,8 @@ struct Program {
 
     Program(Program &&other) noexcept
         : externs(std::move(other.externs)), funcs(std::move(other.funcs)),
-          types(std::move(other.types)), schedules(std::move(other.schedules)) {}
+          types(std::move(other.types)), schedules(std::move(other.schedules)) {
+    }
 
     Program &operator=(Program &&other) noexcept {
         if (this != &other) {

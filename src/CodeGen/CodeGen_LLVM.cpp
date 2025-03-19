@@ -605,7 +605,8 @@ void CodeGen_LLVM::visit(const BoolImm *node) {
 }
 
 void CodeGen_LLVM::visit(const Infinity *node) {
-    internal_error << "TODO: implement Infinity codegen for type: " << node->type;
+    internal_error << "TODO: implement Infinity codegen for type: "
+                   << node->type;
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
@@ -1481,7 +1482,8 @@ void CodeGen_LLVM::visit(const Scan *node) {
 }
 
 void CodeGen_LLVM::visit(const YieldFrom *node) {
-    internal_error << "TODO: implement codegen for YieldFrom: " << ir::Stmt(node);
+    internal_error << "TODO: implement codegen for YieldFrom: "
+                   << ir::Stmt(node);
 }
 
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,

@@ -95,20 +95,23 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
 }
 
 Stmt Match::make(Expr loc, Match::Arms arms) {
-    internal_assert(loc.defined())
-        << "Undefined match location in Match::make";
-    internal_assert(!arms.empty())
-        << "Received no match arms in Match::make";
+    internal_assert(loc.defined()) << "Undefined match location in Match::make";
+    internal_assert(!arms.empty()) << "Received no match arms in Match::make";
     const BVH_t *bvh = loc.type().as<BVH_t>();
-    internal_assert(bvh)
-        << "Match is only implemented for BVH_t, received: " << loc;
+    internal_assert(bvh) << "Match is only implemented for BVH_t, received: "
+                         << loc;
     internal_assert(bvh->nodes.size() == arms.size())
-        << "Incorrect number of match arms for BVH type: " << loc.type() << " with " << arms.size() << " arms.";
+        << "Incorrect number of match arms for BVH type: " << loc.type()
+        << " with " << arms.size() << " arms.";
     // Make sure all match arms exist.
     const size_t n = bvh->nodes.size();
     for (size_t i = 0; i < n; i++) {
         std::string_view name = bvh->nodes[i].name;
-        const bool found = arms.cend() != std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) { return arm.first.name == name; });
+        const bool found =
+            arms.cend() !=
+            std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) {
+                return arm.first.name == name;
+            });
         internal_assert(found) << "Match does not contain match arm: " << name;
     }
     Match *node = new Match;

@@ -263,7 +263,8 @@ struct BVH_t : TypeNode<BVH_t> {
     // std::optional<Volume> volume;
 
     // Each node should have a volume set, or are un-optimized.
-    static Type make(ir::Type primitive, std::string name, std::vector<Node> nodes);
+    static Type make(ir::Type primitive, std::string name,
+                     std::vector<Node> nodes);
     // All nodes share the same volume type unless otherwise specified.
     static Type make(ir::Type primitive, std::string name,
                      std::vector<Param> params, std::vector<Node> nodes,

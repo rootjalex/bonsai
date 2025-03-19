@@ -80,19 +80,23 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Match *node) override {
-        internal_error << "TODO: implement GatherFreeFars for Match: " << ir::Stmt(node);
+        internal_error << "TODO: implement GatherFreeFars for Match: "
+                       << ir::Stmt(node);
     }
 
     void visit(const Yield *node) override {
-        internal_error << "TODO: implement GatherFreeFars for Yield: " << ir::Stmt(node);
+        internal_error << "TODO: implement GatherFreeFars for Yield: "
+                       << ir::Stmt(node);
     }
 
     void visit(const Scan *node) override {
-        internal_error << "TODO: implement GatherFreeFars for Scan: " << ir::Stmt(node);
+        internal_error << "TODO: implement GatherFreeFars for Scan: "
+                       << ir::Stmt(node);
     }
 
     void visit(const YieldFrom *node) override {
-        internal_error << "TODO: implement GatherFreeFars for YieldFrom: " << ir::Stmt(node);
+        internal_error << "TODO: implement GatherFreeFars for YieldFrom: "
+                       << ir::Stmt(node);
     }
 };
 
@@ -143,19 +147,23 @@ struct AlwaysReturns : public Visitor {
     }
 
     void visit(const Match *node) override {
-        internal_error << "TODO: implement AlwaysReturns for Match: " << ir::Stmt(node);
+        internal_error << "TODO: implement AlwaysReturns for Match: "
+                       << ir::Stmt(node);
     }
 
     void visit(const Yield *node) override {
-        internal_error << "TODO: implement AlwaysReturns for Yield: " << ir::Stmt(node);
+        internal_error << "TODO: implement AlwaysReturns for Yield: "
+                       << ir::Stmt(node);
     }
 
     void visit(const Scan *node) override {
-        internal_error << "TODO: implement AlwaysReturns for Scan: " << ir::Stmt(node);
+        internal_error << "TODO: implement AlwaysReturns for Scan: "
+                       << ir::Stmt(node);
     }
 
     void visit(const YieldFrom *node) override {
-        internal_error << "TODO: implement AlwaysReturns for YieldFrom: " << ir::Stmt(node);
+        internal_error << "TODO: implement AlwaysReturns for YieldFrom: "
+                       << ir::Stmt(node);
     }
 };
 
@@ -182,19 +190,23 @@ struct ReturnType : public Visitor {
     }
 
     void visit(const Match *node) override {
-        internal_error << "TODO: implement ReturnType for Match: " << ir::Stmt(node);
+        internal_error << "TODO: implement ReturnType for Match: "
+                       << ir::Stmt(node);
     }
 
     void visit(const Yield *node) override {
-        internal_error << "TODO: implement ReturnType for Yield: " << ir::Stmt(node);
+        internal_error << "TODO: implement ReturnType for Yield: "
+                       << ir::Stmt(node);
     }
 
     void visit(const Scan *node) override {
-        internal_error << "TODO: implement ReturnType for Scan: " << ir::Stmt(node);
+        internal_error << "TODO: implement ReturnType for Scan: "
+                       << ir::Stmt(node);
     }
 
     void visit(const YieldFrom *node) override {
-        internal_error << "TODO: implement ReturnType for YieldFrom: " << ir::Stmt(node);
+        internal_error << "TODO: implement ReturnType for YieldFrom: "
+                       << ir::Stmt(node);
     }
 
     void visit(const IfElse *node) override {
@@ -268,7 +280,8 @@ std::vector<const ir::Var *> gather_free_vars(const Expr &expr) {
     return std::move(gather.free_vars);
 }
 
-// std::vector<std::pair<std::string, Type>> gather_free_vars(const Stmt &stmt) {
+// std::vector<std::pair<std::string, Type>> gather_free_vars(const Stmt &stmt)
+// {
 //     GatherFreeVars gather;
 //     stmt.accept(&gather);
 //     return std::move(gather.free_vars);
