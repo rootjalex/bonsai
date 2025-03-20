@@ -234,6 +234,11 @@ struct Parser {
                        << Token::token_type_string(current.type);
     }
 
+    std::string get_id() {
+        const Token id = expect(Token::Type::IDENTIFIER);
+        return std::get<std::string>(id.value);
+    }
+
     void parse_program_stream(const bool allow_externs) {
         while (!tokens().empty()) {
             parse_program_element(allow_externs);
@@ -266,14 +271,12 @@ struct Parser {
         // Imports are essentially code inlining. Just load and parse the file.
         // TODO: support source/header separations?
         expect(Token::Type::IMPORT);
-        const Token id = expect(Token::Type::IDENTIFIER);
-        std::string name = std::get<std::string>(id.value);
+        std::string name = get_id();
 
         // Handle (/name)*
         while (!consume(Token::Type::SEMICOL)) {
             expect(Token::Type::SLASH);
-            const Token path = expect(Token::Type::IDENTIFIER);
-            name += "/" + std::get<std::string>(path.value);
+            name += "/" + get_id();
         }
 
         name += ".bonsai";
@@ -308,8 +311,7 @@ struct Parser {
         // TODO: support methods as well.
         // TODO: figure out overloading policy for that.
         // TODO: for error handling, should we have beginLoc/endLoc like Simit?
-        const Token id = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(id.value);
+        const std::string name = get_id();
 
         if (program.types.contains(name)) {
             report_error() << "Redefinition of type: " << name;
@@ -331,9 +333,7 @@ struct Parser {
             // Handle multiple names with a single type.
             std::vector<std::string> names;
             do {
-                const Token field = expect(Token::Type::IDENTIFIER);
-                const std::string field_name =
-                    std::get<std::string>(field.value);
+                const std::string field_name = get_id();
                 // Verify this is not a duplicate.
                 if (std::find_if(fields.cbegin(), fields.cend(),
                                  [&](const auto &p) {
@@ -398,14 +398,11 @@ struct Parser {
         // TODO: what if an extern name-conflicts with a type or something?
         // probably should check conflicts for all symbols?
         expect(Token::Type::EXTERN);
-        const Token id = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(id.value);
-        internal_assert(
-            program.externs.cend() ==
-            std::find_if(program.externs.cbegin(), program.externs.cend(),
-                         [&](const auto &p) { return p.first == name; }))
-            << "Redefinition of extern: " << name << " on line "
-            << id.line_begin();
+        const std::string name = get_id();
+        if (std::find_if(program.externs.cbegin(), program.externs.cend(),
+                         [&](const auto &p) { return p.first == name; }) != program.externs.cend()) {
+            report_error() << "Redefinition of extern: " << name;
+        }
         // TODO: should we support defaults? that makes passing in args harder.
         expect(Token::Type::COL);
         ir::Type type = parse_type();
@@ -416,11 +413,10 @@ struct Parser {
 
     void parse_function() {
         expect(Token::Type::FUNC);
-        const Token id = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(id.value);
-        internal_assert(!program.funcs.contains(name))
-            << "Redefinition of func: " << name << " on line "
-            << id.line_begin();
+        const std::string name = get_id();
+        if (program.funcs.contains(name)) {
+            report_error() << "Redefinition of func: " << name;
+        }
 
         ir::Function::InterfaceList interfaces;
         if (consume(Token::Type::LT)) {
@@ -429,8 +425,7 @@ struct Parser {
                 << "Nested generics in definition of: " << name;
 
             do {
-                const Token itoken = expect(Token::Type::IDENTIFIER);
-                const std::string iname = std::get<std::string>(itoken.value);
+                const std::string iname = get_id();
                 internal_assert(!current_generics.contains(iname))
                     << "Duplicate interface name: " << iname
                     << " in definition of func: " << name;
@@ -454,9 +449,7 @@ struct Parser {
             do {
                 // TODO: can we accept multiple args with one type here, as in
                 // element definitions?
-                const Token arg_id = expect(Token::Type::IDENTIFIER);
-                const std::string arg_name =
-                    std::get<std::string>(arg_id.value);
+                const std::string arg_name = get_id();
                 expect(Token::Type::COL);
                 // TODO: handle `mut`! Use parse_name_def?
                 ir::Type type = parse_type();
@@ -919,8 +912,7 @@ struct Parser {
     template <typename OpType, typename Container>
     std::optional<OpType>
     try_match_pattern(const std::string &name, const size_t arg_count,
-                      const Container &patterns, size_t n_args, size_t line,
-                      size_t col) {
+                      const Container &patterns, size_t n_args) {
         for (const auto &p : patterns) {
             if (name == p.name) {
                 if constexpr (requires { p.skippable; }) {
@@ -929,15 +921,15 @@ struct Parser {
                     }
                 }
                 if constexpr (requires { p.n_args; }) {
-                    internal_assert(arg_count == p.n_args)
-                        << p.name << " takes " << p.n_args
-                        << " argument(s), received " << arg_count
-                        << " instead, on line " << line << ":" << col;
+                    if (arg_count != p.n_args) {
+                        report_error() << p.name << " takes " << p.n_args
+                        << " argument(s), received " << arg_count;
+                    }
                 } else {
-                    internal_assert(arg_count == n_args)
-                        << p.name << " takes " << n_args
-                        << " argument(s), received " << arg_count
-                        << " instead, on line " << line << ":" << col;
+                    if (arg_count != n_args) {
+                        report_error() << p.name << " takes " << n_args
+                        << " argument(s), received " << arg_count;
+                    }
                 }
 
                 return p.op;
@@ -947,8 +939,7 @@ struct Parser {
     }
 
     ir::Expr try_match_intrinsics(const std::string &name,
-                                  std::vector<ir::Expr> args, size_t line,
-                                  size_t col) {
+                                  std::vector<ir::Expr> args) {
         // Numerical intrinsics
         struct IntrinsicPattern {
             const std::string_view name;
@@ -971,7 +962,7 @@ struct Parser {
         });
 
         if (auto op = try_match_pattern<ir::Intrinsic::OpType>(
-                name, args.size(), IPATTERNS, 0, line, col)) {
+                name, args.size(), IPATTERNS, 0)) {
             return ir::Intrinsic::make(*op, std::move(args));
         }
 
@@ -989,7 +980,7 @@ struct Parser {
         });
 
         if (auto op = try_match_pattern<ir::SetOp::OpType>(
-                name, args.size(), SPATTERNS, 2, line, col)) {
+                name, args.size(), SPATTERNS, 2)) {
             return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
         }
 
@@ -1006,7 +997,7 @@ struct Parser {
         });
 
         if (auto op = try_match_pattern<ir::GeomOp::OpType>(
-                name, args.size(), GPATTERNS, 2, line, col)) {
+                name, args.size(), GPATTERNS, 2)) {
             return ir::GeomOp::make(*op, std::move(args[0]),
                                     std::move(args[1]));
         }
@@ -1029,7 +1020,7 @@ struct Parser {
         });
 
         if (auto op = try_match_pattern<ir::VectorReduce::OpType>(
-                name, args.size(), RPATTERNS, 1, line, col)) {
+                name, args.size(), RPATTERNS, 1)) {
             return ir::VectorReduce::make(*op, std::move(args[0]));
         }
 
@@ -1037,14 +1028,11 @@ struct Parser {
     }
 
     ir::Expr parse_identifier() {
-        const Token token = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(token.value);
+        const std::string name = get_id();
         std::vector<std::string> fields; // possibly nested
         while (consume(Token::Type::PERIOD)) {
             // Member access.
-            const Token field_token = expect(Token::Type::IDENTIFIER);
-            const std::string field_name =
-                std::get<std::string>(field_token.value);
+            const std::string field_name = get_id();
             fields.push_back(field_name);
         }
 
@@ -1068,24 +1056,18 @@ struct Parser {
                 // Parse template type list
                 template_types = parse_type_list_until(Token::Type::RBRACKET);
                 expect(Token::Type::RBRACKET);
-                internal_assert(!template_types.empty())
-                    << "Template syntax expects type arguments, but did not "
-                       "receive "
-                       "any for name: "
-                    << name << " at line: " << token.line_begin();
-                internal_assert(peek().type == Token::Type::LPAREN)
-                    << "Template syntax supported only for function calls, "
-                       "found on "
-                       "name: "
-                    << name << " at line: " << token.line_begin();
+                if (template_types.empty()) {
+                    report_error() << "Template syntax expects type arguments, but did not receive any for name: "<< name;
+                }
+                if (peek().type != Token::Type::LPAREN) {
+                    report_error() << "Template syntax supported only for function calls, found on name: " << name;
+                }
             } else {
                 std::vector<ir::Expr> idxs =
                     parse_expr_list_until(Token::Type::RBRACKET);
-                internal_assert(!idxs.empty())
-                    << "Indexing into array/vector expects at least one index "
-                       "for "
-                       "name: "
-                    << name << " at line: " << token.line_begin();
+                if (idxs.empty()) {
+                    report_error() << "Indexing into array/vector expects at least one index for name: " << name;
+                }
                 ir::Expr expr = make_expr();
                 for (auto &idx : idxs) {
                     expr = ir::Extract::make(std::move(expr), std::move(idx));
@@ -1104,21 +1086,17 @@ struct Parser {
                 if (program.funcs.contains(name)) {
                     const auto &func = program.funcs[name];
                     // TODO: handle default params!
-                    internal_assert(args.size() == func->args.size())
-                        << "Call to: " << name << " at line "
-                        << token.line_begin()
-                        << " has incorrect number of arguments.\n"
-                        << "Expected: " << func->args.size() << " but parsed "
-                        << args.size() << " at line: " << token.line_begin();
+                    if (args.size() != func->args.size()) {
+                        report_error() << "Call to: " << name << " has incorrect number of arguments.\n"
+                            << "Expected: " << func->args.size() << " but parsed " << args.size();
+                    }
 
-                    internal_assert(func->interfaces.size() ==
-                                    template_types.size())
-                        << "Call to: " << name << " at line "
-                        << token.line_begin()
-                        << " has incorrect number of template paramters.\n"
-                        << "Expected: " << func->interfaces.size()
-                        << " but parsed " << template_types.size()
-                        << " at line: " << token.line_begin();
+                    if (func->interfaces.size() != template_types.size()) {
+                        report_error() << "Call to: " << name
+                            << " has incorrect number of template paramters.\n"
+                            << "Expected: " << func->interfaces.size()
+                            << " but parsed " << template_types.size();
+                    }
 
                     const size_t n_generics = func->interfaces.size();
 
@@ -1150,13 +1128,12 @@ struct Parser {
                             func->interfaces.empty()
                                 ? func->args[i].type
                                 : replace(instantiations, func->args[i].type);
-                        internal_assert(
-                            !args[i].type().defined() ||
-                            ir::equals(expected_type, args[i].type()))
-                            << "Argument " << i << " of call to function "
-                            << name << " on line " << token.line_begin()
-                            << " has incorrect type. Expected " << expected_type
+                        
+                        if (args[i].type().defined() && !ir::equals(expected_type, args[i].type())) {
+                            report_error() << "Argument " << i << " of call to function "
+                            << name << " has incorrect type. Expected " << expected_type
                             << " but parsed: " << args[i].type();
+                        }
                     }
 
                     ir::Type ftype;
@@ -1179,10 +1156,9 @@ struct Parser {
                     }
                     return ir::Call::make(std::move(f), std::move(args));
                 } else if (name_in_scope(name)) {
-                    internal_assert(template_types.empty())
-                        << "Error: cannot pass template parameters to lambda "
-                        << name << " definition on line: " << token.line_begin()
-                        << ":" << token.column_begin();
+                    if (!template_types.empty()) {
+                        report_error() << "Error: cannot pass template parameters to lambda " << name;
+                    }
                     ir::Type var_type =
                         get_type_from_frame(name); // never undefined.
                     ir::Expr expr = ir::Var::make(var_type, name);
@@ -1191,25 +1167,22 @@ struct Parser {
 
                 // Special built-ins with template parameters.
                 if (name == "cast") {
-                    internal_assert(template_types.size() == 1)
-                        << "cast() expects a template parameter, instead "
-                           "received: "
-                        << template_types.size()
-                        << " at line: " << token.line_begin();
-                    internal_assert(args.size() == 1)
-                        << "cast takes a single argument, received: "
-                        << args.size() << " at line: " << token.line_begin();
+                    if (template_types.size() != 1) {
+                        report_error() << "cast() expects a single template parameter, instead received: " << template_types.size();
+                    }
+                    if (args.size() != 1) {
+                        report_error() << "cast() expects a single argument, instead received: " << args.size();
+                    }
                     return ir::Cast::make(std::move(template_types[0]),
                                           std::move(args[0]));
                 } else if (name == "eps") {
-                    internal_assert(template_types.size() == 1)
-                        << "eps() expects a template parameter, instead "
-                           "received: "
-                        << template_types.size()
-                        << " at line: " << token.line_begin();
-                    internal_assert(args.size() == 0)
-                        << "eps takes no arguments, received: " << args.size()
-                        << " at line: " << token.line_begin();
+                    if (template_types.size() != 1) {
+                        report_error() << "eps() expects a single template parameter, instead received: " << template_types.size();
+                    }
+                    if (args.size() != 0) {
+                        report_error() << "eps() expects no arguments, instead received: " << args.size();
+                    }
+
                     // TODO: or template?
                     ir::Type type = std::move(template_types[0]);
                     internal_assert(type.is_float())
@@ -1221,11 +1194,10 @@ struct Parser {
                     return ir::FloatImm::make(type, machine_epsilon(type));
                 }
 
-                internal_assert(template_types.empty())
-                    << name
-                    << " does not take template parameters, but received: "
-                    << template_types.size()
-                    << " at line: " << token.line_begin();
+                if (!template_types.empty()) {
+                    report_error() << name << " does not take template parameters, but received: "
+                    << template_types.size();
+                }
 
                 // Special built-ins without template parameters
                 if (name == "permute") {
@@ -1249,9 +1221,7 @@ struct Parser {
                                             std::move(args[2]));
                 }
 
-                ir::Expr intrinsic = try_match_intrinsics(name, std::move(args),
-                                                          token.line_begin(),
-                                                          token.column_begin());
+                ir::Expr intrinsic = try_match_intrinsics(name, std::move(args));
                 if (intrinsic.defined()) {
                     return intrinsic;
                 }
@@ -1263,18 +1233,18 @@ struct Parser {
                 // method access!
                 // TODO: type inference via interface?
                 ir::Expr expr = make_expr();
-                internal_assert(template_types.empty())
-                    << "TODO: support passing template types to a method "
+                if (!template_types.empty()) {
+                    report_error() << "TODO: support passing template types to a method "
                        "access: "
-                    << expr << " received " << template_types.size()
-                    << " at line: " << token.line_begin();
+                    << expr << " received " << template_types.size();
+                }
                 return ir::Call::make(std::move(expr), std::move(args));
             }
         }
 
-        internal_assert(template_types.empty())
-            << "TODO: support template arguments in constructors for: " << name
-            << " at line: " << token.line_begin();
+        if (!template_types.empty()) {
+            report_error() << "TODO: support template arguments in constructors for: " << name;
+        }
 
         if (peek().type == Token::Type::LSQUIGGLE) {
             if (fields.empty() && program.types.contains(name)) {
@@ -1286,13 +1256,11 @@ struct Parser {
                     // TODO: this could use better error handling/messaging.
                     std::map<std::string, ir::Expr> args;
                     do {
-                        const Token token = expect(Token::Type::IDENTIFIER);
-                        const std::string field =
-                            std::get<std::string>(token.value);
+                        std::string field = get_id();
                         expect(Token::Type::ASSIGN);
                         ir::Expr value = parse_expr();
                         internal_assert(value.defined());
-                        args[field] = std::move(value);
+                        args[std::move(field)] = std::move(value);
                     } while (consume(Token::Type::COMMA) &&
                              consume(Token::Type::PERIOD));
                     expect(Token::Type::RSQUIGGLE);
@@ -1368,8 +1336,7 @@ struct Parser {
     NameDef parse_name_def(const bool expr_allowed) {
         NameDef def;
 
-        const Token token = expect(Token::Type::IDENTIFIER);
-        def.name = std::get<std::string>(token.value);
+        def.name = get_id();
 
         if constexpr (T_REQUIRED) {
             expect(Token::Type::COL);
@@ -1402,21 +1369,18 @@ struct Parser {
     }
 
     ir::WriteLoc parse_write_loc() {
-        const Token token = expect(Token::Type::IDENTIFIER);
-        const std::string base = std::get<std::string>(token.value);
+        std::string base = get_id();
         ir::Type base_type;
         if (name_in_scope(base)) {
             base_type = get_type_from_frame(base);
         }
 
-        ir::WriteLoc loc(base, base_type);
+        ir::WriteLoc loc(std::move(base), base_type);
 
         while ((peek().type == Token::Type::PERIOD) ||
                (peek().type == Token::Type::LBRACKET)) {
             if (consume(Token::Type::PERIOD)) {
-                const Token field = expect(Token::Type::IDENTIFIER);
-                const std::string field_name =
-                    std::get<std::string>(field.value);
+                const std::string field_name = get_id();
                 loc.add_struct_access(field_name);
             } else {
                 expect(Token::Type::LBRACKET);
@@ -1433,8 +1397,7 @@ struct Parser {
     //         | option[type] | declared_type
     ir::Type parse_type() {
         // TODO: support tuples of types! AKA unnamed structs.
-        const Token id = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(id.value);
+        const std::string name = get_id();
         // Signed integer types.
         std::regex int_pattern("^i(\\d+)$");
         // Unsigned integer types.
@@ -1529,8 +1492,7 @@ struct Parser {
     }
 
     ir::Interface parse_primitive_interface() {
-        const Token id = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(id.value);
+        const std::string name = get_id();
         if (name == "IFloat") {
             return ir::IFloat::make();
         } else if (name == "IVector") {
@@ -1576,9 +1538,7 @@ struct Parser {
                 break;
             }
             case Token::Type::IDENTIFIER: {
-                const Token name_token = expect(Token::Type::IDENTIFIER);
-                const std::string name =
-                    std::get<std::string>(name_token.value);
+                const std::string name = get_id();
                 // TODO: if func, is schedule.
                 // TODO: if type, is ????
                 // if extern, is tree-assignment
@@ -1594,11 +1554,7 @@ struct Parser {
                     }
 
                     expect(Token::Type::COL);
-
-                    const Token tree_token = expect(Token::Type::IDENTIFIER);
-                    const std::string tree_name =
-                        std::get<std::string>(tree_token.value);
-
+                    const std::string tree_name = get_id();
                     expect(Token::Type::SEMICOL);
 
                     const auto tree_iter = trees.find(tree_name);
@@ -1691,20 +1647,18 @@ struct Parser {
     }
 
     ir::BVH_t::Volume parse_volume() {
-        const Token name_token = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(name_token.value);
+        std::string name = get_id();
 
         internal_assert(program.types.contains(name))
             << "Unknown volume type: " << name;
-        ir::Type type = program.types[name];
+        ir::Type type = program.types[std::move(name)];
 
         expect(Token::Type::LPAREN);
 
         std::vector<std::string> initializers;
         do {
-            const Token token = expect(Token::Type::IDENTIFIER);
-            const std::string iname = std::get<std::string>(token.value);
-            initializers.push_back(iname);
+            std::string iname = get_id();
+            initializers.emplace_back(std::move(iname));
         } while (consume(Token::Type::COMMA));
 
         expect(Token::Type::RPAREN);
@@ -1713,8 +1667,7 @@ struct Parser {
     }
 
     ir::BVH_t::Node parse_node() {
-        const Token name_token = expect(Token::Type::IDENTIFIER);
-        const std::string name = std::get<std::string>(name_token.value);
+        std::string name = get_id();
 
         std::vector<ir::BVH_t::Param> params;
         std::optional<ir::BVH_t::Volume> volume;
@@ -1728,7 +1681,7 @@ struct Parser {
             volume = parse_volume();
         }
 
-        return ir::BVH_t::Node{name, std::move(params), std::move(volume)};
+        return ir::BVH_t::Node{std::move(name), std::move(params), std::move(volume)};
     }
 
     std::vector<ir::BVH_t::Param> parse_tree_params() {
@@ -1739,8 +1692,7 @@ struct Parser {
         do {
             std::vector<std::string> names;
             do {
-                const Token token = expect(Token::Type::IDENTIFIER);
-                names.push_back(std::get<std::string>(token.value));
+                names.push_back(get_id());
             } while (!consume(Token::Type::COL));
 
             ir::Type type = parse_type();

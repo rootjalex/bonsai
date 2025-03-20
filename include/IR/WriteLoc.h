@@ -18,8 +18,8 @@ struct WriteLoc {
     std::vector<std::variant<std::string, Expr>> accesses;
 
     WriteLoc() {} // required for Accumulate::make to work.
-    WriteLoc(const std::string &_base, Type _base_type)
-        : base_type(_base_type), type(_base_type), base(_base) {
+    WriteLoc(std::string b, Type base_type)
+        : base_type(base_type), type(base_type), base(std::move(b)) {
         internal_assert(!base.empty()) << "Write location with empty base";
     }
 
