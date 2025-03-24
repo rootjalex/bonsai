@@ -34,6 +34,9 @@ std::ostream &operator<<(std::ostream &os, const Function &func);
 std::ostream &operator<<(std::ostream &os, const Target &target);
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule);
 
+std::string to_string(const Layout &layout);
+std::ostream &operator<<(std::ostream &os, const Layout &layout);
+
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
 std::string to_string(const VectorReduce::OpType &op);
@@ -61,6 +64,7 @@ struct Printer : public Visitor {
     void print(const Stmt &stmt);
     void print(const WriteLoc &loc);
     void print(const BVH_t::Node &node);
+    void print(const Layout &layout);
 
     // Types
     void visit(const Void_t *) override;
@@ -72,6 +76,7 @@ struct Printer : public Visitor {
     void visit(const Vector_t *) override;
     void visit(const Struct_t *) override;
     void visit(const Tuple_t *) override;
+    void visit(const Array_t *) override;
     void visit(const Option_t *) override;
     void visit(const Set_t *) override;
     void visit(const Function_t *) override;
@@ -121,6 +126,13 @@ struct Printer : public Visitor {
     void visit(const Yield *) override;
     void visit(const Scan *) override;
     void visit(const YieldFrom *) override;
+    // Layouts
+    void visit(const Name *) override;
+    void visit(const Pad *) override;
+    void visit(const Split *) override;
+    void visit(const Chain *) override;
+    void visit(const Group *) override;
+    void visit(const Materialize *) override;
 
     void set_indent(int _indent) { indent = _indent; }
 

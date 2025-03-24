@@ -39,8 +39,11 @@ class Token {
         PRINT,  // print
 
         // Data structure specification related keywords
-        TREE, // tree
-        WITH, // with
+        TREE,    // tree
+        WITH,    // with
+        LAYOUT,  // layout
+        GROUP,   // group
+        SWITCH,  // switch
 
         // WHILE, // while
         FOR,   // for

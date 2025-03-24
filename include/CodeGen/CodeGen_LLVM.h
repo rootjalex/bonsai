@@ -72,15 +72,16 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Struct_t *) override;
     virtual void visit(const ir::Tuple_t *) override;
-    virtual void visit(const ir::Option_t *) override;
-    virtual void visit(const ir::Set_t *) override;
-    virtual void visit(const ir::Function_t *) override;
-    virtual void visit(const ir::Generic_t *) override;
-    virtual void visit(const ir::BVH_t *) override;
+    RESTRICT_VISITOR(ir::Array_t); // TODO: support
+    RESTRICT_VISITOR(ir::Option_t);
+    RESTRICT_VISITOR(ir::Set_t);
+    RESTRICT_VISITOR(ir::Generic_t);
+    RESTRICT_VISITOR(ir::Function_t);
+    RESTRICT_VISITOR(ir::BVH_t);
     // Interfaces
-    virtual void visit(const ir::IEmpty *) override;
-    virtual void visit(const ir::IFloat *) override;
-    virtual void visit(const ir::IVector *) override;
+    RESTRICT_VISITOR(ir::IEmpty);
+    RESTRICT_VISITOR(ir::IFloat);
+    RESTRICT_VISITOR(ir::IVector);
     // Expressions
     virtual void visit(const ir::IntImm *) override;
     virtual void visit(const ir::UIntImm *) override;
@@ -111,13 +112,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::LetStmt *) override;
     virtual void visit(const ir::IfElse *) override;
+    // default behavior is fine.
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
-    virtual void visit(const ir::Match *) override;
-    virtual void visit(const ir::Yield *) override;
-    virtual void visit(const ir::Scan *) override;
-    virtual void visit(const ir::YieldFrom *) override;
+    RESTRICT_VISITOR(ir::Match);
+    RESTRICT_VISITOR(ir::Yield);
+    RESTRICT_VISITOR(ir::Scan);
+    RESTRICT_VISITOR(ir::YieldFrom);
 
   private:
     // Recursively creates IR that will print the given expression. This

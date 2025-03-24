@@ -75,6 +75,12 @@ std::string short_type_name(const Type &type) {
         }
         return name;
     }
+    case IRTypeEnum::Array_t: {
+        // TODO: this is not unique over size?
+        std::string name = "[]";
+        name += short_type_name(type.as<Array_t>()->etype);
+        return name;
+    }
     case IRTypeEnum::Option_t:
         return "o?" + short_type_name(type.as<Ptr_t>()->etype);
     default: {

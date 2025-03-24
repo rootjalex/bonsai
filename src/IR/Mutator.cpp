@@ -119,6 +119,15 @@ Type Mutator::visit(const Tuple_t *node) {
     return Tuple_t::make(std::move(etypes));
 }
 
+Type Mutator::visit(const Array_t *node) {
+    Type etype = mutate(node->etype);
+    // TODO: should we mutate the size? unclear.
+    if (etype.same_as(node->etype)) {
+        return node;
+    }
+    return Array_t::make(std::move(etype), ir::Expr());
+}
+
 Type Mutator::visit(const Option_t *node) {
     Type etype = mutate(node->etype);
     if (etype.same_as(node->etype)) {

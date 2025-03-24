@@ -5,6 +5,8 @@
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
+#include "IR/Layout.h"
+#include "IR/Operators.h"
 #include "IR/Printer.h"
 #include "IR/Type.h"
 #include "IR/TypeEnforcement.h"
@@ -844,8 +846,7 @@ struct Parser {
             return ir::BoolImm::make(false);
         } else if (peek().type == Token::Type::INT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
-            const Token token = expect(Token::Type::INT_LITERAL);
-            const int64_t value = std::get<int64_t>(token.value);
+            const int64_t value = parse_int_literal();
             // default (pre-type casting) is i32
             return ir::IntImm::make(i32, value);
         } else if (peek().type == Token::Type::UINT_LITERAL) {
@@ -1219,6 +1220,20 @@ struct Parser {
                     return ir::Select::make(std::move(args[0]),
                                             std::move(args[1]),
                                             std::move(args[2]));
+                } else if (name == "range") {
+                    internal_assert(args.size() == 3)
+                        << "range takes 3 arguments, received: "
+                        << args.size();
+                    internal_assert(args[0].type().defined() && args[0].type().is<ir::Array_t>())
+                        << "range() expects first argument to be an array type: " << args[0] << " is " << args[0].type();
+                    internal_assert(args[1].type().defined() && args[1].type().is_int_or_uint())
+                        << "range() expects second argument to be an integer type: " << args[1] << " is " << args[1].type();
+                    internal_assert(args[2].type().defined() && args[2].type().is_int_or_uint())
+                        << "range() expects third argument to be an integer type: " << args[2] << " is " << args[2].type();
+                    // TODO: make this an intrinsic?
+                    ir::Type call_type = ir::Function_t::make(args[0].type(), {args[0].type(), args[1].type(), args[2].type()});
+                    ir::Expr func = ir::Var::make(std::move(call_type), "range");
+                    return ir::Call::make(std::move(func), std::move(args));
                 }
 
                 ir::Expr intrinsic = try_match_intrinsics(name, std::move(args));
@@ -1473,6 +1488,15 @@ struct Parser {
             expect(Token::Type::RBRACKET);
             // TODO: assert etype is a struct_t? or volume_t?
             return ir::Set_t::make(std::move(etype));
+        } else if (name == "array") {
+            expect(Token::Type::LBRACKET);
+            ir::Type etype = parse_type();
+            ir::Expr size;
+            if (consume(Token::Type::COMMA)) {
+                size = parse_expr();
+            }
+            expect(Token::Type::RBRACKET);
+            return ir::Array_t::make(std::move(etype), std::move(size));
         } else if (current_generics.contains(name)) {
             return current_generics[name];
         }
@@ -1526,7 +1550,6 @@ struct Parser {
         ir::Schedule schedule;
 
         ir::TypeMap trees;
-
         do {
             switch (peek().type) {
             case Token::Type::TREE: {
@@ -1573,7 +1596,26 @@ struct Parser {
                 }
                 break;
             }
+            case Token::Type::LAYOUT: {
+                expect(Token::Type::LAYOUT);
+                std::string name = get_id();
+                const auto extern_iter = std::find_if(
+                    program.externs.cbegin(), program.externs.cend(),
+                    [&name](const auto &p) { return p.first == name; });
+                
+                if (extern_iter == program.externs.cend()) {
+                    report_error() << "Layout name: " << name << " is not an extern.";
+                }
+
+                ir::Layout layout = parse_top_level_layout();
+                const auto [_, inserted] = schedule.tree_layouts.emplace(name, std::move(layout));
+                if (!inserted) {
+                    report_error() << "Layout for " << name << " already exists.";
+                }
+                break;
+            }
             default: {
+                consume();
                 report_error() << "Unknown schedule statement.";
             }
             }
@@ -1702,6 +1744,135 @@ struct Parser {
             }
         } while (consume(Token::Type::COMMA));
         return args;
+    }
+
+    // Wrapper that adds built-ins into scope and then calls parse_layout()
+    ir::Layout parse_top_level_layout() {
+        new_frame();
+
+        // TODO: support other non-u32 indexing.
+        // add_type_to_frame("count", u32, /* mutable=*/false);
+        // add_type_to_frame("index", u32, /* mutable=*/false);
+        // TODO: add range() and other built-ins!
+        // ir::Interface interface = ir::IEmpty::make(); // TODO: IArray
+        // ir::Type range_type; // TODO: T[], int_t, int_t -> T[]
+        // add_type_to_frame("range", range_type, /*mutable=*/false);
+
+        ir::Layout layout = parse_layout();
+        expect(Token::Type::SEMICOL);
+
+        end_frame();
+        return layout;
+    }
+
+
+    ir::Layout parse_layout() {
+        // Default.
+        static ir::Expr count = ir::Var::make(u32, "count");
+        switch (peek().type) {
+            case Token::Type::LSQUIGGLE: {
+                consume();
+                std::vector<ir::Layout> layouts;
+                new_frame();
+                do {
+                    layouts.emplace_back(parse_layout());
+                    expect(Token::Type::SEMICOL);
+                } while (!consume(Token::Type::RSQUIGGLE));
+                end_frame();
+                return ir::Chain::make(std::move(layouts));
+            }
+            case Token::Type::GROUP: {
+                consume();
+                ir::Expr size;
+                if (consume(Token::Type::LBRACKET)) {
+                    size = parse_expr();
+                    expect(Token::Type::RBRACKET);
+                }
+                std::string name;
+                ir::Type index_t;
+                if (peek().type == Token::Type::IDENTIFIER) {
+                    name = get_id();
+                    expect(Token::Type::COL);
+                    index_t = parse_type();
+                    if (!index_t.is_int_or_uint()) {
+                        report_error() << "Group index type must be integer: " << name << " is labelled " << index_t;
+                    }
+                    add_type_to_frame(name, index_t, /* mutable=*/false);
+                }
+                ir::Layout inner = parse_layout();
+                if (!size.defined()) {
+                    ir::Expr isize = inner.count();
+                    if (!isize.defined() || !is_const(isize)) {
+                        report_error() << "Cannot infer size of doubly-nested dynamic-sized layout groups";
+                    }
+                    size = (count + (isize - make_one(isize.type()))) / isize;
+                }
+                return ir::Group::make(std::move(size), std::move(name), std::move(index_t), std::move(inner));
+            }
+            case Token::Type::IDENTIFIER: {
+                std::string name = get_id();
+                if (consume(Token::Type::COL)) {
+                    ir::Type type = parse_type();
+                    if (!type.is_primitive()) {
+                        report_error() << "Layout received name: " << name << " with non-primitive type: " << type;
+                    }
+                    add_type_to_frame(name, type, /* mutable=*/false);
+                    return ir::Name::make(std::move(name), std::move(type));
+                } else {
+                    expect(Token::Type::ASSIGN);
+                    // TODO: insert built-ins to frame, here or somewhere?
+                    ir::Expr expr = parse_expr();
+                    if (!expr.defined() || !expr.type().defined() || !expr.type().is_primitive()) {
+                        report_error() << "Layout received materialization of name: " << name << " with non-primitive type: " << expr;
+                    }
+                    add_type_to_frame(name, expr.type(), /* mutable=*/false);
+                    return ir::Materialize::make(std::move(name), std::move(expr));
+                }
+            }
+            case Token::Type::INT_LITERAL: {
+                const int64_t value = parse_int_literal();
+                return ir::Pad::make(value);
+            }
+            case Token::Type::SWITCH: {
+                consume();
+                std::string name = get_id();
+                expect(Token::Type::LSQUIGGLE);
+
+                std::vector<ir::Split::Arm> arms;
+                do {
+                    std::optional<int64_t> value;
+                    switch (peek().type) {
+                        case Token::Type::INT_LITERAL: {
+                            value = parse_int_literal();
+                            break;
+                        }
+                        case Token::Type::IDENTIFIER: {
+                            const std::string id = get_id();
+                            if (id != "_") {
+                                report_error() << "Unknown switch parameter id: " << id;
+                            }
+                            break;
+                        }
+                        default: {
+                            // internal_error << "Unknown switch parameter." << tokens();
+                            report_error() << "Unknown switch parameter." << peek();
+                        }
+                    }
+                    if (std::any_of(arms.begin(), arms.end(), [&](const auto& arm) { return arm.value == value; })) {
+                        report_error() << "Duplicate switch parameter: " << (value.has_value() ? std::to_string(*value) : "_");
+                    }
+                    expect(Token::Type::ASSIGN);
+                    expect(Token::Type::GT);
+                    ir::Layout inner = parse_layout();
+                    expect(Token::Type::SEMICOL);
+                    arms.push_back({std::move(value), std::move(inner)});
+                } while (!consume(Token::Type::RSQUIGGLE));
+                return ir::Split::make(std::move(name), std::move(arms));
+            }
+            default: {
+                internal_error << "TODO: " << tokens();
+            }
+        }
     }
 };
 

@@ -55,6 +55,8 @@ void Visitor::visit(const Struct_t *node) {
 
 void Visitor::visit(const Tuple_t *node) { visit_list(this, node->etypes); }
 
+void Visitor::visit(const Array_t *node) { node->etype.accept(this); }
+
 void Visitor::visit(const Option_t *node) { node->etype.accept(this); }
 
 void Visitor::visit(const Set_t *node) { node->etype.accept(this); }
@@ -215,6 +217,26 @@ void Visitor::visit(const Yield *node) { node->value.accept(this); }
 void Visitor::visit(const Scan *node) { node->value.accept(this); }
 
 void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }
+
+void Visitor::visit(const Name *node) {}
+
+void Visitor::visit(const Pad *node) {}
+
+void Visitor::visit(const Split *node) {
+    for (const auto &[_, layout] : node->arms) {
+        layout.accept(this);
+    }
+}
+
+void Visitor::visit(const Chain *node) {
+    visit_list(this, node->layouts);
+}
+
+void Visitor::visit(const Group *node) {
+    node->inner.accept(this);
+}
+
+void Visitor::visit(const Materialize *node) {}
 
 } // namespace ir
 } // namespace bonsai

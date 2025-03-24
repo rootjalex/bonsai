@@ -534,56 +534,6 @@ void CodeGen_LLVM::visit(const Tuple_t *node) {
     internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
 }
 
-void CodeGen_LLVM::visit(const Option_t *node) {
-    internal_error << "TODO: implement Option_t code generation: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const Set_t *node) {
-    internal_error << "TODO: implement Set_t code generation: " << Type(node);
-}
-
-void CodeGen_LLVM::visit(const Function_t *node) {
-    internal_error << "TODO: implement Function_t code generation: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const Generic_t *node) {
-    internal_error << "Generic types must be lowered before reaching LLVM "
-                      "codegen! Received: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const BVH_t *node) {
-    internal_error << "BVH types must be lowered before reaching LLVM "
-                      "codegen! Received: "
-                   << Type(node);
-}
-
-void CodeGen_LLVM::visit(const IEmpty *node) {
-    // TODO: this would be where the idea of a VisitorRestricted<...Args> would
-    // be really useful.
-    internal_error
-        << "Interfaces must be lowered before reaching LLVM codegen! Received: "
-        << Interface(node);
-}
-
-void CodeGen_LLVM::visit(const IFloat *node) {
-    // TODO: this would be where the idea of a VisitorRestricted<...Args> would
-    // be really useful.
-    internal_error
-        << "Interfaces must be lowered before reaching LLVM codegen! Received: "
-        << Interface(node);
-}
-
-void CodeGen_LLVM::visit(const IVector *node) {
-    // TODO: this would be where the idea of a VisitorRestricted<...Args> would
-    // be really useful.
-    internal_error
-        << "Interfaces must be lowered before reaching LLVM codegen! Received: "
-        << Interface(node);
-}
-
 void CodeGen_LLVM::visit(const IntImm *node) {
     value = llvm::ConstantInt::getSigned(codegen_type(node->type), node->value);
 }
@@ -1417,14 +1367,7 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     }
 }
 
-// default behavior is fine.
-// void CodeGen_LLVM::visit(const Sequence *node) {
-//     internal_error << "TODO: implement codegen for Sequence!";
-// }
-
 void CodeGen_LLVM::visit(const Assign *node) {
-    // internal_error << "TODO: implement codegen for assign: " << Stmt(node);
-
     llvm::Value *loc = codegen_write_loc(node->loc);
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc
                          << " in assignment: " << ir::Stmt(node);
@@ -1467,23 +1410,6 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     }
 
     builder->CreateStore(acc, loc);
-}
-
-void CodeGen_LLVM::visit(const Match *node) {
-    internal_error << "TODO: implement codegen for Match: " << ir::Stmt(node);
-}
-
-void CodeGen_LLVM::visit(const Yield *node) {
-    internal_error << "TODO: implement codegen for Yield: " << ir::Stmt(node);
-}
-
-void CodeGen_LLVM::visit(const Scan *node) {
-    internal_error << "TODO: implement codegen for Scan: " << ir::Stmt(node);
-}
-
-void CodeGen_LLVM::visit(const YieldFrom *node) {
-    internal_error << "TODO: implement codegen for YieldFrom: "
-                   << ir::Stmt(node);
 }
 
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,

@@ -14,6 +14,7 @@ struct Ptr_t;
 struct Vector_t;
 struct Struct_t;
 struct Tuple_t;
+struct Array_t;
 struct Option_t;
 struct Set_t;
 struct Function_t;
@@ -66,6 +67,14 @@ struct Match;
 struct Yield;
 struct Scan;
 struct YieldFrom;
+
+// Layouts
+struct Name;
+struct Pad;
+struct Split;
+struct Chain;
+struct Group;
+struct Materialize;
 
 } // namespace ir
 } // namespace bonsai

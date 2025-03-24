@@ -79,25 +79,10 @@ struct GatherFreeVars : public Visitor {
         }
     }
 
-    void visit(const Match *node) override {
-        internal_error << "TODO: implement GatherFreeFars for Match: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const Yield *node) override {
-        internal_error << "TODO: implement GatherFreeFars for Yield: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const Scan *node) override {
-        internal_error << "TODO: implement GatherFreeFars for Scan: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const YieldFrom *node) override {
-        internal_error << "TODO: implement GatherFreeFars for YieldFrom: "
-                       << ir::Stmt(node);
-    }
+    RESTRICT_VISITOR(Match);
+    RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Scan);
+    RESTRICT_VISITOR(YieldFrom);
 };
 
 struct AlwaysReturns : public Visitor {
@@ -146,25 +131,10 @@ struct AlwaysReturns : public Visitor {
         // node->body.accept(this);
     }
 
-    void visit(const Match *node) override {
-        internal_error << "TODO: implement AlwaysReturns for Match: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const Yield *node) override {
-        internal_error << "TODO: implement AlwaysReturns for Yield: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const Scan *node) override {
-        internal_error << "TODO: implement AlwaysReturns for Scan: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const YieldFrom *node) override {
-        internal_error << "TODO: implement AlwaysReturns for YieldFrom: "
-                       << ir::Stmt(node);
-    }
+    RESTRICT_VISITOR(Match);
+    RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Scan);
+    RESTRICT_VISITOR(YieldFrom);
 };
 
 struct ReturnType : public Visitor {
@@ -189,25 +159,10 @@ struct ReturnType : public Visitor {
         // node->body.accept(this);
     }
 
-    void visit(const Match *node) override {
-        internal_error << "TODO: implement ReturnType for Match: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const Yield *node) override {
-        internal_error << "TODO: implement ReturnType for Yield: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const Scan *node) override {
-        internal_error << "TODO: implement ReturnType for Scan: "
-                       << ir::Stmt(node);
-    }
-
-    void visit(const YieldFrom *node) override {
-        internal_error << "TODO: implement ReturnType for YieldFrom: "
-                       << ir::Stmt(node);
-    }
+    RESTRICT_VISITOR(Match);
+    RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Scan);
+    RESTRICT_VISITOR(YieldFrom);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);

@@ -82,6 +82,7 @@ target_sources(
     src/IR/Expr.cpp
     src/IR/Float16.cpp
     src/IR/Interface.cpp
+    src/IR/Layout.cpp
     src/IR/Mutator.cpp
     src/IR/Operators.cpp
     src/IR/Printer.cpp
@@ -96,6 +97,7 @@ target_sources(
     src/Lower/Generics.cpp
     src/Lower/Intrinsics.cpp
     src/Lower/Lambdas.cpp
+    src/Lower/Layouts.cpp
     src/Lower/Lower.cpp
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
@@ -135,6 +137,7 @@ target_sources(
     include/IR/IRHandle.h
     include/IR/IRNode.h
     include/IR/Interface.h
+    include/IR/Layout.h
     include/IR/Mutator.h
     include/IR/Operators.h
     include/IR/Printer.h
@@ -152,6 +155,7 @@ target_sources(
     include/Lower/Generics.h
     include/Lower/Intrinsics.h
     include/Lower/Lambdas.h
+    include/Lower/Layouts.h
     include/Lower/Lower.h
     include/Lower/Options.h
     include/Lower/Pass.h

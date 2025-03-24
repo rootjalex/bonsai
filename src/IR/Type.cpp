@@ -81,6 +81,15 @@ bool Type::is_numeric() const {
     return this->is_int_or_uint() || this->is_float();
 }
 
+
+bool Type::is_primitive() const {
+    return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t>() ||
+           (is<Vector_t>() && element_of().is_primitive()) ||
+           (is<Struct_t>() && std::all_of(as<Struct_t>()->fields.cbegin(), as<Struct_t>()->fields.cend(), [](const auto &p) { return p.second.is_primitive(); })) ||
+           (is<Tuple_t>() && std::all_of(as<Tuple_t>()->etypes.cbegin(), as<Tuple_t>()->etypes.cend(), [](const auto &p) { return p.is_primitive(); })) ||
+           (is<Array_t>() && as<Array_t>()->etype.is_primitive());
+}
+
 Type Type::to_bool() const {
     if (this->is_bool()) {
         return *this;
@@ -263,6 +272,19 @@ Type Tuple_t::make(std::vector<Type> etypes) {
         << "Tuple_t::make recieved undefined type";
     Tuple_t *node = new Tuple_t;
     node->etypes = std::move(etypes);
+    return node;
+}
+
+Type Array_t::make(Type etype, Expr size) {
+    internal_assert(etype.defined())
+        << "Array_t::make received undefined etype";
+    if (size.defined()) {
+        internal_assert(size.type().is_int_or_uint())
+            << "Array_t::make received non-integer size: " << size;
+    }
+    Array_t *node = new Array_t;
+    node->etype = std::move(etype);
+    // node->size = std::move(size);
     return node;
 }
 

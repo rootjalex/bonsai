@@ -157,8 +157,30 @@ std::ostream &operator<<(std::ostream &os, const Schedule &schedule) {
         printer.print(type);
         os << "\n";
     }
+
+    for (const auto &[name, layout] : schedule.tree_layouts) {
+        os << name << " : ";
+        printer.print(layout);
+        os << "\n";
+    }
     // TODO: the rest of the schedule.
 
+    return os;
+}
+
+std::string to_string(const Layout &layout) {
+    std::ostringstream oss;
+    oss << layout;
+    return oss.str();
+}
+
+std::ostream &operator<<(std::ostream &os, const Layout &layout) {
+    if (layout.defined()) {
+        Printer printer(os);
+        printer.print(layout);
+    } else {
+        os << "(undef-layout)";
+    }
     return os;
 }
 
@@ -228,6 +250,8 @@ void Printer::print(const WriteLoc &loc) {
     }
 }
 
+void Printer::print(const Layout &layout) { layout->accept(this); }
+
 void Printer::visit(const Void_t *node) { os << "void"; }
 
 void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
@@ -282,6 +306,13 @@ void Printer::visit(const Tuple_t *node) {
     os << "(";
     print_type_list(node->etypes);
     os << ")";
+}
+
+void Printer::visit(const Array_t *node) {
+    print(node->etype);
+    os << "[";
+    // print_no_parens(node->size);
+    os << "]";
 }
 
 void Printer::visit(const Option_t *node) {
@@ -835,6 +866,71 @@ void Printer::visit(const YieldFrom *node) {
     print_no_parens(node->value);
     os << "\n";
 }
+
+void Printer::visit(const Name *node) {
+    os << get_indent();
+    os << node->name;
+    os << " : ";
+    print(node->type);
+    os << ";\n";
+}
+
+void Printer::visit(const Pad *node) {
+    os << get_indent();
+    os << node->bits;
+    os << ";\n";
+}
+
+void Printer::visit(const Split *node) {
+    os << get_indent();
+    os << "switch " << node->field << "{\n";
+    for (const auto &[value, layout] : node->arms) {
+        os << get_indent();
+        if (value.has_value()) {
+            os << *value;
+        } else {
+            os << "_";
+        }
+        os << " =>\n";
+        indent++;
+        layout.accept(this);
+        indent--;
+    }
+    os << get_indent() << "};\n";
+}
+
+void Printer::visit(const Chain *node) {
+    os << get_indent() << "{\n";
+    indent++;
+    for (const auto &layout : node->layouts) {
+        print(layout);
+    }
+    indent--;
+    os << get_indent() << "};\n";
+}
+
+void Printer::visit(const Group *node) {
+    os << get_indent();
+    os << "group[";
+    print_no_parens(node->size);
+    os << "]";
+    if (!node->name.empty()) {
+        os << " " << node->name;
+        os << " : ";
+        print(node->index_t);
+    }
+    os << "\n";
+    print(node->inner);
+}
+
+void Printer::visit(const Materialize *node) {
+    os << get_indent();
+    os << node->name;
+    os << " = ";
+    print_no_parens(node->value);
+    os << ";\n";
+}
+
 
 } // namespace ir
 } // namespace bonsai

@@ -9,6 +9,7 @@
 
 #include <map>
 #include <string>
+#include <optional>
 
 namespace bonsai {
 namespace ir {
@@ -25,6 +26,7 @@ enum class IRTypeEnum {
     Vector_t,
     Struct_t,
     Tuple_t,
+    Array_t,
     Option_t,
     Set_t,
     Function_t,
@@ -55,7 +57,7 @@ struct Type : public IRHandle<IRTypeNode> {
     /** Make a type from a concrete type node pointer (e.g. Int_t) */
     Type(const IRTypeNode *n) : IRHandle<IRTypeNode>(n) {}
 
-    /** Override get() to return a BaseExprNode * instead of an IRNode.
+    /** Override get() to return a BaseTypeNode * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
     const BaseTypeNode *get() const { return (const BaseTypeNode *)ptr; }
 
@@ -73,6 +75,7 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_scalar() const;
     bool is_vector() const;
     bool is_numeric() const;
+    bool is_primitive() const; // basically: is LLVM-representable?
 
     // Type casts
     // Rewrites (through vectors) to boolean base.
