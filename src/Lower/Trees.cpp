@@ -25,7 +25,7 @@ std::pair<std::vector<ir::BVH_t::Param>, std::vector<ir::BVH_t::Param>>
 analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     std::vector<ir::BVH_t::Param> data, children;
     for (const auto &param : node.params) {
-        if (ir::equals(prim_t, param.type)) {
+        if (ir::equals(prim_t, param.type) || (param.type.is<ir::Array_t>() && ir::equals(prim_t, param.type.as<ir::Array_t>()->etype))) {
             data.push_back(param);
         } else if (param.type.is<ir::Ptr_t>()) {
             children.push_back(param);
@@ -395,8 +395,12 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
             // TODO: visit order should be scheduable?
             for (size_t i = 0; i < data.size(); i++) {
                 // TODO: this should be an Access!
+                // TODO: if this is an Array_t, should iterate over and then yield!
+                // need a ForAll to implement though.
                 stmts[i] = ir::Yield::make(ir::Var::make(
-                    data[i].type, as_var->name + "." + data[i].name));
+                    as_var->type.as<ir::Set_t>()->etype,
+                    // data[i].type,
+                    as_var->name + "." + data[i].name));
             }
             for (size_t j = 0; j < children.size(); j++) {
                 // Type is recursively a tree.

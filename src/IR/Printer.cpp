@@ -883,7 +883,7 @@ void Printer::visit(const Pad *node) {
 
 void Printer::visit(const Split *node) {
     os << get_indent();
-    os << "switch " << node->field << "{\n";
+    os << "switch " << node->field << " {\n";
     for (const auto &[value, layout] : node->arms) {
         os << get_indent();
         if (value.has_value()) {

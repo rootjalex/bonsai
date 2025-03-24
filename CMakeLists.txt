@@ -90,6 +90,7 @@ target_sources(
     src/IR/Stmt.cpp
     src/IR/Type.cpp
     src/IR/TypeEnforcement.cpp
+    src/IR/ValidateLayout.cpp
     src/IR/Visitor.cpp
     src/IR/WriteLoc.cpp
     src/Lower/Canonicalize.cpp
@@ -106,6 +107,7 @@ target_sources(
     src/Lower/Trees.cpp
     src/Lower/TopologicalOrder.cpp
     src/Lower/TypeInference.cpp
+    src/Lower/VerifyLayouts.cpp
     src/Lower/VerifyOptions.cpp
     src/Opt/DCE.cpp
     src/Parser/Lexer.cpp
@@ -147,6 +149,7 @@ target_sources(
     include/IR/Target.h
     include/IR/Type.h
     include/IR/TypeEnforcement.h
+    include/IR/ValidateLayout.h
     include/IR/Visitor.h
     include/IR/WriteLoc.h
     include/IntrusivePtr.h
@@ -164,6 +167,7 @@ target_sources(
     include/Lower/Trees.h
     include/Lower/TopologicalOrder.h
     include/Lower/TypeInference.h
+    include/Lower/VerifyLayouts.h
     include/Lower/VerifyOptions.h
     include/Opt/DCE.h
     include/Parser/Lexer.h

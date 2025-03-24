@@ -122,6 +122,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 return rec;
             }
         }
+
+        // TODO: compare defaults?
         return Cmp::Equals;
     }
     case IRTypeEnum::Tuple_t: {

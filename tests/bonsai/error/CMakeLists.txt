@@ -1,6 +1,8 @@
 add_bonsai_tests(
     LABELS error
     FILES
+    bad_layout_split.bonsai
+    bad_path_layout.bonsai
     f42.bonsai
     f_rec_undef.bonsai
     generic_fib.bonsai

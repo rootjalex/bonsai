@@ -98,6 +98,10 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     ir::LayoutMap tree_layouts =
         std::move(program.schedules[ir::Target::Host].tree_layouts);
 
+    if (tree_layouts.empty()) {
+        return program;
+    }
+
     for (const auto &[name, layout] : tree_layouts) {
         auto struct_ts = layout_to_structs(name, layout);
         std::cout << "Lowered layout: " << layout << " to structs:\n";
@@ -109,6 +113,7 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     }
 
     internal_error << "TODO: finish implementing layout lowering!";
+    return program;
 }
 
 } // namespace lower

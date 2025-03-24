@@ -16,6 +16,7 @@ add_bonsai_tests(
     option-nested.bonsai
     option.bonsai
     struct_defaults.bonsai
+    trace.bonsai
     trees.bonsai
     type_coercion_primitive.bonsai
 )

@@ -30,7 +30,7 @@ func collisions() = filter(|t0 t1| intersects(t0, t1), product(triangles, triang
 schedule {
     // TODO: generic over primitive types!
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : ptr, right : ptr)
+    | Interior(left : TriangleBVH, right : TriangleBVH)
     | Leaf(data : Triangle, low high : vec3f);
 
     triangles : TriangleBVH;

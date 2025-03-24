@@ -1,0 +1,32 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/IR/ValidateLayout.cpp:196
+
+--> !node_path.empty()
+No path for node: Interior in layout: {
+  pCount : u32;
+  prims : Triangle[];
+  count : u32;
+  group[count] index : u32
+  {
+    low : f32x3;
+    nPrims : u16;
+    axis : u8;
+    8;
+    high : f32x3;
+    switch nPrims {
+    0 =>
+      {
+        offset : u32;
+        left = index + (u32)1;
+      };
+    _ =>
+      {
+        pOffset : u32;
+        data = range(prims, pOffset, nPrims);
+      };
+    };
+  };
+};
+
