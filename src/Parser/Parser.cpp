@@ -1090,6 +1090,17 @@ struct Parser {
                 parse_expr_list_until(Token::Type::RPAREN);
 
             if (fields.empty()) {
+
+                // Check for built-in intrinsics first. These are not over-ridable!
+                ir::Expr intrinsic =
+                    try_match_intrinsics(name, std::move(args));
+                if (intrinsic.defined()) {
+                    if (!template_types.empty()) {
+                        report_error() << "Intrinsics do not accept template parameters: " << intrinsic;
+                    }
+                    return intrinsic;
+                }
+
                 // Checking program.funcs first means that users can override
                 // built-in functions. That could be dangerous.
                 if (program.funcs.contains(name)) {
@@ -1247,12 +1258,6 @@ struct Parser {
                     return ir::Select::make(std::move(args[0]),
                                             std::move(args[1]),
                                             std::move(args[2]));
-                }
-
-                ir::Expr intrinsic =
-                    try_match_intrinsics(name, std::move(args));
-                if (intrinsic.defined()) {
-                    return intrinsic;
                 }
 
                 // Not intrinsic or set op, not sure what this is.
