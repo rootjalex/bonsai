@@ -1092,8 +1092,7 @@ struct Parser {
             if (fields.empty()) {
 
                 // Check for built-in intrinsics first. These are not over-ridable!
-                ir::Expr intrinsic =
-                    try_match_intrinsics(name, std::move(args));
+                ir::Expr intrinsic = try_match_intrinsics(name, args);
                 if (intrinsic.defined()) {
                     if (!template_types.empty()) {
                         report_error() << "Intrinsics do not accept template parameters: " << intrinsic;
