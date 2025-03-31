@@ -88,13 +88,13 @@ bool equal_paths(const Path &p0, const Path &p1) {
 }
 
 bool valid_path(const Path &path, const BVH_t::Node &node) {
-    for (const auto &param : node.params) {
-        const auto &iter = path.find(param.name);
+    for (const auto &param : node.fields()) {
+        const auto &iter = path.find(param.first);
         if (iter == path.cend()) {
             return false;
         }
-        if (!equals(param.type, iter->second)) {
-            if (param.type.is<ir::Ptr_t>() && iter->second.is_int_or_uint() ) {
+        if (!equals(param.second, iter->second)) {
+            if (param.second.is<ir::Ref_t>() && iter->second.is_int_or_uint() ) {
                 // TODO: figure out how to validate references as indexes into groups!
                 continue;
             }
@@ -189,12 +189,12 @@ void validate_layout(const Layout &layout, const Type &bvh_t) {
         for (auto &path : paths) {
             if (!path.empty() && valid_path(path, node)) {
                 internal_assert(node_path.empty())
-                    << "Ambiguous path for node: " << node.name << " in layout: " << layout;
+                    << "Ambiguous path for node: " << node.name() << " in layout: " << layout;
                 node_path = std::move(path);
             }
         }
         internal_assert(!node_path.empty())
-            << "No path for node: " << node.name << " in layout: " << layout;
+            << "No path for node: " << node.name() << " in layout: " << layout;
     }
 
 }

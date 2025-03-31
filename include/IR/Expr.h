@@ -35,6 +35,7 @@ enum class IRExprEnum {
     // Struct ops.
     Build,
     Access,
+    Unwrap,
     // Calls
     Intrinsic,
     Lambda,
@@ -270,6 +271,16 @@ struct Access : ExprNode<Access> {
     static const IRExprEnum _node_type = IRExprEnum::Access;
 };
 
+// Reinterpret as a branch of a BVH_t
+struct Unwrap : ExprNode<Unwrap> {
+    size_t index;
+    Expr value;
+
+    static Expr make(size_t index, Expr value);
+
+    static const IRExprEnum _node_type = IRExprEnum::Unwrap;
+};
+
 struct Intrinsic : ExprNode<Intrinsic> {
     // For now, just supporting (seemingly relevant) LLVM intrinsic ops:
     // https://llvm.org/docs/LangRef.html#standard-c-c-library-intrinsics
@@ -308,16 +319,20 @@ struct Lambda : ExprNode<Lambda> {
 
 struct GeomOp : ExprNode<GeomOp> {
     enum OpType {
+        contains,
         distance, // minimum (TODO: maximum?)
         intersects,
-        contains,
         // TODO: the rest
+
+        opcount, // sentinel, do not remove!
     };
 
     OpType op;
     Expr a, b;
 
     static Expr make(OpType op, Expr a, Expr b);
+
+    static const char *intrinsic_name(const OpType &op);
 
     static const IRExprEnum _node_type = IRExprEnum::GeomOp;
 };

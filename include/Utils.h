@@ -75,4 +75,16 @@ ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
 // Whether we can convert an expression into a WriteLoc.
 bool is_writeloc(const ir::Expr &expr);
 
+inline bool is_geometric_intrinsic(const std::string &name) {
+    return (name == "contains") || (name == "distance") || (name == "intersects");
+}
+
+inline bool is_geometric_predicate(const std::string &name) {
+    return (name == "contains") || (name == "intersects");
+}
+
+inline bool is_geometric_metric(const std::string &name) {
+    return (name == "distance");
+}
+
 } // namespace bonsai

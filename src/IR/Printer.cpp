@@ -276,6 +276,10 @@ void Printer::visit(const Ptr_t *node) {
     os << "*)";
 }
 
+void Printer::visit(const Ref_t *node) {
+    os << "(const " << node->name << "&)";
+}
+
 void Printer::visit(const Vector_t *node) {
     print(node->etype);
     os << "x" << node->lanes;
@@ -345,11 +349,6 @@ void Printer::visit(const Generic_t *node) {
 }
 
 void Printer::print(const BVH_t::Node &node) {
-    const auto print_param = [&](const BVH_t::Param &param) {
-        os << param.name << " : ";
-        print(param.type);
-    };
-
     const auto print_volume = [&](const BVH_t::Volume &volume) {
         internal_assert(volume.struct_type.is<Struct_t>());
         os << volume.struct_type.as<Struct_t>()->name;
@@ -364,17 +363,20 @@ void Printer::print(const BVH_t::Node &node) {
         os << ")";
     };
 
-    os << node.name;
-    if (node.params.size()) {
-        os << "(";
-        for (size_t i = 0; i < node.params.size(); i++) {
-            if (i != 0) {
-                os << ", ";
-            }
-            print_param(node.params[i]);
+    const Struct_t *as_struct = node.struct_type.as<Struct_t>();
+    internal_assert(as_struct);
+
+    os << as_struct->name;
+    internal_assert(!as_struct->fields.empty());
+    os << "(";
+    for (size_t i = 0; i < as_struct->fields.size(); i++) {
+        if (i != 0) {
+            os << ", ";
         }
-        os << ")";
+        os << as_struct->fields[i].first << " : " << as_struct->fields[i].second;
     }
+    os << ")";
+
     if (node.volume.has_value()) {
         os << " with ";
         print_volume(*node.volume);
@@ -612,6 +614,13 @@ void Printer::visit(const Access *node) {
     os << "." << node->field;
 }
 
+void Printer::visit(const Unwrap *node) {
+    // TODO: parens?
+    os << "(";
+    print_no_parens(node->value);
+    os << " as " << node->type.as<Struct_t>()->name << ")";
+}
+
 std::string to_string(const Intrinsic::OpType &op) {
     switch (op) {
     case Intrinsic::abs:
@@ -660,14 +669,7 @@ void Printer::visit(const Lambda *node) {
 }
 
 std::string to_string(const GeomOp::OpType &op) {
-    switch (op) {
-    case GeomOp::distance:
-        return "distance";
-    case GeomOp::intersects:
-        return "intersects";
-    case GeomOp::contains:
-        return "contains";
-    }
+    return GeomOp::intrinsic_name(op);
 }
 
 void Printer::visit(const GeomOp *node) {
@@ -865,6 +867,17 @@ void Printer::visit(const YieldFrom *node) {
     os << "from ";
     print_no_parens(node->value);
     os << "\n";
+}
+
+void Printer::visit(const ForAll *node) {
+    os << get_indent();
+    os << "forall " << node->name << " in ";
+    print_no_parens(node->iter);
+    os << "{\n";
+    indent++;
+    print(node->body);
+    indent--;
+    os << get_indent() << "}\n";
 }
 
 void Printer::visit(const Name *node) {

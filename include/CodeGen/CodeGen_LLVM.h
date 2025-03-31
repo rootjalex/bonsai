@@ -69,6 +69,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Float_t *) override;
     virtual void visit(const ir::Bool_t *) override;
     virtual void visit(const ir::Ptr_t *) override;
+    virtual void visit(const ir::Ref_t *) override;
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Struct_t *) override;
     virtual void visit(const ir::Tuple_t *) override;
@@ -100,6 +101,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Extract *) override;
     virtual void visit(const ir::Build *) override;
     virtual void visit(const ir::Access *) override;
+    virtual void visit(const ir::Unwrap *) override;
     virtual void visit(const ir::Intrinsic *) override;
     virtual void visit(const ir::Lambda *) override;
     virtual void visit(const ir::GeomOp *) override;
@@ -120,6 +122,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Scan);
     RESTRICT_VISITOR(ir::YieldFrom);
+    RESTRICT_VISITOR(ir::ForAll);
 
   private:
     // Recursively creates IR that will print the given expression. This

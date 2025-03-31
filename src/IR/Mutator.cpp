@@ -75,6 +75,8 @@ Type Mutator::visit(const Ptr_t *node) {
     return Ptr_t::make(std::move(etype));
 }
 
+Type Mutator::visit(const Ref_t *node) { return node; }
+
 Type Mutator::visit(const Vector_t *node) {
     Type etype = mutate(node->etype);
     if (etype.same_as(node->etype)) {
@@ -166,14 +168,6 @@ Type Mutator::visit(const BVH_t *node) {
     ir::Type primitive = mutate(node->primitive);
     bool not_changed = primitive.same_as(node->primitive);
 
-    const auto visit_param = [&](const BVH_t::Param &param) {
-        Type type = mutate(param.type);
-        if (type.same_as(param.type)) {
-            return param;
-        }
-        not_changed = false;
-        return BVH_t::Param{param.name, std::move(type)};
-    };
     const auto visit_volume = [&](const std::optional<BVH_t::Volume> &volume)
         -> std::optional<BVH_t::Volume> {
         if (!volume.has_value())
@@ -187,28 +181,18 @@ Type Mutator::visit(const BVH_t *node) {
     };
     const auto visit_node = [&](const BVH_t::Node &node) {
         bool cache_changed = not_changed;
-        not_changed = true;
-        const size_t nparams = node.params.size();
-        std::vector<BVH_t::Param> params(nparams);
 
-        for (size_t i = 0; i < nparams; i++) {
-            params[i] = visit_param(node.params[i]);
-        }
+        Type struct_type = mutate(node.struct_type);
+        not_changed = struct_type.same_as(node.struct_type);
+
         std::optional<BVH_t::Volume> volume = visit_volume(node.volume);
 
         if (not_changed) {
             not_changed = cache_changed;
             return node;
         }
-        return BVH_t::Node{node.name, std::move(params), std::move(volume)};
+        return BVH_t::Node{std::move(struct_type), std::move(volume)};
     };
-
-    // const size_t nparams = node->params.size();
-    // std::vector<BVH_t::Param> params(nparams);
-
-    // for (size_t i = 0; i < nparams; i++) {
-    //     params[i] = visit_param(node->params[i]);
-    // }
 
     const size_t nnodes = node->nodes.size();
     std::vector<BVH_t::Node> nodes(nnodes);
@@ -217,16 +201,9 @@ Type Mutator::visit(const BVH_t *node) {
         nodes[i] = visit_node(node->nodes[i]);
     }
 
-    // std::optional<BVH_t::Volume> volume = visit_volume(node->volume);
-
     if (not_changed) {
         return node;
-        // } else if (volume.has_value()) {
-        //     return BVH_t::make(node->name, std::move(params),
-        //     std::move(nodes),
-        //                        *volume);
     } else {
-        // internal_assert(params.empty());
         return BVH_t::make(std::move(primitive), node->name, std::move(nodes));
     }
 }
@@ -351,6 +328,14 @@ Expr Mutator::visit(const Access *node) {
         return node;
     }
     return Access::make(node->field, std::move(value));
+}
+
+Expr Mutator::visit(const Unwrap *node) {
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return Unwrap::make(node->index, std::move(value));
 }
 
 Expr Mutator::visit(const Intrinsic *node) {
@@ -519,6 +504,15 @@ Stmt Mutator::visit(const YieldFrom *node) {
         return node;
     }
     return YieldFrom::make(std::move(value));
+}
+
+Stmt Mutator::visit(const ForAll *node) {
+    Expr iter = mutate(node->iter);
+    Stmt body = mutate(node->body);
+    if (iter.same_as(node->iter) && body.same_as(node->body)) {
+        return node;
+    }
+    return ForAll::make(node->name, std::move(iter), std::move(body));
 }
 
 } // namespace ir

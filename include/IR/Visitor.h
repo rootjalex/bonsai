@@ -13,6 +13,7 @@ struct Visitor {
     virtual void visit(const Float_t *);
     virtual void visit(const Bool_t *);
     virtual void visit(const Ptr_t *);
+    virtual void visit(const Ref_t *);
     virtual void visit(const Vector_t *);
     virtual void visit(const Struct_t *);
     virtual void visit(const Tuple_t *);
@@ -44,6 +45,7 @@ struct Visitor {
     virtual void visit(const Extract *);
     virtual void visit(const Build *);
     virtual void visit(const Access *);
+    virtual void visit(const Unwrap *);
     virtual void visit(const Intrinsic *);
     virtual void visit(const Lambda *);
     virtual void visit(const GeomOp *);
@@ -63,6 +65,7 @@ struct Visitor {
     virtual void visit(const Yield *);
     virtual void visit(const Scan *);
     virtual void visit(const YieldFrom *);
+    virtual void visit(const ForAll *);
     // Layouts
     virtual void visit(const Name *);
     virtual void visit(const Pad *);

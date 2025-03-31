@@ -96,6 +96,7 @@ target_sources(
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
     src/Lower/Generics.cpp
+    src/Lower/Geometrics.cpp
     src/Lower/Intrinsics.cpp
     src/Lower/Lambdas.cpp
     src/Lower/Layouts.cpp
@@ -156,6 +157,7 @@ target_sources(
     include/LLVMIncl.h
     include/Lower/Canonicalize.h
     include/Lower/Generics.h
+    include/Lower/Geometrics.h
     include/Lower/Intrinsics.h
     include/Lower/Lambdas.h
     include/Lower/Layouts.h

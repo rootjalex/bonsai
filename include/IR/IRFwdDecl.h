@@ -11,6 +11,7 @@ struct UInt_t;
 struct Float_t;
 struct Bool_t;
 struct Ptr_t;
+struct Ref_t;
 struct Vector_t;
 struct Struct_t;
 struct Tuple_t;
@@ -46,6 +47,7 @@ struct Ramp;
 struct Extract;
 struct Build;
 struct Access;
+struct Unwrap;
 struct Intrinsic;
 struct Lambda;
 struct GeomOp;
@@ -67,6 +69,7 @@ struct Match;
 struct Yield;
 struct Scan;
 struct YieldFrom;
+struct ForAll;
 
 // Layouts
 struct Name;

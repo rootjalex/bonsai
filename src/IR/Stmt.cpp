@@ -106,11 +106,11 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     // Make sure all match arms exist.
     const size_t n = bvh->nodes.size();
     for (size_t i = 0; i < n; i++) {
-        std::string_view name = bvh->nodes[i].name;
+        std::string_view name = bvh->nodes[i].name();
         const bool found =
             arms.cend() !=
             std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) {
-                return arm.first.name == name;
+                return arm.first.name() == name;
             });
         internal_assert(found) << "Match does not contain match arm: " << name;
     }
@@ -138,6 +138,19 @@ Stmt YieldFrom::make(Expr value) {
     internal_assert(value.defined()) << "Undefined value in YieldFrom::make";
     YieldFrom *node = new YieldFrom;
     node->value = std::move(value);
+    return node;
+}
+
+Stmt ForAll::make(std::string name, Expr iter, Stmt body) {
+    internal_assert(!name.empty()) << "Undefined name in ForAll::make";
+    internal_assert(iter.defined()) << "Undefined iterator in ForAll::make";
+    internal_assert(iter.type().is_iterable()) << "ForAll requires iterable: " << iter;
+    internal_assert(body.defined()) << "Undefined body in ForAll::make";
+    
+    ForAll *node = new ForAll;
+    node->name = std::move(name);
+    node->iter = std::move(iter);
+    node->body = std::move(body);
     return node;
 }
 

@@ -29,6 +29,7 @@ enum class IRStmtEnum {
     Yield,
     Scan,
     YieldFrom,
+    ForAll,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -182,6 +183,17 @@ struct YieldFrom : StmtNode<YieldFrom> {
     static Stmt make(Expr value);
 
     static const IRStmtEnum _node_type = IRStmtEnum::YieldFrom;
+};
+
+// TODO: generalize this and implement lowering / scheduling!
+struct ForAll : StmtNode<ForAll> {
+    std::string name;
+    Expr iter; // array or vector
+    Stmt body;
+
+    static Stmt make(std::string name, Expr iter, Stmt body);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::ForAll;
 };
 
 } // namespace ir

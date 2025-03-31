@@ -1,3 +1,5 @@
+//! flags: -p canonicalize -p lower-trees
+
 element Float = f32;
 element vec3f = vector[Float, 3];
 
@@ -31,7 +33,7 @@ schedule {
     // TODO: generic over primitive types!
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH)
-    | Leaf(data : Triangle, low high : vec3f);
+    | Leaf(data : Triangle);
 
     triangles : TriangleBVH;
     triangles2 : TriangleBVH;

@@ -23,6 +23,7 @@ enum class IRTypeEnum {
     Float_t,
     Bool_t,
     Ptr_t,
+    Ref_t,
     Vector_t,
     Struct_t,
     Tuple_t,
@@ -76,6 +77,7 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_vector() const;
     bool is_numeric() const;
     bool is_primitive() const; // basically: is LLVM-representable?
+    bool is_iterable() const;
 
     // Type casts
     // Rewrites (through vectors) to boolean base.
@@ -168,6 +170,14 @@ struct Ptr_t : TypeNode<Ptr_t> {
     static const IRTypeEnum _node_type = IRTypeEnum::Ptr_t;
 };
 
+struct Ref_t : TypeNode<Ref_t> {
+    std::string name;
+
+    static Type make(std::string name);
+
+    static const IRTypeEnum _node_type = IRTypeEnum::Ref_t;
+};
+
 struct Vector_t : TypeNode<Vector_t> {
     Type etype;
     uint32_t lanes;
@@ -181,7 +191,8 @@ struct Struct_t : TypeNode<Struct_t> {
     // intentionally ordered.
     // TODO: re-implement an unordered version (for the front-end):
     // UnorderedStruct_t
-    using Map = std::vector<std::pair<std::string, Type>>;
+    using Field = std::pair<std::string, Type>;
+    using Map = std::vector<Field>;
     using DefMap = std::map<std::string, Expr>;
     std::string name;
     Map fields;
@@ -237,22 +248,20 @@ struct Generic_t : TypeNode<Generic_t> {
 
 // An ADT with Volume information, representing a bounding volume hierarchy.
 struct BVH_t : TypeNode<BVH_t> {
-    // Params are field values, either per Node or per BVH type.
-    struct Param {
-        std::string name;
-        Type type;
-    };
     // A type that should be treated as a bounding volume,
     // initialized with Params.
     struct Volume {
         Type struct_type;
         std::vector<std::string> initializers;
     };
-    //
+    // A Node is a Struct_t of typed fields with an optional bounding volume.
     struct Node {
-        std::string name;
-        std::vector<Param> params;
+        Type struct_type;
         std::optional<Volume> volume;
+
+        // Useful helper functions.
+        const std::string &name() const { return struct_type.as<Struct_t>()->name; }
+        const Struct_t::Map &fields() const { return struct_type.as<Struct_t>()->fields; }
     };
 
     ir::Type primitive;
@@ -270,7 +279,7 @@ struct BVH_t : TypeNode<BVH_t> {
                      std::vector<Node> nodes);
     // All nodes share the same volume type unless otherwise specified.
     static Type make(ir::Type primitive, std::string name,
-                     std::vector<Param> params, std::vector<Node> nodes,
+                     const std::vector<Struct_t::Field> &globals, std::vector<Node> nodes,
                      Volume volume);
 
     static const IRTypeEnum _node_type = IRTypeEnum::BVH_t;

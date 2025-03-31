@@ -1,0 +1,55 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Point = struct Point{ data : f32x3 }
+type PointBVH = (const PointBVH&)
+type vec3f = f32x3
+
+extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high)
+
+func ?traverse0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  match points{
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+    if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      scan (points as Interior).left
+    } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      from (points as Interior).left
+    }
+    if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      scan (points as Interior).right
+    } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      from (points as Interior).right
+    }
+  | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
+    if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+      yield (points as Leaf).data
+    } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+      if (contains_AABB_Point(r, (points as Leaf).data)) {
+        yield (points as Leaf).data
+      }
+    }
+  }
+}
+
+func contains_AABB_AABB(a : AABB, b : AABB) -> bool {
+  return reduce<all>((a.low <= b.low) && (b.high <= a.high))
+}
+
+func contains_AABB_Point(r : AABB, p : Point) -> bool {
+  return reduce<all>((r.low <= p.data) && (p.data <= r.high))
+}
+
+func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
+  let low = max(a.low, b.low) in
+  let high = min(a.high, b.high) in
+  return reduce<all>(low <= high)
+}
+
+func query(r : AABB) -> set<Point> {
+  return ?traverse0(r, points)
+}
+
+
+schedule host{
+}

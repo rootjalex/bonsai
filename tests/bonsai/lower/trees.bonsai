@@ -14,7 +14,7 @@ extern tris : set[Triangle];
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH)
-    | Leaf(data : Triangle, low high : vec3f);
+    | Leaf(data : Triangle);
 
     tree[[Triangle]] TriangleBVH1 =
     | Interior(left : TriangleBVH1, right : TriangleBVH1, low high : vec3f) with AABB(low, high)

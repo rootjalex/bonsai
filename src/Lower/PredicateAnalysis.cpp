@@ -112,6 +112,11 @@ struct PredicateAnalysis : public ir::Visitor {
                        << ir::Expr(node);
     }
 
+    void visit(const ir::Unwrap *node) override {
+        internal_error << "TODO: implement predicate analysis on Unwrap: "
+                       << ir::Expr(node);
+    }
+
     void visit(const ir::Intrinsic *node) override {
         internal_error << "TODO: implement predicate analysis on Intrinsic: "
                        << ir::Expr(node);
@@ -169,6 +174,24 @@ struct PredicateAnalysis : public ir::Visitor {
             interval.max = ir::Expr();
 
             return;
+        }
+        case ir::GeomOp::contains: {
+            if (!a_varying) {
+                // If a contains b's volume, a definitely contains b
+                interval.min = ir::contains(node->a, *b_vol);
+                // if a intersects b's volume, a could contain b.
+                interval.max = ir::intersects(node->a, *b_vol);
+                return;
+            } else if (!b_varying) {
+                // If a's volume fully contains b, could be true
+                interval.max = ir::contains(*a_vol, node->b);
+                // otherwise, can't be true, because there is some space b
+                // exists that a does not.
+                return;
+            } else {
+                // Both varying!
+                // TODO: figure this out.
+            }
         }
         default: {
             internal_error << "TODO: predicate analysis for: "

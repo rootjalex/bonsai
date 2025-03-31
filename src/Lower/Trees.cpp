@@ -20,17 +20,24 @@ namespace lower {
 
 namespace {
 
+static size_t counter = 0;
+
+std::string unique_iter_name() {
+    return "?iter" + std::to_string(counter++);
+}
+
 // returns has_data, has_children
-std::pair<std::vector<ir::BVH_t::Param>, std::vector<ir::BVH_t::Param>>
+std::pair<std::vector<ir::Struct_t::Field>, std::vector<ir::Struct_t::Field>>
 analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
-    std::vector<ir::BVH_t::Param> data, children;
-    for (const auto &param : node.params) {
-        if (ir::equals(prim_t, param.type) || (param.type.is<ir::Array_t>() && ir::equals(prim_t, param.type.as<ir::Array_t>()->etype))) {
+    std::vector<ir::Struct_t::Field> data, children;
+    for (const auto &param : node.fields()) {
+        if (ir::equals(prim_t, param.second) || (param.second.is<ir::Array_t>() && ir::equals(prim_t, param.second.as<ir::Array_t>()->etype))) {
             data.push_back(param);
-        } else if (param.type.is<ir::Ptr_t>()) {
+        } else if (param.second.is<ir::Ref_t>()) { // TODO: and is ref to current tree type?
             children.push_back(param);
         }
     }
+
     return {data, children};
 }
 
@@ -44,12 +51,15 @@ struct Rewriter : public ir::Mutator {
         const size_t n = node->arms.size();
         ir::Match::Arms new_arms(n);
         for (size_t i = 0; i < n; i++) {
+            ir::Expr tree = ir::Unwrap::make(i, node->loc);
             if (node->arms[i].first.volume.has_value()) {
-                // TODO: this needs to have special lowering later!
-                // TODO: this should be an Access!
-                ir::Expr vol =
-                    ir::Var::make(node->arms[i].first.volume->struct_type,
-                                  var->name + ".volume");
+                const size_t n_args = node->arms[i].first.volume->initializers.size();
+                std::vector<ir::Expr> args(n_args);
+                for (size_t j = 0; j < n_args; j++) {
+                    const auto &name = node->arms[i].first.volume->initializers[j];
+                    args[j] = ir::Access::make(name, tree);
+                }
+                ir::Expr vol = ir::Build::make(node->arms[i].first.volume->struct_type, args);
                 volumes.emplace_back(std::move(vol));
             } else {
                 volumes.emplace_back(); // undef volume
@@ -385,28 +395,32 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
         const ir::BVH_t *bvh = tree.as<ir::BVH_t>();
         internal_assert(bvh);
 
+        ir::Expr bvh_expr = ir::Var::make(tree, as_var->name);
+
         const size_t n_nodes = bvh->nodes.size();
         ir::Match::Arms arms(n_nodes);
         for (size_t i = 0; i < n_nodes; i++) {
+            ir::Expr node = ir::Unwrap::make(i, bvh_expr);
             const auto [data, children] =
                 analyze_node(bvh->nodes[i], as_var->type.element_of());
 
             std::vector<ir::Stmt> stmts(data.size() + children.size());
             // TODO: visit order should be scheduable?
             for (size_t i = 0; i < data.size(); i++) {
-                // TODO: this should be an Access!
-                // TODO: if this is an Array_t, should iterate over and then yield!
-                // need a ForAll to implement though.
-                stmts[i] = ir::Yield::make(ir::Var::make(
-                    as_var->type.as<ir::Set_t>()->etype,
-                    // data[i].type,
-                    as_var->name + "." + data[i].name));
+                ir::Expr access = ir::Access::make(data[i].first, node);
+                if (data[i].second.is_iterable()) {
+                    // forall d in data: yield d
+                    std::string name = unique_iter_name();
+                    ir::Stmt body = ir::Yield::make(ir::Var::make(data[i].second.element_of(), name));
+                    stmts[i] = ir::ForAll::make(std::move(name), std::move(access), std::move(body));
+                } else {
+                    // yield d
+                    stmts[i] = ir::Yield::make(std::move(access));
+                }
             }
             for (size_t j = 0; j < children.size(); j++) {
                 // Type is recursively a tree.
-                // TODO: this should be an Access!
-                stmts[data.size() + j] = ir::Scan::make(
-                    ir::Var::make(tree, as_var->name + "." + children[j].name));
+                stmts[data.size() + j] = ir::Scan::make(ir::Access::make(children[j].first, node));
             }
 
             arms[i].first = bvh->nodes[i];

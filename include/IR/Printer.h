@@ -73,6 +73,7 @@ struct Printer : public Visitor {
     void visit(const Float_t *) override;
     void visit(const Bool_t *) override;
     void visit(const Ptr_t *) override;
+    void visit(const Ref_t *) override;
     void visit(const Vector_t *) override;
     void visit(const Struct_t *) override;
     void visit(const Tuple_t *) override;
@@ -107,6 +108,7 @@ struct Printer : public Visitor {
     void visit(const Extract *) override;
     void visit(const Build *) override;
     void visit(const Access *) override;
+    void visit(const Unwrap *) override;
     void visit(const Intrinsic *) override;
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;
@@ -126,6 +128,7 @@ struct Printer : public Visitor {
     void visit(const Yield *) override;
     void visit(const Scan *) override;
     void visit(const YieldFrom *) override;
+    void visit(const ForAll *) override;
     // Layouts
     void visit(const Name *) override;
     void visit(const Pad *) override;

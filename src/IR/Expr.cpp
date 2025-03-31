@@ -695,6 +695,21 @@ Expr Access::make(std::string field, Expr value) {
     return node;
 }
 
+Expr Unwrap::make(size_t index, Expr value) {
+    internal_assert(value.defined() && value.type().is<BVH_t>()) << "Bad Unwrap parameters: " << value;
+    internal_assert(index < value.type().as<BVH_t>()->nodes.size()) << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
+
+    Unwrap *node = new Unwrap;
+
+    Type type = value.type().as<BVH_t>()->nodes[index].struct_type;
+    internal_assert(type.defined());
+
+    node->type = std::move(type);
+    node->index = index;
+    node->value = std::move(value);
+    return node;
+}
+
 Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     internal_assert(!args.empty() &&
                     std::all_of(args.cbegin(), args.cend(),
@@ -795,6 +810,23 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
     node->a = std::move(a);
     node->b = std::move(b);
     return node;
+}
+
+namespace {
+
+const char *const geometric_op_names[] = {
+    "contains",
+    "distance",
+    "intersects",
+};
+
+static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) == GeomOp::opcount,
+              "geometric_op_names needs attention");
+
+}  // namespace
+
+const char *GeomOp::intrinsic_name(const OpType &op) {
+    return geometric_op_names[op];
 }
 
 Expr SetOp::make(OpType op, Expr a, Expr b) {
