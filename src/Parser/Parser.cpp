@@ -512,7 +512,7 @@ struct Parser {
             if (!ret_type.defined() && expr.type().defined()) {
                 ret_type = expr.type();
             } else {
-                if (!ir::equals(ret_type, expr.type())) {
+                if (!(ir::equals(ret_type, expr.type()) || (ret_type.is<ir::Option_t>() && ir::equals(ret_type.as<ir::Option_t>()->etype, expr.type())))) {
                     report_error() << "Mismatching types: " << ret_type << " versus " << expr.type();
                 }
             }
@@ -524,7 +524,7 @@ struct Parser {
             if (!ret_type.defined() && body_type.defined()) {
                 ret_type = std::move(body_type);
             } else if (ret_type.defined() && body_type.defined()) {
-                if (!ir::equals(ret_type, body_type)) {
+                if (!(ir::equals(ret_type, body_type) || (ret_type.is<ir::Option_t>() && ir::equals(ret_type.as<ir::Option_t>()->etype, body_type)))) {
                     report_error() << "Mismatching types: " << ret_type << " versus " << body_type;
                 }
             }

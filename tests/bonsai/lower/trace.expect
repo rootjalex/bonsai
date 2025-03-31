@@ -1,7 +1,36 @@
+Lowered layout: {
+  pCount : u32;
+  prims : Triangle[];
+  count : u32;
+  group[count] index : u32
+  {
+    low : f32x3;
+    nPrims : u16;
+    axis : u8;
+    8;
+    high : f32x3;
+    switch nPrims {
+    0 =>
+      {
+        offset : u32;
+        left = index + (u32)1;
+        right = index + offset;
+      };
+    _ =>
+      {
+        pOffset : u32;
+        data = range(prims, pOffset, nPrims);
+      };
+    };
+  };
+};
+ to structs:
+struct ?triangles_index_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; ?split_nPrims0 : u8x4 }
+
+struct ?triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[]; count : u32; triangles_index : struct ?triangles_index_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; ?split_nPrims0 : u8x4 }[] }
+
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Lower/Geometrics.cpp:42
-
---> func != funcs.cend()
-Lowering needs an implementation of: intersects with types: Ray and AABB
+[internal] Error: src/Lower/Layouts.cpp:115
+TODO: finish implementing layout lowering!
