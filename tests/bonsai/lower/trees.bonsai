@@ -13,11 +13,11 @@ extern tris : set[Triangle];
 
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : ptr, right : ptr)
-    | Leaf(data : Triangle, low high : vec3f);
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : Triangle);
 
     tree[[Triangle]] TriangleBVH1 =
-    | Interior(left : ptr, right : ptr, low high : vec3f) with AABB(low, high)
+    | Interior(left : TriangleBVH1, right : TriangleBVH1, low high : vec3f) with AABB(low, high)
     | Leaf(data : Triangle, low high : vec3f);
 
     tris : TriangleBVH;

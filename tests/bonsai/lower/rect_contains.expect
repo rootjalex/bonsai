@@ -1,0 +1,41 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Point = struct Point{ data : f32x3 }
+type PointBVH = (const PointBVH&)
+type vec3f = f32x3
+
+extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : struct Point{ data : f32x3 }) with AABB(low, high)
+
+func ?traverse0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  match points{
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+    if (contains(r, points.volume)) {
+      scan points.left
+    } else if (intersects(r, points.volume)) {
+      from points.left
+    }
+    if (contains(r, points.volume)) {
+      scan points.right
+    } else if (intersects(r, points.volume)) {
+      from points.right
+    }
+  | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
+    if (contains(r, points.volume)) {
+      yield points.data
+    } else if (intersects(r, points.volume)) {
+      if (contains(r, points.data)) {
+        yield points.data
+      }
+    }
+  }
+}
+
+func query(r : AABB) -> set<Point> {
+  return ?traverse0(r, points)
+}
+
+
+schedule host{
+}
