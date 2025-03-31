@@ -69,6 +69,7 @@ struct Printer : public Visitor {
     void visit(const Float_t *) override;
     void visit(const Bool_t *) override;
     void visit(const Ptr_t *) override;
+    void visit(const Ref_t *) override;
     void visit(const Vector_t *) override;
     void visit(const Struct_t *) override;
     void visit(const Tuple_t *) override;

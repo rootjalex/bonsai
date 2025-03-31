@@ -27,7 +27,7 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     for (const auto &param : node.params) {
         if (ir::equals(prim_t, param.type)) {
             data.push_back(param);
-        } else if (param.type.is<ir::Ptr_t>()) {
+        } else if (param.type.is<ir::Ref_t>()) {
             children.push_back(param);
         }
     }

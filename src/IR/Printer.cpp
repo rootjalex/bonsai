@@ -252,6 +252,10 @@ void Printer::visit(const Ptr_t *node) {
     os << "*)";
 }
 
+void Printer::visit(const Ref_t *node) {
+    os << "(const " << node->name << "&)";
+}
+
 void Printer::visit(const Vector_t *node) {
     print(node->etype);
     os << "x" << node->lanes;

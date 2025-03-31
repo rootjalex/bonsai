@@ -214,6 +214,13 @@ Type Ptr_t::make(Type etype) {
     return node;
 }
 
+Type Ref_t::make(std::string name) {
+    internal_assert(!name.empty()) << "Ref_t::make received empty name";
+    Ref_t *node = new Ref_t;
+    node->name = std::move(name);
+    return node;
+}
+
 Type Vector_t::make(Type etype, uint32_t lanes) {
     internal_assert(etype.defined())
         << "Vector_t::make received undefined etype";

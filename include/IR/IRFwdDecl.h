@@ -11,6 +11,7 @@ struct UInt_t;
 struct Float_t;
 struct Bool_t;
 struct Ptr_t;
+struct Ref_t;
 struct Vector_t;
 struct Struct_t;
 struct Tuple_t;

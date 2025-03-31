@@ -22,6 +22,7 @@ enum class IRTypeEnum {
     Float_t,
     Bool_t,
     Ptr_t,
+    Ref_t,
     Vector_t,
     Struct_t,
     Tuple_t,
@@ -163,6 +164,14 @@ struct Ptr_t : TypeNode<Ptr_t> {
     static Type make(Type etype);
 
     static const IRTypeEnum _node_type = IRTypeEnum::Ptr_t;
+};
+
+struct Ref_t : TypeNode<Ref_t> {
+    std::string name;
+
+    static Type make(std::string name);
+
+    static const IRTypeEnum _node_type = IRTypeEnum::Ref_t;
 };
 
 struct Vector_t : TypeNode<Vector_t> {

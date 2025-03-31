@@ -515,6 +515,13 @@ void CodeGen_LLVM::visit(const Ptr_t *node) {
     type = etype->getPointerTo();
 }
 
+void CodeGen_LLVM::visit(const Ref_t *node) {
+    internal_error << "Figure out LLVM code generation for reference: "<< ir::Type(node);
+    // llvm::Type *etype = codegen_type(node->etype);
+    // type = etype->getPointerTo();
+}
+
+
 void CodeGen_LLVM::visit(const Vector_t *node) {
     llvm::Type *etype = codegen_type(node->etype);
     internal_assert(!etype->isVoidTy())

@@ -13,6 +13,7 @@ struct Visitor {
     virtual void visit(const Float_t *);
     virtual void visit(const Bool_t *);
     virtual void visit(const Ptr_t *);
+    virtual void visit(const Ref_t *);
     virtual void visit(const Vector_t *);
     virtual void visit(const Struct_t *);
     virtual void visit(const Tuple_t *);

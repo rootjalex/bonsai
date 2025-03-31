@@ -1609,14 +1609,8 @@ struct Parser {
         expect(Token::Type::ASSIGN);
         expect(Token::Type::BAR);
 
-        if (program.types.contains("ptr")) {
-            report_error() << "Shadowed type `ptr` conflicts with tree def: "
-                           << parent.name;
-        }
-
-        // Empty struct type name for now.
-        program.types["ptr"] =
-            ir::Ptr_t::make(ir::Struct_t::make(parent.name, {}));
+        // Empty reference for now.
+        program.types[parent.name] = ir::Ref_t::make(parent.name);
 
         std::vector<ir::BVH_t::Node> nodes;
 
@@ -1639,9 +1633,6 @@ struct Parser {
             type = ir::BVH_t::make(std::move(primitive), parent.name,
                                    std::move(nodes));
         }
-
-        // TODO: should we replace all Ptr_t with correct base type?
-        program.types.erase("ptr");
 
         return type;
     }

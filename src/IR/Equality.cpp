@@ -90,6 +90,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Ptr_t: {
         return compare_types(t0.as<Ptr_t>()->etype, t1.as<Ptr_t>()->etype);
     }
+    case IRTypeEnum::Ref_t: {
+        return compare_primitives(t0.as<Ref_t>()->name, t1.as<Ref_t>()->name);
+    }
     case IRTypeEnum::Vector_t: {
         const Vector_t *v0 = t0.as<Vector_t>();
         const Vector_t *v1 = t1.as<Vector_t>();
