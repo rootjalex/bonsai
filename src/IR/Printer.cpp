@@ -638,14 +638,7 @@ void Printer::visit(const Lambda *node) {
 }
 
 std::string to_string(const GeomOp::OpType &op) {
-    switch (op) {
-    case GeomOp::distance:
-        return "distance";
-    case GeomOp::intersects:
-        return "intersects";
-    case GeomOp::contains:
-        return "contains";
-    }
+    return GeomOp::intrinsic_name(op);
 }
 
 void Printer::visit(const GeomOp *node) {

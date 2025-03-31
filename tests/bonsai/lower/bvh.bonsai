@@ -1,3 +1,5 @@
+//! flags: -p canonicalize -p lower-trees
+
 element Float = f32;
 element vec3f = vector[Float, 3];
 

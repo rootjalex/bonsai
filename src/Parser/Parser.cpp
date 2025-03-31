@@ -477,18 +477,6 @@ struct Parser {
         return interfaces;
     }
 
-    bool is_geometric_intrinsic(const std::string &name) {
-        return (name == "contains") || (name == "distance") || (name == "intersects");
-    }
-
-    bool is_geometric_predicate(const std::string &name) {
-        return (name == "contains") || (name == "intersects");
-    }
-
-    bool is_geometric_metric(const std::string &name) {
-        return (name == "distance");
-    }
-
     void parse_geometric_intrinsic(const std::string &name) {
         // TODO: support generics for geometric intrinsics.
         new_frame();

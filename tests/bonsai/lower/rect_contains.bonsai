@@ -9,9 +9,19 @@ element Point {
     data : vec3f;
 }
 
-// func contains(r : AABB, p : Point) -> bool {
-//     return all(p.data >= r.low && p.data <= r.high);
-// }
+func contains(r : AABB, p : Point) -> bool {
+    return all(p.data >= r.low && p.data <= r.high);
+}
+
+func contains(a : AABB, b : AABB) -> bool {
+    return all(a.low <= b.low && a.high >= b.high);
+}
+
+func intersects(a : AABB, b : AABB) -> bool {
+    low = max(a.low, b.low);
+    high = min(a.high, b.high);
+    return all(low <= high);
+}
 
 extern points : set[Point];
 

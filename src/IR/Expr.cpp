@@ -812,6 +812,23 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
     return node;
 }
 
+namespace {
+
+const char *const geometric_op_names[] = {
+    "contains",
+    "distance",
+    "intersects",
+};
+
+static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) == GeomOp::opcount,
+              "geometric_op_names needs attention");
+
+}  // namespace
+
+const char *GeomOp::intrinsic_name(const OpType &op) {
+    return geometric_op_names[op];
+}
+
 Expr SetOp::make(OpType op, Expr a, Expr b) {
     internal_assert(a.defined() && b.defined())
         << "SetOp::make received undefined value: " << to_string(op) << " " << a

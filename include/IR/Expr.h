@@ -319,16 +319,20 @@ struct Lambda : ExprNode<Lambda> {
 
 struct GeomOp : ExprNode<GeomOp> {
     enum OpType {
+        contains,
         distance, // minimum (TODO: maximum?)
         intersects,
-        contains,
         // TODO: the rest
+
+        opcount, // sentinel, do not remove!
     };
 
     OpType op;
     Expr a, b;
 
     static Expr make(OpType op, Expr a, Expr b);
+
+    static const char *intrinsic_name(const OpType &op);
 
     static const IRExprEnum _node_type = IRExprEnum::GeomOp;
 };
