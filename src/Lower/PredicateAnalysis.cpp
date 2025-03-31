@@ -180,7 +180,8 @@ struct PredicateAnalysis : public ir::Visitor {
             } else if (!b_varying) {
                 // If a's volume fully contains b, could be true
                 interval.max = ir::contains(*a_vol, node->b);
-                // otherwise, can't be true, because there is some space b exists that a does not.
+                // otherwise, can't be true, because there is some space b
+                // exists that a does not.
                 return;
             } else {
                 // Both varying!

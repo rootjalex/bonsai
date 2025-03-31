@@ -75,9 +75,7 @@ Type Mutator::visit(const Ptr_t *node) {
     return Ptr_t::make(std::move(etype));
 }
 
-Type Mutator::visit(const Ref_t *node) {
-    return node;
-}
+Type Mutator::visit(const Ref_t *node) { return node; }
 
 Type Mutator::visit(const Vector_t *node) {
     Type etype = mutate(node->etype);
