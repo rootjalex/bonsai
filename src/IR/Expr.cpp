@@ -696,8 +696,10 @@ Expr Access::make(std::string field, Expr value) {
 }
 
 Expr Unwrap::make(size_t index, Expr value) {
-    internal_assert(value.defined() && value.type().is<BVH_t>()) << "Bad Unwrap parameters: " << value;
-    internal_assert(index < value.type().as<BVH_t>()->nodes.size()) << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
+    internal_assert(value.defined() && value.type().is<BVH_t>())
+        << "Bad Unwrap parameters: " << value;
+    internal_assert(index < value.type().as<BVH_t>()->nodes.size())
+        << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 
     Unwrap *node = new Unwrap;
 
@@ -820,10 +822,11 @@ const char *const geometric_op_names[] = {
     "intersects",
 };
 
-static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) == GeomOp::opcount,
+static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) ==
+                  GeomOp::opcount,
               "geometric_op_names needs attention");
 
-}  // namespace
+} // namespace
 
 const char *GeomOp::intrinsic_name(const OpType &op) {
     return geometric_op_names[op];

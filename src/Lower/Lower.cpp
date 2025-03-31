@@ -63,7 +63,6 @@ PassManager register_passes() {
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
-    
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).

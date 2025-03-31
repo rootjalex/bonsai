@@ -381,7 +381,6 @@ struct Instantiate : ExprNode<Instantiate> {
 
 // TODO: ??? Load, (?)Let
 
-
 // TODO: this can't go in Type.h because Expr is an incomplete type there...
 struct Array_t : TypeNode<Array_t> {
     Type etype;
@@ -391,7 +390,6 @@ struct Array_t : TypeNode<Array_t> {
 
     static const IRTypeEnum _node_type = IRTypeEnum::Array_t;
 };
-
 
 } // namespace ir
 

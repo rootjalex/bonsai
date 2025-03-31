@@ -81,18 +81,21 @@ bool Type::is_numeric() const {
     return this->is_int_or_uint() || this->is_float();
 }
 
-
 bool Type::is_primitive() const {
     return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t>() ||
            (is<Vector_t>() && element_of().is_primitive()) ||
-           (is<Struct_t>() && std::all_of(as<Struct_t>()->fields.cbegin(), as<Struct_t>()->fields.cend(), [](const auto &p) { return p.second.is_primitive(); })) ||
-           (is<Tuple_t>() && std::all_of(as<Tuple_t>()->etypes.cbegin(), as<Tuple_t>()->etypes.cend(), [](const auto &p) { return p.is_primitive(); })) ||
+           (is<Struct_t>() &&
+            std::all_of(
+                as<Struct_t>()->fields.cbegin(), as<Struct_t>()->fields.cend(),
+                [](const auto &p) { return p.second.is_primitive(); })) ||
+           (is<Tuple_t>() &&
+            std::all_of(as<Tuple_t>()->etypes.cbegin(),
+                        as<Tuple_t>()->etypes.cend(),
+                        [](const auto &p) { return p.is_primitive(); })) ||
            (is<Array_t>() && as<Array_t>()->etype.is_primitive());
 }
 
-bool Type::is_iterable() const {
-    return is<Vector_t, Array_t>();
-}
+bool Type::is_iterable() const { return is<Vector_t, Array_t>(); }
 
 Type Type::to_bool() const {
     if (this->is_bool()) {
@@ -353,9 +356,9 @@ bool validate_volume(const BVH_t::Volume &volume,
     for (size_t i = 0; i < fields.size(); i++) {
         const std::string &name = volume.initializers[i];
 
-        auto it =
-            std::find_if(params.begin(), params.end(),
-                         [&](const Struct_t::Field &p) { return p.first == name; });
+        auto it = std::find_if(
+            params.begin(), params.end(),
+            [&](const Struct_t::Field &p) { return p.first == name; });
 
         if (it == params.end()) {
             return false;
@@ -426,8 +429,7 @@ Type BVH_t::make(ir::Type primitive, std::string name,
             nodes[i].volume = volume;
         }
 
-        internal_assert(
-            validate_volume(*nodes[i].volume, nodes[i].fields()))
+        internal_assert(validate_volume(*nodes[i].volume, nodes[i].fields()))
             << "Failed to validate node " << i << " of " << name;
     }
 

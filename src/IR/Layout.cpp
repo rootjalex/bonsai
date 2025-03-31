@@ -10,35 +10,35 @@ namespace ir {
 
 uint64_t Layout::bits() const {
     switch (node_type()) {
-        case IRLayoutEnum::Name: {
-            return as<Name>()->type.bits();
+    case IRLayoutEnum::Name: {
+        return as<Name>()->type.bits();
+    }
+    case IRLayoutEnum::Pad: {
+        return as<Pad>()->bits;
+    }
+    case IRLayoutEnum::Split: {
+        uint64_t bits = 0;
+        for (const auto &arm : as<Split>()->arms) {
+            bits = std::max(bits, arm.layout.bits());
         }
-        case IRLayoutEnum::Pad: {
-            return as<Pad>()->bits;
+        return bits;
+    }
+    case IRLayoutEnum::Chain: {
+        uint64_t bits = 0;
+        for (const auto &l : as<Chain>()->layouts) {
+            bits += l.bits();
         }
-        case IRLayoutEnum::Split: {
-            uint64_t bits = 0;
-            for (const auto &arm : as<Split>()->arms) {
-                bits = std::max(bits, arm.layout.bits());
-            }
-            return bits;
-        }
-        case IRLayoutEnum::Chain: {
-            uint64_t bits = 0;
-            for (const auto &l : as<Chain>()->layouts) {
-                bits += l.bits();
-            }
-            return bits;
-        }
-        case IRLayoutEnum::Group: {
-            const Group *node = as<Group>();
-            internal_assert(!node->size.defined() || !is_const(node->size))
-                << "TODO: should a constant-sized group be inlined? " << *this;
-            return 64; // pointer
-        }
-        case IRLayoutEnum::Materialize: {
-            return 0; // computed field, not stored.
-        }
+        return bits;
+    }
+    case IRLayoutEnum::Group: {
+        const Group *node = as<Group>();
+        internal_assert(!node->size.defined() || !is_const(node->size))
+            << "TODO: should a constant-sized group be inlined? " << *this;
+        return 64; // pointer
+    }
+    case IRLayoutEnum::Materialize: {
+        return 0; // computed field, not stored.
+    }
     }
     internal_error << "TODO: Layout::bits()";
 }
@@ -65,9 +65,12 @@ Layout Pad::make(uint32_t bits) {
 }
 
 Layout Name::make(std::string name, Type type) {
-    internal_assert(!name.empty()) << "empty name in Name::make with Type: " << type;
-    internal_assert(type.defined()) << "Undefined type in Name::make with name: " << name;
-    internal_assert(type.is_primitive()) << "Non-primitive type in Name::make: " << type;
+    internal_assert(!name.empty())
+        << "empty name in Name::make with Type: " << type;
+    internal_assert(type.defined())
+        << "Undefined type in Name::make with name: " << name;
+    internal_assert(type.is_primitive())
+        << "Non-primitive type in Name::make: " << type;
 
     Name *node = new Name;
     node->name = std::move(name);
@@ -86,7 +89,8 @@ Layout Name::make(std::string name, Type type) {
 
 Layout Split::make(std::string field, std::vector<Split::Arm> arms) {
     internal_assert(!field.empty()) << "empty field in Split::make";
-    internal_assert(!arms.empty()) << "empty arms in Split::make for field: " << field;
+    internal_assert(!arms.empty())
+        << "empty arms in Split::make for field: " << field;
 
     Split *node = new Split;
     node->field = std::move(field);
@@ -105,10 +109,15 @@ Layout Chain::make(std::vector<Layout> layouts) {
 }
 
 Layout Group::make(Expr size, std::string name, Type index_t, Layout inner) {
-    internal_assert(size.defined()) << "Cannot make Group with undefined size, named: " << name;
-    // Groups can have no label, name can be empty and index_t can be undefined (default: u32).
-    internal_assert(name.empty() != index_t.defined()) << "Cannot have name without index_t and vice versa: " << name << " : " << index_t;
-    internal_assert(inner.defined()) << "Cannot make Group with undefined inner, named: " << name;
+    internal_assert(size.defined())
+        << "Cannot make Group with undefined size, named: " << name;
+    // Groups can have no label, name can be empty and index_t can be undefined
+    // (default: u32).
+    internal_assert(name.empty() != index_t.defined())
+        << "Cannot have name without index_t and vice versa: " << name << " : "
+        << index_t;
+    internal_assert(inner.defined())
+        << "Cannot make Group with undefined inner, named: " << name;
 
     Group *node = new Group;
     node->size = std::move(size);
@@ -120,7 +129,8 @@ Layout Group::make(Expr size, std::string name, Type index_t, Layout inner) {
 
 Layout Materialize::make(std::string name, Expr value) {
     internal_assert(!name.empty()) << "Materialize::make received empty name";
-    internal_assert(value.defined()) << "Materialize::make received undefined value for name: " << name;
+    internal_assert(value.defined())
+        << "Materialize::make received undefined value for name: " << name;
 
     Materialize *node = new Materialize;
     node->name = std::move(name);

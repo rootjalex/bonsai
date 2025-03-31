@@ -74,12 +74,11 @@ struct Mutator {
     virtual Stmt visit(const ForAll *);
 };
 
-#define RESTRICT_MUTATOR(IRType, IRNODE)                                  \
-    IRType visit(const IRNODE *) final {                                  \
-        internal_error << "Restricted Mutator class does not handle: "    \
-                       << typeid(IRNODE).name();                          \
+#define RESTRICT_MUTATOR(IRType, IRNODE)                                       \
+    IRType visit(const IRNODE *) final {                                       \
+        internal_error << "Restricted Mutator class does not handle: "         \
+                       << typeid(IRNODE).name();                               \
     }
-
 
 } // namespace ir
 } // namespace bonsai

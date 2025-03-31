@@ -22,18 +22,19 @@ namespace {
 
 static size_t counter = 0;
 
-std::string unique_iter_name() {
-    return "?iter" + std::to_string(counter++);
-}
+std::string unique_iter_name() { return "?iter" + std::to_string(counter++); }
 
 // returns has_data, has_children
 std::pair<std::vector<ir::Struct_t::Field>, std::vector<ir::Struct_t::Field>>
 analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     std::vector<ir::Struct_t::Field> data, children;
     for (const auto &param : node.fields()) {
-        if (ir::equals(prim_t, param.second) || (param.second.is<ir::Array_t>() && ir::equals(prim_t, param.second.as<ir::Array_t>()->etype))) {
+        if (ir::equals(prim_t, param.second) ||
+            (param.second.is<ir::Array_t>() &&
+             ir::equals(prim_t, param.second.as<ir::Array_t>()->etype))) {
             data.push_back(param);
-        } else if (param.second.is<ir::Ref_t>()) { // TODO: and is ref to current tree type?
+        } else if (param.second.is<ir::Ref_t>()) { // TODO: and is ref to
+                                                   // current tree type?
             children.push_back(param);
         }
     }
@@ -53,13 +54,16 @@ struct Rewriter : public ir::Mutator {
         for (size_t i = 0; i < n; i++) {
             ir::Expr tree = ir::Unwrap::make(i, node->loc);
             if (node->arms[i].first.volume.has_value()) {
-                const size_t n_args = node->arms[i].first.volume->initializers.size();
+                const size_t n_args =
+                    node->arms[i].first.volume->initializers.size();
                 std::vector<ir::Expr> args(n_args);
                 for (size_t j = 0; j < n_args; j++) {
-                    const auto &name = node->arms[i].first.volume->initializers[j];
+                    const auto &name =
+                        node->arms[i].first.volume->initializers[j];
                     args[j] = ir::Access::make(name, tree);
                 }
-                ir::Expr vol = ir::Build::make(node->arms[i].first.volume->struct_type, args);
+                ir::Expr vol = ir::Build::make(
+                    node->arms[i].first.volume->struct_type, args);
                 volumes.emplace_back(std::move(vol));
             } else {
                 volumes.emplace_back(); // undef volume
@@ -411,8 +415,10 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
                 if (data[i].second.is_iterable()) {
                     // forall d in data: yield d
                     std::string name = unique_iter_name();
-                    ir::Stmt body = ir::Yield::make(ir::Var::make(data[i].second.element_of(), name));
-                    stmts[i] = ir::ForAll::make(std::move(name), std::move(access), std::move(body));
+                    ir::Stmt body = ir::Yield::make(
+                        ir::Var::make(data[i].second.element_of(), name));
+                    stmts[i] = ir::ForAll::make(
+                        std::move(name), std::move(access), std::move(body));
                 } else {
                     // yield d
                     stmts[i] = ir::Yield::make(std::move(access));
@@ -420,7 +426,8 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
             }
             for (size_t j = 0; j < children.size(); j++) {
                 // Type is recursively a tree.
-                stmts[data.size() + j] = ir::Scan::make(ir::Access::make(children[j].first, node));
+                stmts[data.size() + j] =
+                    ir::Scan::make(ir::Access::make(children[j].first, node));
             }
 
             arms[i].first = bvh->nodes[i];

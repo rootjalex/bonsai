@@ -1224,9 +1224,8 @@ void CodeGen_LLVM::visit(const Access *node) {
 }
 
 void CodeGen_LLVM::visit(const Unwrap *node) {
-    internal_error
-        << "Unwrap should have been lowered before CodeGen_LLVM "
-        << Expr(node);
+    internal_error << "Unwrap should have been lowered before CodeGen_LLVM "
+                   << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Return *node) {

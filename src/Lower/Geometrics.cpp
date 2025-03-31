@@ -31,7 +31,8 @@ struct LowerGeomOps : public Mutator {
 
         // TODO: break this out of Parser.cpp so we don't
         // have to keep track of two versions of this.
-        const std::string name = GeomOp::intrinsic_name(node->op); // reused below.
+        const std::string name =
+            GeomOp::intrinsic_name(node->op); // reused below.
         std::string typed_name = name;
         internal_assert(a.type().is<Struct_t>());
         typed_name += "_" + a.type().as<Struct_t>()->name;
@@ -45,9 +46,9 @@ struct LowerGeomOps : public Mutator {
 
         // Above shouldn't be possible without this.
         const auto &arg_types = func->second->args;
-        internal_assert((arg_types.size() == 2)
-                        && equals(arg_types[0].type, a.type())
-                        && equals(arg_types[1].type, b.type()));
+        internal_assert((arg_types.size() == 2) &&
+                        equals(arg_types[0].type, a.type()) &&
+                        equals(arg_types[1].type, b.type()));
 
         internal_assert(func->second->interfaces.empty()); // TODO: ?
 
@@ -78,9 +79,9 @@ FuncMap LowerGeometrics::run(FuncMap funcs) const {
     // TODO: what happens with nested geometric ops...?
     for (const auto &[f, func] : funcs) {
         Stmt body = lowerer.mutate(func->body);
-        new_funcs[f] = std::make_shared<Function>(
-            func->name, func->args, func->ret_type, std::move(body),
-            func->interfaces);
+        new_funcs[f] =
+            std::make_shared<Function>(func->name, func->args, func->ret_type,
+                                       std::move(body), func->interfaces);
     }
     return new_funcs;
 }

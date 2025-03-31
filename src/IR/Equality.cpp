@@ -234,7 +234,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         for (size_t i = 0; i < n; i++) {
             const auto &node0 = b0->nodes[i];
             const auto &node1 = b1->nodes[i];
-            if (const Cmp rec = compare_types(node0.struct_type, node1.struct_type); rec != Cmp::Equals) {
+            if (const Cmp rec =
+                    compare_types(node0.struct_type, node1.struct_type);
+                rec != Cmp::Equals) {
                 return rec;
             }
 

@@ -76,7 +76,8 @@ ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
 bool is_writeloc(const ir::Expr &expr);
 
 inline bool is_geometric_intrinsic(const std::string &name) {
-    return (name == "contains") || (name == "distance") || (name == "intersects");
+    return (name == "contains") || (name == "distance") ||
+           (name == "intersects");
 }
 
 inline bool is_geometric_predicate(const std::string &name) {

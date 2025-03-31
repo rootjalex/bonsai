@@ -8,8 +8,8 @@
 #include "Visitor.h"
 
 #include <map>
-#include <string>
 #include <optional>
+#include <string>
 
 namespace bonsai {
 namespace ir {
@@ -260,8 +260,12 @@ struct BVH_t : TypeNode<BVH_t> {
         std::optional<Volume> volume;
 
         // Useful helper functions.
-        const std::string &name() const { return struct_type.as<Struct_t>()->name; }
-        const Struct_t::Map &fields() const { return struct_type.as<Struct_t>()->fields; }
+        const std::string &name() const {
+            return struct_type.as<Struct_t>()->name;
+        }
+        const Struct_t::Map &fields() const {
+            return struct_type.as<Struct_t>()->fields;
+        }
     };
 
     ir::Type primitive;
@@ -279,8 +283,8 @@ struct BVH_t : TypeNode<BVH_t> {
                      std::vector<Node> nodes);
     // All nodes share the same volume type unless otherwise specified.
     static Type make(ir::Type primitive, std::string name,
-                     const std::vector<Struct_t::Field> &globals, std::vector<Node> nodes,
-                     Volume volume);
+                     const std::vector<Struct_t::Field> &globals,
+                     std::vector<Node> nodes, Volume volume);
 
     static const IRTypeEnum _node_type = IRTypeEnum::BVH_t;
 };

@@ -21,8 +21,10 @@ std::vector<Path> get_paths(const Layout &layout) {
 
         void visit(const Name *node) override {
             for (auto &path : paths) {
-                const auto [_, inserted] = path.try_emplace(node->name, node->type);
-                internal_assert(inserted); // TODO: descriptive error message of duplicate field in path.
+                const auto [_, inserted] =
+                    path.try_emplace(node->name, node->type);
+                internal_assert(inserted); // TODO: descriptive error message of
+                                           // duplicate field in path.
             }
         }
 
@@ -45,8 +47,11 @@ std::vector<Path> get_paths(const Layout &layout) {
                     for (const auto &np : new_paths) {
                         Path together = op;
                         for (const auto &[name, type] : np) {
-                            const auto [_, inserted] = together.try_emplace(name, type);
-                            internal_assert(inserted); // TODO: descriptive error message of duplicate field in path.
+                            const auto [_, inserted] =
+                                together.try_emplace(name, type);
+                            internal_assert(
+                                inserted); // TODO: descriptive error message of
+                                           // duplicate field in path.
                         }
                         split_paths.emplace_back(std::move(together));
                     }
@@ -61,8 +66,10 @@ std::vector<Path> get_paths(const Layout &layout) {
 
         void visit(const Materialize *node) override {
             for (auto &path : paths) {
-                const auto [_, inserted] = path.try_emplace(node->name, node->value.type());
-                internal_assert(inserted); // TODO: descriptive error message of duplicate field in path.
+                const auto [_, inserted] =
+                    path.try_emplace(node->name, node->value.type());
+                internal_assert(inserted); // TODO: descriptive error message of
+                                           // duplicate field in path.
             }
         }
     };
@@ -82,7 +89,9 @@ bool equal_paths(const Path &p0, const Path &p1) {
         if (iter == p1.cend()) {
             return false;
         }
-        internal_assert(equals(type, iter->second)); // TODO: error message for paths with same names but mismatching types?
+        internal_assert(
+            equals(type, iter->second)); // TODO: error message for paths with
+                                         // same names but mismatching types?
     }
     return true;
 }
@@ -94,8 +103,9 @@ bool valid_path(const Path &path, const BVH_t::Node &node) {
             return false;
         }
         if (!equals(param.second, iter->second)) {
-            if (param.second.is<ir::Ref_t>() && iter->second.is_int_or_uint() ) {
-                // TODO: figure out how to validate references as indexes into groups!
+            if (param.second.is<ir::Ref_t>() && iter->second.is_int_or_uint()) {
+                // TODO: figure out how to validate references as indexes into
+                // groups!
                 continue;
             }
             return false;
@@ -127,11 +137,15 @@ struct ValidateSplits : public Visitor {
         TypeMap parent = defined;
         for (const auto &layout : node->layouts) {
             if (const Name *name = layout.as<Name>()) {
-                const auto [_, inserted] = defined.try_emplace(name->name, name->type);
-                internal_assert(inserted) << "Name: " << name->name << " is duplicated in layout";
+                const auto [_, inserted] =
+                    defined.try_emplace(name->name, name->type);
+                internal_assert(inserted)
+                    << "Name: " << name->name << " is duplicated in layout";
             } else if (const Materialize *mat = layout.as<Materialize>()) {
-                const auto [_, inserted] = defined.try_emplace(mat->name, mat->value.type());
-                internal_assert(inserted) << "Name: " << name->name << " is duplicated in layout";
+                const auto [_, inserted] =
+                    defined.try_emplace(mat->name, mat->value.type());
+                internal_assert(inserted)
+                    << "Name: " << name->name << " is duplicated in layout";
             }
         }
 
@@ -154,7 +168,8 @@ void validate_splits(const Layout &layout) {
 
 void validate_layout(const Layout &layout, const Type &bvh_t) {
     internal_assert(layout.defined() && bvh_t.defined())
-        << "Cannot validate with undefined layout or bvh_t: " << layout << "\n" << bvh_t;
+        << "Cannot validate with undefined layout or bvh_t: " << layout << "\n"
+        << bvh_t;
     const BVH_t *bvh_node = bvh_t.as<BVH_t>();
     internal_assert(bvh_node)
         << "Cannot validate layout of non-BVH_t: " << bvh_t;
@@ -171,15 +186,19 @@ void validate_layout(const Layout &layout, const Type &bvh_t) {
     //     std::cout << "}\n";
     // }
     internal_assert(paths.size() == bvh_node->nodes.size())
-        << "Layout: " << layout << "\nhas " << paths.size() << " paths. BVH type: " << bvh_t << "\nhas " << bvh_node->nodes.size() << " node options.";
+        << "Layout: " << layout << "\nhas " << paths.size()
+        << " paths. BVH type: " << bvh_t << "\nhas " << bvh_node->nodes.size()
+        << " node options.";
 
     // Check paths are unique.
-    // TODO: must be a faster way than n^2, but n is small (probably) so this is fine for now.
+    // TODO: must be a faster way than n^2, but n is small (probably) so this is
+    // fine for now.
     for (size_t i = 0; i < paths.size(); i++) {
         const Path &pi = paths[i];
         for (size_t j = i + 1; j < paths.size(); j++) {
             const Path &pj = paths[j];
-            internal_assert(!equal_paths(pi, pj)); // TODO: error message for equal paths?
+            internal_assert(
+                !equal_paths(pi, pj)); // TODO: error message for equal paths?
         }
     }
 
@@ -189,14 +208,14 @@ void validate_layout(const Layout &layout, const Type &bvh_t) {
         for (auto &path : paths) {
             if (!path.empty() && valid_path(path, node)) {
                 internal_assert(node_path.empty())
-                    << "Ambiguous path for node: " << node.name() << " in layout: " << layout;
+                    << "Ambiguous path for node: " << node.name()
+                    << " in layout: " << layout;
                 node_path = std::move(path);
             }
         }
         internal_assert(!node_path.empty())
             << "No path for node: " << node.name() << " in layout: " << layout;
     }
-
 }
 
 } // namespace ir

@@ -96,7 +96,7 @@ struct Split : LayoutNode<Split> {
 
     static Layout make(std::string field, std::vector<Arm> arms);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Split;  
+    static const IRLayoutEnum _node_type = IRLayoutEnum::Split;
 };
 
 struct Chain : LayoutNode<Chain> {
@@ -127,13 +127,13 @@ struct Materialize : LayoutNode<Materialize> {
     static const IRLayoutEnum _node_type = IRLayoutEnum::Materialize;
 };
 
-
 using LayoutMap = std::map<std::string, Layout>;
 
 } // namespace ir
 
 template <>
-inline RefCount &ref_count<ir::IRLayoutNode>(const ir::IRLayoutNode *t) noexcept {
+inline RefCount &
+ref_count<ir::IRLayoutNode>(const ir::IRLayoutNode *t) noexcept {
     return t->ref_count;
 }
 

@@ -235,13 +235,9 @@ void Visitor::visit(const Split *node) {
     }
 }
 
-void Visitor::visit(const Chain *node) {
-    visit_list(this, node->layouts);
-}
+void Visitor::visit(const Chain *node) { visit_list(this, node->layouts); }
 
-void Visitor::visit(const Group *node) {
-    node->inner.accept(this);
-}
+void Visitor::visit(const Group *node) { node->inner.accept(this); }
 
 void Visitor::visit(const Materialize *node) {}
 

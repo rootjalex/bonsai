@@ -373,7 +373,8 @@ void Printer::print(const BVH_t::Node &node) {
         if (i != 0) {
             os << ", ";
         }
-        os << as_struct->fields[i].first << " : " << as_struct->fields[i].second;
+        os << as_struct->fields[i].first << " : "
+           << as_struct->fields[i].second;
     }
     os << ")";
 
@@ -943,7 +944,6 @@ void Printer::visit(const Materialize *node) {
     print_no_parens(node->value);
     os << ";\n";
 }
-
 
 } // namespace ir
 } // namespace bonsai
