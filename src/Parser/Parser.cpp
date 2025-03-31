@@ -412,38 +412,8 @@ struct Parser {
         program.externs.emplace_back(name, std::move(type));
     }
 
-    void parse_function() {
-        expect(Token::Type::FUNC);
-        const std::string name = get_id();
-        if (program.funcs.contains(name)) {
-            report_error() << "Redefinition of func: " << name;
-        }
-
-        ir::Function::InterfaceList interfaces;
-        if (consume(Token::Type::LT)) {
-            // Parse generics.
-            internal_assert(current_generics.empty())
-                << "Nested generics in definition of: " << name;
-
-            do {
-                const std::string iname = get_id();
-                internal_assert(!current_generics.contains(iname))
-                    << "Duplicate interface name: " << iname
-                    << " in definition of func: " << name;
-                ir::Interface interface = consume(Token::Type::COL).has_value()
-                                              ? parse_interface()
-                                              : ir::IEmpty::make();
-                interfaces.emplace_back(iname, interface);
-                current_generics[iname] =
-                    ir::Generic_t::make(iname, std::move(interface));
-
-            } while (consume(Token::Type::COMMA));
-            expect(Token::Type::GT);
-        }
-
+    std::vector<ir::Function::Argument> parse_func_args() {
         expect(Token::Type::LPAREN);
-
-        new_frame();
         std::vector<ir::Function::Argument> args;
         if (peek().type != Token::Type::RPAREN) {
             // parse arg list
@@ -464,11 +434,9 @@ struct Parser {
                     // TODO: this should not perform computation!
                     // Can we easily prevent that? Enforce is_constant?
                     default_value = parse_expr();
-                    internal_assert(ir::is_constant_expr(default_value))
-                        << "Function default values must be constants, "
-                           "received: "
-                        << default_value << " for argument " << arg_name
-                        << " of func " << name;
+                    if (!ir::is_constant_expr(default_value)) {
+                        report_error() << "Function default values must be constants";
+                    }
                 }
 
                 add_type_to_frame(arg_name, type,
@@ -479,6 +447,132 @@ struct Parser {
             } while (consume(Token::Type::COMMA));
         }
         expect(Token::Type::RPAREN);
+        return args;
+    }
+
+    ir::Function::InterfaceList parse_func_interfaces() {
+        ir::Function::InterfaceList interfaces;
+        if (consume(Token::Type::LT)) {
+            // Parse generics.
+            if (!current_generics.empty()) {
+                report_error() << "Nested generics.";
+            }
+
+            do {
+                const std::string iname = get_id();
+                if (current_generics.contains(iname)) {
+                    report_error() << "Duplicate interface name.";
+                }
+                ir::Interface interface = consume(Token::Type::COL).has_value()
+                                              ? parse_interface()
+                                              : ir::IEmpty::make();
+                interfaces.emplace_back(iname, interface);
+                current_generics[iname] =
+                    ir::Generic_t::make(iname, std::move(interface));
+
+            } while (consume(Token::Type::COMMA));
+            expect(Token::Type::GT);
+        }
+        return interfaces;
+    }
+
+    bool is_geometric_intrinsic(const std::string &name) {
+        return (name == "contains") || (name == "distance") || (name == "intersects");
+    }
+
+    bool is_geometric_predicate(const std::string &name) {
+        return (name == "contains") || (name == "intersects");
+    }
+
+    bool is_geometric_metric(const std::string &name) {
+        return (name == "distance");
+    }
+
+    void parse_geometric_intrinsic(const std::string &name) {
+        // TODO: support generics for geometric intrinsics.
+        new_frame();
+        std::vector<ir::Function::Argument> args = parse_func_args();
+
+        // Build a unique identifier, because all function names are unique.
+        std::string typed_name = name;
+
+        for (const auto &arg : args) {
+            if (!arg.type.is<ir::Struct_t>()) {
+                report_error() << "Geometric primitives only operator on elements, instead received: " << arg.name << " : " << arg.type;
+            }
+            typed_name += "_" + arg.type.as<ir::Struct_t>()->name;
+        }
+
+        ir::Type ret_type;
+        if (consume(Token::Type::RARROW)) {
+            ret_type = parse_type();
+        }
+
+        // Do *NOT* support recursive geometric intrinsics.
+        // These are hard (if not impossible) to optimize.
+
+        ir::Stmt body;
+
+        // TODO: the syntax of -> type = expr is ugly, maybe disallow, and just
+        // do inference?
+
+        if (consume(Token::Type::ASSIGN)) {
+            ir::Expr expr = parse_expr();
+            if (!ret_type.defined() && expr.type().defined()) {
+                ret_type = expr.type();
+            } else {
+                if (!ir::equals(ret_type, expr.type())) {
+                    report_error() << "Mismatching types: " << ret_type << " versus " << expr.type();
+                }
+            }
+            expect(Token::Type::SEMICOL);
+            body = ir::Return::make(expr);
+        } else {
+            body = parse_sequence();
+            ir::Type body_type = ir::get_return_type(body);
+            if (!ret_type.defined() && body_type.defined()) {
+                ret_type = std::move(body_type);
+            } else if (ret_type.defined() && body_type.defined()) {
+                if (!ir::equals(ret_type, body_type)) {
+                    report_error() << "Mismatching types: " << ret_type << " versus " << body_type;
+                }
+            }
+        }
+
+        if (!ret_type.defined()) {
+            report_error() << "Unknown return type for geometric predicate is not allowed";
+        }
+
+        if (is_geometric_predicate(name) && !ret_type.is<ir::Bool_t, ir::Option_t>()) {
+            report_error() << "Geometric predicates must return a truth-y value, instead returns type: " << ret_type;
+        } else if (is_geometric_metric(name) && !ret_type.is_numeric()) {
+            report_error() << "Geometric metrics must return a Real-y value, instead returns type: " << ret_type;
+        }
+
+        end_frame();
+
+        auto func = std::make_shared<ir::Function>(typed_name, std::move(args), std::move(ret_type), std::move(body), ir::Function::InterfaceList{});
+        
+        auto [_, inserted] = program.funcs.try_emplace(std::move(typed_name), std::move(func));
+        if (!inserted) {
+            report_error() << "Duplicate geometric func detected, of name: " << typed_name;
+        }
+    }
+
+    void parse_function() {
+        expect(Token::Type::FUNC);
+        const std::string name = get_id();
+        if (is_geometric_intrinsic(name)) {
+            return parse_geometric_intrinsic(name); // special case.
+        }
+
+        if (program.funcs.contains(name)) {
+            report_error() << "Redefinition of func: " << name;
+        }
+
+        ir::Function::InterfaceList interfaces = parse_func_interfaces();
+        new_frame();
+        std::vector<ir::Function::Argument> args = parse_func_args();
 
         // Optional RARROW with return_type: otherwise, requires type inference!
         ir::Type ret_type;
