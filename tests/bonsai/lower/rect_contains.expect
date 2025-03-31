@@ -6,27 +6,27 @@ type vec3f = f32x3
 
 extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
-  | Leaf(low : f32x3, high : f32x3, data : struct Point{ data : f32x3 }) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high)
 
 func ?traverse0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
   match points{
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
-    if (contains(r, points.volume)) {
-      scan points.left
-    } else if (intersects(r, points.volume)) {
-      from points.left
+    if (contains(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      scan (points as Interior).left
+    } else if (intersects(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      from (points as Interior).left
     }
-    if (contains(r, points.volume)) {
-      scan points.right
-    } else if (intersects(r, points.volume)) {
-      from points.right
+    if (contains(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      scan (points as Interior).right
+    } else if (intersects(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+      from (points as Interior).right
     }
   | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
-    if (contains(r, points.volume)) {
-      yield points.data
-    } else if (intersects(r, points.volume)) {
-      if (contains(r, points.data)) {
-        yield points.data
+    if (contains(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+      yield (points as Leaf).data
+    } else if (intersects(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+      if (contains(r, (points as Leaf).data)) {
+        yield (points as Leaf).data
       }
     }
   }

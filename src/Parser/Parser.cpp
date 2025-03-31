@@ -15,6 +15,7 @@
 #include <set>
 #include <span>
 #include <sstream>
+#include <tuple>
 
 #include "Error.h"
 #include "Utils.h"
@@ -1723,16 +1724,16 @@ struct Parser {
         ir::Type primitive = parse_type();
         expect(Token::Type::RBRACKET);
         expect(Token::Type::RBRACKET);
-        ir::BVH_t::Node parent = parse_node();
+        auto [name, params, volume] = parse_node();
 
-        if (program.types.contains(parent.name)) {
-            report_error() << "Tree named: " << parent.name
+        if (program.types.contains(name)) {
+            report_error() << "Tree named: " << name
                            << " conflicts with existing type: "
-                           << program.types[parent.name];
+                           << program.types[name];
         }
 
-        if (parent.volume.has_value() != !parent.params.empty()) {
-            report_error() << "Parsing of tree " << parent.name
+        if (volume.has_value() != !params.empty()) {
+            report_error() << "Parsing of tree " << name
                            << " has incompatible volume and params";
         }
 
@@ -1740,12 +1741,14 @@ struct Parser {
         expect(Token::Type::BAR);
 
         // Empty reference for now.
-        program.types[parent.name] = ir::Ref_t::make(parent.name);
+        program.types[name] = ir::Ref_t::make(name);
 
         std::vector<ir::BVH_t::Node> nodes;
 
         do {
-            ir::BVH_t::Node node = parse_node();
+            auto [nname, nparams, nvolume] = parse_node();
+            ir::Type struct_type = ir::Struct_t::make(std::move(nname), std::move(nparams));
+            ir::BVH_t::Node node{std::move(struct_type), std::move(nvolume)};
             nodes.emplace_back(std::move(node));
         } while (consume(Token::Type::BAR));
 
@@ -1755,12 +1758,12 @@ struct Parser {
         // parent.params or node.params BVH_t::make asserts this. we should
         // catch that failure, and report a backtrace.
         ir::Type type;
-        if (parent.volume.has_value()) {
-            type = ir::BVH_t::make(std::move(primitive), parent.name,
-                                   std::move(parent.params), std::move(nodes),
-                                   std::move(*parent.volume));
+        if (volume.has_value()) {
+            type = ir::BVH_t::make(std::move(primitive), std::move(name),
+                                   std::move(params), std::move(nodes),
+                                   std::move(*volume));
         } else {
-            type = ir::BVH_t::make(std::move(primitive), parent.name,
+            type = ir::BVH_t::make(std::move(primitive), std::move(name),
                                    std::move(nodes));
         }
 
@@ -1787,10 +1790,10 @@ struct Parser {
         return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
     }
 
-    ir::BVH_t::Node parse_node() {
+    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>> parse_node() {
         std::string name = get_id();
 
-        std::vector<ir::BVH_t::Param> params;
+        std::vector<ir::Struct_t::Field> params;
         std::optional<ir::BVH_t::Volume> volume;
 
         if (consume(Token::Type::LPAREN)) {
@@ -1802,15 +1805,14 @@ struct Parser {
             volume = parse_volume();
         }
 
-        return ir::BVH_t::Node{std::move(name), std::move(params),
-                               std::move(volume)};
+        return {name, params, volume};
     }
 
-    std::vector<ir::BVH_t::Param> parse_tree_params() {
+    std::vector<ir::Struct_t::Field> parse_tree_params() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
         // no mutability allowed.
-        std::vector<ir::BVH_t::Param> args;
+        std::vector<ir::Struct_t::Field> args;
         do {
             std::vector<std::string> names;
             do {

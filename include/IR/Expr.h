@@ -35,6 +35,7 @@ enum class IRExprEnum {
     // Struct ops.
     Build,
     Access,
+    Unwrap,
     // Calls
     Intrinsic,
     Lambda,
@@ -268,6 +269,16 @@ struct Access : ExprNode<Access> {
     static Expr make(std::string field, Expr value);
 
     static const IRExprEnum _node_type = IRExprEnum::Access;
+};
+
+// Reinterpret as a branch of a BVH_t
+struct Unwrap : ExprNode<Unwrap> {
+    size_t index;
+    Expr value;
+
+    static Expr make(size_t index, Expr value);
+
+    static const IRExprEnum _node_type = IRExprEnum::Unwrap;
 };
 
 struct Intrinsic : ExprNode<Intrinsic> {

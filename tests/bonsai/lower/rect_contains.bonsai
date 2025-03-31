@@ -9,6 +9,10 @@ element Point {
     data : vec3f;
 }
 
+// func contains(r : AABB, p : Point) -> bool {
+//     return all(p.data >= r.low && p.data <= r.high);
+// }
+
 extern points : set[Point];
 
 func query(r : AABB) = filter(|p| contains(r, p), points);

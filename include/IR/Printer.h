@@ -103,6 +103,7 @@ struct Printer : public Visitor {
     void visit(const Extract *) override;
     void visit(const Build *) override;
     void visit(const Access *) override;
+    void visit(const Unwrap *) override;
     void visit(const Intrinsic *) override;
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;

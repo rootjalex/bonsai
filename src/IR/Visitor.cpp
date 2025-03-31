@@ -72,11 +72,9 @@ void Visitor::visit(const BVH_t *node) {
     node->primitive.accept(this);
     // Recursively visit Volume types and Param types.
     for (const auto &subnode : node->nodes) {
+        subnode.struct_type.accept(this);
         if (subnode.volume.has_value()) {
             subnode.volume->struct_type.accept(this);
-        }
-        for (const auto &param : subnode.params) {
-            param.type.accept(this);
         }
     }
 }
@@ -139,6 +137,8 @@ void Visitor::visit(const Extract *node) {
 void Visitor::visit(const Build *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const Access *node) { node->value.accept(this); }
+
+void Visitor::visit(const Unwrap *node) { node->value.accept(this); }
 
 void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 

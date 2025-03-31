@@ -106,11 +106,11 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     // Make sure all match arms exist.
     const size_t n = bvh->nodes.size();
     for (size_t i = 0; i < n; i++) {
-        std::string_view name = bvh->nodes[i].name;
+        std::string_view name = bvh->nodes[i].name();
         const bool found =
             arms.cend() !=
             std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) {
-                return arm.first.name == name;
+                return arm.first.name() == name;
             });
         internal_assert(found) << "Match does not contain match arm: " << name;
     }

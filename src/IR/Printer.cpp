@@ -318,11 +318,6 @@ void Printer::visit(const Generic_t *node) {
 }
 
 void Printer::print(const BVH_t::Node &node) {
-    const auto print_param = [&](const BVH_t::Param &param) {
-        os << param.name << " : ";
-        print(param.type);
-    };
-
     const auto print_volume = [&](const BVH_t::Volume &volume) {
         internal_assert(volume.struct_type.is<Struct_t>());
         os << volume.struct_type.as<Struct_t>()->name;
@@ -337,17 +332,20 @@ void Printer::print(const BVH_t::Node &node) {
         os << ")";
     };
 
-    os << node.name;
-    if (node.params.size()) {
-        os << "(";
-        for (size_t i = 0; i < node.params.size(); i++) {
-            if (i != 0) {
-                os << ", ";
-            }
-            print_param(node.params[i]);
+    const Struct_t *as_struct = node.struct_type.as<Struct_t>();
+    internal_assert(as_struct);
+
+    os << as_struct->name;
+    internal_assert(!as_struct->fields.empty());
+    os << "(";
+    for (size_t i = 0; i < as_struct->fields.size(); i++) {
+        if (i != 0) {
+            os << ", ";
         }
-        os << ")";
+        os << as_struct->fields[i].first << " : " << as_struct->fields[i].second;
     }
+    os << ")";
+
     if (node.volume.has_value()) {
         os << " with ";
         print_volume(*node.volume);
@@ -583,6 +581,13 @@ void Printer::visit(const Access *node) {
     // TODO: parens?
     print(node->value);
     os << "." << node->field;
+}
+
+void Printer::visit(const Unwrap *node) {
+    // TODO: parens?
+    os << "(";
+    print_no_parens(node->value);
+    os << " as " << node->type.as<Struct_t>()->name << ")";
 }
 
 std::string to_string(const Intrinsic::OpType &op) {

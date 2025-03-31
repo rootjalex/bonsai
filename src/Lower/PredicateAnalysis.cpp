@@ -112,6 +112,11 @@ struct PredicateAnalysis : public ir::Visitor {
                        << ir::Expr(node);
     }
 
+    void visit(const ir::Unwrap *node) override {
+        internal_error << "TODO: implement predicate analysis on Unwrap: "
+                       << ir::Expr(node);
+    }
+
     void visit(const ir::Intrinsic *node) override {
         internal_error << "TODO: implement predicate analysis on Intrinsic: "
                        << ir::Expr(node);

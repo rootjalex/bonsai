@@ -46,6 +46,7 @@ struct Ramp;
 struct Extract;
 struct Build;
 struct Access;
+struct Unwrap;
 struct Intrinsic;
 struct Lambda;
 struct GeomOp;
