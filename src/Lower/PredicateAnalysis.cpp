@@ -181,17 +181,21 @@ struct PredicateAnalysis : public ir::Visitor {
                 interval.min = ir::contains(node->a, *b_vol);
                 // if a intersects b's volume, a could contain b.
                 interval.max = ir::intersects(node->a, *b_vol);
-                return;
             } else if (!b_varying) {
                 // If a's volume fully contains b, could be true
-                interval.max = ir::contains(*a_vol, node->b);
                 // otherwise, can't be true, because there is some space b
                 // exists that a does not.
-                return;
+                interval.max = ir::contains(*a_vol, node->b);
+                // No way to prove this is always true if a is varying.
+                interval.min = ir::Expr();
             } else {
-                // Both varying!
-                // TODO: figure this out.
+                // Both varying! no way to prove always true.
+                interval.min = ir::Expr();
+                // But can only be true if the volumes intersect/overlap in some way.
+                interval.max = ir::intersects(*a_vol, *b_vol);
+                
             }
+            return;
         }
         default: {
             internal_error << "TODO: predicate analysis for: "
