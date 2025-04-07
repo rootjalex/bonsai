@@ -180,9 +180,7 @@ struct LowerToForAll : public ir::Mutator {
         }
         // The only valid "yield"-like operation for arrays is ir::Yield.
         const auto *body = node->body.as<ir::Yield>();
-        if (body == nullptr) {
-            return node;
-        }
+        internal_assert(body) << "unexpected body in for-each: " << node->body;
         internal_assert(type->size.defined())
             << "for-all over an array requires a defined size, received: "
             << ir::Expr(iter) << " : " << ir::Type(type);
@@ -209,10 +207,11 @@ struct LowerToForAll : public ir::Mutator {
         ir::Stmt allocation = ir::Allocate::make(allocation_name, type);
 
         // 3. Create the bounds and stride for the for-all loop.
+        ir::Type size_type = type->size.type();
         ir::ForAll::Slice slice{
-            .begin = ir::IntImm::make(ir::Int_t::make(32), 0),
+            .begin = make_const(size_type, 0),
             .end = type->size,
-            .stride = ir::IntImm::make(ir::Int_t::make(32), 1),
+            .stride = make_const(size_type, 1),
         };
 
         // 4. Finally, construct the for-all loop. with the respective store
