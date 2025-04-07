@@ -38,6 +38,7 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
                 return ir::Yield::make(ir::Call::make(v, {node->value}));
             }
 
+            // Otherwise this is a lambda; we inline the lambda's body.
             const ir::Lambda *lambda = function.as<ir::Lambda>();
             internal_assert(lambda) << "function is not a lambda: " << function;
             const size_t n_args = lambda->args.size();
@@ -50,9 +51,9 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
                 repls[lambda->args[0].name] = node->value;
             } else {
                 internal_assert(node->value.type().is<ir::Tuple_t>());
-                for (size_t i = 0; i < n_args; i++) {
-                    // TODO: this needs to simplify or have CSE for it to be
-                    // efficient!
+                for (size_t i = 0; i < n_args; ++i) {
+                    // TODO(ajr): this needs to simplify or have CSE for it to
+                    // be efficient!
                     ir::Expr value = ir::Extract::make(node->value, i);
                     internal_assert(
                         ir::equals(value.type(), lambda->args[i].type));
@@ -60,8 +61,7 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
                 }
             }
             ir::Expr value = replace(repls, lambda->value);
-
-            return ir::Yield::make(value);
+            return ir::Yield::make(std::move(value));
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
@@ -85,12 +85,14 @@ ir::Stmt build_traversal(const ir::Expr &expr) {
     }
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
     if (as_set == nullptr) {
-        internal_error << "[unimplemented] Unknown traversal pattern: " << expr;
+        internal_error << "[unimplemented] unknown traversal pattern: " << expr;
     }
     switch (as_set->op) {
     case ir::SetOp::map:
         return build_map(build_traversal(as_set->b), as_set->a);
-    default:
+    case ir::SetOp::OpType::argmin:
+    case ir::SetOp::OpType::filter:
+    case ir::SetOp::OpType::product:
         internal_error << "[unimplemented] traversal construction: " << expr;
     }
 }
@@ -104,11 +106,12 @@ struct LowerToForEach : public ir::Mutator {
         return "?traverse" + std::to_string(counter++);
     }
 
-    ir::Expr build_func(const ir::Expr &expr) {
+    ir::Expr build_traversal_function(const ir::Expr &expr) {
         const std::string func = new_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
         ir::Stmt body = build_traversal(expr);
-        internal_assert(body.defined());
+        internal_assert(body.defined())
+            << "traversal building undefined for: " << expr;
 
         std::vector<ir::Function::Argument> func_args;
         std::transform(free_vars.cbegin(), free_vars.cend(),
@@ -138,7 +141,7 @@ struct LowerToForEach : public ir::Mutator {
         }
         switch (node->op) {
         case ir::SetOp::OpType::map:
-            return build_func(node);
+            return build_traversal_function(node);
         case ir::SetOp::OpType::argmin:
         case ir::SetOp::OpType::filter:
         case ir::SetOp::OpType::product:
@@ -179,7 +182,6 @@ struct LowerToForAll : public ir::Mutator {
         };
 
         // 1. Replace ?iterN with array[?indexN] in the body of the for-each.
-        // TODO(cgyurgyik): Add index type.
         ir::Expr iterator =
             ir::Var::make(ir::Index_t::make(), new_index_name());
         std::string iter_name = node->name;
@@ -206,9 +208,11 @@ struct LowerToForAll : public ir::Mutator {
 } // namespace
 
 ir::Program LowerArrays::run(ir::Program program) const {
-    // TODO(cgyurgyik): This is run until convergence so that nested ir::SetOp
-    // nodes are also visited. There is probably a better way to do this?
+    // 1. Lower set operations on arrays to for-each loops and yield operations.
     LowerToForEach convert_fe;
+
+    // This needs to run until convergence in order to visit set operations that
+    // are moved into the newly built traverse functions.
     int64_t before, after;
     do {
         before = program.funcs.size();
@@ -225,6 +229,7 @@ ir::Program LowerArrays::run(ir::Program program) const {
         convert_fe.new_funcs.clear(); // reset
     } while (before != after);
 
+    // 2. Lower for-each loops to concrete for-all loops.
     LowerToForAll convert_fa;
     for (auto &[_, f] : program.funcs) {
         f->body = convert_fa.mutate(f->body);
