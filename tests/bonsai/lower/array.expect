@@ -1,4 +1,4 @@
-func ?traverse0(f : Fn(i32) -> i32, fs : i32[32]) -> i32[32] {
+func ?traverse_array0(f : Fn(i32) -> i32, fs : i32[32]) -> i32[32] {
   alloc ?alloc0 : i32[32]
   forall ?index0 in [(i32)0:(i32)32:(i32)1] {
     let ?load0 = fs[?index0] in
@@ -6,7 +6,7 @@ func ?traverse0(f : Fn(i32) -> i32, fs : i32[32]) -> i32[32] {
   }
 }
 
-func ?traverse1(xs : i32[64]) -> i32[64] {
+func ?traverse_array1(xs : i32[64]) -> i32[64] {
   alloc ?alloc1 : i32[64]
   forall ?index1 in [(i32)0:(i32)64:(i32)1] {
     let ?load1 = xs[?index1] in
@@ -14,15 +14,15 @@ func ?traverse1(xs : i32[64]) -> i32[64] {
   }
 }
 
-func ?traverse2(ns : i32[32][16]) -> i32[][16] {
+func ?traverse_array2(ns : i32[32][16]) -> i32[][16] {
   alloc ?alloc2 : i32[32][16]
   forall ?index2 in [(i32)0:(i32)16:(i32)1] {
     let ?load2 = ns[?index2] in
-    ?alloc2[?index2] = ?traverse5(?load2)
+    ?alloc2[?index2] = ?traverse_array5(?load2)
   }
 }
 
-func ?traverse3(xs : i32[32]) -> i32[32] {
+func ?traverse_array3(xs : i32[32]) -> i32[32] {
   alloc ?alloc3 : i32[32]
   forall ?index3 in [(i32)0:(i32)32:(i32)1] {
     let ?load3 = xs[?index3] in
@@ -30,7 +30,7 @@ func ?traverse3(xs : i32[32]) -> i32[32] {
   }
 }
 
-func ?traverse4(ys : f32[32]) -> f32[32] {
+func ?traverse_array4(ys : f32[32]) -> f32[32] {
   alloc ?alloc4 : f32[32]
   forall ?index4 in [(i32)0:(i32)32:(i32)1] {
     let ?load4 = ys[?index4] in
@@ -38,7 +38,7 @@ func ?traverse4(ys : f32[32]) -> f32[32] {
   }
 }
 
-func ?traverse5(?it2 : i32[32]) -> i32[32] {
+func ?traverse_array5(?it2 : i32[32]) -> i32[32] {
   alloc ?alloc5 : i32[32]
   forall ?index5 in [(i32)0:(i32)32:(i32)1] {
     let ?load5 = ?it2[?index5] in
@@ -47,7 +47,7 @@ func ?traverse5(?it2 : i32[32]) -> i32[32] {
 }
 
 func apply_function(fs : i32[32]) -> i32[32] {
-  return ?traverse0(f, fs)
+  return ?traverse_array0(f, fs)
 }
 
 func f(i : i32) -> i32 {
@@ -55,19 +55,19 @@ func f(i : i32) -> i32 {
 }
 
 func fused_maps(xs : i32[64]) -> i32[64] {
-  return ?traverse1(xs)
+  return ?traverse_array1(xs)
 }
 
 func hierarchical_maps(ns : i32[32][16]) -> i32[32][16] {
-  return ?traverse2(ns)
+  return ?traverse_array2(ns)
 }
 
 func simple(xs : i32[32]) -> void {
-  return ?traverse3(xs)
+  return ?traverse_array3(xs)
 }
 
 func with_intrinsics(ys : f32[32]) -> f32[32] {
-  return ?traverse4(ys)
+  return ?traverse_array4(ys)
 }
 
 

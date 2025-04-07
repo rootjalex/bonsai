@@ -12,7 +12,7 @@ extern triangles2 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high)
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high)
 
-func ?traverse0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> set<Triangle> {
+func ?traverse_tree0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> set<Triangle> {
   match triangles{
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
@@ -30,7 +30,7 @@ func ?traverse0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> set<Tria
   }
 }
 
-func ?traverse1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree[[Triangle]] TriangleBVH) -> set<(Triangle, Triangle)> {
+func ?traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree[[Triangle]] TriangleBVH) -> set<(Triangle, Triangle)> {
   match triangles{
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
     match triangles2{
@@ -78,7 +78,7 @@ func ?traverse1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree[[Tri
   }
 }
 
-func ?traverse2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Triangle {
+func ?traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Triangle {
   ?best0 := build<(f32, Triangle)>((f32)inf, build<Triangle>())
   match triangles{
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
@@ -104,15 +104,15 @@ func ?traverse2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Triangle
 }
 
 func alltrace(ray : Ray) -> set<Triangle> {
-  return ?traverse0(ray, triangles)
+  return ?traverse_tree0(ray, triangles)
 }
 
 func collisions() -> set<(Triangle, Triangle)> {
-  return ?traverse1(triangles, triangles2)
+  return ?traverse_tree1(triangles, triangles2)
 }
 
 func trace(ray : Ray) -> Triangle {
-  return ?traverse2(ray, triangles)
+  return ?traverse_tree2(ray, triangles)
 }
 
 

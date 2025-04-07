@@ -477,7 +477,7 @@ struct LowerBVH : public ir::Mutator {
     size_t counter = 0;
 
     std::string new_func_name() {
-        return "?traverse" + std::to_string(counter++);
+        return "?traverse_tree" + std::to_string(counter++);
     }
 
     // Returns a call to the func.

@@ -86,7 +86,7 @@ struct LowerToForEach : public ir::Mutator {
     }
 
     std::string unique_func_name() {
-        return "?traverse" + std::to_string(tcounter++);
+        return "?traverse_array" + std::to_string(tcounter++);
     }
 
     ir::Stmt build_traversal(const ir::Expr &expr) {
@@ -107,7 +107,7 @@ struct LowerToForEach : public ir::Mutator {
         case ir::SetOp::OpType::argmin:
         case ir::SetOp::OpType::filter:
         case ir::SetOp::OpType::product:
-            internal_error << "[unimplemented] traversal construction: "
+            internal_error << "[unimplemented] construction on an array: "
                            << expr;
         }
     }
@@ -143,7 +143,7 @@ struct LowerToForEach : public ir::Mutator {
 
     ir::Expr visit(const ir::SetOp *node) override {
         if (!node->b.type().is<ir::Array_t>()) {
-            return node;
+            return ir::Mutator::visit(node);
         }
         switch (node->op) {
         case ir::SetOp::OpType::map:
