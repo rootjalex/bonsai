@@ -179,6 +179,7 @@ struct LowerToForAll : public ir::Mutator {
         };
 
         // 1. Replace ?iterN with array[?indexN] in the body of the for-each.
+        // TODO(cgyurgyik): Add index type.
         ir::Expr iterator =
             ir::Var::make(ir::UInt_t::make(32), new_index_name());
         std::string iter_name = node->name;
