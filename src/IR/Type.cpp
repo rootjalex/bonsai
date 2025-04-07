@@ -160,8 +160,8 @@ Type UInt_t::make(uint32_t bits) {
 }
 
 Type Index_t::make() {
-    Index_t *node = new Index_t;
-    return node;
+    static Type global_idx = new Index_t;
+    return global_idx;
 }
 
 Type Float_t::make(uint32_t exponent, uint32_t mantissa) {

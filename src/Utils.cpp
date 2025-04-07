@@ -11,7 +11,8 @@ uint64_t get_constant_value(const ir::Expr &e) {
     if (const auto *v = e.as<ir::UIntImm>()) {
         internal_assert(v->type.bits() < 64);
         return v->value;
-    } else if (const auto *v = e.as<ir::IntImm>()) {
+    }
+    if (const auto *v = e.as<ir::IntImm>()) {
         internal_assert(v->type.bits() < 64);
         return std::bit_cast<uint64_t>(v->value);
     }

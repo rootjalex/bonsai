@@ -318,8 +318,9 @@ void Printer::visit(const Tuple_t *node) {
 void Printer::visit(const Array_t *node) {
     print(node->etype);
     os << "[";
-    if (ir::Expr size = node->size; size.defined()) {
-        if (size.type().is_int_or_uint()) {
+    ir::Expr size = node->size;
+    if (size.defined()) {
+        if (is_const(size)) {
             os << std::to_string(get_constant_value(size));
         } else {
             print_no_parens(node->size);
@@ -887,7 +888,7 @@ void Printer::visit(const YieldFrom *node) {
 
 void Printer::visit(const ForEach *node) {
     os << get_indent();
-    os << "for each " << node->name << " in ";
+    os << "foreach " << node->name << " in ";
     print_no_parens(node->iter);
     os << "{\n";
     indent++;
@@ -898,7 +899,7 @@ void Printer::visit(const ForEach *node) {
 
 void Printer::visit(const ForAll *node) {
     os << get_indent();
-    os << "for all " << node->iterator << " in [";
+    os << "forall " << node->iterator << " in [";
 
     const ForAll::Slice &s = node->slice;
     print_no_parens(s.begin);

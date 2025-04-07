@@ -1,6 +1,6 @@
 func ?traverse0(f : Fn(i32) -> i32, fs : i32[32]) -> i32[32] {
   alloc ?alloc0 : i32[32]
-  for all ?index0 in [(i32)0:(i32)32:(i32)1] {
+  forall ?index0 in [(i32)0:(i32)32:(i32)1] {
     let ?load0 = fs[?index0] in
     ?alloc0[?index0] = f(?load0) + (i32)1
   }
@@ -8,7 +8,7 @@ func ?traverse0(f : Fn(i32) -> i32, fs : i32[32]) -> i32[32] {
 
 func ?traverse1(xs : i32[64]) -> i32[64] {
   alloc ?alloc1 : i32[64]
-  for all ?index1 in [(i32)0:(i32)64:(i32)1] {
+  forall ?index1 in [(i32)0:(i32)64:(i32)1] {
     let ?load1 = xs[?index1] in
     ?alloc1[?index1] = ((?load1 * (i32)2) - (i32)1) + (i32)1
   }
@@ -16,7 +16,7 @@ func ?traverse1(xs : i32[64]) -> i32[64] {
 
 func ?traverse2(ns : i32[32][16]) -> i32[][16] {
   alloc ?alloc2 : i32[32][16]
-  for all ?index2 in [(i32)0:(i32)16:(i32)1] {
+  forall ?index2 in [(i32)0:(i32)16:(i32)1] {
     let ?load2 = ns[?index2] in
     ?alloc2[?index2] = ?traverse5(?load2)
   }
@@ -24,7 +24,7 @@ func ?traverse2(ns : i32[32][16]) -> i32[][16] {
 
 func ?traverse3(xs : i32[32]) -> i32[32] {
   alloc ?alloc3 : i32[32]
-  for all ?index3 in [(i32)0:(i32)32:(i32)1] {
+  forall ?index3 in [(i32)0:(i32)32:(i32)1] {
     let ?load3 = xs[?index3] in
     ?alloc3[?index3] = ?load3 + (i32)1
   }
@@ -32,7 +32,7 @@ func ?traverse3(xs : i32[32]) -> i32[32] {
 
 func ?traverse4(ys : f32[32]) -> f32[32] {
   alloc ?alloc4 : f32[32]
-  for all ?index4 in [(i32)0:(i32)32:(i32)1] {
+  forall ?index4 in [(i32)0:(i32)32:(i32)1] {
     let ?load4 = ys[?index4] in
     ?alloc4[?index4] = sin(?load4)
   }
@@ -40,7 +40,7 @@ func ?traverse4(ys : f32[32]) -> f32[32] {
 
 func ?traverse5(?it2 : i32[32]) -> i32[32] {
   alloc ?alloc5 : i32[32]
-  for all ?index5 in [(i32)0:(i32)32:(i32)1] {
+  forall ?index5 in [(i32)0:(i32)32:(i32)1] {
     let ?load5 = ?it2[?index5] in
     ?alloc5[?index5] = ?load5 + (i32)1
   }
