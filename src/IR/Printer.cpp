@@ -317,6 +317,8 @@ void Printer::visit(const Tuple_t *node) {
 void Printer::visit(const Array_t *node) {
     print(node->etype);
     os << "[";
+    // TODO(cgyurgyik): Do we want this? IMO it definitely adds clarity when
+    // reading the code.
     if (node->size.defined()) {
         print_no_parens(node->size);
     }
