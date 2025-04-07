@@ -1,7 +1,0 @@
----CODE---
-1
----STDERR---
-[internal] Error: src/Parser/Lexer.cpp:253
-
---> program_stream.is_open()
-Error: Could not open file tests/bonsai/parsing/array.bonsai

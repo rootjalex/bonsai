@@ -155,9 +155,10 @@ Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
     return node;
 }
 
-Stmt ForAll::make(Expr iterator, Slice slice, Stmt body) {
+Stmt ForAll::make(Expr iterator, Stmt header, Slice slice, Stmt body) {
     ForAll *node = new ForAll;
     internal_assert(iterator.defined() && iterator.type().is<Index_t>());
+    internal_assert(header.defined()) << "Undefined header in ForAll::make";
     internal_assert(slice.begin.defined())
         << "Undefined Slice.begin in ForAll::make";
     internal_assert(slice.end.defined())
@@ -166,6 +167,7 @@ Stmt ForAll::make(Expr iterator, Slice slice, Stmt body) {
         << "Undefined Slice.stride in ForAll::make";
     internal_assert(body.defined()) << "Undefined body in ForAll::make";
     node->iterator = std::move(iterator);
+    node->header = std::move(header);
     node->slice = std::move(slice);
     node->body = std::move(body);
     return node;

@@ -154,12 +154,15 @@ struct LowerToForEach : public ir::Mutator {
 struct LowerToForAll : public ir::Mutator {
     int64_t acounter = 0; // unique identifier for allocations.
     int64_t icounter = 0; // unique identifier for iterator variable.
+    int64_t lcounter = 0; // unique identifier for load variable.
     std::string new_alloc_name() {
         return "?alloc" + std::to_string(acounter++);
     }
     std::string new_index_name() {
         return "?index" + std::to_string(icounter++);
     }
+
+    std::string new_load_name() { return "?load" + std::to_string(lcounter++); }
 
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iter = node->iter;
@@ -175,31 +178,47 @@ struct LowerToForAll : public ir::Mutator {
         internal_assert(type->size.defined())
             << "for-all over an array requires a defined size, received: "
             << ir::Expr(iter) << " : " << ir::Type(type);
+
+        // 1a. Replace ?iterN with array[?indexN] in the body of the for-each.
+        ir::Expr iterator =
+            ir::Var::make(ir::Index_t::make(), new_index_name());
+        std::string iter_name = node->name;
+        ir::Expr extracted = ir::Extract::make(iter, iterator);
+
+        // 1b. Create the for-all header.
+        std::string load_name = new_load_name();
+        ir::WriteLoc header_loc(load_name, extracted.type());
+        ir::Expr header_var =
+            ir::Var::make(header_loc.base_type, header_loc.base);
+        ir::Stmt header = ir::LetStmt::make(std::move(header_loc), extracted);
+
+        std::map<std::string, ir::Expr> replacements = {
+            {iter_name, header_var}};
+        ir::Expr value = replace(replacements, body->value);
+
+        // 2. Create the newly allocated memory.
+        std::string alloc_name = new_alloc_name();
+        ir::WriteLoc alloc_loc(alloc_name, type);
+        ir::Stmt allocation = ir::LetStmt::make(
+            std::move(alloc_loc), ir::Allocate::make(type->etype, type->size));
+
+        // 3. Create the bounds and stride for the for-all loop.
         ir::ForAll::Slice slice{
             .begin = ir::IntImm::make(ir::Int_t::make(32), 0),
             .end = type->size,
             .stride = ir::IntImm::make(ir::Int_t::make(32), 1),
         };
 
-        // 1. Replace ?iterN with array[?indexN] in the body of the for-each.
-        ir::Expr iterator =
-            ir::Var::make(ir::Index_t::make(), new_index_name());
-        std::string iter_name = node->name;
-        ir::Expr extracted = ir::Extract::make(iter, iterator);
-        std::map<std::string, ir::Expr> repls = {{iter_name, extracted}};
-        ir::Expr value = replace(repls, body->value);
-        // 2. Create the newly allocated memory.
-        std::string name = new_alloc_name();
-        ir::WriteLoc allocation(name, type);
-        ir::Stmt allocate = ir::LetStmt::make(
-            std::move(allocation), ir::Allocate::make(type->etype, type->size));
-        // 3. Create the new for-all loop.
-        ir::Stmt new_body = ir::Store::make(name, iterator, value);
+        // 4. Finally, construct the for-all loop. with the respective store
+        // into the newly allocated memory.
+        ir::Stmt new_body =
+            ir::Store::make(std::move(alloc_name), iterator, std::move(value));
         ir::Stmt forall =
-            ir::ForAll::make(iterator, std::move(slice), std::move(new_body));
+            ir::ForAll::make(std::move(iterator), std::move(header),
+                             std::move(slice), std::move(new_body));
 
         return ir::Sequence::make({
-            allocate,
+            allocation,
             forall,
         });
     }
