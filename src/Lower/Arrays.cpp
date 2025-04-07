@@ -78,11 +78,14 @@ struct LowerToForEach : public ir::Mutator {
     size_t tcounter = 0;   // For unique traverse function names.
     ir::FuncMap new_funcs; // Store newly created traversal functions here.
 
+    // Resets state of this lowering phase.
+    void reset() { new_funcs.clear(); }
+
     std::string unique_iter_name() {
         return "?it" + std::to_string(icounter++);
     }
 
-    std::string new_func_name() {
+    std::string unique_func_name() {
         return "?traverse" + std::to_string(tcounter++);
     }
 
@@ -110,7 +113,7 @@ struct LowerToForEach : public ir::Mutator {
     }
 
     ir::Expr build_traversal_function(const ir::Expr &expr) {
-        const std::string func = new_func_name();
+        const std::string function_name = unique_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
         ir::Stmt body = build_traversal(expr);
         internal_assert(body.defined())
@@ -124,18 +127,18 @@ struct LowerToForEach : public ir::Mutator {
 
         ir::Type ret_type = expr.type();
         auto f = std::make_shared<ir::Function>(
-            func, std::move(func_args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{});
+            function_name, std::move(func_args), std::move(ret_type),
+            std::move(body), ir::Function::InterfaceList{});
         ir::Type call_type = f->call_type();
-        new_funcs[func] = std::move(f);
+        new_funcs[function_name] = std::move(f);
 
         std::vector<ir::Expr> call_args;
         std::transform(free_vars.begin(), free_vars.end(),
                        std::back_inserter(call_args),
                        [&](auto &var) -> ir::Expr { return var; });
 
-        return ir::Call::make(ir::Var::make(std::move(call_type), func),
-                              call_args);
+        return ir::Call::make(
+            ir::Var::make(std::move(call_type), function_name), call_args);
     }
 
     ir::Expr visit(const ir::SetOp *node) override {
@@ -158,14 +161,16 @@ struct LowerToForAll : public ir::Mutator {
     int64_t acounter = 0; // unique identifier for allocations.
     int64_t icounter = 0; // unique identifier for iterator variable.
     int64_t lcounter = 0; // unique identifier for load variable.
-    std::string new_alloc_name() {
+    std::string unique_alloc_name() {
         return "?alloc" + std::to_string(acounter++);
     }
-    std::string new_index_name() {
+    std::string unique_index_name() {
         return "?index" + std::to_string(icounter++);
     }
 
-    std::string new_load_name() { return "?load" + std::to_string(lcounter++); }
+    std::string unique_load_name() {
+        return "?load" + std::to_string(lcounter++);
+    }
 
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iter = node->iter;
@@ -184,12 +189,12 @@ struct LowerToForAll : public ir::Mutator {
 
         // 1a. Replace ?iterN with array[?indexN] in the body of the for-each.
         ir::Expr iterator =
-            ir::Var::make(ir::Index_t::make(), new_index_name());
+            ir::Var::make(ir::Index_t::make(), unique_index_name());
         std::string iter_name = node->name;
         ir::Expr extracted = ir::Extract::make(iter, iterator);
 
         // 1b. Create the for-all header.
-        std::string load_name = new_load_name();
+        std::string load_name = unique_load_name();
         ir::WriteLoc header_loc(load_name, extracted.type());
         ir::Expr header_var =
             ir::Var::make(header_loc.base_type, header_loc.base);
@@ -200,7 +205,7 @@ struct LowerToForAll : public ir::Mutator {
         ir::Expr value = replace(replacements, body->value);
 
         // 2. Create the newly allocated memory.
-        std::string alloc_name = new_alloc_name();
+        std::string alloc_name = unique_alloc_name();
         ir::WriteLoc alloc_loc(alloc_name, type);
         ir::Stmt allocation = ir::LetStmt::make(
             std::move(alloc_loc), ir::Allocate::make(type->etype, type->size));
@@ -248,7 +253,7 @@ ir::Program LowerArrays::run(ir::Program program) const {
                 << "function with name: " << name << " already exists";
         }
         after = program.funcs.size();
-        convert_fe.new_funcs.clear(); // reset
+        convert_fe.reset();
     } while (before != after);
 
     // 2. Lower for-each loops to concrete for-all loops.
