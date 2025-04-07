@@ -394,15 +394,6 @@ Expr Mutator::visit(const Instantiate *node) {
     return Instantiate::make(std::move(expr), node->types);
 }
 
-Expr Mutator::visit(const Allocate *node) {
-    Expr size = mutate(node->size);
-    Type type = mutate(node->type);
-    if (size.same_as(node->size) && type.same_as(node->type)) {
-        return node;
-    }
-    return Allocate::make(std::move(type), std::move(size));
-}
-
 Stmt Mutator::visit(const Print *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
@@ -473,6 +464,16 @@ Stmt Mutator::visit(const Accumulate *node) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value));
+}
+
+Stmt Mutator::visit(const Allocate *node) {
+    Expr size = mutate(node->size);
+    Type type = mutate(node->type);
+    if (size.same_as(node->size) && type.same_as(node->type)) {
+        return node;
+    }
+    return Allocate::make(std::move(node->name), std::move(type),
+                          std::move(size));
 }
 
 Stmt Mutator::visit(const Match *node) {

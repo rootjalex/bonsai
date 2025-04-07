@@ -731,11 +731,6 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
-void Printer::visit(const Allocate *node) {
-    os << "alloc " << node->type << "x";
-    print_no_parens(node->size);
-}
-
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";
@@ -840,6 +835,13 @@ void Printer::visit(const Accumulate *node) {
     os << "\n";
     // TODO: fix this!! bring back SSA
     // print(node->body);
+}
+
+void Printer::visit(const Allocate *node) {
+    os << get_indent();
+    os << "alloc " << node->name << " : " << node->type << "x";
+    print_no_parens(node->size);
+    os << "\n";
 }
 
 void Printer::visit(const Match *node) {

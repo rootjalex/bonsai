@@ -205,10 +205,9 @@ struct LowerToForAll : public ir::Mutator {
         ir::Expr value = replace(replacements, body->value);
 
         // 2. Create the newly allocated memory.
-        std::string alloc_name = unique_alloc_name();
-        ir::WriteLoc alloc_loc(alloc_name, type);
-        ir::Stmt allocation = ir::LetStmt::make(
-            std::move(alloc_loc), ir::Allocate::make(type->etype, type->size));
+        std::string allocation_name = unique_alloc_name();
+        ir::Stmt allocation =
+            ir::Allocate::make(allocation_name, type->etype, type->size);
 
         // 3. Create the bounds and stride for the for-all loop.
         ir::ForAll::Slice slice{
@@ -219,8 +218,8 @@ struct LowerToForAll : public ir::Mutator {
 
         // 4. Finally, construct the for-all loop. with the respective store
         // into the newly allocated memory.
-        ir::Stmt new_body =
-            ir::Store::make(std::move(alloc_name), iterator, std::move(value));
+        ir::Stmt new_body = ir::Store::make(std::move(allocation_name),
+                                            iterator, std::move(value));
         ir::Stmt forall =
             ir::ForAll::make(std::move(iterator), std::move(header),
                              std::move(slice), std::move(new_body));

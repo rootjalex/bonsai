@@ -24,6 +24,7 @@ enum class IRStmtEnum {
     Sequence,
     Assign,
     Accumulate,
+    Allocate,
 
     Match,
     Yield,
@@ -150,6 +151,16 @@ struct Accumulate : StmtNode<Accumulate> {
     static Stmt make(WriteLoc loc, OpType op, Expr value);
 
     static const IRStmtEnum _node_type = IRStmtEnum::Accumulate;
+};
+
+struct Allocate : StmtNode<Allocate> {
+    std::string name;
+    Type type;
+    Expr size;
+
+    static Stmt make(std::string name, Type type, Expr size);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::Allocate;
 };
 
 struct Match : StmtNode<Match> {

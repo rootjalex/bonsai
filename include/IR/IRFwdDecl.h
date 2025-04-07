@@ -55,7 +55,6 @@ struct GeomOp;
 struct SetOp;
 struct Call;
 struct Instantiate;
-struct Allocate;
 
 // Stmts
 struct Stmt;
@@ -67,6 +66,7 @@ struct IfElse;
 struct Sequence;
 struct Assign;
 struct Accumulate;
+struct Allocate;
 struct Match;
 struct Yield;
 struct Scan;

@@ -168,11 +168,6 @@ void Visitor::visit(const Instantiate *node) {
     // TODO: should we visit the instantiated types?
 }
 
-void Visitor::visit(const Allocate *node) {
-    node->type.accept(this);
-    node->size.accept(this);
-}
-
 void Visitor::visit(const Print *node) { node->value.accept(this); }
 
 void Visitor::visit(const Return *node) { node->value.accept(this); }
@@ -212,6 +207,11 @@ void Visitor::visit(const Accumulate *node) {
     node->value.accept(this);
     // TODO: fix this!! bring back SSA
     // node->body.accept(this);
+}
+
+void Visitor::visit(const Allocate *node) {
+    node->type.accept(this);
+    node->size.accept(this);
 }
 
 void Visitor::visit(const Match *node) {

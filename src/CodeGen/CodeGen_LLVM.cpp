@@ -1149,7 +1149,7 @@ void CodeGen_LLVM::visit(const Instantiate *node) {
 }
 
 void CodeGen_LLVM::visit(const Allocate *node) {
-    internal_error << "unimplemented: " << Expr(node);
+    internal_error << "unimplemented: " << Stmt(node);
 }
 
 void CodeGen_LLVM::visit(const Build *node) {

@@ -990,15 +990,5 @@ Expr Instantiate::make(Expr expr, TypeMap types) {
     return node;
 }
 
-Expr Allocate::make(Type type, Expr size) {
-    internal_assert(type.defined()) << "Allocate::make received undefined type";
-    internal_assert(size.defined()) << "Allocate::make received undefined size";
-
-    Allocate *node = new Allocate;
-    node->type = std::move(type);
-    node->size = std::move(size);
-    return node;
-}
-
 } // namespace ir
 } // namespace bonsai

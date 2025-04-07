@@ -94,6 +94,17 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     return node;
 }
 
+Stmt Allocate::make(std::string name, Type type, Expr size) {
+    internal_assert(type.defined()) << "Allocate::make received undefined type";
+    internal_assert(size.defined()) << "Allocate::make received undefined size";
+
+    Allocate *node = new Allocate;
+    node->name = std::move(name);
+    node->type = std::move(type);
+    node->size = std::move(size);
+    return node;
+}
+
 Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";
