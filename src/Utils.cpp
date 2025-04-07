@@ -8,6 +8,7 @@ namespace bonsai {
 using namespace ir;
 
 uint64_t get_constant_value(const ir::Expr &e) {
+    internal_assert(is_const(e)) << "expected constant value, received: " << e;
     if (const auto *v = e.as<ir::UIntImm>()) {
         internal_assert(v->type.bits() < 64);
         return v->value;

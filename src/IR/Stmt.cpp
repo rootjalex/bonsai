@@ -95,6 +95,7 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
 }
 
 Stmt Allocate::make(std::string name, Type type) {
+    internal_assert(!name.empty()) << "Allocate::make received empty name";
     internal_assert(type.defined()) << "Allocate::make received undefined type";
 
     Allocate *node = new Allocate;
