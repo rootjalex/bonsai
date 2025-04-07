@@ -194,8 +194,8 @@ struct LowerToForAll : public ir::Mutator {
             << ir::Expr(iter) << " : " << ir::Type(type);
 
         // 1a. Replace ?iterN with array[?indexN] in the body of the for-each.
-        ir::Expr index =
-            ir::Var::make(ir::Index_t::make(), unique_index_name());
+        std::string index_name = unique_index_name();
+        ir::Expr index = ir::Var::make(ir::Index_t::make(), index_name);
         std::string iter_name = node->name;
         ir::Expr extracted = ir::Extract::make(iter, index);
 
@@ -213,6 +213,7 @@ struct LowerToForAll : public ir::Mutator {
         // 2. Create the newly allocated memory.
         std::string allocation_name = unique_alloc_name();
         ir::Stmt allocation = ir::Allocate::make(allocation_name, type);
+        ir::Expr allocation_variable = ir::Var::make(type, allocation_name);
 
         // 3. Create the bounds and stride for the for-all loop.
         ir::Type size_type = type->size.type();
@@ -224,15 +225,18 @@ struct LowerToForAll : public ir::Mutator {
 
         // 4. Finally, construct the for-all loop. with the respective store
         // into the newly allocated memory.
-        ir::Stmt new_body = ir::Store::make(std::move(allocation_name), index,
-                                            std::move(value));
+        ir::Stmt forall_body = ir::Store::make(std::move(allocation_name),
+                                               index, std::move(value));
         ir::Stmt forall =
-            ir::ForAll::make(std::move(index), std::move(header),
-                             std::move(slice), std::move(new_body));
+            ir::ForAll::make(std::move(index_name), std::move(header),
+                             std::move(slice), std::move(forall_body));
+        ir::Stmt return_result =
+            ir::Return::make(std::move(allocation_variable));
 
         return ir::Sequence::make({
             allocation,
             forall,
+            return_result,
         });
     }
 };
@@ -242,9 +246,6 @@ struct LowerToForAll : public ir::Mutator {
 ir::Program LowerArrays::run(ir::Program program) const {
     // 1. Lower set operations on arrays to for-each loops and yield operations.
     LowerToForEach convert_fe;
-
-    // This needs to run until convergence in order to visit set operations that
-    // are moved into the newly built traverse functions.
     for (auto &[_, f] : program.funcs) {
         f->body = convert_fe.mutate(f->body);
     }

@@ -4,6 +4,7 @@ func ?traverse_array0(f : Fn(i32) -> i32, fs : i32[32]) -> i32[32] {
     let ?load0 = fs[?index0] in
     ?alloc0[?index0] = f(?load0) + (i32)1
   }
+  return ?alloc0
 }
 
 func ?traverse_array1(xs : i32[64]) -> i32[64] {
@@ -12,14 +13,16 @@ func ?traverse_array1(xs : i32[64]) -> i32[64] {
     let ?load1 = xs[?index1] in
     ?alloc1[?index1] = ((?load1 * (i32)2) - (i32)1) + (i32)1
   }
+  return ?alloc1
 }
 
 func ?traverse_array2(ns : i32[32][16]) -> i32[][16] {
   alloc ?alloc2 : i32[32][16]
   forall ?index2 in [(i32)0:(i32)16:(i32)1] {
     let ?load2 = ns[?index2] in
-    ?alloc2[?index2] = ?traverse_array5(?load2)
+    ?alloc2[?index2] = map(|x : i32| x + (i32)1, ?load2)
   }
+  return ?alloc2
 }
 
 func ?traverse_array3(xs : i32[32]) -> i32[32] {
@@ -28,6 +31,7 @@ func ?traverse_array3(xs : i32[32]) -> i32[32] {
     let ?load3 = xs[?index3] in
     ?alloc3[?index3] = ?load3 + (i32)1
   }
+  return ?alloc3
 }
 
 func ?traverse_array4(ys : f32[32]) -> f32[32] {
@@ -36,14 +40,7 @@ func ?traverse_array4(ys : f32[32]) -> f32[32] {
     let ?load4 = ys[?index4] in
     ?alloc4[?index4] = sin(?load4)
   }
-}
-
-func ?traverse_array5(?it2 : i32[32]) -> i32[32] {
-  alloc ?alloc5 : i32[32]
-  forall ?index5 in [(i32)0:(i32)32:(i32)1] {
-    let ?load5 = ?it2[?index5] in
-    ?alloc5[?index5] = ?load5 + (i32)1
-  }
+  return ?alloc4
 }
 
 func apply_function(fs : i32[32]) -> i32[32] {
