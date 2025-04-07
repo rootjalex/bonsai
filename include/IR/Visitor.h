@@ -52,6 +52,7 @@ struct Visitor {
     virtual void visit(const SetOp *);
     virtual void visit(const Call *);
     virtual void visit(const Instantiate *);
+    virtual void visit(const Allocate *);
     // Stmts
     virtual void visit(const Print *);
     virtual void visit(const Return *);
@@ -66,6 +67,7 @@ struct Visitor {
     virtual void visit(const Scan *);
     virtual void visit(const YieldFrom *);
     virtual void visit(const ForAll *);
+    virtual void visit(const ForEach *);
     // Layouts
     virtual void visit(const Name *);
     virtual void visit(const Pad *);

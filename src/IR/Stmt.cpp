@@ -141,16 +141,24 @@ Stmt YieldFrom::make(Expr value) {
     return node;
 }
 
-Stmt ForAll::make(std::string name, Expr iter, Stmt body) {
-    internal_assert(!name.empty()) << "Undefined name in ForAll::make";
-    internal_assert(iter.defined()) << "Undefined iterator in ForAll::make";
+Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
+    internal_assert(!name.empty()) << "Undefined name in ForEach::make";
+    internal_assert(iter.defined()) << "Undefined iterator in ForEach::make";
     internal_assert(iter.type().is_iterable())
-        << "ForAll requires iterable: " << iter;
-    internal_assert(body.defined()) << "Undefined body in ForAll::make";
+        << "ForEach requires iterable: " << iter;
+    internal_assert(body.defined()) << "Undefined body in ForEach::make";
 
-    ForAll *node = new ForAll;
+    ForEach *node = new ForEach;
     node->name = std::move(name);
     node->iter = std::move(iter);
+    node->body = std::move(body);
+    return node;
+}
+
+Stmt ForAll::make(Expr iterator, Slice slice, Stmt body) {
+    ForAll *node = new ForAll;
+    node->iterator = std::move(iterator);
+    node->slice = std::move(slice);
     node->body = std::move(body);
     return node;
 }

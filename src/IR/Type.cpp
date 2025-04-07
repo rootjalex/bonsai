@@ -300,7 +300,7 @@ Type Array_t::make(Type etype, Expr size) {
     }
     Array_t *node = new Array_t;
     node->etype = std::move(etype);
-    // node->size = std::move(size);
+    node->size = std::move(size);
     return node;
 }
 
@@ -458,6 +458,8 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
             << "Vector access of bad field: " << field
             << " of type: " << struct_type;
         return as_vec->etype;
+    } else if (const Array_t *as_array = struct_type.as<Array_t>()) {
+        return as_array->etype;
     } else {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;

@@ -54,6 +54,7 @@ struct GeomOp;
 struct SetOp;
 struct Call;
 struct Instantiate;
+struct Allocate;
 
 // Stmts
 struct Stmt;
@@ -70,6 +71,7 @@ struct Yield;
 struct Scan;
 struct YieldFrom;
 struct ForAll;
+struct ForEach;
 
 // Layouts
 struct Name;

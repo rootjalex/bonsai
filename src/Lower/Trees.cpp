@@ -417,7 +417,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
                     std::string name = unique_iter_name();
                     ir::Stmt body = ir::Yield::make(
                         ir::Var::make(data[i].second.element_of(), name));
-                    stmts[i] = ir::ForAll::make(
+                    stmts[i] = ir::ForEach::make(
                         std::move(name), std::move(access), std::move(body));
                 } else {
                     // yield d

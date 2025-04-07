@@ -43,6 +43,7 @@ enum class IRExprEnum {
     SetOp,
     Call,
     Instantiate,
+    Allocate,
 };
 
 using IRExprNode = IRNode<Expr, IRExprEnum>;
@@ -374,6 +375,15 @@ struct Instantiate : ExprNode<Instantiate> {
     static Expr make(Expr expr, TypeMap types);
 
     static const IRExprEnum _node_type = IRExprEnum::Instantiate;
+};
+
+struct Allocate : ExprNode<Allocate> {
+    Type type;
+    Expr size;
+
+    static Expr make(Type type, Expr size);
+
+    static const IRExprEnum _node_type = IRExprEnum::Allocate;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary

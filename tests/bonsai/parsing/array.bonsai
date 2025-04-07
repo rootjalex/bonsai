@@ -1,0 +1,5 @@
+//! flags: -p core
+
+func foo(xs: array[i32]) -> array[i32, 16] { 
+    return map(|x: i32| {x + 1}, xs); 
+}

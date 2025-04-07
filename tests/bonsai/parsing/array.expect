@@ -1,0 +1,9 @@
+func ?traverse0(xs : i32[]) -> i32[] {
+  for each ?iter0 in xs{
+    yield ?iter0 + (i32)1
+  }
+}
+
+func foo(xs : i32[]) -> i32[] {
+  return ?traverse0(xs)
+}

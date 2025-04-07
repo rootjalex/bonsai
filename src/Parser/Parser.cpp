@@ -151,6 +151,13 @@ struct Parser {
                 return found->second.first;
             }
         }
+        // Check to see if this is a previously defined function.
+        // TODO(cgyurgyik): Should we verify there is no shadowing, i.e., add an
+        // additional check above to ensure that the following never is true:
+        //  frame.contains(name) && program.funcs.find(name)
+        if (auto it = program.funcs.find(name); it != program.funcs.end()) {
+            return it->second->call_type();
+        }
         report_error() << "Cannot check type of unknown var: " << name;
     }
 

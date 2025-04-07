@@ -65,9 +65,10 @@ ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
             // set type is unknown?
             if (node->op != ir::SetOp::product && !a.type().defined()) {
                 // Perform lambda type setting
-                internal_assert(b.type().defined() && b.type().is<ir::Set_t>())
+                internal_assert(b.type().defined() &&
+                                (b.type().is<ir::Set_t, ir::Array_t>()))
                     << "Cannot set lambda type with unknown argument type: "
-                    << ir::Expr(node) << " b type: " << b.type();
+                    << ir::Expr(node) << ", and b type: " << b.type();
                 ir::Type etype = b.type().element_of();
                 internal_assert(a.is<ir::Lambda>())
                     << "Cannot set lambda type if operand is not a lambda: "

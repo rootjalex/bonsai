@@ -1,0 +1,27 @@
+//! flags: -p canonicalize -p lower-arrays
+
+func simple(xs: array[i32, 32]) -> void {
+    return map(|x: i32| x + 1, xs); 
+}
+
+func with_intrinsics(ys: array[f32, 32]) -> array[f32, 32] {
+    return map(|y: f32| sin(y), ys); 
+}
+
+func f(i: i32) -> i32 { return i; }
+
+func apply_function(fs: array[i32, 32]) -> array[i32, 32] {
+    return map(|x: i32| { x + 1 }, map(f, fs)); 
+}
+
+func hierarchical_maps(ns: array[array[i32, 32], 16]) -> array[array[i32, 32], 16] {
+    return map(|nss: array[i32]| { map(|x| x + 1, nss) }, ns);
+}
+
+func fused_maps(xs: array[i32, 64]) -> array[i32, 64] {
+    return map(|x: i32| {x + 1}, 
+           map(|x: i32| {x - 1}, 
+           map(|x: i32| {x * 2},
+           xs)
+    )); 
+}

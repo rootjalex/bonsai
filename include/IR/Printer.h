@@ -115,6 +115,7 @@ struct Printer : public Visitor {
     void visit(const SetOp *) override;
     void visit(const Call *) override;
     void visit(const Instantiate *) override;
+    void visit(const Allocate *) override;
     // Stmts
     void visit(const Print *) override;
     void visit(const Return *) override;
@@ -129,6 +130,7 @@ struct Printer : public Visitor {
     void visit(const Scan *) override;
     void visit(const YieldFrom *) override;
     void visit(const ForAll *) override;
+    void visit(const ForEach *) override;
     // Layouts
     void visit(const Name *) override;
     void visit(const Pad *) override;

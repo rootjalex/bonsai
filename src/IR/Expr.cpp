@@ -508,7 +508,7 @@ Expr Extract::make(Expr vec, Expr idx) {
 
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        internal_assert(vec.type().is<Vector_t>())
+        internal_assert((vec.type().is<Vector_t, Array_t>()))
             << "Extract of non-vector: " << vec;
         internal_assert(idx.type().is_int_or_uint())
             << "Extract with non-integer index: " << idx;
@@ -888,16 +888,22 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
             internal_assert(a.type().is<Function_t>())
                 << "Expected lhs of map to be afunction, instead received: "
                 << a << " : " << a.type();
-            internal_assert(b.type().is<Set_t>())
-                << "Expected rhs of map to be a set, instead received: " << b
-                << " : " << b.type();
+            internal_assert((b.type().is<Set_t, Array_t>()))
+                << "Expected rhs of map to be a set or array, instead "
+                   "received: "
+                << b << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
                             equals(f->arg_types[0], b.type().element_of()))
                 << "Expected map function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
-            node->type = Set_t::make(f->ret_type);
+            if (b.type().is<Set_t>()) {
+                node->type = Set_t::make(f->ret_type);
+            } else {
+                Expr size = b.type().as<Array_t>()->size;
+                node->type = Array_t::make(f->ret_type, size);
+            }
         } else if (op == SetOp::product) {
             internal_assert(a.type().is<Set_t>() && b.type().is<Set_t>())
                 << "Expected args of product to be sets, instead received: "
@@ -981,6 +987,16 @@ Expr Instantiate::make(Expr expr, TypeMap types) {
 
     node->expr = std::move(expr);
     node->types = std::move(types);
+    return node;
+}
+
+Expr Allocate::make(Type type, Expr size) {
+    internal_assert(type.defined()) << "Allocate::make received undefined type";
+    internal_assert(size.defined()) << "Allocate::make received undefined size";
+
+    Allocate *node = new Allocate;
+    node->type = std::move(type);
+    node->size = std::move(size);
     return node;
 }
 

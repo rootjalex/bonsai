@@ -58,6 +58,7 @@ struct Mutator {
     virtual Expr visit(const SetOp *);
     virtual Expr visit(const Call *);
     virtual Expr visit(const Instantiate *);
+    virtual Expr visit(const Allocate *);
     // Stmts
     virtual Stmt visit(const Print *);
     virtual Stmt visit(const Return *);
@@ -72,6 +73,7 @@ struct Mutator {
     virtual Stmt visit(const Scan *);
     virtual Stmt visit(const YieldFrom *);
     virtual Stmt visit(const ForAll *);
+    virtual Stmt visit(const ForEach *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

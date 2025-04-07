@@ -84,6 +84,7 @@ struct GatherFreeVars : public Visitor {
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(ForAll);
+    RESTRICT_VISITOR(ForEach);
 };
 
 struct AlwaysReturns : public Visitor {

@@ -1,0 +1,67 @@
+func ?traverse0(f : Fn(i32) -> i32, fs : i32[]) -> i32[] {
+  let ?alloc0 = alloc i32 x (i32)32 in
+  for all ?i0 in [(i32)0:(i32)32:(i32)1] {
+    ?alloc0[?i0] = f(fs[?i0]) + (i32)1
+  }
+}
+
+func ?traverse1(xs : i32[]) -> i32[] {
+  let ?alloc1 = alloc i32 x (i32)64 in
+  for all ?i1 in [(i32)0:(i32)64:(i32)1] {
+    ?alloc1[?i1] = ((xs[?i1] * (i32)2) - (i32)1) + (i32)1
+  }
+}
+
+func ?traverse2(ns : i32[][]) -> i32[][] {
+  let ?alloc2 = alloc i32[] x (i32)16 in
+  for all ?i2 in [(i32)0:(i32)16:(i32)1] {
+    ?alloc2[?i2] = ?traverse5(ns[?i2])
+  }
+}
+
+func ?traverse3(xs : i32[]) -> i32[] {
+  let ?alloc3 = alloc i32 x (i32)32 in
+  for all ?i3 in [(i32)0:(i32)32:(i32)1] {
+    ?alloc3[?i3] = xs[?i3] + (i32)1
+  }
+}
+
+func ?traverse4(ys : f32[]) -> f32[] {
+  let ?alloc4 = alloc f32 x (i32)32 in
+  for all ?i4 in [(i32)0:(i32)32:(i32)1] {
+    ?alloc4[?i4] = sin(ys[?i4])
+  }
+}
+
+func ?traverse5(?iter2 : i32[]) -> i32[] {
+  let ?alloc5 = alloc i32 x (i32)32 in
+  for all ?i5 in [(i32)0:(i32)32:(i32)1] {
+    ?alloc5[?i5] = ?iter2[?i5] + (i32)1
+  }
+}
+
+func apply_function(fs : i32[]) -> i32[] {
+  return ?traverse0(f, fs)
+}
+
+func f(i : i32) -> i32 {
+  return i
+}
+
+func fused_maps(xs : i32[]) -> i32[] {
+  return ?traverse1(xs)
+}
+
+func hierarchical_maps(ns : i32[][]) -> i32[][] {
+  return ?traverse2(ns)
+}
+
+func simple(xs : i32[]) -> void {
+  return ?traverse3(xs)
+}
+
+func with_intrinsics(ys : f32[]) -> f32[] {
+  return ?traverse4(ys)
+}
+
+

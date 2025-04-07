@@ -166,6 +166,11 @@ void Visitor::visit(const Instantiate *node) {
     // TODO: should we visit the instantiated types?
 }
 
+void Visitor::visit(const Allocate *node) {
+    node->type.accept(this);
+    node->size.accept(this);
+}
+
 void Visitor::visit(const Print *node) { node->value.accept(this); }
 
 void Visitor::visit(const Return *node) { node->value.accept(this); }
@@ -220,8 +225,16 @@ void Visitor::visit(const Scan *node) { node->value.accept(this); }
 
 void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }
 
-void Visitor::visit(const ForAll *node) {
+void Visitor::visit(const ForEach *node) {
     node->iter.accept(this);
+    node->body.accept(this);
+}
+
+void Visitor::visit(const ForAll *node) {
+    node->iterator.accept(this);
+    node->slice.begin.accept(this);
+    node->slice.end.accept(this);
+    node->slice.stride.accept(this);
     node->body.accept(this);
 }
 

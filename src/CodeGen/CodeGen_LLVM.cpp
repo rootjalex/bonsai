@@ -1144,6 +1144,10 @@ void CodeGen_LLVM::visit(const Instantiate *node) {
                    << Expr(node);
 }
 
+void CodeGen_LLVM::visit(const Allocate *node) {
+    internal_error << "unimplemented: " << Expr(node);
+}
+
 void CodeGen_LLVM::visit(const Build *node) {
     // This will be a StructType or a VectorType
     llvm::Type *build_type = codegen_type(node->type);

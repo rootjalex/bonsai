@@ -727,6 +727,11 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
+void Printer::visit(const Allocate *node) {
+    os << "alloc " << node->type << " x ";
+    print_no_parens(node->size);
+}
+
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";
@@ -870,14 +875,31 @@ void Printer::visit(const YieldFrom *node) {
     os << "\n";
 }
 
-void Printer::visit(const ForAll *node) {
+void Printer::visit(const ForEach *node) {
     os << get_indent();
-    os << "forall " << node->name << " in ";
+    os << "for each " << node->name << " in ";
     print_no_parens(node->iter);
     os << "{\n";
     indent++;
     print(node->body);
     indent--;
+    os << get_indent() << "}\n";
+}
+
+void Printer::visit(const ForAll *node) {
+    os << get_indent();
+    os << "for all " << node->iterator << " in [";
+
+    const ForAll::Slice &s = node->slice;
+    print_no_parens(s.begin);
+    os << ":";
+    print_no_parens(s.end);
+    os << ":";
+    print_no_parens(s.stride);
+    os << "] {\n";
+    ++indent;
+    print(node->body);
+    --indent;
     os << get_indent() << "}\n";
 }
 

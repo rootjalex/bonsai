@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS lower
     FILES
+    array.bonsai
     bvh.bonsai
     float.bonsai
     import_float.bonsai

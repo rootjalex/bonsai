@@ -93,6 +93,7 @@ target_sources(
     src/IR/ValidateLayout.cpp
     src/IR/Visitor.cpp
     src/IR/WriteLoc.cpp
+    src/Lower/Arrays.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
     src/Lower/Generics.cpp
@@ -155,6 +156,7 @@ target_sources(
     include/IR/WriteLoc.h
     include/IntrusivePtr.h
     include/LLVMIncl.h
+    include/Lower/Arrays.h
     include/Lower/Canonicalize.h
     include/Lower/Generics.h
     include/Lower/Geometrics.h

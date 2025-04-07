@@ -392,6 +392,15 @@ Expr Mutator::visit(const Instantiate *node) {
     return Instantiate::make(std::move(expr), node->types);
 }
 
+Expr Mutator::visit(const Allocate *node) {
+    Expr size = mutate(node->size);
+    Type type = mutate(node->type);
+    if (size.same_as(node->size) && type.same_as(node->type)) {
+        return node;
+    }
+    return Allocate::make(std::move(type), std::move(size));
+}
+
 Stmt Mutator::visit(const Print *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
@@ -506,13 +515,34 @@ Stmt Mutator::visit(const YieldFrom *node) {
     return YieldFrom::make(std::move(value));
 }
 
-Stmt Mutator::visit(const ForAll *node) {
+Stmt Mutator::visit(const ForEach *node) {
     Expr iter = mutate(node->iter);
     Stmt body = mutate(node->body);
     if (iter.same_as(node->iter) && body.same_as(node->body)) {
         return node;
     }
-    return ForAll::make(node->name, std::move(iter), std::move(body));
+    return ForEach::make(node->name, std::move(iter), std::move(body));
+}
+
+Stmt Mutator::visit(const ForAll *node) {
+    Stmt body = mutate(node->body);
+    Expr iterator = mutate(node->iterator);
+    ForAll::Slice s = node->slice;
+    Expr begin = mutate(s.begin);
+    Expr end = mutate(s.end);
+    Expr stride = mutate(s.stride);
+    if (iterator.same_as(node->iterator) && body.same_as(node->body) &&
+        begin.same_as(s.begin) && end.same_as(s.end) &&
+        stride.same_as(s.stride)) {
+        return node;
+    }
+    return ForAll::make(std::move(iterator),
+                        ForAll::Slice{
+                            .begin = std::move(begin),
+                            .end = std::move(end),
+                            .stride = std::move(stride),
+                        },
+                        std::move(body));
 }
 
 } // namespace ir
