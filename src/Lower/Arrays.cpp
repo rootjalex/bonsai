@@ -154,8 +154,8 @@ struct LowerToForAll : public ir::Mutator {
     std::string new_alloc_name() {
         return "?alloc" + std::to_string(acounter++);
     }
-    std::string new_iterator_name() {
-        return "?i" + std::to_string(icounter++);
+    std::string new_index_name() {
+        return "?index" + std::to_string(icounter++);
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
@@ -178,9 +178,9 @@ struct LowerToForAll : public ir::Mutator {
             .stride = ir::IntImm::make(ir::Int_t::make(32), 1),
         };
 
-        // 1. Replace ?iterN with array[?iN] in the body of the for-each loop.
+        // 1. Replace ?iterN with array[?indexN] in the body of the for-each.
         ir::Expr iterator =
-            ir::Var::make(ir::UInt_t::make(32), new_iterator_name());
+            ir::Var::make(ir::UInt_t::make(32), new_index_name());
         std::string iter_name = node->name;
         ir::Expr extracted = ir::Extract::make(iter, iterator);
         std::map<std::string, ir::Expr> repls = {{iter_name, extracted}};
@@ -207,26 +207,26 @@ struct LowerToForAll : public ir::Mutator {
 ir::Program LowerArrays::run(ir::Program program) const {
     // TODO(cgyurgyik): This is run until convergence so that nested ir::SetOp
     // nodes are also visited. There is probably a better way to do this?
-    LowerToForEach to_for_each;
+    LowerToForEach convert_fe;
     int64_t before, after;
     do {
         before = program.funcs.size();
         for (auto &[_, f] : program.funcs) {
-            f->body = to_for_each.mutate(f->body);
+            f->body = convert_fe.mutate(f->body);
         }
 
-        for (auto &[name, f] : to_for_each.new_funcs) {
+        for (auto &[name, f] : convert_fe.new_funcs) {
             auto [_, inserted] = program.funcs.try_emplace(name, std::move(f));
             internal_assert(inserted)
                 << "function with name: " << name << " already exists";
         }
         after = program.funcs.size();
-        to_for_each.new_funcs.clear(); // reset
+        convert_fe.new_funcs.clear(); // reset
     } while (before != after);
 
-    LowerToForAll to_for_all;
+    LowerToForAll convert_fa;
     for (auto &[_, f] : program.funcs) {
-        f->body = to_for_all.mutate(f->body);
+        f->body = convert_fa.mutate(f->body);
     }
 
     return program;
