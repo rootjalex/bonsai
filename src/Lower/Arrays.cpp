@@ -159,7 +159,7 @@ struct LowerToForEach : public ir::Mutator {
 // Lowers for-each loops to for-all loops.
 struct LowerToForAll : public ir::Mutator {
     int64_t acounter = 0; // unique identifier for allocations.
-    int64_t icounter = 0; // unique identifier for iterator variable.
+    int64_t icounter = 0; // unique identifier for index variable.
     int64_t lcounter = 0; // unique identifier for load variable.
     std::string unique_alloc_name() {
         return "?alloc" + std::to_string(acounter++);
@@ -188,10 +188,10 @@ struct LowerToForAll : public ir::Mutator {
             << ir::Expr(iter) << " : " << ir::Type(type);
 
         // 1a. Replace ?iterN with array[?indexN] in the body of the for-each.
-        ir::Expr iterator =
+        ir::Expr index =
             ir::Var::make(ir::Index_t::make(), unique_index_name());
         std::string iter_name = node->name;
-        ir::Expr extracted = ir::Extract::make(iter, iterator);
+        ir::Expr extracted = ir::Extract::make(iter, index);
 
         // 1b. Create the for-all header.
         std::string load_name = unique_load_name();
@@ -217,10 +217,10 @@ struct LowerToForAll : public ir::Mutator {
 
         // 4. Finally, construct the for-all loop. with the respective store
         // into the newly allocated memory.
-        ir::Stmt new_body = ir::Store::make(std::move(allocation_name),
-                                            iterator, std::move(value));
+        ir::Stmt new_body = ir::Store::make(std::move(allocation_name), index,
+                                            std::move(value));
         ir::Stmt forall =
-            ir::ForAll::make(std::move(iterator), std::move(header),
+            ir::ForAll::make(std::move(index), std::move(header),
                              std::move(slice), std::move(new_body));
 
         return ir::Sequence::make({

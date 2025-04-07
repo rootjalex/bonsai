@@ -899,7 +899,7 @@ void Printer::visit(const ForEach *node) {
 
 void Printer::visit(const ForAll *node) {
     os << get_indent();
-    os << "forall " << node->iterator << " in [";
+    os << "forall " << node->index << " in [";
 
     const ForAll::Slice &s = node->slice;
     print_no_parens(s.begin);
