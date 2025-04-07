@@ -319,9 +319,7 @@ void Printer::visit(const Array_t *node) {
     os << "[";
     // TODO(cgyurgyik): Do we want this? IMO it definitely adds clarity when
     // reading the code IMO, but the (i32) makes it quite wordy.
-    // if (node->size.defined()) {
-    //     print_no_parens(node->size);
-    // }
+    // print_no_parens(node->size);
     os << "]";
 }
 
