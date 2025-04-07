@@ -56,6 +56,14 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
                     repls[lambda->args[i].name] = std::move(value);
                 }
             }
+
+            if (lambda->value.is<ir::SetOp>()) {
+                // TODO: fuse the lowering
+            } else {
+                internal_assert(!ir::contains<ir::SetOp>(lambda->value))
+                    << "[unimplemented] nested setop: " << lambda->value;
+            }
+
             ir::Expr value = replace(repls, lambda->value);
             return ir::Yield::make(std::move(value));
         }
@@ -237,21 +245,15 @@ ir::Program LowerArrays::run(ir::Program program) const {
 
     // This needs to run until convergence in order to visit set operations that
     // are moved into the newly built traverse functions.
-    int64_t before, after;
-    do {
-        before = program.funcs.size();
-        for (auto &[_, f] : program.funcs) {
-            f->body = convert_fe.mutate(f->body);
-        }
+    for (auto &[_, f] : program.funcs) {
+        f->body = convert_fe.mutate(f->body);
+    }
 
-        for (auto &[name, f] : convert_fe.new_funcs) {
-            auto [_, inserted] = program.funcs.try_emplace(name, std::move(f));
-            internal_assert(inserted)
-                << "function with name: " << name << " already exists";
-        }
-        after = program.funcs.size();
-        convert_fe.reset();
-    } while (before != after);
+    for (auto &[name, f] : convert_fe.new_funcs) {
+        auto [_, inserted] = program.funcs.try_emplace(name, std::move(f));
+        internal_assert(inserted)
+            << "function with name: " << name << " already exists";
+    }
 
     // 2. Lower for-each loops to concrete for-all loops.
     LowerToForAll convert_fa;
