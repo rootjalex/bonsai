@@ -20,10 +20,6 @@ namespace lower {
 
 namespace {
 
-static size_t counter = 0;
-
-std::string unique_iter_name() { return "?iter" + std::to_string(counter++); }
-
 ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
     struct RewriteMap : public ir::Mutator {
         ir::Expr function;
@@ -76,34 +72,41 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
     return RewriteMap(std::move(function)).mutate(body);
 }
 
-ir::Stmt build_traversal(const ir::Expr &expr) {
-    if (auto *var = expr.as<ir::Var>()) {
-        std::string name = unique_iter_name();
-        ir::Stmt body =
-            ir::Yield::make(ir::Var::make(var->type.element_of(), name));
-        return ir::ForEach::make(std::move(name), expr, std::move(body));
-    }
-    const ir::SetOp *as_set = expr.as<ir::SetOp>();
-    if (as_set == nullptr) {
-        internal_error << "[unimplemented] unknown traversal pattern: " << expr;
-    }
-    switch (as_set->op) {
-    case ir::SetOp::map:
-        return build_map(build_traversal(as_set->b), as_set->a);
-    case ir::SetOp::OpType::argmin:
-    case ir::SetOp::OpType::filter:
-    case ir::SetOp::OpType::product:
-        internal_error << "[unimplemented] traversal construction: " << expr;
-    }
-}
-
 // Lowers set operations over arrays to for-each loops.
 struct LowerToForEach : public ir::Mutator {
-    ir::FuncMap new_funcs;
-    size_t counter = 0; // For unique traverse function names.
+    size_t icounter = 0;   // counter for iterator name.
+    size_t tcounter = 0;   // For unique traverse function names.
+    ir::FuncMap new_funcs; // Store newly created traversal functions here.
+
+    std::string unique_iter_name() {
+        return "?it" + std::to_string(icounter++);
+    }
 
     std::string new_func_name() {
-        return "?traverse" + std::to_string(counter++);
+        return "?traverse" + std::to_string(tcounter++);
+    }
+
+    ir::Stmt build_traversal(const ir::Expr &expr) {
+        if (auto *var = expr.as<ir::Var>()) {
+            std::string name = unique_iter_name();
+            ir::Stmt body =
+                ir::Yield::make(ir::Var::make(var->type.element_of(), name));
+            return ir::ForEach::make(std::move(name), expr, std::move(body));
+        }
+        const ir::SetOp *as_set = expr.as<ir::SetOp>();
+        if (as_set == nullptr) {
+            internal_error << "[unimplemented] unknown traversal pattern: "
+                           << expr;
+        }
+        switch (as_set->op) {
+        case ir::SetOp::map:
+            return build_map(build_traversal(as_set->b), as_set->a);
+        case ir::SetOp::OpType::argmin:
+        case ir::SetOp::OpType::filter:
+        case ir::SetOp::OpType::product:
+            internal_error << "[unimplemented] traversal construction: "
+                           << expr;
+        }
     }
 
     ir::Expr build_traversal_function(const ir::Expr &expr) {

@@ -902,7 +902,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 node->type = Set_t::make(f->ret_type);
             } else {
                 Expr size = b.type().as<Array_t>()->size;
-                node->type = Array_t::make(f->ret_type, size);
+                node->type = Array_t::make(f->ret_type, std::move(size));
             }
         } else if (op == SetOp::product) {
             internal_assert(a.type().is<Set_t>() && b.type().is<Set_t>())

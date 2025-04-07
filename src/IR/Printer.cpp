@@ -318,10 +318,10 @@ void Printer::visit(const Array_t *node) {
     print(node->etype);
     os << "[";
     // TODO(cgyurgyik): Do we want this? IMO it definitely adds clarity when
-    // reading the code.
-    if (node->size.defined()) {
-        print_no_parens(node->size);
-    }
+    // reading the code IMO, but the (i32) makes it quite wordy.
+    // if (node->size.defined()) {
+    //     print_no_parens(node->size);
+    // }
     os << "]";
 }
 
@@ -734,7 +734,7 @@ void Printer::visit(const Instantiate *node) {
 }
 
 void Printer::visit(const Allocate *node) {
-    os << "alloc " << node->type << " x ";
+    os << "alloc " << node->type << "x";
     print_no_parens(node->size);
 }
 

@@ -1,52 +1,52 @@
-func ?traverse0(f : Fn(i32) -> i32, fs : i32[(i32)32]) -> i32[(i32)32] {
-  let ?alloc0 = alloc i32 x (i32)32 in
+func ?traverse0(f : Fn(i32) -> i32, fs : i32[]) -> i32[] {
+  let ?alloc0 = alloc i32x(i32)32 in
   for all ?index0 in [(i32)0:(i32)32:(i32)1] {
     let ?load0 = fs[?index0] in
     ?alloc0[?index0] = f(?load0) + (i32)1
   }
 }
 
-func ?traverse1(xs : i32[(i32)64]) -> i32[(i32)64] {
-  let ?alloc1 = alloc i32 x (i32)64 in
+func ?traverse1(xs : i32[]) -> i32[] {
+  let ?alloc1 = alloc i32x(i32)64 in
   for all ?index1 in [(i32)0:(i32)64:(i32)1] {
     let ?load1 = xs[?index1] in
     ?alloc1[?index1] = ((?load1 * (i32)2) - (i32)1) + (i32)1
   }
 }
 
-func ?traverse2(ns : i32[(i32)32][(i32)16]) -> i32[][(i32)16] {
-  let ?alloc2 = alloc i32[(i32)32] x (i32)16 in
+func ?traverse2(ns : i32[][]) -> i32[][] {
+  let ?alloc2 = alloc i32[]x(i32)16 in
   for all ?index2 in [(i32)0:(i32)16:(i32)1] {
     let ?load2 = ns[?index2] in
     ?alloc2[?index2] = ?traverse5(?load2)
   }
 }
 
-func ?traverse3(xs : i32[(i32)32]) -> i32[(i32)32] {
-  let ?alloc3 = alloc i32 x (i32)32 in
+func ?traverse3(xs : i32[]) -> i32[] {
+  let ?alloc3 = alloc i32x(i32)32 in
   for all ?index3 in [(i32)0:(i32)32:(i32)1] {
     let ?load3 = xs[?index3] in
     ?alloc3[?index3] = ?load3 + (i32)1
   }
 }
 
-func ?traverse4(ys : f32[(i32)32]) -> f32[(i32)32] {
-  let ?alloc4 = alloc f32 x (i32)32 in
+func ?traverse4(ys : f32[]) -> f32[] {
+  let ?alloc4 = alloc f32x(i32)32 in
   for all ?index4 in [(i32)0:(i32)32:(i32)1] {
     let ?load4 = ys[?index4] in
     ?alloc4[?index4] = sin(?load4)
   }
 }
 
-func ?traverse5(?iter2 : i32[(i32)32]) -> i32[(i32)32] {
-  let ?alloc5 = alloc i32 x (i32)32 in
+func ?traverse5(?it2 : i32[]) -> i32[] {
+  let ?alloc5 = alloc i32x(i32)32 in
   for all ?index5 in [(i32)0:(i32)32:(i32)1] {
-    let ?load5 = ?iter2[?index5] in
+    let ?load5 = ?it2[?index5] in
     ?alloc5[?index5] = ?load5 + (i32)1
   }
 }
 
-func apply_function(fs : i32[(i32)32]) -> i32[(i32)32] {
+func apply_function(fs : i32[]) -> i32[] {
   return ?traverse0(f, fs)
 }
 
@@ -54,19 +54,19 @@ func f(i : i32) -> i32 {
   return i
 }
 
-func fused_maps(xs : i32[(i32)64]) -> i32[(i32)64] {
+func fused_maps(xs : i32[]) -> i32[] {
   return ?traverse1(xs)
 }
 
-func hierarchical_maps(ns : i32[(i32)32][(i32)16]) -> i32[(i32)32][(i32)16] {
+func hierarchical_maps(ns : i32[][]) -> i32[][] {
   return ?traverse2(ns)
 }
 
-func simple(xs : i32[(i32)32]) -> void {
+func simple(xs : i32[]) -> void {
   return ?traverse3(xs)
 }
 
-func with_intrinsics(ys : f32[(i32)32]) -> f32[(i32)32] {
+func with_intrinsics(ys : f32[]) -> f32[] {
   return ?traverse4(ys)
 }
 

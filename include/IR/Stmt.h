@@ -201,7 +201,7 @@ struct ForAll : StmtNode<ForAll> {
         Expr begin, end, stride;
     } slice;
     Expr iterator;
-    Stmt header; // let x = extract[...]
+    Stmt header; // let x = extract[<...>]
     Stmt body;   // use(x)
 
     static Stmt make(Expr iterator, Stmt header, Slice slice, Stmt body);
