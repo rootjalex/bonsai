@@ -57,14 +57,15 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
                 }
             }
 
-            if (lambda->value.is<ir::SetOp>()) {
-                // TODO: fuse the lowering
+            ir::Expr body = lambda->value;
+            if (body.is<ir::SetOp>()) {
+                // TODO
             } else {
-                internal_assert(!ir::contains<ir::SetOp>(lambda->value))
-                    << "[unimplemented] nested setop: " << lambda->value;
+                internal_assert(!ir::contains<ir::SetOp>(body))
+                    << "[unimplemented] nested setop: " << body;
             }
 
-            ir::Expr value = replace(repls, lambda->value);
+            ir::Expr value = replace(repls, std::move(body));
             return ir::Yield::make(std::move(value));
         }
 
@@ -175,7 +176,6 @@ struct LowerToForAll : public ir::Mutator {
     std::string unique_index_name() {
         return "?index" + std::to_string(icounter++);
     }
-
     std::string unique_load_name() {
         return "?load" + std::to_string(lcounter++);
     }
@@ -225,8 +225,8 @@ struct LowerToForAll : public ir::Mutator {
 
         // 4. Finally, construct the for-all loop. with the respective store
         // into the newly allocated memory.
-        ir::Stmt forall_body = ir::Store::make(std::move(allocation_name),
-                                               index, std::move(value));
+        ir::Stmt forall_body = ir::Store::make(
+            std::move(allocation_name), std::move(index), std::move(value));
         ir::Stmt forall =
             ir::ForAll::make(std::move(index_name), std::move(header),
                              std::move(slice), std::move(forall_body));
