@@ -6,7 +6,7 @@
 --> !node_path.empty()
 No path for node: Interior in layout: {
   pCount : u32;
-  prims : Triangle[];
+  prims : Triangle[pCount];
   count : u32;
   group[count] index : u32
   {

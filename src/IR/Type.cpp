@@ -47,9 +47,10 @@ bool Type::is_uint() const {
 }
 
 bool Type::is_int_or_uint() const {
-    return this->is<Int_t>() || this->is<UInt_t>() ||
+    return this->is<Int_t, UInt_t, Index_t>() ||
            (this->is<Vector_t>() &&
-            this->as<Vector_t>()->etype.is_int_or_uint());
+            this->as<Vector_t>()->etype.is_int_or_uint()) ||
+           (this->is<Array_t>() && this->as<Array_t>()->etype.is_int_or_uint());
 }
 
 bool Type::is_float() const {
@@ -155,6 +156,11 @@ Type UInt_t::make(uint32_t bits) {
         << "Unsupported bitwidth in UInt_t: " << bits;
     UInt_t *node = new UInt_t;
     node->bits = bits;
+    return node;
+}
+
+Type Index_t::make() {
+    Index_t *node = new Index_t;
     return node;
 }
 

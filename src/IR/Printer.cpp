@@ -258,6 +258,8 @@ void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
 
 void Printer::visit(const UInt_t *node) { os << "u" << node->bits; }
 
+void Printer::visit(const Index_t *node) { os << "idx"; }
+
 void Printer::visit(const Float_t *node) {
     if (node->is_ieee754()) {
         os << "f" << node->bits();
@@ -315,7 +317,9 @@ void Printer::visit(const Tuple_t *node) {
 void Printer::visit(const Array_t *node) {
     print(node->etype);
     os << "[";
-    // print_no_parens(node->size);
+    if (node->size.defined()) {
+        print_no_parens(node->size);
+    }
     os << "]";
 }
 

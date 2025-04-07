@@ -1,6 +1,6 @@
 Lowered layout: {
   pCount : u32;
-  prims : Triangle[];
+  prims : Triangle[pCount];
   count : u32;
   group[count] index : u32
   {
@@ -27,7 +27,7 @@ Lowered layout: {
  to structs:
 struct ?triangles_index_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; ?split_nPrims0 : u8x4 }
 
-struct ?triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[]; count : u32; triangles_index : struct ?triangles_index_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; ?split_nPrims0 : u8x4 }[] }
+struct ?triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct ?triangles_index_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; ?split_nPrims0 : u8x4 }[count] }
 
 ---CODE---
 1

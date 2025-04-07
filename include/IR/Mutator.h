@@ -16,6 +16,7 @@ struct Mutator {
     virtual Type visit(const Void_t *);
     virtual Type visit(const Int_t *);
     virtual Type visit(const UInt_t *);
+    virtual Type visit(const Index_t *);
     virtual Type visit(const Float_t *);
     virtual Type visit(const Bool_t *);
     virtual Type visit(const Ptr_t *);

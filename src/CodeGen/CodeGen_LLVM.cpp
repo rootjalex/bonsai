@@ -476,6 +476,10 @@ void CodeGen_LLVM::visit(const UInt_t *node) {
     type = llvm::Type::getIntNTy(*context, node->bits);
 }
 
+void CodeGen_LLVM::visit(const Index_t *node) {
+    internal_error << "unimplemented: " << ir::Type(node);
+}
+
 void CodeGen_LLVM::visit(const Bool_t *node) { type = i1_t; }
 
 void CodeGen_LLVM::visit(const Float_t *node) {

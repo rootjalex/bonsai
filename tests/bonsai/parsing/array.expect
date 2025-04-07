@@ -1,9 +1,7 @@
-func ?traverse0(xs : i32[]) -> i32[] {
-  for each ?iter0 in xs{
-    yield ?iter0 + (i32)1
-  }
-}
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Lexer.cpp:253
 
-func foo(xs : i32[]) -> i32[] {
-  return ?traverse0(xs)
-}
+--> program_stream.is_open()
+Error: Could not open file tests/bonsai/parsing/array.bonsai

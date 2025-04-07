@@ -39,6 +39,8 @@ void Visitor::visit(const Int_t *) {}
 
 void Visitor::visit(const UInt_t *) {}
 
+void Visitor::visit(const Index_t *) {}
+
 void Visitor::visit(const Float_t *) {}
 
 void Visitor::visit(const Bool_t *) {}
