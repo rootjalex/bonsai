@@ -209,10 +209,7 @@ void Visitor::visit(const Accumulate *node) {
     // node->body.accept(this);
 }
 
-void Visitor::visit(const Allocate *node) {
-    node->type.accept(this);
-    node->size.accept(this);
-}
+void Visitor::visit(const Allocate *node) { node->type.accept(this); }
 
 void Visitor::visit(const Match *node) {
     node->loc.accept(this);

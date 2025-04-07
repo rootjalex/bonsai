@@ -94,14 +94,12 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     return node;
 }
 
-Stmt Allocate::make(std::string name, Type type, Expr size) {
+Stmt Allocate::make(std::string name, Type type) {
     internal_assert(type.defined()) << "Allocate::make received undefined type";
-    internal_assert(size.defined()) << "Allocate::make received undefined size";
 
     Allocate *node = new Allocate;
     node->name = std::move(name);
     node->type = std::move(type);
-    node->size = std::move(size);
     return node;
 }
 

@@ -1,11 +1,12 @@
 #include "IR/Printer.h"
 
-#include <sstream>
-#include <vector>
-
 #include "IR/Expr.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
+#include "Utils.h"
+
+#include <sstream>
+#include <vector>
 
 namespace bonsai {
 namespace ir {
@@ -317,9 +318,13 @@ void Printer::visit(const Tuple_t *node) {
 void Printer::visit(const Array_t *node) {
     print(node->etype);
     os << "[";
-    // TODO(cgyurgyik): Do we want this? IMO it definitely adds clarity when
-    // reading the code IMO, but the (i32) makes it quite wordy.
-    // print_no_parens(node->size);
+    if (ir::Expr size = node->size; size.defined()) {
+        if (size.type().is_int_or_uint()) {
+            os << std::to_string(get_constant_value(size));
+        } else {
+            print_no_parens(node->size);
+        }
+    }
     os << "]";
 }
 
@@ -839,8 +844,7 @@ void Printer::visit(const Accumulate *node) {
 
 void Printer::visit(const Allocate *node) {
     os << get_indent();
-    os << "alloc " << node->name << " : " << node->type << "x";
-    print_no_parens(node->size);
+    os << "alloc " << node->name << " : " << node->type;
     os << "\n";
 }
 

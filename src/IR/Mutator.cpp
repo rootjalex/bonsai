@@ -467,13 +467,11 @@ Stmt Mutator::visit(const Accumulate *node) {
 }
 
 Stmt Mutator::visit(const Allocate *node) {
-    Expr size = mutate(node->size);
     Type type = mutate(node->type);
-    if (size.same_as(node->size) && type.same_as(node->type)) {
+    if (type.same_as(node->type)) {
         return node;
     }
-    return Allocate::make(std::move(node->name), std::move(type),
-                          std::move(size));
+    return Allocate::make(std::move(node->name), std::move(type));
 }
 
 Stmt Mutator::visit(const Match *node) {

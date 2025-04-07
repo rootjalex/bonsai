@@ -156,9 +156,8 @@ struct Accumulate : StmtNode<Accumulate> {
 struct Allocate : StmtNode<Allocate> {
     std::string name;
     Type type;
-    Expr size;
 
-    static Stmt make(std::string name, Type type, Expr size);
+    static Stmt make(std::string name, Type type);
 
     static const IRStmtEnum _node_type = IRStmtEnum::Allocate;
 };

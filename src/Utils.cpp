@@ -7,6 +7,17 @@ namespace bonsai {
 
 using namespace ir;
 
+uint64_t get_constant_value(const ir::Expr &e) {
+    if (const auto *v = e.as<ir::UIntImm>()) {
+        internal_assert(v->type.bits() < 64);
+        return v->value;
+    } else if (const auto *v = e.as<ir::IntImm>()) {
+        internal_assert(v->type.bits() < 64);
+        return std::bit_cast<uint64_t>(v->value);
+    }
+    internal_error << "[unimplemented] get_constant_value(" << e << ")";
+}
+
 const int64_t *as_const_int(const Expr &e) {
     if (!e.defined()) {
         return nullptr;
