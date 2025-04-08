@@ -216,13 +216,9 @@ struct LowerToForEach : public ir::Mutator {
 // Lowers for-each loops to for-all loops.
 struct LowerToForAll : public ir::Mutator {
     int64_t acounter = 0; // unique identifier for allocations.
-    int64_t icounter = 0; // unique identifier for index variable.
-    int64_t lcounter = 0; // unique identifier for load variable.
+    int64_t lcounter = 0; // unique identifier for load variables.
     std::string unique_alloc_name() {
         return "?alloc" + std::to_string(acounter++);
-    }
-    std::string unique_index_name() {
-        return "?index" + std::to_string(icounter++);
     }
     std::string unique_load_name() {
         return "?load" + std::to_string(lcounter++);
@@ -230,6 +226,7 @@ struct LowerToForAll : public ir::Mutator {
     // A list of for-each constructs that have been visited already.
     std::set<ir::Stmt> visited;
 
+    // Builds the for-each with the `toplevel` for-each as the base.
     ir::Stmt build(ir::Stmt node, std::vector<ir::ForAll::Slice> &dimensions,
                    std::vector<std::string> &iterator_names,
                    ir::Stmt toplevel) {
@@ -261,10 +258,11 @@ struct LowerToForAll : public ir::Mutator {
         internal_assert(body)
             << "unexpected body in for-each: " << foreach->body;
 
-        std::vector<std::string> reversed_iterator_names = iterator_names;
-        std::reverse(reversed_iterator_names.begin(),
-                     reversed_iterator_names.end());
+        std::vector<std::string> reversed_iterator_names;
+        std::copy(std::rbegin(iterator_names), std::rend(iterator_names),
+                  std::back_inserter(reversed_iterator_names));
 
+        // Create the header with the proper load index.
         ir::Expr toplevel_iterable = toplevel.as<ir::ForEach>()->iter;
         ir::Expr index =
             ir::Var::make(ir::Index_t::make(), iterator_names.front());
@@ -284,21 +282,22 @@ struct LowerToForAll : public ir::Mutator {
             {iterator_names.back(), header_variable}};
         ir::Expr value = replace(replacements, body->value);
 
-        // Currently this is just inferred from the top-level iterable.
+        // Create the allocation. The type is currently just inferred from the
+        // top-level iterable.
         const ir::Array_t *type = toplevel_iterable.type().as<ir::Array_t>();
         internal_assert(type) << toplevel_iterable.type();
         std::string allocation_name = unique_alloc_name();
         ir::Stmt allocation = ir::Allocate::make(allocation_name, type);
 
         std::vector<ir::Expr> indices;
+        ir::Type index_type = type->size.type();
         std::transform(iterator_names.begin(), iterator_names.end(),
                        std::back_inserter(indices),
                        [&](const std::string &name) {
-                           return ir::Var::make(ir::Index_t::make(), name);
+                           return ir::Var::make(index_type, name);
                        });
         ir::Expr store_index = ir::Build::make(
-            ir::Vector_t::make(ir::Index_t::make(), dimensions.size()),
-            indices);
+            ir::Vector_t::make(index_type, dimensions.size()), indices);
         ir::Stmt fin = ir::Store::make(allocation_name,
                                        /*index=*/store_index,
                                        /*value=*/value);
@@ -312,7 +311,11 @@ struct LowerToForAll : public ir::Mutator {
         }
 
         ir::Stmt ret = ir::Return::make(ir::Var::make(type, allocation_name));
-        return ir::Sequence::make({allocation, fin, ret});
+        return ir::Sequence::make({
+            std::move(allocation),
+            std::move(fin),
+            std::move(ret),
+        });
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
