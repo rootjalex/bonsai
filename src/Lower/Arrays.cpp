@@ -92,8 +92,8 @@ struct LowerToForEach : public ir::Mutator {
         : program_functions(program_functions) {};
     ir::FuncMap new_funcs; // Store newly created traversal functions here.
 
-    // Returns the name of the argument(s) so that iterator variable names can
-    // be appropriately mapped to their function/lambda argument name.
+    // Returns the name of the argument(s) so that an iterator variable name can
+    // be appropriately mapped to its function/lambda argument name.
     std::string get_argument_name(const ir::Expr &expr) {
         // Case 1: lambda
         if (const auto *lambda = expr.as<ir::Lambda>()) {
@@ -158,6 +158,8 @@ struct LowerToForEach : public ir::Mutator {
         switch (as_set->op) {
         case ir::SetOp::map: {
             ir::Expr function = as_set->a;
+            // Note that when multiple set operations are fused, it will just
+            // take the last set operation's lambda argument name.
             ir::Stmt body = build_level(as_set->b, get_argument_name(function));
             return build_map(body, function);
         }
@@ -298,22 +300,22 @@ struct LowerToForAll : public ir::Mutator {
                        });
         ir::Expr store_index = ir::Build::make(
             ir::Vector_t::make(index_type, dimensions.size()), indices);
-        ir::Stmt fin = ir::Store::make(allocation_name,
-                                       /*index=*/store_index,
-                                       /*value=*/value);
+        ir::Stmt final_body = ir::Store::make(allocation_name,
+                                              /*index=*/store_index,
+                                              /*value=*/value);
 
         for (int i = 0; i < dimensions.size(); ++i) {
-            fin = ir::ForAll::make(
+            final_body = ir::ForAll::make(
                 /*index=*/reversed_iterator_names[i],
                 /*header=*/i == 0 ? header : ir::Stmt(),
                 /*slice=*/dimensions[i],
-                /*body=*/fin);
+                /*body=*/final_body);
         }
 
         ir::Stmt ret = ir::Return::make(ir::Var::make(type, allocation_name));
         return ir::Sequence::make({
             std::move(allocation),
-            std::move(fin),
+            std::move(final_body),
             std::move(ret),
         });
     }
@@ -355,7 +357,7 @@ ir::Program LowerArrays::run(ir::Program program) const {
         internal_assert(inserted)
             << "function with name: " << name << " already exists";
     }
-
+    // 2. Lower for-each loops to for-all loops.
     LowerToForAll convert_fa;
     for (auto &[_, f] : program.funcs) {
         f->body = convert_fa.mutate(f->body);

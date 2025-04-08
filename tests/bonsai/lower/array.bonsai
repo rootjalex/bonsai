@@ -28,14 +28,16 @@ func tall1(ij: array[array[i32, 4], 8]) -> array[array[i32, 4], 8] {
 func tall2(ijk: array[array[array[i32, 32], 16], 8]) -> array[array[array[i32, 32], 16], 8] {
   return map(| i: array[array[i32, 32], 16] | {
            map(| j: array[i32, 32] | {
-             map(| k: i32 | { k + 1}, j)
+             map(| k: i32 | { 
+               k + 1 
+             }, j)
            }, i)
          }, ijk);
 }
 
 func tall_and_wide(ij: array[array[i32, 8], 8]) -> array[array[i32, 8], 8] {
     return map(|i: array[i32, 8]| { 
-             map(|j2: i32| j2 - 1, 
-             map(|j1: i32| j1 + 1, i)) 
+             map(|j: i32| j - 1, 
+             map(|j: i32| j + 1, i)) 
            }, ij);
 }

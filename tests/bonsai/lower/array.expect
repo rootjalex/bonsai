@@ -34,9 +34,9 @@ func ?traverse_array2(ijk : i32[32][16][8]) -> i32[32][16][8] {
 func ?traverse_array3(ij : i32[8][8]) -> i32[8][8] {
   alloc ?alloc3 : i32[8][8]
   forall i in [(i32)0:(i32)8:(i32)1] {
-    forall j1 in [(i32)0:(i32)8:(i32)1] {
-      let ?load3 = ij[i][j1] in
-      ?alloc3[build<i32x2>(i, j1)] = (?load3 + (i32)1) - (i32)1
+    forall j in [(i32)0:(i32)8:(i32)1] {
+      let ?load3 = ij[i][j] in
+      ?alloc3[build<i32x2>(i, j)] = (?load3 + (i32)1) - (i32)1
     }
   }
   return ?alloc3
