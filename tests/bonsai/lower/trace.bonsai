@@ -2,9 +2,9 @@ import tests/bonsai/lower/intersects;
 
 extern triangles : set[Triangle];
 
-// func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
-func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+// func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
 
 schedule {
@@ -31,6 +31,8 @@ schedule {
             };
         };
     };
+
+    trace.bound(64); // maximum tree depth.
 }
 
 
