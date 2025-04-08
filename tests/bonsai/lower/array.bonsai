@@ -15,7 +15,7 @@ func wide(xs: array[i32, 8]) -> array[i32, 8] {
 }
 
 func tall1(ij: array[array[i32, 4], 8]) -> array[array[i32, 4], 8] {
-    return map(|i: array[i32, 32]| { 
+    return map(|i: array[i32, 4]| { 
              map(|j: i32| {
                 j + 1
              }, i) 
@@ -31,7 +31,7 @@ func tall2(ijk: array[array[array[i32, 32], 16], 8]) -> array[array[array[i32, 3
 }
 
 func tall_and_wide(ij: array[array[i32, 8], 8]) -> array[array[i32, 8], 8] {
-    return map(|i: array[i32, 32]| { 
+    return map(|i: array[i32, 8]| { 
              map(|j2: i32| j2 - 1, 
              map(|j1: i32| j1 + 1, i)) 
            }, ij);
