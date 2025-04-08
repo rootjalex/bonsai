@@ -1,5 +1,8 @@
 //! flags: -p canonicalize -p lower-arrays
 
+// TODO(cgyurgyik): add tests for runtime values in the array size.
+// TODO(cgyurgyik): add tests for maps over tuples.
+
 func f(x: i32) -> i32 { return x; }
 
 func apply_function(fs: array[i32, 8]) -> array[i32, 8] {
