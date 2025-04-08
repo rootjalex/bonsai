@@ -20,6 +20,7 @@ namespace lower {
 
 namespace {
 
+// Applies the lambda or function call to the top-level yield operation.
 ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
     struct RewriteMap : public ir::Mutator {
         ir::Expr function;
@@ -33,8 +34,7 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
                 // yield x -> yield f(x)
                 return ir::Yield::make(ir::Call::make(v, {node->value}));
             }
-
-            // Otherwise this is a lambda; we inline the lambda's body.
+            // Otherwise, this is a lambda. We always inline the lambda's body.
             const ir::Lambda *lambda = function.as<ir::Lambda>();
             internal_assert(lambda) << "function is not a lambda: " << function;
             const size_t n_args = lambda->args.size();
