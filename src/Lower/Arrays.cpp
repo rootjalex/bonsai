@@ -173,7 +173,7 @@ struct LowerToForEach : public ir::Mutator {
 
     ir::Expr build_traversal_function(const ir::Expr &expr) {
         const std::string function_name = unique_func_name();
-        const auto free_vars = ir::gather_free_vars(expr);
+        std::vector<const ir::Var *> free_vars = ir::gather_free_vars(expr);
         ir::Stmt body = build_hierarchy(expr);
         internal_assert(body.defined())
             << "traversal building undefined for: " << expr;
@@ -184,10 +184,9 @@ struct LowerToForEach : public ir::Mutator {
                            return ir::Function::Argument(var->name, var->type);
                        });
 
-        ir::Type ret_type = expr.type();
         auto f = std::make_shared<ir::Function>(
-            function_name, std::move(func_args), std::move(ret_type),
-            std::move(body), ir::Function::InterfaceList{});
+            function_name, std::move(func_args), expr.type(), std::move(body),
+            ir::Function::InterfaceList{});
         ir::Type call_type = f->call_type();
         new_funcs[function_name] = std::move(f);
 
