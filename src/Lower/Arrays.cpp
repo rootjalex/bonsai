@@ -290,7 +290,6 @@ struct LowerToForAll : public ir::Mutator {
         std::string allocation_name = unique_alloc_name();
         ir::Stmt allocation = ir::Allocate::make(allocation_name, type);
 
-        // TODO(cgyurgyik): Fix this, it should be all the iterator variables.
         std::vector<ir::Expr> indices;
         std::transform(iterator_names.begin(), iterator_names.end(),
                        std::back_inserter(indices),
