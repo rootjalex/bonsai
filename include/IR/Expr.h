@@ -346,6 +346,8 @@ struct GeomOp : ExprNode<GeomOp> {
     static const IRExprEnum _node_type = IRExprEnum::GeomOp;
 };
 
+// For Argmin/Map/Filter, a: Lambda, b: Set
+// For Product, a and b are Sets
 struct SetOp : ExprNode<SetOp> {
     enum OpType {
         argmin,
@@ -357,8 +359,7 @@ struct SetOp : ExprNode<SetOp> {
     };
 
     OpType op;
-    // For Argmin/Map/Filter, a: Lambda, b: Set
-    // For Product, a and b are Sets
+
     Expr a, b;
 
     static Expr make(OpType op, Expr a, Expr b);
