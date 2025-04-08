@@ -4,17 +4,19 @@
 #include <string>
 
 #include "Layout.h"
+#include "ScheduleRewrite.h"
 #include "Type.h"
 
 namespace bonsai {
 namespace ir {
 
 struct Schedule {
-    // TODO: should this be part of the schedule?
+    // BVH specifications
     TypeMap tree_types;
-    // TODO: support tree layouts
+    // Tree layouts
     LayoutMap tree_layouts;
-    // TODO: support function scheduling
+    // In-order scheduling rewrites to be applied.
+    std::vector<schedule::Rewrite> rewrites;
 };
 
 } // namespace ir

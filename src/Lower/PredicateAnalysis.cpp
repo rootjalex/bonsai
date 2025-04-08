@@ -191,9 +191,9 @@ struct PredicateAnalysis : public ir::Visitor {
             } else {
                 // Both varying! no way to prove always true.
                 interval.min = ir::Expr();
-                // But can only be true if the volumes intersect/overlap in some way.
+                // But can only be true if the volumes intersect/overlap in some
+                // way.
                 interval.max = ir::intersects(*a_vol, *b_vol);
-                
             }
             return;
         }
