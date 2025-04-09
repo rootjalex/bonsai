@@ -4,4 +4,5 @@ add_bonsai_tests(
     dce.bonsai
     option.bonsai
     print.bonsai
+    map.bonsai
 )

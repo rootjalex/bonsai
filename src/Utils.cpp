@@ -10,11 +10,12 @@ using namespace ir;
 uint64_t get_constant_value(const ir::Expr &e) {
     internal_assert(is_const(e)) << "expected constant value, received: " << e;
     if (const auto *v = e.as<ir::UIntImm>()) {
-        internal_assert(v->type.bits() < 64);
+        internal_assert(v->type.bits() <= 64);
         return v->value;
     }
     if (const auto *v = e.as<ir::IntImm>()) {
-        internal_assert(v->type.bits() < 64);
+        internal_assert(v->type.bits() <= 64);
+        internal_assert(v->value >= 0);
         return std::bit_cast<uint64_t>(v->value);
     }
     internal_error << "[unimplemented] get_constant_value(" << e << ")";

@@ -18,7 +18,9 @@ Expr operator||(Expr a, Expr b);
 Expr operator^(Expr a, Expr b);
 Expr operator==(Expr a, Expr b);
 Expr operator<=(Expr a, Expr b);
+Expr operator>=(Expr a, Expr b);
 Expr operator<(Expr a, Expr b);
+Expr operator>(Expr a, Expr b);
 // TODO: the rest
 
 Expr distance(Expr a, Expr b);

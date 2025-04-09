@@ -1,0 +1,13 @@
+//! flags: -b llvm -e
+
+func array_sin(xss : array[f32, 8]) {
+    return map(|x| sin(x), xss);
+}
+
+func main() -> i32 {
+    xs : array[f32, 8] = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
+    print(xs);
+    sin_xs = array_sin(xs);
+    print(sin_xs);
+    return 0;
+}
