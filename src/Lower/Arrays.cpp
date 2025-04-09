@@ -134,7 +134,8 @@ struct LowerToForEach : public ir::Mutator {
                     << value;
             }
         } else if (const auto *v = function.as<ir::Var>()) {
-            // TODO(cgyurgyik): Support this.
+            // TODO(cgyurgyik): Not sure how often this will occur, but we
+            // should probably support this.
             internal_assert(!program_functions.contains(v->name))
                 << "[unimplemented] function while building hierarchical loops";
         }
@@ -152,8 +153,7 @@ struct LowerToForEach : public ir::Mutator {
         }
         const ir::SetOp *as_set = expr.as<ir::SetOp>();
         if (as_set == nullptr) {
-            internal_error << "[unimplemented] unknown traversal pattern: "
-                           << expr;
+            internal_error << "unknown traversal pattern: " << expr;
         }
         switch (as_set->op) {
         case ir::SetOp::map: {
@@ -327,6 +327,7 @@ struct LowerToForAll : public ir::Mutator {
         }
 
         ir::Expr iter = node->iter;
+        // Currently, this assumes we are only lowering arrays.
         const auto *type = iter.type().as<ir::Array_t>();
         if (type == nullptr) {
             return node;
