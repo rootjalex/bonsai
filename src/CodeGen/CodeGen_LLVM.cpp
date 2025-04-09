@@ -534,16 +534,6 @@ void CodeGen_LLVM::visit(const Vector_t *node) {
     type = llvm::VectorType::get(etype, node->lanes, /* Scalable */ false);
 }
 
-void CodeGen_LLVM::visit(const Array_t *node) {
-    llvm::Type *etype = codegen_type(node->etype);
-    internal_assert(!etype->isVoidTy())
-        << "Cannot make a vector of type void: " << Type(node);
-    // TODO(cgyurgyik): Support non-constant array sizes.
-    internal_assert(is_const(node->size));
-    type = llvm::VectorType::get(etype, get_constant_value(node->size),
-                                 /*Scalable=*/false);
-}
-
 void CodeGen_LLVM::visit(const Struct_t *node) {
     // TODO: could just use module->getTypeByName
     type = struct_types[node->name];
@@ -893,8 +883,9 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
 }
 
 void CodeGen_LLVM::visit(const Print *node) {
+    // TODO(ajr): fix this to print like a vector.
+    /*
     if (node->value.type().is<Array_t>()) {
-        // TODO(ajr): fix this to print like a vector.
         static int counter = 0;
         Expr size = node->value.type().as<Array_t>()->size;
         std::string index = "?print_iter" + std::to_string(counter++);
@@ -916,6 +907,7 @@ void CodeGen_LLVM::visit(const Print *node) {
         codegen_stmt(std::move(stmt));
         return;
     }
+        */
     // The string to be printed in the call to `printf`...
     std::string to_print;
     // ...and the respective arguments for the format specifiers.

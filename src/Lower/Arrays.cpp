@@ -297,8 +297,14 @@ struct LowerToForAll : public ir::Mutator {
                        [&](const std::string &name) {
                            return ir::Var::make(index_type, name);
                        });
-        ir::Expr store_index = ir::Build::make(
-            ir::Vector_t::make(index_type, dimensions.size()), indices);
+        ir::Expr store_index;
+        // TODO: fix the lowering for multidimensional indices.
+        if (indices.size() == 1) {
+            store_index = indices[0];
+        } else {
+            store_index = ir::Build::make(
+                ir::Vector_t::make(index_type, dimensions.size()), indices);
+        }
         ir::Stmt final_body = ir::Store::make(allocation_name,
                                               /*index=*/store_index,
                                               /*value=*/value);
