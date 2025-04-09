@@ -34,6 +34,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Expr.h"
+#include "IR/Operators.h"
 #include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
@@ -146,8 +147,7 @@ void CodeGen_LLVM::init_context() {
 
     // Branch weights for very likely branches
     llvm::MDBuilder md_builder(*context);
-    // TODO: use?
-    // very_likely_branch = md_builder.createBranchWeights(1 << 30, 0);
+    very_likely_branch = md_builder.createBranchWeights(1 << 30, 0);
     llvm::MDNode *default_fp_math_md = md_builder.createFPMath(0.0);
     // TODO: when do we need strict float math?
     // strict_fp_math_md = md_builder.createFPMath(0.0);
@@ -534,16 +534,6 @@ void CodeGen_LLVM::visit(const Vector_t *node) {
     type = llvm::VectorType::get(etype, node->lanes, /* Scalable */ false);
 }
 
-void CodeGen_LLVM::visit(const Array_t *node) {
-    llvm::Type *etype = codegen_type(node->etype);
-    internal_assert(!etype->isVoidTy())
-        << "Cannot make a vector of type void: " << Type(node);
-    // TODO(cgyurgyik): Support non-constant array sizes.
-    internal_assert(is_const(node->size));
-    type = llvm::VectorType::get(etype, get_constant_value(node->size),
-                                 /*Scalable=*/false);
-}
-
 void CodeGen_LLVM::visit(const Struct_t *node) {
     // TODO: could just use module->getTypeByName
     type = struct_types[node->name];
@@ -553,6 +543,23 @@ void CodeGen_LLVM::visit(const Tuple_t *node) {
     // TODO: struct_types should include tuples, probably? but they're
     // unnamed... maybe use to_string() to map from node to built Struct_t
     internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
+}
+
+void CodeGen_LLVM::visit(const Array_t *node) {
+    // TODO: are nested arrays allowed?
+    // lowering should probably flatten arrays.
+    llvm::Type *etype = codegen_type(node->etype);
+    type = etype->getPointerTo();
+    // We don't use LLVM's ArrayType because these are allocated objects.
+    /*
+    if (is_const(node->size)) {
+        const uint64_t size = get_constant_value(node->size);
+        type = llvm::ArrayType::get(etype, size);
+    } else {
+        internal_error << "TODO: implement Array_t code generation for dynamic
+    sizes: " << Type(node);
+    }
+    */
 }
 
 void CodeGen_LLVM::visit(const IntImm *node) {
@@ -876,6 +883,31 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
 }
 
 void CodeGen_LLVM::visit(const Print *node) {
+    // TODO(ajr): fix this to print like a vector.
+    /*
+    if (node->value.type().is<Array_t>()) {
+        static int counter = 0;
+        Expr size = node->value.type().as<Array_t>()->size;
+        std::string index = "?print_iter" + std::to_string(counter++);
+        std::string value = index + "_value";
+
+        Expr var = Var::make(node->value.type().element_of(), value);
+        Expr idx = Var::make(size.type(), index);
+
+        ir::WriteLoc loc(value, var.type());
+        Stmt header = LetStmt::make(std::move(loc),
+                                    Extract::make(node->value, std::move(idx)));
+
+        ForAll::Slice slice{make_zero(size.type()), size,
+                            make_one(size.type())};
+
+        Stmt body = Print::make(std::move(var));
+
+        Stmt stmt = ForAll::make(index, header, slice, body);
+        codegen_stmt(std::move(stmt));
+        return;
+    }
+        */
     // The string to be printed in the call to `printf`...
     std::string to_print;
     // ...and the respective arguments for the format specifiers.
@@ -1051,7 +1083,16 @@ void CodeGen_LLVM::visit(const Ramp *node) {
 void CodeGen_LLVM::visit(const Extract *node) {
     llvm::Value *vec = codegen_expr(node->vec);
     llvm::Value *idx = codegen_expr(node->idx);
-    value = builder->CreateExtractElement(vec, idx);
+    if (node->vec.type().is<Vector_t>()) {
+        value = builder->CreateExtractElement(vec, idx);
+    } else if (node->vec.type().is<Array_t>()) {
+        llvm::Type *etype = codegen_type(node->vec.type().element_of());
+        llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "extract_ptr");
+        value = builder->CreateLoad(etype, ptr, "extract");
+    } else {
+        internal_error << "[unimplemented] codegen of Extract on type: "
+                       << node->vec.type();
+    }
 }
 
 void CodeGen_LLVM::visit(const Intrinsic *node) {
@@ -1174,10 +1215,6 @@ void CodeGen_LLVM::visit(const Instantiate *node) {
                    << Expr(node);
 }
 
-void CodeGen_LLVM::visit(const Allocate *node) {
-    internal_error << "unimplemented: " << Stmt(node);
-}
-
 void CodeGen_LLVM::visit(const Build *node) {
     // This will be a StructType or a VectorType
     llvm::Type *build_type = codegen_type(node->type);
@@ -1238,6 +1275,29 @@ void CodeGen_LLVM::visit(const Build *node) {
             }
             return;
         }
+    } else if (build_type->isPointerTy()) {
+        // TODO(ajr): builds of Array_t should probably be turned into Allocates
+        // and constant-sized insertion loops.
+        internal_assert(node->type.is<Array_t>());
+        internal_assert(!values.empty());
+        const Array_t *array_t = node->type.as<Array_t>();
+
+        // Do allocation.
+        // TODO(ajr): constant sized should be on stack, right?
+        llvm::Type *etype = codegen_type(array_t->etype);
+        llvm::Value *size = codegen_expr(array_t->size);
+        // TODO(ajr): zero_initialize is broken, it should be set true here.
+        llvm::Value *alloc =
+            create_malloc(etype, size, /*zero_initialize=*/false, "");
+
+        for (size_t i = 0; i < values.size(); i++) {
+            llvm::Value *index = llvm::ConstantInt::get(size->getType(), i);
+            llvm::Value *ptr =
+                builder->CreateGEP(etype, alloc, index, "build_ptr");
+            builder->CreateStore(values[i], ptr);
+        }
+        value = alloc;
+        return;
     } else {
         internal_error << "Unexpected llvm Type in Build lowering: "
                        << Expr(node);
@@ -1458,6 +1518,183 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     builder->CreateStore(acc, loc);
 }
 
+/*
+llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *etype, llvm::Value
+*size, bool zero_initialize, const std::string &name) {
+    // create alloca at basic block entry.
+    // TODO(ajr): why does Halide do this at BB entry?
+
+    auto here = builder->saveIP();
+    llvm::BasicBlock *entry =
+&builder->GetInsertBlock()->getParent()->getEntryBlock(); if (entry->empty()) {
+        builder->SetInsertPoint(entry);
+    } else {
+        builder->SetInsertPoint(entry, entry->getFirstInsertionPt());
+    }
+    llvm::AllocaInst *ptr = builder->CreateAlloca(etype, size, name);
+    int align = native_vector_bits() / 8;
+    // const llvm::DataLayout &d = module->getDataLayout();
+    if (etype->isVectorTy() || !is_llvm_const_one(size)) {
+        ptr->setAlignment(llvm::Align(align));
+    }
+
+    if (zero_initialize) {
+        if (is_llvm_const_one(size)) {
+            builder->CreateStore(llvm::Constant::getNullValue(etype), ptr);
+        } else {
+            internal_error << "[unimplemented] zero initialize array";
+            ptr->getType()->dump();
+            llvm::Constant::getNullValue(etype)->getType()->dump();
+            size->getType()->dump();
+            llvm::Type *i8_ptr_ty = i8_t->getPointerTo();
+            llvm::Value *ptr_i8 = builder->CreateBitCast(ptr, i8_ptr_ty); //
+alloc is %0 llvm::Value *val = builder->getInt8(0); // fill with 0 llvm::Value
+*len = builder->CreateZExt(size, i64_t);                // size is i32 8 -> i64
+
+
+            // builder->CreateMemSet(ptr, llvm::Constant::getNullValue(etype),
+size, llvm::Align(align)); builder->CreateMemSet(ptr_i8, val, len,
+llvm::Align(align));
+        }
+    }
+    builder->restoreIP(here);
+    return ptr;
+}
+*/
+
+llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
+                                         bool zero_initialize,
+                                         const std::string &name) {
+
+    int align = native_vector_bits() / 8;
+
+    // Total allocation size = elemSize * count
+    // Size of the element in bytes
+    llvm::DataLayout dataLayout(module.get());
+    uint64_t typeSize = dataLayout.getTypeAllocSize(etype);
+    llvm::Value *elemSize = llvm::ConstantInt::get(i64_t, typeSize);
+
+    if (size->getType() != i64_t) {
+        size =
+            builder->CreateIntCast(size, i64_t, /*isSigned=*/false, "size64");
+    }
+    llvm::Value *allocSize = builder->CreateMul(elemSize, size);
+
+    // This returns a pointer of type i32*
+    // TODO: figure out alignment?
+    llvm::Value *untyped_ptr = builder->CreateMalloc(
+        i64_t, etype, allocSize, size, nullptr, name + "_untyped");
+
+    // if (etype->isVectorTy() || !is_llvm_const_one(size)) {
+    //     untyped_ptr->setAlignment(llvm::Align(align));
+    // }
+
+    llvm::Value *ptr = builder->CreateBitCast(
+        untyped_ptr, etype->getPointerTo(), name + "_typed");
+
+    if (zero_initialize) {
+        if (is_llvm_const_one(size)) {
+            builder->CreateStore(llvm::Constant::getNullValue(etype), ptr);
+        } else {
+            internal_error << "[unimplemented] zero initialize array";
+            ptr->getType()->dump();
+            llvm::Constant::getNullValue(etype)->getType()->dump();
+            size->getType()->dump();
+            llvm::Type *i8_ptr_ty = i8_t->getPointerTo();
+            llvm::Value *ptr_i8 =
+                builder->CreateBitCast(ptr, i8_ptr_ty); // alloc is %0
+            llvm::Value *val = builder->getInt8(0);     // fill with 0
+            llvm::Value *len =
+                builder->CreateZExt(size, i64_t); // size is i32 8 -> i64
+
+            // builder->CreateMemSet(ptr, llvm::Constant::getNullValue(etype),
+            // size, llvm::Align(align));
+            builder->CreateMemSet(ptr_i8, val, len, llvm::Align(align));
+        }
+    }
+    return ptr;
+}
+
+void CodeGen_LLVM::visit(const Allocate *node) {
+    // TODO(ajr): like Halide, we should put "small" allocations on the stack.
+    // TODO(ajr): We may want to pull some of this logic into a helper function.
+
+    llvm::Type *node_type = nullptr;
+    llvm::Value *node_size = nullptr;
+
+    // Handle arrays as a special case.
+    if (node->type.is<Array_t>()) {
+        const Array_t *array_t = node->type.as<Array_t>();
+        node_type = codegen_type(array_t->etype);
+        node_size = codegen_expr(array_t->size);
+    } else {
+        // Scalar allocation.
+        node_type = codegen_type(node->type);
+        node_size = llvm::ConstantInt::get(i32_t, 1);
+    }
+
+    llvm::Value *alloc = create_malloc(node_type, node_size,
+                                       /*zero_initialize=*/false, node->name);
+
+    // We set mutable to false because Var codegen would perform a load from
+    // this pointer if it was mutable.
+    frames.add_to_frame(node->name, {alloc, /* mutable */ false});
+}
+
+void CodeGen_LLVM::visit(const ForAll *node) {
+    llvm::Value *begin = codegen_expr(node->slice.begin);
+
+    // TODO(ajr): handle parallelism, needs to be field of ForAll
+    // For now, generate sequential.
+    llvm::BasicBlock *preheader_bb = builder->GetInsertBlock();
+
+    std::string loop_id =
+        node->index + std::to_string(forall_loop_id++) + std::string("_for");
+
+    // Body of the loop
+    llvm::BasicBlock *loop_bb =
+        llvm::BasicBlock::Create(*context, loop_id, current_function);
+    // Block after the loop.
+    llvm::BasicBlock *end_bb =
+        llvm::BasicBlock::Create(*context, loop_id + "_end", current_function);
+
+    // Unlike Halide, can have loops over non-int32 types, so let codegen figure
+    // out cmp type.
+    llvm::Value *enter_condition =
+        codegen_expr(node->slice.begin < node->slice.end);
+    builder->CreateCondBr(enter_condition, loop_bb, end_bb, very_likely_branch);
+    builder->SetInsertPoint(loop_bb);
+
+    // Make our phi node.
+    llvm::Type *iterator_t = codegen_type(node->slice.begin.type());
+    llvm::PHINode *phi = builder->CreatePHI(iterator_t, 2);
+    phi->addIncoming(begin, preheader_bb);
+
+    // Add index to new frame.
+    frames.new_frame();
+    frames.add_to_frame(node->index, {phi, /*mutable=*/false});
+
+    // Emit loop body
+    codegen_stmt(node->header);
+    codegen_stmt(node->body);
+
+    // Update the counter
+    Expr var = Var::make(node->slice.begin.type(), node->index);
+    llvm::Value *next_var = codegen_expr(var + node->slice.stride);
+    // Add the back-edge to the phi node
+    phi->addIncoming(next_var, builder->GetInsertBlock());
+
+    // Maybe exit the loop
+    llvm::Value *end_condition = codegen_expr(var + 1 >= node->slice.end);
+    builder->CreateCondBr(end_condition, end_bb, loop_bb);
+
+    // Following statements should write to end_bb
+    builder->SetInsertPoint(end_bb);
+
+    // Pop for-loop local scope names.
+    frames.pop_frame();
+}
+
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,
                                      const std::string &buffer,
                                      const Expr &index) {
@@ -1676,10 +1913,6 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
             // TODO: update ptype?
         }
     }
-    // llvm::errs() << *base << "\n";
-    // llvm::errs() << *ptr << "\n";
-    // internal_assert(loc.accesses.empty()) << "TODO: implement codegen
-    // writeloc for accesses: " << loc;
     return ptr;
 }
 

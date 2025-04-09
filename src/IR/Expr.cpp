@@ -552,22 +552,6 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                        "expected: "
                     << etype << " but received " << expr;
             }
-        } else if (type.is<Array_t>()) {
-            const auto *array_type = type.as<Array_t>();
-            internal_assert(
-                values.empty() ||
-                is_const(array_type->size) &&
-                    (get_constant_value(array_type->size) == values.size()))
-                << "Build<Array_t> with incorrect number of arguments, "
-                   "expected: "
-                << type << " but received " << values.size() << " elements.";
-            Type etype = array_type->etype;
-            for (const auto &expr : values) {
-                internal_assert(equals(expr.type(), etype))
-                    << "Build<Array_t> requires uniform element type, "
-                       "expected: "
-                    << etype << " but received " << expr;
-            }
         } else if (type.is<Struct_t>()) {
             if (!values.empty()) {
                 const auto &fields = type.as<Struct_t>()->fields;
@@ -644,6 +628,22 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                         << "expected: " << as_tuple->etypes[i]
                         << " but received " << values[i] << " of type "
                         << values[i].type() << " for index: " << i;
+                }
+            }
+        } else if (const Array_t *as_array = type.as<Array_t>()) {
+            if (!values.empty()) {
+                const int64_t *const_size = as_const_int(as_array->size);
+                internal_assert(const_size && values.size() == *const_size)
+                    << "Incorrect number of arguments to array construction: "
+                    << type << " takes " << *const_size << " elements"
+                    << " but received " << values.size();
+
+                for (size_t i = 0; i < values.size(); i++) {
+                    internal_assert(equals(as_array->etype, values[i].type()))
+                        << "Build<Array_t> requires matching field types, "
+                        << "expected: " << as_array->etype << " but received "
+                        << values[i] << " of type " << values[i].type()
+                        << " for index: " << i;
                 }
             }
         } else {

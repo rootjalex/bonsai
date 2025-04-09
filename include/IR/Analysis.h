@@ -21,15 +21,14 @@ bool is_constant_expr(const Expr &expr);
 
 bool contains_generics(const Type &type, const TypeMap &types);
 
-template<typename IRNode>
+template <typename IRNode>
 bool contains(const ir::Expr &expr) {
-    static_assert(std::is_base_of<BaseExprNode, IRNode>::value, "IRNode must be a subclass of BaseExprNode");
+    static_assert(std::is_base_of<BaseExprNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseExprNode");
     struct Checker : public Visitor {
         bool found = false;
 
-        void visit(const IRNode *node) override {
-            found = true;
-        }
+        void visit(const IRNode *node) override { found = true; }
     };
     Checker checker;
     expr.accept(&checker);

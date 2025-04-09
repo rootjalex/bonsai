@@ -124,7 +124,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Scan);
     RESTRICT_VISITOR(ir::YieldFrom);
-    RESTRICT_VISITOR(ir::ForAll);
+    virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
 
   private:
@@ -143,6 +143,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
+    llvm::MDNode *very_likely_branch = nullptr;
     // Scope<llvm::Value *> scope;
     ir::FrameStack<std::pair<llvm::Value *, bool>> frames;
     std::map<std::string, llvm::StructType *> struct_types;
@@ -162,6 +163,26 @@ struct CodeGen_LLVM : public ir::Visitor {
     //     *semaphore_t_type;
 
     // @}
+
+    // llvm::Value *create_alloca_at_entry(llvm::Type *etype, llvm::Value *size,
+    // bool zero_initialize, const std::string &name);
+    llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
+                               bool zero_initialize, const std::string &name);
+
+    virtual int native_vector_bits() const {
+        // TODO(ajr): override for other targets.
+        return 128; // ARM Neon
+    }
+
+    bool is_llvm_const_one(llvm::Value *value) const {
+        if (auto *constInt = llvm::dyn_cast<llvm::ConstantInt>(value)) {
+            return constInt->isOne();
+        }
+        return false;
+    }
+
+    // Used to uniquely label forall loop codegen.
+    uint64_t forall_loop_id = 0;
 };
 
 std::unique_ptr<llvm::raw_fd_ostream>
