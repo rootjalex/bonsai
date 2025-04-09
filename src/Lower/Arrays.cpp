@@ -161,7 +161,7 @@ struct LowerToForEach : public ir::Mutator {
             // Note that when multiple set operations are fused, it will just
             // take the last set operation's lambda argument name.
             ir::Stmt body = build_level(as_set->b, get_argument_name(function));
-            return build_map(body, function);
+            return build_map(std::move(body), std::move(function));
         }
         case ir::SetOp::OpType::argmin:
         case ir::SetOp::OpType::filter:
