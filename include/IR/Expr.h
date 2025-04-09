@@ -18,6 +18,7 @@ struct Expr;
 enum class IRExprEnum {
     IntImm,
     UIntImm,
+    IdxImm,
     FloatImm,
     BoolImm,
     Var,
@@ -105,6 +106,14 @@ struct UIntImm : ExprNode<UIntImm> {
     static Expr make(Type t, uint64_t value);
 
     static const IRExprEnum _node_type = IRExprEnum::UIntImm;
+};
+
+struct IdxImm : ExprNode<IdxImm> {
+    int64_t value;
+
+    static Expr make(int64_t value);
+
+    static const IRExprEnum _node_type = IRExprEnum::IdxImm;
 };
 
 struct FloatImm : ExprNode<FloatImm> {
@@ -337,6 +346,8 @@ struct GeomOp : ExprNode<GeomOp> {
     static const IRExprEnum _node_type = IRExprEnum::GeomOp;
 };
 
+// For Argmin/Map/Filter, a: Lambda, b: Set
+// For Product, a and b are Sets
 struct SetOp : ExprNode<SetOp> {
     enum OpType {
         argmin,
@@ -348,8 +359,7 @@ struct SetOp : ExprNode<SetOp> {
     };
 
     OpType op;
-    // For Argmin/Map/Filter, a: Lambda, b: Set
-    // For Product, a and b are Sets
+
     Expr a, b;
 
     static Expr make(OpType op, Expr a, Expr b);

@@ -20,6 +20,7 @@ enum class IRTypeEnum {
     Void_t,
     Int_t,
     UInt_t,
+    Index_t,
     Float_t,
     Bool_t,
     Ptr_t,
@@ -115,6 +116,11 @@ struct UInt_t : TypeNode<UInt_t> {
     static Type make(uint32_t bits);
 
     static const IRTypeEnum _node_type = IRTypeEnum::UInt_t;
+};
+
+struct Index_t : TypeNode<Index_t> {
+    static Type make();
+    static const IRTypeEnum _node_type = IRTypeEnum::Index_t;
 };
 
 // A subset of the real numbers. This typically consists of a sign bit, mantissa

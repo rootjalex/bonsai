@@ -508,7 +508,7 @@ Expr Extract::make(Expr vec, Expr idx) {
 
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        internal_assert(vec.type().is<Vector_t>())
+        internal_assert((vec.type().is<Vector_t, Array_t>()))
             << "Extract of non-vector: " << vec;
         internal_assert(idx.type().is_int_or_uint())
             << "Extract with non-integer index: " << idx;
@@ -630,10 +630,26 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                         << values[i].type() << " for index: " << i;
                 }
             }
+        } else if (const Array_t *as_array = type.as<Array_t>()) {
+            if (!values.empty()) {
+                const int64_t *const_size = as_const_int(as_array->size);
+                internal_assert(const_size && values.size() == *const_size)
+                    << "Incorrect number of arguments to array construction: "
+                    << type << " takes " << *const_size << " elements"
+                    << " but received " << values.size();
+
+                for (size_t i = 0; i < values.size(); i++) {
+                    internal_assert(equals(as_array->etype, values[i].type()))
+                        << "Build<Array_t> requires matching field types, "
+                        << "expected: " << as_array->etype << " but received "
+                        << values[i] << " of type " << values[i].type()
+                        << " for index: " << i;
+                }
+            }
         } else {
-            internal_error
-                << "Build::make with non-(vector, struct, option, tuple) type: "
-                << type;
+            internal_error << "Build::make with non-(vector, array, struct, "
+                              "option, tuple) type: "
+                           << type;
         }
     }
 
@@ -888,16 +904,22 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
             internal_assert(a.type().is<Function_t>())
                 << "Expected lhs of map to be afunction, instead received: "
                 << a << " : " << a.type();
-            internal_assert(b.type().is<Set_t>())
-                << "Expected rhs of map to be a set, instead received: " << b
-                << " : " << b.type();
+            internal_assert((b.type().is<Set_t, Array_t>()))
+                << "Expected rhs of map to be a set or array, instead "
+                   "received: "
+                << b << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
                             equals(f->arg_types[0], b.type().element_of()))
                 << "Expected map function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
-            node->type = Set_t::make(f->ret_type);
+            if (b.type().is<Set_t>()) {
+                node->type = Set_t::make(f->ret_type);
+            } else {
+                Expr size = b.type().as<Array_t>()->size;
+                node->type = Array_t::make(f->ret_type, std::move(size));
+            }
         } else if (op == SetOp::product) {
             internal_assert(a.type().is<Set_t>() && b.type().is<Set_t>())
                 << "Expected args of product to be sets, instead received: "

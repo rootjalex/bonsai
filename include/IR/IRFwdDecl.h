@@ -8,6 +8,7 @@ struct Type;
 struct Void_t;
 struct Int_t;
 struct UInt_t;
+struct Index_t;
 struct Float_t;
 struct Bool_t;
 struct Ptr_t;
@@ -66,11 +67,13 @@ struct DoWhile;
 struct Sequence;
 struct Assign;
 struct Accumulate;
+struct Allocate;
 struct Match;
 struct Yield;
 struct Scan;
 struct YieldFrom;
 struct ForAll;
+struct ForEach;
 
 // Layouts
 struct Name;

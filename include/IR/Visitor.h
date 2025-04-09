@@ -10,6 +10,7 @@ struct Visitor {
     virtual void visit(const Void_t *);
     virtual void visit(const Int_t *);
     virtual void visit(const UInt_t *);
+    virtual void visit(const Index_t *);
     virtual void visit(const Float_t *);
     virtual void visit(const Bool_t *);
     virtual void visit(const Ptr_t *);
@@ -62,11 +63,13 @@ struct Visitor {
     virtual void visit(const Sequence *);
     virtual void visit(const Assign *);
     virtual void visit(const Accumulate *);
+    virtual void visit(const Allocate *);
     virtual void visit(const Match *);
     virtual void visit(const Yield *);
     virtual void visit(const Scan *);
     virtual void visit(const YieldFrom *);
     virtual void visit(const ForAll *);
+    virtual void visit(const ForEach *);
     // Layouts
     virtual void visit(const Name *);
     virtual void visit(const Pad *);

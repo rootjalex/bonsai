@@ -1,5 +1,5 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:1008
+[internal] Error: src/Parser/Parser.cpp:1016
 [unimplemented] string literals: '"abc"'

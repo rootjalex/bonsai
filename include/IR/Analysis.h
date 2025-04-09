@@ -4,6 +4,7 @@
 #include "Program.h"
 #include "Stmt.h"
 #include "Type.h"
+#include "Visitor.h"
 
 namespace bonsai {
 namespace ir {
@@ -19,6 +20,20 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program);
 bool is_constant_expr(const Expr &expr);
 
 bool contains_generics(const Type &type, const TypeMap &types);
+
+template <typename IRNode>
+bool contains(const ir::Expr &expr) {
+    static_assert(std::is_base_of<BaseExprNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseExprNode");
+    struct Checker : public Visitor {
+        bool found = false;
+
+        void visit(const IRNode *node) override { found = true; }
+    };
+    Checker checker;
+    expr.accept(&checker);
+    return checker.found;
+}
 
 } // namespace ir
 } // namespace bonsai

@@ -417,7 +417,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
                     std::string name = unique_iter_name();
                     ir::Stmt body = ir::Yield::make(
                         ir::Var::make(data[i].second.element_of(), name));
-                    stmts[i] = ir::ForAll::make(
+                    stmts[i] = ir::ForEach::make(
                         std::move(name), std::move(access), std::move(body));
                 } else {
                     // yield d
@@ -477,7 +477,7 @@ struct LowerBVH : public ir::Mutator {
     size_t counter = 0;
 
     std::string new_func_name() {
-        return "?traverse" + std::to_string(counter++);
+        return "?traverse_tree" + std::to_string(counter++);
     }
 
     // Returns a call to the func.

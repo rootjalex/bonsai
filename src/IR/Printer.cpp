@@ -1,11 +1,12 @@
 #include "IR/Printer.h"
 
-#include <sstream>
-#include <vector>
-
 #include "IR/Expr.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
+#include "Utils.h"
+
+#include <sstream>
+#include <vector>
 
 namespace bonsai {
 namespace ir {
@@ -258,6 +259,8 @@ void Printer::visit(const Int_t *node) { os << "i" << node->bits; }
 
 void Printer::visit(const UInt_t *node) { os << "u" << node->bits; }
 
+void Printer::visit(const Index_t *node) { os << "idx"; }
+
 void Printer::visit(const Float_t *node) {
     if (node->is_ieee754()) {
         os << "f" << node->bits();
@@ -315,7 +318,14 @@ void Printer::visit(const Tuple_t *node) {
 void Printer::visit(const Array_t *node) {
     print(node->etype);
     os << "[";
-    // print_no_parens(node->size);
+    ir::Expr size = node->size;
+    if (size.defined()) {
+        if (is_const(size)) {
+            os << std::to_string(get_constant_value(size));
+        } else {
+            print_no_parens(node->size);
+        }
+    }
     os << "]";
 }
 
@@ -844,6 +854,12 @@ void Printer::visit(const Accumulate *node) {
     // print(node->body);
 }
 
+void Printer::visit(const Allocate *node) {
+    os << get_indent();
+    os << "alloc " << node->name << " : " << node->type;
+    os << "\n";
+}
+
 void Printer::visit(const Match *node) {
     os << get_indent();
     os << "match ";
@@ -881,14 +897,34 @@ void Printer::visit(const YieldFrom *node) {
     os << "\n";
 }
 
-void Printer::visit(const ForAll *node) {
+void Printer::visit(const ForEach *node) {
     os << get_indent();
-    os << "forall " << node->name << " in ";
+    os << "foreach " << node->name << " in ";
     print_no_parens(node->iter);
     os << "{\n";
     indent++;
     print(node->body);
     indent--;
+    os << get_indent() << "}\n";
+}
+
+void Printer::visit(const ForAll *node) {
+    os << get_indent();
+    os << "forall " << node->index << " in [";
+
+    const ForAll::Slice &s = node->slice;
+    print_no_parens(s.begin);
+    os << ":";
+    print_no_parens(s.end);
+    os << ":";
+    print_no_parens(s.stride);
+    os << "] {\n";
+    ++indent;
+    if (node->header.defined()) {
+        print(node->header);
+    }
+    print(node->body);
+    --indent;
     os << get_indent() << "}\n";
 }
 

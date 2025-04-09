@@ -39,6 +39,8 @@ void Visitor::visit(const Int_t *) {}
 
 void Visitor::visit(const UInt_t *) {}
 
+void Visitor::visit(const Index_t *) {}
+
 void Visitor::visit(const Float_t *) {}
 
 void Visitor::visit(const Bool_t *) {}
@@ -212,6 +214,8 @@ void Visitor::visit(const Accumulate *node) {
     // node->body.accept(this);
 }
 
+void Visitor::visit(const Allocate *node) { node->type.accept(this); }
+
 void Visitor::visit(const Match *node) {
     node->loc.accept(this);
     for (const auto &[_, stmt] : node->arms) {
@@ -225,8 +229,16 @@ void Visitor::visit(const Scan *node) { node->value.accept(this); }
 
 void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }
 
-void Visitor::visit(const ForAll *node) {
+void Visitor::visit(const ForEach *node) {
     node->iter.accept(this);
+    node->body.accept(this);
+}
+
+void Visitor::visit(const ForAll *node) {
+    node->header.accept(this);
+    node->slice.begin.accept(this);
+    node->slice.end.accept(this);
+    node->slice.stride.accept(this);
     node->body.accept(this);
 }
 

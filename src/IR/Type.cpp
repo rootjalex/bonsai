@@ -47,9 +47,10 @@ bool Type::is_uint() const {
 }
 
 bool Type::is_int_or_uint() const {
-    return this->is<Int_t>() || this->is<UInt_t>() ||
+    return this->is<Int_t, UInt_t, Index_t>() ||
            (this->is<Vector_t>() &&
-            this->as<Vector_t>()->etype.is_int_or_uint());
+            this->as<Vector_t>()->etype.is_int_or_uint()) ||
+           (this->is<Array_t>() && this->as<Array_t>()->etype.is_int_or_uint());
 }
 
 bool Type::is_float() const {
@@ -156,6 +157,11 @@ Type UInt_t::make(uint32_t bits) {
     UInt_t *node = new UInt_t;
     node->bits = bits;
     return node;
+}
+
+Type Index_t::make() {
+    static Type global_idx = new Index_t;
+    return global_idx;
 }
 
 Type Float_t::make(uint32_t exponent, uint32_t mantissa) {
@@ -300,7 +306,7 @@ Type Array_t::make(Type etype, Expr size) {
     }
     Array_t *node = new Array_t;
     node->etype = std::move(etype);
-    // node->size = std::move(size);
+    node->size = std::move(size);
     return node;
 }
 
@@ -458,6 +464,8 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
             << "Vector access of bad field: " << field
             << " of type: " << struct_type;
         return as_vec->etype;
+    } else if (const Array_t *as_array = struct_type.as<Array_t>()) {
+        return as_array->etype;
     } else {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;

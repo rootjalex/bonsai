@@ -16,6 +16,7 @@ struct Mutator {
     virtual Type visit(const Void_t *);
     virtual Type visit(const Int_t *);
     virtual Type visit(const UInt_t *);
+    virtual Type visit(const Index_t *);
     virtual Type visit(const Float_t *);
     virtual Type visit(const Bool_t *);
     virtual Type visit(const Ptr_t *);
@@ -68,11 +69,13 @@ struct Mutator {
     virtual Stmt visit(const Sequence *);
     virtual Stmt visit(const Assign *);
     virtual Stmt visit(const Accumulate *);
+    virtual Stmt visit(const Allocate *);
     virtual Stmt visit(const Match *);
     virtual Stmt visit(const Yield *);
     virtual Stmt visit(const Scan *);
     virtual Stmt visit(const YieldFrom *);
     virtual Stmt visit(const ForAll *);
+    virtual Stmt visit(const ForEach *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

@@ -108,6 +108,16 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     return node;
 }
 
+Stmt Allocate::make(std::string name, Type type) {
+    internal_assert(!name.empty()) << "Allocate::make received empty name";
+    internal_assert(type.defined()) << "Allocate::make received undefined type";
+
+    Allocate *node = new Allocate;
+    node->name = std::move(name);
+    node->type = std::move(type);
+    return node;
+}
+
 Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";
@@ -155,16 +165,34 @@ Stmt YieldFrom::make(Expr value) {
     return node;
 }
 
-Stmt ForAll::make(std::string name, Expr iter, Stmt body) {
-    internal_assert(!name.empty()) << "Undefined name in ForAll::make";
-    internal_assert(iter.defined()) << "Undefined iterator in ForAll::make";
+Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
+    internal_assert(!name.empty()) << "Undefined name in ForEach::make";
+    internal_assert(iter.defined()) << "Undefined iterator in ForEach::make";
     internal_assert(iter.type().is_iterable())
-        << "ForAll requires iterable: " << iter;
-    internal_assert(body.defined()) << "Undefined body in ForAll::make";
+        << "ForEach requires iterable: " << iter;
+    internal_assert(body.defined()) << "Undefined body in ForEach::make";
 
-    ForAll *node = new ForAll;
+    ForEach *node = new ForEach;
     node->name = std::move(name);
     node->iter = std::move(iter);
+    node->body = std::move(body);
+    return node;
+}
+
+Stmt ForAll::make(std::string index, Stmt header, Slice slice, Stmt body) {
+    ForAll *node = new ForAll;
+    internal_assert(!index.empty()) << "Empty index name in ForAll::make";
+    // Header is optionally defined.
+    internal_assert(slice.begin.defined())
+        << "Undefined Slice.begin in ForAll::make";
+    internal_assert(slice.end.defined())
+        << "Undefined Slice.end in ForAll::make";
+    internal_assert(slice.stride.defined())
+        << "Undefined Slice.stride in ForAll::make";
+    internal_assert(body.defined()) << "Undefined body in ForAll::make";
+    node->index = std::move(index);
+    node->header = std::move(header);
+    node->slice = std::move(slice);
     node->body = std::move(body);
     return node;
 }

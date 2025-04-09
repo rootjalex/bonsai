@@ -148,8 +148,16 @@ struct Parser {
             const auto &frame = *it;
             const auto &found = frame.find(name);
             if (found != frame.cend()) {
+                internal_assert(!program.funcs.contains(name))
+                    << "found a value in the current frame with the same name "
+                       "as a previously defined function: "
+                    << name;
                 return found->second.first;
             }
+        }
+
+        if (auto it = program.funcs.find(name); it != program.funcs.end()) {
+            return it->second->call_type();
         }
         report_error() << "Cannot check type of unknown var: " << name;
     }

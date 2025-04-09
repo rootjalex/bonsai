@@ -63,6 +63,8 @@ Type Mutator::visit(const Int_t *node) { return node; }
 
 Type Mutator::visit(const UInt_t *node) { return node; }
 
+Type Mutator::visit(const Index_t *node) { return node; }
+
 Type Mutator::visit(const Float_t *node) { return node; }
 
 Type Mutator::visit(const Bool_t *node) { return node; }
@@ -473,6 +475,14 @@ Stmt Mutator::visit(const Accumulate *node) {
     return Accumulate::make(std::move(loc), node->op, std::move(value));
 }
 
+Stmt Mutator::visit(const Allocate *node) {
+    Type type = mutate(node->type);
+    if (type.same_as(node->type)) {
+        return node;
+    }
+    return Allocate::make(std::move(node->name), std::move(type));
+}
+
 Stmt Mutator::visit(const Match *node) {
     ir::Expr loc = mutate(node->loc);
     bool not_changed = loc.same_as(node->loc);
@@ -515,13 +525,34 @@ Stmt Mutator::visit(const YieldFrom *node) {
     return YieldFrom::make(std::move(value));
 }
 
-Stmt Mutator::visit(const ForAll *node) {
+Stmt Mutator::visit(const ForEach *node) {
     Expr iter = mutate(node->iter);
     Stmt body = mutate(node->body);
     if (iter.same_as(node->iter) && body.same_as(node->body)) {
         return node;
     }
-    return ForAll::make(node->name, std::move(iter), std::move(body));
+    return ForEach::make(node->name, std::move(iter), std::move(body));
+}
+
+Stmt Mutator::visit(const ForAll *node) {
+    Stmt body = mutate(node->body);
+    Stmt header = mutate(node->header);
+    ForAll::Slice s = node->slice;
+    Expr begin = mutate(s.begin);
+    Expr end = mutate(s.end);
+    Expr stride = mutate(s.stride);
+    if (header.same_as(node->header) && body.same_as(node->body) &&
+        begin.same_as(s.begin) && end.same_as(s.end) &&
+        stride.same_as(s.stride)) {
+        return node;
+    }
+    return ForAll::make(std::move(node->index), std::move(header),
+                        ForAll::Slice{
+                            .begin = std::move(begin),
+                            .end = std::move(end),
+                            .stride = std::move(stride),
+                        },
+                        std::move(body));
 }
 
 } // namespace ir

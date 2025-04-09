@@ -39,8 +39,16 @@ Expr operator<=(Expr a, Expr b) {
     return BinOp::make(BinOp::Le, std::move(a), std::move(b));
 }
 
+Expr operator>=(Expr a, Expr b) {
+    return BinOp::make(BinOp::Le, std::move(b), std::move(a));
+}
+
 Expr operator<(Expr a, Expr b) {
     return BinOp::make(BinOp::Lt, std::move(a), std::move(b));
+}
+
+Expr operator>(Expr a, Expr b) {
+    return BinOp::make(BinOp::Lt, std::move(b), std::move(a));
 }
 
 Expr distance(Expr a, Expr b) {

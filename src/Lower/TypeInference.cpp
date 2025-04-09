@@ -30,6 +30,7 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
 
       private:
         const ir::TypeMap &func_types;
+        ir::TypeMap var_types;
 
       public:
         ir::Expr visit(const ir::Var *node) override {
@@ -39,6 +40,11 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
             if (!node->type.defined()) {
                 if (func_types.contains(node->name)) {
                     return ir::Var::make(func_types.at(node->name), node->name);
+                } else if (var_types.contains(node->name)) {
+                    // The type of this node has been inferred previously.
+                    // TODO: make sure scope is handled correctly?
+                    // Can't have shadowing, so maybe this is fine?
+                    return ir::Var::make(var_types.at(node->name), node->name);
                 } else {
                     // TODO: we could error here, but there might be vars that
                     // we just don't know the type of yet. for now, leave this
@@ -50,6 +56,23 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
                 return node;
             }
         }
+
+        ir::Stmt visit(const ir::LetStmt *node) override {
+            ir::Stmt mut = ir::Mutator::visit(node);
+            if (mut.get() == node) {
+                return node;
+            }
+            // Was modified.
+            const ir::LetStmt *repl = mut.as<ir::LetStmt>();
+            internal_assert(repl);
+            if (!node->value.type().defined() && repl->value.type().defined()) {
+                // Insert inferred var type for later references.
+                internal_assert(repl->loc.accesses.empty());
+                var_types[repl->loc.base] = repl->value.type();
+            }
+            return mut;
+        }
+        // TODO(ajr): replace Assign/Accumulate if undef as well!
     };
 
     ReplaceUndefCalls replacer(func_types);
@@ -65,9 +88,10 @@ ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
             // set type is unknown?
             if (node->op != ir::SetOp::product && !a.type().defined()) {
                 // Perform lambda type setting
-                internal_assert(b.type().defined() && b.type().is<ir::Set_t>())
+                internal_assert(b.type().defined() &&
+                                (b.type().is<ir::Set_t, ir::Array_t>()))
                     << "Cannot set lambda type with unknown argument type: "
-                    << ir::Expr(node) << " b type: " << b.type();
+                    << ir::Expr(node) << ", and b type: " << b.type();
                 ir::Type etype = b.type().element_of();
                 internal_assert(a.is<ir::Lambda>())
                     << "Cannot set lambda type if operand is not a lambda: "
@@ -170,7 +194,7 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
         ir::Expr mutate(const ir::Expr &expr) override {
             undef_types = undef_types || !expr.type().defined();
             if (!expr.type().defined()) {
-                std::cerr << "Undefined expr: " << expr << std::endl;
+                std::cerr << "Undefined type on expr: " << expr << std::endl;
             }
             // TODO: record all undefined exprs for error message?
             if (undef_types) {
@@ -190,6 +214,10 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
 
         ir::Stmt visit(const ir::LetStmt *node) override {
             undef_types = undef_types || !node->value.type().defined();
+            if (!node->value.type().defined()) {
+                std::cerr << "Undefined type on expr in Let: " << node->value
+                          << std::endl;
+            }
             if (undef_types) {
                 return node;
             } else {
@@ -269,6 +297,9 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
     ftypes->ret_type = fnotypes->ret_type.defined()
                            ? fnotypes->ret_type
                            : ir::get_return_type(ftypes->body);
+    internal_assert(ftypes->ret_type.defined())
+        << "Failed to infer return type of: " << ftypes->name
+        << ", with body: " << ftypes->body;
     ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
 
     internal_assert(ftypes->ret_type.is<ir::Void_t>() ||

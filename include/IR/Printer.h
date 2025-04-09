@@ -70,6 +70,7 @@ struct Printer : public Visitor {
     void visit(const Void_t *) override;
     void visit(const Int_t *) override;
     void visit(const UInt_t *) override;
+    void visit(const Index_t *) override;
     void visit(const Float_t *) override;
     void visit(const Bool_t *) override;
     void visit(const Ptr_t *) override;
@@ -125,11 +126,13 @@ struct Printer : public Visitor {
     void visit(const Sequence *) override;
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
+    void visit(const Allocate *) override;
     void visit(const Match *) override;
     void visit(const Yield *) override;
     void visit(const Scan *) override;
     void visit(const YieldFrom *) override;
     void visit(const ForAll *) override;
+    void visit(const ForEach *) override;
     // Layouts
     void visit(const Name *) override;
     void visit(const Pad *) override;

@@ -8,6 +8,9 @@
 
 namespace bonsai {
 
+// Returns the unsigned bit representation of this expression.
+uint64_t get_constant_value(const ir::Expr &e);
+
 const int64_t *as_const_int(const ir::Expr &e);
 bool is_const_one(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
