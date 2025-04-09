@@ -72,9 +72,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Ptr_t *) override;
     virtual void visit(const ir::Ref_t *) override;
     virtual void visit(const ir::Vector_t *) override;
+    virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;
     virtual void visit(const ir::Tuple_t *) override;
-    RESTRICT_VISITOR(ir::Array_t); // TODO: support
     RESTRICT_VISITOR(ir::Option_t);
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
