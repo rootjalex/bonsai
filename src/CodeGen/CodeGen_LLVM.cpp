@@ -1660,7 +1660,7 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 
     // Add index to new frame.
     frames.new_frame();
-    frames.add_to_frame(node->index, {phi, /* mutable */ false});
+    frames.add_to_frame(node->index, {phi, /*mutable=*/false});
 
     // Emit loop body
     codegen_stmt(node->header);
