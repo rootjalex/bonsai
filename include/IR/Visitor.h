@@ -58,6 +58,7 @@ struct Visitor {
     virtual void visit(const Store *);
     virtual void visit(const LetStmt *);
     virtual void visit(const IfElse *);
+    virtual void visit(const DoWhile *);
     virtual void visit(const Sequence *);
     virtual void visit(const Assign *);
     virtual void visit(const Accumulate *);

@@ -109,6 +109,8 @@ struct AlwaysReturns : public Visitor {
         }
     }
 
+    RESTRICT_VISITOR(DoWhile);
+
     void visit(const Sequence *node) override {
         for (size_t i = 0; i < node->stmts.size() - 1; i++) {
             const Stmt &stmt = node->stmts[i];
@@ -164,6 +166,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(Yield);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
+    RESTRICT_VISITOR(DoWhile);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);

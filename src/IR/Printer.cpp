@@ -790,6 +790,17 @@ void Printer::visit(const IfElse *node) {
     os << get_indent() << "}\n";
 }
 
+void Printer::visit(const DoWhile *node) {
+    os << get_indent();
+    os << "do {\n";
+    indent++;
+    print(node->body);
+    indent--;
+    os << get_indent() << "} while (";
+    print_no_parens(node->cond);
+    os << ")\n";
+}
+
 void Printer::visit(const Sequence *node) {
     for (const auto &stmt : node->stmts) {
         stmt.accept(this);

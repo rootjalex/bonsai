@@ -62,6 +62,7 @@ struct Return;
 struct Store;
 struct LetStmt;
 struct IfElse;
+struct DoWhile;
 struct Sequence;
 struct Assign;
 struct Accumulate;

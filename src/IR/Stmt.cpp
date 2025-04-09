@@ -60,6 +60,20 @@ Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     return node;
 }
 
+Stmt DoWhile::make(Stmt body, Expr cond) {
+    internal_assert(body.defined())
+        << "Undefined body in DoWhile::make";
+    internal_assert(cond.defined()) << "Undefined condition in DoWhile::make";
+    internal_assert(cond.type().defined() && cond.type().is_bool())
+        << "Non-boolean condition in DoWhile::make: " << cond << " of type "
+        << cond.type();
+
+    DoWhile *node = new DoWhile;
+    node->cond = std::move(cond);
+    node->body = std::move(body);
+    return node;
+}
+
 Stmt Sequence::make(std::vector<Stmt> stmts) {
     internal_assert(!stmts.empty()) << "Empty stmts in Sequence::make";
     for (const auto &s : stmts) {

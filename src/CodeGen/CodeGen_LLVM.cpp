@@ -1379,6 +1379,10 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     }
 }
 
+void CodeGen_LLVM::visit(const DoWhile *node) {
+    internal_error << "TODO: implement codegen for DoWhile: " << Stmt(node);
+}
+
 void CodeGen_LLVM::visit(const Assign *node) {
     llvm::Value *loc = codegen_write_loc(node->loc);
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc

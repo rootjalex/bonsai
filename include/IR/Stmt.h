@@ -21,6 +21,7 @@ enum class IRStmtEnum {
     Store,
     LetStmt,
     IfElse,
+    DoWhile,
     Sequence,
     Assign,
     Accumulate,
@@ -115,6 +116,15 @@ struct IfElse : StmtNode<IfElse> {
     static Stmt make(Expr cond, Stmt then_body, Stmt else_body = Stmt());
 
     static const IRStmtEnum _node_type = IRStmtEnum::IfElse;
+};
+
+struct DoWhile : StmtNode<DoWhile> {
+    Stmt body;
+    Expr cond;
+
+    static Stmt make(Stmt body, Expr cond);
+
+    static const IRStmtEnum _node_type = IRStmtEnum::DoWhile;
 };
 
 struct Sequence : StmtNode<Sequence> {
