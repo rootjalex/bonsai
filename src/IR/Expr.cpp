@@ -552,6 +552,22 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                        "expected: "
                     << etype << " but received " << expr;
             }
+        } else if (type.is<Array_t>()) {
+            const auto *array_type = type.as<Array_t>();
+            internal_assert(
+                values.empty() ||
+                is_const(array_type->size) &&
+                    (get_constant_value(array_type->size) == values.size()))
+                << "Build<Array_t> with incorrect number of arguments, "
+                   "expected: "
+                << type << " but received " << values.size() << " elements.";
+            Type etype = array_type->etype;
+            for (const auto &expr : values) {
+                internal_assert(equals(expr.type(), etype))
+                    << "Build<Array_t> requires uniform element type, "
+                       "expected: "
+                    << etype << " but received " << expr;
+            }
         } else if (type.is<Struct_t>()) {
             if (!values.empty()) {
                 const auto &fields = type.as<Struct_t>()->fields;
@@ -631,9 +647,9 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 }
             }
         } else {
-            internal_error
-                << "Build::make with non-(vector, struct, option, tuple) type: "
-                << type;
+            internal_error << "Build::make with non-(vector, array, struct, "
+                              "option, tuple) type: "
+                           << type;
         }
     }
 
