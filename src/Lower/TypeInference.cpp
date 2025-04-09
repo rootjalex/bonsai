@@ -68,7 +68,7 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
             if (!node->value.type().defined() && repl->value.type().defined()) {
                 // Insert inferred var type for later references.
                 internal_assert(repl->loc.accesses.empty());
-                var_types[repl->loc.base] =  repl->value.type();
+                var_types[repl->loc.base] = repl->value.type();
             }
             return mut;
         }
@@ -215,7 +215,8 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
         ir::Stmt visit(const ir::LetStmt *node) override {
             undef_types = undef_types || !node->value.type().defined();
             if (!node->value.type().defined()) {
-                std::cerr << "Undefined type on expr in Let: " << node->value << std::endl;
+                std::cerr << "Undefined type on expr in Let: " << node->value
+                          << std::endl;
             }
             if (undef_types) {
                 return node;

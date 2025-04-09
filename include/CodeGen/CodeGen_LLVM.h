@@ -8,7 +8,6 @@
 
 #include <memory>
 
-
 #include "IR/Frame.h"
 #include "IR/Function.h"
 #include "IR/Program.h"
@@ -165,19 +164,21 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // @}
 
-    // llvm::Value *create_alloca_at_entry(llvm::Type *etype, llvm::Value *size, bool zero_initialize, const std::string &name);
-    llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size, bool zero_initialize, const std::string &name);
+    // llvm::Value *create_alloca_at_entry(llvm::Type *etype, llvm::Value *size,
+    // bool zero_initialize, const std::string &name);
+    llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
+                               bool zero_initialize, const std::string &name);
 
     virtual int native_vector_bits() const {
-      // TODO(ajr): override for other targets.
-      return 128; // ARM Neon
+        // TODO(ajr): override for other targets.
+        return 128; // ARM Neon
     }
 
     bool is_llvm_const_one(llvm::Value *value) const {
-      if (auto *constInt = llvm::dyn_cast<llvm::ConstantInt>(value)) {
-          return constInt->isOne();
-      }
-      return false;
+        if (auto *constInt = llvm::dyn_cast<llvm::ConstantInt>(value)) {
+            return constInt->isOne();
+        }
+        return false;
     }
 
     // Used to uniquely label forall loop codegen.
