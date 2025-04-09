@@ -534,6 +534,16 @@ void CodeGen_LLVM::visit(const Vector_t *node) {
     type = llvm::VectorType::get(etype, node->lanes, /* Scalable */ false);
 }
 
+void CodeGen_LLVM::visit(const Array_t *node) {
+    llvm::Type *etype = codegen_type(node->etype);
+    internal_assert(!etype->isVoidTy())
+        << "Cannot make a vector of type void: " << Type(node);
+    // TODO(cgyurgyik): Support non-constant array sizes.
+    internal_assert(is_const(node->size));
+    type = llvm::VectorType::get(etype, get_constant_value(node->size),
+                                 /*Scalable=*/false);
+}
+
 void CodeGen_LLVM::visit(const Struct_t *node) {
     // TODO: could just use module->getTypeByName
     type = struct_types[node->name];
@@ -822,6 +832,22 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
             to_print += ", ";
         }
         to_print += "]";
+        return;
+    }
+
+    if (auto *atype = t.as<ir::Array_t>()) {
+        to_print += "{";
+        // TODO(cgyurgyik): print non-constant sized arrays.
+        internal_assert(is_const(atype->size));
+        for (uint64_t i = 0, e = get_constant_value(atype->size); i < e; ++i) {
+            static const ir::Type u32 = ir::UInt_t::make(32);
+            ir::Expr extract = ir::Extract::make(node, make_const(u32, i));
+            print_helper(extract, args, to_print, indent_level);
+            if (i + 1 == e)
+                continue;
+            to_print += ", ";
+        }
+        to_print += "}";
         return;
     }
 

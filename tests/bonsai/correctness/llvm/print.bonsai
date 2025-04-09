@@ -27,6 +27,9 @@ func main() -> i32 {
     m: bool = false;
     print(m);
 
+    u : array[u32, 2] = {42u, 42u};
+    print(u);
+
     v : vector[i32, 3] = {1, 2, 3};
     print(v);
 

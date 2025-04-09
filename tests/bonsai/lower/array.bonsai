@@ -1,27 +1,48 @@
 //! flags: -p canonicalize -p lower-arrays
 
-func simple(xs: array[i32, 32]) -> void {
-    return map(|x: i32| x + 1, xs); 
+// TODO(cgyurgyik): add tests for runtime values in the array size.
+// TODO(cgyurgyik): add tests for maps over tuples.
+
+func local() -> array[i32, 3] {
+    xs: array[i32, 3] = {1,2,3};
+    return map(|x: i32| x + 1, xs);
 }
 
-func with_intrinsics(ys: array[f32, 32]) -> array[f32, 32] {
-    return map(|y: f32| sin(y), ys); 
+func f(x: i32) -> i32 { return x; }
+
+func apply_function(fs: array[i32, 8]) -> array[i32, 8] {
+  return map(|i: i32| { i + 1 }, map(f, fs)); 
 }
 
-func f(i: i32) -> i32 { return i; }
-
-func apply_function(fs: array[i32, 32]) -> array[i32, 32] {
-    return map(|x: i32| { x + 1 }, map(f, fs)); 
-}
-
-func hierarchical_maps(ns: array[array[i32, 32], 16]) -> array[array[i32, 32], 16] {
-    return map(|nss: array[i32]| { map(|x| x + 1, nss) }, ns);
-}
-
-func fused_maps(xs: array[i32, 64]) -> array[i32, 64] {
+func wide(xs: array[i32, 8]) -> array[i32, 8] {
     return map(|x: i32| {x + 1}, 
            map(|x: i32| {x - 1}, 
            map(|x: i32| {x * 2},
            xs)
     )); 
+}
+
+func tall1(ij: array[array[i32, 4], 8]) -> array[array[i32, 4], 8] {
+    return map(|i: array[i32, 4]| { 
+             map(|j: i32| {
+                j + 1
+             }, i) 
+           }, ij);
+}
+
+func tall2(ijk: array[array[array[i32, 32], 16], 8]) -> array[array[array[i32, 32], 16], 8] {
+  return map(| i: array[array[i32, 32], 16] | {
+           map(| j: array[i32, 32] | {
+             map(| k: i32 | { 
+               k + 1 
+             }, j)
+           }, i)
+         }, ijk);
+}
+
+func tall_and_wide(ij: array[array[i32, 8], 8]) -> array[array[i32, 8], 8] {
+    return map(|i: array[i32, 8]| { 
+             map(|j: i32| j - 1, 
+             map(|j: i32| j + 1, i)) 
+           }, ij);
 }

@@ -168,7 +168,7 @@ Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
 Stmt ForAll::make(std::string index, Stmt header, Slice slice, Stmt body) {
     ForAll *node = new ForAll;
     internal_assert(!index.empty()) << "Empty index name in ForAll::make";
-    internal_assert(header.defined()) << "Undefined header in ForAll::make";
+    // Header is optionally defined.
     internal_assert(slice.begin.defined())
         << "Undefined Slice.begin in ForAll::make";
     internal_assert(slice.end.defined())
