@@ -109,9 +109,9 @@ struct UIntImm : ExprNode<UIntImm> {
 };
 
 struct IdxImm : ExprNode<IdxImm> {
-    int64_t value;
+    uint64_t value;
 
-    static Expr make(int64_t value);
+    static Expr make(uint64_t value);
 
     static const IRExprEnum _node_type = IRExprEnum::IdxImm;
 };

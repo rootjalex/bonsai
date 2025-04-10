@@ -50,9 +50,10 @@ Expr IntImm::make(Type t, int64_t value) {
     return node;
 }
 
-Expr IdxImm::make(int64_t value) {
+Expr IdxImm::make(uint64_t value) {
     IdxImm *node = new IdxImm;
     node->value = value;
+    node->type = Index_t::make();
     return node;
 }
 
@@ -408,9 +409,11 @@ Expr Cast::make(Type type, Expr value) {
     internal_assert(type.defined())
         << "Cannot cast to undefined type: " << value;
     internal_assert(value.defined()) << "Cast of undefined value: " << type;
+    if (is_const(value) && type.is_scalar()) {
+        return constant_cast(type, value);
+    }
 
     Cast *node = new Cast;
-
     const bool infer_types =
         type_enforcement_enabled() || value.type().defined();
     if (infer_types) {
@@ -689,11 +692,11 @@ Expr Build::make(Type type, std::vector<Expr> values) {
             }
         } else if (const Array_t *as_array = type.as<Array_t>()) {
             if (!values.empty()) {
-                const int64_t *const_size = as_const_int(as_array->size);
-                internal_assert(const_size) << as_array->size;
-                internal_assert(values.size() == *const_size)
+                internal_assert(is_const(as_array->size)) << as_array->size;
+                const uint64_t const_size = get_constant_value(as_array->size);
+                internal_assert(values.size() == const_size)
                     << "Incorrect number of arguments to array construction: "
-                    << type << " takes " << *const_size << " elements"
+                    << type << " takes " << const_size << " elements"
                     << " but received " << values.size();
 
                 for (size_t i = 0; i < values.size(); i++) {

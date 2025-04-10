@@ -266,10 +266,10 @@ struct LowerToForAll : public ir::Mutator {
         // Create the header with the proper load index.
         ir::Expr toplevel_iterable = toplevel.as<ir::ForEach>()->iter;
         ir::Expr index =
-            ir::Var::make(ir::Int_t::make(32), iterator_names.front());
+            ir::Var::make(ir::Index_t::make(), iterator_names.front());
         ir::Expr extracted = ir::Extract::make(toplevel_iterable, index);
         for (int j = 1; j < iterator_names.size(); ++j) {
-            index = ir::Var::make(ir::Int_t::make(32), iterator_names[j]);
+            index = ir::Var::make(ir::Index_t::make(), iterator_names[j]);
             extracted = ir::Extract::make(extracted, index);
         }
         std::string load_name = unique_load_name();
@@ -291,18 +291,17 @@ struct LowerToForAll : public ir::Mutator {
         ir::Stmt allocation = ir::Allocate::make(allocation_name, type);
 
         std::vector<ir::Expr> indices;
-        ir::Type index_type = type->size.type();
         std::transform(iterator_names.begin(), iterator_names.end(),
                        std::back_inserter(indices),
                        [&](const std::string &name) {
-                           return ir::Var::make(index_type, name);
+                           return ir::Var::make(ir::Index_t::make(), name);
                        });
         ir::Expr store_index =
             indices.size() == 1
                 ? indices[0]
-                : ir::Build::make(
-                      ir::Vector_t::make(index_type, dimensions.size()),
-                      indices);
+                : ir::Build::make(ir::Vector_t::make(ir::Index_t::make(),
+                                                     dimensions.size()),
+                                  indices);
         ir::Stmt final_body = ir::Store::make(allocation_name,
                                               /*index=*/std::move(store_index),
                                               /*value=*/value);

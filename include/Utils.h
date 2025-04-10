@@ -24,6 +24,10 @@ T get_constant_value(const ir::Expr &e) {
         internal_assert(v->type.bits() <= 64);
         return std::bit_cast<T>(v->value);
     }
+    if (const auto *v = e.as<ir::IdxImm>()) {
+        internal_assert(v->type.bits() <= 64);
+        return std::bit_cast<T>(v->value);
+    }
     internal_error << "[unimplemented] get_constant_value(" << e << " : "
                    << e.type() << ")";
 }
@@ -37,6 +41,8 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
         return ir::IntImm::make(t, (int64_t)v);
     } else if (t.is<ir::UInt_t>()) {
         return ir::UIntImm::make(t, (uint64_t)v);
+    } else if (t.is<ir::Index_t>()) {
+        return ir::IdxImm::make((uint64_t)v);
     } else if (t.is<ir::Bool_t>()) {
         return ir::BoolImm::make((bool)v);
     } else if (t.is<ir::Float_t>()) {

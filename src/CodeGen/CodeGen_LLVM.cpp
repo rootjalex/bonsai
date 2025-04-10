@@ -477,7 +477,7 @@ void CodeGen_LLVM::visit(const UInt_t *node) {
 }
 
 void CodeGen_LLVM::visit(const Index_t *node) {
-    internal_error << "unimplemented: " << ir::Type(node);
+    type = llvm::Type::getIntNTy(*context, ir::Type(node).bits());
 }
 
 void CodeGen_LLVM::visit(const Bool_t *node) { type = i1_t; }
@@ -567,6 +567,11 @@ void CodeGen_LLVM::visit(const IntImm *node) {
 }
 
 void CodeGen_LLVM::visit(const UIntImm *node) {
+    value = llvm::ConstantInt::get(codegen_type(node->type), node->value,
+                                   /* IsSigned */ false);
+}
+
+void CodeGen_LLVM::visit(const IdxImm *node) {
     value = llvm::ConstantInt::get(codegen_type(node->type), node->value,
                                    /* IsSigned */ false);
 }

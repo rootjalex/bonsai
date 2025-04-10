@@ -25,7 +25,8 @@ uint32_t Type::bits() const {
         return 1;
     }
     if (auto *as_index = this->as<Index_t>()) {
-        return 0; // TODO(cgyurgyik): fix
+        // This is architecture specific... conservatively default to 64-bit?
+        return CHAR_BIT * 8;
     }
     internal_error << "Called bits() on bad type: " << *this;
 }
@@ -45,7 +46,7 @@ bool Type::is_int() const {
 }
 
 bool Type::is_uint() const {
-    return this->is<UInt_t>() ||
+    return this->is<UInt_t, Index_t>() ||
            (this->is<Vector_t>() && this->as<Vector_t>()->etype.is_uint());
 }
 
@@ -70,8 +71,7 @@ bool Type::is_bool() const {
 
 bool Type::is_scalar() const {
     // TODO: what counts as scalar?
-    return this->is<Int_t>() || this->is<UInt_t>() || this->is<Float_t>() ||
-           this->is<Bool_t>();
+    return this->is<Int_t, UInt_t, Float_t, Bool_t, Index_t>();
 }
 
 bool Type::is_vector() const {

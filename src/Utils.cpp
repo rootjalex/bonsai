@@ -28,6 +28,8 @@ bool is_const_one(const Expr &e) {
         return i->value == 1;
     } else if (const UIntImm *u = e.as<UIntImm>()) {
         return u->value == 1;
+    } else if (const IdxImm *u = e.as<IdxImm>()) {
+        return u->value == 1;
     } else if (const FloatImm *f = e.as<FloatImm>()) {
         return f->value == 1.f;
     } else if (const BoolImm *b = e.as<BoolImm>()) {
@@ -47,7 +49,7 @@ bool is_const(const Expr &e) {
     if (const Build *b = e.as<Build>()) {
         return b->values.empty(); // default is constant!
     }
-    return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity>();
+    return e.is<IntImm, UIntImm, IdxImm, FloatImm, BoolImm, Infinity>();
 }
 
 Expr make_zero(const Type &t) { return make_const(t, 0); }
@@ -68,6 +70,8 @@ Expr constant_cast(const Type &t, const Expr &e) {
         return make_const(t, e.as<IntImm>()->value);
     } else if (e.is<UIntImm>()) {
         return make_const(t, e.as<UIntImm>()->value);
+    } else if (e.is<IdxImm>()) {
+        return make_const(t, e.as<IdxImm>()->value);
     } else if (e.is<FloatImm>()) {
         return make_const(t, e.as<FloatImm>()->value);
     } else if (e.is<BoolImm>()) {

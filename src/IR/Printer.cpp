@@ -437,6 +437,13 @@ void Printer::visit(const UIntImm *node) {
     os << node->value;
 }
 
+void Printer::visit(const IdxImm *node) {
+    os << "(";
+    os << Index_t::make();
+    os << ")";
+    os << node->value;
+}
+
 void Printer::visit(const FloatImm *node) {
     switch (node->type.bits()) {
     case 64:

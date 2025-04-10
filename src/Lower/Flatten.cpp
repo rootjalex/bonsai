@@ -27,7 +27,7 @@ std::vector<ir::Expr> array_dimension_sizes(ir::Type type) {
     internal_assert(type.is<ir::Array_t>()) << type;
     std::vector<ir::Expr> sizes;
     while (const auto *atype = type.as<ir::Array_t>()) {
-        sizes.push_back(atype->size);
+        sizes.push_back(ir::Cast::make(ir::Index_t::make(), atype->size));
         type = atype->etype;
     }
     return sizes;
@@ -51,18 +51,10 @@ ir::Type flatten_array_type(ir::Type type) {
     }
     std::vector<ir::Expr> sizes;
     while (const auto *atype = type.as<ir::Array_t>()) {
-        sizes.push_back(atype->size);
+        sizes.push_back(ir::Cast::make(ir::Index_t::make(), atype->size));
         type = atype->etype;
     }
-
-    // TODO(cgyurgyik): Convert everything to Index type.
-    // Uses the bit width of the largest type for the constant one.
-    auto it = std::max_element(sizes.begin(), sizes.end(),
-                               [&](const auto &a, const auto &b) {
-                                   return a.type().bits() < b.type().bits();
-                               });
-    ir::Expr one = make_one(it->type());
-
+    ir::Expr one = make_one(ir::Index_t::make());
     ir::Expr size = std::accumulate(
         sizes.begin(), sizes.end(), one,
         [](const auto &a, const auto &b) { return ir::BinOp::mul(a, b); });
@@ -77,7 +69,7 @@ ir::Expr flatten_build_type(const std::vector<ir::Expr> &values) {
     for (const ir::Expr &value : values) {
         const auto *type = value.type().as<ir::Array_t>();
         internal_assert(type) << value.type();
-        sizes.push_back(type->size);
+        sizes.push_back(ir::Cast::make(ir::Index_t::make(), type->size));
 
         if (!etype.has_value()) {
             etype = type->etype;
@@ -88,21 +80,14 @@ ir::Expr flatten_build_type(const std::vector<ir::Expr> &values) {
         internal_assert(is_const(type->size));
         uint64_t n = get_constant_value(type->size);
         for (int i = 0; i < n; ++i) {
-            ir::Expr idx = ir::IntImm::make(ir::Int_t::make(32), i);
+            ir::Expr idx = ir::IdxImm::make(i);
             flattened_values.push_back(
                 ir::Extract::make(value, std::move(idx)));
         }
     }
-
-    // TODO(cgyurgyik): Convert everything to Index type.
-    // Uses the bit width of the largest type for the constant one.
-    auto it = std::max_element(sizes.begin(), sizes.end(),
-                               [&](const auto &a, const auto &b) {
-                                   return a.type().bits() < b.type().bits();
-                               });
-    ir::Expr one = make_zero(it->type());
+    ir::Expr zero = make_zero(ir::Index_t::make());
     ir::Expr size = std::accumulate(
-        sizes.begin(), sizes.end(), one,
+        sizes.begin(), sizes.end(), zero,
         [](const auto &a, const auto &b) { return ir::BinOp::add(a, b); });
     ir::Type type = ir::Array_t::make(*etype, size);
     return ir::Build::make(std::move(type), std::move(flattened_values));
@@ -112,13 +97,7 @@ ir::Expr flatten_build_type(const std::vector<ir::Expr> &values) {
 // https://en.wikipedia.org/wiki/Row-_and_column-major_order#Address_calculation_in_general
 ir::Expr flatten_index(std::vector<ir::Expr> indices,
                        std::vector<ir::Expr> sizes) {
-    // TODO(cgyurgyik): Convert everything to Index type.
-    // Uses the bit width of the largest type for the constant one.
-    auto it = std::max_element(sizes.begin(), sizes.end(),
-                               [&](const auto &a, const auto &b) {
-                                   return a.type().bits() < b.type().bits();
-                               });
-    ir::Expr index = make_zero(it->type());
+    ir::Expr index = make_zero(ir::Index_t::make());
     internal_assert(sizes.size() == indices.size());
     for (int i = 0; i < sizes.size(); ++i) {
         ir::Expr dsize = sizes[i];
