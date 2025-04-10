@@ -172,6 +172,9 @@ class FlattenStructure : public ir::Mutator {
         return ir::Var::make(flatten_array_type(std::move(type)), node->name);
     }
 
+    // We want arguments of a call node to be visited.
+    ir::Expr visit(const ir::Call *node) override { return node; }
+
     ir::Expr visit(const ir::Extract *node) override {
         auto [_, inserted] = visited.insert(node);
         if (!inserted) {

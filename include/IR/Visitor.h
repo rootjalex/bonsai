@@ -31,6 +31,7 @@ struct Visitor {
     // Exprs
     virtual void visit(const IntImm *);
     virtual void visit(const UIntImm *);
+    virtual void visit(const IdxImm *);
     virtual void visit(const FloatImm *);
     virtual void visit(const BoolImm *);
     virtual void visit(const Infinity *);

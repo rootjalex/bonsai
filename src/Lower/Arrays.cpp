@@ -265,7 +265,6 @@ struct LowerToForAll : public ir::Mutator {
 
         // Create the header with the proper load index.
         ir::Expr toplevel_iterable = toplevel.as<ir::ForEach>()->iter;
-        // TODO(cgyurgyik): Create an index immediate.
         ir::Expr index =
             ir::Var::make(ir::Int_t::make(32), iterator_names.front());
         ir::Expr extracted = ir::Extract::make(toplevel_iterable, index);

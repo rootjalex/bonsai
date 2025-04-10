@@ -33,6 +33,7 @@ struct IVector;
 struct Expr;
 struct IntImm;
 struct UIntImm;
+struct IdxImm;
 struct FloatImm;
 struct BoolImm;
 struct Infinity;

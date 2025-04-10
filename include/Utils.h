@@ -13,7 +13,6 @@ bool is_const_one(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
 
 // Returns the unsigned bit representation of this expression.
-// TODO(cgyurgyik): this interface can be cleaner.
 template <typename T = uint64_t>
 T get_constant_value(const ir::Expr &e) {
     internal_assert(is_const(e)) << "expected constant value, received: " << e;

@@ -50,6 +50,12 @@ Expr IntImm::make(Type t, int64_t value) {
     return node;
 }
 
+Expr IdxImm::make(int64_t value) {
+    IdxImm *node = new IdxImm;
+    node->value = value;
+    return node;
+}
+
 Expr UIntImm::make(Type t, uint64_t value) {
     const bool infer_types = type_enforcement_enabled() || t.defined();
 
@@ -1019,13 +1025,10 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
                     << args[i];
                 args[i] = constant_cast(f->arg_types[i], args[i]);
             } else {
-                // TODO(cgyurgyik): undo
-                // internal_assert(equals(args[i].type(), f->arg_types[i]))
-                //     << "Call::make received bad argument: " << args[i] << " :
-                //     "
-                //     << args[i].type() << ", expected type: " <<
-                //     f->arg_types[i]
-                //     << " at index " << i << " of call to func: " << func;
+                internal_assert(equals(args[i].type(), f->arg_types[i]))
+                    << "Call::make received bad argument: " << args[i] << " : "
+                    << args[i].type() << ", expected type: " << f->arg_types[i]
+                    << " at index " << i << " of call to func: " << func;
             }
         }
         node->type = f->ret_type;

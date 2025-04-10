@@ -93,6 +93,8 @@ void Visitor::visit(const IntImm *) {}
 
 void Visitor::visit(const UIntImm *) {}
 
+void Visitor::visit(const IdxImm *) {}
+
 void Visitor::visit(const FloatImm *) {}
 
 void Visitor::visit(const BoolImm *) {}

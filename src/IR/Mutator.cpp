@@ -226,6 +226,8 @@ Expr Mutator::visit(const IntImm *node) { return node; }
 
 Expr Mutator::visit(const UIntImm *node) { return node; }
 
+Expr Mutator::visit(const IdxImm *node) { return node; }
+
 Expr Mutator::visit(const FloatImm *node) { return node; }
 
 Expr Mutator::visit(const BoolImm *node) { return node; }
