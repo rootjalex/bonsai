@@ -307,7 +307,7 @@ struct LowerToForAll : public ir::Mutator {
         ir::Stmt final_body = ir::Store::make(allocation_name,
                                               /*index=*/std::move(store_index),
                                               /*value=*/value);
-
+        std::reverse(dimensions.begin(), dimensions.end());
         for (int i = 0; i < dimensions.size(); ++i) {
             final_body = ir::ForAll::make(
                 /*index=*/reversed_iterator_names[i],

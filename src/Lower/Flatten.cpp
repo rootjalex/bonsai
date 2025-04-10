@@ -100,11 +100,10 @@ ir::Expr flatten_build_type(const std::vector<ir::Expr> &values) {
                                [&](const auto &a, const auto &b) {
                                    return a.type().bits() < b.type().bits();
                                });
-    ir::Expr one = make_one(it->type());
-
+    ir::Expr one = make_zero(it->type());
     ir::Expr size = std::accumulate(
         sizes.begin(), sizes.end(), one,
-        [](const auto &a, const auto &b) { return ir::BinOp::mul(a, b); });
+        [](const auto &a, const auto &b) { return ir::BinOp::add(a, b); });
     ir::Type type = ir::Array_t::make(*etype, size);
     return ir::Build::make(std::move(type), std::move(flattened_values));
 }
@@ -188,6 +187,7 @@ class FlattenStructure : public ir::Mutator {
         std::vector<ir::Expr> sizes = array_dimension_sizes(original_type);
 
         std::reverse(indices.begin(), indices.end());
+        // std::reverse(sizes.begin(), sizes.end());
         ir::Expr index = flatten_index(std::move(indices), std::move(sizes));
         return ir::Extract::make(mutate(std::move(array)), std::move(index));
     }
