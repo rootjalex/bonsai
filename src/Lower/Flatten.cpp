@@ -245,17 +245,18 @@ class FlattenStructure : public ir::Mutator {
         return ExtractMetadata{.indices = indices, .array = vec};
     }
 
-    // Tracks visited ir::Extract nodes.
+    // Tracks visited ir::Extract nodes. These are defined recursively, but we
+    // want to visit an n-dimensional extract together.
     std::set<const ir::Extract *> visited;
 };
 
-std::shared_ptr<ir::Function> mutate_function(const ir::Function &f) {
+std::shared_ptr<ir::Function> flatten(const ir::Function &f) {
     std::vector<ir::Function::Argument> args;
     args.reserve(f.args.size());
 
     ir::FrameStack<ir::Type> frames;
     frames.new_frame();
-    for (const auto &arg : f.args) {
+    for (const ir::Function::Argument &arg : f.args) {
         if (!arg.type.is<ir::Array_t>()) {
             args.push_back(arg);
             continue;
@@ -264,15 +265,16 @@ std::shared_ptr<ir::Function> mutate_function(const ir::Function &f) {
         args.push_back(ir::Function::Argument(
             arg.name, flatten_array_type(arg.type), arg.default_value));
     }
-    ir::Type ret_type = flatten_array_type(f.ret_type);
-
     FlattenStructure lower(frames);
     ir::Stmt body = lower.mutate(f.body);
-    frames.pop_frame();
+    frames.pop_frame(); // For completeness.
 
-    return std::make_shared<ir::Function>(f.name, std::move(args),
-                                          std::move(ret_type), std::move(body),
-                                          f.interfaces);
+    return std::make_shared<ir::Function>(
+        /*name=*/f.name,
+        /*args=*/std::move(args),
+        /*ret_type=*/flatten_array_type(f.ret_type),
+        /*body=*/std::move(body),
+        /*interfaces=*/f.interfaces);
 }
 
 } // namespace
@@ -283,7 +285,7 @@ ir::FuncMap Flatten::run(ir::FuncMap functions) const {
         func_topological_order(functions, /*undef_calls=*/false);
     for (const std::string &name : topological_order) {
         auto it = functions.find(name);
-        it->second = mutate_function(*it->second);
+        it->second = flatten(*it->second);
     }
     return functions;
 }
