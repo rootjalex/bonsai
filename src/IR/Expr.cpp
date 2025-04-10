@@ -292,15 +292,24 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
 }
 
 Expr BinOp::add(Expr a, Expr b) {
-    if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type())) {
-        // TODO(cgyurgyik): This is incorrect, need to do type checking.
-        return ir::IntImm::make(a.type(), *as_const_int(a) + *as_const_int(b));
+    if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type()) &&
+        a.type().bits() <= 64) {
+        if (a.type().is_int()) {
+            int64_t c_a = get_constant_value<int64_t>(a);
+            int64_t c_b = get_constant_value<int64_t>(b);
+            return ir::IntImm::make(a.type(), c_a + c_b);
+        }
+        if (a.type().is_uint()) {
+            uint64_t c_a = get_constant_value<uint64_t>(a);
+            uint64_t c_b = get_constant_value<uint64_t>(b);
+            return ir::UIntImm::make(a.type(), c_a + c_b);
+        }
     }
     if (is_const(a) && get_constant_value(a) == 0 &&
         ir::equals(a.type(), b.type())) {
         return b;
     }
-    if (is_const(b) && get_constant_value(b) == 0 &&
+    if (is_const(b) && get_constant_value(a) == 0 &&
         ir::equals(a.type(), b.type())) {
         return a;
     }
@@ -308,9 +317,18 @@ Expr BinOp::add(Expr a, Expr b) {
 }
 
 Expr BinOp::mul(Expr a, Expr b) {
-    if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type())) {
-        // TODO(cgyurgyik): This is incorrect, need to do type checking.
-        return ir::IntImm::make(a.type(), *as_const_int(a) * *as_const_int(b));
+    if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type()) &&
+        a.type().bits() <= 64) {
+        if (a.type().is_int()) {
+            int64_t c_a = get_constant_value<int64_t>(a);
+            int64_t c_b = get_constant_value<int64_t>(b);
+            return ir::IntImm::make(a.type(), c_a * c_b);
+        }
+        if (a.type().is_uint()) {
+            uint64_t c_a = get_constant_value<uint64_t>(a);
+            uint64_t c_b = get_constant_value<uint64_t>(b);
+            return ir::UIntImm::make(a.type(), c_a * c_b);
+        }
     }
     if (is_const(a) && get_constant_value(a) == 0 &&
         ir::equals(a.type(), b.type())) {
@@ -668,8 +686,7 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 const int64_t *const_size = as_const_int(as_array->size);
                 internal_assert(const_size) << as_array->size;
                 internal_assert(values.size() == *const_size)
-                    << "Incorrect number of arguments to array "
-                       "construction: "
+                    << "Incorrect number of arguments to array construction: "
                     << type << " takes " << *const_size << " elements"
                     << " but received " << values.size();
 

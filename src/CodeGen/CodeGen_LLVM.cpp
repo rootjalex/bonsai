@@ -1093,11 +1093,9 @@ void CodeGen_LLVM::visit(const Extract *node) {
     if (node->vec.type().is<Vector_t>()) {
         value = builder->CreateExtractElement(vec, idx);
     } else if (node->vec.type().is<Array_t>()) {
-        // llvm::errs() << "vec: " << *vec << "\n" << "idx: " << *idx <<
-        // "\n---\n";
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
-        llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "extract_ptr");
-        value = builder->CreateLoad(etype, ptr, "extract");
+        llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "gep");
+        value = builder->CreateLoad(etype, ptr, "load");
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << node->vec.type();

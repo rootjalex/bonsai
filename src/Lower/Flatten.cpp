@@ -189,7 +189,7 @@ class FlattenStructure : public ir::Mutator {
 
         std::reverse(indices.begin(), indices.end());
         ir::Expr index = flatten_index(std::move(indices), std::move(sizes));
-        return ir::Extract::make(std::move(array), std::move(index));
+        return ir::Extract::make(mutate(std::move(array)), std::move(index));
     }
 
     ir::Stmt visit(const ir::Store *node) override {
@@ -283,7 +283,6 @@ ir::FuncMap Flatten::run(ir::FuncMap functions) const {
     for (const std::string &name : topological_order) {
         auto it = functions.find(name);
         it->second = mutate_function(*it->second);
-        std::cerr << *it->second << "\n";
     }
     return functions;
 }

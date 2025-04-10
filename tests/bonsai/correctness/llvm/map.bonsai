@@ -1,25 +1,17 @@
 //! flags: -b llvm -e
 
-// func array_sin(xss : array[f32, 8]) {
-//     return map(|x| sin(x), xss);
-// }
-
-// TODO(cgyurgyik): causing mismatch type errors, probably from extraction.
+// TODO(cgyurgyik): segmentation fault :(
 func map2d(xs: array[array[i32, 2], 2]) -> array[array[i32, 2], 2] {
-    return map(|i: array[i32, 2]| {  map(|j: i32| { j + 1 }, i) }, xs);
+    return map(|i: array[i32, 2]| {  map(|j: i32| { j }, i) }, xs);
 }
 
 func main() -> i32 {
-    //     xs : array[f32, 8] = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
-    //     print(xs);
-    //     sin_xs = array_sin(xs);
-    //     print(sin_xs);
-
     v0: array[i32, 2] = {1,2};
     v1: array[i32, 2] = {3,4};
     ys: array[array[i32, 2], 2] = {v0, v1};
     print(ys);
-    // print(map2d(ys));
+    // yss = map2d(ys);
+    // print(yss);
 
     return 0;
 }

@@ -24,6 +24,9 @@ uint32_t Type::bits() const {
     if (auto *as_bool = this->as<Bool_t>()) {
         return 1;
     }
+    if (auto *as_index = this->as<Index_t>()) {
+        return 0; // TODO(cgyurgyik): fix
+    }
     internal_error << "Called bits() on bad type: " << *this;
 }
 

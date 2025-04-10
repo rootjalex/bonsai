@@ -8,12 +8,26 @@
 
 namespace bonsai {
 
-// Returns the unsigned bit representation of this expression.
-uint64_t get_constant_value(const ir::Expr &e);
-
 const int64_t *as_const_int(const ir::Expr &e);
 bool is_const_one(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
+
+// Returns the unsigned bit representation of this expression.
+// TODO(cgyurgyik): this interface can be cleaner.
+template <typename T = uint64_t>
+T get_constant_value(const ir::Expr &e) {
+    internal_assert(is_const(e)) << "expected constant value, received: " << e;
+    if (const auto *v = e.as<ir::UIntImm>()) {
+        internal_assert(v->type.bits() <= 64);
+        return v->value;
+    }
+    if (const auto *v = e.as<ir::IntImm>()) {
+        internal_assert(v->type.bits() <= 64);
+        return std::bit_cast<T>(v->value);
+    }
+    internal_error << "[unimplemented] get_constant_value(" << e << " : "
+                   << e.type() << ")";
+}
 
 ir::Expr make_zero(const ir::Type &t);
 ir::Expr make_one(const ir::Type &t);
