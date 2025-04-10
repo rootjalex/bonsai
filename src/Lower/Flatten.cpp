@@ -22,6 +22,7 @@ namespace lower {
 
 namespace {
 
+// Retrieves the array dimension sizes from this type.
 std::vector<ir::Expr> array_dimension_sizes(ir::Type type) {
     internal_assert(type.is<ir::Array_t>()) << type;
     std::vector<ir::Expr> sizes;
@@ -59,10 +60,29 @@ ir::Type flatten_array_type(ir::Type type) {
     return ir::Array_t::make(type, size);
 }
 
-ir::FrameStack<ir::Type> frames;
+// Flattens (indices,size) to a 1-dimensional index value.
+// Reference:
+// https://en.wikipedia.org/wiki/Row-_and_column-major_order#Address_calculation_in_general
+ir::Expr flatten_index(std::vector<ir::Expr> indices,
+                       std::vector<ir::Expr> sizes) {
+    // Uses the bit width of the largest type for the constant one.
+    auto it = std::max_element(sizes.begin(), sizes.end(),
+                               [&](const auto &a, const auto &b) {
+                                   return a.type().bits() < b.type().bits();
+                               });
+    ir::Expr index = make_zero(it->type());
+    internal_assert(sizes.size() == indices.size());
+    for (int i = 0; i < sizes.size(); ++i) {
+        ir::Expr dsize = sizes[i];
+        ir::Expr dindex = indices[i];
+        index = ir::BinOp::add(ir::BinOp::mul(index, dsize), dindex);
+    }
+    return index;
+}
 
-class FlattenAllocation : public ir::Mutator {
+class FlattenStructure : public ir::Mutator {
   public:
+    FlattenStructure(ir::FrameStack<ir::Type> &frames) : frames(frames) {}
     using ir::Mutator::visit;
     // Stores a mapping from name to the respective allocation's dimensions
     // (pre-flattening).
@@ -97,23 +117,6 @@ class FlattenAllocation : public ir::Mutator {
         }
         ir::Type type = frames.from_frames(node->name);
         return ir::Var::make(flatten_array_type(std::move(type)), node->name);
-    }
-
-    ir::Expr flatten_index(std::vector<ir::Expr> indices,
-                           std::vector<ir::Expr> sizes) {
-        // Uses the bit width of the largest type for the constant one.
-        auto it = std::max_element(sizes.begin(), sizes.end(),
-                                   [&](const auto &a, const auto &b) {
-                                       return a.type().bits() < b.type().bits();
-                                   });
-        ir::Expr index = make_zero(it->type());
-        internal_assert(sizes.size() == indices.size());
-        for (int i = 0; i < sizes.size(); ++i) {
-            ir::Expr dsize = sizes[i];
-            ir::Expr dindex = indices[i];
-            index = ir::BinOp::add(ir::BinOp::mul(index, dsize), dindex);
-        }
-        return index;
     }
 
     ir::Expr visit(const ir::Extract *node) override {
@@ -152,6 +155,7 @@ class FlattenAllocation : public ir::Mutator {
     }
 
   private:
+    ir::FrameStack<ir::Type> &frames;
     // Used for building 1-dimensional Extract from a multi-dimensional one.
     struct ExtractMetadata {
         // The index variable(s).
@@ -177,10 +181,10 @@ class FlattenAllocation : public ir::Mutator {
 };
 
 std::shared_ptr<ir::Function> mutate_function(const ir::Function &f) {
-    FlattenAllocation lower;
     std::vector<ir::Function::Argument> args;
     args.reserve(f.args.size());
 
+    ir::FrameStack<ir::Type> frames;
     frames.new_frame();
     for (const auto &arg : f.args) {
         if (!arg.type.is<ir::Array_t>()) {
@@ -192,6 +196,8 @@ std::shared_ptr<ir::Function> mutate_function(const ir::Function &f) {
             arg.name, flatten_array_type(arg.type), arg.default_value));
     }
     ir::Type ret_type = flatten_array_type(f.ret_type);
+
+    FlattenStructure lower(frames);
     ir::Stmt body = lower.mutate(f.body);
     frames.pop_frame();
 
