@@ -230,7 +230,9 @@ void Visitor::visit(const ForEach *node) {
 }
 
 void Visitor::visit(const ForAll *node) {
-    node->header.accept(this);
+    if (node->header.defined()) {
+        node->header.accept(this);
+    }
     node->slice.begin.accept(this);
     node->slice.end.accept(this);
     node->slice.stride.accept(this);

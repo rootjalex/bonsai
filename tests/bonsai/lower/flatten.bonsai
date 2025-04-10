@@ -1,0 +1,5 @@
+//! flags: -p canonicalize -p lower-arrays -p flatten
+
+func id(ij: array[array[i32, 4], 8]) -> array[array[i32, 4], 8] {
+    return map(|i: array[i32, 4]| { map(|j: i32| j, i) }, ij);
+}

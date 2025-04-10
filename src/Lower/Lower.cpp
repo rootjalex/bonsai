@@ -3,6 +3,7 @@
 #include "IR/Mutator.h"
 #include "Lower/Arrays.h"
 #include "Lower/Canonicalize.h"
+#include "Lower/Flatten.h"
 #include "Lower/Generics.h"
 #include "Lower/Geometrics.h"
 #include "Lower/Lambdas.h"
@@ -65,6 +66,7 @@ PassManager register_passes() {
     manager.register_pass<LowerArrays>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
+    manager.register_pass<Flatten>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
@@ -76,9 +78,11 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerTrees>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
+    core.push_back(std::make_unique<Flatten>());
     core.push_back(std::make_unique<LowerLambda>());
     core.push_back(std::make_unique<LowerOption>());
     core.push_back(std::make_unique<LowerGeneric>());
+
     manager.register_alias("core", core);
 
     // Default: the default work flow (with optimizations).
@@ -90,6 +94,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerTrees>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
+    d.push_back(std::make_unique<Flatten>());
     d.push_back(std::make_unique<LowerLambda>());
     d.push_back(std::make_unique<LowerOption>());
     d.push_back(std::make_unique<LowerGeneric>());

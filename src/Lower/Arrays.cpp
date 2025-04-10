@@ -265,11 +265,12 @@ struct LowerToForAll : public ir::Mutator {
 
         // Create the header with the proper load index.
         ir::Expr toplevel_iterable = toplevel.as<ir::ForEach>()->iter;
+        // TODO(cgyurgyik): Create an index immediate.
         ir::Expr index =
-            ir::Var::make(ir::Index_t::make(), iterator_names.front());
+            ir::Var::make(ir::Int_t::make(32), iterator_names.front());
         ir::Expr extracted = ir::Extract::make(toplevel_iterable, index);
         for (int j = 1; j < iterator_names.size(); ++j) {
-            index = ir::Var::make(ir::Index_t::make(), iterator_names[j]);
+            index = ir::Var::make(ir::Int_t::make(32), iterator_names[j]);
             extracted = ir::Extract::make(extracted, index);
         }
         std::string load_name = unique_load_name();
@@ -297,16 +298,14 @@ struct LowerToForAll : public ir::Mutator {
                        [&](const std::string &name) {
                            return ir::Var::make(index_type, name);
                        });
-        ir::Expr store_index;
-        // TODO: fix the lowering for multidimensional indices.
-        if (indices.size() == 1) {
-            store_index = indices[0];
-        } else {
-            store_index = ir::Build::make(
-                ir::Vector_t::make(index_type, dimensions.size()), indices);
-        }
+        ir::Expr store_index =
+            indices.size() == 1
+                ? indices[0]
+                : ir::Build::make(
+                      ir::Vector_t::make(index_type, dimensions.size()),
+                      indices);
         ir::Stmt final_body = ir::Store::make(allocation_name,
-                                              /*index=*/store_index,
+                                              /*index=*/std::move(store_index),
                                               /*value=*/value);
 
         for (int i = 0; i < dimensions.size(); ++i) {
@@ -352,7 +351,8 @@ struct LowerToForAll : public ir::Mutator {
 } // namespace
 
 ir::Program LowerArrays::run(ir::Program program) const {
-    // 1. Lower set operations on arrays to for-each loops and yield operations.
+    // 1. Lower set operations on arrays to for-each loops and yield
+    // operations.
     LowerToForEach convert_fe(program.funcs);
     for (auto &[_, f] : program.funcs) {
         f->body = convert_fe.mutate(f->body);

@@ -463,8 +463,11 @@ void CodeGen_LLVM::optimize_module() {
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
     mpm.run(*module, mam);
 
-    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
-        << "Compilation resulted in an invalid module";
+    if (!llvm::verifyModule(*module, &llvm::errs())) {
+        // Print the entire module since it provides more information.
+        llvm::errs() << "\n" << *module << "\n";
+        internal_error << "Compilation resulted in an invalid module: " << "\n";
+    }
 }
 
 void CodeGen_LLVM::visit(const Int_t *node) {
@@ -1675,7 +1678,9 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     frames.add_to_frame(node->index, {phi, /*mutable=*/false});
 
     // Emit loop body
-    codegen_stmt(node->header);
+    if (node->header.defined()) {
+        codegen_stmt(node->header);
+    }
     codegen_stmt(node->body);
 
     // Update the counter

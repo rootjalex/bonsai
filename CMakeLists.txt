@@ -96,6 +96,7 @@ target_sources(
     src/Lower/Arrays.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
+    src/Lower/Flatten.cpp
     src/Lower/Generics.cpp
     src/Lower/Geometrics.cpp
     src/Lower/Intrinsics.cpp
@@ -158,6 +159,7 @@ target_sources(
     include/LLVMIncl.h
     include/Lower/Arrays.h
     include/Lower/Canonicalize.h
+    include/Lower/Flatten.h
     include/Lower/Generics.h
     include/Lower/Geometrics.h
     include/Lower/Intrinsics.h

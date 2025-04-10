@@ -168,6 +168,10 @@ struct BinOp : ExprNode<BinOp> {
 
     static Expr make(OpType op, Expr a, Expr b);
 
+    // TODO(cgyurgyik): Probably just overload operator +/* for ir::Expr?
+    static Expr add(Expr a, Expr b);
+    static Expr mul(Expr a, Expr b);
+
     static const IRExprEnum _node_type = IRExprEnum::BinOp;
 
     static bool is_numeric_op(const OpType &op);
