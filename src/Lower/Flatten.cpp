@@ -33,6 +33,7 @@ std::vector<ir::Expr> array_dimension_sizes(ir::Type type) {
     return sizes;
 }
 
+// Returns whether this is an n-dimensional array type, where n > 1.
 bool is_nd_array_type(ir::Type type) {
     const auto *atype = type.as<ir::Array_t>();
     if (atype == nullptr) {
@@ -61,9 +62,9 @@ ir::Type flatten_array_type(ir::Type type) {
     return ir::Array_t::make(type, size);
 }
 
-// This flattens a build of builds, where each build is an array of an equal
-// size. If these conditions do not hold, then flattening fails and `ok` is set
-// to false.
+// Flattens an array of static arrays, where each inner array is of equal size,
+// i.e., not jagged. If these conditions do not hold, then flattening fails and
+// `ok` is set to false.
 void flatten_static_array(ir::Expr e, std::vector<ir::Expr> &values,
                           ir::Type &etype, bool &ok) {
     if (!ok) {
@@ -104,21 +105,6 @@ void flatten_static_array(ir::Expr e, std::vector<ir::Expr> &values,
             values.push_back(ir::Extract::make(value, std::move(idx)));
         }
     }
-}
-
-ir::Expr flatten_build_type(ir::Expr build) {
-    std::vector<ir::Expr> flattened_values;
-
-    bool ok = true;
-    ir::Type etype;
-    flatten_static_array(build, flattened_values, etype, ok);
-    if (!ok) {
-        return build;
-    }
-    internal_assert(etype.defined()) << build;
-    ir::Expr size = ir::IdxImm::make(flattened_values.size());
-    ir::Type type = ir::Array_t::make(std::move(etype), std::move(size));
-    return ir::Build::make(std::move(type), std::move(flattened_values));
 }
 
 // Flattens (indices,size) to a 1-dimensional index value. Reference:
@@ -223,7 +209,18 @@ class FlattenStructure : public ir::Mutator {
         if (node->values.size() <= 1) {
             return Mutator::visit(node);
         }
-        return flatten_build_type(node);
+
+        std::vector<ir::Expr> flattened_values;
+        bool ok = true;
+        ir::Type etype;
+        flatten_static_array(node, flattened_values, etype, ok);
+        if (!ok) {
+            return node;
+        }
+        internal_assert(etype.defined()) << node;
+        ir::Expr size = ir::IdxImm::make(flattened_values.size());
+        ir::Type type = ir::Array_t::make(std::move(etype), std::move(size));
+        return ir::Build::make(std::move(type), std::move(flattened_values));
     }
 
   private:

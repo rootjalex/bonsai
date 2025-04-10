@@ -25,7 +25,8 @@ uint32_t Type::bits() const {
         return 1;
     }
     if (auto *as_index = this->as<Index_t>()) {
-        // This is architecture specific... conservatively default to 64-bit?
+        // TODO(cgyurgyik): Used when creating a constant index value, but it is
+        // architecture specific... conservatively default to 64-bit?
         return CHAR_BIT * 8;
     }
     internal_error << "Called bits() on bad type: " << *this;

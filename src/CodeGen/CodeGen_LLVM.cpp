@@ -477,6 +477,7 @@ void CodeGen_LLVM::visit(const UInt_t *node) {
 }
 
 void CodeGen_LLVM::visit(const Index_t *node) {
+    // TODO(cgyurgyik): We need to make an architecture-specific choice.
     type = llvm::Type::getIntNTy(*context, ir::Type(node).bits());
 }
 
@@ -568,12 +569,12 @@ void CodeGen_LLVM::visit(const IntImm *node) {
 
 void CodeGen_LLVM::visit(const UIntImm *node) {
     value = llvm::ConstantInt::get(codegen_type(node->type), node->value,
-                                   /* IsSigned */ false);
+                                   /*IsSigned=*/false);
 }
 
 void CodeGen_LLVM::visit(const IdxImm *node) {
     value = llvm::ConstantInt::get(codegen_type(node->type), node->value,
-                                   /* IsSigned */ false);
+                                   /*IsSigned=*/false);
 }
 
 void CodeGen_LLVM::visit(const FloatImm *node) {
@@ -584,7 +585,7 @@ void CodeGen_LLVM::visit(const FloatImm *node) {
 
 void CodeGen_LLVM::visit(const BoolImm *node) {
     value = llvm::ConstantInt::get(codegen_type(node->type), node->value,
-                                   /* IsSigned */ false);
+                                   /*IsSigned=*/false);
 }
 
 void CodeGen_LLVM::visit(const Infinity *node) {
@@ -1099,8 +1100,8 @@ void CodeGen_LLVM::visit(const Extract *node) {
         value = builder->CreateExtractElement(vec, idx);
     } else if (node->vec.type().is<Array_t>()) {
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
-        llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "gep");
-        value = builder->CreateLoad(etype, ptr, "load");
+        llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "gep[extract]");
+        value = builder->CreateLoad(etype, ptr, "load[extract]");
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << node->vec.type();
