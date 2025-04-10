@@ -133,8 +133,9 @@ class FlattenStructure : public ir::Mutator {
         ir::Type original_type = frames.from_frames(v->name);
         std::vector<ir::Expr> sizes = array_dimension_sizes(original_type);
 
-        return ir::Extract::make(/*vec=*/std::move(array),
-                                 /*idx=*/flatten_index(indices, sizes));
+        std::reverse(indices.begin(), indices.end());
+        ir::Expr index = flatten_index(std::move(indices), std::move(sizes));
+        return ir::Extract::make(std::move(array), std::move(index));
     }
 
     ir::Stmt visit(const ir::Store *node) override {
