@@ -47,6 +47,7 @@ ir::Type flatten_array_type(ir::Type type) {
         type = atype->etype;
     }
 
+    // TODO(cgyurgyik): Convert everything to Index type.
     // Uses the bit width of the largest type for the constant one.
     auto it = std::max_element(sizes.begin(), sizes.end(),
                                [&](const auto &a, const auto &b) {
@@ -65,6 +66,7 @@ ir::Type flatten_array_type(ir::Type type) {
 // https://en.wikipedia.org/wiki/Row-_and_column-major_order#Address_calculation_in_general
 ir::Expr flatten_index(std::vector<ir::Expr> indices,
                        std::vector<ir::Expr> sizes) {
+    // TODO(cgyurgyik): Convert everything to Index type.
     // Uses the bit width of the largest type for the constant one.
     auto it = std::max_element(sizes.begin(), sizes.end(),
                                [&](const auto &a, const auto &b) {
