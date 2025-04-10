@@ -82,7 +82,6 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerLambda>());
     core.push_back(std::make_unique<LowerOption>());
     core.push_back(std::make_unique<LowerGeneric>());
-
     manager.register_alias("core", core);
 
     // Default: the default work flow (with optimizations).
