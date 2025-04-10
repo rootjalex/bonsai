@@ -283,6 +283,7 @@ ir::FuncMap Flatten::run(ir::FuncMap functions) const {
     for (const std::string &name : topological_order) {
         auto it = functions.find(name);
         it->second = mutate_function(*it->second);
+        std::cerr << *it->second << "\n";
     }
     return functions;
 }

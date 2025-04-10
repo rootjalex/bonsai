@@ -666,18 +666,12 @@ Expr Build::make(Type type, std::vector<Expr> values) {
         } else if (const Array_t *as_array = type.as<Array_t>()) {
             if (!values.empty()) {
                 const int64_t *const_size = as_const_int(as_array->size);
-                // TODO(cgyurgyik): Currently we don't do any constant folding
-                // so this can fail, e.g., if the size is a 1 * 2.
-                if (const_size) {
-                    internal_assert(const_size && values.size() == *const_size)
-                        //              ^^^
-                        // This needs to be checked before since it is
-                        // dereferenced in the error message.
-                        << "Incorrect number of arguments to array "
-                           "construction: "
-                        << type << " takes " << *const_size << " elements"
-                        << " but received " << values.size();
-                }
+                internal_assert(const_size) << as_array->size;
+                internal_assert(values.size() == *const_size)
+                    << "Incorrect number of arguments to array "
+                       "construction: "
+                    << type << " takes " << *const_size << " elements"
+                    << " but received " << values.size();
 
                 for (size_t i = 0; i < values.size(); i++) {
                     internal_assert(equals(as_array->etype, values[i].type()))
