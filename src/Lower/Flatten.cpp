@@ -61,35 +61,63 @@ ir::Type flatten_array_type(ir::Type type) {
     return ir::Array_t::make(type, size);
 }
 
-// TODO(cgyurgyik): Make this recursive; currently only works for 2-d.
-ir::Expr flatten_build_type(const std::vector<ir::Expr> &values) {
-    std::vector<ir::Expr> sizes;
-    std::optional<ir::Type> etype;
-    std::vector<ir::Expr> flattened_values;
-    for (const ir::Expr &value : values) {
+// This flattens a build of builds, where each build is an array of an equal
+// size. If these conditions do not hold, then flattening fails and `ok` is set
+// to false.
+void flatten_static_array(ir::Expr e, std::vector<ir::Expr> &values,
+                          ir::Type &etype, bool &ok) {
+    if (!ok) {
+        return;
+    }
+    if (!e.is<ir::Build>()) {
+        ok = false;
+        return;
+    }
+    const auto *build = e.as<ir::Build>();
+    ir::Expr size;
+    for (const auto &value : build->values) {
         const auto *type = value.type().as<ir::Array_t>();
-        internal_assert(type) << value.type();
-        sizes.push_back(ir::Cast::make(ir::Index_t::make(), type->size));
-
-        if (!etype.has_value()) {
-            etype = type->etype;
-        } else {
-            internal_assert(ir::equals(type->etype, *etype));
+        if (type == nullptr) {
+            ok = false;
+            return; // Not an array of arrays.
+        }
+        if (type->etype.is<ir::Array_t>()) {
+            flatten_static_array(value, values, etype, ok);
+            return;
+        }
+        etype = type->etype;
+        if (!size.defined()) {
+            size = type->size;
+        }
+        if (!(is_const(size) && is_const(type->size))) {
+            ok = false;
+            return; // Cannot be statically inferred.
+        }
+        uint64_t n = get_constant_value(type->size);
+        if (get_constant_value(size) != n) {
+            ok = false;
+            return; // Jagged array.
         }
 
-        internal_assert(is_const(type->size));
-        uint64_t n = get_constant_value(type->size);
         for (int i = 0; i < n; ++i) {
             ir::Expr idx = ir::IdxImm::make(i);
-            flattened_values.push_back(
-                ir::Extract::make(value, std::move(idx)));
+            values.push_back(ir::Extract::make(value, std::move(idx)));
         }
     }
-    ir::Expr zero = make_zero(ir::Index_t::make());
-    ir::Expr size = std::accumulate(
-        sizes.begin(), sizes.end(), zero,
-        [](const auto &a, const auto &b) { return ir::BinOp::add(a, b); });
-    ir::Type type = ir::Array_t::make(*etype, size);
+}
+
+ir::Expr flatten_build_type(ir::Expr build) {
+    std::vector<ir::Expr> flattened_values;
+
+    bool ok = true;
+    ir::Type etype;
+    flatten_static_array(build, flattened_values, etype, ok);
+    if (!ok) {
+        return build;
+    }
+    internal_assert(etype.defined()) << build;
+    ir::Expr size = ir::IdxImm::make(flattened_values.size());
+    ir::Type type = ir::Array_t::make(std::move(etype), std::move(size));
     return ir::Build::make(std::move(type), std::move(flattened_values));
 }
 
@@ -169,15 +197,13 @@ class FlattenStructure : public ir::Mutator {
         std::vector<ir::Expr> sizes = array_dimension_sizes(original_type);
 
         std::reverse(indices.begin(), indices.end());
-        // std::reverse(sizes.begin(), sizes.end());
         ir::Expr index = flatten_index(std::move(indices), std::move(sizes));
         return ir::Extract::make(mutate(std::move(array)), std::move(index));
     }
 
     ir::Stmt visit(const ir::Store *node) override {
         if (!node->index.type().is<ir::Vector_t>()) {
-            // Scalar vector types are already flat!
-            return node;
+            return node; // This is a scalar; do nothing.
         }
         const int32_t lanes = node->index.type().as<ir::Vector_t>()->lanes;
         std::vector<ir::Expr> indices;
@@ -194,14 +220,10 @@ class FlattenStructure : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Build *node) override {
-        const std::vector<ir::Expr> &values = node->values;
-        if (values.size() <= 1 ||
-            !std::all_of(values.begin(), values.end(), [](const ir::Expr &e) {
-                return e.type().is<ir::Array_t>();
-            })) {
+        if (node->values.size() <= 1) {
             return Mutator::visit(node);
         }
-        return flatten_build_type(values);
+        return flatten_build_type(node);
     }
 
   private:
