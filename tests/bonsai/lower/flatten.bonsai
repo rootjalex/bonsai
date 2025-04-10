@@ -4,6 +4,16 @@ func id(ij: array[array[i32, 4], 2]) -> array[array[i32, 4], 2] {
     return map(|i: array[i32, 4]| { map(|j: i32| j, i) }, ij);
 }
 
+func d3(ijk: array[array[array[i32, 32], 16], 8]) -> array[array[array[i32, 32], 16], 8] {
+  return map(| i: array[array[i32, 32], 16] | {
+           map(| j: array[i32, 32] | {
+             map(| k: i32 | { 
+               k + 1 
+             }, j)
+           }, i)
+         }, ijk);
+}
+
 func main() -> i32 {
   v0: array[i32, 4] = {1,2,3,4};
   v1: array[i32, 4] = {5,6,7,8};

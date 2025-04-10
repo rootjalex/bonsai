@@ -1,16 +1,33 @@
-func ?traverse_array0(ij : i32[8]) -> i32[8] {
-  alloc ?alloc0 : i32[8]
-  forall i in [(i32)0:(i32)2:(i32)1] {
-    forall j in [(i32)0:(i32)4:(i32)1] {
-      let ?load0 = ij[(i * (idx)4) + j] in
-      ?alloc0[(build<idxx2>(i, j)[(i32)0] * (idx)4) + build<idxx2>(i, j)[(i32)1]] = ?load0
+func ?traverse_array0(ijk : i32[4096]) -> i32[4096] {
+  alloc ?alloc0 : i32[4096]
+  forall i in [(i32)0:(i32)8:(i32)1] {
+    forall j in [(i32)0:(i32)16:(i32)1] {
+      forall k in [(i32)0:(i32)32:(i32)1] {
+        let ?load0 = ijk[(((i * (idx)16) + j) * (idx)32) + k] in
+        ?alloc0[(((build<idxx3>(i, j, k)[(i32)0] * (idx)16) + build<idxx3>(i, j, k)[(i32)1]) * (idx)32) + build<idxx3>(i, j, k)[(i32)2]] = ?load0 + (i32)1
+      }
     }
   }
   return ?alloc0
 }
 
+func ?traverse_array1(ij : i32[8]) -> i32[8] {
+  alloc ?alloc1 : i32[8]
+  forall i in [(i32)0:(i32)2:(i32)1] {
+    forall j in [(i32)0:(i32)4:(i32)1] {
+      let ?load1 = ij[(i * (idx)4) + j] in
+      ?alloc1[(build<idxx2>(i, j)[(i32)0] * (idx)4) + build<idxx2>(i, j)[(i32)1]] = ?load1
+    }
+  }
+  return ?alloc1
+}
+
+func d3(ijk : i32[4096]) -> i32[4096] {
+  return ?traverse_array0(ijk)
+}
+
 func id(ij : i32[8]) -> i32[8] {
-  return ?traverse_array0(ij)
+  return ?traverse_array1(ij)
 }
 
 func main() -> i32 {
