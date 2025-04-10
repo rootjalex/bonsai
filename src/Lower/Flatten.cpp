@@ -33,6 +33,14 @@ std::vector<ir::Expr> array_dimension_sizes(ir::Type type) {
     return sizes;
 }
 
+bool is_nd_array_type(ir::Type type) {
+    const auto *atype = type.as<ir::Array_t>();
+    if (atype == nullptr) {
+        return false;
+    }
+    return atype->etype.is<ir::Array_t>();
+}
+
 // Flattens the array type, e.g.,
 //   i32[M][N] -> i32[M * N]
 //   i32 -> i32
@@ -114,6 +122,11 @@ class FlattenStructure : public ir::Mutator {
 
     ir::Expr visit(const ir::Var *node) override {
         if (!frames.name_in_scope(node->name)) {
+            if (is_nd_array_type(node->type)) {
+                frames.add_to_frame(node->name, node->type);
+                ir::Type type = flatten_array_type(node->type);
+                return ir::Var::make(std::move(type), node->name);
+            }
             return ir::Mutator::visit(node);
         }
         ir::Type type = frames.from_frames(node->name);
@@ -127,7 +140,9 @@ class FlattenStructure : public ir::Mutator {
         }
         auto [indices, array] = get_metadata(node);
         const ir::Var *v = array.as<ir::Var>();
-        internal_assert(v && frames.name_in_scope(v->name)) << array;
+        if (!frames.name_in_scope(v->name)) {
+            return ir::Mutator::visit(node);
+        }
 
         ir::Type original_type = frames.from_frames(v->name);
         std::vector<ir::Expr> sizes = array_dimension_sizes(original_type);
@@ -217,6 +232,7 @@ ir::FuncMap Flatten::run(ir::FuncMap functions) const {
     for (const std::string &name : topological_order) {
         auto it = functions.find(name);
         it->second = mutate_function(*it->second);
+        std::cerr << *it->second << "\n---\n";
     }
     return functions;
 }
