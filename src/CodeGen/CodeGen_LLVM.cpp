@@ -463,11 +463,8 @@ void CodeGen_LLVM::optimize_module() {
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
     mpm.run(*module, mam);
 
-    if (!llvm::verifyModule(*module, &llvm::errs())) {
-        // Print the entire module since it provides more information.
-        llvm::errs() << "\n" << *module << "\n";
-        internal_error << "Compilation resulted in an invalid module: " << "\n";
-    }
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "Compilation resulted in an invalid module";
 }
 
 void CodeGen_LLVM::visit(const Int_t *node) {
@@ -605,8 +602,24 @@ void CodeGen_LLVM::visit(const BinOp *node) {
     llvm::Value *a = codegen_expr(node->a);
     llvm::Value *b = codegen_expr(node->b);
 
+    internal_assert(
+        !(a->getType()->isPointerTy() && b->getType()->isPointerTy()));
+    if (a->getType()->isPointerTy()) {
+        // llvm::Type *etype = codegen_type(node->a.type().element_of());
+        value =
+            builder->CreateGEP(builder->getInt32Ty(), a, b, "a(ptr)_plus_b");
+        return;
+    }
+    if (b->getType()->isPointerTy()) {
+        // llvm::Type *etype = codegen_type(node->b.type().element_of());
+        value =
+            builder->CreateGEP(builder->getInt32Ty(), b, a, "b(ptr)_plus_a");
+        return;
+    }
+
     // TODO: predications?
     if (node->a.type().is_float()) {
+        internal_assert(node->b.type().is_float()) << node->b.type();
         switch (node->op) {
         case BinOp::Add: {
             value = builder->CreateFAdd(a, b);
@@ -642,6 +655,7 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         }
     } else if (node->a.type().is_int()) {
+        internal_assert(node->b.type().is_int()) << node->b.type();
         // TODO: do we ever want NSW?
         switch (node->op) {
         case BinOp::Add: {
@@ -691,6 +705,7 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         }
     } else if (node->a.type().is_uint()) {
+        internal_assert(node->b.type().is_uint()) << node->b.type();
         switch (node->op) {
         case BinOp::Add: {
             value = builder->CreateAdd(a, b);
@@ -739,6 +754,7 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         }
     } else if (node->a.type().is_bool()) {
+        internal_assert(node->b.type().is_bool()) << node->b.type();
         switch (node->op) {
         case BinOp::And: {
             value = builder->CreateAnd(a, b);
@@ -1086,9 +1102,12 @@ void CodeGen_LLVM::visit(const Ramp *node) {
 void CodeGen_LLVM::visit(const Extract *node) {
     llvm::Value *vec = codegen_expr(node->vec);
     llvm::Value *idx = codegen_expr(node->idx);
+
     if (node->vec.type().is<Vector_t>()) {
         value = builder->CreateExtractElement(vec, idx);
     } else if (node->vec.type().is<Array_t>()) {
+        // llvm::errs() << "vec: " << *vec << "\n" << "idx: " << *idx <<
+        // "\n---\n";
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
         llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "extract_ptr");
         value = builder->CreateLoad(etype, ptr, "extract");
