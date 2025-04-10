@@ -299,6 +299,7 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
 }
 
 Expr BinOp::add(Expr a, Expr b) {
+    // TODO(cgyurgyik): Move these to a simplify pass.
     if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type()) &&
         a.type().bits() <= 64) {
         if (a.type().is_int()) {
@@ -324,6 +325,7 @@ Expr BinOp::add(Expr a, Expr b) {
 }
 
 Expr BinOp::mul(Expr a, Expr b) {
+    // TODO(cgyurgyik): Move these to a simplify pass.
     if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type()) &&
         a.type().bits() <= 64) {
         if (a.type().is_int()) {
