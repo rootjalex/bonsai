@@ -61,8 +61,7 @@ ir::Type flatten_array_type(ir::Type type) {
     return ir::Array_t::make(type, size);
 }
 
-// Flattens (indices,size) to a 1-dimensional index value.
-// Reference:
+// Flattens (indices,size) to a 1-dimensional index value. Reference:
 // https://en.wikipedia.org/wiki/Row-_and_column-major_order#Address_calculation_in_general
 ir::Expr flatten_index(std::vector<ir::Expr> indices,
                        std::vector<ir::Expr> sizes) {
