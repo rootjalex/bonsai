@@ -292,10 +292,35 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
 }
 
 Expr BinOp::add(Expr a, Expr b) {
+    if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type())) {
+        // TODO(cgyurgyik): This is incorrect, need to do type checking.
+        return ir::IntImm::make(a.type(), *as_const_int(a) + *as_const_int(b));
+    }
+    if (is_const(a) && get_constant_value(a) == 0 &&
+        ir::equals(a.type(), b.type())) {
+        return b;
+    }
+    if (is_const(b) && get_constant_value(b) == 0 &&
+        ir::equals(a.type(), b.type())) {
+        return a;
+    }
     return BinOp::make(BinOp::OpType::Add, std::move(a), std::move(b));
 }
 
 Expr BinOp::mul(Expr a, Expr b) {
+    if (is_const(a) && is_const(b) && ir::equals(a.type(), b.type())) {
+        // TODO(cgyurgyik): This is incorrect, need to do type checking.
+        return ir::IntImm::make(a.type(), *as_const_int(a) * *as_const_int(b));
+    }
+    if (is_const(a) && get_constant_value(a) == 0 &&
+        ir::equals(a.type(), b.type())) {
+        return a;
+    }
+    if (is_const(b) && get_constant_value(b) == 0 &&
+        ir::equals(a.type(), b.type())) {
+        return b;
+    }
+
     return BinOp::make(BinOp::OpType::Mul, std::move(a), std::move(b));
 }
 
@@ -641,10 +666,18 @@ Expr Build::make(Type type, std::vector<Expr> values) {
         } else if (const Array_t *as_array = type.as<Array_t>()) {
             if (!values.empty()) {
                 const int64_t *const_size = as_const_int(as_array->size);
-                internal_assert(const_size && values.size() == *const_size)
-                    << "Incorrect number of arguments to array construction: "
-                    << type << " takes " << *const_size << " elements"
-                    << " but received " << values.size();
+                // TODO(cgyurgyik): Currently we don't do any constant folding
+                // so this can fail, e.g., if the size is a 1 * 2.
+                if (const_size) {
+                    internal_assert(const_size && values.size() == *const_size)
+                        //              ^^^
+                        // This needs to be checked before since it is
+                        // dereferenced in the error message.
+                        << "Incorrect number of arguments to array "
+                           "construction: "
+                        << type << " takes " << *const_size << " elements"
+                        << " but received " << values.size();
+                }
 
                 for (size_t i = 0; i < values.size(); i++) {
                     internal_assert(equals(as_array->etype, values[i].type()))

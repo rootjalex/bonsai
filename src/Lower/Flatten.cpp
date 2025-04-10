@@ -69,6 +69,46 @@ ir::Type flatten_array_type(ir::Type type) {
     return ir::Array_t::make(type, size);
 }
 
+// TODO(cgyurgyik): Make this recursive; currently only works for 2-d.
+ir::Expr flatten_build_type(const std::vector<ir::Expr> &values) {
+    std::vector<ir::Expr> sizes;
+    std::optional<ir::Type> etype;
+    std::vector<ir::Expr> flattened_values;
+    for (const ir::Expr &value : values) {
+        const auto *type = value.type().as<ir::Array_t>();
+        internal_assert(type) << value.type();
+        sizes.push_back(type->size);
+
+        if (!etype.has_value()) {
+            etype = type->etype;
+        } else {
+            internal_assert(ir::equals(type->etype, *etype));
+        }
+
+        internal_assert(is_const(type->size));
+        uint64_t n = get_constant_value(type->size);
+        for (int i = 0; i < n; ++i) {
+            ir::Expr idx = ir::IntImm::make(ir::Int_t::make(32), i);
+            flattened_values.push_back(
+                ir::Extract::make(value, std::move(idx)));
+        }
+    }
+
+    // TODO(cgyurgyik): Convert everything to Index type.
+    // Uses the bit width of the largest type for the constant one.
+    auto it = std::max_element(sizes.begin(), sizes.end(),
+                               [&](const auto &a, const auto &b) {
+                                   return a.type().bits() < b.type().bits();
+                               });
+    ir::Expr one = make_one(it->type());
+
+    ir::Expr size = std::accumulate(
+        sizes.begin(), sizes.end(), one,
+        [](const auto &a, const auto &b) { return ir::BinOp::mul(a, b); });
+    ir::Type type = ir::Array_t::make(*etype, size);
+    return ir::Build::make(std::move(type), std::move(flattened_values));
+}
+
 // Flattens (indices,size) to a 1-dimensional index value. Reference:
 // https://en.wikipedia.org/wiki/Row-_and_column-major_order#Address_calculation_in_general
 ir::Expr flatten_index(std::vector<ir::Expr> indices,
@@ -171,6 +211,17 @@ class FlattenStructure : public ir::Mutator {
         return ir::Store::make(node->name, std::move(index), node->value);
     }
 
+    ir::Expr visit(const ir::Build *node) override {
+        const std::vector<ir::Expr> &values = node->values;
+        if (values.size() <= 1 ||
+            !std::all_of(values.begin(), values.end(), [](const ir::Expr &e) {
+                return e.type().is<ir::Array_t>();
+            })) {
+            return Mutator::visit(node);
+        }
+        return flatten_build_type(values);
+    }
+
   private:
     ir::FrameStack<ir::Type> &frames;
     // Used for building 1-dimensional Extract from a multi-dimensional one.
@@ -232,7 +283,6 @@ ir::FuncMap Flatten::run(ir::FuncMap functions) const {
     for (const std::string &name : topological_order) {
         auto it = functions.find(name);
         it->second = mutate_function(*it->second);
-        std::cerr << *it->second << "\n---\n";
     }
     return functions;
 }

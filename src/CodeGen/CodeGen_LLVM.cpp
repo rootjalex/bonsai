@@ -601,21 +601,8 @@ void CodeGen_LLVM::visit(const BinOp *node) {
     // TODO: upgrade type for arithmetic?
     llvm::Value *a = codegen_expr(node->a);
     llvm::Value *b = codegen_expr(node->b);
-
-    internal_assert(
-        !(a->getType()->isPointerTy() && b->getType()->isPointerTy()));
-    if (a->getType()->isPointerTy()) {
-        // llvm::Type *etype = codegen_type(node->a.type().element_of());
-        value =
-            builder->CreateGEP(builder->getInt32Ty(), a, b, "a(ptr)_plus_b");
-        return;
-    }
-    if (b->getType()->isPointerTy()) {
-        // llvm::Type *etype = codegen_type(node->b.type().element_of());
-        value =
-            builder->CreateGEP(builder->getInt32Ty(), b, a, "b(ptr)_plus_a");
-        return;
-    }
+    internal_assert(!a->getType()->isPointerTy() &&
+                    !b->getType()->isPointerTy());
 
     // TODO: predications?
     if (node->a.type().is_float()) {

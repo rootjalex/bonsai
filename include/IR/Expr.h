@@ -262,7 +262,7 @@ struct Extract : ExprNode<Extract> {
     static const IRExprEnum _node_type = IRExprEnum::Extract;
 };
 
-// Construct a value of a Type (e.g. Vector_t or Struct_t)
+// Construct a value of a Type (e.g. Array_t or Vector_t or Struct_t)
 struct Build : ExprNode<Build> {
     std::vector<Expr> values;
 
