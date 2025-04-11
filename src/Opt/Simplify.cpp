@@ -65,18 +65,17 @@ struct Simplifier : ir::Mutator {
             // Conservatively return if these do not share the same type.
             return node;
         }
-        std::optional<uint64_t> c_a = get_constant_value(a);
-        std::optional<uint64_t> c_b = get_constant_value(b);
+        ir::Type type = a.type();
         switch (node->op) {
         case ir::BinOp::OpType::Add: {
             if (ir::Expr e = simplify(std::plus<>{}, a, b); e.defined()) {
                 return e;
             }
-            if (c_a.has_value() && *c_a == 0) {
+            if (is_const_zero(a)) {
                 // 0 + b = b
                 return b;
             }
-            if (c_b.has_value() && *c_b == 0) {
+            if (is_const_zero(b)) {
                 // a + 0 = a
                 return a;
             }
@@ -86,10 +85,17 @@ struct Simplifier : ir::Mutator {
             if (ir::Expr e = simplify(std::multiplies<>{}, a, b); e.defined()) {
                 return e;
             }
-            if ((c_a.has_value() && *c_a == 0) ||
-                (c_b.has_value() && *c_b == 0)) {
+            if (is_const_zero(a) || is_const_zero(b)) {
                 // x * 0 = 0
-                return make_zero(a.type());
+                return make_zero(std::move(type));
+            }
+            if (is_const_one(a)) {
+                // x * 1 = x
+                return b;
+            }
+            if (is_const_one(b)) {
+                // 1 * x = x
+                return a;
             }
             return node;
         }

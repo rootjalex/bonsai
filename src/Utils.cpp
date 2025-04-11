@@ -37,6 +37,24 @@ bool is_const_one(const Expr &e) {
     }
 }
 
+bool is_const_zero(const Expr &e) {
+    if (!e.defined()) {
+        internal_error << "is_const_one called on undefined value";
+    } else if (const Broadcast *b = e.as<Broadcast>()) {
+        return is_const_one(b->value);
+    } else if (const IntImm *i = e.as<IntImm>()) {
+        return i->value == 0;
+    } else if (const UIntImm *u = e.as<UIntImm>()) {
+        return u->value == 0;
+    } else if (const FloatImm *f = e.as<FloatImm>()) {
+        return f->value == 0;
+    } else if (const BoolImm *b = e.as<BoolImm>()) {
+        return b->value == 0;
+    } else {
+        return false;
+    }
+}
+
 bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
