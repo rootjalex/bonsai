@@ -2,6 +2,6 @@ func foo(x : i32) -> i32 {
     return x + 0;
 }
 
-func bar(x : i32) -> i32 {
-    return x + 0 + 1;
+func bar(y : i32) -> i32 {
+    return y + 0 + 1;
 }
