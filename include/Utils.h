@@ -23,6 +23,10 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
     if (!is_const(e)) {
         return {};
     }
+    // TODO(cgyurgyik): This should eventually work for vectors.
+    if (!e.type().is_scalar()) {
+        return {};
+    }
     // Conservatively fail if the bit size is > 64.
     internal_assert(e.type().bits() <= 64) << e.type();
     if (const auto *v = e.as<ir::UIntImm>()) {
