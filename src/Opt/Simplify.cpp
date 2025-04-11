@@ -58,13 +58,21 @@ ir::Expr simplify(F f, ir::Expr a, ir::Expr b) {
     return ir::Expr();
 }
 
+// TODO(cgyurgyik): better name for this? I'd rather not duplicate this code in
+// each case.
+ir::Expr v(const ir::BinOp *node, ir::Expr a, ir::Expr b) {
+    if (a.same_as(node->a) && b.same_as(node->b)) {
+        return node;
+    }
+    return ir::BinOp::make(node->op, std::move(a), std::move(b));
+}
+
 struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         if (!ir::equals(a.type(), b.type())) {
             // Conservatively return if these do not share the same type.
-            // TODO(cgyurgyik): Probably check these are the same?
-            return ir::BinOp::make(node->op, std::move(a), std::move(b));
+            return v(node, std::move(a), std::move(b));
         }
         ir::Type type = a.type();
         switch (node->op) {
@@ -80,7 +88,7 @@ struct Simplifier : ir::Mutator {
                 // a + 0 = a
                 return a;
             }
-            return ir::BinOp::make(node->op, std::move(a), std::move(b));
+            return v(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mul: {
             if (ir::Expr e = simplify(std::multiplies<>{}, a, b); e.defined()) {
@@ -98,18 +106,22 @@ struct Simplifier : ir::Mutator {
                 // 1 * x = x
                 return a;
             }
-            return ir::BinOp::make(node->op, std::move(a), std::move(b));
+            return v(node, std::move(a), std::move(b));
         }
         default:
-            return ir::BinOp::make(node->op, std::move(a), std::move(b));
+            return v(node, std::move(a), std::move(b));
         }
     }
 
     ir::Expr visit(const ir::Cast *node) override {
-        if (is_const(node->value) && node->type.is_scalar()) {
-            return constant_cast(node->type, node->value);
+        ir::Expr value = mutate(node->value);
+        if (is_const(value) && node->type.is_scalar()) {
+            return constant_cast(node->type, std::move(value));
         }
-        return node;
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Cast::make(node->type, std::move(value));
     }
 };
 
