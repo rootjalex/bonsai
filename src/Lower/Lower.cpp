@@ -13,6 +13,7 @@
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Opt/DCE.h"
+#include "Opt/Simplify.h"
 
 #include "CompilerOptions.h"
 #include "Error.h"
@@ -54,19 +55,21 @@ void lower(ir::Program &program, const CompilerOptions &options) {
 //  Perform final code generation
 PassManager register_passes() {
     PassManager manager;
-    // Pass registration.
+    // Register lowering passes.
     manager.register_pass<Canonicalize>();
     manager.register_pass<LowerLambda>();
     manager.register_pass<LowerOption>();
     manager.register_pass<VerifyOptions>();
     manager.register_pass<LowerGeneric>();
-    manager.register_pass<opt::DCE>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerArrays>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<Flatten>();
+    // Register optimization passes.
+    manager.register_pass<opt::DCE>();
+    manager.register_pass<opt::Simplify>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
@@ -97,6 +100,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerLambda>());
     d.push_back(std::make_unique<LowerOption>());
     d.push_back(std::make_unique<LowerGeneric>());
+    d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     manager.register_alias("default", d);
 

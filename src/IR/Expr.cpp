@@ -317,7 +317,7 @@ Expr BinOp::add(Expr a, Expr b) {
         ir::equals(a.type(), b.type())) {
         return b;
     }
-    if (is_const(b) && get_constant_value(a) == 0 &&
+    if (is_const(b) && get_constant_value(b) == 0 &&
         ir::equals(a.type(), b.type())) {
         return a;
     }
@@ -411,6 +411,7 @@ Expr Cast::make(Type type, Expr value) {
     internal_assert(type.defined())
         << "Cannot cast to undefined type: " << value;
     internal_assert(value.defined()) << "Cast of undefined value: " << type;
+    // TODO(cgyurgyik): Move this to a simplify pass.
     if (is_const(value) && type.is_scalar()) {
         return constant_cast(type, value);
     }

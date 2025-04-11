@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p lower-arrays -p flatten
+//! flags: -p canonicalize -p lower-arrays -p flatten -p simplify
 
 func id(ij: array[array[i32, 4], 2]) -> array[array[i32, 4], 2] {
     return map(|i: array[i32, 4]| { map(|j: i32| j, i) }, ij);
