@@ -23,7 +23,7 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
     if (!is_const(e)) {
         return {};
     }
-    // Conservatively fail if the bit size is < 64.
+    // Conservatively fail if the bit size is > 64.
     internal_assert(e.type().bits() <= 64) << e.type();
     if (const auto *v = e.as<ir::UIntImm>()) {
         return std::bit_cast<T>(v->value);
@@ -39,8 +39,8 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
         uint64_t value = static_cast<uint64_t>(v->value);
         return std::bit_cast<T>(value);
     }
-    internal_error << "[unimplemented] get_constant_value(" << e << " : "
-                   << e.type() << ")";
+    internal_error << "[unimplemented] get_constant_value, " << e << " : "
+                   << e.type();
 }
 
 ir::Expr make_zero(const ir::Type &t);
