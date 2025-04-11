@@ -162,6 +162,10 @@ struct Simplifier : ir::Mutator {
         if (is_const(value) && node->type.is_scalar()) {
             return constant_cast(node->type, std::move(value));
         }
+        if (equals(value.type(), node->type)) {
+            // T v = ...; cast[[T]](v) = v
+            return value;
+        }
         if (value.same_as(node->value)) {
             return node;
         }

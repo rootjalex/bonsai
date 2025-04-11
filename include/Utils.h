@@ -25,8 +25,9 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
         return {};
     }
     // Conservatively fail if the bit size is > 64.
-    if (e.type().is_scalar()) {
-        internal_assert(e.type().bits() <= 64) << e.type();
+    ir::Type element_type = e.type();
+    if (element_type.is_scalar()) {
+        internal_assert(element_type.bits() <= 64) << element_type;
     }
     if (const auto *v = e.as<ir::UIntImm>()) {
         return std::bit_cast<T>(v->value);
@@ -47,10 +48,13 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
         return get_constant_value(value);
     }
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
-                   << e.type();
+                   << element_type;
 }
 
+// Creates an immediate with value `0` and the provided type.
 ir::Expr make_zero(const ir::Type &t);
+
+// Creates an immediate with value `1` and the provided type.
 ir::Expr make_one(const ir::Type &t);
 
 template <typename T>
