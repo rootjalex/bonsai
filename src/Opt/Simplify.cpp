@@ -36,9 +36,8 @@ T apply(F f, uint64_t a, uint64_t b) {
 template <typename F>
 ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
                        std::optional<ir::Type> type = {}) {
-    if (!ir::equals(a.type(), b.type())) {
-        return ir::Expr();
-    }
+    internal_assert(ir::equals(a.type(), b.type()))
+        << "a: " << a.type() << ", " << "b: " << b.type();
     if (!type.has_value()) {
         type = a.type();
     }
@@ -47,14 +46,16 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
     if (!(c_a.has_value() && c_b.has_value())) {
         return ir::Expr();
     }
-    if (type->is_int()) {
-        return ir::IntImm::make(*type, apply<int64_t>(f, *c_a, *c_b));
-    }
-    if (type->is_uint()) {
-        return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
-    }
-    if (type->is_float()) {
-        return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
+    if (type->is_scalar()) {
+        if (type->is_int()) {
+            return ir::IntImm::make(*type, apply<int64_t>(f, *c_a, *c_b));
+        }
+        if (type->is_uint()) {
+            return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
+        }
+        if (type->is_float()) {
+            return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
+        }
     }
     if (const auto *vtype = type->as<ir::Vector_t>()) {
         ir::Expr result = constant_fold(f, a, b, vtype->etype);
@@ -77,10 +78,9 @@ ir::Expr make(const ir::BinOp *node, ir::Expr a, ir::Expr b) {
 struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
-        if (!ir::equals(a.type(), b.type())) {
-            // Conservatively return if these do not share the same type.
-            return make(node, std::move(a), std::move(b));
-        }
+        internal_assert(ir::equals(a.type(), b.type()))
+            << "a: " << a.type() << ", " << "b: " << b.type();
+
         ir::Type type = a.type();
         switch (node->op) {
         case ir::BinOp::OpType::Add: {
