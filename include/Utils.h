@@ -45,7 +45,7 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
     }
     if (const auto *v = e.as<ir::Broadcast>()) {
         ir::Expr value = v->value;
-        return get_constant_value(value);
+        return get_constant_value<T>(value);
     }
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
                    << element_type;
