@@ -829,8 +829,9 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     if (auto *atype = t.as<ir::Array_t>()) {
         to_print += "{";
         // TODO(cgyurgyik): print non-constant sized arrays.
-        internal_assert(is_const(atype->size));
-        for (uint64_t i = 0, e = get_constant_value(atype->size); i < e; ++i) {
+        std::optional<uint64_t> constant_size = get_constant_value(atype->size);
+        internal_assert(constant_size.has_value()) << atype->size;
+        for (uint64_t i = 0, e = *constant_size; i < e; ++i) {
             static const ir::Type u32 = ir::UInt_t::make(32);
             ir::Expr extract = ir::Extract::make(node, make_const(u32, i));
             print_helper(extract, args, to_print, indent_level);

@@ -320,8 +320,8 @@ void Printer::visit(const Array_t *node) {
     os << "[";
     ir::Expr size = node->size;
     if (size.defined()) {
-        if (is_const(size)) {
-            os << std::to_string(get_constant_value(size));
+        if (std::optional<uint64_t> constant_size = get_constant_value(size)) {
+            os << std::to_string(*constant_size);
         } else {
             print_no_parens(node->size);
         }

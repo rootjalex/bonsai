@@ -6,14 +6,42 @@
 
 #include "Error.h"
 
-namespace bonsai {
+#include <optional>
 
-// Returns the unsigned bit representation of this expression.
-uint64_t get_constant_value(const ir::Expr &e);
+namespace bonsai {
 
 const int64_t *as_const_int(const ir::Expr &e);
 bool is_const_one(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
+
+// Returns the unsigned bit representation of this expression. Defaults to
+// interpreting this as a bit field. For example,
+//   ir::Expr e = IntImm::make(i64, -1);
+//   assert(get_constant_value<int64_t>(e) == -1);
+template <typename T = uint64_t>
+std::optional<T> get_constant_value(const ir::Expr &e) {
+    if (!is_const(e)) {
+        return {};
+    }
+    // Conservatively fail if the bit size is < 64.
+    internal_assert(e.type().bits() <= 64) << e.type();
+    if (const auto *v = e.as<ir::UIntImm>()) {
+        return std::bit_cast<T>(v->value);
+    }
+    if (const auto *v = e.as<ir::IntImm>()) {
+        return std::bit_cast<T>(v->value);
+    }
+    if (const auto *v = e.as<ir::FloatImm>()) {
+        return std::bit_cast<T>(v->value);
+    }
+    if (const auto *v = e.as<ir::BoolImm>()) {
+        // Match the bit width of the other immediate values.
+        uint64_t value = static_cast<uint64_t>(v->value);
+        return std::bit_cast<T>(value);
+    }
+    internal_error << "[unimplemented] get_constant_value(" << e << " : "
+                   << e.type() << ")";
+}
 
 ir::Expr make_zero(const ir::Type &t);
 ir::Expr make_one(const ir::Type &t);

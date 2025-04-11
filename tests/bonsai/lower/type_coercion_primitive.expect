@@ -19,11 +19,11 @@ func ret_f32x4(x : f32x4) -> f32x4 {
 }
 
 func ret_fone() -> f32 {
-  return cast<f32>((i32)1)
+  return 1f
 }
 
 func ret_fzero() -> f32 {
-  return cast<f32>((i32)0)
+  return 0f
 }
 
 func ret_zero() -> i32 {
