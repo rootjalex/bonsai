@@ -5,3 +5,7 @@ func foo(x : i32) -> i32 {
 func bar(y : i32) -> i32 {
     return y * 0;
 }
+
+func baz(z : i32) -> i32 {
+    return (z - 0 + 0) / 1;
+}

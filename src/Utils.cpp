@@ -39,9 +39,9 @@ bool is_const_one(const Expr &e) {
 
 bool is_const_zero(const Expr &e) {
     if (!e.defined()) {
-        internal_error << "is_const_one called on undefined value";
+        internal_error << "is_const_zero called on undefined value";
     } else if (const Broadcast *b = e.as<Broadcast>()) {
-        return is_const_one(b->value);
+        return is_const_zero(b->value);
     } else if (const IntImm *i = e.as<IntImm>()) {
         return i->value == 0;
     } else if (const UIntImm *u = e.as<UIntImm>()) {
