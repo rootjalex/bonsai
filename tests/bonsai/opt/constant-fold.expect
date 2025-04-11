@@ -1,5 +1,5 @@
 func bar(y : i32) -> i32 {
-  return (y + (i32)0) + (i32)1
+  return (i32)0
 }
 
 func foo(x : i32) -> i32 {

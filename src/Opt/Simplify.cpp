@@ -60,10 +60,11 @@ ir::Expr simplify(F f, ir::Expr a, ir::Expr b) {
 
 struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::BinOp *node) override {
-        ir::Expr a = node->a, b = node->b;
+        ir::Expr a = mutate(node->a), b = mutate(node->b);
         if (!ir::equals(a.type(), b.type())) {
             // Conservatively return if these do not share the same type.
-            return node;
+            // TODO(cgyurgyik): Probably check these are the same?
+            return ir::BinOp::make(node->op, std::move(a), std::move(b));
         }
         ir::Type type = a.type();
         switch (node->op) {
@@ -79,7 +80,7 @@ struct Simplifier : ir::Mutator {
                 // a + 0 = a
                 return a;
             }
-            return node;
+            return ir::BinOp::make(node->op, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mul: {
             if (ir::Expr e = simplify(std::multiplies<>{}, a, b); e.defined()) {
@@ -97,10 +98,10 @@ struct Simplifier : ir::Mutator {
                 // 1 * x = x
                 return a;
             }
-            return node;
+            return ir::BinOp::make(node->op, std::move(a), std::move(b));
         }
         default:
-            return node;
+            return ir::BinOp::make(node->op, std::move(a), std::move(b));
         }
     }
 

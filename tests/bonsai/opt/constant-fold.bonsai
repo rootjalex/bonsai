@@ -3,5 +3,5 @@ func foo(x : i32) -> i32 {
 }
 
 func bar(y : i32) -> i32 {
-    return y + 0 + 1;
+    return y * 0;
 }
