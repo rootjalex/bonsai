@@ -32,28 +32,29 @@ T apply(F f, uint64_t a, uint64_t b) {
 // expression upon failure.
 template <typename F>
 ir::Expr simplify(F f, ir::Expr a, ir::Expr b) {
-    if (ir::equals(a.type(), b.type())) {
+    if (!ir::equals(a.type(), b.type())) {
         return ir::Expr();
     }
     ir::Type type = a.type();
-    if (type.is_scalar()) {
+    if (!type.is_scalar()) {
+        // TODO(cgyurgyik): Support vectors and constant-sized arrays.
         return ir::Expr();
     }
     std::optional<uint64_t> c_a = get_constant_value(a);
     std::optional<uint64_t> c_b = get_constant_value(b);
-    if (c_a.has_value() && c_b.has_value()) {
-        if (type.is_int()) {
-            return ir::IntImm::make(std::move(type),
-                                    apply<int64_t>(f, *c_a, *c_b));
-        }
-        if (type.is_uint()) {
-            return ir::UIntImm::make(std::move(type),
-                                     apply<uint64_t>(f, *c_a, *c_b));
-        }
-        if (type.is_float()) {
-            return ir::FloatImm::make(std::move(type),
-                                      apply<double>(f, *c_a, *c_b));
-        }
+    if (!(c_a.has_value() && c_b.has_value())) {
+        return ir::Expr();
+    }
+    if (type.is_int()) {
+        return ir::IntImm::make(std::move(type), apply<int64_t>(f, *c_a, *c_b));
+    }
+    if (type.is_uint()) {
+        return ir::UIntImm::make(std::move(type),
+                                 apply<uint64_t>(f, *c_a, *c_b));
+    }
+    if (type.is_float()) {
+        return ir::FloatImm::make(std::move(type),
+                                  apply<double>(f, *c_a, *c_b));
     }
     return ir::Expr();
 }
