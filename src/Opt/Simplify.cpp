@@ -170,13 +170,11 @@ struct Simplifier : ir::Mutator {
 } // namespace
 
 /* static */ ir::Expr Simplify::simplify(ir::Expr e) {
-    Simplifier lower;
-    return lower.mutate(std::move(e));
+    return Simplifier().mutate(std::move(e));
 }
 
 /* static */ ir::Stmt Simplify::simplify(ir::Stmt s) {
-    Simplifier lower;
-    return lower.mutate(std::move(s));
+    return Simplifier().mutate(std::move(s));
 }
 
 ir::FuncMap Simplify::run(ir::FuncMap funcs) const {
