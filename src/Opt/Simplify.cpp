@@ -24,24 +24,6 @@ T apply(F f, uint64_t a, uint64_t b) {
     return f(std::bit_cast<T>(a), std::bit_cast<T>(b));
 }
 
-// Attempts to infer the constant value at the given index in `v`, otherwise
-// returns an undefined expression upon failure.
-ir::Expr get_vector_constant(ir::Expr v, int64_t index) {
-    if (!v.type().is_vector()) {
-        return ir::Expr();
-    }
-    if (const auto *immediate_a = v.as<ir::VecImm>()) {
-        return immediate_a->values[index];
-    }
-    if (const auto *broadcast_a = v.as<ir::Broadcast>()) {
-        return broadcast_a->value;
-    }
-    if (const auto *build_a = v.as<ir::Build>()) {
-        return build_a->values[index];
-    }
-    return ir::Expr();
-}
-
 // Attempts to constant fold the binary operations. Returns an undefined
 // expression upon failure. A type parameter is optionally passed when
 // interpreting a vector's broadcasted value.
@@ -62,8 +44,8 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
         ir::Type element_of = vector_type->etype;
         for (int i = 0, e = vector_type->lanes; i < e; ++i) {
             ir::Expr result = constant_fold(f,
-                                            /*a=*/get_vector_constant(a, i),
-                                            /*b=*/get_vector_constant(b, i),
+                                            /*a=*/get_value_at(a, i),
+                                            /*b=*/get_value_at(b, i),
                                             /*type=*/element_of);
             if (!result.defined()) {
                 return ir::Expr();

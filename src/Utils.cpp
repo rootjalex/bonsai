@@ -68,6 +68,23 @@ bool is_const(const Expr &e) {
     return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
 }
 
+ir::Expr get_value_at(ir::Expr v, int64_t index) {
+    const ir::Type &type = v.type();
+    internal_assert(type.is_vector()) << type;
+    internal_assert(0 <= index && index < type.lanes())
+        << index << " is not within bounds [0, " << type.lanes() << ")";
+    if (const auto *broadcast = v.as<ir::Broadcast>()) {
+        return broadcast->value;
+    }
+    if (const auto *immediate = v.as<ir::VecImm>()) {
+        return immediate->values[index];
+    }
+    if (const auto *build = v.as<ir::Build>()) {
+        return build->values[index];
+    }
+    return ir::Expr();
+}
+
 Expr make_zero(const Type &t) { return make_const(t, 0); }
 
 Expr make_one(const Type &t) { return make_const(t, 1); }
