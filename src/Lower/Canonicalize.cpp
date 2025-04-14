@@ -5,6 +5,8 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <algorithm>
+
 namespace bonsai {
 namespace lower {
 

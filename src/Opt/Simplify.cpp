@@ -1,21 +1,17 @@
 #include "Opt/Simplify.h"
 
+#include "Error.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
+#include "Lower/TopologicalOrder.h"
 #include "Utils.h"
 
-#include "Lower/TopologicalOrder.h"
-
-#include "Error.h"
-
 #include <bit>
-#include <concepts>
-#include <map>
-#include <set>
 #include <string>
+#include <unordered_map>
 
 namespace bonsai {
 namespace opt {
