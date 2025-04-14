@@ -1,0 +1,13 @@
+func bar(y : i32) -> i32 {
+  return (i32)0
+}
+
+func baz(z : i32) -> i32 {
+  return z
+}
+
+func foo(x : i32) -> i32 {
+  return x
+}
+
+

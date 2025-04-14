@@ -7,20 +7,6 @@ namespace bonsai {
 
 using namespace ir;
 
-uint64_t get_constant_value(const ir::Expr &e) {
-    internal_assert(is_const(e)) << "expected constant value, received: " << e;
-    if (const auto *v = e.as<ir::UIntImm>()) {
-        internal_assert(v->type.bits() <= 64);
-        return v->value;
-    }
-    if (const auto *v = e.as<ir::IntImm>()) {
-        internal_assert(v->type.bits() <= 64);
-        return std::bit_cast<uint64_t>(v->value);
-    }
-    internal_error << "[unimplemented] get_constant_value(" << e << " : "
-                   << e.type() << ")";
-}
-
 const int64_t *as_const_int(const Expr &e) {
     if (!e.defined()) {
         return nullptr;
@@ -46,6 +32,24 @@ bool is_const_one(const Expr &e) {
         return f->value == 1.f;
     } else if (const BoolImm *b = e.as<BoolImm>()) {
         return b->value;
+    } else {
+        return false;
+    }
+}
+
+bool is_const_zero(const Expr &e) {
+    if (!e.defined()) {
+        internal_error << "is_const_zero called on undefined value";
+    } else if (const Broadcast *b = e.as<Broadcast>()) {
+        return is_const_zero(b->value);
+    } else if (const IntImm *i = e.as<IntImm>()) {
+        return i->value == 0;
+    } else if (const UIntImm *u = e.as<UIntImm>()) {
+        return u->value == 0;
+    } else if (const FloatImm *f = e.as<FloatImm>()) {
+        return f->value == 0;
+    } else if (const BoolImm *b = e.as<BoolImm>()) {
+        return b->value == 0;
     } else {
         return false;
     }

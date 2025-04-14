@@ -1,0 +1,5 @@
+func foo() -> void {
+    x: i32 = 1;
+    y: f32 = 2.0;
+    z = x + y;
+}
