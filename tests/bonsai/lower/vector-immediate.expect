@@ -15,4 +15,9 @@ func foo(i : i32) -> i32 {
   return (i32)0
 }
 
+func foobar() -> i32 {
+  let xs = x3((i32)-1) in
+  return (i32)-1
+}
+
 

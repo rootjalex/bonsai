@@ -12,6 +12,24 @@ namespace {
 
 static const ir::Type u32 = ir::UInt_t::make(32);
 
+struct RewriteVectorImmediates : public ir::Mutator {
+    ir::Expr visit(const ir::VecImm *node) override {
+        ir::Type type = node->type;
+        if (type.lanes() == 0) {
+            return ir::Mutator::visit(node);
+        }
+
+        const std::vector<ir::Expr> &values = node->values;
+        if (const ir::Expr &v0 = values.front(); std::all_of(
+                values.begin() + 1, values.end(), [&](const ir::Expr &vn) {
+                    return get_constant_value(v0) == get_constant_value(vn);
+                })) {
+            return ir::Broadcast::make(type.lanes(), v0);
+        }
+        return ir::Mutator::visit(node);
+    }
+};
+
 struct RewriteVectorFields : public ir::Mutator {
     ir::Expr visit(const ir::Access *node) override {
         ir::Expr value = mutate(node->value);
@@ -87,7 +105,8 @@ struct RewriteVectorFields : public ir::Mutator {
 };
 
 ir::Stmt canonicalize(ir::Stmt stmt) {
-    stmt = RewriteVectorFields().mutate(stmt);
+    stmt = RewriteVectorFields().mutate(std::move(stmt));
+    stmt = RewriteVectorImmediates().mutate(std::move(stmt));
     // TODO: more canonicalizations.
     return stmt;
 }

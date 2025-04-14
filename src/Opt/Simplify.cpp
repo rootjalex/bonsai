@@ -238,6 +238,9 @@ struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::Extract *node) override {
         ir::Expr v = mutate_and_substitute(node->vec),
                  i = mutate_and_substitute(node->idx);
+        if (const auto *broadcast = v.as<ir::Broadcast>()) {
+            return broadcast->value;
+        }
         if (const auto *imm = v.as<ir::VecImm>()) {
             if (std::optional<uint64_t> index = get_constant_value(i)) {
                 std::optional<uint64_t> constant = get_constant_value(v, index);
