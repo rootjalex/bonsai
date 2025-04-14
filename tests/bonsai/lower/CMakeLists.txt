@@ -21,4 +21,5 @@ add_bonsai_tests(
     trace.bonsai
     trees.bonsai
     type_coercion_primitive.bonsai
+    vector-immediate.bonsai
 )

@@ -16,11 +16,13 @@ bool is_const_zero(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
 
 // Returns the unsigned bit representation of this expression. Defaults to
-// interpreting this as a bit field. For example,
+// interpreting this as a bit field. For vector immediates, an index value
+// should be provided as well. For example,
 //   ir::Expr e = IntImm::make(i64, -1);
 //   assert(get_constant_value<int64_t>(e) == -1);
 template <typename T = uint64_t>
-std::optional<T> get_constant_value(const ir::Expr &e) {
+std::optional<T> get_constant_value(const ir::Expr &e,
+                                    std::optional<int64_t> index = {}) {
     if (!is_const(e)) {
         return {};
     }
@@ -47,6 +49,14 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
         ir::Expr value = v->value;
         return get_constant_value<T>(value);
     }
+    if (const auto *imm = e.as<ir::VecImm>()) {
+        internal_assert(index.has_value()) << e;
+        internal_assert(e.type().is_vector()) << e.type();
+        internal_assert(0 <= *index && *index < imm->lanes())
+            << *index << " is not within bounds [0, " << imm->lanes() << ")";
+        return get_constant_value<T>(*index);
+    }
+
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
                    << element_type;
 }

@@ -1,0 +1,12 @@
+//! flags: -p simplify
+
+func main(i : i32) -> i32 {
+    ws : vector[i32, 3] = -1;
+    xs: vector[i32, 3] = {1,2,3};
+    ys: vector[i32, 3] = {2,3,4};
+    zs: vector[i32, 3] = ws + xs + ys;
+    x: i32 = xs[0] + ys[1] + zs[2];
+    y: i32 = x;
+    z: i32 = x + y + i;
+    return 0;
+}

@@ -1,0 +1,12 @@
+func main(i : i32) -> i32 {
+  let ws = x3((i32)-1) in
+  let xs = (i32x3)[1,2,3] in
+  let ys = (i32x3)[2,3,4] in
+  let zs = (i32x3)[2,4,6] in
+  let x = (i32)3 in
+  let y = (i32)3 in
+  let z = (i32)6 + i in
+  return (i32)0
+}
+
+

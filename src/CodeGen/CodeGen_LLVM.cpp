@@ -582,6 +582,11 @@ void CodeGen_LLVM::visit(const BoolImm *node) {
                                    /* IsSigned */ false);
 }
 
+void CodeGen_LLVM::visit(const VecImm *node) {
+    ir::Expr build = ir::Build::make(node->type, node->values);
+    build.accept(this);
+}
+
 void CodeGen_LLVM::visit(const Infinity *node) {
     internal_error << "TODO: implement Infinity codegen for type: "
                    << node->type;

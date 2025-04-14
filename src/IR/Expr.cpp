@@ -119,6 +119,33 @@ Expr BoolImm::make(bool value) {
     return value ? global_true : global_false;
 }
 
+Expr VecImm::make(Type element_type, std::vector<ir::Expr> values) {
+    VecImm *node = new VecImm;
+    if (const bool infer_types =
+            type_enforcement_enabled() || element_type.defined();
+        infer_types) {
+        // TODO: support?
+        internal_assert(element_type.is_scalar())
+            << "immediate of non-scalar: " << element_type;
+        node->type = Vector_t::make(element_type, values.size());
+    }
+    internal_assert(
+        std::all_of(values.begin(), values.end(), [&](const ir::Expr &e) {
+            return ir::equals(e.type(), element_type);
+        }));
+
+    node->values = std::move(values);
+    return node;
+}
+
+size_t VecImm::lanes() const {
+    const auto *vector_type = type.as<ir::Vector_t>();
+    internal_assert(vector_type);
+    internal_assert(values.size() == vector_type->lanes);
+    return vector_type->lanes;
+};
+ir::Type VecImm::element_of() const { return type.element_of(); };
+
 Expr Infinity::make(Type t) {
     internal_assert(t.defined() && t.is_numeric())
         << "Infinity can be made for numeric types only: " << t;
