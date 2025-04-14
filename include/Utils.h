@@ -51,10 +51,9 @@ std::optional<T> get_constant_value(const ir::Expr &e,
     }
     if (const auto *imm = e.as<ir::VecImm>()) {
         internal_assert(index.has_value()) << e;
-        internal_assert(e.type().is_vector()) << e.type();
-        internal_assert(0 <= *index && *index < e.type().lanes())
-            << *index << " is not within bounds [0, " << e.type().lanes()
-            << ")";
+        const ir::Type &type = e.type();
+        internal_assert(0 <= *index && *index < type.lanes())
+            << *index << " is not within bounds [0, " << type.lanes() << ")";
         return get_constant_value<T>(*index);
     }
 
