@@ -754,8 +754,7 @@ struct Parser {
                 vector_type &&
                 std::all_of(build->values.begin(), build->values.end(),
                             [](const ir::Expr &e) { return is_const(e); })) {
-                value =
-                    ir::VecImm::make(type_label.element_of(), build->values);
+                value = ir::VecImm::make(build->values);
             } else {
                 value = ir::Build::make(type_label, build->values);
             }

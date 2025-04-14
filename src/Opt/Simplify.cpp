@@ -63,7 +63,7 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
             }
             values.push_back(constant_fold(f, v0, v1, element_of));
         }
-        return ir::VecImm::make(element_of, std::move(values));
+        return ir::VecImm::make(std::move(values));
     }
 
     // Scalar case.
@@ -230,7 +230,7 @@ struct Simplifier : ir::Mutator {
                 }
                 values.push_back(std::move(v));
             }
-            return ir::VecImm::make(type.element_of(), std::move(values));
+            return ir::VecImm::make(std::move(values));
         }
         return ir::Mutator::visit(node);
     }

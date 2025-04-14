@@ -119,8 +119,11 @@ Expr BoolImm::make(bool value) {
     return value ? global_true : global_false;
 }
 
-Expr VecImm::make(Type element_type, std::vector<ir::Expr> values) {
+Expr VecImm::make(std::vector<ir::Expr> values) {
+    internal_assert(!values.empty()) << "unexpected empty values in VecImm";
+
     VecImm *node = new VecImm;
+    ir::Type element_type = values.front().type();
     if (const bool infer_types =
             type_enforcement_enabled() || element_type.defined();
         infer_types) {
