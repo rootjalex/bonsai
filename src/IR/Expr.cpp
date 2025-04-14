@@ -138,14 +138,6 @@ Expr VecImm::make(Type element_type, std::vector<ir::Expr> values) {
     return node;
 }
 
-size_t VecImm::lanes() const {
-    const auto *vector_type = type.as<ir::Vector_t>();
-    internal_assert(vector_type);
-    internal_assert(values.size() == vector_type->lanes);
-    return vector_type->lanes;
-};
-ir::Type VecImm::element_of() const { return type.element_of(); };
-
 Expr Infinity::make(Type t) {
     internal_assert(t.defined() && t.is_numeric())
         << "Infinity can be made for numeric types only: " << t;

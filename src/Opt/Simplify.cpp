@@ -226,7 +226,7 @@ struct Simplifier : ir::Mutator {
             if (std::optional<uint64_t> index = get_constant_value(i)) {
                 std::optional<uint64_t> constant = get_constant_value(v, index);
                 internal_assert(constant.has_value());
-                return make_const(imm->element_of(), *constant);
+                return make_const(v.type().element_of(), *constant);
             }
         }
         if (v.same_as(node->vec) && i.same_as(node->idx)) {

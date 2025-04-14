@@ -467,7 +467,7 @@ void Printer::visit(const VecImm *node) {
     print(node->type);
     os << ")[";
     print_type = false; // Already apparent in the vector type.
-    for (int i = 0, e = node->lanes(); i < e; ++i) {
+    for (int i = 0, e = node->type.lanes(); i < e; ++i) {
         print(node->values[i]);
         if (i + 1 == e) {
             continue;
