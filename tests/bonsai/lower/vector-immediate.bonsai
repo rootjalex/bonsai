@@ -25,5 +25,5 @@ func f3() -> i32 {
 
 func f4(i: i32) -> i32 {
   xs: vector[i32, 2] = {1, i};
-  return 1 + xs[1];
+  return xs[0] + xs[1];
 }

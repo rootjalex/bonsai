@@ -22,7 +22,7 @@ func f3() -> i32 {
 
 func f4(i : i32) -> i32 {
   let xs = build<i32x2>((i32)1, i) in
-  return (i32)1 + xs[(i32)1]
+  return xs[(i32)0] + xs[(i32)1]
 }
 
 
