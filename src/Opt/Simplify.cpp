@@ -235,7 +235,7 @@ struct Simplifier : ir::Mutator {
             is_all_constants &= is_const(v);
             values.push_back(std::move(v));
         }
-        if (is_all_constants && !values.empty()) {
+        if (node->type.is_vector() && is_all_constants && !values.empty()) {
             // x: i32 = 1; v: Build<i32x2>(x, (i32)2) => [1, 2]
             return ir::VecImm::make(std::move(values));
         }
