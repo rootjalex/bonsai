@@ -1,6 +1,7 @@
-func bar() -> void {
+func bar() -> i32 {
   let x = (i32)2 in
   let ts = (i32x3)[1,2,3] in
+  return (i32)2
 }
 
 func foo(i : i32) -> i32 {

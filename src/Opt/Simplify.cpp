@@ -226,7 +226,7 @@ struct Simplifier : ir::Mutator {
             for (ir::Expr v : node->values) {
                 v = mutate_and_substitute(std::move(v));
                 if (!is_const(v)) {
-                    return node;
+                    return ir::Mutator::visit(node);
                 }
                 values.push_back(std::move(v));
             }
