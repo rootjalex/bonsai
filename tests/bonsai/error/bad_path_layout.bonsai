@@ -30,8 +30,8 @@ schedule {
             8; // pad bits.
             high : vec3f;
             switch nPrims {
-                0 => { offset : u32; left = index + 1; }; // does not set `right`
-                _ => { pOffset : u32; data = range(prims, pOffset, nPrims); };
+                0 => Interior { offset : u32; left = index + 1; }; // does not set `right`
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, nPrims); };
             };
         };
     };

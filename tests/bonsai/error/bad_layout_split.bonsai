@@ -30,8 +30,8 @@ schedule {
             8; // pad bits.
             high : vec3f;
             switch offset { // not accessible!
-                0 => { offset : u32; left = index + 1; right = index + offset; };
-                _ => { pOffset : u32; data = range(prims, pOffset, nPrims); };
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, nPrims); };
             };
         };
     };

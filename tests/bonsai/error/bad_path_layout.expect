@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/ValidateLayout.cpp:216
+[internal] Error: src/IR/ValidateLayout.cpp:219
 
 --> !node_path.empty()
 No path for node: Interior in layout: {
@@ -16,12 +16,12 @@ No path for node: Interior in layout: {
     8;
     high : f32x3;
     switch nPrims {
-    0 =>
+    0 => Interior
       {
         offset : u32;
         left = index + (u32)1;
       };
-    _ =>
+    _ => Leaf
       {
         pOffset : u32;
         data = range(prims, pOffset, nPrims);
