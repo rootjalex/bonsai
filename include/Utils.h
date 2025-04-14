@@ -54,7 +54,7 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         const ir::Type &type = e.type();
         internal_assert(0 <= *index && *index < type.lanes())
             << *index << " is not within bounds [0, " << type.lanes() << ")";
-        return get_constant_value<T>(*index);
+        return get_constant_value<T>(imm->values[*index]);
     }
 
     internal_error << "[unimplemented] get_constant_value, " << e << " : "

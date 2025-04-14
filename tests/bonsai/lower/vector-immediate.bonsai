@@ -1,12 +1,12 @@
 //! flags: -p canonicalize -p simplify
 
-func bar() -> i32 {
+func f1() -> i32 {
   x: i32 = 2;
   ts: vector[i32, 3] = {1, 2, x + 1};
   return ts[2];
 }
 
-func foo(i : i32) -> i32 {
+func f2(i : i32) -> i32 {
     ws : vector[i32, 3] = -1;
     xs: vector[i32, 3] = {1,2,3};
     ys: vector[i32, 3] = {2,3,4};
@@ -18,7 +18,12 @@ func foo(i : i32) -> i32 {
     return 0;
 }
 
-func foobar() -> i32 {
+func f3() -> i32 {
     xs: vector[i32, 3] = {-1, -1, -1};
     return xs[0];
+}
+
+func f4(i: i32) -> i32 {
+  xs: vector[i32, 2] = {1, i};
+  return 1 + xs[1];
 }

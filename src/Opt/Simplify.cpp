@@ -27,11 +27,17 @@ T apply(F f, uint64_t a, uint64_t b) {
 // Attempts to infer the constant value at the given index in `v`, otherwise
 // returns an undefined expression upon failure.
 ir::Expr get_vector_constant(ir::Expr v, int64_t index) {
+    if (!v.type().is_vector()) {
+        return ir::Expr();
+    }
     if (const auto *immediate_a = v.as<ir::VecImm>()) {
         return immediate_a->values[index];
     }
     if (const auto *broadcast_a = v.as<ir::Broadcast>()) {
         return broadcast_a->value;
+    }
+    if (const auto *build_a = v.as<ir::Build>()) {
+        return build_a->values[index];
     }
     return ir::Expr();
 }
@@ -221,19 +227,19 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Expr visit(const ir::Build *node) override {
-        // x: i32 = 1; v: Build<i32x2>(x, (i32)2) => [1, 2]
-        if (ir::Type type = node->type; type.is_vector()) {
-            std::vector<ir::Expr> values;
-            for (ir::Expr v : node->values) {
-                v = mutate_and_substitute(std::move(v));
-                if (!is_const(v)) {
-                    return ir::Mutator::visit(node);
-                }
-                values.push_back(std::move(v));
-            }
+        bool changed = false, is_all_constants = true;
+        std::vector<ir::Expr> values;
+        for (int32_t i = 0, e = node->values.size(); i < e; ++i) {
+            ir::Expr v = mutate_and_substitute(node->values[i]);
+            changed |= v.same_as(node->values[i]);
+            is_all_constants &= is_const(v);
+            values.push_back(std::move(v));
+        }
+        if (is_all_constants && !values.empty()) {
+            // x: i32 = 1; v: Build<i32x2>(x, (i32)2) => [1, 2]
             return ir::VecImm::make(std::move(values));
         }
-        return ir::Mutator::visit(node);
+        return changed ? ir::Build::make(node->type, std::move(values)) : node;
     }
 
     ir::Expr visit(const ir::Extract *node) override {
@@ -242,8 +248,9 @@ struct Simplifier : ir::Mutator {
         if (const auto *broadcast = v.as<ir::Broadcast>()) {
             return broadcast->value;
         }
+        std::optional<uint64_t> index = get_constant_value(i);
         if (const auto *imm = v.as<ir::VecImm>()) {
-            if (std::optional<uint64_t> index = get_constant_value(i)) {
+            if (index.has_value()) {
                 std::optional<uint64_t> constant = get_constant_value(v, index);
                 internal_assert(constant.has_value());
                 return make_const(v.type().element_of(), *constant);
@@ -271,9 +278,8 @@ struct Simplifier : ir::Mutator {
 }
 
 ir::FuncMap Simplify::run(ir::FuncMap funcs) const {
-    Simplifier lower;
     for (auto &[name, func] : funcs) {
-        func->body = lower.mutate(func->body);
+        func->body = Simplify::simplify(std::move(func->body));
     }
     return funcs;
 }
