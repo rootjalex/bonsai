@@ -131,6 +131,8 @@ Expr VecImm::make(std::vector<ir::Expr> values) {
         internal_assert(element_type.is_scalar())
             << "immediate of non-scalar: " << element_type;
         for (const ir::Expr &e : values) {
+            internal_assert(is_const(e))
+                << "VecImm requires all constant values, received: " << e;
             internal_assert(ir::equals(e.type(), element_type))
                 << "VecImm requires uniform element type, expected: "
                 << element_type << ", but received: " << e;
