@@ -35,6 +35,10 @@ Expr operator==(Expr a, Expr b) {
     return BinOp::make(BinOp::Eq, std::move(a), std::move(b));
 }
 
+Expr operator!=(Expr a, Expr b) {
+    return BinOp::make(BinOp::Neq, std::move(a), std::move(b));
+}
+
 Expr operator<=(Expr a, Expr b) {
     return BinOp::make(BinOp::Le, std::move(a), std::move(b));
 }
@@ -51,8 +55,12 @@ Expr operator>(Expr a, Expr b) {
     return BinOp::make(BinOp::Lt, std::move(b), std::move(a));
 }
 
-Expr distance(Expr a, Expr b) {
-    return ir::GeomOp::make(ir::GeomOp::distance, std::move(a), std::move(b));
+Expr distmax(Expr a, Expr b) {
+    return ir::GeomOp::make(ir::GeomOp::distmax, std::move(a), std::move(b));
+}
+
+Expr distmin(Expr a, Expr b) {
+    return ir::GeomOp::make(ir::GeomOp::distmin, std::move(a), std::move(b));
 }
 
 Expr intersects(Expr a, Expr b) {

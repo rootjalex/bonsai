@@ -164,14 +164,14 @@ struct PredicateAnalysis : public ir::Visitor {
 
             return;
         }
-        case ir::GeomOp::distance: {
+        case ir::GeomOp::distmin: {
             ir::Expr a = a_varying ? *a_vol : node->a;
             ir::Expr b = b_varying ? *b_vol : node->b;
 
-            interval.min = ir::distance(a, b);
+            interval.min = ir::distmin(a, b);
 
             // TODO: handle upper bound?
-            interval.max = ir::Expr();
+            interval.max = ir::distmax(a, b);
 
             return;
         }

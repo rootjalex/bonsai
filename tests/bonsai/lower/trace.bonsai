@@ -2,9 +2,9 @@ import tests/bonsai/lower/intersects;
 
 extern triangles : set[Triangle];
 
-// func trace(ray : Ray) = argmin(|tri| distance(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+func trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
-func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+// func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
 
 schedule {
@@ -26,8 +26,8 @@ schedule {
             8; // pad bits.
             high : vec3f;
             switch nPrims {
-                0 => { offset : u32; left = index + 1; right = index + offset; };
-                _ => { pOffset : u32; data = range(prims, pOffset, nPrims); };
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, nPrims); };
             };
         };
     };

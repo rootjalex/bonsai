@@ -357,12 +357,13 @@ Expr Cast::make(Type type, Expr value) {
     const bool infer_types =
         type_enforcement_enabled() || value.type().defined();
     if (infer_types) {
-        internal_assert(value.type().is_vector() == type.is_vector())
-            << "Cannot remove vector type via cast: " << type << " from "
-            << value;
-        internal_assert(!type.is_vector() ||
-                        (type.lanes() == value.type().lanes()))
-            << "Cannot change lanes via cast: " << type << " from " << value;
+        // We allow Casts to be `Reinterpret`s
+        // internal_assert(value.type().is_vector() == type.is_vector())
+        //     << "Cannot remove vector type via cast: " << type << " from "
+        //     << value;
+        // internal_assert(!type.is_vector() ||
+        //                 (type.lanes() == value.type().lanes()))
+        //     << "Cannot change lanes via cast: " << type << " from " << value;
     }
 
     node->type = std::move(type);
@@ -814,7 +815,7 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
             << " " << a << " " << b;
 
         Type ret_type;
-        if (op == GeomOp::distance) {
+        if (op == GeomOp::distmin || op == GeomOp::distmax) {
             // TODO: distance could have any value, it's user-defined...
             // TODO: do we need Real_t?
             // For now, just assume f32
@@ -834,7 +835,8 @@ namespace {
 
 const char *const geometric_op_names[] = {
     "contains",
-    "distance",
+    "distmax",
+    "distmin",
     "intersects",
 };
 

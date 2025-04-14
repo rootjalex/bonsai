@@ -1505,6 +1505,14 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         }
         break;
     }
+    case Accumulate::Sub: {
+        if (node->value.type().is_float()) {
+            acc = builder->CreateFSub(current, _value);
+        } else {
+            acc = builder->CreateSub(current, _value);
+        }
+        break;
+    }
     case Accumulate::Mul: {
         if (node->value.type().is_float()) {
             acc = builder->CreateFMul(current, _value);

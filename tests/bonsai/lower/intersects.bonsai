@@ -35,7 +35,11 @@ element AABB {
 // TODO: generic over F : IFloat
 func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
 
-func intersects(r : Ray, b : AABB) -> bool {
+element FInterval {
+    low, high : Float;
+}
+
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     invDir = 1 / r.d;
     dirIsNeg = invDir < 0;
 
@@ -49,20 +53,48 @@ func intersects(r : Ray, b : AABB) -> bool {
     tMax *= 1 + 2 * gamma(3);
 
     if (tMin.x > tMax.y || tMin.y > tMax.x) {
-        return false;
+        return {}; // false
     }
 
     tmin : mut = max(tMin.x, tMin.y); // TODO: handle inf/nan behavior
     tmax : mut = min(tMax.x, tMax.y); // TODO: handle inf/nan behavior
 
     if (tmin > tMax.z || tMin.z > tmax) {
-        return false;
+        return {}; // false
     }
 
     tmin = max(tmin, tMin.z); // TODO: handle inf/nan behavior
     tmax = min(tmax, tMax.z); // TODO: handle inf/nan behavior
 
-    return (tmin < r.t) && (tmax > 0);
+    return FInterval{tmin, tmax};
+//    return (tmin < r.t) && (tmax > 0);
+}
+
+func intersects(r : Ray, b : AABB) -> bool {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low < r.t && extract.high > 0;
+    }
+    return false;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return -inf;
 }
 
 element TriangleIntersection {
@@ -72,7 +104,7 @@ element TriangleIntersection {
 // pstd::optional<TriangleIntersection> IntersectTriangle
 // shapes.cpp
 // TODO: need special intrinsic parsing!
-func intersects(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
+func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
     // Return no intersection if triangle is degenerate
     if (sqlen(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
         return {};
@@ -163,4 +195,19 @@ func intersects(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
 
     // Return _TriangleIntersection_ for intersection
     return TriangleIntersection{b0, b1, b2, t};   
+}
+
+func intersects(ray : Ray, tri : Triangle) -> bool {
+    return cast[[bool]](intersectsp_ray_tri(ray, tri));
+}
+
+func distmin(ray : Ray, tri : Triangle) -> Float {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        // TODO(ajr): this is annoying syntax. Fix.
+        _isect = *isect;
+        return _isect.t;
+    } else {
+        return inf;
+    }
 }

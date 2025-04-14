@@ -843,6 +843,10 @@ void Printer::visit(const Accumulate *node) {
         os << " *= ";
         break;
     }
+    case Accumulate::OpType::Sub: {
+        os << " -= ";
+        break;
+    }
     default: {
         internal_error
             << "TODO: implement printing for all Accumulate op types!";
@@ -945,14 +949,18 @@ void Printer::visit(const Pad *node) {
 void Printer::visit(const Split *node) {
     os << get_indent();
     os << "switch " << node->field << " {\n";
-    for (const auto &[value, layout] : node->arms) {
+    for (const auto &[value, name, layout] : node->arms) {
         os << get_indent();
         if (value.has_value()) {
             os << *value;
         } else {
             os << "_";
         }
-        os << " =>\n";
+        os << " => ";
+        if (name.has_value()) {
+            os << *name;
+        }
+        os << "\n";
         indent++;
         layout.accept(this);
         indent--;

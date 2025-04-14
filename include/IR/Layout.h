@@ -90,6 +90,7 @@ struct Split : LayoutNode<Split> {
     // TODO: support non-constant or field ranges?
     struct Arm {
         std::optional<int64_t> value;
+        std::optional<std::string> name; // Tree branch name
         Layout layout;
     };
     std::vector<Arm> arms;

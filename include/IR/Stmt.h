@@ -152,6 +152,7 @@ struct Accumulate : StmtNode<Accumulate> {
     enum OpType {
         Add,
         Mul,
+        Sub,
         // TODO: add more.
     };
     WriteLoc loc;

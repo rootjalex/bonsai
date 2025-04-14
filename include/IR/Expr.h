@@ -329,7 +329,8 @@ struct Lambda : ExprNode<Lambda> {
 struct GeomOp : ExprNode<GeomOp> {
     enum OpType {
         contains,
-        distance, // minimum (TODO: maximum?)
+        distmax,
+        distmin,
         intersects,
         // TODO: the rest
 

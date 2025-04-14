@@ -166,7 +166,7 @@ void validate_splits(const Layout &layout) {
 
 } // namespace
 
-void validate_layout(const Layout &layout, const Type &bvh_t) {
+std::map<std::string, Path> validate_layout(const Layout &layout, const Type &bvh_t) {
     internal_assert(layout.defined() && bvh_t.defined())
         << "Cannot validate with undefined layout or bvh_t: " << layout << "\n"
         << bvh_t;
@@ -202,6 +202,9 @@ void validate_layout(const Layout &layout, const Type &bvh_t) {
         }
     }
 
+    // TODO(ajr): use Split::Arm::name.
+
+    std::map<std::string, Path> pathmap;
     // Check each node has one equivalent path!
     for (const auto &node : bvh_node->nodes) {
         Path node_path;
@@ -215,7 +218,9 @@ void validate_layout(const Layout &layout, const Type &bvh_t) {
         }
         internal_assert(!node_path.empty())
             << "No path for node: " << node.name() << " in layout: " << layout;
+        pathmap[node.name()] = std::move(node_path);
     }
+    return pathmap;
 }
 
 } // namespace ir

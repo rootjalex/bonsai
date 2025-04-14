@@ -68,6 +68,13 @@ Expr make_zero(const Type &t) { return make_const(t, 0); }
 
 Expr make_one(const Type &t) { return make_const(t, 1); }
 
+Expr make_inf(const Type &t) {
+    if (t.is<UInt_t, Int_t, Float_t>()) {
+        return Infinity::make(t);
+    }
+    internal_error << "Unknown infinity for type: " << t;
+}
+
 Expr constant_cast(const Type &t, const Expr &e) {
     internal_assert(t.defined() && e.defined())
         << "received bad type conversion:" << e << " to " << t;
