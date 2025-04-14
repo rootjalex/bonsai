@@ -42,6 +42,9 @@ ir::Expr get_vector_constant(ir::Expr v, int64_t index) {
 template <typename F>
 ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
                        std::optional<ir::Type> type = {}) {
+    if (!(a.defined() && b.defined())) {
+        return ir::Expr();
+    }
     internal_assert(ir::equals(a.type(), b.type()))
         << "a: " << a.type() << ", " << "b: " << b.type();
     if (!type.has_value()) {
@@ -52,16 +55,14 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
         std::vector<ir::Expr> values;
         ir::Type element_of = vector_type->etype;
         for (int i = 0, e = vector_type->lanes; i < e; ++i) {
-            ir::Expr v0 = get_vector_constant(a, i);
-            ir::Expr v1 = get_vector_constant(b, i);
-            if (!(v0.defined() && v1.defined())) {
-                return ir::Expr();
-            }
-            ir::Expr result = constant_fold(f, v0, v1, element_of);
+            ir::Expr result = constant_fold(f,
+                                            /*a=*/get_vector_constant(a, i),
+                                            /*b=*/get_vector_constant(b, i),
+                                            /*type=*/element_of);
             if (!result.defined()) {
                 return ir::Expr();
             }
-            values.push_back(result);
+            values.push_back(std::move(result));
         }
         return ir::VecImm::make(std::move(values));
     }
