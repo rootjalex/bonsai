@@ -85,23 +85,16 @@ ir::Expr make(const ir::BinOp *node, ir::Expr a, ir::Expr b) {
 }
 
 struct Simplifier : ir::Mutator {
-    // Tries to subtitute a variable with its immediate value after mutation.
-    // Otherwise, returns the original value.
-    ir::Expr mutate_and_substitute(ir::Expr value) {
-        value = mutate(std::move(value));
-        const auto *variable = value.as<ir::Var>();
-        if (variable == nullptr) {
-            return value;
-        }
-        auto it = name_to_immediate.find(variable->name);
+    ir::Expr visit(const ir::Var *node) override {
+        auto it = name_to_immediate.find(node->name);
         if (it == name_to_immediate.end()) {
-            return value;
+            return node;
         }
         return it->second;
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        ir::Expr value = mutate_and_substitute(node->value);
+        ir::Expr value = mutate(node->value);
         if (is_const(value)) {
             name_to_immediate[node->loc.base] = value;
         }
@@ -112,8 +105,7 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        ir::Expr a = mutate_and_substitute(node->a),
-                 b = mutate_and_substitute(node->b);
+        ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
             << "a: " << a.type() << ", " << "b: " << b.type();
 
@@ -194,7 +186,7 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Expr visit(const ir::Cast *node) override {
-        ir::Expr value = mutate_and_substitute(node->value);
+        ir::Expr value = mutate(node->value);
         if (is_const(value) && node->type.is_scalar()) {
             return constant_cast(node->type, std::move(value));
         }
@@ -212,7 +204,7 @@ struct Simplifier : ir::Mutator {
         bool changed = false, is_all_constants = true;
         std::vector<ir::Expr> values;
         for (int32_t i = 0, e = node->values.size(); i < e; ++i) {
-            ir::Expr v = mutate_and_substitute(node->values[i]);
+            ir::Expr v = mutate(node->values[i]);
             changed |= v.same_as(node->values[i]);
             is_all_constants &= is_const(v);
             values.push_back(std::move(v));
@@ -225,8 +217,7 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Expr visit(const ir::Extract *node) override {
-        ir::Expr v = mutate_and_substitute(node->vec),
-                 i = mutate_and_substitute(node->idx);
+        ir::Expr v = mutate(node->vec), i = mutate(node->idx);
         if (const auto *broadcast = v.as<ir::Broadcast>()) {
             return broadcast->value;
         }
@@ -245,7 +236,9 @@ struct Simplifier : ir::Mutator {
     }
 
   private:
-    // Mapping from a variable name to its immediate value.
+    // Mapping from a variable name to its immediate value. This assumes
+    // variable shadowing is illegal; if this were to change, we'd need to
+    // introduce a frame stack.
     std::unordered_map<std::string, ir::Expr> name_to_immediate;
 };
 

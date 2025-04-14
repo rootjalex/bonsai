@@ -18,9 +18,7 @@ static const ir::Type u32 = ir::UInt_t::make(32);
 struct RewriteVectorImmediates : public ir::Mutator {
     ir::Expr visit(const ir::VecImm *node) override {
         ir::Type type = node->type;
-        if (type.lanes() == 0) {
-            return ir::Mutator::visit(node);
-        }
+        internal_assert(type.lanes() > 0) << type;
 
         const std::vector<ir::Expr> &values = node->values;
         if (const ir::Expr &v0 = values.front(); std::all_of(
