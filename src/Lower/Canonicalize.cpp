@@ -12,6 +12,7 @@ namespace {
 
 static const ir::Type u32 = ir::UInt_t::make(32);
 
+// Rewrite a vector of equal immediates to a broadcast.
 struct RewriteVectorImmediates : public ir::Mutator {
     ir::Expr visit(const ir::VecImm *node) override {
         ir::Type type = node->type;
