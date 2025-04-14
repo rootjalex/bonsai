@@ -166,7 +166,8 @@ void validate_splits(const Layout &layout) {
 
 } // namespace
 
-std::map<std::string, Path> validate_layout(const Layout &layout, const Type &bvh_t) {
+std::map<std::string, Path> validate_layout(const Layout &layout,
+                                            const Type &bvh_t) {
     internal_assert(layout.defined() && bvh_t.defined())
         << "Cannot validate with undefined layout or bvh_t: " << layout << "\n"
         << bvh_t;

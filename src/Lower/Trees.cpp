@@ -245,7 +245,9 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
             VolumeMap vols = make_volume_map(lambda->args);
 
             Interval bounds = predicate_analysis(lambda->value, vols);
-            internal_assert(bounds.max.defined()) << "Need upper bound of metric to accelerate argmin: " << lambda->value;
+            internal_assert(bounds.max.defined())
+                << "Need upper bound of metric to accelerate argmin: "
+                << lambda->value;
             body = ir::IfElse::make(bounds.max < best, std::move(body));
             // TODO: use bounds.min ?
 

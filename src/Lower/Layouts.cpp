@@ -21,8 +21,8 @@ namespace {
 // ensures unique names in lowering.
 static size_t name_counter = 0;
 static size_t pad_counter = 0;
-static size_t split_counter = 0;
-static size_t group_counter = 0;
+// static size_t split_counter = 0;
+// static size_t group_counter = 0;
 
 std::string unique_struct_name(std::string base) {
     return "?" + base + "_layout" + std::to_string(name_counter++);
@@ -30,19 +30,25 @@ std::string unique_struct_name(std::string base) {
 
 std::string unique_pad_name() { return "?pad" + std::to_string(pad_counter++); }
 
-std::string unique_split_name(std::string base) {
-    return "?split_" + base + std::to_string(split_counter++);
-}
+// std::string unique_split_name(std::string base) {
+//     return "?split_" + base + std::to_string(split_counter++);
+// }
 
-std::string unique_group_name() {
-    return "?group" + std::to_string(group_counter++);
-}
+// std::string unique_group_name() {
+//     return "?group" + std::to_string(group_counter++);
+// }
 
 std::string get_group_name(const std::string &base, const std::string &index) {
     return base + "__" + index;
 }
 
-std::vector<std::pair<std::string, ir::Type>> get_index_type(const ir::Layout &layout) {
+std::string get_split_field_name(const std::string &base,
+                                 const std::string &field) {
+    return base + "_?spliton_" + field;
+}
+
+std::vector<std::pair<std::string, ir::Type>>
+get_index_type(const ir::Layout &layout) {
     std::vector<std::pair<std::string, ir::Type>> index_ts;
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         ir::Struct_t::Map fields;
@@ -50,7 +56,8 @@ std::vector<std::pair<std::string, ir::Type>> get_index_type(const ir::Layout &l
             switch (l.node_type()) {
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
-                internal_assert(index_ts.empty()) << "[unimplemented] adjacent groups in layout: " << layout;
+                internal_assert(index_ts.empty())
+                    << "[unimplemented] adjacent groups in layout: " << layout;
                 index_ts = get_index_type(node->inner);
                 index_ts.emplace_back(node->name, node->index_t);
                 break;
@@ -59,13 +66,17 @@ std::vector<std::pair<std::string, ir::Type>> get_index_type(const ir::Layout &l
                 const ir::Split *node = l.as<ir::Split>();
                 for (const auto &arm : node->arms) {
                     auto rec = get_index_type(arm.layout);
-                    internal_assert(rec.empty()) << "[unimplemented] groups inside splits: " << layout;
+                    internal_assert(rec.empty())
+                        << "[unimplemented] groups inside splits: " << layout;
                 }
                 break;
             }
-            case ir::IRLayoutEnum::Name: break;
-            case ir::IRLayoutEnum::Pad: break;
-            case ir::IRLayoutEnum::Materialize: break;
+            case ir::IRLayoutEnum::Name:
+                break;
+            case ir::IRLayoutEnum::Pad:
+                break;
+            case ir::IRLayoutEnum::Materialize:
+                break;
             case ir::IRLayoutEnum::Chain: {
                 internal_error << "[unimplemented] nested chains: " << layout;
             }
@@ -82,18 +93,13 @@ struct FindFromType : public ir::Visitor {
     void visit(const ir::YieldFrom *node) override {
         if (from_type.defined()) {
             internal_assert(ir::equals(from_type, node->value.type()))
-                << "Mismatching types in YieldFrom: " << node->value << " is of type " << node->value.type() << ", not: " << from_type;
+                << "Mismatching types in YieldFrom: " << node->value
+                << " is of type " << node->value.type()
+                << ", not: " << from_type;
         } else {
             from_type = node->value.type();
         }
     }
-
-    // ir::Type get(const ir::Stmt &stmt) {
-    //     from_type = ir::Type(); // reset if reused.
-    //     stmt.accept(this);
-    //     internal_assert(from_type.defined()) << "No YieldFroms in stmt: " << stmt;
-    //     return from_type;
-    // }
 };
 
 struct LowerFroms : public ir::Mutator {
@@ -103,16 +109,17 @@ struct LowerFroms : public ir::Mutator {
 
     ir::Expr one;
 
-    LowerFroms(std::string stack_name, ir::WriteLoc counter_loc, ir::Expr counter)
-        : stack_name(std::move(stack_name)), counter_loc(std::move(counter_loc)), counter(std::move(counter)) {
+    LowerFroms(std::string stack_name, ir::WriteLoc counter_loc,
+               ir::Expr counter)
+        : stack_name(std::move(stack_name)),
+          counter_loc(std::move(counter_loc)), counter(std::move(counter)) {
         one = make_one(this->counter.type());
     }
 
     ir::Stmt visit(const ir::YieldFrom *node) override {
-        return ir::Sequence::make({
-            ir::Accumulate::make(counter_loc, ir::Accumulate::Add, one),
-            ir::Store::make(stack_name, counter, node->value)
-        });      
+        return ir::Sequence::make(
+            {ir::Accumulate::make(counter_loc, ir::Accumulate::Add, one),
+             ir::Store::make(stack_name, counter, node->value)});
     }
 };
 
@@ -157,10 +164,8 @@ std::vector<ir::Type> layout_to_structs(std::string base,
             }
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
-                std::string new_base =
-                    node->name.empty() ? "" : base + "_" + node->name;
                 std::vector<ir::Type> rec =
-                    layout_to_structs(new_base, node->inner);
+                    layout_to_structs(base, node->inner);
                 internal_assert(!rec.empty());
                 ir::Type base_t = rec.back();
                 ir::Type group_t =
@@ -168,8 +173,8 @@ std::vector<ir::Type> layout_to_structs(std::string base,
                 // Add to rets.
                 rets.insert(rets.end(), std::make_move_iterator(rec.begin()),
                             std::make_move_iterator(rec.end()));
-                std::string field_name =
-                    new_base.empty() ? unique_group_name() : new_base;
+                internal_assert(!node->name.empty());
+                std::string field_name = base + "_" + node->name;
                 // push back new field type.
                 fields.emplace_back(std::move(field_name), std::move(group_t));
                 break;
@@ -183,11 +188,13 @@ std::vector<ir::Type> layout_to_structs(std::string base,
                     << "Split is not byte-aligned: " << l;
                 static const ir::Type u8 = ir::UInt_t::make(8);
                 ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
-                fields.emplace_back(unique_split_name(node->field),
-                                    std::move(byte_vec));
+                std::string split_name =
+                    get_split_field_name(base, node->field);
+                fields.emplace_back(std::move(split_name), std::move(byte_vec));
                 break;
             }
-            case ir::IRLayoutEnum::Materialize: break;
+            case ir::IRLayoutEnum::Materialize:
+                break;
             default: {
                 internal_error << "Handle layout in Chain lowering: " << l;
             }
@@ -200,13 +207,17 @@ std::vector<ir::Type> layout_to_structs(std::string base,
     internal_error << "Handle layout conversion for: " << layout;
 }
 
-ir::Expr get_field(ir::Expr base, const std::string &obj_name, const ir::Layout &layout, const std::string &node_name, const std::string &field) {
+ir::Expr get_field(ir::Expr base, const std::string &obj_name,
+                   const ir::Layout &layout, const std::string &node_name,
+                   const std::string &field) {
     struct FindPaths : public ir::Visitor {
         std::string base_name;
         const std::string &node_name;
         const std::string &field;
-        FindPaths(ir::Expr base, const std::string &obj_name, const std::string &node_name, const std::string &field)
-            : base_name(obj_name), node_name(node_name), field(field), path(std::move(base)) {
+        FindPaths(ir::Expr base, const std::string &obj_name,
+                  const std::string &node_name, const std::string &field)
+            : base_name(obj_name), node_name(node_name), field(field),
+              path(std::move(base)) {
             frames.new_frame();
         }
 
@@ -236,8 +247,12 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name, const ir::Layout 
 
             for (const auto &arm : node->arms) {
                 if (!arm.name.has_value() || (*arm.name == node_name)) {
-                    ir::Type reinterpret_type = layout_to_structs("", arm.layout).back();
                     ir::Expr old_path = path;
+                    std::string field =
+                        get_split_field_name(base_name, node->field);
+                    path = ir::Access::make(std::move(field), std::move(path));
+                    ir::Type reinterpret_type =
+                        layout_to_structs("", arm.layout).back();
                     path = ir::Cast::make(reinterpret_type, path);
                     frames.new_frame();
                     arm.layout.accept(this);
@@ -256,9 +271,10 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name, const ir::Layout 
             ir::Expr var = ir::Var::make(node->index_t, iter_name);
             std::string field_name = base_name + "_" + node->name;
             path = ir::Extract::make(ir::Access::make(field_name, path), var);
-            // std::cout << "updated path for Group: " << old_path << " became " << path << "\n";
+            // std::cout << "updated path for Group: " << old_path << " became "
+            // << path << "\n";
             frames.new_frame();
-            
+
             frames.add_to_frame(node->name, std::move(var));
             ir::Visitor::visit(node);
             frames.pop_frame();
@@ -280,17 +296,20 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name, const ir::Layout 
         }
     };
     FindPaths finder(base, obj_name, node_name, field);
-    std::cout << "LAYOUT:" << layout << "\n";
-    std::cout << "TYPE:" << base.type() << "\n";
+    // std::cout << "LAYOUT:" << layout << "\n";
+    // std::cout << "TYPE:" << base.type() << "\n";
     layout.accept(&finder);
     internal_assert(finder.value.defined())
         << "Field: " << field << " not set in layout traversal: " << layout;
     return finder.value;
 }
 
-ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies, ir::Layout layout, ir::Expr base, const std::string &obj_name) {
+ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies,
+                           ir::Layout layout, ir::Expr base,
+                           const std::string &obj_name) {
     struct FindPaths : public ir::Visitor {
-        using Path = std::vector<std::pair<std::string, std::optional<int64_t>>>;
+        using Path =
+            std::vector<std::pair<std::string, std::optional<int64_t>>>;
         Path current;
         std::map<std::string, Path> paths;
 
@@ -311,33 +330,33 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies, ir::Layout la
     layout.accept(&finder);
     internal_assert(bodies.size() == finder.paths.size())
         << "Incorrect number of labelled paths in layout: " << layout
-        << " expected: " << bodies.size() << " but found: " << finder.paths.size();
+        << " expected: " << bodies.size()
+        << " but found: " << finder.paths.size();
 
     // TODO: should this be scheduable...?
     // TODO: we want to insert likely() for non-leaves, I think?
     std::vector<std::string> order;
     for (const auto &pair : bodies) {
         internal_assert(finder.paths.contains(pair.first))
-            << "No path found for node type: " << pair.first << " in layout: " << layout;
+            << "No path found for node type: " << pair.first
+            << " in layout: " << layout;
         order.push_back(pair.first);
     }
     std::sort(order.begin(), order.end(),
               [&](const std::string &a, const std::string &b) {
-                // TODO: caching this would make this faster,
-                // but we probably never have a large number.
-                auto count_non_null = [](const FindPaths::Path &path) {
-                    return std::count_if(path.begin(), path.end(),
-                                         [](const auto &p) { return p.second.has_value(); });
-                };
-                return count_non_null(finder.paths[a]) < count_non_null(finder.paths[b]);
-    });
-    std::cout << "order:\n";
-    for (const auto &name : order) {
-        std::cout << name << std::endl;
-    }
+                  // TODO: caching this would make this faster,
+                  // but we probably never have a large number.
+                  auto count_non_null = [](const FindPaths::Path &path) {
+                      return std::count_if(
+                          path.begin(), path.end(),
+                          [](const auto &p) { return p.second.has_value(); });
+                  };
+                  return count_non_null(finder.paths[a]) <
+                         count_non_null(finder.paths[b]);
+              });
 
     ir::Stmt if_chain;
-    for (const auto& node_name : std::views::reverse(order)) {
+    for (const auto &node_name : std::views::reverse(order)) {
         internal_assert(bodies.contains(node_name));
         if (if_chain.defined()) {
             ir::Expr cond;
@@ -346,12 +365,15 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies, ir::Layout la
 
             for (const auto &pair : path) {
                 internal_assert(pair.second.has_value());
-                ir::Expr value = get_field(base, obj_name, layout, node_name, pair.first);
+                ir::Expr value =
+                    get_field(base, obj_name, layout, node_name, pair.first);
                 ir::Expr constant = make_const(value.type(), *pair.second);
                 // TODO: support non-eq matching? e.g. ranges?
-                ir::Expr eq = ir::BinOp::make(ir::BinOp::Eq, std::move(value), std::move(constant));
+                ir::Expr eq = ir::BinOp::make(ir::BinOp::Eq, std::move(value),
+                                              std::move(constant));
                 if (cond.defined()) {
-                    cond = ir::BinOp::make(ir::BinOp::And, std::move(cond), std::move(eq));
+                    cond = ir::BinOp::make(ir::BinOp::And, std::move(cond),
+                                           std::move(eq));
                 } else {
                     cond = std::move(eq);
                 }
@@ -359,9 +381,11 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies, ir::Layout la
 
             internal_assert(cond.defined());
 
-            if_chain = ir::IfElse::make(std::move(cond), bodies.at(node_name), std::move(if_chain));
+            if_chain = ir::IfElse::make(std::move(cond), bodies.at(node_name),
+                                        std::move(if_chain));
         } else {
-            // TODO: this doesn't work if it's possible to have fully NULL reprs.
+            // TODO: this doesn't work if it's possible to have fully NULL
+            // reprs.
             if_chain = bodies.at(node_name);
         }
     }
@@ -373,7 +397,8 @@ struct LowerUnwrapAccesses : public ir::Mutator {
     const ir::LayoutMap &layouts;
     const ir::TypeMap &structs;
 
-    LowerUnwrapAccesses(const ir::LayoutMap &layouts, const ir::TypeMap &structs)
+    LowerUnwrapAccesses(const ir::LayoutMap &layouts,
+                        const ir::TypeMap &structs)
         : layouts(layouts), structs(structs) {}
 
     std::map<std::string, ir::Type> ref_types;
@@ -389,16 +414,19 @@ struct LowerUnwrapAccesses : public ir::Mutator {
         // stack[0] = INFINITY(reference_type) // or -1 if signed?
         // count = 0;
         // assign node = 0 // root
-        // do (if-else body node = stack[count--]) while(node != INFINITY(REFERENCE_TYPE))
+        // do (if-else body node = stack[count--]) while(node !=
+        // INFINITY(REFERENCE_TYPE))
         // TODO: can do stack-top optimizations!
 
         // TODO: this should be taken from the schedule!
         const int stack_size = 64;
 
-        // TODO: should these be unique? What if nested traversals? e.g. TLAS / BLAS?
+        // TODO: should these be unique? What if nested traversals? e.g. TLAS /
+        // BLAS?
         const std::string stack_name = "?stack";
         const std::string count_name = "?count";
-        internal_assert(node->loc.is<ir::Var>()) << "[unimplemented] Match on non-Var: " << ir::Stmt(node);
+        internal_assert(node->loc.is<ir::Var>())
+            << "[unimplemented] Match on non-Var: " << ir::Stmt(node);
         const std::string node_name = node->loc.as<ir::Var>()->name;
         const std::string top_name = "?top";
 
@@ -411,29 +439,37 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             body.accept(&finder);
             bodies[node->arms[i].first.name()] = std::move(body);
         }
-        internal_assert(finder.from_type.defined()) << "No YieldFroms in Match: " << ir::Stmt(node);
+        internal_assert(finder.from_type.defined())
+            << "No YieldFroms in Match: " << ir::Stmt(node);
 
         // TODO: Array_t for dynamic...?
         ir::Type stack_etype = std::move(finder.from_type);
         // ir::Type stack_type = ir::Vector_t::make(stack_etype, stack_size);
-        // ir::Stmt alloc = ir::Assign::make(ir::WriteLoc(stack_name, stack_type), ir::Build::make(stack_type, std::vector<ir::Expr>{}), /*mutating=*/false);
+        // ir::Stmt alloc = ir::Assign::make(ir::WriteLoc(stack_name,
+        // stack_type), ir::Build::make(stack_type, std::vector<ir::Expr>{}),
+        // /*mutating=*/false);
         // TODO(ajr): make stack iterable size scheduable?
         static const ir::Type count_type = ir::UInt_t::make(32);
         static const ir::Expr count_zero = make_zero(count_type);
         ir::Expr stack_size_expr = ir::UIntImm::make(count_type, stack_size);
-        ir::Type stack_type = ir::Array_t::make(stack_etype, std::move(stack_size_expr));
+        ir::Type stack_type =
+            ir::Array_t::make(stack_etype, std::move(stack_size_expr));
         ir::Stmt alloc = ir::Allocate::make(stack_name, stack_type);
         ir::WriteLoc counter_loc(count_name, count_type);
-        ir::Stmt set_count = ir::Assign::make(counter_loc, count_zero, /*mutating=*/false);
+        ir::Stmt set_count =
+            ir::Assign::make(counter_loc, count_zero, /*mutating=*/false);
         ir::Expr counter = ir::Var::make(count_type, count_name);
         ir::Expr stack = ir::Var::make(stack_type, stack_name);
 
-        // TODO(ajr): this doesn't work for nested Matches!! debug with collision detection.
-        // This also assumes that the root is always 0, and that there is an INFINITY value for stack_etype.
+        // TODO(ajr): this doesn't work for nested Matches!! debug with
+        // collision detection. This also assumes that the root is always 0, and
+        // that there is an INFINITY value for stack_etype.
         ir::WriteLoc top_loc(top_name, stack_etype);
-        ir::Stmt set_root = ir::Assign::make(top_loc, make_zero(stack_etype), /*mutating=*/false);
+        ir::Stmt set_root = ir::Assign::make(top_loc, make_zero(stack_etype),
+                                             /*mutating=*/false);
         ir::Expr inf_value = make_inf(stack_etype);
-        ir::Stmt set_canary = ir::Store::make(stack_name, make_zero(count_type), inf_value);
+        ir::Stmt set_canary =
+            ir::Store::make(stack_name, make_zero(count_type), inf_value);
         ir::Expr top_var = ir::Var::make(stack_etype, top_name);
 
         LowerFroms lower_froms(stack_name, counter_loc, counter);
@@ -469,42 +505,51 @@ struct LowerUnwrapAccesses : public ir::Mutator {
                 std::string iter_name = get_group_name(node_name, name);
                 ir::WriteLoc loc(std::move(iter_name), std::move(type));
                 ir::Expr value = ir::Extract::make(top_var, n_extracted);
-                extracts[n_extracted++] = ir::LetStmt::make(std::move(loc), std::move(value));
+                extracts[n_extracted++] =
+                    ir::LetStmt::make(std::move(loc), std::move(value));
             }
             extract_from_top = ir::Sequence::make(std::move(extracts));
         } else {
             internal_assert(indexes.size() == 1);
             std::string iter_name = get_group_name(node_name, indexes[0].first);
-            ir::WriteLoc loc(std::move(iter_name), std::move(indexes[0].second));
+            ir::WriteLoc loc(std::move(iter_name),
+                             std::move(indexes[0].second));
             extract_from_top = ir::LetStmt::make(std::move(loc), top_var);
         }
-        
+
         ir::Expr base_struct = ir::Var::make(struct_type, node_name);
-        ir::Stmt match_body = lower_switch_tree(std::move(bodies), std::move(layout), base_struct, node_name);
+        ir::Stmt match_body = lower_switch_tree(
+            std::move(bodies), std::move(layout), base_struct, node_name);
 
         // TODO: perform top optimizations.
-        ir::Stmt do_while_body = ir::Sequence::make({
-            // set relevant indices from stack top.
-            std::move(extract_from_top),
-            // perform match on current `top`
-            std::move(match_body),
-            // set current top
-            ir::Assign::make(top_loc, ir::Extract::make(stack, counter), /*mutating=*/true),
-            ir::Accumulate::make(counter_loc, ir::Accumulate::Sub, make_one(count_type))
-        });
+        ir::Stmt do_while_body = ir::Sequence::make(
+            {// set relevant indices from stack top.
+             std::move(extract_from_top),
+             // perform match on current `top`
+             std::move(match_body),
+             // set current top
+             ir::Assign::make(top_loc, ir::Extract::make(stack, counter),
+                              /*mutating=*/true),
+             ir::Accumulate::make(counter_loc, ir::Accumulate::Sub,
+                                  make_one(count_type))});
 
         ir::Expr top_not_empty = (top_var != inf_value);
 
-        ir::Stmt do_while = ir::DoWhile::make(std::move(do_while_body), std::move(top_not_empty));
+        ir::Stmt do_while = ir::DoWhile::make(std::move(do_while_body),
+                                              std::move(top_not_empty));
 
         in_match = false;
 
         std::vector<ir::Stmt> body = {
-            std::move(alloc),         // stack = allocate stack
-            std::move(set_count),     // count = 0;
-            std::move(set_root),      // assign node = 0 // root
-            std::move(set_canary),    // stack[0] = INFINITY(reference_type) // or -1 if signed
-            std::move(do_while)       // do (if-else body node = stack[count--]) while(node != INFINITY(REFERENCE_TYPE))
+            std::move(alloc),      // stack = allocate stack
+            std::move(set_count),  // count = 0;
+            std::move(set_root),   // assign node = 0 // root
+            std::move(set_canary), // stack[0] = INFINITY(reference_type)
+            std::move(do_while)    // do {
+                                   //   extract-from-top;
+                                   //   if-else-body;
+                                   //   node = stack[count--];
+                                   // } while(node != INFINITY(REFERENCE_TYPE))
         };
         return ir::Sequence::make(std::move(body));
     }
@@ -515,18 +560,21 @@ struct LowerUnwrapAccesses : public ir::Mutator {
         }
         const ir::Unwrap *as_unwrap = node->value.as<ir::Unwrap>();
         internal_assert(as_unwrap->value.is<ir::Var>())
-            << "[unimplemented] Access of Unwrap on non-Var: " << ir::Expr(node);
+            << "[unimplemented] Access of Unwrap on non-Var: "
+            << ir::Expr(node);
 
         std::string tree_name = as_unwrap->value.as<ir::Var>()->name;
 
         internal_assert(structs.contains(tree_name));
         ir::Expr base = ir::Var::make(structs.at(tree_name), tree_name);
-        std::cout << "BASE: " << base << "\n"; 
-        return get_field(base, tree_name, layouts.at(tree_name), as_unwrap->type.as<ir::Struct_t>()->name, node->field);
+        // std::cout << "BASE: " << base << "\n";
+        return get_field(base, tree_name, layouts.at(tree_name),
+                         as_unwrap->type.as<ir::Struct_t>()->name, node->field);
     }
 
     ir::Expr visit(const ir::Unwrap *node) override {
-        internal_error << "Found Unwrap not handled by Access visitor: " << ir::Expr(node);
+        internal_error << "Found Unwrap not handled by Access visitor: "
+                       << ir::Expr(node);
     }
 };
 
@@ -560,7 +608,8 @@ ir::Program LowerLayouts::run(ir::Program program) const {
                 break;
             }
         }
-        internal_assert(found) << "Extern " << name << " has layout but not found.\n";
+        internal_assert(found)
+            << "Extern " << name << " has layout but not found.\n";
 
         for (const auto &type : struct_ts) {
             internal_assert(type.is<ir::Struct_t>());
@@ -568,9 +617,12 @@ ir::Program LowerLayouts::run(ir::Program program) const {
         }
     }
 
-    for (const auto &[name, type] : types) {
-        std::cout << name << " lowers to " << type << std::endl;
-    }
+    // for (const auto &[name, type] : types) {
+    //     std::cout << name << " lowers to " << type << std::endl;
+    // }
+
+    // std::cout << "BEFORE\n";
+    // program.dump(std::cout);
 
     // lower all `Access`es on `Unwrap`s
     LowerUnwrapAccesses lowerer(tree_layouts, types);
@@ -578,6 +630,9 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     for (auto &[fname, func] : program.funcs) {
         func->body = lowerer.mutate(func->body);
     }
+
+    // std::cout << "AFTER\n";
+    // program.dump(std::cout);
 
     return program;
 }

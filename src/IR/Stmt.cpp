@@ -61,8 +61,7 @@ Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
 }
 
 Stmt DoWhile::make(Stmt body, Expr cond) {
-    internal_assert(body.defined())
-        << "Undefined body in DoWhile::make";
+    internal_assert(body.defined()) << "Undefined body in DoWhile::make";
     internal_assert(cond.defined()) << "Undefined condition in DoWhile::make";
     internal_assert(cond.type().defined() && cond.type().is_bool())
         << "Non-boolean condition in DoWhile::make: " << cond << " of type "

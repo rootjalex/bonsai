@@ -2044,13 +2044,15 @@ struct Parser {
                 expect(Token::Type::ASSIGN);
                 expect(Token::Type::GT);
                 std::optional<std::string> node_name;
-                if (peek().type == Token::Type::IDENTIFIER && peek(1).type == Token::Type::LSQUIGGLE) {
+                if (peek().type == Token::Type::IDENTIFIER &&
+                    peek(1).type == Token::Type::LSQUIGGLE) {
                     // named split.
                     node_name = get_id();
                 }
                 ir::Layout inner = parse_layout();
                 expect(Token::Type::SEMICOL);
-                arms.push_back({std::move(value), std::move(node_name), std::move(inner)});
+                arms.push_back(
+                    {std::move(value), std::move(node_name), std::move(inner)});
             } while (!consume(Token::Type::RSQUIGGLE));
             return ir::Split::make(std::move(name), std::move(arms));
         }
