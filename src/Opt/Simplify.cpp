@@ -57,7 +57,11 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
             if (!(v0.defined() && v1.defined())) {
                 return ir::Expr();
             }
-            values.push_back(constant_fold(f, v0, v1, element_of));
+            ir::Expr result = constant_fold(f, v0, v1, element_of);
+            if (!result.defined()) {
+                return ir::Expr();
+            }
+            values.push_back(result);
         }
         return ir::VecImm::make(std::move(values));
     }
