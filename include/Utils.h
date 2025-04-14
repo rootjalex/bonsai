@@ -15,7 +15,7 @@ bool is_const_one(const ir::Expr &e);
 bool is_const_zero(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
 
-// Attempts to infer the constant value at the given index in `v`, otherwise
+// Attempts to infer the value at the given index in the vector `v`, otherwise
 // returns an undefined expression upon failure.
 ir::Expr get_value_at(ir::Expr v, int64_t index);
 
@@ -37,6 +37,9 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         return get_constant_value<T>(std::move(value));
     }
     if (type.is_scalar()) {
+        internal_assert(!index.has_value())
+            << "unexpected index provided: " << *index
+            << "for scalar value: " << e;
         // Conservatively fail if the bit size is > 64.
         internal_assert(type.bits() <= 64) << type;
     }
