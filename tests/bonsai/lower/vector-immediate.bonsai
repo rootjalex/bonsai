@@ -1,6 +1,11 @@
 //! flags: -p simplify
 
-func main(i : i32) -> i32 {
+func bar() -> void {
+  x: i32 = 2;
+  ts: vector[i32, 3] = {1, 2, x + 1};
+}
+
+func foo(i : i32) -> i32 {
     ws : vector[i32, 3] = -1;
     xs: vector[i32, 3] = {1,2,3};
     ys: vector[i32, 3] = {2,3,4};

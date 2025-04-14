@@ -127,12 +127,12 @@ Expr VecImm::make(Type element_type, std::vector<ir::Expr> values) {
         // TODO: support?
         internal_assert(element_type.is_scalar())
             << "immediate of non-scalar: " << element_type;
+        for (const ir::Expr &e : values) {
+            internal_assert(ir::equals(e.type(), element_type))
+                << "VecImm requires uniform element type, expected: "
+                << element_type << ", but received: " << e;
+        }
         node->type = Vector_t::make(element_type, values.size());
-    }
-    for (const ir::Expr &e : values) {
-        internal_assert(ir::equals(e.type(), element_type))
-            << "VecImm requires uniform element type, expected: "
-            << element_type << ", but received: " << e;
     }
 
     node->values = std::move(values);

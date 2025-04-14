@@ -1,4 +1,9 @@
-func main(i : i32) -> i32 {
+func bar() -> void {
+  let x = (i32)2 in
+  let ts = (i32x3)[1,2,3] in
+}
+
+func foo(i : i32) -> i32 {
   let ws = x3((i32)-1) in
   let xs = (i32x3)[1,2,3] in
   let ys = (i32x3)[2,3,4] in

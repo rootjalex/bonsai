@@ -219,6 +219,22 @@ struct Simplifier : ir::Mutator {
         return ir::Cast::make(node->type, std::move(value));
     }
 
+    ir::Expr visit(const ir::Build *node) override {
+        // x: i32 = 1; v: Build<i32x2>(x, (i32)2) => [1, 2]
+        if (ir::Type type = node->type; type.is_vector()) {
+            std::vector<ir::Expr> values;
+            for (ir::Expr v : node->values) {
+                v = mutate_and_substitute(std::move(v));
+                if (!is_const(v)) {
+                    return node;
+                }
+                values.push_back(std::move(v));
+            }
+            return ir::VecImm::make(type.element_of(), std::move(values));
+        }
+        return ir::Mutator::visit(node);
+    }
+
     ir::Expr visit(const ir::Extract *node) override {
         ir::Expr v = mutate_and_substitute(node->vec),
                  i = mutate_and_substitute(node->idx);
