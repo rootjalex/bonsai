@@ -231,11 +231,11 @@ struct Simplifier : ir::Mutator {
             return broadcast->value;
         }
         std::optional<uint64_t> index = get_constant_value(i);
-        if (const auto *imm = v.as<ir::VecImm>()) {
+        if (v.is<ir::VecImm, ir::Build>()) {
             if (index.has_value()) {
-                std::optional<uint64_t> constant = get_constant_value(v, index);
-                internal_assert(constant.has_value());
-                return make_const(v.type().element_of(), *constant);
+                if (std::optional<uint64_t> c = get_constant_value(v, index)) {
+                    return make_const(v.type().element_of(), *c);
+                }
             }
         }
         if (v.same_as(node->vec) && i.same_as(node->idx)) {
