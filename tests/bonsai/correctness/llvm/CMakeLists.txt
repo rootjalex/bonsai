@@ -5,4 +5,5 @@ add_bonsai_tests(
     option.bonsai
     print.bonsai
     map.bonsai
+    struct.bonsai
 )
