@@ -60,12 +60,16 @@ class TypeEmitter : public ir::Visitor {
         ss << "uint" << type->bits << '_' << 't';
     }
 
+    // TODO(cgyurgyik): use std::float when it is supported:
+    // https://en.cppreference.com/w/cpp/types/floating-point
     void visit(const ir::Float_t *type) override {
         switch (type->bits()) {
         case 64:
+            internal_assert(type->is_ieee754());
             ss << "double";
             break;
         case 32:
+            internal_assert(type->is_ieee754());
             ss << "float";
             break;
         default:
