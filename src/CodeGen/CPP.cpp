@@ -186,7 +186,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     std::string output_file =
         !options.output_file.empty()
             ? options.output_file
-            : "test"; // std::string(std::filesystem::temp_directory_path());
+            : std::string(std::filesystem::temp_directory_path());
     std::error_code ec;
     llvm::raw_fd_ostream os(output_file + ".o", ec, llvm::sys::fs::OF_None);
     internal_assert(!ec) << ec.message();
@@ -202,7 +202,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     os.flush();
 
     // Write C++ header file with struct and function declarations (`.h`).
-    if (false && options.output_file.empty()) {
+    if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
         llvm::outs() << '\n' << BonsaiToCpp().create_header(program) << '\n';
