@@ -1,5 +1,6 @@
 //! flags: -b cpp
 
+// TODO(cgyurgyik): This isn't going to work without significant LLVM codegen changes.
 element Position { x: i32; y: i32; }
 
 func add(i: Position, j: Position) -> Position {
