@@ -6,14 +6,15 @@
  * generators that use llvm.
  */
 
-#include <memory>
-
+#include "CompilerOptions.h"
 #include "IR/Frame.h"
 #include "IR/Function.h"
 #include "IR/Program.h"
 #include "IR/Visitor.h"
 #include "LLVMIncl.h"
 #include "Scope.h"
+
+#include <memory>
 
 namespace bonsai {
 
@@ -22,16 +23,16 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     /** Takes a bonsai Program and compiles it to an llvm Module. */
     virtual std::unique_ptr<llvm::Module>
-    compile_program(const ir::Program &prog);
+    compile_program(const ir::Program &program, const CompilerOptions &options);
+
     std::unique_ptr<llvm::LLVMContext> steal_context() {
         return std::move(context);
     }
 
     // Creates a target machine and updates the module's backend and data
     // layout.
-    // TODO(cgyurgyik): This should configured by bonsai::CompilerOptions.
     std::unique_ptr<llvm::TargetMachine>
-    make_target_machine(llvm::Module &module, bool to_object_file = false);
+    make_target_machine(llvm::Module &module, const CompilerOptions &options);
 
   protected:
     /** Initialize internal llvm state for the enabled targets. */
@@ -43,7 +44,7 @@ struct CodeGen_LLVM : public ir::Visitor {
      * multiple related modules (e.g. multiple device kernels). */
     virtual void init_module();
 
-    virtual void optimize_module();
+    virtual void optimize_module(const CompilerOptions &options);
 
     llvm::Function *declare_function(const ir::Function &func);
     void compile_function(const ir::Function &func, llvm::Function *function);

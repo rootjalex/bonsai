@@ -175,10 +175,11 @@ class BonsaiToCpp {
 void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Compile the program to LLVM.
     CodeGen_LLVM codegen;
-    std::unique_ptr<llvm::Module> module = codegen.compile_program(program);
+    std::unique_ptr<llvm::Module> module =
+        codegen.compile_program(program, options);
 
     std::unique_ptr<llvm::TargetMachine> target_machine =
-        codegen.make_target_machine(*module, /*to_object_file=*/true);
+        codegen.make_target_machine(*module, options);
     internal_assert(target_machine);
 
     // Open the object file (`.o`). We produce an object file during a dry run

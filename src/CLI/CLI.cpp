@@ -44,17 +44,17 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
     }
     case BackendTarget::ASM: {
         internal_assert(!options.is_execute);
-        CodeGen_LLVM codegen;
-        codegen::to_asm(options.output_file, program, &codegen);
+        codegen::to_asm(program, options);
         return EXIT_SUCCESS;
     }
     case BackendTarget::LLVM: {
-        CodeGen_LLVM codegen;
         if (options.is_execute) {
-            codegen::jit(program, &codegen);
+            codegen::jit(program, options);
             return EXIT_SUCCESS;
         }
-        std::unique_ptr<llvm::Module> module = codegen.compile_program(program);
+        CodeGen_LLVM codegen;
+        std::unique_ptr<llvm::Module> module =
+            codegen.compile_program(program, options);
         if (options.output_file.empty()) {
             module->print(llvm::outs(), /*AAW=*/nullptr);
             return EXIT_SUCCESS;

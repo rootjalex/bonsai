@@ -1,22 +1,24 @@
 #include "CodeGen/JIT.h"
 
+#include "CodeGen/CodeGen_LLVM.h"
+#include "Error.h"
+
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 
-#include "Error.h"
-
 namespace bonsai {
 namespace codegen {
 
-void jit(const ir::Program &program, CodeGen_LLVM *gen) {
+void jit(const ir::Program &program, const CompilerOptions &options) {
+    CodeGen_LLVM codegen;
     std::unique_ptr<llvm::orc::LLJIT> JIT =
         llvm::cantFail(llvm::orc::LLJITBuilder().create());
     internal_assert(JIT != nullptr) << "Failed to generate JIT";
 
     // TODO: use JIT->getTargetTriple() in codegen?
-    auto _module = gen->compile_program(program);
-    auto _context = gen->steal_context();
+    auto _module = codegen.compile_program(program, options);
+    auto _context = codegen.steal_context();
 
     // TODO: optimize module for JIT->getTargetTriple() ?
 

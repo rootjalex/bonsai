@@ -106,7 +106,8 @@ static std::string get_specifier(const ir::Type &type) {
 using namespace ir;
 
 std::unique_ptr<llvm::TargetMachine>
-CodeGen_LLVM::make_target_machine(llvm::Module &module, bool to_object_file) {
+CodeGen_LLVM::make_target_machine(llvm::Module &module,
+                                  const CompilerOptions &options) {
     std::string error_string;
     std::string target_triple = llvm::sys::getDefaultTargetTriple();
 
@@ -118,14 +119,14 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module, bool to_object_file) {
         internal_error << "could not create LLVM target for: " << target_triple;
     }
     llvm::Triple triple = llvm::Triple(target_triple);
-    llvm::TargetOptions options;
+    llvm::TargetOptions target_options;
 
     // TODO: set options?
-    options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
-    options.UnsafeFPMath = true;
-    options.NoInfsFPMath = true;
-    options.NoNaNsFPMath = true;
-    // get_target_options(module, options);
+    target_options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    target_options.UnsafeFPMath = true;
+    target_options.NoInfsFPMath = true;
+    target_options.NoNaNsFPMath = true;
+    // get_target_options(module, target_options);
 
     bool use_pic = true;
     // get_md_bool(module.getModuleFlag("bonsai_use_pic"), use_pic);
@@ -136,13 +137,13 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module, bool to_object_file) {
 
     auto *tm = llvm_target->createTargetMachine(
         module.getTargetTriple(),
-        /*CPU target=*/"", /*Features=*/"", options,
+        /*CPU target=*/"", /*Features=*/"", target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
         llvm::CodeGenOptLevel::Aggressive);
 
-    // TODO: is this right?
-    if (to_object_file) {
+    // TODO(cgyurgyik): Why does this cause errors for the JIT compiler?
+    if (options.target == BackendTarget::CPP) {
         module.setDataLayout(tm->createDataLayout());
         module.setTargetTriple(target_triple);
     }
@@ -286,7 +287,8 @@ void CodeGen_LLVM::compile_function(const Function &func,
 }
 
 std::unique_ptr<llvm::Module>
-CodeGen_LLVM::compile_program(const Program &program) {
+CodeGen_LLVM::compile_program(const Program &program,
+                              const CompilerOptions &options) {
     init_module(); // TODO: init_codegen()?
 
     const auto struct_types = gather_struct_types(program);
@@ -312,18 +314,19 @@ CodeGen_LLVM::compile_program(const Program &program) {
 
     // module->dump();
 
-    this->optimize_module();
+    this->optimize_module(options);
     // std::cout << "\n\n\nAfter:\n\n\n" << std::endl;
     // module->dump();
 
     return std::move(module);
 }
 
-void CodeGen_LLVM::optimize_module() {
+void CodeGen_LLVM::optimize_module(const CompilerOptions &options) {
     // Get host target triple.
     std::string target_triple = llvm::sys::getDefaultTargetTriple();
 
-    std::unique_ptr<llvm::TargetMachine> tm = make_target_machine(*module);
+    std::unique_ptr<llvm::TargetMachine> tm =
+        make_target_machine(*module, options);
 
     const bool do_loop_opt =
         true; // get_target().has_feature(Target::EnableLLVMLoopOpt);

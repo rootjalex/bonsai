@@ -22,7 +22,7 @@ Position add(Position i, Position j);
 ; LLVM Module
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
-target datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32"
+target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-darwin22.6.0"
 
 %Color = type { <3 x float> }
