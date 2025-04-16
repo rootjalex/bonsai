@@ -46,6 +46,19 @@
 #include <sstream>
 
 namespace bonsai {
+namespace codegen {
+void to_llvm(const ir::Program &program, const CompilerOptions &options) {
+    CodeGen_LLVM codegen;
+    std::unique_ptr<llvm::Module> module =
+        codegen.compile_program(program, options);
+    if (options.output_file.empty()) {
+        module->print(llvm::outs(), /*AAW=*/nullptr);
+        return;
+    }
+    auto os = make_raw_fd_ostream(options.output_file);
+    module->print(*os, /*AAW=*/nullptr);
+}
+} // namespace codegen
 namespace {
 
 // Returns the `printf` function for this module. If none exists, it is created.

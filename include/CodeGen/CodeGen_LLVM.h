@@ -17,6 +17,12 @@
 #include <memory>
 
 namespace bonsai {
+namespace codegen {
+
+// Generates LLVM IR from a bonsai program with the respective compiler options.
+void to_llvm(const ir::Program &program, const CompilerOptions &options);
+
+} // namespace codegen
 
 struct CodeGen_LLVM : public ir::Visitor {
     CodeGen_LLVM();

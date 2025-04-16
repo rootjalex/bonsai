@@ -52,15 +52,7 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
             codegen::jit(program, options);
             return EXIT_SUCCESS;
         }
-        CodeGen_LLVM codegen;
-        std::unique_ptr<llvm::Module> module =
-            codegen.compile_program(program, options);
-        if (options.output_file.empty()) {
-            module->print(llvm::outs(), /*AAW=*/nullptr);
-            return EXIT_SUCCESS;
-        }
-        auto os = make_raw_fd_ostream(options.output_file);
-        module->print(*os, /*AAW=*/nullptr);
+        codegen::to_llvm(program, options);
         return EXIT_SUCCESS;
     }
     case BackendTarget::CPP: {
