@@ -111,7 +111,6 @@ static std::string get_specifier(const ir::Type &type) {
     }
 
     internal_error << "[unimplemented] LLVM print: " << type;
-    return "";
 }
 
 } // namespace
