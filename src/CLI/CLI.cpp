@@ -5,9 +5,6 @@
 #include <fstream>
 #include <iostream>
 
-#include <llvm/Support/FileSystem.h>
-#include <llvm/Support/raw_ostream.h>
-
 namespace {
 
 using namespace bonsai;
