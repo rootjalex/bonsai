@@ -17,18 +17,18 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
     internal_assert(JIT != nullptr) << "Failed to generate JIT";
 
     // TODO: use JIT->getTargetTriple() in codegen?
-    auto _module = codegen.compile_program(program, options);
-    auto _context = codegen.steal_context();
+    auto module = codegen.compile_program(program, options);
+    auto context = codegen.steal_context();
 
     // TODO: optimize module for JIT->getTargetTriple() ?
 
     // internal_assert(JIT->getTargetTriple().str() ==
-    // _module->getTargetTriple())
+    // module->getTargetTriple())
     //     << "JIT and Module have different target triples: " <<
     //     JIT->getTargetTriple().str() << " versus " <<
-    //     _module->getTargetTriple();
+    //     module->getTargetTriple();
 
-    llvm::orc::ThreadSafeModule tsm(std::move(_module), std::move(_context));
+    llvm::orc::ThreadSafeModule tsm(std::move(module), std::move(context));
     auto err = JIT->addIRModule(std::move(tsm));
     internal_assert(!err) << llvm::toString(std::move(err)) << "\n";
 
