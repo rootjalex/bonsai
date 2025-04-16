@@ -17,7 +17,16 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
 }
 
 void verify_options(const CompilerOptions &options) {
-    internal_assert(!options.input_file.empty());
+    internal_assert(!options.input_file.empty()) << options;
+    switch (BackendTarget backend = options.target; backend) {
+    case BackendTarget::NONE:
+    case BackendTarget::ASM:
+    case BackendTarget::CPP:
+        internal_assert(!options.is_execute)
+            << "unexpected backend for execution: " << options;
+    case BackendTarget::LLVM:
+        break;
+    }
 }
 
 std::string backend_to_string(BackendTarget target) {

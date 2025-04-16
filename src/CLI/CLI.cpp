@@ -31,7 +31,6 @@ std::string command_help() {
 int execute(const ir::Program &program, const CompilerOptions &options) {
     switch (options.target) {
     case BackendTarget::NONE: {
-        internal_assert(!options.is_execute);
         if (options.output_file.empty()) {
             program.dump(std::cout);
             return EXIT_SUCCESS;
@@ -43,7 +42,6 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
         return EXIT_SUCCESS;
     }
     case BackendTarget::ASM: {
-        internal_assert(!options.is_execute);
         codegen::to_asm(program, options);
         return EXIT_SUCCESS;
     }
