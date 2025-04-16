@@ -35,6 +35,7 @@ struct IntImm;
 struct UIntImm;
 struct FloatImm;
 struct BoolImm;
+struct VecImm;
 struct Infinity;
 struct Var;
 struct BinOp;

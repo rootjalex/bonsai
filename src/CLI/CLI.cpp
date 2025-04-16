@@ -107,7 +107,7 @@ Flags parse(const std::vector<std::string> &args) {
             continue;
         }
         if (arg == "-o" || arg == "--output") {
-            internal_assert(options.input_file.empty())
+            internal_assert(options.output_file.empty())
                 << "already received output file: " << options.output_file;
             internal_assert(i + 1 < args.size());
             options.output_file = args[i + 1];

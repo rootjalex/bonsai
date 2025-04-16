@@ -97,6 +97,8 @@ void Visitor::visit(const FloatImm *) {}
 
 void Visitor::visit(const BoolImm *) {}
 
+void Visitor::visit(const VecImm *) {}
+
 void Visitor::visit(const Infinity *) {}
 
 void Visitor::visit(const Var *) {}

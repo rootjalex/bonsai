@@ -1,21 +1,17 @@
 #include "Opt/Simplify.h"
 
+#include "Error.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
+#include "Lower/TopologicalOrder.h"
 #include "Utils.h"
 
-#include "Lower/TopologicalOrder.h"
-
-#include "Error.h"
-
 #include <bit>
-#include <concepts>
-#include <map>
-#include <set>
 #include <string>
+#include <unordered_map>
 
 namespace bonsai {
 namespace opt {
@@ -31,38 +27,51 @@ T apply(F f, uint64_t a, uint64_t b) {
 // Attempts to constant fold the binary operations. Returns an undefined
 // expression upon failure. A type parameter is optionally passed when
 // interpreting a vector's broadcasted value.
-//
-// TODO(cgyurgyik): Support vectors and constant-sized array immediates.
 template <typename F>
 ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
                        std::optional<ir::Type> type = {}) {
+    if (!(a.defined() && b.defined())) {
+        return ir::Expr();
+    }
     internal_assert(ir::equals(a.type(), b.type()))
         << "a: " << a.type() << ", " << "b: " << b.type();
     if (!type.has_value()) {
         type = a.type();
     }
-    std::optional<uint64_t> c_a = get_constant_value(a);
-    std::optional<uint64_t> c_b = get_constant_value(b);
+    // Vector case.
+    if (const auto *vector_type = type->as<ir::Vector_t>()) {
+        std::vector<ir::Expr> values;
+        ir::Type element_of = vector_type->etype;
+        for (int i = 0, e = vector_type->lanes; i < e; ++i) {
+            ir::Expr result = constant_fold(f,
+                                            /*a=*/get_value_at(a, i),
+                                            /*b=*/get_value_at(b, i),
+                                            /*type=*/element_of);
+            if (!result.defined()) {
+                return ir::Expr();
+            }
+            values.push_back(std::move(result));
+        }
+        return ir::VecImm::make(std::move(values));
+    }
+
+    // Scalar case.
+    internal_assert(type->is_scalar()) << *type;
+    std::optional<uint64_t> c_a = get_constant_value(a),
+                            c_b = get_constant_value(b);
     if (!(c_a.has_value() && c_b.has_value())) {
         return ir::Expr();
     }
-    if (type->is_scalar()) {
-        if (type->is_int()) {
-            return ir::IntImm::make(*type, apply<int64_t>(f, *c_a, *c_b));
-        }
-        if (type->is_uint()) {
-            return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
-        }
-        if (type->is_float()) {
-            return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
-        }
+    if (type->is_int()) {
+        return ir::IntImm::make(*type, apply<int64_t>(f, *c_a, *c_b));
     }
-    if (const auto *vtype = type->as<ir::Vector_t>()) {
-        ir::Expr result = constant_fold(f, a, b, vtype->etype);
-        return !result.defined()
-                   ? ir::Expr()
-                   : ir::Broadcast::make(vtype->lanes, std::move(result));
+    if (type->is_uint()) {
+        return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
     }
+    if (type->is_float()) {
+        return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
+    }
+
     return ir::Expr();
 }
 
@@ -76,6 +85,25 @@ ir::Expr make(const ir::BinOp *node, ir::Expr a, ir::Expr b) {
 }
 
 struct Simplifier : ir::Mutator {
+    ir::Expr visit(const ir::Var *node) override {
+        auto it = name_to_immediate.find(node->name);
+        if (it == name_to_immediate.end()) {
+            return node;
+        }
+        return it->second;
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        if (is_const(value)) {
+            name_to_immediate[node->loc.base] = value;
+        }
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        return ir::LetStmt::make(node->loc, std::move(value));
+    }
+
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
@@ -171,6 +199,47 @@ struct Simplifier : ir::Mutator {
         }
         return ir::Cast::make(node->type, std::move(value));
     }
+
+    ir::Expr visit(const ir::Build *node) override {
+        bool changed = false, is_all_constants = true;
+        std::vector<ir::Expr> values;
+        for (int32_t i = 0, e = node->values.size(); i < e; ++i) {
+            ir::Expr v = mutate(node->values[i]);
+            changed |= v.same_as(node->values[i]);
+            is_all_constants &= is_const(v);
+            values.push_back(std::move(v));
+        }
+        if (node->type.is_vector() && is_all_constants && !values.empty()) {
+            // x: i32 = 1; v: Build<i32x2>(x, (i32)2) => [1, 2]
+            return ir::VecImm::make(std::move(values));
+        }
+        return changed ? ir::Build::make(node->type, std::move(values)) : node;
+    }
+
+    ir::Expr visit(const ir::Extract *node) override {
+        ir::Expr v = mutate(node->vec), i = mutate(node->idx);
+        if (const auto *broadcast = v.as<ir::Broadcast>()) {
+            return broadcast->value;
+        }
+        std::optional<uint64_t> index = get_constant_value(i);
+        if (v.is<ir::VecImm, ir::Build>()) {
+            if (index.has_value()) {
+                if (std::optional<uint64_t> c = get_constant_value(v, index)) {
+                    return make_const(v.type().element_of(), *c);
+                }
+            }
+        }
+        if (v.same_as(node->vec) && i.same_as(node->idx)) {
+            return node;
+        }
+        return ir::Extract::make(std::move(v), std::move(i));
+    }
+
+  private:
+    // Mapping from a variable name to its immediate value. This assumes
+    // variable shadowing is illegal; if this were to change, we'd need to
+    // introduce a frame stack.
+    std::unordered_map<std::string, ir::Expr> name_to_immediate;
 };
 
 } // namespace
@@ -184,9 +253,9 @@ struct Simplifier : ir::Mutator {
 }
 
 ir::FuncMap Simplify::run(ir::FuncMap funcs) const {
-    Simplifier lower;
     for (auto &[name, func] : funcs) {
-        func->body = lower.mutate(func->body);
+        // TODO(cgyurgyik): Support inter-function simplification/propagation.
+        func->body = Simplify::simplify(std::move(func->body));
     }
     return funcs;
 }
