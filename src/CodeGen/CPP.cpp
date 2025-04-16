@@ -113,6 +113,7 @@ class BonsaiToCpp {
     }
 
     void emit_signature_type(const ir::Type &type) {
+        // TODO(cgyurgyik): pass by const& unless mutable, then &...?
         if (const auto *struct_type = type.as<ir::Struct_t>()) {
             ss << struct_type->name;
             return;
