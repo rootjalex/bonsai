@@ -1,0 +1,50 @@
+// Bonsai Header
+
+#pragma once
+
+#include <array>
+#include <cstdint>
+
+extern "C" {
+struct Color {
+    float x[3];
+};
+struct Position {
+    int32_t x;
+    int32_t y;
+    Color c;
+};
+
+Position add(Position i, Position j);
+}
+
+------------------------------------------
+
+// LLVM Module
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+target triple = "arm64-apple-darwin22.6.0"
+
+%Color = type { <3 x float> }
+%Position = type { i32, i32, %Color }
+
+@_PromotedConst = internal constant %Color { <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00> }
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %Position @add(%Position %i, %Position %j) local_unnamed_addr #0 {
+add_entry:
+  %0 = extractvalue %Position %i, 0
+  %1 = extractvalue %Position %j, 0
+  %2 = add i32 %1, %0
+  %3 = extractvalue %Position %i, 1
+  %4 = extractvalue %Position %j, 1
+  %5 = add i32 %4, %3
+  %6 = insertvalue %Position poison, i32 %2, 0
+  %7 = insertvalue %Position %6, i32 %5, 1
+  %8 = load %Color, ptr @_PromotedConst, align 16
+  %9 = insertvalue %Position %7, %Color %8, 2
+  ret %Position %9
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

@@ -105,6 +105,48 @@ static std::string get_specifier(const ir::Type &type) {
 
 using namespace ir;
 
+std::unique_ptr<llvm::TargetMachine>
+CodeGen_LLVM::make_target_machine(llvm::Module &module) {
+    std::string error_string;
+    std::string target_triple = llvm::sys::getDefaultTargetTriple();
+
+    const llvm::Target *llvm_target =
+        llvm::TargetRegistry::lookupTarget(target_triple, error_string);
+    if (llvm_target == nullptr) {
+        llvm::errs() << error_string << "\n";
+        llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::errs());
+        internal_error << "could not create LLVM target for: " << target_triple;
+    }
+    llvm::Triple triple = llvm::Triple(target_triple);
+    llvm::TargetOptions options;
+
+    // TODO: set options?
+    options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    options.UnsafeFPMath = true;
+    options.NoInfsFPMath = true;
+    options.NoNaNsFPMath = true;
+    // get_target_options(module, options);
+
+    bool use_pic = true;
+    // get_md_bool(module.getModuleFlag("bonsai_use_pic"), use_pic);
+
+    bool use_large_code_model = false;
+    // get_md_bool(module.getModuleFlag("bonsai_use_large_code_model"),
+    // use_large_code_model);
+
+    auto *tm = llvm_target->createTargetMachine(
+        module.getTargetTriple(),
+        /*CPU target=*/"", /*Features=*/"", options,
+        use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
+        use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
+        llvm::CodeGenOptLevel::Aggressive);
+
+    // TODO: is this right?
+    module.setDataLayout(tm->createDataLayout());
+    module.setTargetTriple(target_triple);
+    return std::unique_ptr<llvm::TargetMachine>(tm);
+}
+
 CodeGen_LLVM::CodeGen_LLVM() {
     // TODO: set up independent state (e.g. wildcard matchers)
 
@@ -275,53 +317,11 @@ CodeGen_LLVM::compile_program(const Program &program) {
     return std::move(module);
 }
 
-std::unique_ptr<llvm::TargetMachine>
-make_target_machine(const llvm::Module &module) {
-    std::string error_string;
-
-    std::string targetTriple = llvm::sys::getDefaultTargetTriple();
-
-    const llvm::Target *llvm_target =
-        llvm::TargetRegistry::lookupTarget(targetTriple, error_string);
-    if (!llvm_target) {
-        std::cout << error_string << "\n";
-        llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::outs());
-    }
-    auto triple = llvm::Triple(targetTriple);
-    internal_assert(llvm_target)
-        << "Could not create LLVM target for " << triple.str();
-
-    llvm::TargetOptions options;
-
-    // TODO: set options?
-    options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
-    options.UnsafeFPMath = true;
-    options.NoInfsFPMath = true;
-    options.NoNaNsFPMath = true;
-    // get_target_options(module, options);
-
-    bool use_pic = true;
-    // get_md_bool(module.getModuleFlag("bonsai_use_pic"), use_pic);
-
-    bool use_large_code_model = false;
-    // get_md_bool(module.getModuleFlag("bonsai_use_large_code_model"),
-    // use_large_code_model);
-
-    auto *tm = llvm_target->createTargetMachine(
-        module.getTargetTriple(),
-        /*CPU target=*/"", /*Features=*/"", options,
-        use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
-        use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
-        llvm::CodeGenOptLevel::Aggressive);
-    return std::unique_ptr<llvm::TargetMachine>(tm);
-}
-
 void CodeGen_LLVM::optimize_module() {
     // Get host target triple.
     std::string target_triple = llvm::sys::getDefaultTargetTriple();
 
     std::unique_ptr<llvm::TargetMachine> tm = make_target_machine(*module);
-    // module->setDataLayout(tm->createDataLayout()); // TODO: is this right?
 
     const bool do_loop_opt =
         true; // get_target().has_feature(Target::EnableLLVMLoopOpt);

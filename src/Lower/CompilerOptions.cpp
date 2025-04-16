@@ -17,13 +17,15 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
 }
 
 void verify_options(const CompilerOptions &options) {
-    internal_assert(!options.input_file.empty()) << options;
+    internal_assert(!options.input_file.empty());
 }
 
 std::string backend_to_string(BackendTarget target) {
     switch (target) {
     case BackendTarget::ASM:
         return "asm";
+    case BackendTarget::CPP:
+        return "cpp";
     case BackendTarget::LLVM:
         return "llvm";
     case BackendTarget::NONE:
@@ -34,10 +36,13 @@ std::string backend_to_string(BackendTarget target) {
 BackendTarget string_to_backend(std::string_view in) {
     if (in == "asm")
         return BackendTarget::ASM;
+    if (in == "cpp")
+        return BackendTarget::CPP;
     if (in == "llvm")
         return BackendTarget::LLVM;
     if (in == "none")
         return BackendTarget::NONE;
+
     internal_error << "unexpected backend target: " << in;
 }
 

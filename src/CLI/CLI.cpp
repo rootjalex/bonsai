@@ -63,6 +63,10 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
         module->print(*os, /*AAW=*/nullptr);
         return EXIT_SUCCESS;
     }
+    case BackendTarget::CPP: {
+        codegen::to_cpp(program, options);
+        return EXIT_SUCCESS;
+    }
     }
     internal_error << "Unknown backend";
     return EXIT_FAILURE;

@@ -76,6 +76,7 @@ target_sources(
     src/CLI/CLI.cpp
     src/CodeGen/ASM.cpp
     src/CodeGen/CodeGen_LLVM.cpp
+    src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
     src/IR/Equality.cpp
@@ -129,6 +130,7 @@ target_sources(
     include/CLI/CLI.h
     include/CodeGen/ASM.h
     include/CodeGen/CodeGen_LLVM.h
+    include/CodeGen/CPP.h
     include/CodeGen/JIT.h
     include/CompilerOptions.h
     include/Error.h

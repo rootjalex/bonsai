@@ -27,6 +27,12 @@ struct CodeGen_LLVM : public ir::Visitor {
         return std::move(context);
     }
 
+    // Creates a target machine and updates the module's backend and data
+    // layout.
+    // TODO(cgyurgyik): This should configured by bonsai::CompilerOptions.
+    std::unique_ptr<llvm::TargetMachine>
+    make_target_machine(llvm::Module &module);
+
   protected:
     /** Initialize internal llvm state for the enabled targets. */
     static void init_llvm();
