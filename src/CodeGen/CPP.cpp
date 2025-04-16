@@ -178,7 +178,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     std::unique_ptr<llvm::Module> module = codegen.compile_program(program);
 
     std::unique_ptr<llvm::TargetMachine> target_machine =
-        codegen.make_target_machine(*module);
+        codegen.make_target_machine(*module, /*to_object_file=*/true);
     internal_assert(target_machine);
 
     // Open the object file (`.o`). We produce an object file during a dry run

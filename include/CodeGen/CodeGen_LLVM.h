@@ -31,7 +31,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     // layout.
     // TODO(cgyurgyik): This should configured by bonsai::CompilerOptions.
     std::unique_ptr<llvm::TargetMachine>
-    make_target_machine(llvm::Module &module);
+    make_target_machine(llvm::Module &module, bool to_object_file = false);
 
   protected:
     /** Initialize internal llvm state for the enabled targets. */

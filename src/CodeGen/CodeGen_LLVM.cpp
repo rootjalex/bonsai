@@ -106,7 +106,7 @@ static std::string get_specifier(const ir::Type &type) {
 using namespace ir;
 
 std::unique_ptr<llvm::TargetMachine>
-CodeGen_LLVM::make_target_machine(llvm::Module &module) {
+CodeGen_LLVM::make_target_machine(llvm::Module &module, bool to_object_file) {
     std::string error_string;
     std::string target_triple = llvm::sys::getDefaultTargetTriple();
 
@@ -142,8 +142,10 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module) {
         llvm::CodeGenOptLevel::Aggressive);
 
     // TODO: is this right?
-    module.setDataLayout(tm->createDataLayout());
-    module.setTargetTriple(target_triple);
+    if (to_object_file) {
+        module.setDataLayout(tm->createDataLayout());
+        module.setTargetTriple(target_triple);
+    }
     return std::unique_ptr<llvm::TargetMachine>(tm);
 }
 
