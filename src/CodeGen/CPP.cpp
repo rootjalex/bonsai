@@ -207,7 +207,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         llvm::outs() << "// Bonsai Header" << '\n';
         llvm::outs() << BonsaiToCpp().create_header(program) << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
-        llvm::outs() << '\n' << "// LLVM Module" << '\n';
+        llvm::outs() << '\n' << "; LLVM Module" << '\n';
         module->print(llvm::outs(), nullptr);
     } else {
         std::ofstream file;
