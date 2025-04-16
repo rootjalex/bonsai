@@ -308,28 +308,17 @@ CodeGen_LLVM::compile_program(const Program &program,
     declare_struct_types(struct_types);
 
     frames.new_frame();
-
     // TODO: add program.externs to the global frame.
-
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
-        // Declare function
         func_map[fname] = this->declare_function(*func);
     }
-
     for (const auto &[fname, func] : program.funcs) {
         this->compile_function(*func, func_map[fname]);
     }
-
     frames.pop_frame();
 
-    // std::cout << "\n\n\nBefore:\n\n\n" << std::endl;
-
-    // module->dump();
-
     this->optimize_module(options);
-    // std::cout << "\n\n\nAfter:\n\n\n" << std::endl;
-    // module->dump();
 
     return std::move(module);
 }
