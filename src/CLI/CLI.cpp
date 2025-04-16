@@ -60,8 +60,6 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
         return EXIT_SUCCESS;
     }
     }
-    internal_error << "Unknown backend";
-    return EXIT_FAILURE;
 }
 
 } // namespace
