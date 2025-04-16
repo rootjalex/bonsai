@@ -20,6 +20,8 @@ namespace bonsai {
 namespace codegen {
 
 // Generates LLVM IR from a bonsai program with the respective compiler options.
+// If an output file is provided, then the emitted LLVM IR is written there.
+// Otherwise it is printed to std::cout.
 void to_llvm(const ir::Program &program, const CompilerOptions &options);
 
 } // namespace codegen

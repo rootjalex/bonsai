@@ -135,10 +135,10 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     llvm::TargetOptions target_options;
 
     // TODO: set options?
-    target_options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
-    target_options.UnsafeFPMath = true;
-    target_options.NoInfsFPMath = true;
-    target_options.NoNaNsFPMath = true;
+    // target_options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    // target_options.UnsafeFPMath = true;
+    // target_options.NoInfsFPMath = true;
+    // target_options.NoNaNsFPMath = true;
     // get_target_options(module, target_options);
 
     bool use_pic = true;
