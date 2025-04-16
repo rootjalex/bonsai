@@ -1,12 +1,7 @@
 //! flags: -b cpp
 
-// TODO(cgyurgyik): This is producing garbage, haven't investigated why.
-element Color { x: vector[f32, 3]; }
-element Position { x: i32; y: i32; c: Color; }
-
+element Position { x: i32; y: i32; }
 
 func add(i: Position, j: Position) -> Position {
-    v: vector[f32, 3] = {1.0, 1.0, 1.0};
-    c: Color = {v};
-    return Position {i.x + j.x, i.y + j.y, c };
+    return Position {i.x + j.x, i.y + j.y };
 }

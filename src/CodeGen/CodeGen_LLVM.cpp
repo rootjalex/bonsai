@@ -327,14 +327,15 @@ CodeGen_LLVM::compile_program(const Program &program,
 
     // TODO(cgyurgyik): It might be useful for debugging to have some flag
     // in compiler options to turn this off.
-    this->optimize_module(options);
+    std::unique_ptr<llvm::TargetMachine> tm =
+        make_target_machine(*module, options);
+    optimize_module(*tm, options);
 
     return std::move(module);
 }
 
-void CodeGen_LLVM::optimize_module(const CompilerOptions &options) {
-    std::unique_ptr<llvm::TargetMachine> tm =
-        make_target_machine(*module, options);
+void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
+                                   const CompilerOptions &options) {
 
     const bool do_loop_opt =
         true; // get_target().has_feature(Target::EnableLLVMLoopOpt);
@@ -346,7 +347,7 @@ void CodeGen_LLVM::optimize_module(const CompilerOptions &options) {
         true; // Note: SLP vectorization has no analogue in the scheduling model
     pto.LoopUnrolling = do_loop_opt;
 
-    llvm::PassBuilder pb(tm.get(), pto);
+    llvm::PassBuilder pb(&tm, pto);
 
     bool debug_pass_manager = false;
     // These analysis managers have to be declared in this order.
@@ -379,7 +380,7 @@ void CodeGen_LLVM::optimize_module(const CompilerOptions &options) {
 
     mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
 
-    if (tm->isPositionIndependent()) {
+    if (tm.isPositionIndependent()) {
         // Add a pass that converts lookup tables to relative lookup tables to
         // make them PIC-friendly. See
         // https://bugs.llvm.org/show_bug.cgi?id=45244
@@ -469,10 +470,7 @@ void CodeGen_LLVM::optimize_module(const CompilerOptions &options) {
         }
     }
 
-    if (tm) {
-        tm->registerPassBuilderCallbacks(pb);
-    }
-
+    tm.registerPassBuilderCallbacks(pb);
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
     mpm.run(*module, mam);
 
@@ -1246,7 +1244,7 @@ void CodeGen_LLVM::visit(const Build *node) {
             return;
         }
         // Fill with designated values.
-        value = llvm::PoisonValue::get(build_type);
+        value = llvm::UndefValue::get(build_type);
         for (size_t i = 0; i < values.size(); i++) {
             value = builder->CreateInsertElement(value, values[i], i);
         }
@@ -1288,7 +1286,7 @@ void CodeGen_LLVM::visit(const Build *node) {
         } else {
             internal_assert(defaults.empty() ||
                             (values.size() == fields.size()));
-            value = llvm::PoisonValue::get(build_type);
+            value = llvm::UndefValue::get(build_type);
             for (size_t i = 0; i < values.size(); i++) {
                 value = builder->CreateInsertValue(value, values[i], i);
             }
@@ -1797,7 +1795,7 @@ void CodeGen_LLVM::declare_struct_types(
     // TODO: maybe make sure there's never an infinitely-recursive type?
     for (const auto &_struct : structs) {
         struct_types[_struct->name] =
-            llvm::StructType::create(*context, _struct->name);
+            llvm::StructType::create(*context, "struct." + _struct->name);
         // llvm::errs() << "created: " << *struct_types[_struct->name] << "\n";
     }
     // Now build bodies, possibly referencing other struct types.

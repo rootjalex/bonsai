@@ -52,7 +52,8 @@ struct CodeGen_LLVM : public ir::Visitor {
      * multiple related modules (e.g. multiple device kernels). */
     virtual void init_module();
 
-    virtual void optimize_module(const CompilerOptions &options);
+    virtual void optimize_module(llvm::TargetMachine &tm,
+                                 const CompilerOptions &options);
 
     llvm::Function *declare_function(const ir::Function &func);
     void compile_function(const ir::Function &func, llvm::Function *function);
