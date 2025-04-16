@@ -92,7 +92,6 @@ static std::string get_specifier(const ir::Type &type) {
     }
     if (!(type.is_numeric() && (width == 32 || width == 64))) {
         internal_error << "[unimplemented] LLVM print: " << type;
-        return "";
     }
     if (type.is_int()) {
         if (width > 32)
