@@ -205,7 +205,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << '\n' << BonsaiToCpp().create_header(program) << '\n';
+        llvm::outs() << BonsaiToCpp().create_header(program) << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "// LLVM Module" << '\n';
         module->print(llvm::outs(), nullptr);
