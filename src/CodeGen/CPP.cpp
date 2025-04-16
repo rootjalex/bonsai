@@ -112,17 +112,23 @@ class BonsaiToCpp {
         type.accept(&emit);
     }
 
-    void emit_signature_type(const ir::Type &type) {
-        // TODO(cgyurgyik): pass by const& unless mutable, then &...?
-        if (const auto *struct_type = type.as<ir::Struct_t>()) {
+    void emit_signature_type(const ir::Type &type,
+                             bool is_return_type = false) {
+        const auto *struct_type = type.as<ir::Struct_t>();
+        if (struct_type == nullptr) {
+            emit_type(type);
+            return;
+        }
+        if (is_return_type) {
             ss << struct_type->name;
             return;
         }
-        emit_type(type);
+        // TODO(cgyurgyik): pass by const& unless mutable, then &...?
+        ss << "const" << ' ' << struct_type->name << '&';
     }
 
     void emit_func(const ir::Function &func) {
-        emit_signature_type(func.ret_type);
+        emit_signature_type(func.ret_type, /*is_return_type=*/true);
         ss << ' ' << func.name;
         ss << '(';
         for (int i = 0, e = func.args.size(); i < e; ++i) {

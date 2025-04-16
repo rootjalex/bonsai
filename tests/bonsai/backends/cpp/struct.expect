@@ -10,7 +10,7 @@ struct Position {
     int32_t y;
 };
 
-Position add(Position i, Position j);
+Position add(const Position& i, const Position& j);
 }
 
 ------------------------------------------
