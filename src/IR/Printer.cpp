@@ -424,16 +424,20 @@ void Printer::visit(const IVector *node) {
 }
 
 void Printer::visit(const IntImm *node) {
-    os << "(";
-    print(node->type);
-    os << ")";
+    if (print_type) {
+        os << "(";
+        print(node->type);
+        os << ")";
+    }
     os << node->value;
 }
 
 void Printer::visit(const UIntImm *node) {
-    os << "(";
-    print(node->type);
-    os << ")";
+    if (print_type) {
+        os << "(";
+        print(node->type);
+        os << ")";
+    }
     os << node->value;
 }
 
@@ -456,6 +460,22 @@ void Printer::visit(const FloatImm *node) {
 void Printer::visit(const BoolImm *node) {
     const auto *str = node->value ? "true" : "false";
     os << str;
+}
+
+void Printer::visit(const VecImm *node) {
+    os << "(";
+    print(node->type);
+    os << ")[";
+    print_type = false; // Already apparent in the vector type.
+    for (int i = 0, e = node->type.lanes(); i < e; ++i) {
+        print(node->values[i]);
+        if (i + 1 == e) {
+            continue;
+        }
+        os << ",";
+    }
+    print_type = true;
+    os << "]";
 }
 
 void Printer::visit(const Infinity *node) {

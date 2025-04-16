@@ -93,6 +93,7 @@ struct Printer : public Visitor {
     void visit(const UIntImm *) override;
     void visit(const FloatImm *) override;
     void visit(const BoolImm *) override;
+    void visit(const VecImm *) override;
     void visit(const Infinity *) override;
     void visit(const Var *) override;
     void print(const BinOp::OpType &op);
@@ -157,6 +158,9 @@ struct Printer : public Visitor {
      * args to a call are already separated by commas and a
      * surrounding set of parens. */
     bool implicit_parens = false;
+
+    /** Certain expressions don't need to redundantly print the type. */
+    bool print_type = true;
 
     /** Either emits "(" or "", depending on the value of implicit_parens */
     void open();

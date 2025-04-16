@@ -15,19 +15,33 @@ bool is_const_one(const ir::Expr &e);
 bool is_const_zero(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
 
+// Attempts to infer the value at the given index in the vector `v`, otherwise
+// returns an undefined expression upon failure.
+ir::Expr get_value_at(ir::Expr v, int64_t index);
+
 // Returns the unsigned bit representation of this expression. Defaults to
-// interpreting this as a bit field. For example,
+// interpreting this as a bit field. For vectors, an index value should be
+// provided as well. For example,
 //   ir::Expr e = IntImm::make(i64, -1);
 //   assert(get_constant_value<int64_t>(e) == -1);
 template <typename T = uint64_t>
-std::optional<T> get_constant_value(const ir::Expr &e) {
+std::optional<T> get_constant_value(const ir::Expr &e,
+                                    std::optional<int64_t> index = {}) {
     if (!is_const(e)) {
         return {};
     }
-    // Conservatively fail if the bit size is > 64.
-    ir::Type element_type = e.type();
-    if (element_type.is_scalar()) {
-        internal_assert(element_type.bits() <= 64) << element_type;
+    ir::Type type = e.type();
+    if (type.is_vector()) {
+        internal_assert(index.has_value()) << e;
+        ir::Expr value = get_value_at(e, *index);
+        return get_constant_value<T>(std::move(value));
+    }
+    if (type.is_scalar()) {
+        internal_assert(!index.has_value())
+            << "unexpected index provided: " << *index
+            << "for scalar value: " << e;
+        // Conservatively fail if the bit size is > 64.
+        internal_assert(type.bits() <= 64) << type;
     }
     if (const auto *v = e.as<ir::UIntImm>()) {
         return std::bit_cast<T>(v->value);
@@ -43,12 +57,9 @@ std::optional<T> get_constant_value(const ir::Expr &e) {
         uint64_t value = static_cast<uint64_t>(v->value);
         return std::bit_cast<T>(value);
     }
-    if (const auto *v = e.as<ir::Broadcast>()) {
-        ir::Expr value = v->value;
-        return get_constant_value<T>(value);
-    }
+
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
-                   << element_type;
+                   << type;
 }
 
 // Creates an immediate with value `0` and the provided type.

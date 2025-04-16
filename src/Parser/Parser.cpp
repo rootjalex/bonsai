@@ -750,7 +750,14 @@ struct Parser {
             // When assigning a vector with an initializer list, this may occur,
             // e.g., `v: vector[i32, 2] = {1, 2};`, which is parsed as:
             //       `v: vector[i32, 2] = build<unknown>((i32)1, (i32)2)`
-            value = ir::Build::make(type_label, std::move(build->values));
+            if (const auto *vector_type = type_label.as<ir::Vector_t>();
+                vector_type &&
+                std::all_of(build->values.begin(), build->values.end(),
+                            [](const ir::Expr &e) { return is_const(e); })) {
+                value = ir::VecImm::make(build->values);
+            } else {
+                value = ir::Build::make(type_label, build->values);
+            }
         }
 
         // TODO: do type-forcing here!

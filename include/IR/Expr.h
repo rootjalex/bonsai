@@ -21,6 +21,7 @@ enum class IRExprEnum {
     IdxImm,
     FloatImm,
     BoolImm,
+    VecImm,
     Var,
     Infinity,
     BinOp,
@@ -130,6 +131,14 @@ struct BoolImm : ExprNode<BoolImm> {
     static Expr make(bool value);
 
     static const IRExprEnum _node_type = IRExprEnum::BoolImm;
+};
+
+struct VecImm : ExprNode<VecImm> {
+
+    static Expr make(std::vector<ir::Expr> values);
+    static const IRExprEnum _node_type = IRExprEnum::VecImm;
+
+    std::vector<ir::Expr> values;
 };
 
 struct Var : ExprNode<Var> {

@@ -1,0 +1,29 @@
+//! flags: -p canonicalize -p simplify
+
+func f1() -> i32 {
+  x: i32 = 2;
+  ts: vector[i32, 3] = {1, 2, x + 1};
+  return ts[2];
+}
+
+func f2(i : i32) -> i32 {
+    ws : vector[i32, 3] = -1;
+    xs: vector[i32, 3] = {1,2,3};
+    ys: vector[i32, 3] = {2,3,4};
+    zs: vector[i32, 3] = ws + xs + ys;
+
+    x: i32 = xs[0] + ys[1] + zs[2];
+    y: i32 = x;
+    z: i32 = x + y + i;
+    return 0;
+}
+
+func f3() -> i32 {
+    xs: vector[i32, 3] = {-1, -1, -1};
+    return xs[0];
+}
+
+func f4(i: i32) -> i32 {
+  xs: vector[i32, 2] = {1, i};
+  return xs[0] + xs[1];
+}
