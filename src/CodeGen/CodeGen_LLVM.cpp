@@ -159,6 +159,7 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         // These two backends *require* a data layout.
         module.setDataLayout(tm->createDataLayout());
         module.setTargetTriple(target_triple);
+        break;
     }
     default:
         // TODO(cgyurgyik): should all backends using LLVM be machine specific?
