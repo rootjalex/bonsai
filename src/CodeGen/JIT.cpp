@@ -20,6 +20,7 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
 
     std::unique_ptr<llvm::Module> module =
         codegen.compile_program(program, options);
+    module->setDataLayout(JIT->getDataLayout());
     std::unique_ptr<llvm::LLVMContext> context = codegen.steal_context();
 
     llvm::orc::ThreadSafeModule tsm(std::move(module), std::move(context));

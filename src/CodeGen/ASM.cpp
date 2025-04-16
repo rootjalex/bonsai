@@ -26,30 +26,21 @@ namespace {
 void emit_file(const std::string &filename,
                std::unique_ptr<llvm::Module> module,
                llvm::CodeGenFileType file_type) {
-    std::string target_triple = llvm::sys::getDefaultTargetTriple();
-    module->setTargetTriple(target_triple);
-
+    // This is set LLVM compilation, see CodeGen_LLVM::make_target_machine.
+    std::string target_triple = module->getTargetTriple();
     std::string error;
     const llvm::Target *target =
         llvm::TargetRegistry::lookupTarget(target_triple, error);
-    if (!target) {
+    if (target == nullptr) {
         internal_error << "error: " << error;
     }
 
-    // Create the target machine
+    // Create the target machine for emitting assembly.
     llvm::TargetOptions target_options;
     llvm::TargetMachine *target_machine = target->createTargetMachine(
         target_triple, "generic", "", target_options,
         std::optional<llvm::Reloc::Model>());
-
-    llvm::DataLayout target_data_layout(target_machine->createDataLayout());
-    module->setDataLayout(target_data_layout); // this can't be right...
-    if (!(target_data_layout == module->getDataLayout())) {
-        internal_error
-            << "Warning: module's data layout does not match target machine's\n"
-            << target_data_layout.getStringRepresentation() << "\n"
-            << module->getDataLayout().getStringRepresentation() << "\n";
-    }
+    module->setDataLayout(target_machine->createDataLayout());
 
     // Build up all of the passes that we want to do to the module.
 
@@ -73,7 +64,7 @@ void emit_file(const std::string &filename,
     pass_manager.add(llvm::createAlwaysInlinerLegacyPass());
 
     if (target_machine->isPositionIndependent()) {
-        std::cout << "Target machine is Position Independent!\n";
+        std::cout << "; target machine is Position Independent!\n";
     }
 
     // Override default to generate verbose assembly.

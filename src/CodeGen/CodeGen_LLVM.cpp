@@ -121,9 +121,9 @@ using namespace ir;
 std::unique_ptr<llvm::TargetMachine>
 CodeGen_LLVM::make_target_machine(llvm::Module &module,
                                   const CompilerOptions &options) {
-    std::string error_string;
-    std::string target_triple = llvm::sys::getDefaultTargetTriple();
-
+    // TODO(cgyurgyik): This effectively makes our tests host-machine specific.
+    std::string target_triple = llvm::sys::getDefaultTargetTriple(),
+                error_string;
     const llvm::Target *llvm_target =
         llvm::TargetRegistry::lookupTarget(target_triple, error_string);
     if (llvm_target == nullptr) {
@@ -155,10 +155,18 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
         llvm::CodeGenOptLevel::Aggressive);
 
-    // TODO(cgyurgyik): Why does this cause errors for the JIT compiler?
-    if (options.target == BackendTarget::CPP) {
+    switch (options.target) {
+    case BackendTarget::ASM:
+    case BackendTarget::CPP: {
+        // These two backends *require* a data layout.
         module.setDataLayout(tm->createDataLayout());
         module.setTargetTriple(target_triple);
+    }
+    default:
+        // TODO(cgyurgyik): should all backends using LLVM be machine specific?
+        // Pros: we see the actual code being generated. Cons: our tests either
+        // become host-machine specific or are defaulted to a specific machine.
+        break;
     }
     return std::unique_ptr<llvm::TargetMachine>(tm);
 }
@@ -318,15 +326,14 @@ CodeGen_LLVM::compile_program(const Program &program,
     }
     frames.pop_frame();
 
+    // TODO(cgyurgyik): It might be useful for debugging to have some flag
+    // in compiler options to turn this off.
     this->optimize_module(options);
 
     return std::move(module);
 }
 
 void CodeGen_LLVM::optimize_module(const CompilerOptions &options) {
-    // Get host target triple.
-    std::string target_triple = llvm::sys::getDefaultTargetTriple();
-
     std::unique_ptr<llvm::TargetMachine> tm =
         make_target_machine(*module, options);
 
