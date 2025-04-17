@@ -273,9 +273,8 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     llvm::FunctionType *ftype =
         llvm::FunctionType::get(ret_type, arg_types, /* isVarArg */ false);
 
-    llvm::Function *fn = llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage,
-                                  func.name, module.get());
-
+    llvm::Function *fn = llvm::Function::Create(
+        ftype, llvm::GlobalValue::ExternalLinkage, func.name, module.get());
 
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];
@@ -318,14 +317,15 @@ void CodeGen_LLVM::compile_function(const Function &func,
         const auto &arg_info = func.args[arg_idx];
         std::string name = arg_info.name;
         // non-mutable structs are ptrs, so need some indirection.
-        const bool immutable_struct = arg_info.type.is<Struct_t>() && !arg_info.mutating;
+        const bool immutable_struct = arg_info.type.is<Struct_t>();
         llvm::Value *arg_value = &arg;
         if (immutable_struct) {
             llvm::Type *arg_type = codegen_type(arg_info.type);
             arg_value = builder->CreateLoad(arg_type, arg_value);
         }
         arg.setName(name);
-        frames.add_to_frame(arg_info.name, {arg_value, /* mutable */ arg_info.mutating});
+        frames.add_to_frame(arg_info.name,
+                            {arg_value, /* mutable */ arg_info.mutating});
         arg_idx++;
     }
 
@@ -366,7 +366,8 @@ CodeGen_LLVM::compile_program(const Program &program,
     // in compiler options to turn this off.
     std::unique_ptr<llvm::TargetMachine> tm =
         make_target_machine(*module, options);
-    optimize_module(*tm, options);
+    // TODO(cgyurgyik): Causing crashes for exported-function.bonsai -- why?
+    // optimize_module(*tm, options);
 
     return std::move(module);
 }
@@ -939,7 +940,8 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
 }
 
 void CodeGen_LLVM::visit(const VoidCall *node) {
-    internal_error << "unimplemented:";
+    ir::Expr call = Call::make(node->func, node->args);
+    call.accept(this);
 }
 
 void CodeGen_LLVM::visit(const Print *node) {

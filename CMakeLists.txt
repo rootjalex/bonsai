@@ -197,6 +197,9 @@ if (bonsai_ENABLE_WARNINGS)
     )
 endif ()
 
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
+set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
+
 ##
 # Bonsai compiler
 

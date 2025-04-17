@@ -70,6 +70,7 @@ class RtOP : public ir::Mutator {
             ir::Assign::make(
                 location,
                 ir::Build::make(argument_type, ir::Struct_t::DefMap{}),
+                // TODO(cgyurgyik): Set to true.
                 /*mutating=*/false),
             ir::VoidCall::make(std::move(function_variable), std::move(args)),
         });
