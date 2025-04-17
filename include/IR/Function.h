@@ -14,12 +14,14 @@ struct Function {
         std::string name;
         Type type;
         Expr default_value;
+        bool mutating;
 
         Argument() {}
 
-        Argument(std::string _name, Type _type, Expr _default_value = Expr())
+        Argument(std::string _name, Type _type, Expr _default_value = Expr(),
+                 bool mutating = false)
             : name(std::move(_name)), type(std::move(_type)),
-              default_value(std::move(_default_value)) {}
+              default_value(std::move(_default_value)), mutating(mutating) {}
 
         Argument(const Argument &) = default;
         Argument(Argument &&) noexcept = default;
@@ -51,14 +53,23 @@ struct Function {
     // Intentionally ordered.
     using InterfaceList = std::vector<NamedInterface>;
     InterfaceList interfaces;
+    // Whether this will be exported to C++.
+    bool is_export;
 
     Function() {}
 
+    // Creates a new function with the provided body.
+    std::shared_ptr<ir::Function> replace_body(ir::Stmt body) {
+        return std::make_shared<Function>(std::move(name), std::move(args),
+                                          std::move(ret_type), std::move(body),
+                                          std::move(interfaces), is_export);
+    }
+
     Function(std::string _name, std::vector<Argument> _args, Type _ret_type,
-             Stmt _body, InterfaceList _interfaces)
+             Stmt _body, InterfaceList _interfaces, bool is_export)
         : name(std::move(_name)), args(std::move(_args)),
           ret_type(std::move(_ret_type)), body(std::move(_body)),
-          interfaces(std::move(_interfaces)) {}
+          interfaces(std::move(_interfaces)), is_export(is_export) {}
 
     // Returns the argument types of this function. This is *not* memoized.
     std::vector<ir::Type> argument_types() const {

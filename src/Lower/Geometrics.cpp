@@ -79,9 +79,7 @@ FuncMap LowerGeometrics::run(FuncMap funcs) const {
     // TODO: what happens with nested geometric ops...?
     for (const auto &[f, func] : funcs) {
         Stmt body = lowerer.mutate(func->body);
-        new_funcs[f] =
-            std::make_shared<Function>(func->name, func->args, func->ret_type,
-                                       std::move(body), func->interfaces);
+        new_funcs[f] = func->replace_body(std::move(body));
     }
     return new_funcs;
 }

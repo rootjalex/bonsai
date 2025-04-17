@@ -94,7 +94,12 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
-    os << "func " << func.name;
+    os << "func ";
+    if (func.is_export) {
+        os << "[[export]] ";
+    }
+    os << func.name;
+
     if (!func.interfaces.empty()) {
         os << "<";
         bool first = true;
@@ -122,7 +127,11 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
 
         os << arg.name;
         if (arg.type.defined()) {
-            os << " : " << arg.type;
+            os << " : ";
+            if (arg.mutating) {
+                os << "mut ";
+            }
+            os << arg.type;
         }
         if (arg.default_value.defined()) {
             os << " = " << arg.default_value;

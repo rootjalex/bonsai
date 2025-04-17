@@ -80,6 +80,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual std::string get_allocation_name(const std::string &n) { return n; }
 
     // Types
+    virtual void visit(const ir::Void_t *) override;
     virtual void visit(const ir::Int_t *) override;
     virtual void visit(const ir::UInt_t *) override;
     virtual void visit(const ir::Index_t *) override;

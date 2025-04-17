@@ -288,8 +288,8 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
     auto ftypes = std::make_shared<ir::Function>();
     ftypes->name = fnotypes->name;
     ftypes->args = fnotypes->args;
-
     ftypes->body = infer_types(fnotypes->body, func_types);
+    ftypes->is_export = fnotypes->is_export;
 
     // If we know the return type (due to annotations), try to coerce all
     // returns to it. If we don't know from annotations, try to infer from some

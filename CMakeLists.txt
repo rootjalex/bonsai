@@ -107,6 +107,7 @@ target_sources(
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
+    src/Lower/ReturnToOutParameter.cpp
     src/Lower/Trees.cpp
     src/Lower/TopologicalOrder.cpp
     src/Lower/TypeInference.cpp
@@ -171,6 +172,7 @@ target_sources(
     include/Lower/Pass.h
     include/Lower/PassManager.h
     include/Lower/PredicateAnalysis.h
+    include/Lower/ReturnToOutParameter.h
     include/Lower/Trees.h
     include/Lower/TopologicalOrder.h
     include/Lower/TypeInference.h

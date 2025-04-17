@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     array.bonsai
     bvh.bonsai
+    exported-function.bonsai
     float.bonsai
     import_float.bonsai
     import_twice.bonsai

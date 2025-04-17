@@ -237,7 +237,7 @@ ir::FuncMap LowerOption::run(ir::FuncMap funcs) const {
 
         new_funcs[f] = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
-            func->interfaces);
+            func->interfaces, /*is_export=*/func->is_export);
     }
     return new_funcs;
 }

@@ -8,6 +8,7 @@
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
 #include "Lower/Options.h"
+#include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
@@ -65,6 +66,7 @@ PassManager register_passes() {
     manager.register_pass<LowerArrays>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
+    manager.register_pass<ReturnToOutParameter>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Simplify>();
@@ -82,6 +84,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerLambda>());
     core.push_back(std::make_unique<LowerOption>());
     core.push_back(std::make_unique<LowerGeneric>());
+    core.push_back(std::make_unique<ReturnToOutParameter>());
     manager.register_alias("core", core);
 
     // Default: the default work flow (with optimizations).
@@ -96,6 +99,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerLambda>());
     d.push_back(std::make_unique<LowerOption>());
     d.push_back(std::make_unique<LowerGeneric>());
+    d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     manager.register_alias("default", d);

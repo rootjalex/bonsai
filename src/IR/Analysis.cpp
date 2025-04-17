@@ -338,5 +338,27 @@ bool contains_generics(const Type &type, const TypeMap &types) {
     return !checker.seen_types.empty();
 }
 
+bool is_recursive(const ir::Function &function) {
+    class Checker : public Visitor {
+      public:
+        Checker(std::string_view name) : name(name) {}
+        bool recursion_found = false;
+
+      private:
+        std::string_view name; // of the function
+        void visit(const Call *node) override {
+            if (recursion_found) {
+                return;
+            }
+            if (const auto *var = node->func.as<ir::Var>()) {
+                recursion_found = (var->name == name);
+            }
+        }
+    };
+    Checker checker(function.name);
+    function.body.accept(&checker);
+    return checker.recursion_found;
+}
+
 } // namespace ir
 } // namespace bonsai

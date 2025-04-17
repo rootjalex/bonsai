@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Opt/DCE.cpp:84
+
+--> !node->mutating || use_counts.contains(node->loc.base)
+ComputeUseCounts already active for var: $r0 in stmt: $r0 = build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
+

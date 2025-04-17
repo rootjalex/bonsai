@@ -482,6 +482,8 @@ void CodeGen_LLVM::visit(const Int_t *node) {
     type = llvm::Type::getIntNTy(*context, node->bits);
 }
 
+void CodeGen_LLVM::visit(const Void_t *node) { type = void_t; }
+
 void CodeGen_LLVM::visit(const UInt_t *node) {
     // LLVM does not distinguish between signed and unsigned integer types.
     type = llvm::Type::getIntNTy(*context, node->bits);
@@ -1427,7 +1429,7 @@ void CodeGen_LLVM::visit(const Store *node) {
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
     llvm::Value *_value = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, {_value, /* mutable */ false});
+    frames.add_to_frame(node->loc.base, {_value, /* mutable=*/false});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -1655,7 +1657,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 
     // We set mutable to false because Var codegen would perform a load from
     // this pointer if it was mutable.
-    frames.add_to_frame(node->name, {alloc, /* mutable */ false});
+    frames.add_to_frame(node->name, {alloc, /* mutable=*/false});
 }
 
 void CodeGen_LLVM::visit(const ForAll *node) {
@@ -1902,6 +1904,7 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
     llvm::Value *base = nullptr;
     if (frames.name_in_scope(loc.base)) {
         auto [_base, _mutable] = frames.from_frames(loc.base);
+        // TODO(cgyurgyik): Why is this getting triggered?
         internal_assert(_mutable)
             << "Attempting to codegen write to immutable data: " << loc.base;
         base = _base;
