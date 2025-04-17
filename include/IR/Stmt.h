@@ -92,6 +92,8 @@ struct Return : StmtNode<Return> {
     Expr value;
 
     static Stmt make(Expr value);
+    // A void return statement.
+    static Stmt make();
 
     static const IRStmtEnum _node_type = IRStmtEnum::Return;
 };

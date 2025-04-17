@@ -177,7 +177,12 @@ void Visitor::visit(const VoidCall *node) {
 
 void Visitor::visit(const Print *node) { node->value.accept(this); }
 
-void Visitor::visit(const Return *node) { node->value.accept(this); }
+void Visitor::visit(const Return *node) {
+    if (!node->value.defined()) {
+        return;
+    }
+    node->value.accept(this);
+}
 
 void Visitor::visit(const Store *node) {
     if (node->index.defined()) {

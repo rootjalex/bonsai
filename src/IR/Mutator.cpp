@@ -414,6 +414,9 @@ Stmt Mutator::visit(const Print *node) {
 }
 
 Stmt Mutator::visit(const Return *node) {
+    if (!node->value.defined()) {
+        return node;
+    }
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
         return node;

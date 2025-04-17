@@ -38,6 +38,12 @@ Stmt Return::make(Expr value) {
     return node;
 }
 
+Stmt Return::make() {
+    Return *node = new Return;
+    node->value = ir::Expr();
+    return node;
+}
+
 Stmt Store::make(std::string name, Expr index, Expr value) {
     internal_assert(!name.empty()) << "Empty name in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";

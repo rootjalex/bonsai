@@ -1,16 +1,12 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define bfloat @id1(bfloat returned %x) local_unnamed_addr #0 {
+define bfloat @id1(bfloat noundef %x) {
 id1_entry:
   ret bfloat %x
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define bfloat @id2(bfloat returned %x) local_unnamed_addr #0 {
+define bfloat @id2(bfloat noundef %x) {
 id2_entry:
   ret bfloat %x
 }
-
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

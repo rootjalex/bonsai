@@ -29,6 +29,9 @@ class RtOP : public ir::Mutator {
 
     ir::Stmt visit(const ir::Return *node) override {
         ir::Expr value = node->value;
+        if (!value.defined()) {
+            return node;
+        }
         if (!current.is_export) {
             return ir::Mutator::visit(node);
         }
@@ -38,7 +41,11 @@ class RtOP : public ir::Mutator {
         }
         std::string identifier = arguments.front().name;
         ir::WriteLoc location(std::move(identifier), value.type());
-        return ir::Assign::make(location, std::move(value), /*mutating=*/true);
+
+        return ir::Sequence::make({
+            ir::Assign::make(location, std::move(value), /*mutating=*/true),
+            ir::Return::make(),
+        });
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
@@ -61,14 +68,14 @@ class RtOP : public ir::Mutator {
         const ir::Type argument_type = arguments.front().type;
         auto function_variable =
             ir::Var::make(function->call_type(), function_name);
-        std::string id = "$r" + std::to_string(counter++);
-        ir::WriteLoc location(id, argument_type);
-        std::vector<ir::Expr> args = {ir::Var::make(argument_type, id)};
+
+        ir::WriteLoc location(node->loc.base, argument_type);
+        std::vector<ir::Expr> args = {
+            ir::Var::make(argument_type, node->loc.base)};
         args.insert(args.end(), call->args.begin(), call->args.end());
 
         return ir::Sequence::make({
             ir::Assign::make(location, ir::Build::make(argument_type),
-                             // TODO(cgyurgyik): Set to true.
                              /*mutating=*/false),
             ir::VoidCall::make(std::move(function_variable), std::move(args)),
         });

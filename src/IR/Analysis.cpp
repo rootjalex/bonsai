@@ -142,7 +142,10 @@ struct AlwaysReturns : public Visitor {
 struct ReturnType : public Visitor {
     Type type;
 
-    void visit(const Return *node) override { type = node->value.type(); }
+    void visit(const Return *node) override {
+        ir::Expr value = node->value;
+        type = value.defined() ? value.type() : ir::Void_t::make();
+    }
 
     void visit(const Store *) override { type = Type(); }
 

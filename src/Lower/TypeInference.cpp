@@ -149,6 +149,9 @@ ir::Stmt coerce_return_types(const ir::Stmt &stmt, const ir::Type &ret_type) {
         ir::Stmt visit(const ir::Return *node) override {
             // TODO: may need to back-propagate information to variable
             // declarations...
+            if (!node->value.defined()) {
+                return node;
+            }
             if (!node->value.type().defined()) {
                 // TODO: support is_castable!
                 if (is_const(node->value)) {

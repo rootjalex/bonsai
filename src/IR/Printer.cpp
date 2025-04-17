@@ -783,8 +783,11 @@ void Printer::visit(const Print *node) {
 
 void Printer::visit(const Return *node) {
     os << get_indent();
-    os << "return ";
-    print_no_parens(node->value);
+    os << "return";
+    if (node->value.defined()) {
+        os << ' ';
+        print_no_parens(node->value);
+    }
     os << "\n";
 }
 

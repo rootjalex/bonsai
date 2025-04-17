@@ -23,18 +23,17 @@ target triple = "arm64-apple-darwin22.6.0"
 
 %struct.Position = type { i32, i32 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Position @add(%struct.Position %i, %struct.Position %j) local_unnamed_addr #0 {
+define %struct.Position @add(ptr noundef nonnull readonly %i, ptr noundef nonnull readonly %j) {
 add_entry:
-  %0 = extractvalue %struct.Position %i, 0
-  %1 = extractvalue %struct.Position %j, 0
-  %2 = add i32 %1, %0
-  %3 = extractvalue %struct.Position %i, 1
-  %4 = extractvalue %struct.Position %j, 1
-  %5 = add i32 %4, %3
-  %6 = insertvalue %struct.Position undef, i32 %2, 0
-  %7 = insertvalue %struct.Position %6, i32 %5, 1
-  ret %struct.Position %7
+  %0 = load %struct.Position, ptr %i, align 4
+  %1 = load %struct.Position, ptr %j, align 4
+  %2 = extractvalue %struct.Position %0, 0
+  %3 = extractvalue %struct.Position %1, 0
+  %4 = add i32 %2, %3
+  %5 = extractvalue %struct.Position %0, 1
+  %6 = extractvalue %struct.Position %1, 1
+  %7 = add i32 %5, %6
+  %8 = insertvalue %struct.Position undef, i32 %4, 0
+  %9 = insertvalue %struct.Position %8, i32 %7, 1
+  ret %struct.Position %9
 }
-
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

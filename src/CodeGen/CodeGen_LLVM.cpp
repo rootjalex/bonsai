@@ -366,8 +366,12 @@ CodeGen_LLVM::compile_program(const Program &program,
     // in compiler options to turn this off.
     std::unique_ptr<llvm::TargetMachine> tm =
         make_target_machine(*module, options);
-    // TODO(cgyurgyik): Causing crashes for exported-function.bonsai -- why?
-    optimize_module(*tm, options);
+
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "[pre-optimization] compilation resulted in an invalid module";
+    // optimize_module(*tm, options);
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "[post-optimization] compilation resulted in an invalid module";
 
     return std::move(module);
 }
@@ -511,9 +515,6 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     tm.registerPassBuilderCallbacks(pb);
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
     mpm.run(*module, mam);
-
-    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
-        << "Compilation resulted in an invalid module";
 }
 
 void CodeGen_LLVM::visit(const Int_t *node) {
@@ -940,8 +941,7 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
 }
 
 void CodeGen_LLVM::visit(const VoidCall *node) {
-    ir::Expr call = Call::make(node->func, node->args);
-    call.accept(this);
+    Call::make(node->func, node->args).accept(this);
 }
 
 void CodeGen_LLVM::visit(const Print *node) {
@@ -1089,13 +1089,8 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
     // TODO: perform splitting? investigate LLVM's splitting.
 
     if (init) {
-        // std::cerr << "Calling with init = " << init << "\n";
-        // std::cout << "calling intrinsic for: " << ir::Expr(node) <<
-        // std::endl;
         value = builder->CreateIntrinsic(elementType, intrin, {init, v});
     } else {
-        // std::cout << "calling intrinsic for: " << ir::Expr(node) <<
-        // std::endl;
         value = builder->CreateIntrinsic(elementType, intrin, {v});
     }
 
@@ -1267,8 +1262,19 @@ void CodeGen_LLVM::visit(const Call *node) {
 
     for (size_t i = 0; i < n_args; i++) {
         args[i] = codegen_expr(node->args[i]);
+
+        if (isa<llvm::LoadInst>(args[i])) {
+            auto *load = dyn_cast<llvm::LoadInst>(args[i]);
+            internal_assert(load);
+            args[i] = load->getPointerOperand();
+        } else if (node->args[i].type().is<ir::Struct_t>() &&
+                   !isa<llvm::AllocaInst>(args[i])) {
+            // We assume structs will always be passed by pointer.
+            llvm::Value *alloca = builder->CreateAlloca(args[i]->getType());
+            builder->CreateStore(args[i], alloca);
+            args[i] = alloca;
+        }
     }
-    // TODO(ajr): fix function calls with struct params
     value = builder->CreateCall(func, args);
 }
 
@@ -1388,9 +1394,12 @@ void CodeGen_LLVM::visit(const Unwrap *node) {
 }
 
 void CodeGen_LLVM::visit(const Return *node) {
-    llvm::Value *ret_val = codegen_expr(node->value);
-    // Add return statement.
-    builder->CreateRet(ret_val);
+    ir::Expr value = node->value;
+    if (!value.defined()) {
+        builder->CreateRetVoid();
+        return;
+    }
+    builder->CreateRet(codegen_expr(value));
 }
 
 void CodeGen_LLVM::visit(const Store *node) {
@@ -1544,6 +1553,11 @@ void CodeGen_LLVM::visit(const Assign *node) {
                          << " in assignment: " << ir::Stmt(node);
 
     llvm::Value *_value = codegen_expr(node->value);
+    if (!llvm::isa<llvm::PointerType>(loc->getType())) {
+        auto *load = dyn_cast<llvm::LoadInst>(loc);
+        internal_assert(load);
+        loc = load->getPointerOperand();
+    }
 
     builder->CreateStore(
         _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
