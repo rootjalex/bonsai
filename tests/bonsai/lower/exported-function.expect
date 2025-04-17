@@ -8,7 +8,7 @@ func main() -> i32 {
   let i = build<Position>((i32)1, (i32)2, (i32)3, 1f) in
   let j = build<Position>((i32)10, (i32)20, (i32)30, 41f) in
   $r1 = build<Position>()
-  let _ = foo($r1, i, j) in
+  foo($r1, i, j)
   return (i32)0
 }
 

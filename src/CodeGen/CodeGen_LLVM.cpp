@@ -901,6 +901,10 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     args.push_back(expr);
 }
 
+void CodeGen_LLVM::visit(const VoidCall *node) {
+    internal_error << "unimplemented:";
+}
+
 void CodeGen_LLVM::visit(const Print *node) {
     // TODO(ajr): fix this to print like a vector.
     /*
