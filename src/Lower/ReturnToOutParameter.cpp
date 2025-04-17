@@ -17,7 +17,6 @@ namespace {
 // A counter for uniquely naming the newly created return values.
 static int32_t counter = 0;
 
-// TODO(cgyurgyik): This does not work for anything but the simple case.
 class RtOP : public ir::Mutator {
   public:
     RtOP(ir::Function &current, ir::FuncMap &functions)
@@ -84,6 +83,7 @@ class RtOP : public ir::Mutator {
     ir::Expr visit(const ir::Call *node) override { return node; }
 };
 } // namespace
+
 ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
     ir::FuncMap new_functions;
 
@@ -96,14 +96,15 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
             new_functions[name] = std::move(function);
             continue;
         }
-        internal_assert(!is_recursive(*function))
-            << "[unimplemented recursive [[export]] function: " << *function;
         ir::Type return_type = function->ret_type;
         const auto *struct_type = return_type.as<ir::Struct_t>();
         if (struct_type == nullptr) {
             new_functions[name] = std::move(function);
             continue;
         }
+        internal_assert(!is_recursive(*function))
+            << "[unimplemented] recursive [[export]] function: " << *function;
+
         // Update function arguments with additional mutable argument that
         // signifies the returned value.
         const auto &function_arguments = function->args;
