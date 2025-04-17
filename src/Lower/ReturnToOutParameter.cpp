@@ -14,7 +14,7 @@ namespace bonsai {
 namespace lower {
 
 namespace {
-// A counter
+// A counter for uniquely naming the newly created return values.
 static int32_t counter = 0;
 
 // TODO(cgyurgyik): This does not work for anything but the simple case.
@@ -107,7 +107,7 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
         // Update function arguments with additional mutable argument that
         // signifies the returned value.
         const auto &function_arguments = function->args;
-        std::string argument_name = "$r" + std::to_string(counter++);
+        std::string argument_name = "$return" + std::to_string(counter++);
         std::vector<ir::Function::Argument> arguments = {
             ir::Function::Argument(
                 /*name=*/argument_name,

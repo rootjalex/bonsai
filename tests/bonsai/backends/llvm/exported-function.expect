@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 @0 = private unnamed_addr constant [46 x i8] c"Position {\0A  x: %d\0A  y: %d\0A  z: %d\0A  c: %f\0A}\0A\00", align 1
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @foo(ptr nocapture noundef nonnull writeonly %"$r0", ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
+define void @foo(ptr nocapture noundef nonnull writeonly %"$return0", ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
 foo_entry:
   %.elt3 = getelementptr inbounds i8, ptr %i, i64 8
   %.unpack4 = load i32, ptr %.elt3, align 4
@@ -19,11 +19,11 @@ foo_entry:
   %2 = load <2 x i32>, ptr %i, align 4
   %3 = load <2 x i32>, ptr %j, align 4
   %4 = add <2 x i32> %3, %2
-  store <2 x i32> %4, ptr %"$r0", align 4
-  %"$r0.repack16" = getelementptr inbounds i8, ptr %"$r0", i64 8
-  store i32 %0, ptr %"$r0.repack16", align 4
-  %"$r0.repack18" = getelementptr inbounds i8, ptr %"$r0", i64 12
-  store float %1, ptr %"$r0.repack18", align 4
+  store <2 x i32> %4, ptr %"$return0", align 4
+  %"$return0.repack16" = getelementptr inbounds i8, ptr %"$return0", i64 8
+  store i32 %0, ptr %"$return0.repack16", align 4
+  %"$return0.repack18" = getelementptr inbounds i8, ptr %"$return0", i64 12
+  store float %1, ptr %"$return0.repack18", align 4
   ret void
 }
 

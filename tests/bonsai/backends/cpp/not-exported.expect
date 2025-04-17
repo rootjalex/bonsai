@@ -12,7 +12,7 @@ struct G {
     F f;
 };
 
-void id(G& r0, const G& g);
+void id(G& return0, const G& g);
 }
 
 ------------------------------------------
@@ -31,10 +31,10 @@ IGNORE_FUNC_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @id(ptr nocapture noundef nonnull writeonly %"$r0", ptr nocapture noundef nonnull readonly %g) local_unnamed_addr #1 {
+define void @id(ptr nocapture noundef nonnull writeonly %"$return0", ptr nocapture noundef nonnull readonly %g) local_unnamed_addr #1 {
 id_entry:
   %0 = load <2 x i32>, ptr %g, align 4
-  store <2 x i32> %0, ptr %"$r0", align 4
+  store <2 x i32> %0, ptr %"$return0", align 4
   ret void
 }
 

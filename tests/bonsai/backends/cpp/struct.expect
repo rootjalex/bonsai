@@ -9,7 +9,7 @@ struct Position {
     int32_t y;
 };
 
-void add(Position& r0, const Position& i, const Position& j);
+void add(Position& return0, const Position& i, const Position& j);
 }
 
 ------------------------------------------
@@ -21,12 +21,12 @@ target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-darwin22.6.0"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @add(ptr nocapture noundef nonnull writeonly %"$r0", ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
+define void @add(ptr nocapture noundef nonnull writeonly %"$return0", ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
 add_entry:
   %0 = load <2 x i32>, ptr %i, align 4
   %1 = load <2 x i32>, ptr %j, align 4
   %2 = add <2 x i32> %1, %0
-  store <2 x i32> %2, ptr %"$r0", align 4
+  store <2 x i32> %2, ptr %"$return0", align 4
   ret void
 }
 

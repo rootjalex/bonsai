@@ -103,6 +103,8 @@ class TypeEmitter : public ir::Visitor {
 
 class BonsaiToCpp {
   public:
+    // Creates the bonsai header with external functions and their respective
+    // struct definitions.
     std::string create_header(const ir::Program &program) {
         emit_prologue();
         emit_program(program);
@@ -133,7 +135,6 @@ class BonsaiToCpp {
             ss << struct_type->name;
             return;
         }
-        // TODO(cgyurgyik): pass by const& unless mutable, then &...?
         if (!is_mutating) {
             ss << "const" << ' ';
         }
