@@ -938,6 +938,10 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     args.push_back(expr);
 }
 
+void CodeGen_LLVM::visit(const VoidCall *node) {
+    internal_error << "unimplemented:";
+}
+
 void CodeGen_LLVM::visit(const Print *node) {
     // TODO(ajr): fix this to print like a vector.
     /*
@@ -1539,11 +1543,6 @@ void CodeGen_LLVM::visit(const Assign *node) {
 
     llvm::Value *_value = codegen_expr(node->value);
 
-    std::cout << "Making Assign: " << ir::Stmt(node) << "\n";
-    std::cout << "writing to: " << std::flush;
-    loc->print(llvm::outs());
-    llvm::outs() << "\n";
-    llvm::outs().flush();
     builder->CreateStore(
         _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
 }

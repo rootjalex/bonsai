@@ -66,17 +66,13 @@ class RtOP : public ir::Mutator {
         std::vector<ir::Expr> args = {ir::Var::make(argument_type, id)};
         args.insert(args.end(), call->args.begin(), call->args.end());
 
-        ir::Stmt assign = ir::Assign::make(
-            /*loc=*/location,
-            /*value=*/ir::Build::make(argument_type, ir::Struct_t::DefMap{}),
-            /*mutating=*/false);
-        ir::Expr replaced_call =
-            ir::Call::make(std::move(function_variable), std::move(args));
-        // TODO(cgyurgyik): We need some kind of call statement for this case.
-        ir::Stmt let = ir::LetStmt::make(
-            /*loc=*/ir::WriteLoc("_", ir::Void_t::make()),
-            /*value=*/std::move(replaced_call));
-        return ir::Sequence::make({std::move(assign), std::move(let)});
+        return ir::Sequence::make({
+            ir::Assign::make(
+                location,
+                ir::Build::make(argument_type, ir::Struct_t::DefMap{}),
+                /*mutating=*/false),
+            ir::VoidCall::make(std::move(function_variable), std::move(args)),
+        });
     }
 
     ir::Expr visit(const ir::Call *node) override { return node; }
