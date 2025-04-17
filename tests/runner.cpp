@@ -170,6 +170,9 @@ void run_commands(const std::vector<std::string> &commands) {
         std::cerr << "command failed (exit " << rc << ")\n";
         break;
     }
+    if (rc == 0) {
+        return;
+    }
     for (const std::string &command : commands) {
         if (!command.starts_with("rm")) {
             continue;
