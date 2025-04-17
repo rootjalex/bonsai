@@ -1,0 +1,15 @@
+//! flags: -b llvm -e
+
+func [[export]] dbl(i: i32, n : i32) -> i32 {
+  if n > 0 {
+    return dbl(i * 2, n - 1);
+  }
+  return i;
+}
+
+func main() -> i32 {
+  n: i32 = 5;
+  r: i32 = dbl(1, n);
+  print(r);
+  return 0;
+}

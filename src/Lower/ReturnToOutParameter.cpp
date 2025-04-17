@@ -135,8 +135,6 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
             new_functions[name] = std::move(function);
             continue;
         }
-        internal_assert(!is_recursive(*function))
-            << "[unimplemented] recursive [[export]] function: " << *function;
 
         // Update function arguments with additional mutable argument that
         // signifies the returned value.
