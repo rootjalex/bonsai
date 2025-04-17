@@ -106,8 +106,7 @@ struct Parser {
   private:
     // Stores a stack of all program streams.
     std::vector<TokenStream> context;
-    // Filenames of everything visited so far, to
-    // avoid double-imports.
+    // Filenames of everything visited so far, to avoid double-imports.
     std::set<std::string> visited_files;
 
     const TokenStream &tokens() const { return context.back(); }
