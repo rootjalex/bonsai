@@ -35,8 +35,5 @@ bool contains(const ir::Expr &expr) {
     return checker.found;
 }
 
-// Returns whether this function has a recursive call to itself.
-bool is_recursive(const ir::Function &function);
-
 } // namespace ir
 } // namespace bonsai
