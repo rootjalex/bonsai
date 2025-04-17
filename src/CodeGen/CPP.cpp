@@ -20,6 +20,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -164,12 +165,30 @@ class BonsaiToCpp {
     }
 
     void emit_program(const ir::Program &program) {
-        for (const auto &[_, type] : program.types) {
+        std::set<ir::Type> exported_types;
+        for (const auto &[_, func] : program.funcs) {
+            if (!func->is_export) {
+                continue;
+            }
+            for (const ir::Type &type : func->argument_types()) {
+                if (!type.is<ir::Struct_t>()) {
+                    continue;
+                }
+                exported_types.insert(type);
+            }
+            if (ir::Type type = func->ret_type; type.is<ir::Struct_t>()) {
+                exported_types.insert(type);
+            }
+        }
+        for (const ir::Type &type : exported_types) {
             ss << indent();
             emit_type(type);
         }
         ss << '\n';
         for (const auto &[_, func] : program.funcs) {
+            if (!func->is_export) {
+                continue;
+            }
             ss << indent();
             emit_func(*func);
         }

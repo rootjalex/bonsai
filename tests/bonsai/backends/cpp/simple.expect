@@ -23,4 +23,11 @@ add_entry:
   ret i32 %0
 }
 
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @sub(i32 noundef %i, i32 noundef %j) local_unnamed_addr #0 {
+sub_entry:
+  %0 = sub i32 %i, %j
+  ret i32 %0
+}
+
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

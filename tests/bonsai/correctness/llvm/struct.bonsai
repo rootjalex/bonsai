@@ -2,7 +2,7 @@
 
 element Position { x: i32; y: i32; }
 
-func add(i: Position, j: Position) -> Position {
+func [[export]] add(i: Position, j: Position) -> Position {
     return Position {i.x + j.x, i.y + j.y };
 }
 
