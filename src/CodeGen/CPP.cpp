@@ -181,7 +181,6 @@ class BonsaiToCpp {
         ss << '\n' << '\n';
 
         // Headers for C++ types.
-        ss << "#include <array>" << '\n';   // array
         ss << "#include <cstdint>" << '\n'; // integer
 
         // Disable C++ name mangling.

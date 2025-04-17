@@ -1,7 +1,6 @@
 // Bonsai Header
 #pragma once
 
-#include <array>
 #include <cstdint>
 
 extern "C" {

@@ -1,0 +1,6 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/simple
+//! commands: clang++ -c tests/bonsai/correctness/cpp/main_simple.cpp -o tests/bonsai/correctness/cpp/main_simple.o, clang++ tests/bonsai/correctness/cpp/main_simple.o tests/bonsai/correctness/cpp/simple.o -o tests/bonsai/correctness/cpp/simple, ./tests/bonsai/correctness/cpp/simple, rm tests/bonsai/correctness/cpp/simple, rm tests/bonsai/correctness/cpp/main_simple.o, rm tests/bonsai/correctness/cpp/simple.h, rm tests/bonsai/correctness/cpp/simple.o
+
+func add(i: i32, j: i32) -> i32 {
+    return i + j;
+}

@@ -1,0 +1,9 @@
+[test] clang++ -c tests/bonsai/correctness/cpp/main_simple.cpp -o tests/bonsai/correctness/cpp/main_simple.o
+[test] clang++ tests/bonsai/correctness/cpp/main_simple.o tests/bonsai/correctness/cpp/simple.o -o tests/bonsai/correctness/cpp/simple
+[test] ./tests/bonsai/correctness/cpp/simple
+42
+---STDERR---
+rm: tests/bonsai/correctness/cpp/simple: No such file or directory
+rm: tests/bonsai/correctness/cpp/main_simple.o: No such file or directory
+rm: tests/bonsai/correctness/cpp/simple.h: No such file or directory
+rm: tests/bonsai/correctness/cpp/simple.o: No such file or directory

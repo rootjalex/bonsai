@@ -1,4 +1,4 @@
-#include "foo.h"
+#include "struct.h"
 
 #include <iostream>
 
@@ -7,5 +7,5 @@ int main() {
     Position j{.x = 10, .y = 20};
     Position r{.x = 0, .y = 0};
     add(r, i, j);
-    std::cout << "x: " << r.x << ", y: " << r.y;
+    std::cout << "x: " << r.x << ", y: " << r.y << '\n';
 }
