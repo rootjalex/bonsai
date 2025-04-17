@@ -42,6 +42,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::unique_ptr<llvm::TargetMachine>
     make_target_machine(llvm::Module &module, const CompilerOptions &options);
 
+    // Print the LLVM module. If `redacted` is true, we don't print the target
+    // triple or data layout.
+    void print_module(llvm::Module &module, llvm::raw_ostream &os,
+                      bool redacted = false);
+
   protected:
     /** Initialize internal llvm state for the enabled targets. */
     static void init_llvm();

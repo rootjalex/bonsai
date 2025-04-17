@@ -35,25 +35,6 @@ std::string clean_name(std::string name) {
     return name;
 }
 
-// Print the LLVM module. If `redacted` is true, we don't print the target
-// triple or data layout.
-void print_module(llvm::Module &module, bool redacted) {
-    if (!redacted) {
-        module.print(llvm::outs(), nullptr);
-        return;
-    }
-    std::string triple = module.getTargetTriple();
-    llvm::DataLayout layout = module.getDataLayout();
-    {
-        module.setTargetTriple("");
-        module.setDataLayout("");
-        module.print(llvm::outs(), nullptr);
-    }
-    // Reset these in case these are referenced later.
-    module.setTargetTriple(std::move(triple));
-    module.setDataLayout(std::move(layout));
-}
-
 class TypeEmitter : public ir::Visitor {
   public:
     TypeEmitter(std::stringstream &ss, int64_t indent_level)
@@ -267,7 +248,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         llvm::outs() << BonsaiToCpp().create_header(program) << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
-        print_module(*module, /*redacted=*/true);
+        codegen.print_module(*module, llvm::outs(), /*redacted=*/true);
         return;
     }
     std::error_code ec;

@@ -170,6 +170,24 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     return std::unique_ptr<llvm::TargetMachine>(tm);
 }
 
+void CodeGen_LLVM::print_module(llvm::Module &module, llvm::raw_ostream &os,
+                                bool redacted) {
+    if (!redacted) {
+        module.print(os, nullptr);
+        return;
+    }
+    std::string triple = module.getTargetTriple();
+    llvm::DataLayout layout = module.getDataLayout();
+    {
+        module.setTargetTriple("");
+        module.setDataLayout("");
+        module.print(os, nullptr);
+    }
+    // Reset these in case these are referenced later.
+    module.setTargetTriple(std::move(triple));
+    module.setDataLayout(std::move(layout));
+}
+
 CodeGen_LLVM::CodeGen_LLVM() {
     // TODO: set up independent state (e.g. wildcard matchers)
 
