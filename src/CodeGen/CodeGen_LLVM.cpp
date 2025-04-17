@@ -367,7 +367,7 @@ CodeGen_LLVM::compile_program(const Program &program,
     std::unique_ptr<llvm::TargetMachine> tm =
         make_target_machine(*module, options);
     // TODO(cgyurgyik): Causing crashes for exported-function.bonsai -- why?
-    // optimize_module(*tm, options);
+    optimize_module(*tm, options);
 
     return std::move(module);
 }
