@@ -3,7 +3,10 @@
 #include "Stmt.h"
 #include "Type.h"
 
+#include <algorithm>
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace bonsai {
 namespace ir {
@@ -18,10 +21,10 @@ struct Function {
 
         Argument() {}
 
-        Argument(std::string _name, Type _type, Expr _default_value = Expr(),
+        Argument(std::string name, Type type, Expr default_value = Expr(),
                  bool mutating = false)
-            : name(std::move(_name)), type(std::move(_type)),
-              default_value(std::move(_default_value)), mutating(mutating) {}
+            : name(std::move(name)), type(std::move(type)),
+              default_value(std::move(default_value)), mutating(mutating) {}
 
         Argument(const Argument &) = default;
         Argument(Argument &&) noexcept = default;
@@ -40,8 +43,8 @@ struct Function {
 
         NamedInterface();
 
-        NamedInterface(std::string _name, Interface _interface)
-            : name(std::move(_name)), interface(std::move(_interface)) {}
+        NamedInterface(std::string name, Interface interface)
+            : name(std::move(name)), interface(std::move(interface)) {}
 
         NamedInterface(const NamedInterface &) = default;
         NamedInterface(NamedInterface &&) noexcept = default;
@@ -65,11 +68,11 @@ struct Function {
                                           std::move(interfaces), is_export);
     }
 
-    Function(std::string _name, std::vector<Argument> _args, Type _ret_type,
-             Stmt _body, InterfaceList _interfaces, bool is_export)
-        : name(std::move(_name)), args(std::move(_args)),
-          ret_type(std::move(_ret_type)), body(std::move(_body)),
-          interfaces(std::move(_interfaces)), is_export(is_export) {}
+    Function(std::string name, std::vector<Argument> args, Type ret_type,
+             Stmt body, InterfaceList interfaces, bool is_export)
+        : name(std::move(name)), args(std::move(args)),
+          ret_type(std::move(ret_type)), body(std::move(body)),
+          interfaces(std::move(interfaces)), is_export(is_export) {}
 
     // Returns the argument types of this function. This is *not* memoized.
     std::vector<ir::Type> argument_types() const {
