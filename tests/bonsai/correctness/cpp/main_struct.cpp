@@ -4,9 +4,15 @@
 
 // Used in struct.bonsai
 int main() {
-    Position i{.x = 1, .y = 2};
-    Position j{.x = 10, .y = 20};
-    Position r{.x = 0, .y = 0};
+    Position i;
+    i.x = 1;
+    i.y = 2;
+    Position j;
+    j.x = 10;
+    j.y = 20;
+    Position r;
+    r.x = 0;
+    r.y = 0;
     add(r, i, j);
     std::cout << "x: " << r.x << ", y: " << r.y << '\n';
 }

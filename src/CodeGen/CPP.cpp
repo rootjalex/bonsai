@@ -35,6 +35,32 @@ std::string clean_name(std::string name) {
     return name;
 }
 
+// Print the LLVM module. If `redacted` is true, we don't print the target
+// triple or data layout.
+void print_module(llvm::Module &module, bool redacted) {
+    if (!redacted) {
+        module.print(llvm::outs(), nullptr);
+        return;
+    }
+    std::string buffer;
+    llvm::raw_string_ostream rso(buffer);
+    module.print(rso, /*AAW=*/nullptr);
+    rso.flush();
+
+    // Strip the line that mentions “target triple”.
+    std::string cleaned;
+    std::istringstream in(buffer);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.find("target triple") == std::string::npos &&
+            line.find("target datalayout") == std::string::npos) {
+            cleaned += line + '\n';
+        }
+    }
+
+    llvm::outs() << cleaned;
+}
+
 class TypeEmitter : public ir::Visitor {
   public:
     TypeEmitter(std::stringstream &ss, int64_t indent_level)
@@ -248,7 +274,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         llvm::outs() << BonsaiToCpp().create_header(program) << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
-        module->print(llvm::outs(), nullptr);
+        print_module(*module, /*redacted=*/true);
         return;
     }
     std::error_code ec;
