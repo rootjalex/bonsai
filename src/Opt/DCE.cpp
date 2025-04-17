@@ -157,8 +157,10 @@ std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
             << "Found cycle involving: " << f;
         checker.found = false;
         const auto func = funcs.at(f);
-        // Conservatively say that funcs with mutable arguments have side effects.
-        if (std::any_of(func->args.cbegin(), func->args.cend(), [](const auto &arg) { return arg.mutating; })) {
+        // Conservatively say that funcs with mutable arguments have side
+        // effects.
+        if (std::any_of(func->args.cbegin(), func->args.cend(),
+                        [](const auto &arg) { return arg.mutating; })) {
             side_effects.insert(f);
             continue;
         }
@@ -321,7 +323,8 @@ struct DeadCodeElimination : ir::Mutator {
 ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args,
                   const ir::Stmt &stmt,
                   const std::set<std::string> &se_functions) {
-    // TODO(ajr): for non-exported functions, we can remove mutable args that are never used.
+    // TODO(ajr): for non-exported functions, we can remove mutable args that
+    // are never used.
     ComputeUseCounts analyzer(mutable_func_args);
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
