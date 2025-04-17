@@ -766,7 +766,7 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
-void Printer::visit(const VoidCall *node) {
+void Printer::visit(const CallStmt *node) {
     os << get_indent();
     print_no_parens(node->func);
     os << '(';

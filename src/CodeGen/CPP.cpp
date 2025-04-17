@@ -208,12 +208,18 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
 
     // Open the object file (`.o`). We produce an object file during a dry run
     // to ensure no issues occur when testing.
-    std::string output_file =
-        !options.output_file.empty()
-            ? options.output_file
-            : std::string(std::filesystem::temp_directory_path());
+    if (options.output_file.empty()) {
+        // Mostly for dry-run / testing purposes.
+        llvm::outs() << "// Bonsai Header" << '\n';
+        llvm::outs() << BonsaiToCpp().create_header(program) << '\n';
+        llvm::outs() << std::string(42, '-') << '\n';
+        llvm::outs() << '\n' << "; LLVM Module" << '\n';
+        module->print(llvm::outs(), nullptr);
+        return;
+    }
     std::error_code ec;
-    llvm::raw_fd_ostream os(output_file + ".o", ec, llvm::sys::fs::OF_None);
+    llvm::raw_fd_ostream os(options.output_file + ".o", ec,
+                            llvm::sys::fs::OF_None);
     internal_assert(!ec) << ec.message();
 
     // AFAICT, the only way to lower LLVM IR to object files is through the
@@ -227,19 +233,10 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     os.flush();
 
     // Write C++ header file with struct and function declarations (`.h`).
-    if (options.output_file.empty()) {
-        // Mostly for dry-run / testing purposes.
-        llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp().create_header(program) << '\n';
-        llvm::outs() << std::string(42, '-') << '\n';
-        llvm::outs() << '\n' << "; LLVM Module" << '\n';
-        module->print(llvm::outs(), nullptr);
-    } else {
-        std::ofstream file;
-        file.open(output_file + ".h");
-        file << BonsaiToCpp().create_header(program);
-        file.close();
-    }
+    std::ofstream file;
+    file.open(options.output_file + ".h");
+    file << BonsaiToCpp().create_header(program);
+    file.close();
 }
 
 } // namespace codegen

@@ -170,7 +170,7 @@ void Visitor::visit(const Instantiate *node) {
     // TODO: should we visit the instantiated types?
 }
 
-void Visitor::visit(const VoidCall *node) {
+void Visitor::visit(const CallStmt *node) {
     node->func.accept(this);
     visit_list(this, node->args);
 }

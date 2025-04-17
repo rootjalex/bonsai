@@ -18,9 +18,8 @@ namespace codegen {
 //   clang++ main.o foo.o -o main       # link `foo.o`
 //   ./main                             # run it
 //
-// If no output filename is passed, then this will save the object to a
-// temporary file, and then print the Bonsai header declarations and LLVM Module
-// to std::out.
+// If no output filename is passed, it will just print the Bonsai header
+// declarations and LLVM Module to standard I/O.
 void to_cpp(const ir::Program &program, const CompilerOptions &options);
 
 } // namespace codegen

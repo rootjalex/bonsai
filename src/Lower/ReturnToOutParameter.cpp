@@ -77,7 +77,7 @@ class RtOP : public ir::Mutator {
         return ir::Sequence::make({
             ir::Assign::make(location, ir::Build::make(argument_type),
                              /*mutating=*/false),
-            ir::VoidCall::make(std::move(function_variable), std::move(args)),
+            ir::CallStmt::make(std::move(function_variable), std::move(args)),
         });
     }
 

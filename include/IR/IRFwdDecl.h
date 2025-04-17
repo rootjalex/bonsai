@@ -59,7 +59,7 @@ struct Instantiate;
 
 // Stmts
 struct Stmt;
-struct VoidCall;
+struct CallStmt;
 struct Print;
 struct Return;
 struct Store;

@@ -16,7 +16,7 @@ namespace ir {
 struct Stmt;
 
 enum class IRStmtEnum {
-    VoidCall,
+    CallStmt,
     Print,
     Return,
     Store,
@@ -71,13 +71,13 @@ Stmt StmtNode<T>::mutate_stmt(Mutator *m) const {
 }
 
 // A call to a function with void return type and mutable arguments
-struct VoidCall : StmtNode<VoidCall> {
+struct CallStmt : StmtNode<CallStmt> {
     Expr func;
     std::vector<Expr> args;
 
     static Stmt make(Expr func, std::vector<Expr> args);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::VoidCall;
+    static const IRStmtEnum _node_type = IRStmtEnum::CallStmt;
 };
 
 struct Print : StmtNode<Print> {

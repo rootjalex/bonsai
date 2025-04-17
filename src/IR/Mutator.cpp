@@ -396,13 +396,13 @@ Expr Mutator::visit(const Instantiate *node) {
     return Instantiate::make(std::move(expr), node->types);
 }
 
-Stmt Mutator::visit(const VoidCall *node) {
+Stmt Mutator::visit(const CallStmt *node) {
     Expr func = mutate(node->func);
     auto [args, not_changed] = visit_list(this, node->args);
     if (func.same_as(node->func) && not_changed) {
         return node;
     }
-    return VoidCall::make(std::move(func), std::move(args));
+    return CallStmt::make(std::move(func), std::move(args));
 }
 
 Stmt Mutator::visit(const Print *node) {

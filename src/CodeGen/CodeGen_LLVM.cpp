@@ -940,7 +940,7 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     args.push_back(expr);
 }
 
-void CodeGen_LLVM::visit(const VoidCall *node) {
+void CodeGen_LLVM::visit(const CallStmt *node) {
     Call::make(node->func, node->args).accept(this);
 }
 
