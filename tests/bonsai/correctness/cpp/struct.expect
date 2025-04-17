@@ -2,8 +2,3 @@
 [test] clang++ tests/bonsai/correctness/cpp/main_struct.o tests/bonsai/correctness/cpp/struct.o -o tests/bonsai/correctness/cpp/struct
 [test] ./tests/bonsai/correctness/cpp/struct
 x: 11, y: 22
----STDERR---
-rm: tests/bonsai/correctness/cpp/struct: No such file or directory
-rm: tests/bonsai/correctness/cpp/main_struct.o: No such file or directory
-rm: tests/bonsai/correctness/cpp/struct.h: No such file or directory
-rm: tests/bonsai/correctness/cpp/struct.o: No such file or directory
