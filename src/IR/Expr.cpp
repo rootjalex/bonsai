@@ -687,40 +687,42 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
     internal_assert(type.is<Struct_t>())
         << "Cannot build with named fields for non-struct: " << type;
 
-    // TODO(cgyurgyik): We need to relax this I think...
-    // internal_assert(!values.empty())
-    //     << "Cannot build with named fields without any fields for type: "
-    //     << type;
+    internal_assert(!values.empty())
+        << "Cannot build with named fields without any fields for type: "
+        << type;
 
     // Always do type inference, we have enough information here.
-
     const auto &fields = type.as<Struct_t>()->fields;
     const auto &defaults = type.as<Struct_t>()->defaults;
 
     std::vector<Expr> args;
 
-    if (!values.empty()) {
-        for (const auto &field : fields) {
-            internal_assert(values.contains(field.first) ||
-                            defaults.contains(field.first))
-                << "Construction of type: " << type
-                << " has no value for field " << field.first
-                << " in constructor";
-            Expr value = values.contains(field.first)
-                             ? values.at(field.first)
-                             : defaults.at(field.first);
+    for (const auto &field : fields) {
+        internal_assert(values.contains(field.first) ||
+                        defaults.contains(field.first))
+            << "Construction of type: " << type << " has no value for field "
+            << field.first << " in constructor";
+        Expr value = values.contains(field.first) ? values.at(field.first)
+                                                  : defaults.at(field.first);
+        internal_assert(value.defined());
+        if (!equals(value.type(), field.second)) {
+            value = cast_to(field.second, std::move(value));
             internal_assert(value.defined());
-            if (!equals(value.type(), field.second)) {
-                value = cast_to(field.second, std::move(value));
-                internal_assert(value.defined());
-            }
-            args.emplace_back(std::move(value));
         }
+        args.emplace_back(std::move(value));
     }
 
     Build *node = new Build;
     node->type = std::move(type);
     node->values = std::move(args);
+    return node;
+}
+
+Expr Build::make(Type type) {
+    internal_assert(type.is<Struct_t>())
+        << "Cannot build with named fields for non-struct: " << type;
+    Build *node = new Build;
+    node->type = std::move(type);
     return node;
 }
 

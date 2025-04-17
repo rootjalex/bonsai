@@ -275,6 +275,8 @@ struct Build : ExprNode<Build> {
     static Expr make(Type type, std::vector<Expr> values);
     // Named field constructor (for Struct_t only!)
     static Expr make(Type type, std::map<std::string, Expr> values);
+    // Builds an empty struct -- useful when passing as a mutable argument.
+    static Expr make(Type type);
 
     static const IRExprEnum _node_type = IRExprEnum::Build;
 };
