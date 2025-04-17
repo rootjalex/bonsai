@@ -42,23 +42,16 @@ void print_module(llvm::Module &module, bool redacted) {
         module.print(llvm::outs(), nullptr);
         return;
     }
-    std::string buffer;
-    llvm::raw_string_ostream rso(buffer);
-    module.print(rso, /*AAW=*/nullptr);
-    rso.flush();
-
-    // Strip the line that mentions “target triple”.
-    std::string cleaned;
-    std::istringstream in(buffer);
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.find("target triple") == std::string::npos &&
-            line.find("target datalayout") == std::string::npos) {
-            cleaned += line + '\n';
-        }
+    std::string triple = module.getTargetTriple();
+    llvm::DataLayout layout = module.getDataLayout();
+    {
+        module.setTargetTriple("");
+        module.setDataLayout("");
+        module.print(llvm::outs(), nullptr);
     }
-
-    llvm::outs() << cleaned;
+    // Reset these in case these are referenced later.
+    module.setTargetTriple(std::move(triple));
+    module.setDataLayout(std::move(layout));
 }
 
 class TypeEmitter : public ir::Visitor {
