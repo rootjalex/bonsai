@@ -648,7 +648,10 @@ void CodeGen_LLVM::visit(const Var *node) {
     auto [_value, _mutable] = frames.from_frames(node->name);
     if (_mutable) {
         llvm::Type *_type = codegen_type(node->type);
-        value = builder->CreateLoad(_type, _value);
+        // Avoid loading an already-loaded value.
+        value = llvm::isa<llvm::LoadInst>(_value)
+                    ? _value
+                    : builder->CreateLoad(_type, _value);
     } else {
         value = _value; // immutable so not pointer.
     }
@@ -1261,18 +1264,18 @@ void CodeGen_LLVM::visit(const Call *node) {
     std::vector<llvm::Value *> args(n_args);
 
     for (size_t i = 0; i < n_args; i++) {
-        args[i] = codegen_expr(node->args[i]);
+        llvm::Value *argument = codegen_expr(node->args[i]);
 
-        if (isa<llvm::LoadInst>(args[i])) {
-            auto *load = dyn_cast<llvm::LoadInst>(args[i]);
-            internal_assert(load);
+        if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
             args[i] = load->getPointerOperand();
         } else if (node->args[i].type().is<ir::Struct_t>() &&
-                   !isa<llvm::AllocaInst>(args[i])) {
+                   !isa<llvm::AllocaInst>(argument)) {
             // We assume structs will always be passed by pointer.
-            llvm::Value *alloca = builder->CreateAlloca(args[i]->getType());
-            builder->CreateStore(args[i], alloca);
+            auto *alloca = builder->CreateAlloca(argument->getType());
+            builder->CreateStore(argument, alloca);
             args[i] = alloca;
+        } else {
+            args[i] = argument;
         }
     }
     value = builder->CreateCall(func, args);
@@ -1380,9 +1383,6 @@ void CodeGen_LLVM::visit(const Access *node) {
         value = builder->CreateExtractValue(inner, idx);
         return;
     }
-    // inner->print(llvm::outs());
-    // llvm::outs() << "\n";
-    // llvm::outs().flush();
     internal_error
         << "Lowering of an Access's value did not result in a struct type: "
         << Expr(node);
@@ -1552,15 +1552,12 @@ void CodeGen_LLVM::visit(const Assign *node) {
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc
                          << " in assignment: " << ir::Stmt(node);
 
-    llvm::Value *_value = codegen_expr(node->value);
-    if (!llvm::isa<llvm::PointerType>(loc->getType())) {
-        auto *load = dyn_cast<llvm::LoadInst>(loc);
-        internal_assert(load);
+    llvm::Value *rhs = codegen_expr(node->value);
+    if (auto *load = dyn_cast<llvm::LoadInst>(loc)) {
         loc = load->getPointerOperand();
     }
-
-    builder->CreateStore(
-        _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
+    // TODO: when is isVolatile true?
+    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {

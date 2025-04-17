@@ -16,6 +16,8 @@ namespace lower {
 namespace {
 // A counter for uniquely naming the newly created return values.
 static int32_t counter = 0;
+// Name of the new return value parameter.
+static constexpr std::string_view PARAMETER_NAME = "$return";
 
 class RtOP : public ir::Mutator {
   public:
@@ -25,6 +27,34 @@ class RtOP : public ir::Mutator {
   private:
     ir::Function &current;
     ir::FuncMap &functions;
+
+    // If this is an exported call nested within another exported call, we
+    // handle the updated call statement here.
+    std::optional<ir::Stmt> get_nested_export_call(ir::Expr node,
+                                                   const ir::WriteLoc &loc) {
+        const auto *call = node.as<ir::Call>();
+        if (call == nullptr) {
+            return {};
+        }
+        const auto *v = call->func.as<ir::Var>();
+        internal_assert(v) << call->func;
+        auto it = functions.find(v->name);
+        if (it == functions.end()) {
+            return {};
+        }
+        const ir::Function &f = *it->second;
+        if (!f.is_export || f.args.empty()) {
+            return {};
+        }
+        if (!f.args[0].name.starts_with(PARAMETER_NAME)) {
+            // We assume this is the only place that will use such a name.
+            return {};
+        }
+        ir::Expr updated = ir::Var::make(f.call_type(), f.name);
+        std::vector<ir::Expr> arguments = {ir::Var::make(loc.type, loc.base)};
+        arguments.insert(arguments.end(), call->args.begin(), call->args.end());
+        return ir::CallStmt::make(std::move(updated), std::move(arguments));
+    }
 
     ir::Stmt visit(const ir::Return *node) override {
         ir::Expr value = node->value;
@@ -39,8 +69,11 @@ class RtOP : public ir::Mutator {
             return ir::Mutator::visit(node);
         }
         std::string identifier = arguments.front().name;
-        ir::WriteLoc location(std::move(identifier), value.type());
-
+        ir::WriteLoc location(identifier, value.type());
+        if (std::optional<ir::Stmt> call =
+                get_nested_export_call(value, location)) {
+            return ir::Sequence::make({*call, ir::Return::make()});
+        }
         return ir::Sequence::make({
             ir::Assign::make(location, std::move(value), /*mutating=*/true),
             ir::Return::make(),
@@ -108,7 +141,8 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
         // Update function arguments with additional mutable argument that
         // signifies the returned value.
         const auto &function_arguments = function->args;
-        std::string argument_name = "$return" + std::to_string(counter++);
+        std::string argument_name =
+            std::string(PARAMETER_NAME) + std::to_string(counter++);
         std::vector<ir::Function::Argument> arguments = {
             ir::Function::Argument(
                 /*name=*/argument_name,

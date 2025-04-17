@@ -1,0 +1,17 @@
+//! flags: -b llvm -e
+
+element X { v: i32; }
+
+func [[export]] A(x: X) -> X { return   X{ x.v + 1 }; }
+func [[export]] B(x: X) -> X { return A(X{ x.v + 1 }); }
+func [[export]] C(x: X) -> X { 
+  c: X = B(x);
+  return X {c.v + 1};
+}
+
+func main() -> i32 {
+  x = X { 39 };
+  c = C(x);
+  print(c);
+  return 0;
+}
