@@ -126,6 +126,26 @@ void left_trim(std::string &s) {
             }));
 }
 
+// Replaces all instances of `from` with `to` in `s`.
+void replace_all(std::string &s, const std::string &from,
+                 const std::string &to) {
+    if (from.empty())
+        return; // avoid infinite loop
+    std::size_t pos = 0;
+    while ((pos = s.find(from, pos)) != std::string::npos) {
+        s.replace(pos, from.length(), to);
+        pos += to.length(); // advance past the replacement
+    }
+}
+
+// Returns the directory from `s`, e.g.,
+// get_directory("a/b/c/d.bonsai") => "a/b/c"
+std::string get_directory(const std::string &s) {
+    std::filesystem::path p{s};
+    std::filesystem::path dir = p.parent_path();
+    return dir.string(); // portable separator
+}
+
 // Retrieves commands from the second line of the file. These are assumed to be
 // separated by commas. If your command contains a comma, then god speed.
 std::vector<std::string> get_commands_for_file(const std::string &filename) {
@@ -143,11 +163,13 @@ std::vector<std::string> get_commands_for_file(const std::string &filename) {
         return {};
     }
     sv.remove_prefix(TAG.size());
-
+    std::string directory = get_directory(filename);
     std::istringstream ss(std::string{sv});
     std::string token;
     while (std::getline(ss, token, ',')) {
         left_trim(token);
+        // Replace instances of `<>` with the relative path of this file.
+        replace_all(token, "$<>", directory);
         commands.push_back(token);
     }
     return commands;

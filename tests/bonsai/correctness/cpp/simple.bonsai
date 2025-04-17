@@ -1,5 +1,5 @@
 //! flags: -b cpp -o tests/bonsai/correctness/cpp/simple
-//! commands: clang++ -c tests/bonsai/correctness/cpp/main_simple.cpp -o tests/bonsai/correctness/cpp/main_simple.o, clang++ tests/bonsai/correctness/cpp/main_simple.o tests/bonsai/correctness/cpp/simple.o -o tests/bonsai/correctness/cpp/simple, ./tests/bonsai/correctness/cpp/simple, rm tests/bonsai/correctness/cpp/simple, rm tests/bonsai/correctness/cpp/main_simple.o, rm tests/bonsai/correctness/cpp/simple.h, rm tests/bonsai/correctness/cpp/simple.o
+//! commands: clang++ -c $<>/main_simple.cpp -o $<>/main_simple.o, clang++ $<>/main_simple.o $<>/simple.o -o $<>/simple, ./$<>/simple, rm $<>/simple, rm $<>/main_simple.o, rm $<>/simple.h, rm $<>/simple.o
 
 func add(i: i32, j: i32) -> i32 {
     return i + j;

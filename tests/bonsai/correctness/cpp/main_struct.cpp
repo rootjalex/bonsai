@@ -2,6 +2,7 @@
 
 #include <iostream>
 
+// Used in struct.bonsai
 int main() {
     Position i{.x = 1, .y = 2};
     Position j{.x = 10, .y = 20};
