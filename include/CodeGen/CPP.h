@@ -8,10 +8,10 @@
 namespace bonsai {
 namespace codegen {
 
-// Converts program to a C++ header with struct and function declarations, and
-// its respective .o file, compiled from the LLVM backend. For example, if your
-// output filename is `foo` and your entry point is `main.cpp` (which should
-// `#include "foo.h"`), then run the following commands (Clang):
+// Converts program to a C++ header with exported struct and function
+// declarations, and its respective .o file, compiled from the LLVM backend. For
+// example, if your output filename is `foo` and your entry point is `main.cpp`
+// (which should `#include "foo.h"`), then run the following commands (Clang):
 //
 //   ./bonsai -i <input> -o foo -b cpp  # lower bonsai IR to header + object
 //   clang++ -c main.cpp -o main.o      # build main.cpp

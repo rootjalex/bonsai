@@ -164,20 +164,33 @@ class BonsaiToCpp {
         ss << ')' << ';' << '\n';
     }
 
+    // Recursively acquire all *unique* types and inserted them into `types`.
+    void get_struct_types(const ir::Type &type, std::set<ir::Type> &deduplicate,
+                          std::vector<ir::Type> &types) {
+        const auto *struct_type = type.as<ir::Struct_t>();
+        if (struct_type == nullptr) {
+            return;
+        }
+        for (const auto &[_, field_type] : struct_type->fields) {
+            get_struct_types(field_type, deduplicate, types);
+        }
+        if (auto [_, inserted] = deduplicate.insert(type); inserted) {
+            types.push_back(type);
+        }
+    }
+
     void emit_program(const ir::Program &program) {
-        std::set<ir::Type> exported_types;
+        std::set<ir::Type> deduplicate;
+        std::vector<ir::Type> exported_types;
         for (const auto &[_, func] : program.funcs) {
             if (!func->is_export) {
                 continue;
             }
             for (const ir::Type &type : func->argument_types()) {
-                if (!type.is<ir::Struct_t>()) {
-                    continue;
-                }
-                exported_types.insert(type);
+                get_struct_types(type, deduplicate, exported_types);
             }
             if (ir::Type type = func->ret_type; type.is<ir::Struct_t>()) {
-                exported_types.insert(type);
+                get_struct_types(type, deduplicate, exported_types);
             }
         }
         for (const ir::Type &type : exported_types) {

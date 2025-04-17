@@ -4,6 +4,3 @@ func [[export]] add(i: i32, j: i32) -> i32 {
     return i + j;
 }
 
-func sub(i: i32, j: i32) -> i32 {
-    return i - j;
-}
