@@ -107,9 +107,10 @@ namespace {
 std::vector<std::string> get_flags_for_file(const std::string &filename) {
     std::vector<std::string> flags = {"-i", filename};
     std::ifstream file(filename);
+    constexpr std::string_view TAG = "//! flags:";
     if (std::string line; std::getline(file, line)) {
-        if (line.starts_with("//! flags:")) {
-            std::istringstream stream(line.substr(11));
+        if (line.starts_with(TAG)) {
+            std::istringstream stream(line.substr(TAG.size()));
             std::string flag;
             while (stream >> flag) {
                 flags.push_back(flag);
@@ -119,14 +120,16 @@ std::vector<std::string> get_flags_for_file(const std::string &filename) {
     return flags;
 }
 
-// Removes any spaces before the first non-space character.
+// Removes any spaces before the first non-space character, e.g.,
+// left_trim("   ss") => "ss"
 void left_trim(std::string &s) {
     s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
                 return !std::isspace(ch);
             }));
 }
 
-// Replaces all instances of `from` with `to` in `s`.
+// Replaces all instances of `from` with `to` in `s`, e.g.,
+// replace_all("DABD", "AB", "-") => "D-D"
 void replace_all(std::string &s, const std::string &from,
                  const std::string &to) {
     if (from.empty())
@@ -168,7 +171,7 @@ std::vector<std::string> get_commands_for_file(const std::string &filename) {
     std::string token;
     while (std::getline(ss, token, ',')) {
         left_trim(token);
-        // Replace instances of `<>` with the relative path of this file.
+        // Replace instances of `$<>` with the relative path of this file.
         replace_all(token, "$<>", directory);
         commands.push_back(token);
     }
@@ -195,11 +198,11 @@ void run_commands(const std::vector<std::string> &commands) {
     if (rc == 0) {
         return;
     }
+    // Clean up any (potentially) left-over files.
     for (const std::string &command : commands) {
         if (!command.starts_with("rm")) {
             continue;
         }
-        // Clean up any (potentially) left-over files.
         std::system(command.c_str());
     }
 }

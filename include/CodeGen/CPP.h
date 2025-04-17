@@ -19,7 +19,8 @@ namespace codegen {
 //   ./main                             # run it
 //
 // If no output filename is passed, it will just print the Bonsai header
-// declarations and LLVM Module to standard I/O.
+// declarations and LLVM Module to standard I/O (mostly for testing/debugging
+// purposes).
 void to_cpp(const ir::Program &program, const CompilerOptions &options);
 
 } // namespace codegen
