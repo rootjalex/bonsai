@@ -27,6 +27,13 @@ namespace bonsai {
 namespace codegen {
 
 namespace {
+// Returns a C++ legal variable name.
+std::string clean_name(std::string name) {
+    // '$' is not allowed in C++ variable names.
+    name.erase(std::remove(name.begin(), name.end(), '$'), name.end());
+    return name;
+}
+
 class TypeEmitter : public ir::Visitor {
   public:
     TypeEmitter(std::stringstream &ss, int64_t indent_level)
@@ -55,6 +62,8 @@ class TypeEmitter : public ir::Visitor {
     void visit(const ir::Int_t *type) override {
         ss << "int" << type->bits << '_' << 't';
     }
+
+    void visit(const ir::Void_t *type) override { ss << "void"; }
 
     void visit(const ir::UInt_t *type) override {
         ss << "uint" << type->bits << '_' << 't';
@@ -112,7 +121,7 @@ class BonsaiToCpp {
         type.accept(&emit);
     }
 
-    void emit_signature_type(const ir::Type &type,
+    void emit_signature_type(const ir::Type &type, bool is_mutating = false,
                              bool is_return_type = false) {
         const auto *struct_type = type.as<ir::Struct_t>();
         if (struct_type == nullptr) {
@@ -124,22 +133,27 @@ class BonsaiToCpp {
             return;
         }
         // TODO(cgyurgyik): pass by const& unless mutable, then &...?
-        ss << "const" << ' ' << struct_type->name << '&';
+        if (!is_mutating) {
+            ss << "const" << ' ';
+        }
+        ss << struct_type->name << '&';
     }
 
     void emit_func(const ir::Function &func) {
-        emit_signature_type(func.ret_type, /*is_return_type=*/true);
+        emit_signature_type(func.ret_type, /*is_mutating=*/false,
+                            /*is_return_type=*/true);
         ss << ' ' << func.name;
         ss << '(';
         for (int i = 0, e = func.args.size(); i < e; ++i) {
             const ir::Function::Argument &arg = func.args[i];
             if (const auto *vector_type = arg.type.as<ir::Vector_t>()) {
-                emit_signature_type(vector_type->etype);
-                ss << ' ' << arg.name;
+                emit_signature_type(vector_type->etype,
+                                    /*is_mutating=*/arg.mutating);
+                ss << ' ' << clean_name(arg.name);
                 ss << '[' << vector_type->lanes << ']';
             } else {
-                emit_signature_type(arg.type);
-                ss << ' ' << arg.name;
+                emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
+                ss << ' ' << clean_name(arg.name);
             }
             if (i + 1 == e) {
                 continue;

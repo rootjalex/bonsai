@@ -1,22 +1,25 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define i32 @"?lambda0"(i32 noundef %x) {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @"?lambda0"(i32 noundef %x) local_unnamed_addr #0 {
 "?lambda0_entry":
   %0 = add i32 %x, 1
   ret i32 %0
 }
 
-define i32 @bar(i32 noundef %i) {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @bar(i32 noundef %i) local_unnamed_addr #0 {
 bar_entry:
-  %0 = add i32 %i, 2
-  %1 = call i32 @foo(i32 %0)
-  ret i32 %1
+  %0 = add i32 %i, -1
+  ret i32 %0
 }
 
-define i32 @foo(i32 noundef %z) {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @foo(i32 noundef %z) local_unnamed_addr #0 {
 foo_entry:
-  %0 = sub i32 %z, 4
-  %1 = call i32 @"?lambda0"(i32 %0)
-  ret i32 %1
+  %0 = add i32 %z, -3
+  ret i32 %0
 }
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

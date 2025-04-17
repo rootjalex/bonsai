@@ -10,7 +10,7 @@ struct Position {
     int32_t y;
 };
 
-Position add(const Position& i, const Position& j);
+void add(Position& r0, const Position& i, const Position& j);
 }
 
 ------------------------------------------
@@ -21,19 +21,14 @@ source_filename = "bonsai_module"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-darwin22.6.0"
 
-%struct.Position = type { i32, i32 }
-
-define %struct.Position @add(ptr noundef nonnull readonly %i, ptr noundef nonnull readonly %j) {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @add(ptr nocapture noundef nonnull writeonly %"$r0", ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
 add_entry:
-  %0 = load %struct.Position, ptr %i, align 4
-  %1 = load %struct.Position, ptr %j, align 4
-  %2 = extractvalue %struct.Position %0, 0
-  %3 = extractvalue %struct.Position %1, 0
-  %4 = add i32 %2, %3
-  %5 = extractvalue %struct.Position %0, 1
-  %6 = extractvalue %struct.Position %1, 1
-  %7 = add i32 %5, %6
-  %8 = insertvalue %struct.Position undef, i32 %4, 0
-  %9 = insertvalue %struct.Position %8, i32 %7, 1
-  ret %struct.Position %9
+  %0 = load <2 x i32>, ptr %i, align 4
+  %1 = load <2 x i32>, ptr %j, align 4
+  %2 = add <2 x i32> %1, %0
+  store <2 x i32> %2, ptr %"$r0", align 4
+  ret void
 }
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

@@ -1,8 +1,11 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define i32 @add(i32 noundef %i, i32 noundef %j) {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @add(i32 noundef %i, i32 noundef %j) local_unnamed_addr #0 {
 add_entry:
-  %0 = add i32 %i, %j
+  %0 = add i32 %j, %i
   ret i32 %0
 }
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

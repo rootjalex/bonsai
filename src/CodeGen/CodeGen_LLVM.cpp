@@ -369,7 +369,7 @@ CodeGen_LLVM::compile_program(const Program &program,
 
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] compilation resulted in an invalid module";
-    // optimize_module(*tm, options);
+    optimize_module(*tm, options);
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[post-optimization] compilation resulted in an invalid module";
 

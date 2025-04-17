@@ -1,5 +1,5 @@
-//! flags: -b cpp
-
+//! flags: -b cpp -o struct
+//! commands: clang++ -c main.cpp -o main.o && clang++ main.o foo.o -o main && ./main && rm struct.h && rm struct.o
 element Position { x: i32; y: i32; }
 
 func [[export]] add(i: Position, j: Position) -> Position {
