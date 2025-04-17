@@ -127,7 +127,6 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
         ir::Stmt body = RtOP(*func, new_functions).mutate(func->body);
         func = func->replace_body(std::move(body));
     }
-
     return new_functions;
 }
 

@@ -72,16 +72,13 @@ struct LowerGeomOps : public Mutator {
 } // namespace
 
 FuncMap LowerGeometrics::run(FuncMap funcs) const {
-    FuncMap new_funcs;
-
     LowerGeomOps lowerer(funcs);
-
     // TODO: what happens with nested geometric ops...?
     for (const auto &[f, func] : funcs) {
         Stmt body = lowerer.mutate(func->body);
-        new_funcs[f] = func->replace_body(std::move(body));
+        funcs[f] = func->replace_body(std::move(body));
     }
-    return new_funcs;
+    return funcs;
 }
 
 } // namespace lower

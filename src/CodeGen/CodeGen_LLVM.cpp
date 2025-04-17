@@ -1964,7 +1964,6 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
     llvm::Value *base = nullptr;
     if (frames.name_in_scope(loc.base)) {
         auto [_base, _mutable] = frames.from_frames(loc.base);
-        // TODO(cgyurgyik): Why is this getting triggered?
         internal_assert(_mutable)
             << "Attempting to codegen write to immutable data: " << loc.base;
         base = _base;

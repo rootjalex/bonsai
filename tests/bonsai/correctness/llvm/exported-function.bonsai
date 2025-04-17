@@ -6,7 +6,6 @@ func [[export]] foo(i: Position, j: Position) -> Position {
   return Position {i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c };
 }
 
-// TODO(cgyurgyik): Running into issues with DCE (see .expect)
 func main() -> i32 {
   i: Position = Position {1,  2,  3,  1.0};
   j: Position = Position {10, 20, 30, 41.0};
