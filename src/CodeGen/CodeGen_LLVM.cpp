@@ -262,16 +262,15 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];
         llvm::Type *arg_t = codegen_type(arg_info.type);
-        if (arg_info.mutating) {
+        if (arg_info.mutating || arg_info.type.is<Struct_t>()) {
             arg_t = arg_t->getPointerTo();
-        } else if (arg_info.type.is<Struct_t>()) {
             arg_t = arg_t->getPointerTo();
         }
         arg_types[i] = arg_t;
     }
 
     llvm::FunctionType *ftype =
-        llvm::FunctionType::get(ret_type, arg_types, /* isVarArg */ false);
+        llvm::FunctionType::get(ret_type, arg_types, /*isVarArg=*/false);
 
     llvm::Function *fn = llvm::Function::Create(
         ftype, llvm::GlobalValue::ExternalLinkage, func.name, module.get());
@@ -325,7 +324,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
         }
         arg.setName(name);
         frames.add_to_frame(arg_info.name,
-                            {arg_value, /* mutable */ arg_info.mutating});
+                            {arg_value, /*mutable=*/arg_info.mutating});
         arg_idx++;
     }
 
@@ -362,8 +361,6 @@ CodeGen_LLVM::compile_program(const Program &program,
     }
     frames.pop_frame();
 
-    // TODO(cgyurgyik): It might be useful for debugging to have some flag
-    // in compiler options to turn this off.
     std::unique_ptr<llvm::TargetMachine> tm =
         make_target_machine(*module, options);
 
@@ -945,6 +942,7 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
 
 void CodeGen_LLVM::visit(const CallStmt *node) {
     Call::make(node->func, node->args).accept(this);
+    value = nullptr;
 }
 
 void CodeGen_LLVM::visit(const Print *node) {
@@ -1484,7 +1482,7 @@ void CodeGen_LLVM::visit(const Store *node) {
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
     llvm::Value *_value = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, {_value, /* mutable=*/false});
+    frames.add_to_frame(node->loc.base, {_value, /*mutable=*/false});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
