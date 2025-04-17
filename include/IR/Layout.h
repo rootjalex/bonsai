@@ -37,7 +37,7 @@ template <typename T>
 struct LayoutNode : public BaseLayoutNode {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
     // Layout mutate_layout(Mutator *m) const override;
-    LayoutNode() : BaseLayoutNode(T::_node_type) {}
+    LayoutNode() : BaseLayoutNode(T::node_type) {}
     ~LayoutNode() override = default;
 };
 
@@ -72,7 +72,7 @@ struct Name : LayoutNode<Name> {
 
     static Layout make(std::string name, Type type);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Name;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Name;
 };
 
 struct Pad : LayoutNode<Pad> {
@@ -80,7 +80,7 @@ struct Pad : LayoutNode<Pad> {
 
     static Layout make(uint32_t bits);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Pad;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Pad;
 };
 
 // split from https://dl.acm.org/doi/pdf/10.1145/3607858
@@ -96,7 +96,7 @@ struct Split : LayoutNode<Split> {
 
     static Layout make(std::string field, std::vector<Arm> arms);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Split;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Split;
 };
 
 struct Chain : LayoutNode<Chain> {
@@ -104,7 +104,7 @@ struct Chain : LayoutNode<Chain> {
 
     static Layout make(std::vector<Layout> layouts);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Chain;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Chain;
 };
 
 struct Group : LayoutNode<Group> {
@@ -115,7 +115,7 @@ struct Group : LayoutNode<Group> {
 
     static Layout make(Expr size, std::string name, Type index_t, Layout inner);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Group;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };
 
 struct Materialize : LayoutNode<Materialize> {
@@ -124,7 +124,7 @@ struct Materialize : LayoutNode<Materialize> {
 
     static Layout make(std::string name, Expr value);
 
-    static const IRLayoutEnum _node_type = IRLayoutEnum::Materialize;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Materialize;
 };
 
 using LayoutMap = std::map<std::string, Layout>;

@@ -48,7 +48,7 @@ template <typename T>
 struct TypeNode : public BaseTypeNode {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
     Type mutate_type(Mutator *m) const override;
-    TypeNode() : BaseTypeNode(T::_node_type) {}
+    TypeNode() : BaseTypeNode(T::node_type) {}
     ~TypeNode() override = default;
 };
 
@@ -99,7 +99,7 @@ Type TypeNode<T>::mutate_type(Mutator *m) const {
 struct Void_t : TypeNode<Void_t> {
     static Type make();
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Void_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Void_t;
 };
 
 struct Int_t : TypeNode<Int_t> {
@@ -107,7 +107,7 @@ struct Int_t : TypeNode<Int_t> {
 
     static Type make(uint32_t bits);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Int_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Int_t;
 };
 
 struct UInt_t : TypeNode<UInt_t> {
@@ -115,12 +115,12 @@ struct UInt_t : TypeNode<UInt_t> {
 
     static Type make(uint32_t bits);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::UInt_t;
+    static const IRTypeEnum node_type = IRTypeEnum::UInt_t;
 };
 
 struct Index_t : TypeNode<Index_t> {
     static Type make();
-    static const IRTypeEnum _node_type = IRTypeEnum::Index_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Index_t;
 };
 
 // A subset of the real numbers. This typically consists of a sign bit, mantissa
@@ -159,13 +159,13 @@ struct Float_t : TypeNode<Float_t> {
     // Returns whether this floating point type is brain float (bf16).
     bool is_bfloat16() const;
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Float_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Float_t;
 };
 
 struct Bool_t : TypeNode<Bool_t> {
     static Type make();
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Bool_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Bool_t;
 };
 
 struct Ptr_t : TypeNode<Ptr_t> {
@@ -173,7 +173,7 @@ struct Ptr_t : TypeNode<Ptr_t> {
 
     static Type make(Type etype);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Ptr_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Ptr_t;
 };
 
 struct Ref_t : TypeNode<Ref_t> {
@@ -181,7 +181,7 @@ struct Ref_t : TypeNode<Ref_t> {
 
     static Type make(std::string name);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Ref_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Ref_t;
 };
 
 struct Vector_t : TypeNode<Vector_t> {
@@ -190,7 +190,7 @@ struct Vector_t : TypeNode<Vector_t> {
 
     static Type make(Type etype, uint32_t lanes);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Vector_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Vector_t;
 };
 
 struct Struct_t : TypeNode<Struct_t> {
@@ -207,7 +207,7 @@ struct Struct_t : TypeNode<Struct_t> {
     static Type make(std::string name, Map fields);
     static Type make(std::string name, Map fields, DefMap defaults);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Struct_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Struct_t;
 };
 
 struct Tuple_t : TypeNode<Tuple_t> {
@@ -215,7 +215,7 @@ struct Tuple_t : TypeNode<Tuple_t> {
 
     static Type make(std::vector<Type> etypes);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Tuple_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Tuple_t;
 };
 
 struct Option_t : TypeNode<Option_t> {
@@ -223,7 +223,7 @@ struct Option_t : TypeNode<Option_t> {
 
     static Type make(Type etype);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Option_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Option_t;
 };
 
 struct Set_t : TypeNode<Set_t> {
@@ -231,7 +231,7 @@ struct Set_t : TypeNode<Set_t> {
 
     static Type make(Type etype);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Set_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Set_t;
 };
 
 struct Function_t : TypeNode<Function_t> {
@@ -240,7 +240,7 @@ struct Function_t : TypeNode<Function_t> {
 
     static Type make(Type ret_type, std::vector<Type> arg_types);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Function_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Function_t;
 };
 
 struct Generic_t : TypeNode<Generic_t> {
@@ -249,7 +249,7 @@ struct Generic_t : TypeNode<Generic_t> {
 
     static Type make(std::string name, Interface interface);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Generic_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Generic_t;
 };
 
 // An ADT with Volume information, representing a bounding volume hierarchy.
@@ -292,7 +292,7 @@ struct BVH_t : TypeNode<BVH_t> {
                      const std::vector<Struct_t::Field> &globals,
                      std::vector<Node> nodes, Volume volume);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::BVH_t;
+    static const IRTypeEnum node_type = IRTypeEnum::BVH_t;
 };
 
 // TODO: List_t, Tensor_t

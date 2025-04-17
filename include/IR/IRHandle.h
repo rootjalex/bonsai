@@ -37,7 +37,7 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
     //
     template <typename T>
     const T *as() const {
-        if (this->ptr && node_type() == T::_node_type) {
+        if (this->ptr && node_type() == T::node_type) {
             return (const T *)this->ptr;
         }
         return nullptr;
@@ -52,7 +52,7 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
     bool is() const {
         if (this->ptr == nullptr)
             return false;
-        if (((node_type() == Ts::_node_type) || ...)) {
+        if (((node_type() == Ts::node_type) || ...)) {
             return true;
         }
         return false;
