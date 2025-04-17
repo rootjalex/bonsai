@@ -69,7 +69,7 @@ class RtOP : public ir::Mutator {
         ir::Stmt assign = ir::Assign::make(
             /*loc=*/location,
             /*value=*/ir::Build::make(argument_type, ir::Struct_t::DefMap{}),
-            /*mutating=*/true);
+            /*mutating=*/false);
         ir::Expr replaced_call =
             ir::Call::make(std::move(function_variable), std::move(args));
         // TODO(cgyurgyik): We need some kind of call statement for this case.

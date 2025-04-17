@@ -260,13 +260,42 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     llvm::Type *ret_type = codegen_type(func.ret_type);
     std::vector<llvm::Type *> arg_types(func.args.size());
     for (uint32_t i = 0; i < func.args.size(); i++) {
-        arg_types[i] = codegen_type(func.args[i].type);
+        const auto &arg_info = func.args[i];
+        llvm::Type *arg_t = codegen_type(arg_info.type);
+        if (arg_info.mutating) {
+            arg_t = arg_t->getPointerTo();
+        } else if (arg_info.type.is<Struct_t>()) {
+            arg_t = arg_t->getPointerTo();
+        }
+        arg_types[i] = arg_t;
     }
 
     llvm::FunctionType *ftype =
         llvm::FunctionType::get(ret_type, arg_types, /* isVarArg */ false);
-    return llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage,
+
+    llvm::Function *fn = llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage,
                                   func.name, module.get());
+
+
+    for (uint32_t i = 0; i < func.args.size(); i++) {
+        const auto &arg_info = func.args[i];
+        llvm::AttrBuilder attrs(*context);
+
+        attrs.addAttribute(llvm::Attribute::NoUndef);
+
+        if (arg_info.type.is<Struct_t>() || arg_info.mutating) {
+            attrs.addAttribute(llvm::Attribute::NonNull);
+
+            if (!arg_info.mutating) {
+                attrs.addAttribute(llvm::Attribute::ReadOnly);
+            }
+
+            // TODO: Add dereferenceable + alignment if we can figure that out.
+        }
+
+        fn->addParamAttrs(i, attrs);
+    }
+    return fn;
 }
 
 void CodeGen_LLVM::compile_function(const Function &func,
@@ -278,20 +307,28 @@ void CodeGen_LLVM::compile_function(const Function &func,
     internal_assert(function);
     current_function = function;
 
-    uint32_t arg_idx = 0;
-    for (auto &arg : function->args()) {
-        arg.setName(func.args[arg_idx].name);
-        // TODO: allow mutable args? probably not.
-        frames.add_to_frame(func.args[arg_idx].name,
-                            {&arg, /* mutable */ false});
-        arg_idx++;
-    }
-
     // Add entry point.
     llvm::BasicBlock *entry_bb = llvm::BasicBlock::Create(
         module->getContext(), func.name + "_entry", function);
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     builder->SetInsertPoint(entry_bb);
+
+    uint32_t arg_idx = 0;
+    for (auto &arg : function->args()) {
+        const auto &arg_info = func.args[arg_idx];
+        std::string name = arg_info.name;
+        // non-mutable structs are ptrs, so need some indirection.
+        const bool immutable_struct = arg_info.type.is<Struct_t>() && !arg_info.mutating;
+        llvm::Value *arg_value = &arg;
+        if (immutable_struct) {
+            llvm::Type *arg_type = codegen_type(arg_info.type);
+            arg_value = builder->CreateLoad(arg_type, arg_value);
+        }
+        arg.setName(name);
+        frames.add_to_frame(arg_info.name, {arg_value, /* mutable */ arg_info.mutating});
+        arg_idx++;
+    }
+
     codegen_stmt(func.body);
     frames.pop_frame();
 
@@ -1225,7 +1262,7 @@ void CodeGen_LLVM::visit(const Call *node) {
     for (size_t i = 0; i < n_args; i++) {
         args[i] = codegen_expr(node->args[i]);
     }
-
+    // TODO(ajr): fix function calls with struct params
     value = builder->CreateCall(func, args);
 }
 
@@ -1331,6 +1368,9 @@ void CodeGen_LLVM::visit(const Access *node) {
         value = builder->CreateExtractValue(inner, idx);
         return;
     }
+    // inner->print(llvm::outs());
+    // llvm::outs() << "\n";
+    // llvm::outs().flush();
     internal_error
         << "Lowering of an Access's value did not result in a struct type: "
         << Expr(node);
@@ -1499,6 +1539,11 @@ void CodeGen_LLVM::visit(const Assign *node) {
 
     llvm::Value *_value = codegen_expr(node->value);
 
+    std::cout << "Making Assign: " << ir::Stmt(node) << "\n";
+    std::cout << "writing to: " << std::flush;
+    loc->print(llvm::outs());
+    llvm::outs() << "\n";
+    llvm::outs().flush();
     builder->CreateStore(
         _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
 }
