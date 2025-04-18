@@ -1,0 +1,36 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @A(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %x1) local_unnamed_addr #0 {
+A_entry:
+  %x.unpack = load i32, ptr %x1, align 4
+  store i32 %x.unpack, ptr %_ret0, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @B(ptr nocapture noundef nonnull writeonly %_ret1, ptr nocapture noundef nonnull readonly %x1) local_unnamed_addr #0 {
+B_entry:
+  %x.unpack.i = load i32, ptr %x1, align 4
+  store i32 %x.unpack.i, ptr %_ret1, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @C(ptr nocapture noundef nonnull writeonly %_ret2, ptr nocapture noundef nonnull readonly %x1) local_unnamed_addr #0 {
+C_entry:
+  %x.unpack = load i32, ptr %x1, align 4
+  store i32 %x.unpack, ptr %_ret2, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @D(ptr nocapture noundef nonnull writeonly %_ret3, ptr nocapture noundef nonnull readonly %x1) local_unnamed_addr #0 {
+D_entry:
+  %x.unpack.i = load i32, ptr %x1, align 4
+  store i32 %x.unpack.i, ptr %_ret3, align 4
+  ret void
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
