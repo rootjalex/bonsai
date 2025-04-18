@@ -282,7 +282,6 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
         llvm::Type *arg_t = codegen_type(arg_info.type);
         if (arg_info.mutating || arg_info.type.is<Struct_t>()) {
             arg_t = arg_t->getPointerTo();
-            arg_t = arg_t->getPointerTo();
         }
         arg_types[i] = arg_t;
     }
@@ -333,12 +332,13 @@ void CodeGen_LLVM::compile_function(const Function &func,
     for (auto &arg : function->args()) {
         const auto &arg_info = func.args[arg_idx];
         std::string name = arg_info.name;
-        // non-mutable structs are ptrs, so need some indirection.
-        const bool immutable_struct = arg_info.type.is<Struct_t>();
         llvm::Value *arg_value = &arg;
-        if (immutable_struct) {
+        // immutable structs are ptrs, so need some indirection.
+        if (const bool immutable_struct =
+                arg_info.type.is<Struct_t>() && !arg_info.mutating;
+            immutable_struct) {
             llvm::Type *arg_type = codegen_type(arg_info.type);
-            arg_value = builder->CreateLoad(arg_type, arg_value);
+            arg_value = builder->CreateLoad(arg_type, arg_value, name);
         }
         arg.setName(name);
         frames.add_to_frame(arg_info.name,
@@ -663,10 +663,7 @@ void CodeGen_LLVM::visit(const Var *node) {
     auto [_value, _mutable] = frames.from_frames(node->name);
     if (_mutable) {
         llvm::Type *_type = codegen_type(node->type);
-        // Avoid loading an already-loaded value.
-        value = llvm::isa<llvm::LoadInst>(_value)
-                    ? _value
-                    : builder->CreateLoad(_type, _value);
+        value = builder->CreateLoad(_type, _value, node->name);
     } else {
         value = _value; // immutable so not pointer.
     }

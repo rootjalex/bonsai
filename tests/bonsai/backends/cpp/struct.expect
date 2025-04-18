@@ -9,7 +9,7 @@ struct Position {
     int32_t y;
 };
 
-void add(Position& __return0, const Position& i, const Position& j);
+void add(Position& _ret0, const Position& i, const Position& j);
 }
 
 ------------------------------------------
@@ -19,12 +19,12 @@ void add(Position& __return0, const Position& i, const Position& j);
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @add(ptr nocapture noundef nonnull writeonly %__return0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
+define void @add(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i1, ptr nocapture noundef nonnull readonly %j2) local_unnamed_addr #0 {
 add_entry:
-  %0 = load <2 x i32>, ptr %i, align 4
-  %1 = load <2 x i32>, ptr %j, align 4
+  %0 = load <2 x i32>, ptr %i1, align 4
+  %1 = load <2 x i32>, ptr %j2, align 4
   %2 = add <2 x i32> %1, %0
-  store <2 x i32> %2, ptr %__return0, align 4
+  store <2 x i32> %2, ptr %_ret0, align 4
   ret void
 }
 

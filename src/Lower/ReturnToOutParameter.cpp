@@ -17,7 +17,7 @@ namespace {
 // A counter for uniquely naming the newly created return values.
 static int32_t counter = 0;
 // Name of the new return value parameter.
-static constexpr std::string_view PARAMETER_NAME = "__return";
+static constexpr std::string_view PARAMETER_NAME = "_ret";
 
 class RtOP : public ir::Mutator {
   public:
