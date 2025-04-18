@@ -228,11 +228,9 @@ void Printer::print_type_list(const std::vector<Type> &types) {
 }
 
 void Printer::print(const Expr &expr) {
-    bool temp = implicit_parens;
-    implicit_parens = false;
+    ScopedValue<bool> old(implicit_parens, false);
     expr.accept(this);
     print_annotation(expr, os);
-    implicit_parens = temp;
 }
 
 void Printer::print_no_parens(const Expr &expr) {
