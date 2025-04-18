@@ -21,12 +21,12 @@ static constexpr std::string_view PARAMETER_NAME = "_ret";
 
 class RtOP : public ir::Mutator {
   public:
-    RtOP(ir::Function &current, ir::FuncMap &functions)
+    RtOP(const ir::Function &current, const ir::FuncMap &functions)
         : current(current), functions(functions) {}
 
   private:
-    ir::Function &current;
-    ir::FuncMap &functions;
+    const ir::Function &current;
+    const ir::FuncMap &functions;
 
     // If this is an exported call nested within another exported call, we
     // handle the updated call statement here.
@@ -89,7 +89,9 @@ class RtOP : public ir::Mutator {
         const auto *f = func.as<ir::Var>();
         internal_assert(f) << func;
         std::string function_name = f->name;
-        auto &function = functions[function_name];
+        auto it = functions.find(function_name);
+        internal_assert(it != functions.end()) << function_name;
+        const auto &function = it->second;
         if (!function->is_export) {
             return ir::Mutator::visit(node);
         }
