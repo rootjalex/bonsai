@@ -1,7 +1,7 @@
 type Position = struct Position{ x : i32; y : i32; z : i32; c : f32 }
 
-func [[export]] foo($return0 : mut Position, i : Position, j : Position) -> void {
-  $return0 = build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
+func [[export]] foo(__return0 : mut Position, i : Position, j : Position) -> void {
+  __return0 = build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
   return
 }
 

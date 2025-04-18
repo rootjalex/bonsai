@@ -28,12 +28,6 @@ namespace bonsai {
 namespace codegen {
 
 namespace {
-// Returns a C++ legal variable name.
-std::string clean_name(std::string name) {
-    // '$' is not allowed in C++ variable names.
-    name.erase(std::remove(name.begin(), name.end(), '$'), name.end());
-    return name;
-}
 
 class TypeEmitter : public ir::Visitor {
   public:
@@ -152,11 +146,11 @@ class BonsaiToCpp {
             if (const auto *vector_type = arg.type.as<ir::Vector_t>()) {
                 emit_signature_type(vector_type->etype,
                                     /*is_mutating=*/arg.mutating);
-                ss << ' ' << clean_name(arg.name);
+                ss << ' ' << arg.name;
                 ss << '[' << vector_type->lanes << ']';
             } else {
                 emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
-                ss << ' ' << clean_name(arg.name);
+                ss << ' ' << arg.name;
             }
             if (i + 1 == e) {
                 continue;

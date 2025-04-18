@@ -17,7 +17,7 @@ namespace {
 // A counter for uniquely naming the newly created return values.
 static int32_t counter = 0;
 // Name of the new return value parameter.
-static constexpr std::string_view PARAMETER_NAME = "$return";
+static constexpr std::string_view PARAMETER_NAME = "__return";
 
 class RtOP : public ir::Mutator {
   public:
@@ -121,10 +121,7 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
     ir::FuncMap new_functions;
 
     // First, update function argument and type signatures.
-    std::vector<std::string> topological_order =
-        func_topological_order(functions, /*undef_calls=*/false);
-    for (const std::string &name : topological_order) {
-        auto &function = functions[name];
+    for (const auto &[name, function] : functions) {
         if (!function->is_export) {
             new_functions[name] = std::move(function);
             continue;
