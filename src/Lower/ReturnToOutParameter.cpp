@@ -154,8 +154,7 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
 
     // Next, update function bodies.
     for (auto &[name, func] : new_functions) {
-        ir::Stmt body = RtOP(*func, new_functions).mutate(func->body);
-        func = func->replace_body(std::move(body));
+        func->body = RtOP(*func, new_functions).mutate(func->body);
     }
     return new_functions;
 }
