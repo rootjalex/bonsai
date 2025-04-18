@@ -55,7 +55,6 @@ using IRExprNode = IRNode<Expr, IRExprEnum>;
 struct BaseExprNode : public IRExprNode {
     BaseExprNode(IRExprEnum t) : IRExprNode(t) {}
     virtual Expr mutate_expr(Mutator *m) const = 0;
-
     Type type;
 };
 
