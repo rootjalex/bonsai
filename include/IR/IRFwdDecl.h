@@ -84,5 +84,7 @@ struct Chain;
 struct Group;
 struct Materialize;
 
+struct WriteLoc;
+
 } // namespace ir
 } // namespace bonsai

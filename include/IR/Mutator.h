@@ -2,6 +2,8 @@
 
 #include "IRFwdDecl.h"
 
+#include <utility>
+
 namespace bonsai {
 namespace ir {
 
@@ -11,6 +13,7 @@ struct Mutator {
     virtual Expr mutate(const Expr &expr);
     virtual Stmt mutate(const Stmt &stmt);
 
+    virtual std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc);
     // protected:
     // Types
     virtual Type visit(const Void_t *);

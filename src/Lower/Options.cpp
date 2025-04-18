@@ -129,7 +129,7 @@ struct RewriteOptions : public ir::Mutator {
     }
 
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
-    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) {
+    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) override {
         ir::Type base_type = mutate(loc.base_type);
         bool not_changed = base_type.same_as(loc.base_type);
         ir::WriteLoc new_loc(loc.base, std::move(base_type));
@@ -146,37 +146,7 @@ struct RewriteOptions : public ir::Mutator {
         return {std::move(new_loc), not_changed};
     }
 
-    // These three need to mutate the types of the writelocs.
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::LetStmt::make(std::move(loc), std::move(value));
-    }
-
-    ir::Stmt visit(const ir::Assign *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::Assign::make(std::move(loc), std::move(value),
-                                node->mutating);
-    }
-
-    ir::Stmt visit(const ir::Accumulate *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
-    }
-
     // TODO: which other relevant nodes are there?
-    // TODO: need safety checks on dereferencing!
 };
 
 ir::Type lower_option(const ir::Type &type) {
@@ -204,7 +174,7 @@ bool contains_option(const ir::Type &type) {
 
 } // namespace
 
-ir::TypeMap LowerOption::run(ir::TypeMap types) const {
+ir::TypeMap LowerOptions::run(ir::TypeMap types) const {
     ir::TypeMap new_types;
 
     for (const auto &[t, type] : types) {
@@ -214,7 +184,7 @@ ir::TypeMap LowerOption::run(ir::TypeMap types) const {
     return new_types;
 }
 
-ir::ExternList LowerOption::run(ir::ExternList externs) const {
+ir::ExternList LowerOptions::run(ir::ExternList externs) const {
     for (const auto &[name, type] : externs) {
         internal_assert(!contains_option(type))
             << "Lowering failure, found option type in extern: " << name
@@ -223,7 +193,7 @@ ir::ExternList LowerOption::run(ir::ExternList externs) const {
     return externs;
 }
 
-ir::FuncMap LowerOption::run(ir::FuncMap funcs) const {
+ir::FuncMap LowerOptions::run(ir::FuncMap funcs) const {
     ir::FuncMap new_funcs;
     for (const auto &[f, func] : funcs) {
         std::vector<ir::Function::Argument> args(func->args.size());

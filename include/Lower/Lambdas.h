@@ -25,7 +25,7 @@ namespace lower {
 //       y: i32 = ?lambda(0);
 //     }
 //
-class LowerLambda : public Pass {
+class LowerLambdas : public Pass {
   public:
     constexpr std::string name() const override { return "lower-lambda"; }
 

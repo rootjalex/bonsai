@@ -9,7 +9,7 @@ namespace bonsai {
 namespace lower {
 
 // Lowers an `option` type to a form more amenable for backend code generation.
-class LowerOption : public Pass {
+class LowerOptions : public Pass {
   public:
     constexpr std::string name() const override { return "lower-option"; }
 

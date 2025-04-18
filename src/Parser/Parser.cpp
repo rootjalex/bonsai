@@ -1399,9 +1399,14 @@ struct Parser {
                         << "range() expects third argument to be an integer "
                            "type: "
                         << args[2] << " is " << args[2].type();
+                    internal_assert(ir::equals(args[1].type(), args[2].type()))
+                        << "range() expects second and third arguments to be same type "
+                        << "arg1: " << args[1] << " is " << args[1].type()
+                        << " arg2: " << args[2] << " is " << args[2].type();
                     // TODO: make this an intrinsic?
+                    ir::Type ret_type = ir::Array_t::make(args[0].type().element_of(), args[2]);
                     ir::Type call_type = ir::Function_t::make(
-                        args[0].type(),
+                        std::move(ret_type),
                         {args[0].type(), args[1].type(), args[2].type()});
                     ir::Expr func =
                         ir::Var::make(std::move(call_type), "range");

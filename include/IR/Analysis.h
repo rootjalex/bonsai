@@ -35,5 +35,33 @@ bool contains(const ir::Expr &expr) {
     return checker.found;
 }
 
+template <typename IRNode>
+bool contains(const ir::Type &type) {
+    static_assert(std::is_base_of<BaseTypeNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseTypeNode");
+    struct Checker : public Visitor {
+        bool found = false;
+
+        void visit(const IRNode *node) override { found = true; }
+    };
+    Checker checker;
+    type.accept(&checker);
+    return checker.found;
+}
+
+template <typename IRNode>
+bool contains(const ir::Stmt &stmt) {
+    static_assert(std::is_base_of<BaseStmtNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseStmtNode");
+    struct Checker : public Visitor {
+        bool found = false;
+
+        void visit(const IRNode *node) override { found = true; }
+    };
+    Checker checker;
+    stmt.accept(&checker);
+    return checker.found;
+}
+
 } // namespace ir
 } // namespace bonsai

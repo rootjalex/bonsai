@@ -3,12 +3,14 @@
 #include "IR/Mutator.h"
 #include "Lower/Arrays.h"
 #include "Lower/Canonicalize.h"
+#include "Lower/ForEachs.h"
 #include "Lower/Generics.h"
 #include "Lower/Geometrics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
 #include "Lower/Options.h"
 #include "Lower/Trees.h"
+#include "Lower/Tuples.h"
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Opt/DCE.h"
@@ -56,15 +58,17 @@ PassManager register_passes() {
     PassManager manager;
     // Lowering pass registration.
     manager.register_pass<Canonicalize>();
-    manager.register_pass<LowerLambda>();
-    manager.register_pass<LowerOption>();
+    manager.register_pass<LowerLambdas>();
+    manager.register_pass<LowerOptions>();
     manager.register_pass<VerifyOptions>();
-    manager.register_pass<LowerGeneric>();
+    manager.register_pass<LowerGenerics>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerArrays>();
+    manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
+    manager.register_pass<LowerTuples>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Simplify>();
@@ -79,9 +83,11 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerTrees>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
-    core.push_back(std::make_unique<LowerLambda>());
-    core.push_back(std::make_unique<LowerOption>());
-    core.push_back(std::make_unique<LowerGeneric>());
+    core.push_back(std::make_unique<LowerForEachs>());
+    core.push_back(std::make_unique<LowerLambdas>());
+    core.push_back(std::make_unique<LowerOptions>());
+    core.push_back(std::make_unique<LowerTuples>());
+    core.push_back(std::make_unique<LowerGenerics>());
     manager.register_alias("core", core);
 
     // Default: the default work flow (with optimizations).
@@ -93,9 +99,11 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerTrees>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
-    d.push_back(std::make_unique<LowerLambda>());
-    d.push_back(std::make_unique<LowerOption>());
-    d.push_back(std::make_unique<LowerGeneric>());
+    d.push_back(std::make_unique<LowerForEachs>());
+    d.push_back(std::make_unique<LowerLambdas>());
+    d.push_back(std::make_unique<LowerOptions>());
+    d.push_back(std::make_unique<LowerTuples>());
+    d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     manager.register_alias("default", d);

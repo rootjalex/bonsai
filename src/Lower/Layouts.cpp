@@ -131,7 +131,13 @@ ir::Expr fill(const ir::FrameStack<ir::Expr> &frames, const ir::Expr &expr) {
 
         ir::Expr visit(const ir::Var *var) override {
             if (var->name == "range" && var->type.is<ir::Function_t>()) {
-                return var;
+                const ir::Function_t *func = var->type.as<ir::Function_t>();
+                internal_assert(func->ret_type.is<ir::Array_t>());
+                const ir::Array_t *array = func->ret_type.as<ir::Array_t>();
+                ir::Expr size = array->size;
+                size = mutate(size);
+                ir::Type ret_type = ir::Array_t::make(array->etype, std::move(size));
+                return ir::Var::make(ir::Function_t::make(std::move(ret_type), func->arg_types), var->name);
             }
             internal_assert(frames.name_in_scope(var->name))
                 << "Materialization fill cannot find: " << var->name;
@@ -587,6 +593,9 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     internal_assert(program.schedules.size() == 1)
         << "TODO: support selecting a schedule target!\n";
 
+    // std::cout << "Before:\n";
+    // program.dump(std::cout);
+
     ir::LayoutMap tree_layouts =
         std::move(program.schedules[ir::Target::Host].tree_layouts);
 
@@ -628,6 +637,11 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     LowerUnwrapAccesses lowerer(tree_layouts, types);
 
     for (auto &[fname, func] : program.funcs) {
+        for (auto &arg : func->args) {
+            if (types.contains(arg.name)) {
+                arg.type = types.at(arg.name);
+            }
+        }
         func->body = lowerer.mutate(func->body);
     }
 
