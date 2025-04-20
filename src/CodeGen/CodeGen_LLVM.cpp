@@ -462,6 +462,14 @@ void CodeGen_LLVM::optimize_module() {
     }
 
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
+
+    for (auto &F : *module) {
+        if (llvm::verifyFunction(F, &llvm::errs())) {
+            F.print(llvm::errs());
+            internal_error << "Invalid function IR before optimization";
+        }
+    }
+
     mpm.run(*module, mam);
 
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
@@ -1180,8 +1188,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             // Follows the IEEE-754 semantics for maxNum except for the handling
             // of signaling NaNs. This matches the behavior of libm’s fmax.
             // https://llvm.org/docs/LangRef.html#llvm-maxnum-intrinsic
-            // intrin = llvm::Intrinsic::maxnum;
-            internal_error << "TODO: figure out fmax codegen: " << Expr(node);
+            intrin = llvm::Intrinsic::maxnum;
+            // internal_error << "TODO: figure out fmax codegen: " << Expr(node);
         }
         break;
     }
@@ -1196,8 +1204,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             // Follows the IEEE-754 semantics for minNum, except for handling of
             // signaling NaNs. This match’s the behavior of libm’s fmin.
             // https://llvm.org/docs/LangRef.html#llvm-minnum-intrinsic
-            // intrin = llvm::Intrinsic::minnum;
-            internal_error << "TODO: figure out fmin codegen: " << Expr(node);
+            intrin = llvm::Intrinsic::minnum;
+            // internal_error << "TODO: figure out fmin codegen: " << Expr(node);
         }
         break;
     }
@@ -1542,6 +1550,9 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     // Block after the loop.
     llvm::BasicBlock *end_bb =
         llvm::BasicBlock::Create(*context, "do.end", current_function);
+
+    // Jump unconditionally to loop body (required for do-while)
+    builder->CreateBr(loop_bb);
 
     builder->SetInsertPoint(loop_bb);
 

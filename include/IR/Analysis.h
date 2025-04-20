@@ -9,8 +9,9 @@
 namespace bonsai {
 namespace ir {
 
-std::vector<const ir::Var *> gather_free_vars(const Expr &expr);
-// std::vector<std::pair<std::string, Type>> gather_free_vars(const Stmt &stmt);
+std::vector<const Var *> gather_free_vars(const Expr &expr);
+// std::vector<const Var *> gather_free_vars(const Stmt &stmt);
+std::vector<const ir::Var *> gather_free_vars(const Function &func);
 
 bool always_returns(const Stmt &stmt);
 Type get_return_type(const Stmt &stmt);
@@ -22,7 +23,7 @@ bool is_constant_expr(const Expr &expr);
 bool contains_generics(const Type &type, const TypeMap &types);
 
 template <typename IRNode>
-bool contains(const ir::Expr &expr) {
+bool contains(const Expr &expr) {
     static_assert(std::is_base_of<BaseExprNode, IRNode>::value,
                   "IRNode must be a subclass of BaseExprNode");
     struct Checker : public Visitor {
@@ -36,7 +37,7 @@ bool contains(const ir::Expr &expr) {
 }
 
 template <typename IRNode>
-bool contains(const ir::Type &type) {
+bool contains(const Type &type) {
     static_assert(std::is_base_of<BaseTypeNode, IRNode>::value,
                   "IRNode must be a subclass of BaseTypeNode");
     struct Checker : public Visitor {
@@ -50,7 +51,7 @@ bool contains(const ir::Type &type) {
 }
 
 template <typename IRNode>
-bool contains(const ir::Stmt &stmt) {
+bool contains(const Stmt &stmt) {
     static_assert(std::is_base_of<BaseStmtNode, IRNode>::value,
                   "IRNode must be a subclass of BaseStmtNode");
     struct Checker : public Visitor {

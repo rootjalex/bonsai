@@ -97,6 +97,8 @@ bool Type::is_primitive() const {
 
 bool Type::is_iterable() const { return is<Vector_t, Array_t>(); }
 
+bool Type::is_func() const { return is<Function_t>(); }
+
 Type Type::to_bool() const {
     if (this->is_bool()) {
         return *this;

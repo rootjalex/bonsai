@@ -96,6 +96,8 @@ target_sources(
     src/Lower/Arrays.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
+    src/Lower/Externs.cpp
+    src/Lower/ForEachs.cpp
     src/Lower/Generics.cpp
     src/Lower/Geometrics.cpp
     src/Lower/Intrinsics.cpp
@@ -107,10 +109,12 @@ target_sources(
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
     src/Lower/Trees.cpp
+    src/Lower/Tuples.cpp
     src/Lower/TopologicalOrder.cpp
     src/Lower/TypeInference.cpp
     src/Lower/VerifyLayouts.cpp
     src/Lower/VerifyOptions.cpp
+    src/Lower/Yields.cpp
     src/Opt/DCE.cpp
     src/Opt/Simplify.cpp
     src/Parser/Lexer.cpp
@@ -159,6 +163,8 @@ target_sources(
     include/LLVMIncl.h
     include/Lower/Arrays.h
     include/Lower/Canonicalize.h
+    include/Lower/Externs.h
+    include/Lower/ForEachs.h
     include/Lower/Generics.h
     include/Lower/Geometrics.h
     include/Lower/Intrinsics.h
@@ -170,10 +176,12 @@ target_sources(
     include/Lower/PassManager.h
     include/Lower/PredicateAnalysis.h
     include/Lower/Trees.h
+    include/Lower/Tuples.h
     include/Lower/TopologicalOrder.h
     include/Lower/TypeInference.h
     include/Lower/VerifyLayouts.h
     include/Lower/VerifyOptions.h
+    include/Lower/Yields.h
     include/Opt/DCE.h
     include/Opt/Simplify.h
     include/Parser/Lexer.h

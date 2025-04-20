@@ -3,6 +3,7 @@
 #include "IR/Mutator.h"
 #include "Lower/Arrays.h"
 #include "Lower/Canonicalize.h"
+#include "Lower/Externs.h"
 #include "Lower/ForEachs.h"
 #include "Lower/Generics.h"
 #include "Lower/Geometrics.h"
@@ -13,6 +14,7 @@
 #include "Lower/Tuples.h"
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
+#include "Lower/Yields.h"
 #include "Opt/DCE.h"
 #include "Opt/Simplify.h"
 
@@ -69,6 +71,8 @@ PassManager register_passes() {
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<LowerTuples>();
+    manager.register_pass<LowerYields>();
+    manager.register_pass<LowerExterns>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Simplify>();
@@ -81,9 +85,11 @@ PassManager register_passes() {
     core.push_back(std::make_unique<VerifyLayouts>());
     core.push_back(std::make_unique<LowerArrays>());
     core.push_back(std::make_unique<LowerTrees>());
+    core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerForEachs>());
+    core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
@@ -97,9 +103,11 @@ PassManager register_passes() {
     d.push_back(std::make_unique<VerifyLayouts>());
     d.push_back(std::make_unique<LowerArrays>());
     d.push_back(std::make_unique<LowerTrees>());
+    d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
+    d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());

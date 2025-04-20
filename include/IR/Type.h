@@ -79,6 +79,7 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_numeric() const;
     bool is_primitive() const; // basically: is LLVM-representable?
     bool is_iterable() const;
+    bool is_func() const;
 
     // Type casts
     // Rewrites (through vectors) to boolean base.

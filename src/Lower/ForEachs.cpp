@@ -79,13 +79,8 @@ struct LowerToForAll : public ir::Mutator {
     
         ir::Expr idx = ir::Var::make(end.type(), idx_name);
 
-        std::cout << "array_type->size: " << end << "\n";
-        std::cout << "end.type(): " << end.type() << "\n";
-
-
         ir::Expr load;
         if (is_range_call(iterable)) {
-            std::cout << "offset: " << get_range_offset(iterable).type() << "\n";
             idx = get_range_offset(iterable) + idx;
             iterable = get_range_iterable(iterable);
         }
