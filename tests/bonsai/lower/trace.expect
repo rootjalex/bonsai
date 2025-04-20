@@ -21,19 +21,23 @@ func ?traverse_tree0(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
     let triangles__index = ?top in
     if (triangles.triangles_index[triangles__index].nPrims == (u16)0) {
       if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
-        ?count += (u32)1
-        ?stack[?count] = triangles__index + (u32)1
+        if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
+          ?count += (u32)1
+          ?stack[?count] = triangles__index + (u32)1
+        }
       }
       if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
-        ?count += (u32)1
-        ?stack[?count] = triangles__index + cast<?_layout7>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).offset
+        if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
+          ?count += (u32)1
+          ?stack[?count] = triangles__index + cast<?_layout11>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).offset
+        }
       }
     } else {
       forall ?idx0 in [(u32)0:cast<u32>(triangles.triangles_index[triangles__index].nPrims):(u32)1] {
-        let ?iter0 = triangles.prims[cast<?_layout8>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset + ?idx0] in
+        let ?iter0 = triangles.prims[cast<?_layout12>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset + ?idx0] in
         if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
           if (intersects_Ray_Triangle(ray, ?iter0)) {
-            if (distmax_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
+            if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
               let ?best0_temp0 = distmin_Ray_Triangle(ray, ?iter0) in
               if (?best0_temp0 < ?best0.?field0) {
                 ?best0 = build<tuple.0>(?best0_temp0, ?iter0)

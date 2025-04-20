@@ -83,15 +83,19 @@ func ?traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
   match triangles{
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
-      from (triangles as Interior).left
+      if (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < ?best0[(i32)0]) {
+        from (triangles as Interior).left
+      }
     }
     if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
-      from (triangles as Interior).right
+      if (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < ?best0[(i32)0]) {
+        from (triangles as Interior).right
+      }
     }
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
       if (intersects(ray, (triangles as Leaf).data)) {
-        if (distmax(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < ?best0[(i32)0]) {
+        if (distmin(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < ?best0[(i32)0]) {
           let ?best0_temp0 = distmin(ray, (triangles as Leaf).data) in
           if (?best0_temp0 < ?best0[(i32)0]) {
             ?best0 = build<(f32, Triangle)>(?best0_temp0, (triangles as Leaf).data)

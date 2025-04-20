@@ -245,11 +245,11 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
             VolumeMap vols = make_volume_map(lambda->args);
 
             Interval bounds = predicate_analysis(lambda->value, vols);
-            internal_assert(bounds.max.defined())
-                << "Need upper bound of metric to accelerate argmin: "
+            internal_assert(bounds.min.defined())
+                << "Need lower bound of metric to accelerate argmin: "
                 << lambda->value;
-            body = ir::IfElse::make(bounds.max < best, std::move(body));
-            // TODO: use bounds.min ?
+            body = ir::IfElse::make(bounds.min < best, std::move(body));
+            // TODO: use bounds.max ?
 
             return body;
         }
@@ -262,10 +262,22 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
             // TODO: this should be wrapped in a argmin, for cases with
             // simplified predicates. This is required for proper predicate
             // analysis of conjunctions/disjunctions.
-            // // TODO: this isn't quite right...? I think the semantics of
-            // yieldfrom are unclear. return
-            // ir::YieldFrom::make(ir::argmin(metric, node->value));
-            return node;
+
+            internal_assert(!volumes.empty());
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+
+            VolumeMap vols = make_volume_map(lambda->args);
+
+            Interval bounds = predicate_analysis(lambda->value, vols);
+            internal_assert(bounds.min.defined())
+                << "Need lower bound of metric to accelerate argmin: "
+                << lambda->value;
+            // TODO: use bounds.max ?
+            return ir::IfElse::make(bounds.min < best, node);
         }
     };
 
