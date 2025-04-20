@@ -13,12 +13,7 @@ class LowerOption : public Pass {
   public:
     constexpr std::string name() const override { return "lower-option"; }
 
-    // Lowers all option types
-    ir::TypeMap run(ir::TypeMap types) const override;
-    // Asserts no externs have options
-    ir::ExternList run(ir::ExternList externs) const override;
-    // Rewrites functions to use new lowered option code.
-    ir::FuncMap run(ir::FuncMap funcs) const override;
+    ir::Program run(ir::Program program) const override;
 };
 
 } // namespace lower

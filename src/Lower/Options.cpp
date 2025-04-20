@@ -17,10 +17,15 @@ struct RewriteOptions : public ir::Mutator {
     ir::Type Bool = ir::Bool_t::make();
     std::map<ir::Type, ir::Type, ir::TypeLessThan> rewrite_map;
     // number of option etypes rewritten
+    
     size_t counter = 0;
 
+    std::string get_unique_option_name() {
+        return "?option" + std::to_string(counter++);
+    }
+
     ir::Type construct_option_struct(const ir::Type &etype) {
-        std::string struct_name = "?option" + std::to_string(counter++);
+        std::string struct_name = get_unique_option_name();
         ir::Struct_t::Map fields;
         fields.emplace_back("value", etype);
         fields.emplace_back("set", Bool);
@@ -176,20 +181,7 @@ struct RewriteOptions : public ir::Mutator {
     }
 
     // TODO: which other relevant nodes are there?
-    // TODO: need safety checks on dereferencing!
 };
-
-ir::Type lower_option(const ir::Type &type) {
-    return RewriteOptions().mutate(type);
-}
-
-ir::Expr lower_option(const ir::Expr &expr) {
-    return RewriteOptions().mutate(expr);
-}
-
-ir::Stmt lower_option(const ir::Stmt &stmt) {
-    return RewriteOptions().mutate(stmt);
-}
 
 bool contains_option(const ir::Type &type) {
     struct ContainsOption : ir::Visitor {
@@ -204,42 +196,34 @@ bool contains_option(const ir::Type &type) {
 
 } // namespace
 
-ir::TypeMap LowerOption::run(ir::TypeMap types) const {
-    ir::TypeMap new_types;
-
-    for (const auto &[t, type] : types) {
-        new_types[t] = lower_option(type);
+ir::Program LowerOption::run(ir::Program program) const {
+    RewriteOptions rewriter;
+    for (auto &[t, type] : program.types) {
+        type = rewriter.mutate(std::move(type));
     }
 
-    return new_types;
-}
-
-ir::ExternList LowerOption::run(ir::ExternList externs) const {
-    for (const auto &[name, type] : externs) {
+    for (const auto &[name, type] : program.externs) {
         internal_assert(!contains_option(type))
             << "Lowering failure, found option type in extern: " << name
             << " with type: " << type;
     }
-    return externs;
-}
-
-ir::FuncMap LowerOption::run(ir::FuncMap funcs) const {
-    ir::FuncMap new_funcs;
-    for (const auto &[f, func] : funcs) {
+    
+    for (auto &[f, func] : program.funcs) {
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{arg.name, lower_option(arg.type),
-                                             lower_option(arg.default_value)};
+            args[i] = ir::Function::Argument{arg.name, rewriter.mutate(arg.type),
+                rewriter.mutate(arg.default_value)};
         }
-        ir::Type ret_type = lower_option(func->ret_type);
-        ir::Stmt body = lower_option(func->body);
+        ir::Type ret_type = rewriter.mutate(func->ret_type);
+        ir::Stmt body = rewriter.mutate(func->body);
 
-        new_funcs[f] = std::make_shared<ir::Function>(
+        func = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
             func->interfaces);
     }
-    return new_funcs;
+
+    return program;
 }
 
 } // namespace lower

@@ -10,6 +10,7 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    multiple-options.bonsai
     option-dereference-struct.bonsai
     option-dereference.bonsai
     option-dereference1.bonsai
