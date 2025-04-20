@@ -19,8 +19,12 @@ struct RewriteOptions : public ir::Mutator {
     // number of option etypes rewritten
     size_t counter = 0;
 
+    std::string get_unique_option_name() {
+        return "?option" + std::to_string(counter++);
+    }
+
     ir::Type construct_option_struct(const ir::Type &etype) {
-        std::string struct_name = "?option" + std::to_string(counter++);
+        std::string struct_name = get_unique_option_name();
         ir::Struct_t::Map fields;
         fields.emplace_back("value", etype);
         fields.emplace_back("set", Bool);
@@ -129,7 +133,7 @@ struct RewriteOptions : public ir::Mutator {
     }
 
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
-    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) override {
+    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) {
         ir::Type base_type = mutate(loc.base_type);
         bool not_changed = base_type.same_as(loc.base_type);
         ir::WriteLoc new_loc(loc.base, std::move(base_type));
@@ -146,20 +150,37 @@ struct RewriteOptions : public ir::Mutator {
         return {std::move(new_loc), not_changed};
     }
 
+    // These three need to mutate the types of the writelocs.
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        auto [loc, not_changed] = mutate_writeloc(node->loc);
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::LetStmt::make(std::move(loc), std::move(value));
+    }
+
+    ir::Stmt visit(const ir::Assign *node) override {
+        auto [loc, not_changed] = mutate_writeloc(node->loc);
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Assign::make(std::move(loc), std::move(value),
+                                node->mutating);
+    }
+
+    ir::Stmt visit(const ir::Accumulate *node) override {
+        auto [loc, not_changed] = mutate_writeloc(node->loc);
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
+    }
+
     // TODO: which other relevant nodes are there?
 };
-
-ir::Type lower_option(const ir::Type &type) {
-    return RewriteOptions().mutate(type);
-}
-
-ir::Expr lower_option(const ir::Expr &expr) {
-    return RewriteOptions().mutate(expr);
-}
-
-ir::Stmt lower_option(const ir::Stmt &stmt) {
-    return RewriteOptions().mutate(stmt);
-}
 
 bool contains_option(const ir::Type &type) {
     struct ContainsOption : ir::Visitor {
@@ -174,42 +195,35 @@ bool contains_option(const ir::Type &type) {
 
 } // namespace
 
-ir::TypeMap LowerOptions::run(ir::TypeMap types) const {
-    ir::TypeMap new_types;
-
-    for (const auto &[t, type] : types) {
-        new_types[t] = lower_option(type);
+ir::Program LowerOption::run(ir::Program program) const {
+    RewriteOptions rewriter;
+    for (auto &[t, type] : program.types) {
+        type = rewriter.mutate(std::move(type));
     }
 
-    return new_types;
-}
-
-ir::ExternList LowerOptions::run(ir::ExternList externs) const {
-    for (const auto &[name, type] : externs) {
+    for (const auto &[name, type] : program.externs) {
         internal_assert(!contains_option(type))
             << "Lowering failure, found option type in extern: " << name
             << " with type: " << type;
     }
-    return externs;
-}
 
-ir::FuncMap LowerOptions::run(ir::FuncMap funcs) const {
-    ir::FuncMap new_funcs;
-    for (const auto &[f, func] : funcs) {
+    for (auto &[f, func] : program.funcs) {
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{arg.name, lower_option(arg.type),
-                                             lower_option(arg.default_value)};
+            args[i] =
+                ir::Function::Argument{arg.name, rewriter.mutate(arg.type),
+                                       rewriter.mutate(arg.default_value)};
         }
-        ir::Type ret_type = lower_option(func->ret_type);
-        ir::Stmt body = lower_option(func->body);
+        ir::Type ret_type = rewriter.mutate(func->ret_type);
+        ir::Stmt body = rewriter.mutate(func->body);
 
-        new_funcs[f] = std::make_shared<ir::Function>(
+        func = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
-            func->interfaces);
+            func->interfaces, /*is_export=*/func->is_export);
     }
-    return new_funcs;
+
+    return program;
 }
 
 } // namespace lower
