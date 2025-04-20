@@ -220,7 +220,7 @@ ir::Program LowerOption::run(ir::Program program) const {
 
         func = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
-            func->interfaces);
+            func->interfaces, /*is_export=*/func->is_export);
     }
 
     return program;

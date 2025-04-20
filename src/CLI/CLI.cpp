@@ -5,9 +5,6 @@
 #include <fstream>
 #include <iostream>
 
-#include <llvm/Support/FileSystem.h>
-#include <llvm/Support/raw_ostream.h>
-
 namespace {
 
 using namespace bonsai;
@@ -31,7 +28,6 @@ std::string command_help() {
 int execute(const ir::Program &program, const CompilerOptions &options) {
     switch (options.target) {
     case BackendTarget::NONE: {
-        internal_assert(!options.is_execute);
         if (options.output_file.empty()) {
             program.dump(std::cout);
             return EXIT_SUCCESS;
@@ -43,29 +39,22 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
         return EXIT_SUCCESS;
     }
     case BackendTarget::ASM: {
-        internal_assert(!options.is_execute);
-        CodeGen_LLVM codegen;
-        codegen::to_asm(options.output_file, program, &codegen);
+        codegen::to_asm(program, options);
         return EXIT_SUCCESS;
     }
     case BackendTarget::LLVM: {
-        CodeGen_LLVM codegen;
         if (options.is_execute) {
-            codegen::jit(program, &codegen);
+            codegen::jit(program, options);
             return EXIT_SUCCESS;
         }
-        std::unique_ptr<llvm::Module> module = codegen.compile_program(program);
-        if (options.output_file.empty()) {
-            module->print(llvm::outs(), /*AAW=*/nullptr);
-            return EXIT_SUCCESS;
-        }
-        auto os = make_raw_fd_ostream(options.output_file);
-        module->print(*os, /*AAW=*/nullptr);
+        codegen::to_llvm(program, options);
+        return EXIT_SUCCESS;
+    }
+    case BackendTarget::CPP: {
+        codegen::to_cpp(program, options);
         return EXIT_SUCCESS;
     }
     }
-    internal_error << "Unknown backend";
-    return EXIT_FAILURE;
 }
 
 } // namespace

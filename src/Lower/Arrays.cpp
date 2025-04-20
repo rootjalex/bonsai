@@ -186,7 +186,7 @@ struct LowerToForEach : public ir::Mutator {
 
         auto f = std::make_shared<ir::Function>(
             function_name, std::move(func_args), expr.type(), std::move(body),
-            ir::Function::InterfaceList{});
+            ir::Function::InterfaceList{}, /*is_export=*/false);
         ir::Type call_type = f->call_type();
         new_funcs[function_name] = std::move(f);
 

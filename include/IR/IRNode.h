@@ -2,6 +2,11 @@
 
 #include "IntrusivePtr.h"
 
+#include <memory>
+#include <string>
+#include <string_view>
+#include <type_traits>
+
 namespace bonsai {
 namespace ir {
 
@@ -31,6 +36,32 @@ struct IRNode {
     _TypeEnum node_type;
 
     using TypeEnum = _TypeEnum;
+
+    // Appends `value` to this node's annotation.
+    template <typename T>
+    void append_annotation(const T &value) const {
+        if (annotation == nullptr) {
+            annotation = std::make_unique<std::string>("");
+        }
+        if constexpr (std::is_convertible_v<T, std::string_view>) {
+            *annotation += value;
+        } else {
+            *annotation += std::to_string(value);
+        }
+    }
+
+    // Retrieves the annotation for this node if
+    // it exists, or an empty string otherwise.
+    std::string get_annotation() const {
+        if (annotation == nullptr) {
+            return "";
+        }
+        return *annotation;
+    }
+
+  private:
+    // This should only be accessed via the interface.
+    mutable std::unique_ptr<std::string> annotation;
 };
 
 // All instances of IRNode need to implement ref_count and destroy!

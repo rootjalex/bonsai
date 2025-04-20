@@ -516,7 +516,7 @@ struct LowerBVH : public ir::Mutator {
         ir::Type ret_type = expr.type();
         auto f = std::make_shared<ir::Function>(
             func, std::move(func_args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{});
+            ir::Function::InterfaceList{}, /*is_export=*/false);
         ir::Type call_type = f->call_type();
         new_funcs[func] = std::move(f);
 

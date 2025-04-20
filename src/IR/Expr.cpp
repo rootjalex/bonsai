@@ -692,7 +692,6 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
         << type;
 
     // Always do type inference, we have enough information here.
-
     const auto &fields = type.as<Struct_t>()->fields;
     const auto &defaults = type.as<Struct_t>()->defaults;
 
@@ -716,6 +715,14 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
     Build *node = new Build;
     node->type = std::move(type);
     node->values = std::move(args);
+    return node;
+}
+
+Expr Build::make(Type type) {
+    internal_assert(type.is<Struct_t>())
+        << "Cannot build with named fields for non-struct: " << type;
+    Build *node = new Build;
+    node->type = std::move(type);
     return node;
 }
 

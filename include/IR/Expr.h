@@ -62,7 +62,7 @@ template <typename T>
 struct ExprNode : public BaseExprNode {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
     Expr mutate_expr(Mutator *m) const override;
-    ExprNode() : BaseExprNode(T::_node_type) {}
+    ExprNode() : BaseExprNode(T::node_type) {}
     ~ExprNode() override = default;
 };
 
@@ -98,7 +98,7 @@ struct IntImm : ExprNode<IntImm> {
 
     static Expr make(Type t, int64_t value);
 
-    static const IRExprEnum _node_type = IRExprEnum::IntImm;
+    static const IRExprEnum node_type = IRExprEnum::IntImm;
 };
 
 struct UIntImm : ExprNode<UIntImm> {
@@ -106,7 +106,7 @@ struct UIntImm : ExprNode<UIntImm> {
 
     static Expr make(Type t, uint64_t value);
 
-    static const IRExprEnum _node_type = IRExprEnum::UIntImm;
+    static const IRExprEnum node_type = IRExprEnum::UIntImm;
 };
 
 struct IdxImm : ExprNode<IdxImm> {
@@ -114,7 +114,7 @@ struct IdxImm : ExprNode<IdxImm> {
 
     static Expr make(int64_t value);
 
-    static const IRExprEnum _node_type = IRExprEnum::IdxImm;
+    static const IRExprEnum node_type = IRExprEnum::IdxImm;
 };
 
 struct FloatImm : ExprNode<FloatImm> {
@@ -122,7 +122,7 @@ struct FloatImm : ExprNode<FloatImm> {
 
     static Expr make(Type t, double value);
 
-    static const IRExprEnum _node_type = IRExprEnum::FloatImm;
+    static const IRExprEnum node_type = IRExprEnum::FloatImm;
 };
 
 struct BoolImm : ExprNode<BoolImm> {
@@ -130,13 +130,13 @@ struct BoolImm : ExprNode<BoolImm> {
 
     static Expr make(bool value);
 
-    static const IRExprEnum _node_type = IRExprEnum::BoolImm;
+    static const IRExprEnum node_type = IRExprEnum::BoolImm;
 };
 
 struct VecImm : ExprNode<VecImm> {
 
     static Expr make(std::vector<ir::Expr> values);
-    static const IRExprEnum _node_type = IRExprEnum::VecImm;
+    static const IRExprEnum node_type = IRExprEnum::VecImm;
 
     std::vector<ir::Expr> values;
 };
@@ -146,14 +146,14 @@ struct Var : ExprNode<Var> {
 
     static Expr make(Type t, const std::string &name);
 
-    static const IRExprEnum _node_type = IRExprEnum::Var;
+    static const IRExprEnum node_type = IRExprEnum::Var;
 };
 
 // Maximum value of a type (inf for float)
 struct Infinity : ExprNode<Infinity> {
     static Expr make(Type tan);
 
-    static const IRExprEnum _node_type = IRExprEnum::Infinity;
+    static const IRExprEnum node_type = IRExprEnum::Infinity;
 };
 
 struct BinOp : ExprNode<BinOp> {
@@ -177,7 +177,7 @@ struct BinOp : ExprNode<BinOp> {
 
     static Expr make(OpType op, Expr a, Expr b);
 
-    static const IRExprEnum _node_type = IRExprEnum::BinOp;
+    static const IRExprEnum node_type = IRExprEnum::BinOp;
 
     static bool is_numeric_op(const OpType &op);
     static bool is_boolean_op(const OpType &op);
@@ -191,7 +191,7 @@ struct UnOp : ExprNode<UnOp> {
 
     static Expr make(OpType op, Expr a);
 
-    static const IRExprEnum _node_type = IRExprEnum::UnOp;
+    static const IRExprEnum node_type = IRExprEnum::UnOp;
 };
 
 struct Select : ExprNode<Select> {
@@ -199,7 +199,7 @@ struct Select : ExprNode<Select> {
 
     static Expr make(Expr cond, Expr tvalue, Expr fvalue);
 
-    static const IRExprEnum _node_type = IRExprEnum::Select;
+    static const IRExprEnum node_type = IRExprEnum::Select;
 };
 
 struct Cast : ExprNode<Cast> {
@@ -207,7 +207,7 @@ struct Cast : ExprNode<Cast> {
 
     static Expr make(Type type, Expr value);
 
-    static const IRExprEnum _node_type = IRExprEnum::Cast;
+    static const IRExprEnum node_type = IRExprEnum::Cast;
 };
 
 struct Broadcast : ExprNode<Broadcast> {
@@ -216,7 +216,7 @@ struct Broadcast : ExprNode<Broadcast> {
 
     static Expr make(uint32_t lanes, Expr value);
 
-    static const IRExprEnum _node_type = IRExprEnum::Broadcast;
+    static const IRExprEnum node_type = IRExprEnum::Broadcast;
 };
 
 struct VectorReduce : ExprNode<VectorReduce> {
@@ -237,7 +237,7 @@ struct VectorReduce : ExprNode<VectorReduce> {
 
     static Expr make(OpType op, Expr value);
 
-    static const IRExprEnum _node_type = IRExprEnum::VectorReduce;
+    static const IRExprEnum node_type = IRExprEnum::VectorReduce;
 };
 
 struct VectorShuffle : ExprNode<VectorShuffle> {
@@ -246,7 +246,7 @@ struct VectorShuffle : ExprNode<VectorShuffle> {
 
     static Expr make(Expr value, std::vector<Expr> idxs);
 
-    static const IRExprEnum _node_type = IRExprEnum::VectorShuffle;
+    static const IRExprEnum node_type = IRExprEnum::VectorShuffle;
 };
 
 struct Ramp : ExprNode<Ramp> {
@@ -255,7 +255,7 @@ struct Ramp : ExprNode<Ramp> {
 
     static Expr make(Expr base, Expr stride, int lanes);
 
-    static const IRExprEnum _node_type = IRExprEnum::Ramp;
+    static const IRExprEnum node_type = IRExprEnum::Ramp;
 };
 
 struct Extract : ExprNode<Extract> {
@@ -264,7 +264,7 @@ struct Extract : ExprNode<Extract> {
     static Expr make(Expr vec, int idx);
     static Expr make(Expr vec, Expr idx);
 
-    static const IRExprEnum _node_type = IRExprEnum::Extract;
+    static const IRExprEnum node_type = IRExprEnum::Extract;
 };
 
 // Construct a value of a Type (e.g. Vector_t or Struct_t)
@@ -275,8 +275,10 @@ struct Build : ExprNode<Build> {
     static Expr make(Type type, std::vector<Expr> values);
     // Named field constructor (for Struct_t only!)
     static Expr make(Type type, std::map<std::string, Expr> values);
+    // Builds an empty struct -- useful when passing as a mutable argument.
+    static Expr make(Type type);
 
-    static const IRExprEnum _node_type = IRExprEnum::Build;
+    static const IRExprEnum node_type = IRExprEnum::Build;
 };
 
 // Access a value of a Struct_t
@@ -286,7 +288,7 @@ struct Access : ExprNode<Access> {
 
     static Expr make(std::string field, Expr value);
 
-    static const IRExprEnum _node_type = IRExprEnum::Access;
+    static const IRExprEnum node_type = IRExprEnum::Access;
 };
 
 // Reinterpret as a branch of a BVH_t
@@ -296,7 +298,7 @@ struct Unwrap : ExprNode<Unwrap> {
 
     static Expr make(size_t index, Expr value);
 
-    static const IRExprEnum _node_type = IRExprEnum::Unwrap;
+    static const IRExprEnum node_type = IRExprEnum::Unwrap;
 };
 
 struct Intrinsic : ExprNode<Intrinsic> {
@@ -319,7 +321,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
 
     static Expr make(OpType op, std::vector<Expr> args);
 
-    static const IRExprEnum _node_type = IRExprEnum::Intrinsic;
+    static const IRExprEnum node_type = IRExprEnum::Intrinsic;
 };
 
 struct Lambda : ExprNode<Lambda> {
@@ -332,7 +334,7 @@ struct Lambda : ExprNode<Lambda> {
 
     static Expr make(std::vector<Argument> args, Expr value);
 
-    static const IRExprEnum _node_type = IRExprEnum::Lambda;
+    static const IRExprEnum node_type = IRExprEnum::Lambda;
 };
 
 struct GeomOp : ExprNode<GeomOp> {
@@ -352,7 +354,7 @@ struct GeomOp : ExprNode<GeomOp> {
 
     static const char *intrinsic_name(const OpType &op);
 
-    static const IRExprEnum _node_type = IRExprEnum::GeomOp;
+    static const IRExprEnum node_type = IRExprEnum::GeomOp;
 };
 
 // For Argmin/Map/Filter, a: Lambda, b: Set
@@ -373,7 +375,7 @@ struct SetOp : ExprNode<SetOp> {
 
     static Expr make(OpType op, Expr a, Expr b);
 
-    static const IRExprEnum _node_type = IRExprEnum::SetOp;
+    static const IRExprEnum node_type = IRExprEnum::SetOp;
 };
 
 struct Call : ExprNode<Call> {
@@ -382,7 +384,7 @@ struct Call : ExprNode<Call> {
 
     static Expr make(Expr func, std::vector<Expr> args);
 
-    static const IRExprEnum _node_type = IRExprEnum::Call;
+    static const IRExprEnum node_type = IRExprEnum::Call;
 };
 
 struct Instantiate : ExprNode<Instantiate> {
@@ -392,7 +394,7 @@ struct Instantiate : ExprNode<Instantiate> {
 
     static Expr make(Expr expr, TypeMap types);
 
-    static const IRExprEnum _node_type = IRExprEnum::Instantiate;
+    static const IRExprEnum node_type = IRExprEnum::Instantiate;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary
@@ -407,7 +409,7 @@ struct Array_t : TypeNode<Array_t> {
 
     static Type make(Type etype, Expr size);
 
-    static const IRTypeEnum _node_type = IRTypeEnum::Array_t;
+    static const IRTypeEnum node_type = IRTypeEnum::Array_t;
 };
 
 } // namespace ir

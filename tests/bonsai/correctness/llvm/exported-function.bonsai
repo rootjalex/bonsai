@@ -1,0 +1,15 @@
+//! flags: -b llvm -e
+
+element Position { x: i32; y: i32; z: i32; c: f32; }
+
+func [[export]] foo(i: Position, j: Position) -> Position {
+  return Position {i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c };
+}
+
+func main() -> i32 {
+  i: Position = Position {1,  2,  3,  1.0};
+  j: Position = Position {10, 20, 30, 41.0};
+  r: Position = foo(i, j);
+  print(r);
+  return 0;
+}

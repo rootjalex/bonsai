@@ -396,6 +396,15 @@ Expr Mutator::visit(const Instantiate *node) {
     return Instantiate::make(std::move(expr), node->types);
 }
 
+Stmt Mutator::visit(const CallStmt *node) {
+    Expr func = mutate(node->func);
+    auto [args, not_changed] = visit_list(this, node->args);
+    if (func.same_as(node->func) && not_changed) {
+        return node;
+    }
+    return CallStmt::make(std::move(func), std::move(args));
+}
+
 Stmt Mutator::visit(const Print *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
@@ -405,6 +414,9 @@ Stmt Mutator::visit(const Print *node) {
 }
 
 Stmt Mutator::visit(const Return *node) {
+    if (!node->value.defined()) {
+        return node;
+    }
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
         return node;

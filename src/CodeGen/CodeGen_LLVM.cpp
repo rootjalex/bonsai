@@ -46,6 +46,19 @@
 #include <sstream>
 
 namespace bonsai {
+namespace codegen {
+void to_llvm(const ir::Program &program, const CompilerOptions &options) {
+    CodeGen_LLVM codegen;
+    std::unique_ptr<llvm::Module> module =
+        codegen.compile_program(program, options);
+    if (options.output_file.empty()) {
+        module->print(llvm::outs(), /*AAW=*/nullptr);
+        return;
+    }
+    auto os = make_raw_fd_ostream(options.output_file);
+    module->print(*os, /*AAW=*/nullptr);
+}
+} // namespace codegen
 namespace {
 
 // Returns the `printf` function for this module. If none exists, it is created.
@@ -79,7 +92,6 @@ static std::string get_specifier(const ir::Type &type) {
     }
     if (!(type.is_numeric() && (width == 32 || width == 64))) {
         internal_error << "[unimplemented] LLVM print: " << type;
-        return "";
     }
     if (type.is_int()) {
         if (width > 32)
@@ -98,12 +110,83 @@ static std::string get_specifier(const ir::Type &type) {
     }
 
     internal_error << "[unimplemented] LLVM print: " << type;
-    return "";
 }
 
 } // namespace
 
 using namespace ir;
+
+std::unique_ptr<llvm::TargetMachine>
+CodeGen_LLVM::make_target_machine(llvm::Module &module,
+                                  const CompilerOptions &options) {
+    // TODO(cgyurgyik): This effectively makes our tests host-machine specific.
+    std::string target_triple = llvm::sys::getDefaultTargetTriple(),
+                error_string;
+    const llvm::Target *llvm_target =
+        llvm::TargetRegistry::lookupTarget(target_triple, error_string);
+    if (llvm_target == nullptr) {
+        llvm::errs() << error_string << "\n";
+        llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::errs());
+        internal_error << "could not create LLVM target for: " << target_triple;
+    }
+    llvm::Triple triple = llvm::Triple(target_triple);
+    llvm::TargetOptions target_options;
+
+    // TODO: set options?
+    // target_options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    // target_options.UnsafeFPMath = true;
+    // target_options.NoInfsFPMath = true;
+    // target_options.NoNaNsFPMath = true;
+    // get_target_options(module, target_options);
+
+    bool use_pic = true;
+    // get_md_bool(module.getModuleFlag("bonsai_use_pic"), use_pic);
+
+    bool use_large_code_model = false;
+    // get_md_bool(module.getModuleFlag("bonsai_use_large_code_model"),
+    // use_large_code_model);
+
+    auto *tm = llvm_target->createTargetMachine(
+        module.getTargetTriple(),
+        /*CPU target=*/"", /*Features=*/"", target_options,
+        use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
+        use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
+        llvm::CodeGenOptLevel::Aggressive);
+
+    switch (options.target) {
+    case BackendTarget::ASM:
+    case BackendTarget::CPP: {
+        // These two backends *require* a data layout.
+        module.setDataLayout(tm->createDataLayout());
+        module.setTargetTriple(target_triple);
+        break;
+    }
+    default:
+        // TODO(cgyurgyik): should all backends using LLVM be machine specific?
+        // Pros: we see the actual code being generated. Cons: our tests either
+        // become host-machine specific or are defaulted to a specific machine.
+        break;
+    }
+    return std::unique_ptr<llvm::TargetMachine>(tm);
+}
+
+void CodeGen_LLVM::print_module(llvm::Module &module, llvm::raw_ostream &os,
+                                bool redacted) {
+    if (!redacted) {
+        module.print(os, nullptr);
+        return;
+    }
+    std::string triple = module.getTargetTriple();
+    llvm::DataLayout layout = module.getDataLayout();
+    {
+        module.setTargetTriple("");
+        module.setDataLayout("");
+        module.print(os, nullptr);
+    }
+    // Reset these in case these are referenced later.
+    module.setTargetTriple(std::move(triple));
+    module.setDataLayout(std::move(layout));
+}
 
 CodeGen_LLVM::CodeGen_LLVM() {
     // TODO: set up independent state (e.g. wildcard matchers)
@@ -195,13 +278,39 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     llvm::Type *ret_type = codegen_type(func.ret_type);
     std::vector<llvm::Type *> arg_types(func.args.size());
     for (uint32_t i = 0; i < func.args.size(); i++) {
-        arg_types[i] = codegen_type(func.args[i].type);
+        const auto &arg_info = func.args[i];
+        llvm::Type *arg_t = codegen_type(arg_info.type);
+        if (arg_info.mutating || arg_info.type.is<Struct_t>()) {
+            arg_t = arg_t->getPointerTo();
+        }
+        arg_types[i] = arg_t;
     }
 
     llvm::FunctionType *ftype =
-        llvm::FunctionType::get(ret_type, arg_types, /* isVarArg */ false);
-    return llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage,
-                                  func.name, module.get());
+        llvm::FunctionType::get(ret_type, arg_types, /*isVarArg=*/false);
+
+    llvm::Function *fn = llvm::Function::Create(
+        ftype, llvm::GlobalValue::ExternalLinkage, func.name, module.get());
+
+    for (uint32_t i = 0; i < func.args.size(); i++) {
+        const auto &arg_info = func.args[i];
+        llvm::AttrBuilder attrs(*context);
+
+        attrs.addAttribute(llvm::Attribute::NoUndef);
+
+        if (arg_info.type.is<Struct_t>() || arg_info.mutating) {
+            attrs.addAttribute(llvm::Attribute::NonNull);
+
+            if (!arg_info.mutating) {
+                attrs.addAttribute(llvm::Attribute::ReadOnly);
+            }
+
+            // TODO: Add dereferenceable + alignment if we can figure that out.
+        }
+
+        fn->addParamAttrs(i, attrs);
+    }
+    return fn;
 }
 
 void CodeGen_LLVM::compile_function(const Function &func,
@@ -213,20 +322,30 @@ void CodeGen_LLVM::compile_function(const Function &func,
     internal_assert(function);
     current_function = function;
 
-    uint32_t arg_idx = 0;
-    for (auto &arg : function->args()) {
-        arg.setName(func.args[arg_idx].name);
-        // TODO: allow mutable args? probably not.
-        frames.add_to_frame(func.args[arg_idx].name,
-                            {&arg, /* mutable */ false});
-        arg_idx++;
-    }
-
     // Add entry point.
     llvm::BasicBlock *entry_bb = llvm::BasicBlock::Create(
         module->getContext(), func.name + "_entry", function);
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     builder->SetInsertPoint(entry_bb);
+
+    uint32_t arg_idx = 0;
+    for (auto &arg : function->args()) {
+        const auto &arg_info = func.args[arg_idx];
+        std::string name = arg_info.name;
+        llvm::Value *arg_value = &arg;
+        // immutable structs are ptrs, so need some indirection.
+        if (const bool immutable_struct =
+                arg_info.type.is<Struct_t>() && !arg_info.mutating;
+            immutable_struct) {
+            llvm::Type *arg_type = codegen_type(arg_info.type);
+            arg_value = builder->CreateLoad(arg_type, arg_value, name);
+        }
+        arg.setName(name);
+        frames.add_to_frame(arg_info.name,
+                            {arg_value, /*mutable=*/arg_info.mutating});
+        arg_idx++;
+    }
+
     codegen_stmt(func.body);
     frames.pop_frame();
 
@@ -242,86 +361,38 @@ void CodeGen_LLVM::compile_function(const Function &func,
 }
 
 std::unique_ptr<llvm::Module>
-CodeGen_LLVM::compile_program(const Program &program) {
+CodeGen_LLVM::compile_program(const Program &program,
+                              const CompilerOptions &options) {
     init_module(); // TODO: init_codegen()?
 
     const auto struct_types = gather_struct_types(program);
     declare_struct_types(struct_types);
 
     frames.new_frame();
-
     // TODO: add program.externs to the global frame.
-
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
-        // Declare function
         func_map[fname] = this->declare_function(*func);
     }
-
     for (const auto &[fname, func] : program.funcs) {
         this->compile_function(*func, func_map[fname]);
     }
-
     frames.pop_frame();
 
-    // std::cout << "\n\n\nBefore:\n\n\n" << std::endl;
+    std::unique_ptr<llvm::TargetMachine> tm =
+        make_target_machine(*module, options);
 
-    // module->dump();
-
-    this->optimize_module();
-    // std::cout << "\n\n\nAfter:\n\n\n" << std::endl;
-    // module->dump();
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "[pre-optimization] compilation resulted in an invalid module";
+    optimize_module(*tm, options);
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "[post-optimization] compilation resulted in an invalid module";
 
     return std::move(module);
 }
 
-std::unique_ptr<llvm::TargetMachine>
-make_target_machine(const llvm::Module &module) {
-    std::string error_string;
-
-    std::string targetTriple = llvm::sys::getDefaultTargetTriple();
-
-    const llvm::Target *llvm_target =
-        llvm::TargetRegistry::lookupTarget(targetTriple, error_string);
-    if (!llvm_target) {
-        std::cout << error_string << "\n";
-        llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::outs());
-    }
-    auto triple = llvm::Triple(targetTriple);
-    internal_assert(llvm_target)
-        << "Could not create LLVM target for " << triple.str();
-
-    llvm::TargetOptions options;
-
-    // TODO: set options?
-    options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
-    options.UnsafeFPMath = true;
-    options.NoInfsFPMath = true;
-    options.NoNaNsFPMath = true;
-    // get_target_options(module, options);
-
-    bool use_pic = true;
-    // get_md_bool(module.getModuleFlag("bonsai_use_pic"), use_pic);
-
-    bool use_large_code_model = false;
-    // get_md_bool(module.getModuleFlag("bonsai_use_large_code_model"),
-    // use_large_code_model);
-
-    auto *tm = llvm_target->createTargetMachine(
-        module.getTargetTriple(),
-        /*CPU target=*/"", /*Features=*/"", options,
-        use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
-        use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
-        llvm::CodeGenOptLevel::Aggressive);
-    return std::unique_ptr<llvm::TargetMachine>(tm);
-}
-
-void CodeGen_LLVM::optimize_module() {
-    // Get host target triple.
-    std::string target_triple = llvm::sys::getDefaultTargetTriple();
-
-    std::unique_ptr<llvm::TargetMachine> tm = make_target_machine(*module);
-    // module->setDataLayout(tm->createDataLayout()); // TODO: is this right?
+void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
+                                   const CompilerOptions &options) {
 
     const bool do_loop_opt =
         true; // get_target().has_feature(Target::EnableLLVMLoopOpt);
@@ -333,7 +404,7 @@ void CodeGen_LLVM::optimize_module() {
         true; // Note: SLP vectorization has no analogue in the scheduling model
     pto.LoopUnrolling = do_loop_opt;
 
-    llvm::PassBuilder pb(tm.get(), pto);
+    llvm::PassBuilder pb(&tm, pto);
 
     bool debug_pass_manager = false;
     // These analysis managers have to be declared in this order.
@@ -366,7 +437,7 @@ void CodeGen_LLVM::optimize_module() {
 
     mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
 
-    if (tm->isPositionIndependent()) {
+    if (tm.isPositionIndependent()) {
         // Add a pass that converts lookup tables to relative lookup tables to
         // make them PIC-friendly. See
         // https://bugs.llvm.org/show_bug.cgi?id=45244
@@ -456,20 +527,16 @@ void CodeGen_LLVM::optimize_module() {
         }
     }
 
-    if (tm) {
-        tm->registerPassBuilderCallbacks(pb);
-    }
-
+    tm.registerPassBuilderCallbacks(pb);
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
     mpm.run(*module, mam);
-
-    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
-        << "Compilation resulted in an invalid module";
 }
 
 void CodeGen_LLVM::visit(const Int_t *node) {
     type = llvm::Type::getIntNTy(*context, node->bits);
 }
+
+void CodeGen_LLVM::visit(const Void_t *node) { type = void_t; }
 
 void CodeGen_LLVM::visit(const UInt_t *node) {
     // LLVM does not distinguish between signed and unsigned integer types.
@@ -596,7 +663,7 @@ void CodeGen_LLVM::visit(const Var *node) {
     auto [_value, _mutable] = frames.from_frames(node->name);
     if (_mutable) {
         llvm::Type *_type = codegen_type(node->type);
-        value = builder->CreateLoad(_type, _value);
+        value = builder->CreateLoad(_type, _value, node->name);
     } else {
         value = _value; // immutable so not pointer.
     }
@@ -888,6 +955,11 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     args.push_back(expr);
 }
 
+void CodeGen_LLVM::visit(const CallStmt *node) {
+    Call::make(node->func, node->args).accept(this);
+    value = nullptr;
+}
+
 void CodeGen_LLVM::visit(const Print *node) {
     // TODO(ajr): fix this to print like a vector.
     /*
@@ -1033,13 +1105,8 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
     // TODO: perform splitting? investigate LLVM's splitting.
 
     if (init) {
-        // std::cerr << "Calling with init = " << init << "\n";
-        // std::cout << "calling intrinsic for: " << ir::Expr(node) <<
-        // std::endl;
         value = builder->CreateIntrinsic(elementType, intrin, {init, v});
     } else {
-        // std::cout << "calling intrinsic for: " << ir::Expr(node) <<
-        // std::endl;
         value = builder->CreateIntrinsic(elementType, intrin, {v});
     }
 
@@ -1210,9 +1277,20 @@ void CodeGen_LLVM::visit(const Call *node) {
     std::vector<llvm::Value *> args(n_args);
 
     for (size_t i = 0; i < n_args; i++) {
-        args[i] = codegen_expr(node->args[i]);
-    }
+        llvm::Value *argument = codegen_expr(node->args[i]);
 
+        if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
+            args[i] = load->getPointerOperand();
+        } else if (node->args[i].type().is<ir::Struct_t>() &&
+                   !isa<llvm::AllocaInst>(argument)) {
+            // We assume structs will always be passed by pointer.
+            auto *alloca = builder->CreateAlloca(argument->getType());
+            builder->CreateStore(argument, alloca);
+            args[i] = alloca;
+        } else {
+            args[i] = argument;
+        }
+    }
     value = builder->CreateCall(func, args);
 }
 
@@ -1233,7 +1311,7 @@ void CodeGen_LLVM::visit(const Build *node) {
             return;
         }
         // Fill with designated values.
-        value = llvm::PoisonValue::get(build_type);
+        value = llvm::UndefValue::get(build_type);
         for (size_t i = 0; i < values.size(); i++) {
             value = builder->CreateInsertElement(value, values[i], i);
         }
@@ -1275,7 +1353,7 @@ void CodeGen_LLVM::visit(const Build *node) {
         } else {
             internal_assert(defaults.empty() ||
                             (values.size() == fields.size()));
-            value = llvm::PoisonValue::get(build_type);
+            value = llvm::UndefValue::get(build_type);
             for (size_t i = 0; i < values.size(); i++) {
                 value = builder->CreateInsertValue(value, values[i], i);
             }
@@ -1329,9 +1407,12 @@ void CodeGen_LLVM::visit(const Unwrap *node) {
 }
 
 void CodeGen_LLVM::visit(const Return *node) {
-    llvm::Value *ret_val = codegen_expr(node->value);
-    // Add return statement.
-    builder->CreateRet(ret_val);
+    ir::Expr value = node->value;
+    if (!value.defined()) {
+        builder->CreateRetVoid();
+        return;
+    }
+    builder->CreateRet(codegen_expr(value));
 }
 
 void CodeGen_LLVM::visit(const Store *node) {
@@ -1416,7 +1497,7 @@ void CodeGen_LLVM::visit(const Store *node) {
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
     llvm::Value *_value = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, {_value, /* mutable */ false});
+    frames.add_to_frame(node->loc.base, {_value, /*mutable=*/false});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -1484,10 +1565,12 @@ void CodeGen_LLVM::visit(const Assign *node) {
     internal_assert(loc) << "Failed to codegen LLVM ptr for: " << node->loc
                          << " in assignment: " << ir::Stmt(node);
 
-    llvm::Value *_value = codegen_expr(node->value);
-
-    builder->CreateStore(
-        _value, loc, /* isVolatile */ false); // TODO: when is isVolatile true?
+    llvm::Value *rhs = codegen_expr(node->value);
+    if (auto *load = dyn_cast<llvm::LoadInst>(loc)) {
+        loc = load->getPointerOperand();
+    }
+    // TODO: when is isVolatile true?
+    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
@@ -1644,7 +1727,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 
     // We set mutable to false because Var codegen would perform a load from
     // this pointer if it was mutable.
-    frames.add_to_frame(node->name, {alloc, /* mutable */ false});
+    frames.add_to_frame(node->name, {alloc, /* mutable=*/false});
 }
 
 void CodeGen_LLVM::visit(const ForAll *node) {
@@ -1784,7 +1867,7 @@ void CodeGen_LLVM::declare_struct_types(
     // TODO: maybe make sure there's never an infinitely-recursive type?
     for (const auto &_struct : structs) {
         struct_types[_struct->name] =
-            llvm::StructType::create(*context, _struct->name);
+            llvm::StructType::create(*context, "struct." + _struct->name);
         // llvm::errs() << "created: " << *struct_types[_struct->name] << "\n";
     }
     // Now build bodies, possibly referencing other struct types.

@@ -33,7 +33,7 @@ template <typename T>
 struct InterfaceNode : public BaseInterfaceNode {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
     Interface mutate_interface(Mutator *m) const override;
-    InterfaceNode() : BaseInterfaceNode(T::_node_type) {}
+    InterfaceNode() : BaseInterfaceNode(T::node_type) {}
     ~InterfaceNode() override = default;
 };
 
@@ -63,19 +63,19 @@ Interface InterfaceNode<T>::mutate_interface(Mutator *m) const {
 
 struct IEmpty : InterfaceNode<IEmpty> {
     static Interface make();
-    static const IRInterfaceEnum _node_type = IRInterfaceEnum::IEmpty;
+    static const IRInterfaceEnum node_type = IRInterfaceEnum::IEmpty;
 };
 
 struct IFloat : InterfaceNode<IFloat> {
     static Interface make();
-    static const IRInterfaceEnum _node_type = IRInterfaceEnum::IFloat;
+    static const IRInterfaceEnum node_type = IRInterfaceEnum::IFloat;
 };
 
 struct IVector : InterfaceNode<IVector> {
     Interface etype;
 
     static Interface make(Interface etype);
-    static const IRInterfaceEnum _node_type = IRInterfaceEnum::IVector;
+    static const IRInterfaceEnum node_type = IRInterfaceEnum::IVector;
 };
 
 // TODO: IUserDefined and IUnion
@@ -84,7 +84,7 @@ struct IVector : InterfaceNode<IVector> {
 struct IUnion : InterfaceNode<IUnion> {
     std::vector<Interface> interfaces;
     static Interface make(std::vector<Interface> interfaces);
-    static const IRInterfaceEnum _node_type = IRInterfaceEnum::IUnion;
+    static const IRInterfaceEnum node_type = IRInterfaceEnum::IUnion;
 };
 */
 

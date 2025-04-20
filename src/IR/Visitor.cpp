@@ -170,9 +170,19 @@ void Visitor::visit(const Instantiate *node) {
     // TODO: should we visit the instantiated types?
 }
 
+void Visitor::visit(const CallStmt *node) {
+    node->func.accept(this);
+    visit_list(this, node->args);
+}
+
 void Visitor::visit(const Print *node) { node->value.accept(this); }
 
-void Visitor::visit(const Return *node) { node->value.accept(this); }
+void Visitor::visit(const Return *node) {
+    if (!node->value.defined()) {
+        return;
+    }
+    node->value.accept(this);
+}
 
 void Visitor::visit(const Store *node) {
     if (node->index.defined()) {

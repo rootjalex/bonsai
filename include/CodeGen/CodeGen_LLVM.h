@@ -6,8 +6,7 @@
  * generators that use llvm.
  */
 
-#include <memory>
-
+#include "CompilerOptions.h"
 #include "IR/Frame.h"
 #include "IR/Function.h"
 #include "IR/Program.h"
@@ -15,17 +14,38 @@
 #include "LLVMIncl.h"
 #include "Scope.h"
 
+#include <memory>
+
 namespace bonsai {
+namespace codegen {
+
+// Generates LLVM IR from a bonsai program with the respective compiler options.
+// If an output file is provided, then the emitted LLVM IR is written there.
+// Otherwise it is printed to standard I/O.
+void to_llvm(const ir::Program &program, const CompilerOptions &options);
+
+} // namespace codegen
 
 struct CodeGen_LLVM : public ir::Visitor {
     CodeGen_LLVM();
 
     /** Takes a bonsai Program and compiles it to an llvm Module. */
     virtual std::unique_ptr<llvm::Module>
-    compile_program(const ir::Program &prog);
+    compile_program(const ir::Program &program, const CompilerOptions &options);
+
     std::unique_ptr<llvm::LLVMContext> steal_context() {
         return std::move(context);
     }
+
+    // Creates a target machine and updates the module's backend and data
+    // layout.
+    std::unique_ptr<llvm::TargetMachine>
+    make_target_machine(llvm::Module &module, const CompilerOptions &options);
+
+    // Print the LLVM module. If `redacted` is true, we don't print the target
+    // triple or data layout.
+    void print_module(llvm::Module &module, llvm::raw_ostream &os,
+                      bool redacted = false);
 
   protected:
     /** Initialize internal llvm state for the enabled targets. */
@@ -37,7 +57,8 @@ struct CodeGen_LLVM : public ir::Visitor {
      * multiple related modules (e.g. multiple device kernels). */
     virtual void init_module();
 
-    virtual void optimize_module();
+    virtual void optimize_module(llvm::TargetMachine &tm,
+                                 const CompilerOptions &options);
 
     llvm::Function *declare_function(const ir::Function &func);
     void compile_function(const ir::Function &func, llvm::Function *function);
@@ -64,6 +85,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual std::string get_allocation_name(const std::string &n) { return n; }
 
     // Types
+    virtual void visit(const ir::Void_t *) override;
     virtual void visit(const ir::Int_t *) override;
     virtual void visit(const ir::UInt_t *) override;
     virtual void visit(const ir::Index_t *) override;
@@ -112,6 +134,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Instantiate *) override;
     virtual void visit(const ir::Allocate *) override;
     // Stmts
+    virtual void visit(const ir::CallStmt *) override;
     virtual void visit(const ir::Print *) override;
     virtual void visit(const ir::Return *) override;
     virtual void visit(const ir::Store *) override;

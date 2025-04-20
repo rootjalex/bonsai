@@ -1,0 +1,12 @@
+//! flags: -p core
+
+element X { x: i32; }
+
+func [[export]] A(x: X) -> X { return x; }
+func [[export]] B(x: X) -> X { return A(x); }
+
+func [[export]] C(x: X) -> X { return x; }
+func [[export]] D(x: X) -> X { 
+  y: X = C(x); 
+  return y;
+}

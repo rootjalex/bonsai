@@ -1,9 +1,28 @@
 #include "IR/Stmt.h"
 
 #include "IR/Printer.h"
+#include "Utils.h"
 
 namespace bonsai {
 namespace ir {
+
+Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
+    internal_assert(func.defined()) << "CallStmt::make received undefined func";
+    internal_assert(std::all_of(args.cbegin(), args.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "CallStmt::make received undefined arg to func: " << func;
+
+    CallStmt *node = new CallStmt;
+    const Function_t *f = func.type().as<Function_t>();
+    internal_assert(f) << "CallStmt::make received bad function type: "
+                       << func.type();
+    internal_assert(f->ret_type.is<ir::Void_t>())
+        << "CallStmt::make received non-void return type: " << func.type();
+
+    node->func = std::move(func);
+    node->args = std::move(args);
+    return node;
+}
 
 Stmt Print::make(Expr value) {
     internal_assert(value.defined()) << "Undefined value in Print::make";
@@ -16,6 +35,12 @@ Stmt Return::make(Expr value) {
     internal_assert(value.defined()) << "Undefined value in Return::make";
     Return *node = new Return;
     node->value = std::move(value);
+    return node;
+}
+
+Stmt Return::make() {
+    Return *node = new Return;
+    node->value = ir::Expr();
     return node;
 }
 

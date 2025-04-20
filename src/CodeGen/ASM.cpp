@@ -1,8 +1,10 @@
 #include "CodeGen/ASM.h"
 
-#include <string>
+#include "CodeGen/CodeGen_LLVM.h"
+#include "Error.h"
 
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -12,12 +14,9 @@
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
-// #include <llvm/Passes/PassManager.h>
-#include <llvm/IR/LegacyPassManager.h>
-
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 
-#include "Error.h"
+#include <string>
 
 namespace bonsai {
 namespace codegen {
@@ -25,32 +24,23 @@ namespace codegen {
 namespace {
 
 void emit_file(const std::string &filename,
-               std::unique_ptr<llvm::Module> _module,
+               std::unique_ptr<llvm::Module> module,
                llvm::CodeGenFileType file_type) {
-    std::string target_triple = llvm::sys::getDefaultTargetTriple();
-    _module->setTargetTriple(target_triple);
-
-    std::string Error;
+    // This is set LLVM compilation, see CodeGen_LLVM::make_target_machine.
+    std::string target_triple = module->getTargetTriple();
+    std::string error;
     const llvm::Target *target =
-        llvm::TargetRegistry::lookupTarget(target_triple, Error);
-    if (!target) {
-        internal_error << "Error: " << Error;
+        llvm::TargetRegistry::lookupTarget(target_triple, error);
+    if (target == nullptr) {
+        internal_error << "error: " << error;
     }
 
-    // Create the target machine
-    llvm::TargetOptions Opts;
-    llvm::TargetMachine *target_machine =
-        target->createTargetMachine(target_triple, "generic", "", Opts,
-                                    std::optional<llvm::Reloc::Model>());
-
-    llvm::DataLayout target_data_layout(target_machine->createDataLayout());
-    _module->setDataLayout(target_data_layout); // this can't be right...
-    if (!(target_data_layout == _module->getDataLayout())) {
-        internal_error
-            << "Warning: module's data layout does not match target machine's\n"
-            << target_data_layout.getStringRepresentation() << "\n"
-            << _module->getDataLayout().getStringRepresentation() << "\n";
-    }
+    // Create the target machine for emitting assembly.
+    llvm::TargetOptions target_options;
+    llvm::TargetMachine *target_machine = target->createTargetMachine(
+        target_triple, "generic", "", target_options,
+        std::optional<llvm::Reloc::Model>());
+    module->setDataLayout(target_machine->createDataLayout());
 
     // Build up all of the passes that we want to do to the module.
 
@@ -68,13 +58,13 @@ void emit_file(const std::string &filename,
     llvm::legacy::PassManager pass_manager;
 
     pass_manager.add(new llvm::TargetLibraryInfoWrapperPass(
-        llvm::Triple(_module->getTargetTriple())));
+        llvm::Triple(module->getTargetTriple())));
 
     // Make sure things marked as always-inline get inlined
     pass_manager.add(llvm::createAlwaysInlinerLegacyPass());
 
     if (target_machine->isPositionIndependent()) {
-        std::cout << "Target machine is Position Independent!\n";
+        std::cout << "; target machine is Position Independent!\n";
     }
 
     // Override default to generate verbose assembly.
@@ -91,16 +81,18 @@ void emit_file(const std::string &filename,
                                             file_type);
     }
 
-    pass_manager.run(*_module);
+    pass_manager.run(*module);
 }
 
 } // namespace
 
-void to_asm(const std::string &filename, const ir::Program &program,
-            CodeGen_LLVM *gen) {
-    std::unique_ptr<llvm::Module> result = gen->compile_program(program);
-    std::unique_ptr<llvm::LLVMContext> context = gen->steal_context();
-    emit_file(filename, std::move(result), llvm::CodeGenFileType::AssemblyFile);
+void to_asm(const ir::Program &program, const CompilerOptions &options) {
+    CodeGen_LLVM codegen;
+    std::unique_ptr<llvm::Module> result =
+        codegen.compile_program(program, options);
+    std::unique_ptr<llvm::LLVMContext> context = codegen.steal_context();
+    emit_file(options.output_file, std::move(result),
+              llvm::CodeGenFileType::AssemblyFile);
 }
 
 } // namespace codegen

@@ -30,6 +30,14 @@ struct ComputeUseCounts : ir::Visitor {
     // Name of the current variable whose definition is being traversed.
     std::string curr_var;
 
+    ComputeUseCounts(const std::set<std::string> &mutable_func_args) {
+        for (const auto &arg : mutable_func_args) {
+            // Conservatively set to 1, so Assign statements are not removed.
+            use_counts[arg] = 1;
+            dependent_use_counts[arg] = {};
+        }
+    }
+
     void visit(const ir::Var *node) override {
         ++use_counts[node->name];
         if (!curr_var.empty()) {
@@ -144,13 +152,22 @@ std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
         lower::func_topological_order(funcs, /*undef_calls=*/false);
     std::set<std::string> side_effects;
     HasSideEffects checker(side_effects);
-    for (const std::string &func : topo_order) {
-        internal_assert(!checker.function_has_side_effects.contains(func))
-            << "Found cycle involving: " << func;
+    for (const std::string &f : topo_order) {
+        internal_assert(!checker.function_has_side_effects.contains(f))
+            << "Found cycle involving: " << f;
         checker.found = false;
-        funcs.at(func)->body.accept(&checker);
+        const auto func = funcs.at(f);
+        // Conservatively say that funcs with mutable arguments have side
+        // effects.
+        if (std::any_of(func->args.cbegin(), func->args.cend(),
+                        [](const auto &arg) { return arg.mutating; })) {
+            side_effects.insert(f);
+            continue;
+        }
+        // Otherwise search for side effecting statements.
+        func->body.accept(&checker);
         if (checker.found) {
-            side_effects.insert(func);
+            side_effects.insert(f);
         }
         checker.found = false;
     }
@@ -180,7 +197,7 @@ struct DeadCodeElimination : ir::Mutator {
 
     // Use counts are re-added for side-effecting expressions.
     void add_use_counts(const ir::Expr &expr) {
-        ComputeUseCounts counter;
+        ComputeUseCounts counter({}); // TODO(ajr): is this right?
         expr.accept(&counter);
         internal_assert(counter.dependent_use_counts.empty());
         for (const auto &[var, count] : counter.use_counts) {
@@ -303,9 +320,12 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
-ir::Stmt dce_stmt(const ir::Stmt &stmt,
+ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args,
+                  const ir::Stmt &stmt,
                   const std::set<std::string> &se_functions) {
-    ComputeUseCounts analyzer;
+    // TODO(ajr): for non-exported functions, we can remove mutable args that
+    // are never used.
+    ComputeUseCounts analyzer(mutable_func_args);
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts),
@@ -323,7 +343,14 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     std::set<std::string> se_functions = find_side_effects(funcs);
 
     for (auto &[name, func] : funcs) {
-        func->body = dce_stmt(func->body, se_functions);
+        std::set<std::string> mutable_func_args;
+        for (const auto &arg : func->args) {
+            if (arg.mutating) {
+                mutable_func_args.insert(arg.name);
+            }
+        }
+
+        func->body = dce_stmt(mutable_func_args, func->body, se_functions);
     }
     return funcs;
 }

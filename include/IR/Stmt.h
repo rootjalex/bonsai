@@ -16,6 +16,7 @@ namespace ir {
 struct Stmt;
 
 enum class IRStmtEnum {
+    CallStmt,
     Print,
     Return,
     Store,
@@ -46,7 +47,7 @@ template <typename T>
 struct StmtNode : public BaseStmtNode {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
     Stmt mutate_stmt(Mutator *m) const override;
-    StmtNode() : BaseStmtNode(T::_node_type) {}
+    StmtNode() : BaseStmtNode(T::node_type) {}
     ~StmtNode() override = default;
 };
 
@@ -69,20 +70,32 @@ Stmt StmtNode<T>::mutate_stmt(Mutator *m) const {
     return m->visit((const T *)this);
 }
 
+// A call to a function with void return type and mutable arguments
+struct CallStmt : StmtNode<CallStmt> {
+    Expr func;
+    std::vector<Expr> args;
+
+    static Stmt make(Expr func, std::vector<Expr> args);
+
+    static const IRStmtEnum node_type = IRStmtEnum::CallStmt;
+};
+
 struct Print : StmtNode<Print> {
     Expr value;
 
     static Stmt make(Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Print;
+    static const IRStmtEnum node_type = IRStmtEnum::Print;
 };
 
 struct Return : StmtNode<Return> {
     Expr value;
 
     static Stmt make(Expr value);
+    // A void return statement.
+    static Stmt make();
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Return;
+    static const IRStmtEnum node_type = IRStmtEnum::Return;
 };
 
 struct Store : StmtNode<Store> {
@@ -93,7 +106,7 @@ struct Store : StmtNode<Store> {
 
     static Stmt make(std::string name, Expr index, Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Store;
+    static const IRStmtEnum node_type = IRStmtEnum::Store;
 };
 
 // Non-mutable assignment.
@@ -106,7 +119,7 @@ struct LetStmt : StmtNode<LetStmt> {
     // static Stmt make(std::string name, Expr value, Stmt body);
     static Stmt make(WriteLoc loc, Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::LetStmt;
+    static const IRStmtEnum node_type = IRStmtEnum::LetStmt;
 };
 
 struct IfElse : StmtNode<IfElse> {
@@ -116,7 +129,7 @@ struct IfElse : StmtNode<IfElse> {
 
     static Stmt make(Expr cond, Stmt then_body, Stmt else_body = Stmt());
 
-    static const IRStmtEnum _node_type = IRStmtEnum::IfElse;
+    static const IRStmtEnum node_type = IRStmtEnum::IfElse;
 };
 
 struct Sequence : StmtNode<Sequence> {
@@ -124,7 +137,7 @@ struct Sequence : StmtNode<Sequence> {
 
     static Stmt make(std::vector<Stmt> stmts);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Sequence;
+    static const IRStmtEnum node_type = IRStmtEnum::Sequence;
 };
 
 // Assignment to mutable value.
@@ -135,7 +148,7 @@ struct Assign : StmtNode<Assign> {
 
     static Stmt make(WriteLoc loc, Expr value, bool mutating);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Assign;
+    static const IRStmtEnum node_type = IRStmtEnum::Assign;
 };
 
 struct Accumulate : StmtNode<Accumulate> {
@@ -150,7 +163,7 @@ struct Accumulate : StmtNode<Accumulate> {
 
     static Stmt make(WriteLoc loc, OpType op, Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Accumulate;
+    static const IRStmtEnum node_type = IRStmtEnum::Accumulate;
 };
 
 struct Allocate : StmtNode<Allocate> {
@@ -159,7 +172,7 @@ struct Allocate : StmtNode<Allocate> {
 
     static Stmt make(std::string name, Type type);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Allocate;
+    static const IRStmtEnum node_type = IRStmtEnum::Allocate;
 };
 
 struct Match : StmtNode<Match> {
@@ -169,7 +182,7 @@ struct Match : StmtNode<Match> {
 
     static Stmt make(Expr loc, Arms arms);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Match;
+    static const IRStmtEnum node_type = IRStmtEnum::Match;
 };
 
 struct Yield : StmtNode<Yield> {
@@ -177,7 +190,7 @@ struct Yield : StmtNode<Yield> {
 
     static Stmt make(Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Yield;
+    static const IRStmtEnum node_type = IRStmtEnum::Yield;
 };
 
 struct Scan : StmtNode<Scan> {
@@ -185,7 +198,7 @@ struct Scan : StmtNode<Scan> {
 
     static Stmt make(Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::Scan;
+    static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };
 
 struct YieldFrom : StmtNode<YieldFrom> {
@@ -193,7 +206,7 @@ struct YieldFrom : StmtNode<YieldFrom> {
 
     static Stmt make(Expr value);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::YieldFrom;
+    static const IRStmtEnum node_type = IRStmtEnum::YieldFrom;
 };
 
 struct ForEach : StmtNode<ForEach> {
@@ -203,7 +216,7 @@ struct ForEach : StmtNode<ForEach> {
 
     static Stmt make(std::string name, Expr iter, Stmt body);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::ForEach;
+    static const IRStmtEnum node_type = IRStmtEnum::ForEach;
 };
 
 struct ForAll : StmtNode<ForAll> {
@@ -216,7 +229,7 @@ struct ForAll : StmtNode<ForAll> {
 
     static Stmt make(std::string index, Stmt header, Slice slice, Stmt body);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::ForAll;
+    static const IRStmtEnum node_type = IRStmtEnum::ForAll;
 };
 
 } // namespace ir
