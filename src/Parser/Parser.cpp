@@ -431,7 +431,7 @@ struct Parser {
                 // TODO: can we accept multiple args with one type here, as in
                 // element definitions?
                 bool mutating = false;
-                const std::string arg_name = get_id();
+                std::string arg_name = get_id();
                 expect(Token::Type::COL);
                 if (consume(Token::Type::MUT)) {
                     mutating = true;
