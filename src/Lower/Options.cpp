@@ -17,7 +17,6 @@ struct RewriteOptions : public ir::Mutator {
     ir::Type Bool = ir::Bool_t::make();
     std::map<ir::Type, ir::Type, ir::TypeLessThan> rewrite_map;
     // number of option etypes rewritten
-    
     size_t counter = 0;
 
     std::string get_unique_option_name() {
@@ -207,13 +206,14 @@ ir::Program LowerOption::run(ir::Program program) const {
             << "Lowering failure, found option type in extern: " << name
             << " with type: " << type;
     }
-    
+
     for (auto &[f, func] : program.funcs) {
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{arg.name, rewriter.mutate(arg.type),
-                rewriter.mutate(arg.default_value)};
+            args[i] =
+                ir::Function::Argument{arg.name, rewriter.mutate(arg.type),
+                                       rewriter.mutate(arg.default_value)};
         }
         ir::Type ret_type = rewriter.mutate(func->ret_type);
         ir::Stmt body = rewriter.mutate(func->body);
