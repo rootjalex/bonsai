@@ -98,7 +98,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
             generate_name(), arguments,
             /*return_type=*/type,
             /*body=*/ir::Return::make(lambda->value),
-            /*interfaces=*/ir::Function::InterfaceList{});
+            /*interfaces=*/ir::Function::InterfaceList{}, /*is_export=*/false);
 
         return lambda;
     }
@@ -172,9 +172,8 @@ ir::Program lower_program(const ir::Program &old_program) {
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
     for (const auto &[f, func] : old_program.funcs) {
-        ir::Stmt body = cltf.mutate(std::move(func->body));
-        new_program.funcs[f] = std::make_shared<ir::Function>(
-            func->name, func->args, func->ret_type, body, func->interfaces);
+        ir::Stmt body = cltf.mutate(func->body);
+        new_program.funcs[f] = func->replace_body(std::move(body));
     }
 
     // Guarantee deterministic ordering for insertion.

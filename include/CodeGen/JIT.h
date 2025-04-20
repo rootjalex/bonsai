@@ -1,12 +1,12 @@
 #pragma once
 
-#include "CodeGen_LLVM.h"
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 
 namespace bonsai {
 namespace codegen {
 
-void jit(const ir::Program &program, CodeGen_LLVM *gen);
+void jit(const ir::Program &program, const CompilerOptions &options);
 
 } // namespace codegen
 } // namespace bonsai

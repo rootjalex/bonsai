@@ -106,8 +106,7 @@ struct Parser {
   private:
     // Stores a stack of all program streams.
     std::vector<TokenStream> context;
-    // Filenames of everything visited so far, to
-    // avoid double-imports.
+    // Filenames of everything visited so far, to avoid double-imports.
     std::set<std::string> visited_files;
 
     const TokenStream &tokens() const { return context.back(); }
@@ -431,9 +430,12 @@ struct Parser {
             do {
                 // TODO: can we accept multiple args with one type here, as in
                 // element definitions?
-                const std::string arg_name = get_id();
+                bool mutating = false;
+                std::string arg_name = get_id();
                 expect(Token::Type::COL);
-                // TODO: handle `mut`! Use parse_name_def?
+                if (consume(Token::Type::MUT)) {
+                    mutating = true;
+                }
                 ir::Type type = parse_type();
 
                 ir::Expr default_value;
@@ -451,11 +453,13 @@ struct Parser {
                     }
                 }
 
-                add_type_to_frame(arg_name, type,
-                                  /* mutable */ false); // TODO: handle mutable
-                                                        // args in functions.
+                add_type_to_frame(arg_name, type, mutating);
                 args.push_back(ir::Function::Argument{
-                    arg_name, std::move(type), std::move(default_value)});
+                    std::move(arg_name),
+                    std::move(type),
+                    std::move(default_value),
+                    mutating,
+                });
             } while (consume(Token::Type::COMMA));
         }
         expect(Token::Type::RPAREN);
@@ -569,7 +573,7 @@ struct Parser {
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{});
+            ir::Function::InterfaceList{}, /*is_export=*/false);
 
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(typed_name), std::move(func));
@@ -581,6 +585,18 @@ struct Parser {
 
     void parse_function() {
         expect(Token::Type::FUNC);
+        bool is_export = false;
+
+        if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
+            std::string attribute = get_id();
+            if (attribute == "export") {
+                is_export = true;
+            } else {
+                report_error() << "unexpected attribute: " << attribute;
+            }
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::RBRACKET);
+        }
         const std::string name = get_id();
         if (is_geometric_intrinsic(name)) {
             return parse_geometric_intrinsic(name); // special case.
@@ -611,7 +627,7 @@ struct Parser {
         // really good type unification or something.
         program.funcs[name] = std::make_shared<ir::Function>(
             name, std::move(args), std::move(ret_type), ir::Stmt(),
-            std::move(interfaces));
+            std::move(interfaces), /*is_export=*/false);
 
         ir::Stmt body;
 
@@ -641,6 +657,7 @@ struct Parser {
             << " get a function body before being parsed?";
 
         program.funcs[name]->body = std::move(body);
+        program.funcs[name]->is_export = is_export;
         if (!ret_type_set && ret_type.defined()) {
             // we were able to statically infer the return type
             program.funcs[name]->ret_type = std::move(ret_type);
@@ -694,6 +711,9 @@ struct Parser {
                 return ir::IfElse::make(std::move(cond), std::move(then_case));
             }
         } else if (consume(Token::Type::RETURN)) {
+            if (consume(Token::Type::SEMICOL)) {
+                return ir::Return::make();
+            }
             ir::Expr ret = parse_expr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));

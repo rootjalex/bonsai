@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     array.bonsai
     bvh.bonsai
+    exported-function.bonsai
     float.bonsai
     import_float.bonsai
     import_twice.bonsai
@@ -10,6 +11,8 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    multiple-options.bonsai
+    nested-exported-function.bonsai
     option-dereference-struct.bonsai
     option-dereference.bonsai
     option-dereference1.bonsai

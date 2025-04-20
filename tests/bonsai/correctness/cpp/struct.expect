@@ -1,0 +1,4 @@
+[test] clang++ -c tests/bonsai/correctness/cpp/main_struct.cpp -o tests/bonsai/correctness/cpp/main_struct.o
+[test] clang++ tests/bonsai/correctness/cpp/main_struct.o tests/bonsai/correctness/cpp/struct.o -o tests/bonsai/correctness/cpp/struct
+[test] ./tests/bonsai/correctness/cpp/struct
+x: 11, y: 22

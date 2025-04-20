@@ -16,7 +16,7 @@ add_bonsai_tests(
     no-return.bonsai
     option-dereference1.bonsai
     option-dereference2.bonsai
-    option-dereference4.bonsai
+    option-dereference3.bonsai
     optional_bool.bonsai
     string-literal.bonsai
     struct_default.bonsai

@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define <8 x i8> @sat_add(<8 x i8> %x, <8 x i8> %y) local_unnamed_addr #0 {
+define noundef <8 x i8> @sat_add(<8 x i8> noundef %x, <8 x i8> noundef %y) local_unnamed_addr #0 {
 sat_add_entry:
   %0 = tail call <8 x i8> @llvm.sadd.sat.v8i8(<8 x i8> %x, <8 x i8> %y)
   ret <8 x i8> %0

@@ -1,4 +1,4 @@
-#include "Lower/Canonicalize.h"
+#include "Lower/Pass.h"
 
 #include "IR/Mutator.h"
 

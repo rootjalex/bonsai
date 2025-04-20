@@ -76,6 +76,7 @@ target_sources(
     src/CLI/CLI.cpp
     src/CodeGen/ASM.cpp
     src/CodeGen/CodeGen_LLVM.cpp
+    src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
     src/IR/Equality.cpp
@@ -108,6 +109,7 @@ target_sources(
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
+    src/Lower/ReturnToOutParameter.cpp
     src/Lower/Trees.cpp
     src/Lower/Tuples.cpp
     src/Lower/TopologicalOrder.cpp
@@ -133,6 +135,7 @@ target_sources(
     include/CLI/CLI.h
     include/CodeGen/ASM.h
     include/CodeGen/CodeGen_LLVM.h
+    include/CodeGen/CPP.h
     include/CodeGen/JIT.h
     include/CompilerOptions.h
     include/Error.h
@@ -175,6 +178,7 @@ target_sources(
     include/Lower/Pass.h
     include/Lower/PassManager.h
     include/Lower/PredicateAnalysis.h
+    include/Lower/ReturnToOutParameter.h
     include/Lower/Trees.h
     include/Lower/Tuples.h
     include/Lower/TopologicalOrder.h
@@ -200,6 +204,9 @@ if (bonsai_ENABLE_WARNINGS)
         "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W3>"
     )
 endif ()
+
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
+set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
 
 ##
 # Bonsai compiler

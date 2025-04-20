@@ -1,0 +1,5 @@
+//! flags: -b cpp
+
+func [[export]] add(i: i32, j: i32) -> i32 {
+    return i + j;
+}

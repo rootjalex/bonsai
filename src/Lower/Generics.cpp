@@ -173,10 +173,8 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
     // Always eval nongenerics first, they are roots of the call tree of
     // generics.
     for (const auto &[name, func] : nongenerics) {
-        Stmt body = f.mutate(func->body);
-        new_funcs[name] =
-            std::make_shared<Function>(name, func->args, func->ret_type,
-                                       std::move(body), func->interfaces);
+        ir::Stmt body = f.mutate(func->body);
+        new_funcs[name] = func->replace_body(std::move(body));
     }
 
     const auto copy_instants = f.instants;
@@ -191,9 +189,10 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             for (size_t i = 0; i < n_args; i++) {
                 ir::Type new_type = replace(_types, func->args[i].type);
                 internal_assert(!contains_generics(new_type));
+                const ir::Function::Argument &before = func->args[i];
                 args[i] =
-                    Function::Argument(func->args[i].name, std::move(new_type),
-                                       func->args[i].default_value);
+                    Function::Argument(before.name, std::move(new_type),
+                                       before.default_value, before.mutating);
             }
 
             Type ret_type = replace(_types, func->ret_type);
@@ -212,7 +211,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
 
             new_funcs[new_name] = std::make_shared<Function>(
                 new_name, std::move(args), std::move(ret_type), std::move(body),
-                std::move(interfaces));
+                std::move(interfaces), func->is_export);
         }
     }
 

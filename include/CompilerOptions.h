@@ -10,6 +10,7 @@ enum class BackendTarget {
     NONE = 0, // No backend; this will just produce Bonsai IR.
     ASM = 1,  // Generate assembly code for the host machine.
     LLVM = 2, // Generate LLVM IR.
+    CPP = 3,  // Generate C++ header with respective .o file.
 };
 
 // Contains information about how the compiler should be executed.

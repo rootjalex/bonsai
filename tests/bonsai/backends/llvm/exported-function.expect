@@ -1,0 +1,41 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+@0 = private unnamed_addr constant [46 x i8] c"Position {\0A  x: %d\0A  y: %d\0A  z: %d\0A  c: %f\0A}\0A\00", align 1
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @foo(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i1, ptr nocapture noundef nonnull readonly %j2) local_unnamed_addr #0 {
+foo_entry:
+  %i.elt5 = getelementptr inbounds i8, ptr %i1, i64 8
+  %i.unpack6 = load i32, ptr %i.elt5, align 4
+  %i.elt7 = getelementptr inbounds i8, ptr %i1, i64 12
+  %i.unpack8 = load float, ptr %i.elt7, align 4
+  %j.elt12 = getelementptr inbounds i8, ptr %j2, i64 8
+  %j.unpack13 = load i32, ptr %j.elt12, align 4
+  %j.elt14 = getelementptr inbounds i8, ptr %j2, i64 12
+  %j.unpack15 = load float, ptr %j.elt14, align 4
+  %0 = add i32 %j.unpack13, %i.unpack6
+  %1 = fadd float %i.unpack8, %j.unpack15
+  %2 = load <2 x i32>, ptr %i1, align 4
+  %3 = load <2 x i32>, ptr %j2, align 4
+  %4 = add <2 x i32> %3, %2
+  store <2 x i32> %4, ptr %_ret0, align 4
+  %_ret0.repack19 = getelementptr inbounds i8, ptr %_ret0, i64 8
+  store i32 %0, ptr %_ret0.repack19, align 4
+  %_ret0.repack21 = getelementptr inbounds i8, ptr %_ret0, i64 12
+  store float %1, ptr %_ret0.repack21, align 4
+  ret void
+}
+
+; Function Attrs: nofree nounwind
+define noundef i32 @main() local_unnamed_addr #1 {
+main_entry:
+  %0 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 11, i32 22, i32 33, float 4.200000e+01)
+  ret i32 0
+}
+
+; Function Attrs: nofree nounwind
+declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #1 = { nofree nounwind }

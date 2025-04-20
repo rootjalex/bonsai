@@ -1,0 +1,9 @@
+//! flags: -b cpp
+
+element F { x: i32; y: i32; }
+element G { f: F; }
+
+func [[export]] id(g: G) -> G { return g; }
+
+element IGNORE_STRUCT { i: i32; }  
+func IGNORE_FUNC(i: i32, j: i32) -> i32 { return i - j; }

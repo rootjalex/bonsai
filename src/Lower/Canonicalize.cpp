@@ -115,15 +115,10 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 } // namespace
 
 ir::FuncMap Canonicalize::run(ir::FuncMap funcs) const {
-    ir::FuncMap new_funcs;
-
     for (const auto &[name, func] : funcs) {
-        ir::Stmt body = canonicalize(func->body);
-        new_funcs[name] = std::make_shared<ir::Function>(
-            name, func->args, func->ret_type, body, func->interfaces);
+        func->body = canonicalize(func->body);
     }
-
-    return new_funcs;
+    return funcs;
 }
 
 } // namespace lower

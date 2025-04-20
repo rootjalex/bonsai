@@ -107,9 +107,10 @@ namespace {
 std::vector<std::string> get_flags_for_file(const std::string &filename) {
     std::vector<std::string> flags = {"-i", filename};
     std::ifstream file(filename);
+    constexpr std::string_view TAG = "//! flags:";
     if (std::string line; std::getline(file, line)) {
-        if (line.starts_with("//! flags:")) {
-            std::istringstream stream(line.substr(11));
+        if (line.starts_with(TAG)) {
+            std::istringstream stream(line.substr(TAG.size()));
             std::string flag;
             while (stream >> flag) {
                 flags.push_back(flag);
@@ -117,6 +118,93 @@ std::vector<std::string> get_flags_for_file(const std::string &filename) {
         }
     }
     return flags;
+}
+
+// Removes any spaces before the first non-space character, e.g.,
+// left_trim("   ss") => "ss"
+void left_trim(std::string &s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+                return !std::isspace(ch);
+            }));
+}
+
+// Replaces all instances of `from` with `to` in `s`, e.g.,
+// replace_all("DABD", "AB", "-") => "D-D"
+void replace_all(std::string &s, const std::string &from,
+                 const std::string &to) {
+    if (from.empty())
+        return; // avoid infinite loop
+    std::size_t pos = 0;
+    while ((pos = s.find(from, pos)) != std::string::npos) {
+        s.replace(pos, from.length(), to);
+        pos += to.length(); // advance past the replacement
+    }
+}
+
+// Returns the directory from `s`, e.g.,
+// get_directory("a/b/c/d.bonsai") => "a/b/c"
+std::string get_directory(const std::string &s) {
+    std::filesystem::path p{s};
+    std::filesystem::path dir = p.parent_path();
+    return dir.string(); // portable separator
+}
+
+// Retrieves commands from the second line of the file. These are assumed to be
+// separated by commas. If your command contains a comma, then god speed.
+std::vector<std::string> get_commands_for_file(const std::string &filename) {
+    std::vector<std::string> commands;
+    std::ifstream file(filename);
+
+    std::string _, line;
+    if (!std::getline(file, _) || !std::getline(file, line)) {
+        return {};
+    }
+    constexpr std::string_view TAG = "//! commands:";
+
+    std::string_view sv{line};
+    if (!sv.starts_with(TAG)) {
+        return {};
+    }
+    sv.remove_prefix(TAG.size());
+    std::string directory = get_directory(filename);
+    std::istringstream ss(std::string{sv});
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        left_trim(token);
+        // Replace instances of `$<>` with the relative path of this file.
+        replace_all(token, "$<>", directory);
+        commands.push_back(token);
+    }
+    return commands;
+}
+
+// Runs the commands using default shell. Any non-`rm` commands are printed.
+void run_commands(const std::vector<std::string> &commands) {
+    int rc = 0;
+    for (const std::string &command : commands) {
+        if (!command.starts_with("rm")) {
+            // Don't print `rm` commands.
+            std::cout << "[test] " << command << '\n';
+        }
+
+        // Launch via the default shell.
+        rc = std::system(command.c_str());
+        if (rc == 0) {
+            continue;
+        }
+        std::cerr << "command failed (exit " << rc << ")\n";
+        break;
+    }
+    if (rc == 0) {
+        return;
+    }
+    // Clean up any (potentially) left-over files.
+    for (const std::string &command : commands) {
+        if (!command.starts_with("rm")) {
+            continue;
+        }
+        std::system(command.c_str());
+    }
 }
 
 } // namespace
@@ -137,7 +225,10 @@ int main(int argc, char *argv[]) {
     try {
         Capture capout(stdout, stdout_s);
         Capture caperr(stderr, stderr_s);
-        code = run(bonsai::cli::parse(get_flags_for_file(input_file)));
+        std::vector<std::string> flags = get_flags_for_file(input_file);
+        std::vector<std::string> commands = get_commands_for_file(input_file);
+        code = run(bonsai::cli::parse(flags));
+        run_commands(commands);
     } catch (const std::system_error &e) {
         // This might not work if stderr is half-captured, but might as well
         // try.

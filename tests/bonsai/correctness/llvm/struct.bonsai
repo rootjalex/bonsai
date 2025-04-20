@@ -1,0 +1,15 @@
+//! flags: -b llvm -e
+
+element Position { x: i32; y: i32; }
+
+func [[export]] add(i: Position, j: Position) -> Position {
+    return Position {i.x + j.x, i.y + j.y };
+}
+
+func main() -> i32 {
+    i: Position = Position{1, 2};
+    j: Position = Position{3, 4};
+    r: Position = add(i, j);
+    print(r);
+    return 0;
+}

@@ -10,6 +10,15 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+
+template <typename IRNode>
+void print_annotation(const IRNode &node, std::ostream &os) {
+    if (std::string ann = node->get_annotation(); !ann.empty()) {
+        os << ' ' << '\"' << ann << '\"';
+    }
+}
+} // namespace
 
 std::string to_string(const Expr &expr) {
     std::ostringstream oss;
@@ -94,7 +103,12 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
-    os << "func " << func.name;
+    os << "func ";
+    if (func.is_export) {
+        os << "[[export]] ";
+    }
+    os << func.name;
+
     if (!func.interfaces.empty()) {
         os << "<";
         bool first = true;
@@ -122,7 +136,11 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
 
         os << arg.name;
         if (arg.type.defined()) {
-            os << " : " << arg.type;
+            os << " : ";
+            if (arg.mutating) {
+                os << "mut ";
+            }
+            os << arg.type;
         }
         if (arg.default_value.defined()) {
             os << " = " << arg.default_value;
@@ -210,11 +228,9 @@ void Printer::print_type_list(const std::vector<Type> &types) {
 }
 
 void Printer::print(const Expr &expr) {
-    // ScopedValue<bool> old(implicit_parens, false);
-    bool temp = implicit_parens;
-    implicit_parens = false;
+    ScopedValue<bool> old(implicit_parens, false);
     expr.accept(this);
-    implicit_parens = temp;
+    print_annotation(expr, os);
 }
 
 void Printer::print_no_parens(const Expr &expr) {
@@ -231,7 +247,10 @@ void Printer::print_expr_list(const std::vector<Expr> &exprs) {
     }
 }
 
-void Printer::print(const Stmt &stmt) { stmt->accept(this); }
+void Printer::print(const Stmt &stmt) {
+    stmt->accept(this);
+    print_annotation(stmt, os);
+}
 
 void Printer::print(const WriteLoc &loc) {
     if (verbose) {
@@ -757,6 +776,14 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
+void Printer::visit(const CallStmt *node) {
+    os << get_indent();
+    print_no_parens(node->func);
+    os << '(';
+    print_expr_list(node->args);
+    os << ')' << '\n';
+}
+
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";
@@ -766,8 +793,11 @@ void Printer::visit(const Print *node) {
 
 void Printer::visit(const Return *node) {
     os << get_indent();
-    os << "return ";
-    print_no_parens(node->value);
+    os << "return";
+    if (node->value.defined()) {
+        os << ' ';
+        print_no_parens(node->value);
+    }
     os << "\n";
 }
 

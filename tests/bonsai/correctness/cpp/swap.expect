@@ -1,0 +1,5 @@
+[test] clang++ -c tests/bonsai/correctness/cpp/main_swap.cpp -o tests/bonsai/correctness/cpp/main_swap.o
+[test] clang++ tests/bonsai/correctness/cpp/main_swap.o tests/bonsai/correctness/cpp/swap.o -o tests/bonsai/correctness/cpp/swap
+[test] ./tests/bonsai/correctness/cpp/swap
+i: 1, j: 2
+i: 2, j: 1

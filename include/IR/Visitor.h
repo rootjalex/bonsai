@@ -55,6 +55,7 @@ struct Visitor {
     virtual void visit(const Call *);
     virtual void visit(const Instantiate *);
     // Stmts
+    virtual void visit(const CallStmt *);
     virtual void visit(const Print *);
     virtual void visit(const Return *);
     virtual void visit(const Store *);
