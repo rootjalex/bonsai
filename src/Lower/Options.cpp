@@ -133,7 +133,7 @@ struct RewriteOptions : public ir::Mutator {
     }
 
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
-    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) {
+    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) override {
         ir::Type base_type = mutate(loc.base_type);
         bool not_changed = base_type.same_as(loc.base_type);
         ir::WriteLoc new_loc(loc.base, std::move(base_type));
@@ -195,7 +195,7 @@ bool contains_option(const ir::Type &type) {
 
 } // namespace
 
-ir::Program LowerOption::run(ir::Program program) const {
+ir::Program LowerOptions::run(ir::Program program) const {
     RewriteOptions rewriter;
     for (auto &[t, type] : program.types) {
         type = rewriter.mutate(std::move(type));
@@ -220,7 +220,7 @@ ir::Program LowerOption::run(ir::Program program) const {
 
         func = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
-            func->interfaces, /*is_export=*/func->is_export);
+            func->interfaces);
     }
 
     return program;
