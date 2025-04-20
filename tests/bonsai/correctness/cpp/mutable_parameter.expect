@@ -1,5 +1,0 @@
-[test] clang++ -c tests/bonsai/correctness/cpp/main_mutable_parameter.cpp -o tests/bonsai/correctness/cpp/main_mutable_parameter.o
-[test] clang++ tests/bonsai/correctness/cpp/main_mutable_parameter.o tests/bonsai/correctness/cpp/mutable_parameter.o -o tests/bonsai/correctness/cpp/mutable_parameter
-[test] ./tests/bonsai/correctness/cpp/mutable_parameter
-i: 1, j: 2
-i: 2, j: 1

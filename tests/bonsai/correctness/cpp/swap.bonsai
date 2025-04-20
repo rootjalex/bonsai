@@ -1,0 +1,9 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/swap
+//! commands: clang++ -c $<>/main_swap.cpp -o $<>/main_swap.o, clang++ $<>/main_swap.o $<>/swap.o -o $<>/swap, ./$<>/swap, rm $<>/swap, rm $<>/main_swap.o, rm $<>/swap.h, rm $<>/swap.o
+
+func [[export]] swap(x: mut i32, y: mut i32) -> void {
+    t: i32 = x;
+    x = y;
+    y = t;
+    return;
+}

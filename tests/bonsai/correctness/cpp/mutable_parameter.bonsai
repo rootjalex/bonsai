@@ -1,9 +1,0 @@
-//! flags: -b cpp -o tests/bonsai/correctness/cpp/mutable_parameter
-//! commands: clang++ -c $<>/main_mutable_parameter.cpp -o $<>/main_mutable_parameter.o, clang++ $<>/main_mutable_parameter.o $<>/mutable_parameter.o -o $<>/mutable_parameter, ./$<>/mutable_parameter, rm $<>/mutable_parameter, rm $<>/main_mutable_parameter.o, rm $<>/mutable_parameter.h, rm $<>/mutable_parameter.o
-
-func [[export]] swap(x: mut i32, y: mut i32) -> void {
-    tmp: i32 = x;
-    x = y;
-    y = tmp;
-    return;
-}
