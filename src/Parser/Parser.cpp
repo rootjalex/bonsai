@@ -430,9 +430,12 @@ struct Parser {
             do {
                 // TODO: can we accept multiple args with one type here, as in
                 // element definitions?
+                bool mutating = false;
                 const std::string arg_name = get_id();
                 expect(Token::Type::COL);
-                // TODO: handle `mut`! Use parse_name_def?
+                if (consume(Token::Type::MUT)) {
+                    mutating = true;
+                }
                 ir::Type type = parse_type();
 
                 ir::Expr default_value;
@@ -450,11 +453,13 @@ struct Parser {
                     }
                 }
 
-                add_type_to_frame(arg_name, type,
-                                  /* mutable */ false); // TODO: handle mutable
-                                                        // args in functions.
+                add_type_to_frame(arg_name, type, mutating);
                 args.push_back(ir::Function::Argument{
-                    arg_name, std::move(type), std::move(default_value)});
+                    std::move(arg_name),
+                    std::move(type),
+                    std::move(default_value),
+                    mutating,
+                });
             } while (consume(Token::Type::COMMA));
         }
         expect(Token::Type::RPAREN);
@@ -706,6 +711,9 @@ struct Parser {
                 return ir::IfElse::make(std::move(cond), std::move(then_case));
             }
         } else if (consume(Token::Type::RETURN)) {
+            if (consume(Token::Type::SEMICOL)) {
+                return ir::Return::make();
+            }
             ir::Expr ret = parse_expr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));

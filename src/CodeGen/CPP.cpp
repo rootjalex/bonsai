@@ -124,6 +124,9 @@ class BonsaiToCpp {
         const auto *struct_type = type.as<ir::Struct_t>();
         if (struct_type == nullptr) {
             emit_type(type);
+            if (is_mutating) {
+                ss << '&';
+            }
             return;
         }
         if (is_return_type) {

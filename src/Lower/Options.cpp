@@ -229,8 +229,12 @@ ir::FuncMap LowerOption::run(ir::FuncMap funcs) const {
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{arg.name, lower_option(arg.type),
-                                             lower_option(arg.default_value)};
+            args[i] = ir::Function::Argument{
+                arg.name,
+                lower_option(arg.type),
+                lower_option(arg.default_value),
+                arg.mutating,
+            };
         }
         ir::Type ret_type = lower_option(func->ret_type);
         ir::Stmt body = lower_option(func->body);
