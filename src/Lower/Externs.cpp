@@ -107,6 +107,9 @@ ir::Program LowerExterns::run(ir::Program program) const {
         funcs_with_externs[f] = std::move(free_vars);
     }
 
+    // TODO(ajr): would be ideal to clear here, but this breaks layout lowering.
+    // program.externs.clear();
+
     return program;
 }
 

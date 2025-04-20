@@ -1265,18 +1265,6 @@ void CodeGen_LLVM::visit(const Call *node) {
         args[i] = codegen_expr(node->args[i]);
     }
 
-    /*
-    std::cout << "creating call: " << ir::Expr(node) << std::endl;
-    func->print(llvm::outs());
-    llvm::outs() << "\n";
-    
-    for (const auto &arg : args) {
-        arg->print(llvm::outs());
-        llvm::outs() << "\n";
-    }
-    llvm::outs().flush();
-    */
-
     value = builder->CreateCall(func, args);
 }
 

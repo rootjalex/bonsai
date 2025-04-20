@@ -67,10 +67,6 @@ struct GatherFreeVars : public Visitor {
     }
 
     RESTRICT_VISITOR(Store);
-    // RESTRICT_VISITOR(Match);
-    // RESTRICT_VISITOR(Yield);
-    // RESTRICT_VISITOR(Scan);
-    // RESTRICT_VISITOR(YieldFrom);
 
     void visit(const ir::ForAll *node) override {
         node->slice.begin.accept(this);

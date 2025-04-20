@@ -21,22 +21,12 @@ namespace {
 // ensures unique names in lowering.
 static size_t name_counter = 0;
 static size_t pad_counter = 0;
-// static size_t split_counter = 0;
-// static size_t group_counter = 0;
 
 std::string unique_struct_name(std::string base) {
     return "?" + base + "_layout" + std::to_string(name_counter++);
 }
 
 std::string unique_pad_name() { return "?pad" + std::to_string(pad_counter++); }
-
-// std::string unique_split_name(std::string base) {
-//     return "?split_" + base + std::to_string(split_counter++);
-// }
-
-// std::string unique_group_name() {
-//     return "?group" + std::to_string(group_counter++);
-// }
 
 std::string get_group_name(const std::string &base, const std::string &index) {
     return base + "__" + index;
@@ -277,10 +267,8 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
             ir::Expr var = ir::Var::make(node->index_t, iter_name);
             std::string field_name = base_name + "_" + node->name;
             path = ir::Extract::make(ir::Access::make(field_name, path), var);
-            // std::cout << "updated path for Group: " << old_path << " became "
-            // << path << "\n";
-            frames.new_frame();
 
+            frames.new_frame();
             frames.add_to_frame(node->name, std::move(var));
             ir::Visitor::visit(node);
             frames.pop_frame();
@@ -288,7 +276,6 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
         }
 
         void visit(const ir::Materialize *node) override {
-            // std::cout << "Materialize: " << node->value << "\n";
             ir::Expr mat = fill(frames, node->value);
             if (node->name == field) {
                 // Found it!
@@ -302,8 +289,6 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
         }
     };
     FindPaths finder(base, obj_name, node_name, field);
-    // std::cout << "LAYOUT:" << layout << "\n";
-    // std::cout << "TYPE:" << base.type() << "\n";
     layout.accept(&finder);
     internal_assert(finder.value.defined())
         << "Field: " << field << " not set in layout traversal: " << layout;
@@ -416,13 +401,7 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             internal_error << "[unimplemented] nested Match lowering";
         }
         in_match = true;
-        // stack = allocate stack // SCHEDULED!
-        // stack[0] = INFINITY(reference_type) // or -1 if signed?
-        // count = 0;
-        // assign node = 0 // root
-        // do (if-else body node = stack[count--]) while(node !=
-        // INFINITY(REFERENCE_TYPE))
-        // TODO: can do stack-top optimizations!
+        // TODO: can do stack-top optimizations
 
         // TODO: this should be taken from the schedule!
         const int stack_size = 64;
@@ -593,9 +572,6 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     internal_assert(program.schedules.size() == 1)
         << "TODO: support selecting a schedule target!\n";
 
-    // std::cout << "Before:\n";
-    // program.dump(std::cout);
-
     ir::LayoutMap tree_layouts =
         std::move(program.schedules[ir::Target::Host].tree_layouts);
 
@@ -626,13 +602,6 @@ ir::Program LowerLayouts::run(ir::Program program) const {
         }
     }
 
-    // for (const auto &[name, type] : types) {
-    //     std::cout << name << " lowers to " << type << std::endl;
-    // }
-
-    // std::cout << "BEFORE\n";
-    // program.dump(std::cout);
-
     // lower all `Access`es on `Unwrap`s
     LowerUnwrapAccesses lowerer(tree_layouts, types);
 
@@ -644,9 +613,6 @@ ir::Program LowerLayouts::run(ir::Program program) const {
         }
         func->body = lowerer.mutate(func->body);
     }
-
-    // std::cout << "AFTER\n";
-    // program.dump(std::cout);
 
     return program;
 }
