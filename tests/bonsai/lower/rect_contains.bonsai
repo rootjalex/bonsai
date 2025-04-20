@@ -1,3 +1,5 @@
+//! flags: -p lower-trees -p lower-geometrics
+
 element Float = f32;
 element vec3f = vector[Float, 3];
 

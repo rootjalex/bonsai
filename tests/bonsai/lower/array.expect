@@ -1,4 +1,4 @@
-func ?traverse_array0(f : Fn(i32) -> i32, fs : i32[8]) -> i32[8] {
+func ?traverse_array0(fs : i32[8]) -> i32[8] {
   alloc ?alloc0 : i32[8]
   forall x in [(i32)0:(i32)8:(i32)1] {
     let ?load0 = fs[x] in
@@ -61,7 +61,7 @@ func ?traverse_array5(xs : i32[8]) -> i32[8] {
 }
 
 func apply_function(fs : i32[8]) -> i32[8] {
-  return ?traverse_array0(f, fs)
+  return ?traverse_array0(fs)
 }
 
 func f(x : i32) -> i32 {

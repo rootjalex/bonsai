@@ -11,8 +11,8 @@ type vec3f = f32x3
 
 extern triangles : struct ?triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct ?triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }[count] }
 
-func ?traverse_tree0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Triangle {
-  ?best0 := build<(f32, Triangle)>((f32)inf, build<Triangle>())
+func ?traverse_tree0(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
+  ?best0 := build<tuple.0>((f32)inf, build<Triangle>())
   alloc ?stack : u32[64]
   ?count := (u32)0
   ?top := (u32)0
@@ -29,13 +29,14 @@ func ?traverse_tree0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
         ?stack[?count] = triangles__index + cast<?_layout7>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).offset
       }
     } else {
-      foreach ?iter0 in range(triangles.prims, cast<?_layout8>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset, triangles.triangles_index[triangles__index].nPrims){
+      forall ?idx0 in [(u32)0:cast<u32>(triangles.triangles_index[triangles__index].nPrims):(u32)1] {
+        let ?iter0 = triangles.prims[cast<?_layout8>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset + ?idx0] in
         if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
           if (intersects_Ray_Triangle(ray, ?iter0)) {
-            if (distmax_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0[(i32)0]) {
+            if (distmax_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
               let ?best0_temp0 = distmin_Ray_Triangle(ray, ?iter0) in
-              if (?best0_temp0 < ?best0[(i32)0]) {
-                ?best0 = build<(f32, Triangle)>(?best0_temp0, ?iter0)
+              if (?best0_temp0 < ?best0.?field0) {
+                ?best0 = build<tuple.0>(?best0_temp0, ?iter0)
               }
             }
           }
@@ -45,7 +46,7 @@ func ?traverse_tree0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
     ?top = ?stack[?count]
     ?count -= (u32)1
   } while (?top != (u32)inf)
-  yield ?best0[(i32)1]
+  return ?best0.?field1
 }
 
 func _cross(v0 : f32x3, v1 : f32x3) -> f32x3 {
@@ -118,9 +119,9 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> ?option0 {
   return build<?option0>(build<FInterval>(tmin, tmax), true)
 }
 
-func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option0 {
+func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
   if (sqlen(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0f) {
-    return build<?option0>()
+    return build<?option1>()
   }
   p0t := tri.p0 - ray.o
   p1t := tri.p1 - ray.o
@@ -145,20 +146,20 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option0 {
   let e1 = (p2t[(u32)0] * p0t[(u32)1]) - (p2t[(u32)1] * p0t[(u32)0]) in
   let e2 = (p0t[(u32)0] * p1t[(u32)1]) - (p0t[(u32)1] * p1t[(u32)0]) in
   if ((((e0 < 0f) || (e1 < 0f)) || (e2 < 0f)) && (((0f < e0) || (0f < e1)) || (0f < e2))) {
-    return build<?option0>()
+    return build<?option1>()
   }
   let det = (e0 + e1) + e2 in
   if (det == 0f) {
-    return build<?option0>()
+    return build<?option1>()
   }
   p0t[(u32)2] *= Sz
   p1t[(u32)2] *= Sz
   p2t[(u32)2] *= Sz
   let tScaled = ((e0 * p0t[(u32)2]) + (e1 * p1t[(u32)2])) + (e2 * p2t[(u32)2]) in
   if ((det < 0f) && ((0f <= tScaled) || (tScaled < (ray.t * det)))) {
-    return build<?option0>()
+    return build<?option1>()
   } else if ((0f < det) && ((tScaled <= 0f) || ((ray.t * det) < tScaled))) {
-    return build<?option0>()
+    return build<?option1>()
   }
   let invDet = 1f / det in
   let b0 = e0 * invDet in
@@ -175,9 +176,9 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option0 {
   let maxE = reduce<max>(abs(build<f32x3>(e0, e1, e2))) in
   let deltaT = (3f * ((((gamma((i32)3) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet) in
   if (t <= deltaT) {
-    return build<?option0>()
+    return build<?option1>()
   }
-  return build<?option0>(build<TriangleIntersection>(b0, b1, b2, t), true)
+  return build<?option1>(build<TriangleIntersection>(b0, b1, b2, t), true)
 }
 
 func prod_diff(a : f32, b : f32, c : f32, d : f32) -> f32 {
@@ -191,7 +192,7 @@ func sqlen(v : f32x3) -> f32 {
   return reduce<+>(v * v)
 }
 
-func trace(ray : Ray) -> Triangle {
+func trace(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
   return ?traverse_tree0(ray, triangles)
 }
 

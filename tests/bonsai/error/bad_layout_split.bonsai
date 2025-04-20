@@ -31,7 +31,7 @@ schedule {
             high : vec3f;
             switch offset { // not accessible!
                 0 => Interior { offset : u32; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u32; data = range(prims, pOffset, nPrims); };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
             };
         };
     };
