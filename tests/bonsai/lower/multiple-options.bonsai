@@ -1,0 +1,7 @@
+func make_option_int(t : i32) -> option[i32] {
+    return t;
+}
+
+func make_option_float(t : f32) -> option[f32] {
+    return t;
+}
