@@ -666,22 +666,25 @@ void CodeGen_LLVM::visit(const Infinity *node) {
     llvm::Type *inf_type = codegen_type(node->type);
 
     if (inf_type->isFloatTy()) {
-        value = llvm::ConstantFP::get(inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEsingle()));
+        value = llvm::ConstantFP::get(
+            inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEsingle()));
     } else if (inf_type->isDoubleTy()) {
-        value = llvm::ConstantFP::get(inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEdouble()));
+        value = llvm::ConstantFP::get(
+            inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEdouble()));
     } else if (inf_type->isHalfTy()) {
-        value = llvm::ConstantFP::get(inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEhalf()));
+        value = llvm::ConstantFP::get(
+            inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEhalf()));
     } else if (inf_type->isIntegerTy()) {
-            const uint32_t bits = inf_type->getIntegerBitWidth();
-            bool is_signed = node->type.is_int();
+        const uint32_t bits = inf_type->getIntegerBitWidth();
+        bool is_signed = node->type.is_int();
 
-            llvm::APInt max_val = is_signed
-                ? llvm::APInt::getSignedMaxValue(bits)
-                : llvm::APInt::getMaxValue(bits);
+        llvm::APInt max_val = is_signed ? llvm::APInt::getSignedMaxValue(bits)
+                                        : llvm::APInt::getMaxValue(bits);
 
-            value = llvm::ConstantInt::get(inf_type, max_val);
+        value = llvm::ConstantInt::get(inf_type, max_val);
     } else {
-        internal_error << "Infinity codegen not yet supported for type: " << node->type;
+        internal_error << "Infinity codegen not yet supported for type: "
+                       << node->type;
     }
 }
 
@@ -1030,8 +1033,10 @@ void CodeGen_LLVM::visit(const Cast *node) {
     const ir::Type &dst = node->type;
 
     // TODO(ajr): we need a more general fix for these sorts of reinterprets.
-    if (src.is<Vector_t>() && dst.is<Struct_t>() && dst.as<Struct_t>()->fields.size() == 1) {
-        ir::Expr repl = Cast::make(dst.as<Struct_t>()->fields[0].second, node->value);
+    if (src.is<Vector_t>() && dst.is<Struct_t>() &&
+        dst.as<Struct_t>()->fields.size() == 1) {
+        ir::Expr repl =
+            Cast::make(dst.as<Struct_t>()->fields[0].second, node->value);
         repl = Build::make(node->type, {std::move(repl)});
         repl.accept(this);
         return;
@@ -1042,7 +1047,8 @@ void CodeGen_LLVM::visit(const Cast *node) {
 
     llvm::Type *llvm_dst = codegen_type(dst);
 
-    // Except the first branch, these just copy Halide's lowering (minus a few pointer things).
+    // Except the first branch, these just copy Halide's lowering (minus a few
+    // pointer things).
     if ((src.is_vector() && !dst.is_vector()) ||
         (dst.is_vector() && !src.is_vector()) ||
         (src.is_vector() && dst.is_vector() && src.lanes() != dst.lanes())) {
@@ -1052,7 +1058,8 @@ void CodeGen_LLVM::visit(const Cast *node) {
         // Reinterpret cast — bit widths must match
         if (module->getDataLayout().getTypeAllocSize(llvm_dst) !=
             module->getDataLayout().getTypeAllocSize(llvm_src)) {
-            std::cerr << "Cannot cast between types of different sizes: " << std::flush;
+            std::cerr << "Cannot cast between types of different sizes: "
+                      << std::flush;
             llvm_dst->print(llvm::errs());
             llvm::errs() << " -> ";
             llvm_src->print(llvm::errs());
@@ -1255,7 +1262,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             // of signaling NaNs. This matches the behavior of libm’s fmax.
             // https://llvm.org/docs/LangRef.html#llvm-maxnum-intrinsic
             intrin = llvm::Intrinsic::maxnum;
-            // internal_error << "TODO: figure out fmax codegen: " << Expr(node);
+            // internal_error << "TODO: figure out fmax codegen: " <<
+            // Expr(node);
         }
         break;
     }
@@ -1271,7 +1279,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             // signaling NaNs. This match’s the behavior of libm’s fmin.
             // https://llvm.org/docs/LangRef.html#llvm-minnum-intrinsic
             intrin = llvm::Intrinsic::minnum;
-            // internal_error << "TODO: figure out fmin codegen: " << Expr(node);
+            // internal_error << "TODO: figure out fmin codegen: " <<
+            // Expr(node);
         }
         break;
     }

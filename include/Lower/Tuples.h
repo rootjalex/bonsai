@@ -12,7 +12,8 @@ namespace lower {
 // Tuples are lowered to structs, because LLVM does not support unnamed structs.
 // This also lowers Extracts on tuples to field accesses, and builds of tuples
 // to builds of the corresponding structs.
-// Note that this requires that all Extracts on tuples are compile-time-constants.
+// Note that this requires that all Extracts on tuples are
+// compile-time-constants.
 class LowerTuples : public Pass {
   public:
     constexpr std::string name() const override { return "lower-tuples"; }

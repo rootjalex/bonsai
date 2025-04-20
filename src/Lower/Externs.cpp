@@ -26,7 +26,9 @@ struct InsertExternsIntoCalls : public ir::Mutator {
     const std::map<std::string, VarList> &funcs_with_externs;
     const ir::FuncMap &funcs;
 
-    InsertExternsIntoCalls(const std::map<std::string, VarList> &funcs_with_externs, const ir::FuncMap &funcs)
+    InsertExternsIntoCalls(
+        const std::map<std::string, VarList> &funcs_with_externs,
+        const ir::FuncMap &funcs)
         : funcs_with_externs(funcs_with_externs), funcs(funcs) {}
 
     ir::Expr visit(const ir::Call *node) override {
@@ -64,16 +66,18 @@ ir::Program LowerExterns::run(ir::Program program) const {
         return program;
     }
 
-    // Iterate in topological order, because callees that require explicit extern arguments
-    // propagate that requirement to the caller.
+    // Iterate in topological order, because callees that require explicit
+    // extern arguments propagate that requirement to the caller.
 
-    const std::vector<std::string> topo_order = lower::func_topological_order(program.funcs, /*undef_calls=*/false);
+    const std::vector<std::string> topo_order =
+        lower::func_topological_order(program.funcs, /*undef_calls=*/false);
 
     std::map<std::string, VarList> funcs_with_externs;
 
     for (const std::string &f : topo_order) {
         auto &func = program.funcs[f];
-        func->body = InsertExternsIntoCalls(funcs_with_externs, program.funcs).mutate(func->body);
+        func->body = InsertExternsIntoCalls(funcs_with_externs, program.funcs)
+                         .mutate(func->body);
 
         // Find free_vars AKA externs in the new body.
         const VarList free_vars = ir::gather_free_vars(*func);
@@ -85,8 +89,11 @@ ir::Program LowerExterns::run(ir::Program program) const {
         size_t counter = 0;
         // Insert externs in extern parsed order.
         for (const auto &ext : program.externs) {
-            // Find free_var with matching name as ext, insert into new_args if types match, error if types are !equal()
-            const auto it = std::find_if(free_vars.cbegin(), free_vars.cend(), [&](const auto &var) { return var->name == ext.first; });
+            // Find free_var with matching name as ext, insert into new_args if
+            // types match, error if types are !equal()
+            const auto it = std::find_if(
+                free_vars.cbegin(), free_vars.cend(),
+                [&](const auto &var) { return var->name == ext.first; });
             if (it == free_vars.cend()) {
                 continue;
             }
@@ -100,9 +107,13 @@ ir::Program LowerExterns::run(ir::Program program) const {
             counter++;
         }
         internal_assert(counter == free_vars.size())
-            << "Free vars: " << free_vars.size() << " but added: " << counter << " args";
-        // append new arguments to function call, and store this dependency for calls to this func.
-        func->args.insert(func->args.end(), std::make_move_iterator(new_args.begin()), std::make_move_iterator(new_args.end()));
+            << "Free vars: " << free_vars.size() << " but added: " << counter
+            << " args";
+        // append new arguments to function call, and store this dependency for
+        // calls to this func.
+        func->args.insert(func->args.end(),
+                          std::make_move_iterator(new_args.begin()),
+                          std::make_move_iterator(new_args.end()));
 
         funcs_with_externs[f] = std::move(free_vars);
     }

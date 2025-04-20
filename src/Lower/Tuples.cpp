@@ -20,8 +20,9 @@ namespace {
 
 static size_t counter = 0;
 
-std::string unique_struct_name() { return "tuple." + std::to_string(counter++); }
-
+std::string unique_struct_name() {
+    return "tuple." + std::to_string(counter++);
+}
 
 struct TuplesToStructs : public ir::Mutator {
     std::map<ir::Type, ir::Type, ir::TypeLessThan> rewrite_map;
@@ -32,10 +33,12 @@ struct TuplesToStructs : public ir::Mutator {
         ir::Struct_t::Map fields(n);
         for (size_t i = 0; i < n; i++) {
             fields[i].first = "?field" + std::to_string(i);
-            fields[i].second = mutate(node->etypes[i]); // in the case of nested tuples.
+            fields[i].second =
+                mutate(node->etypes[i]); // in the case of nested tuples.
         }
         std::string name = unique_struct_name();
-        ir::Type new_struct = ir::Struct_t::make(std::move(name), std::move(fields));
+        ir::Type new_struct =
+            ir::Struct_t::make(std::move(name), std::move(fields));
         rewrite_map[node] = new_struct;
         return new_struct;
     }
@@ -56,13 +59,15 @@ struct TuplesToStructs : public ir::Mutator {
         }
         const auto constant_idx = get_constant_value(node->idx);
         internal_assert(constant_idx.has_value())
-            << "Cannot lower Extract of tuple with non-constant index: " << ir::Expr(node);
+            << "Cannot lower Extract of tuple with non-constant index: "
+            << ir::Expr(node);
         uint64_t idx = *constant_idx;
         ir::Type struct_t = visit(as_tuple);
         const ir::Struct_t *as_struct = struct_t.as<ir::Struct_t>();
         internal_assert(as_struct);
         internal_assert(idx < as_struct->fields.size())
-            << "Extract on tuple is out of bounds: " << ir::Expr(node) << " idx: " << idx << " >= " << as_struct->fields.size();
+            << "Extract on tuple is out of bounds: " << ir::Expr(node)
+            << " idx: " << idx << " >= " << as_struct->fields.size();
         // Possibly unnecessary safety check.
         internal_assert(ir::equals(as_struct->fields[idx].second, node->type));
         std::string field = as_struct->fields[idx].first;
@@ -80,7 +85,8 @@ struct TuplesToStructs : public ir::Mutator {
     }
 
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
-    std::pair<ir::WriteLoc, bool> mutate_writeloc(const ir::WriteLoc &loc) override {
+    std::pair<ir::WriteLoc, bool>
+    mutate_writeloc(const ir::WriteLoc &loc) override {
         ir::Type base_type = mutate(loc.base_type);
         bool not_changed = base_type.same_as(loc.base_type);
         ir::WriteLoc new_loc(loc.base, std::move(base_type));
@@ -140,8 +146,10 @@ ir::Program LowerTuples::run(ir::Program program) const {
 
     // And new structs must be added to program types.
     for (auto &[name, type] : converter.new_structs) {
-        const auto [_, inserted] = program.types.try_emplace(name, std::move(type));
-        internal_assert(inserted) << "Struct: " << name << " already exists in the program";
+        const auto [_, inserted] =
+            program.types.try_emplace(name, std::move(type));
+        internal_assert(inserted)
+            << "Struct: " << name << " already exists in the program";
     }
 
     return program;

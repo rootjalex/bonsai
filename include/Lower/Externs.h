@@ -12,7 +12,8 @@ namespace lower {
 // Inserts externs as (const) arguments to all functions that reference them.
 // Externs are added in the order they were parsed, to the end of a function.
 // This is particularly relevant for exported functions
-// TODO(ajr): should we just get rid of externs and be explicit with function args?
+// TODO(ajr): should we just get rid of externs and be explicit with function
+// args?
 class LowerExterns : public Pass {
   public:
     constexpr std::string name() const override { return "lower-externs"; }

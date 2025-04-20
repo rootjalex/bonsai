@@ -126,8 +126,11 @@ ir::Expr fill(const ir::FrameStack<ir::Expr> &frames, const ir::Expr &expr) {
                 const ir::Array_t *array = func->ret_type.as<ir::Array_t>();
                 ir::Expr size = array->size;
                 size = mutate(size);
-                ir::Type ret_type = ir::Array_t::make(array->etype, std::move(size));
-                return ir::Var::make(ir::Function_t::make(std::move(ret_type), func->arg_types), var->name);
+                ir::Type ret_type =
+                    ir::Array_t::make(array->etype, std::move(size));
+                return ir::Var::make(
+                    ir::Function_t::make(std::move(ret_type), func->arg_types),
+                    var->name);
             }
             internal_assert(frames.name_in_scope(var->name))
                 << "Materialization fill cannot find: " << var->name;

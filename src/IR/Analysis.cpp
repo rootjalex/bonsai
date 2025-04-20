@@ -81,7 +81,7 @@ struct GatherFreeVars : public Visitor {
             node->header.accept(this);
         }
         node->body.accept(this);
-        
+
         // Erase iteration var.
         seen_vars.erase(node->index);
     }
@@ -94,7 +94,7 @@ struct GatherFreeVars : public Visitor {
         seen_vars.insert(node->name);
 
         node->body.accept(this);
-        
+
         // Erase iteration var.
         seen_vars.erase(node->name);
     }

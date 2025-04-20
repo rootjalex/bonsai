@@ -18,7 +18,7 @@ namespace lower {
 
 namespace {
 
-// 
+//
 struct RewriteYieldToReturn : public ir::Mutator {
     ir::Stmt visit(const ir::Yield *node) override {
         return ir::Return::make(node->value);

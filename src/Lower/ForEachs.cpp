@@ -67,7 +67,7 @@ struct LowerToForAll : public ir::Mutator {
         // TODO: should generate a For loop if not parallelizable...
 
         ir::Expr iterable = node->iter;
-        
+
         const ir::Array_t *array_type = iterable.type().as<ir::Array_t>();
         internal_assert(array_type);
 
@@ -76,7 +76,7 @@ struct LowerToForAll : public ir::Mutator {
         ir::Expr stride = make_one(end.type());
 
         std::string idx_name = unique_idx_name();
-    
+
         ir::Expr idx = ir::Var::make(end.type(), idx_name);
 
         ir::Expr load;
@@ -87,13 +87,17 @@ struct LowerToForAll : public ir::Mutator {
 
         load = ir::Extract::make(iterable, idx);
         // `var = iterable[idx]`
-        ir::Stmt do_load = ir::LetStmt::make(ir::WriteLoc(node->name, iterable.type().element_of()), std::move(load));
+        ir::Stmt do_load = ir::LetStmt::make(
+            ir::WriteLoc(node->name, iterable.type().element_of()),
+            std::move(load));
 
         ir::Stmt body = mutate(node->body);
 
-        ir::ForAll::Slice slice{std::move(begin), std::move(end), std::move(stride)};
+        ir::ForAll::Slice slice{std::move(begin), std::move(end),
+                                std::move(stride)};
 
-        return ir::ForAll::make(idx_name, std::move(do_load), std::move(slice), std::move(body));
+        return ir::ForAll::make(idx_name, std::move(do_load), std::move(slice),
+                                std::move(body));
     }
 };
 
