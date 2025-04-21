@@ -103,54 +103,7 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
-    os << "func ";
-    if (func.is_export) {
-        os << "[[export]] ";
-    }
-    os << func.name;
-
-    if (!func.interfaces.empty()) {
-        os << "<";
-        bool first = true;
-        for (const auto &[name, interface] : func.interfaces) {
-            if (!first) {
-                os << ", ";
-            }
-            first = false;
-
-            os << name;
-            if (!interface.is<IEmpty>()) {
-                os << " : ";
-                printer.print(interface);
-            }
-        }
-        os << ">";
-    }
-    os << "(";
-    bool first = true;
-    for (const auto &arg : func.args) {
-        if (!first) {
-            os << ", ";
-        }
-        first = false;
-
-        os << arg.name;
-        if (arg.type.defined()) {
-            os << " : ";
-            if (arg.mutating) {
-                os << "mut ";
-            }
-            os << arg.type;
-        }
-        if (arg.default_value.defined()) {
-            os << " = " << arg.default_value;
-        }
-    }
-
-    os << ") -> " << func.ret_type << " {\n";
-    printer.set_indent(1);
-    func.body.accept(&printer);
-    os << "}";
+    printer.print(func);
     return os;
 }
 
@@ -226,7 +179,8 @@ void Printer::print(const Program &program) {
     }
 
     for (const auto &[name, func] : program.funcs) {
-        os << *func << "\n\n";
+        print(*func);
+        os << '\n' << '\n';
     }
     if (!program.funcs.empty()) {
         os << std::endl;
@@ -248,6 +202,57 @@ void Printer::print(const Type &type) {
         // have a ton of undefined types.
         os << "unknown";
     }
+}
+
+void Printer::print(const Function &function) {
+    os << "func ";
+    if (function.is_export) {
+        os << "[[export]] ";
+    }
+    os << function.name;
+
+    if (!function.interfaces.empty()) {
+        os << "<";
+        bool first = true;
+        for (const auto &[name, interface] : function.interfaces) {
+            if (!first) {
+                os << ", ";
+            }
+            first = false;
+
+            os << name;
+            if (!interface.is<IEmpty>()) {
+                os << " : ";
+                print(interface);
+            }
+        }
+        os << ">";
+    }
+    os << "(";
+    bool first = true;
+    for (const auto &arg : function.args) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+
+        os << arg.name;
+        if (arg.type.defined()) {
+            os << " : ";
+            if (arg.mutating) {
+                os << "mut ";
+            }
+            os << arg.type;
+        }
+        if (arg.default_value.defined()) {
+            os << " = " << arg.default_value;
+        }
+    }
+
+    os << ") -> " << function.ret_type << " {\n";
+    set_indent(1);
+    function.body.accept(this);
+    os << "}";
 }
 
 void Printer::print(const Interface &interface) {

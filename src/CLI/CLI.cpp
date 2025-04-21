@@ -31,6 +31,7 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
     switch (options.target) {
     case BackendTarget::NONE: {
         if (options.output_file.empty()) {
+
             bonsai::ir::Printer printer(std::cout,
                                         /*verbose=*/options.is_verbose);
             printer.print(program);
@@ -139,7 +140,6 @@ int run(const Flags &flags) {
             std::cout << command_help();
             return EXIT_SUCCESS;
         }
-
         verify_options(options);
 
         // Parse the input file.

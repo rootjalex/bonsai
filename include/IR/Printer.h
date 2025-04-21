@@ -57,6 +57,7 @@ struct Printer : public Visitor {
         : os(_os), verbose(verbose) {}
 
     void print(const Program &program);
+    void print(const Function &function);
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
@@ -146,9 +147,7 @@ struct Printer : public Visitor {
 
     void set_indent(int _indent) { indent = _indent; }
 
-    void set_verbosity(bool b) { verbose = b; }
-
-  protected:
+  private:
     /** The stream on which we're outputting */
     std::ostream &os;
 
@@ -174,7 +173,7 @@ struct Printer : public Visitor {
     Scope<> known_type;
     // TODO: stuff for indenting and whatever for Stmts
 
-  private:
+    /** Whether to print verbosely or not. */
     bool verbose = false;
 };
 

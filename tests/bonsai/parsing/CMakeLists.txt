@@ -5,4 +5,5 @@ add_bonsai_tests(
     ivector.bonsai
     lambda-parse.bonsai
     parse-negation.bonsai
+    print.bonsai
 )
