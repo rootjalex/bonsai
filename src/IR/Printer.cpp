@@ -123,20 +123,7 @@ std::ostream &operator<<(std::ostream &os, const Target &target) {
 
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule) {
     Printer printer(os, /*verbose=*/true);
-
-    for (const auto &[name, type] : schedule.tree_types) {
-        os << name << " : ";
-        printer.print(type);
-        os << "\n";
-    }
-
-    for (const auto &[name, layout] : schedule.tree_layouts) {
-        os << name << " : ";
-        printer.print(layout);
-        os << "\n";
-    }
-    // TODO: the rest of the schedule.
-
+    printer.print(schedule);
     return os;
 }
 
@@ -185,12 +172,18 @@ void Printer::print(const Program &program) {
     if (!program.funcs.empty()) {
         os << std::endl;
     }
-    for (const auto &[target, schedule] : program.schedules) {
-        os << "schedule " << target << "{\n";
-        os << schedule << "}";
-    }
-    if (!program.schedules.empty()) {
-        os << std::endl;
+
+    {
+        // Similarly, we always verbosely print the schedule.
+        ScopedValue<bool> _(verbose, true);
+        for (const auto &[target, schedule] : program.schedules) {
+            os << "schedule " << target << "{\n";
+            print(schedule);
+            os << '}';
+        }
+        if (!program.schedules.empty()) {
+            os << std::endl;
+        }
     }
 }
 
@@ -253,6 +246,21 @@ void Printer::print(const Function &function) {
     set_indent(1);
     function.body.accept(this);
     os << "}";
+}
+
+void Printer::print(const Schedule &schedule) {
+    for (const auto &[name, type] : schedule.tree_types) {
+        os << name << " : ";
+        print(type);
+        os << '\n';
+    }
+
+    for (const auto &[name, layout] : schedule.tree_layouts) {
+        os << name << " : ";
+        print(layout);
+        os << '\n';
+    }
+    // TODO: the rest of the schedule.
 }
 
 void Printer::print(const Interface &interface) {
