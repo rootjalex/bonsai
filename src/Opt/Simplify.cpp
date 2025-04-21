@@ -254,7 +254,6 @@ struct Simplifier : ir::Mutator {
 
 ir::FuncMap Simplify::run(ir::FuncMap funcs) const {
     for (auto &[name, func] : funcs) {
-        // TODO(cgyurgyik): Support inter-function simplification/propagation.
         func->body = Simplify::simplify(std::move(func->body));
     }
     return funcs;

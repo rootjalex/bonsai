@@ -14,29 +14,29 @@ extern triangles : struct ?triangles_layout1{ pCount : u32; prims : struct Trian
 func ?traverse_tree0(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
   ?best0 := build<tuple.0>((f32)inf, build<Triangle>())
   alloc ?stack : u32[64]
-  ?count := (u32)0
-  ?top := (u32)0
-  ?stack[(u32)0] = (u32)inf
+  ?count := 0u
+  ?top := 0u
+  ?stack[0u] = (u32)inf
   do {
     let triangles__index = ?top in
-    if (triangles.triangles_index[triangles__index].nPrims == (u16)0) {
+    if (triangles.triangles_index[triangles__index].nPrims == 0u) {
       if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
         if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
-          ?count += (u32)1
-          ?stack[?count] = triangles__index + (u32)1
+          ?count += 1u
+          ?stack[?count] = triangles__index + 1u
         }
       }
       if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
         if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
-          ?count += (u32)1
+          ?count += 1u
           ?stack[?count] = triangles__index + cast<?_layout11>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).offset
         }
       }
     } else {
-      forall ?idx0 in [(u32)0:cast<u32>(triangles.triangles_index[triangles__index].nPrims):(u32)1] {
+      forall ?idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
         let ?iter0 = triangles.prims[cast<?_layout12>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset + ?idx0] in
         if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
-          if (intersects_Ray_Triangle(ray, ?iter0)) {
+          if (intersectsp_ray_tri(ray, ?iter0).set) {
             if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
               let ?best0_temp0 = distmin_Ray_Triangle(ray, ?iter0) in
               if (?best0_temp0 < ?best0.?field0) {
@@ -48,13 +48,13 @@ func ?traverse_tree0(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
       }
     }
     ?top = ?stack[?count]
-    ?count -= (u32)1
+    ?count -= 1u
   } while (?top != (u32)inf)
   return ?best0.?field1
 }
 
 func _cross(v0 : f32x3, v1 : f32x3) -> f32x3 {
-  return build<f32x3>(prod_diff(v0[(u32)1], v1[(u32)2], v0[(u32)2], v1[(u32)1]), prod_diff(v0[(u32)2], v1[(u32)0], v0[(u32)0], v1[(u32)2]), prod_diff(v0[(u32)0], v1[(u32)1], v0[(u32)1], v1[(u32)0]))
+  return build<f32x3>(prod_diff(v0[1u], v1[2u], v0[2u], v1[1u]), prod_diff(v0[2u], v1[0u], v0[0u], v1[2u]), prod_diff(v0[0u], v1[1u], v0[1u], v1[0u]))
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
@@ -103,52 +103,52 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
 }
 
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> ?option0 {
-  let invDir = x3(1f) / r.d in
-  let dirIsNeg = invDir < x3(0f) in
+  let invDir = f32x3(1f) / r.d in
+  let dirIsNeg = invDir < f32x3(0f) in
   let low_parts = select(dirIsNeg, b.low, b.high) in
   let high_parts = select(dirIsNeg, b.high, b.low) in
   tMin := (low_parts - r.o) * invDir
   tMax := (high_parts - r.o) * invDir
-  tMax *= 1f + (2f * gamma((i32)3))
-  if ((tMax[(u32)1] < tMin[(u32)0]) || (tMax[(u32)0] < tMin[(u32)1])) {
+  tMax *= 1f + (2f * ((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))))
+  if ((tMax[1u] < tMin[0u]) || (tMax[0u] < tMin[1u])) {
     return build<?option0>()
   }
-  tmin := max(tMin[(u32)0], tMin[(u32)1])
-  tmax := min(tMax[(u32)0], tMax[(u32)1])
-  if ((tMax[(u32)2] < tmin) || (tmax < tMin[(u32)2])) {
+  tmin := max(tMin[0u], tMin[1u])
+  tmax := min(tMax[0u], tMax[1u])
+  if ((tMax[2u] < tmin) || (tmax < tMin[2u])) {
     return build<?option0>()
   }
-  tmin = max(tmin, tMin[(u32)2])
-  tmax = min(tmax, tMax[(u32)2])
+  tmin = max(tmin, tMin[2u])
+  tmax = min(tmax, tMax[2u])
   return build<?option0>(build<FInterval>(tmin, tmax), true)
 }
 
 func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
-  if (sqlen(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0f) {
+  if (reduce<+>(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0) * _cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0f) {
     return build<?option1>()
   }
   p0t := tri.p0 - ray.o
   p1t := tri.p1 - ray.o
   p2t := tri.p2 - ray.o
   let kz = reduce<argmax>(abs(ray.d)) in
-  let kx = (kz + (u32)1) % (u32)3 in
-  let ky = (kx + (u32)1) % (u32)3 in
+  let kx = (kz + 1u) % 3u in
+  let ky = (kx + 1u) % 3u in
   let d = shuffle(ray.d, {kx, ky, kz}) in
   p0t = shuffle(p0t, {kx, ky, kz})
   p1t = shuffle(p1t, {kx, ky, kz})
   p2t = shuffle(p2t, {kx, ky, kz})
-  let Sx = -(d[(u32)0] / d[(u32)2]) in
-  let Sy = -(d[(u32)1] / d[(u32)2]) in
-  let Sz = 1f / d[(u32)2] in
-  p0t[(u32)0] += Sx * p0t[(u32)2]
-  p0t[(u32)1] += Sy * p0t[(u32)2]
-  p1t[(u32)0] += Sx * p1t[(u32)2]
-  p1t[(u32)1] += Sy * p1t[(u32)2]
-  p2t[(u32)0] += Sx * p2t[(u32)2]
-  p2t[(u32)1] += Sy * p2t[(u32)2]
-  let e0 = (p1t[(u32)0] * p2t[(u32)1]) - (p1t[(u32)1] * p2t[(u32)0]) in
-  let e1 = (p2t[(u32)0] * p0t[(u32)1]) - (p2t[(u32)1] * p0t[(u32)0]) in
-  let e2 = (p0t[(u32)0] * p1t[(u32)1]) - (p0t[(u32)1] * p1t[(u32)0]) in
+  let Sx = -(d[0u] / d[2u]) in
+  let Sy = -(d[1u] / d[2u]) in
+  let Sz = 1f / d[2u] in
+  p0t[0u] += Sx * p0t[2u]
+  p0t[1u] += Sy * p0t[2u]
+  p1t[0u] += Sx * p1t[2u]
+  p1t[1u] += Sy * p1t[2u]
+  p2t[0u] += Sx * p2t[2u]
+  p2t[1u] += Sy * p2t[2u]
+  let e0 = (p1t[0u] * p2t[1u]) - (p1t[1u] * p2t[0u]) in
+  let e1 = (p2t[0u] * p0t[1u]) - (p2t[1u] * p0t[0u]) in
+  let e2 = (p0t[0u] * p1t[1u]) - (p0t[1u] * p1t[0u]) in
   if ((((e0 < 0f) || (e1 < 0f)) || (e2 < 0f)) && (((0f < e0) || (0f < e1)) || (0f < e2))) {
     return build<?option1>()
   }
@@ -156,10 +156,10 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
   if (det == 0f) {
     return build<?option1>()
   }
-  p0t[(u32)2] *= Sz
-  p1t[(u32)2] *= Sz
-  p2t[(u32)2] *= Sz
-  let tScaled = ((e0 * p0t[(u32)2]) + (e1 * p1t[(u32)2])) + (e2 * p2t[(u32)2]) in
+  p0t[2u] *= Sz
+  p1t[2u] *= Sz
+  p2t[2u] *= Sz
+  let tScaled = ((e0 * p0t[2u]) + (e1 * p1t[2u])) + (e2 * p2t[2u]) in
   if ((det < 0f) && ((0f <= tScaled) || (tScaled < (ray.t * det)))) {
     return build<?option1>()
   } else if ((0f < det) && ((tScaled <= 0f) || ((ray.t * det) < tScaled))) {
@@ -170,15 +170,15 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
   let b1 = e1 * invDet in
   let b2 = e2 * invDet in
   let t = tScaled * invDet in
-  let maxZt = reduce<max>(abs(build<f32x3>(p0t[(u32)2], p1t[(u32)2], p2t[(u32)2]))) in
-  let deltaZ = gamma((i32)3) * maxZt in
-  let maxXt = reduce<max>(abs(build<f32x3>(p0t[(u32)0], p1t[(u32)0], p2t[(u32)0]))) in
-  let maxYt = reduce<max>(abs(build<f32x3>(p0t[(u32)1], p1t[(u32)1], p2t[(u32)1]))) in
-  let deltaX = gamma((i32)5) * (maxXt + maxZt) in
-  let deltaY = gamma((i32)5) * (maxYt + maxZt) in
-  let deltaE = 2f * ((((gamma((i32)2) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)) in
+  let maxZt = reduce<max>(abs(build<f32x3>(p0t[2u], p1t[2u], p2t[2u]))) in
+  let deltaZ = ((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))) * maxZt in
+  let maxXt = reduce<max>(abs(build<f32x3>(p0t[0u], p1t[0u], p2t[0u]))) in
+  let maxYt = reduce<max>(abs(build<f32x3>(p0t[1u], p1t[1u], p2t[1u]))) in
+  let deltaX = ((cast<f32>(5) * 5.96046e-08f) / (1f - (cast<f32>(5) * 5.96046e-08f))) * (maxXt + maxZt) in
+  let deltaY = ((cast<f32>(5) * 5.96046e-08f) / (1f - (cast<f32>(5) * 5.96046e-08f))) * (maxYt + maxZt) in
+  let deltaE = 2f * ((((((cast<f32>(2) * 5.96046e-08f) / (1f - (cast<f32>(2) * 5.96046e-08f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)) in
   let maxE = reduce<max>(abs(build<f32x3>(e0, e1, e2))) in
-  let deltaT = (3f * ((((gamma((i32)3) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet) in
+  let deltaT = (3f * ((((((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet) in
   if (t <= deltaT) {
     return build<?option1>()
   }

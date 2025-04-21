@@ -6,4 +6,5 @@ add_bonsai_tests(
     dce-mut.bonsai
     dce-struct.bonsai
     dce.bonsai
+    inline.bonsai
 )

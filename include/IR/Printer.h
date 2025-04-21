@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 
+#include "CompilerOptions.h"
 #include "Expr.h"
 #include "Function.h"
 #include "Schedule.h"
@@ -55,6 +56,9 @@ struct Printer : public Visitor {
     explicit Printer(std::ostream &_os, bool verbose)
         : os(_os), verbose(verbose) {}
 
+    void print(const Program &program);
+    void print(const Function &function);
+    void print(const Schedule &schedule);
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
@@ -145,10 +149,9 @@ struct Printer : public Visitor {
 
     void set_indent(int _indent) { indent = _indent; }
 
-  protected:
+  private:
     /** The stream on which we're outputting */
     std::ostream &os;
-    bool verbose = false;
 
     Indentation get_indent() const { return Indentation{indent}; }
 
@@ -161,9 +164,6 @@ struct Printer : public Visitor {
      * surrounding set of parens. */
     bool implicit_parens = false;
 
-    /** Certain expressions don't need to redundantly print the type. */
-    bool print_type = true;
-
     /** Either emits "(" or "", depending on the value of implicit_parens */
     void open();
 
@@ -174,6 +174,9 @@ struct Printer : public Visitor {
      * already. */
     Scope<> known_type;
     // TODO: stuff for indenting and whatever for Stmts
+
+    /** Whether to print verbosely or not. */
+    bool verbose = false;
 };
 
 } // namespace ir

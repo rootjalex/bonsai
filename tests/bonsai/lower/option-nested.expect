@@ -4,9 +4,9 @@ func use_nested_option(i : ?option1) -> i32 {
     if (j.set) {
       return j.value
     }
-    return (i32)0
+    return 0
   }
-  return (i32)-1
+  return -1
 }
 
 

@@ -103,54 +103,7 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
-    os << "func ";
-    if (func.is_export) {
-        os << "[[export]] ";
-    }
-    os << func.name;
-
-    if (!func.interfaces.empty()) {
-        os << "<";
-        bool first = true;
-        for (const auto &[name, interface] : func.interfaces) {
-            if (!first) {
-                os << ", ";
-            }
-            first = false;
-
-            os << name;
-            if (!interface.is<IEmpty>()) {
-                os << " : ";
-                printer.print(interface);
-            }
-        }
-        os << ">";
-    }
-    os << "(";
-    bool first = true;
-    for (const auto &arg : func.args) {
-        if (!first) {
-            os << ", ";
-        }
-        first = false;
-
-        os << arg.name;
-        if (arg.type.defined()) {
-            os << " : ";
-            if (arg.mutating) {
-                os << "mut ";
-            }
-            os << arg.type;
-        }
-        if (arg.default_value.defined()) {
-            os << " = " << arg.default_value;
-        }
-    }
-
-    os << ") -> " << func.ret_type << " {\n";
-    printer.set_indent(1);
-    func.body.accept(&printer);
-    os << "}";
+    printer.print(func);
     return os;
 }
 
@@ -170,20 +123,7 @@ std::ostream &operator<<(std::ostream &os, const Target &target) {
 
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule) {
     Printer printer(os, /*verbose=*/true);
-
-    for (const auto &[name, type] : schedule.tree_types) {
-        os << name << " : ";
-        printer.print(type);
-        os << "\n";
-    }
-
-    for (const auto &[name, layout] : schedule.tree_layouts) {
-        os << name << " : ";
-        printer.print(layout);
-        os << "\n";
-    }
-    // TODO: the rest of the schedule.
-
+    printer.print(schedule);
     return os;
 }
 
@@ -203,6 +143,50 @@ std::ostream &operator<<(std::ostream &os, const Layout &layout) {
     return os;
 }
 
+void Printer::print(const Program &program) {
+    {
+        // We always verbosely print program types and externs.
+        ScopedValue<bool> _(verbose, true);
+        for (const auto &[name, type] : program.types) {
+            os << "type " << name << " = ";
+            print(type);
+            os << "\n";
+        }
+        if (!program.types.empty()) {
+            os << std::endl;
+        }
+        for (const auto &[name, type] : program.externs) {
+            os << "extern " << name << " : ";
+            print(type);
+            os << "\n";
+        }
+        if (!program.externs.empty()) {
+            os << std::endl;
+        }
+    }
+
+    for (const auto &[name, func] : program.funcs) {
+        print(*func);
+        os << '\n' << '\n';
+    }
+    if (!program.funcs.empty()) {
+        os << std::endl;
+    }
+
+    {
+        // Similarly, we always verbosely print the schedule.
+        ScopedValue<bool> _(verbose, true);
+        for (const auto &[target, schedule] : program.schedules) {
+            os << "schedule " << target << "{\n";
+            print(schedule);
+            os << '}';
+        }
+        if (!program.schedules.empty()) {
+            os << std::endl;
+        }
+    }
+}
+
 void Printer::print(const Type &type) {
     if (type.defined()) {
         type->accept(this);
@@ -211,6 +195,72 @@ void Printer::print(const Type &type) {
         // have a ton of undefined types.
         os << "unknown";
     }
+}
+
+void Printer::print(const Function &function) {
+    os << "func ";
+    if (function.is_export) {
+        os << "[[export]] ";
+    }
+    os << function.name;
+
+    if (!function.interfaces.empty()) {
+        os << "<";
+        bool first = true;
+        for (const auto &[name, interface] : function.interfaces) {
+            if (!first) {
+                os << ", ";
+            }
+            first = false;
+
+            os << name;
+            if (!interface.is<IEmpty>()) {
+                os << " : ";
+                print(interface);
+            }
+        }
+        os << ">";
+    }
+    os << "(";
+    bool first = true;
+    for (const auto &arg : function.args) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+
+        os << arg.name;
+        if (arg.type.defined()) {
+            os << " : ";
+            if (arg.mutating) {
+                os << "mut ";
+            }
+            os << arg.type;
+        }
+        if (arg.default_value.defined()) {
+            os << " = " << arg.default_value;
+        }
+    }
+
+    os << ") -> " << function.ret_type << " {\n";
+    set_indent(1);
+    function.body.accept(this);
+    os << "}";
+}
+
+void Printer::print(const Schedule &schedule) {
+    for (const auto &[name, type] : schedule.tree_types) {
+        os << name << " : ";
+        print(type);
+        os << '\n';
+    }
+
+    for (const auto &[name, layout] : schedule.tree_layouts) {
+        os << name << " : ";
+        print(layout);
+        os << '\n';
+    }
+    // TODO: the rest of the schedule.
 }
 
 void Printer::print(const Interface &interface) {
@@ -443,7 +493,7 @@ void Printer::visit(const IVector *node) {
 }
 
 void Printer::visit(const IntImm *node) {
-    if (print_type) {
+    if (verbose) {
         os << "(";
         print(node->type);
         os << ")";
@@ -452,15 +502,22 @@ void Printer::visit(const IntImm *node) {
 }
 
 void Printer::visit(const UIntImm *node) {
-    if (print_type) {
+    if (verbose) {
         os << "(";
         print(node->type);
-        os << ")";
+        os << ")" << node->value;
+        return;
     }
-    os << node->value;
+    os << node->value << 'u';
 }
 
 void Printer::visit(const FloatImm *node) {
+    if (verbose) {
+        os << "(";
+        print(node->type);
+        os << ")" << node->value;
+        return;
+    }
     switch (node->type.bits()) {
     case 64:
         os << node->value;
@@ -485,7 +542,6 @@ void Printer::visit(const VecImm *node) {
     os << "(";
     print(node->type);
     os << ")[";
-    print_type = false; // Already apparent in the vector type.
     for (int i = 0, e = node->type.lanes(); i < e; ++i) {
         print(node->values[i]);
         if (i + 1 == e) {
@@ -493,7 +549,6 @@ void Printer::visit(const VecImm *node) {
         }
         os << ",";
     }
-    print_type = true;
     os << "]";
 }
 
@@ -591,8 +646,10 @@ void Printer::visit(const Cast *node) {
 }
 
 void Printer::visit(const Broadcast *node) {
+    const ir::Expr &value = node->value;
+    print(value.type());
     os << "x" << node->lanes << "(";
-    print_no_parens(node->value);
+    print_no_parens(value);
     os << ")";
 }
 

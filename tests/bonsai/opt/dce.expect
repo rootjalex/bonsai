@@ -1,5 +1,5 @@
 func ?lambda0(y : i32) -> i32 {
-  return y + (i32)1
+  return y + 1
 }
 
 func bar(x : i32) -> i32 {

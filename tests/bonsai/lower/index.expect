@@ -1,5 +1,5 @@
 func first(v : f32x3) -> f32 {
-  return v[(i32)0]
+  return v[0]
 }
 
 func idx(v : f32x3, i : u32) -> f32 {
@@ -7,7 +7,7 @@ func idx(v : f32x3, i : u32) -> f32 {
 }
 
 func safe_idx(v : f32x3, i : i32) -> f32 {
-  if (((i32)0 <= i) && (i < (i32)3)) {
+  if ((0 <= i) && (i < 3)) {
     return v[i]
   } else {
     return 0f
@@ -15,15 +15,15 @@ func safe_idx(v : f32x3, i : i32) -> f32 {
 }
 
 func safe_oob(v : f32x3) -> f32 {
-  return safe_idx(v, (i32)4)
+  return safe_idx(v, 4)
 }
 
 func second(v : f32x3) -> f32 {
-  return v[(i32)1]
+  return v[1]
 }
 
 func third(v : f32x3) -> f32 {
-  return v[(i32)2]
+  return v[2]
 }
 
 

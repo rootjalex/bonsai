@@ -3,7 +3,7 @@ func make_option0(i : i32) -> ?option0 {
 }
 
 func make_option1(i : i32) -> ?option0 {
-  if ((i32)0 < i) {
+  if (0 < i) {
     return build<?option0>(i, true)
   } else {
     return build<?option0>()
@@ -14,15 +14,15 @@ func use_option(i : ?option0) -> i32 {
   if (i.set) {
     return i.value
   } else {
-    return (i32)0
+    return 0
   }
 }
 
 func use_option1(i : ?option0) -> i32 {
   if (i.set) {
-    return i.value + (i32)10
+    return i.value + 10
   } else {
-    return (i32)0
+    return 0
   }
 }
 
