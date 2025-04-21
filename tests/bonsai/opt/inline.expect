@@ -1,0 +1,10 @@
+func A(x : i32) -> i32 {
+  return x + (i32)1
+}
+
+func B(y : i32) -> i32 {
+  print(y)
+  return y + (i32)1
+}
+
+

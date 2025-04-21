@@ -151,11 +151,17 @@ struct TokenStream {
         return tokens.back();
     }
 
-    void skip() { consume(tokens.front().type); }
+    void skip() { consume(tokens.back().type); }
 
     bool consume(Token::Type);
 
     bool empty() const { return tokens.empty(); }
+
+    // Applies any necessary changes required for consumption. Note: this
+    // method is *not* idempotent.
+    void finalize_for_consumption() {
+        std::reverse(tokens.begin(), tokens.end());
+    }
 
     // Returns the current token. This is useful for error message handling.
     const Token &current_token() const {
@@ -180,9 +186,9 @@ struct TokenStream {
     // The current token being visited.
     std::optional<Token> current = std::nullopt;
 
-    // The list of tokens in this stream.
-    // TODO(cgyurgyik): This probably doesn't need to be a linked list?
-    std::list<Token> tokens;
+    // The list of tokens in this stream. These are lexed in normal order, i.e.,
+    // by pushing to the back, and then reversed before consumption.
+    std::vector<Token> tokens;
 
     // The file name associated with this token stream. This assumes every token
     // stream is associated with exactly one file.

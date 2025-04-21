@@ -114,6 +114,7 @@ target_sources(
     src/Lower/VerifyLayouts.cpp
     src/Lower/VerifyOptions.cpp
     src/Opt/DCE.cpp
+    src/Opt/Inline.cpp
     src/Opt/Simplify.cpp
     src/Parser/Lexer.cpp
     src/Parser/Parser.cpp
@@ -179,6 +180,7 @@ target_sources(
     include/Lower/VerifyLayouts.h
     include/Lower/VerifyOptions.h
     include/Opt/DCE.h
+    include/Opt/Inline.h
     include/Opt/Simplify.h
     include/Parser/Lexer.h
     include/Parser/Parser.h

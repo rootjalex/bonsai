@@ -13,6 +13,7 @@
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Opt/DCE.h"
+#include "Opt/Inline.h"
 #include "Opt/Simplify.h"
 
 #include "CompilerOptions.h"
@@ -70,6 +71,7 @@ PassManager register_passes() {
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Simplify>();
+    manager.register_pass<opt::Inline>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
@@ -102,6 +104,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
+    d.push_back(std::make_unique<opt::Inline>());
     manager.register_alias("default", d);
 
     return manager;

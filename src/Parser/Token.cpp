@@ -326,14 +326,12 @@ void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column) {
 }
 
 bool TokenStream::consume(Token::Type type) {
-    Token token = tokens.front();
+    Token token = tokens.back();
     if (token.type == type) {
         current = token;
-        tokens.pop_front();
-        return true;
+        tokens.pop_back();
     }
-
-    return false;
+    return token.type == type;
 }
 
 Token TokenStream::peek(uint32_t count) const {
@@ -341,10 +339,10 @@ Token TokenStream::peek(uint32_t count) const {
         if (tokens.empty()) {
             return Token::ErrorToken();
         }
-        return tokens.front();
+        return tokens.back();
     }
 
-    std::list<Token>::const_iterator it = tokens.cbegin();
+    auto it = tokens.cbegin();
     for (unsigned i = 0; i < count && it != tokens.cend(); ++i, ++it) {
     }
 

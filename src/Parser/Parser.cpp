@@ -1048,8 +1048,6 @@ struct Parser {
                        << Token::token_type_string(token);
     }
 
-    // TODO(cgyurgyik): clean up parsing methods and add error reporting
-    // throughout.
     template <typename OpType, typename Container>
     std::optional<OpType>
     try_match_pattern(const std::string &name, const size_t arg_count,
