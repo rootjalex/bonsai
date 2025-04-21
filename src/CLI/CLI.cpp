@@ -42,6 +42,7 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
             << "failed to open: " << options.output_file;
         bonsai::ir::Printer printer(os,
                                     /*verbose=*/options.is_verbose);
+        printer.print(program);
         return EXIT_SUCCESS;
     }
     case BackendTarget::ASM: {
