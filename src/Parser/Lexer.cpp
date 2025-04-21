@@ -535,7 +535,9 @@ TokenStream lex(const std::string &filename) {
     Lexer lexer(filename);
     lexer.lex();
     internal_assert(lexer.is_valid()) << "Failed to tokenize " << filename;
-    return lexer.get_tokens();
+    TokenStream stream = lexer.get_tokens();
+    stream.finalize_for_consumption();
+    return stream;
 }
 
 } // namespace parser

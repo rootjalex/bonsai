@@ -17,6 +17,7 @@
 #include "Lower/VerifyOptions.h"
 #include "Lower/Yields.h"
 #include "Opt/DCE.h"
+#include "Opt/Inline.h"
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
 
@@ -80,6 +81,7 @@ PassManager register_passes() {
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
+    manager.register_pass<opt::Inline>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
@@ -121,6 +123,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Unswitch>());
+    d.push_back(std::make_unique<opt::Inline>());
     manager.register_alias("default", d);
 
     return manager;

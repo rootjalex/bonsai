@@ -1,3 +1,4 @@
+//! flags: -p core
 
 func _fma<F : IFloat, V : IVector[[F]]>(a : V, b : V, c : V) -> V {
     return a * b + c;

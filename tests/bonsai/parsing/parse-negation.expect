@@ -3,7 +3,7 @@ func bar(i : i32) -> i32 {
 }
 
 func foo() -> i32 {
-  return (i32)-1
+  return -1
 }
 
 

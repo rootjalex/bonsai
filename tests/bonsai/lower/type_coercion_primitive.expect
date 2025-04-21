@@ -1,5 +1,5 @@
 func a(x : u32) -> u32 {
-  return x + (u32)5
+  return x + 5u
 }
 
 func b(x : f64) -> f64 {
@@ -15,7 +15,7 @@ func d(x : f16) -> f16 {
 }
 
 func ret_f32x4(x : f32x4) -> f32x4 {
-  return x + x4(2f)
+  return x + f32x4(2f)
 }
 
 func ret_fone() -> f32 {
@@ -27,11 +27,11 @@ func ret_fzero() -> f32 {
 }
 
 func ret_zero() -> i32 {
-  return (i32)0
+  return 0
 }
 
 func reti32(i : i32) -> i32 {
-  return i + (i32)2
+  return i + 2
 }
 
 

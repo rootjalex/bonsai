@@ -22,6 +22,9 @@ struct CompilerOptions {
     // failure if the chosen backend does not support execution.
     bool is_execute = false;
 
+    // Whether this should verbosely print Bonsai IR.
+    bool is_verbose = false;
+
     // The input filename. This cannot be empty.
     std::string input_file;
 

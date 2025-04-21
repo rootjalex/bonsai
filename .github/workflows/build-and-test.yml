@@ -67,7 +67,6 @@ jobs:
           build_dir: build
           lgtm_comment_body: "" # No comments upon success.
 
-        # TODO(cgyurgyik): Enable this again when we figure out how to correctly compile_commands for clang-tidy.
         # - uses: ZedThree/clang-tidy-review/upload@v0.20.1
         # id: upload-review
         # If there are any comments, fail the check.

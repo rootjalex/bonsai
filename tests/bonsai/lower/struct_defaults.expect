@@ -33,7 +33,7 @@ func build_ray_params2(o : f32x3, d : f32x3) -> Ray {
 }
 
 func build_ray_params3(oall : f32, dall : f32) -> Ray {
-  return build<Ray>(x3(oall), x3(dall), 0f)
+  return build<Ray>(f32x3(oall), f32x3(dall), 0f)
 }
 
 

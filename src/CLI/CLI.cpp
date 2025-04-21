@@ -1,6 +1,7 @@
 #include "CLI/CLI.h"
 
 #include "Bonsai.h"
+#include "IR/Printer.h"
 
 #include <fstream>
 #include <iostream>
@@ -19,6 +20,7 @@ std::string command_help() {
       << "-e|--execute,                  | e.g., `-e`\n"
       << "-i|--input <input file name>   | e.g., `-i in.bonsai`\n"
       << "-o|--output <output file name> | e.g., `-o out.bonsai`\n"
+      << "-v|--verbose                   | e.g., `-v`\n"
       << "-h|--help";
     return s.str();
 }
@@ -29,13 +31,18 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
     switch (options.target) {
     case BackendTarget::NONE: {
         if (options.output_file.empty()) {
-            program.dump(std::cout);
+
+            bonsai::ir::Printer printer(std::cout,
+                                        /*verbose=*/options.is_verbose);
+            printer.print(program);
             return EXIT_SUCCESS;
         }
         std::ofstream os(options.output_file);
         internal_assert(os.is_open())
             << "failed to open: " << options.output_file;
-        program.dump(os);
+        bonsai::ir::Printer printer(os,
+                                    /*verbose=*/options.is_verbose);
+        printer.print(program);
         return EXIT_SUCCESS;
     }
     case BackendTarget::ASM: {
@@ -80,6 +87,10 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "-e" || arg == "--execute") {
             options.is_execute = true;
+            continue;
+        }
+        if (arg == "-v" || arg == "--verbose") {
+            options.is_verbose = true;
             continue;
         }
         if (arg == "-b" || arg == "--backend") {
@@ -130,7 +141,6 @@ int run(const Flags &flags) {
             std::cout << command_help();
             return EXIT_SUCCESS;
         }
-
         verify_options(options);
 
         // Parse the input file.

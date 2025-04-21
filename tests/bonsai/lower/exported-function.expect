@@ -10,12 +10,12 @@ func id(x : Position) -> Position {
 }
 
 func main() -> i32 {
-  let i = build<Position>((i32)1, (i32)2, (i32)3, 1f) in
-  let j = build<Position>((i32)10, (i32)20, (i32)30, 41f) in
+  let i = build<Position>(1, 2, 3, 1f) in
+  let j = build<Position>(10, 20, 30, 41f) in
   r1 := build<Position>()
   foo(r1, i, j)
   let r2 = id(r1) in
-  return (i32)0
+  return 0
 }
 
 

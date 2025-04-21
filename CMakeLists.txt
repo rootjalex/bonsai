@@ -87,7 +87,6 @@ target_sources(
     src/IR/Mutator.cpp
     src/IR/Operators.cpp
     src/IR/Printer.cpp
-    src/IR/Program.cpp
     src/IR/Stmt.cpp
     src/IR/Type.cpp
     src/IR/TypeEnforcement.cpp
@@ -118,6 +117,7 @@ target_sources(
     src/Lower/VerifyOptions.cpp
     src/Lower/Yields.cpp
     src/Opt/DCE.cpp
+    src/Opt/Inline.cpp
     src/Opt/Simplify.cpp
     src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
@@ -188,6 +188,7 @@ target_sources(
     include/Lower/VerifyOptions.h
     include/Lower/Yields.h
     include/Opt/DCE.h
+    include/Opt/Inline.h
     include/Opt/Simplify.h
     include/Opt/Unswitch.h
     include/Parser/Lexer.h

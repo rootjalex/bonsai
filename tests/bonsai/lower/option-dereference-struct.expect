@@ -13,7 +13,7 @@ func get_int(n : NumberOption) -> i32 {
   if (n.i.set) {
     return n.i.value
   } else {
-    return (i32)0
+    return 0
   }
 }
 
@@ -21,7 +21,7 @@ func use_option(s : S) -> i32 {
   if (s.i.set) {
     return s.i.value
   }
-  return (i32)42
+  return 42
 }
 
 
