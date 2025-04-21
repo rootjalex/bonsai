@@ -73,7 +73,6 @@ ir::FuncMap Inline::run(ir::FuncMap funcs) const {
     // change.
     Inliner inliner(funcs, function_to_expr);
     for (auto &[name, func] : funcs) {
-
         func->body = inliner.mutate(std::move(func->body));
     }
 
