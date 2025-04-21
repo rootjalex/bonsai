@@ -11,21 +11,21 @@ extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
 func ?traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
   match points{
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
-    if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+    if (reduce<all>((r.low <= build<AABB>((points as Interior).low, (points as Interior).high).low) && (build<AABB>((points as Interior).low, (points as Interior).high).high <= r.high))) {
       scan (points as Interior).left
     } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
       from (points as Interior).left
     }
-    if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+    if (reduce<all>((r.low <= build<AABB>((points as Interior).low, (points as Interior).high).low) && (build<AABB>((points as Interior).low, (points as Interior).high).high <= r.high))) {
       scan (points as Interior).right
     } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
       from (points as Interior).right
     }
   | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
-    if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+    if (reduce<all>((r.low <= build<AABB>((points as Leaf).low, (points as Leaf).high).low) && (build<AABB>((points as Leaf).low, (points as Leaf).high).high <= r.high))) {
       yield (points as Leaf).data
     } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-      if (contains_AABB_Point(r, (points as Leaf).data)) {
+      if (reduce<all>((r.low <= (points as Leaf).data.data) && ((points as Leaf).data.data <= r.high))) {
         yield (points as Leaf).data
       }
     }
