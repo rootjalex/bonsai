@@ -134,11 +134,10 @@ struct BoolImm : ExprNode<BoolImm> {
 };
 
 struct VecImm : ExprNode<VecImm> {
+    std::vector<ir::Expr> values;
 
     static Expr make(std::vector<ir::Expr> values);
     static const IRExprEnum node_type = IRExprEnum::VecImm;
-
-    std::vector<ir::Expr> values;
 };
 
 struct Var : ExprNode<Var> {

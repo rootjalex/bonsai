@@ -103,6 +103,9 @@ Stmt Sequence::make(std::vector<Stmt> stmts) {
     for (const auto &s : stmts) {
         internal_assert(s.defined()) << "Undefined stmt in Sequence::make";
     }
+    if (stmts.size() == 1) {
+        return stmts[0];
+    }
     Sequence *node = new Sequence;
     node->stmts = std::move(stmts);
     return node;

@@ -6,6 +6,9 @@
 #include "Type.h"
 #include "Visitor.h"
 
+#include <set>
+#include <string>
+
 namespace bonsai {
 namespace ir {
 
@@ -63,6 +66,13 @@ bool contains(const Stmt &stmt) {
     stmt.accept(&checker);
     return checker.found;
 }
+
+std::set<std::string> mutated_variables(Stmt stmt);
+
+bool reads(Expr expr, const std::set<std::string> &vars);
+bool reads(Stmt stmt, const std::set<std::string> &vars);
+
+std::set<std::string> assigned_variables(Stmt stmt);
 
 } // namespace ir
 } // namespace bonsai
