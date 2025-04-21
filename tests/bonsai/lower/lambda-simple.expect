@@ -7,12 +7,12 @@ func ?lambda1(x : i32) -> i32 {
 }
 
 func foo() -> i32 {
-  let y = ?lambda0((i32)0) in
+  let y = (i32)0 + (i32)1 in
   return y
 }
 
 func main() -> i32 {
-  let y = ?lambda1((i32)0) in
+  let y = (i32)0 - (i32)1 in
   return y
 }
 
