@@ -342,18 +342,18 @@ Token TokenStream::peek(uint32_t count) const {
         return tokens.back();
     }
 
-    auto it = tokens.cbegin();
-    for (unsigned i = 0; i < count && it != tokens.cend(); ++i, ++it) {
+    auto it = tokens.crbegin();
+    for (unsigned i = 0; i < count && it != tokens.crend(); ++i, ++it) {
     }
 
-    if (it == tokens.cend()) {
+    if (it == tokens.crend()) {
         return Token::ErrorToken();
     }
     return *it;
 }
 
 std::ostream &operator<<(std::ostream &out, const TokenStream &tokens) {
-    for (auto it = tokens.tokens.cbegin(); it != tokens.tokens.cend(); ++it) {
+    for (auto it = tokens.tokens.crbegin(); it != tokens.tokens.crend(); ++it) {
         out << *it << std::endl;
     }
     return out;
