@@ -3,7 +3,7 @@ func use_option(i : ?option0) -> i32 {
   if (k.set) {
     return k.value
   }
-  return (i32)0
+  return 0
 }
 
 func use_option1(i : ?option0) -> i32 {
@@ -11,7 +11,7 @@ func use_option1(i : ?option0) -> i32 {
   if (k.set) {
     return k.value
   }
-  return (i32)0
+  return 0
 }
 
 

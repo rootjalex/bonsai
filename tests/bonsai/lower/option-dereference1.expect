@@ -6,7 +6,7 @@ func foo(i : ?option0, j : ?option0) -> i32 {
   } else if (j.set) {
     return j.value
   } else {
-    return (i32)0
+    return 0
   }
 }
 

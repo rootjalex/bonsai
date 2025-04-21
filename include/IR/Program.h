@@ -67,8 +67,6 @@ struct Program {
         }
         return *this;
     }
-
-    void dump(std::ostream &os) const;
 };
 
 } // namespace ir

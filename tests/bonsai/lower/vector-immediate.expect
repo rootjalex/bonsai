@@ -1,28 +1,28 @@
 func f1() -> i32 {
-  let x = (i32)2 in
+  let x = 2 in
   let ts = (i32x3)[1,2,3] in
-  return (i32)3
+  return 3
 }
 
 func f2(i : i32) -> i32 {
-  let ws = x3((i32)-1) in
+  let ws = i32x3(-1) in
   let xs = (i32x3)[1,2,3] in
   let ys = (i32x3)[2,3,4] in
   let zs = (i32x3)[2,4,6] in
-  let x = (i32)10 in
-  let y = (i32)10 in
-  let z = (i32)20 + i in
-  return (i32)0
+  let x = 10 in
+  let y = 10 in
+  let z = 20 + i in
+  return 0
 }
 
 func f3() -> i32 {
-  let xs = x3((i32)-1) in
-  return (i32)-1
+  let xs = i32x3(-1) in
+  return -1
 }
 
 func f4(i : i32) -> i32 {
-  let xs = build<i32x2>((i32)1, i) in
-  return xs[(i32)0] + xs[(i32)1]
+  let xs = build<i32x2>(1, i) in
+  return xs[0] + xs[1]
 }
 
 

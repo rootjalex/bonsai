@@ -1,9 +1,8 @@
 #include "IR/Interface.h"
 
-#include <stdexcept>
-#include <utility>
-
 #include "IR/Printer.h"
+
+#include <utility>
 
 namespace bonsai {
 namespace ir {

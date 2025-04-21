@@ -13,7 +13,7 @@ Lowered layout: {
     0 =>
       {
         offset : u32;
-        left = index + (u32)1;
+        left = index + 1u;
         right = index + offset;
       };
     _ =>

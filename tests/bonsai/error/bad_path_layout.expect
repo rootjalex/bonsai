@@ -19,7 +19,7 @@ No path for node: Interior in layout: {
     0 =>
       {
         offset : u32;
-        left = index + (u32)1;
+        left = index + 1u;
       };
     _ =>
       {

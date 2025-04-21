@@ -70,7 +70,7 @@ func ?traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree
       }
     | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
       if (intersects(build<AABB>((triangles as Leaf).low, (triangles as Leaf).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
-        if (intersects(build<(Triangle, Triangle)>((triangles as Leaf).data, (triangles2 as Leaf).data)[(i32)0], build<(Triangle, Triangle)>((triangles as Leaf).data, (triangles2 as Leaf).data)[(i32)1])) {
+        if (intersects(build<(Triangle, Triangle)>((triangles as Leaf).data, (triangles2 as Leaf).data)[0], build<(Triangle, Triangle)>((triangles as Leaf).data, (triangles2 as Leaf).data)[1])) {
           yield build<(Triangle, Triangle)>((triangles as Leaf).data, (triangles2 as Leaf).data)
         }
       }
@@ -91,16 +91,16 @@ func ?traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
       if (intersects(ray, (triangles as Leaf).data)) {
-        if (distance(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < ?best0[(i32)0]) {
+        if (distance(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < ?best0[0]) {
           let ?best0_temp0 = distance(ray, (triangles as Leaf).data) in
-          if (?best0_temp0 < ?best0[(i32)0]) {
+          if (?best0_temp0 < ?best0[0]) {
             ?best0 = build<(f32, Triangle)>(?best0_temp0, (triangles as Leaf).data)
           }
         }
       }
     }
   }
-  yield ?best0[(i32)1]
+  yield ?best0[1]
 }
 
 func alltrace(ray : Ray) -> set<Triangle> {

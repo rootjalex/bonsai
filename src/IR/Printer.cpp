@@ -203,6 +203,43 @@ std::ostream &operator<<(std::ostream &os, const Layout &layout) {
     return os;
 }
 
+void Printer::print(const Program &program) {
+    {
+        // We always verbosely print program types and externs.
+        ScopedValue<bool> _(verbose, true);
+        for (const auto &[name, type] : program.types) {
+            os << "type " << name << " = ";
+            print(type);
+            os << "\n";
+        }
+        if (!program.types.empty()) {
+            os << std::endl;
+        }
+        for (const auto &[name, type] : program.externs) {
+            os << "extern " << name << " : ";
+            print(type);
+            os << "\n";
+        }
+        if (!program.externs.empty()) {
+            os << std::endl;
+        }
+    }
+
+    for (const auto &[name, func] : program.funcs) {
+        os << *func << "\n\n";
+    }
+    if (!program.funcs.empty()) {
+        os << std::endl;
+    }
+    for (const auto &[target, schedule] : program.schedules) {
+        os << "schedule " << target << "{\n";
+        os << schedule << "}";
+    }
+    if (!program.schedules.empty()) {
+        os << std::endl;
+    }
+}
+
 void Printer::print(const Type &type) {
     if (type.defined()) {
         type->accept(this);
@@ -443,7 +480,7 @@ void Printer::visit(const IVector *node) {
 }
 
 void Printer::visit(const IntImm *node) {
-    if (print_type) {
+    if (verbose) {
         os << "(";
         print(node->type);
         os << ")";
@@ -452,15 +489,22 @@ void Printer::visit(const IntImm *node) {
 }
 
 void Printer::visit(const UIntImm *node) {
-    if (print_type) {
+    if (verbose) {
         os << "(";
         print(node->type);
-        os << ")";
+        os << ")" << node->value;
+        return;
     }
-    os << node->value;
+    os << node->value << 'u';
 }
 
 void Printer::visit(const FloatImm *node) {
+    if (verbose) {
+        os << "(";
+        print(node->type);
+        os << ")" << node->value;
+        return;
+    }
     switch (node->type.bits()) {
     case 64:
         os << node->value;
@@ -485,7 +529,6 @@ void Printer::visit(const VecImm *node) {
     os << "(";
     print(node->type);
     os << ")[";
-    print_type = false; // Already apparent in the vector type.
     for (int i = 0, e = node->type.lanes(); i < e; ++i) {
         print(node->values[i]);
         if (i + 1 == e) {
@@ -493,7 +536,6 @@ void Printer::visit(const VecImm *node) {
         }
         os << ",";
     }
-    print_type = true;
     os << "]";
 }
 
@@ -591,8 +633,10 @@ void Printer::visit(const Cast *node) {
 }
 
 void Printer::visit(const Broadcast *node) {
+    const ir::Expr &value = node->value;
+    print(value.type());
     os << "x" << node->lanes << "(";
-    print_no_parens(node->value);
+    print_no_parens(value);
     os << ")";
 }
 

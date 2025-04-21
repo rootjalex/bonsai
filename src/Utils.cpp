@@ -1,7 +1,6 @@
 #include "Utils.h"
 
 #include "IR/Equality.h"
-#include "IR/Printer.h"
 
 namespace bonsai {
 
