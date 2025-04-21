@@ -67,10 +67,13 @@ ir::FuncMap Inline::run(ir::FuncMap funcs) const {
         }
     }
 
+    // We assume the inliner will not change the number of arguments in a
+    // function, and thus it is ok to only instantiate it once per program. If
+    // the `Inliner` class were to break this assumption, this would need to
+    // change.
+    Inliner inliner(funcs, function_to_expr);
     for (auto &[name, func] : funcs) {
-        // Create a new inliner each time to avoid the possibility of stale
-        // function information.
-        Inliner inliner(funcs, function_to_expr);
+
         func->body = inliner.mutate(std::move(func->body));
     }
 
