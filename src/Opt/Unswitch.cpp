@@ -38,35 +38,26 @@ struct UnswitchImpl : public Mutator {
         node = stmt.as<IfElse>();
         internal_assert(node); // this rewrite shouldn't erase if statements.
 
-        // std::cout << "Visiting: " << stmt;
-
         // No else body, can't apply this rewrite.
         if (!node->else_body.defined()) {
-            // std::cout << "no else body\n\n";
             return node;
         }
         const IfElse *then_if = node->then_body.as<IfElse>();
         const IfElse *else_if = node->else_body.as<IfElse>();
         if (then_if == nullptr || else_if == nullptr) {
-            // std::cout << "one side is not a nested if\n\n";
-            // std::cout << "then body is: " << static_cast<int>(node->then_body.node_type()) << std::endl << node->then_body << std::endl;
-            // std::cout << "else body is: " << static_cast<int>(node->else_body.node_type()) << std::endl << node->else_body << std::endl;
             return node;
         }
         if (then_if->else_body.defined() || else_if->else_body.defined()) {
             // Rewrite results in same sized IR, no reduction order.
             // TODO(ajr): can we use comparisons of `cond` to make a
             // reduction order?
-            // std::cout << "else bodies are defined in nested ifs\n\n";
             return node;
         }
         if (equals(then_if->cond, else_if->cond)) {
             // Success!
-            // std::cout << "conditions are equal!\n\n";
             Stmt inner = IfElse::make(node->cond, then_if->then_body, else_if->then_body);
             return IfElse::make(then_if->cond, std::move(inner));
         }
-        // std::cout << "conditions are not equal!\n\n";
         return node;
     }
 
@@ -157,7 +148,7 @@ struct UnswitchImpl : public Mutator {
         node = stmt.as<ForAll>();
         internal_assert(node);
 
-        // TODO: partition condition into varying and unvarying conditions.
+        // TODO(ajr): partition condition into varying and unvarying conditions.
         if (const IfElse *if_else = node->body.as<IfElse>()) {
             std::set<std::string> varying = node->header.defined() ? assigned_variables(node->header) : std::set<std::string>{};
             varying.insert(node->index);
@@ -183,9 +174,7 @@ Stmt unswitch_stmt(Stmt stmt) {
 
 FuncMap Unswitch::run(FuncMap funcs) const {
     for (auto &[name, func] : funcs) {
-        // std::cout << "Before: " << func->body << std::endl;
         func->body = unswitch_stmt(std::move(func->body));
-        // std::cout << "After: " << func->body << std::endl;
     }
     return funcs;
 }
