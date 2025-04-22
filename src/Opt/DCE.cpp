@@ -260,7 +260,7 @@ struct DeadCodeElimination : ir::Mutator {
             return ir::Stmt();
         }
         // We need to keep the locs used by this value.
-        add_use_counts(node);
+        add_use_counts(value);
         if (const auto *c = value.as<ir::Call>()) {
             return ir::CallStmt::make(std::move(c->func), std::move(c->args));
         }
