@@ -18,10 +18,10 @@ idx_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define float @safe_idx(<3 x float> noundef %v, i32 noundef %i) local_unnamed_addr #0 {
 safe_idx_entry:
-  %0 = icmp ult i32 %i, 3
-  %1 = extractelement <3 x float> %v, i32 %i
-  %common.ret.op = select i1 %0, float %1, float 0.000000e+00
-  ret float %common.ret.op
+  %or.cond = icmp ult i32 %i, 3
+  %0 = extractelement <3 x float> %v, i32 %i
+  %spec.select = select i1 %or.cond, float %0, float 0.000000e+00
+  ret float %spec.select
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
