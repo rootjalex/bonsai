@@ -128,22 +128,44 @@ struct ComputeUseCounts : ir::Visitor {
 
 struct HasSideEffects : ir::Visitor {
     bool found = false;
+    // The first found side-effecting expression (if any).
+    ir::Expr expression;
+    // The first found side-effecting statement (if any).
+    ir::Stmt statement;
     const std::set<std::string> &function_has_side_effects;
 
     HasSideEffects(const std::set<std::string> &side_effects_functions)
         : function_has_side_effects(side_effects_functions) {}
 
-    void visit(const ir::Print *) override { found = true; }
+    void visit(const ir::Print *node) override {
+        if (found) {
+            return;
+        }
+        statement = node;
+        found = true;
+    }
 
-    void visit(const ir::Var *node) override {
-        if (node->type.is<ir::Function_t>() &&
-            function_has_side_effects.contains(node->name)) {
+    void visit(const ir::Call *node) override {
+        if (found) {
+            return;
+        }
+        const auto *var = node->func.as<ir::Var>();
+        if (var == nullptr) {
+            return;
+        }
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
+            expression = node;
             found = true;
         }
     }
 
-    void visit(const ir::Store *) override {
+    void visit(const ir::Store *node) override {
+        if (found) {
+            return;
+        }
         // TODO(ajr): This is conservative. How bad is that?
+        statement = node;
         found = true;
     }
 };
@@ -196,6 +218,14 @@ struct DeadCodeElimination : ir::Mutator {
         return checker.found;
     }
 
+    // Returns the first expression with side effects, or an undefined
+    // expression otherwise.
+    ir::Expr find_first_with_side_effects(const ir::Expr &expr) {
+        HasSideEffects checker(side_effects_functions);
+        expr.accept(&checker);
+        return checker.expression;
+    }
+
     // Use counts are re-added for side-effecting expressions.
     void add_use_counts(const ir::Expr &expr) {
         ComputeUseCounts counter({}); // TODO(ajr): is this right?
@@ -244,11 +274,11 @@ struct DeadCodeElimination : ir::Mutator {
             if (has_side_effects(node->value)) {
                 // We need to keep the locs used by this value.
                 add_use_counts(node->value);
-                if (ir::Expr call = find_first<ir::Call>(node->value);
-                    call.defined()) {
-                    const auto *c = call.as<ir::Call>();
-                    return ir::CallStmt::make(std::move(c->func),
-                                              std::move(c->args));
+                if (ir::Expr e = find_first_with_side_effects(node->value);
+                    e.defined() && e.is<ir::Call>()) {
+                    const auto *call = e.as<ir::Call>();
+                    return ir::CallStmt::make(std::move(call->func),
+                                              std::move(call->args));
                 }
                 // TODO(ajr): we could just grab the side effecting Expr
                 // and not compute the rest.
@@ -266,11 +296,11 @@ struct DeadCodeElimination : ir::Mutator {
             if (has_side_effects(node->value)) {
                 // We need to keep the locs used by this value.
                 add_use_counts(node->value);
-                if (ir::Expr call = find_first<ir::Call>(node->value);
-                    call.defined()) {
-                    const auto *c = call.as<ir::Call>();
-                    return ir::CallStmt::make(std::move(c->func),
-                                              std::move(c->args));
+                if (ir::Expr e = find_first_with_side_effects(node->value);
+                    e.defined() && e.is<ir::Call>()) {
+                    const auto *call = e.as<ir::Call>();
+                    return ir::CallStmt::make(std::move(call->func),
+                                              std::move(call->args));
                 }
                 // TODO(ajr): we could just grab the side effecting Expr
                 // and not compute the rest.
