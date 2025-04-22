@@ -71,7 +71,7 @@ Stmt StmtNode<T>::mutate_stmt(Mutator *m) const {
     return m->visit((const T *)this);
 }
 
-// A call to a function with void return type and mutable arguments
+// A call to a function; the return value is ignored.
 struct CallStmt : StmtNode<CallStmt> {
     Expr func;
     std::vector<Expr> args;

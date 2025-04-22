@@ -67,6 +67,29 @@ bool contains(const Stmt &stmt) {
     return checker.found;
 }
 
+// Returns the first occurrence of IRNode within `expr`, and an undefined
+// expression if none are found.
+template <typename IRNode>
+ir::Expr find_first(const ir::Expr &expr) {
+    static_assert(std::is_base_of<BaseExprNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseExprNode");
+    struct Checker : public Visitor {
+        bool found = false;
+        ir::Expr first;
+
+        void visit(const IRNode *node) override {
+            if (found) {
+                return;
+            }
+            found = true;
+            first = node;
+        }
+    };
+    Checker checker;
+    expr.accept(&checker);
+    return checker.first;
+}
+
 std::set<std::string> mutated_variables(Stmt stmt);
 
 bool reads(Expr expr, const std::set<std::string> &vars);

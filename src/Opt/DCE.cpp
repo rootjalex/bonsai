@@ -1,5 +1,6 @@
 #include "Opt/DCE.h"
 
+#include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
@@ -240,17 +241,21 @@ struct DeadCodeElimination : ir::Mutator {
                 // Definition of this write loc.
                 erase_dependents(node->loc);
             }
-
             if (has_side_effects(node->value)) {
+                // We need to keep the locs used by this value.
+                add_use_counts(node->value);
+                if (ir::Expr call = find_first<ir::Call>(node->value);
+                    call.defined()) {
+                    const auto *c = call.as<ir::Call>();
+                    return ir::CallStmt::make(std::move(c->func),
+                                              std::move(c->args));
+                }
                 // TODO(ajr): we could just grab the side effecting Expr
                 // and not compute the rest.
                 // For now, we rewrite this to an unused LetStmt
                 ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                // We need to keep the locs used by this value.
-                add_use_counts(node->value);
                 return ir::LetStmt::make(std::move(loc), node->value);
             }
-
             return ir::Stmt();
         }
         return node;
@@ -259,12 +264,18 @@ struct DeadCodeElimination : ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override {
         if (use_counts[node->loc.base] == 0) {
             if (has_side_effects(node->value)) {
+                // We need to keep the locs used by this value.
+                add_use_counts(node->value);
+                if (ir::Expr call = find_first<ir::Call>(node->value);
+                    call.defined()) {
+                    const auto *c = call.as<ir::Call>();
+                    return ir::CallStmt::make(std::move(c->func),
+                                              std::move(c->args));
+                }
                 // TODO(ajr): we could just grab the side effecting Expr
                 // and not compute the rest.
                 // For now, we rewrite this to an unused LetStmt
                 ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                // We need to keep the locs used by this value.
-                add_use_counts(node->value);
                 return ir::LetStmt::make(std::move(loc), node->value);
             }
             return ir::Stmt();
