@@ -17,8 +17,7 @@ func bazz(i : i32) -> i32 {
 
 func fizz(i : i32) -> i32 {
   if (0 < i) {
-    let k = i32x8(-4) in
-    foo(k)
+    foo(i32x8(-4))
   } else {
     print(i)
   }
@@ -33,10 +32,9 @@ func foo(i : i32x8) -> u32x8 {
 }
 
 func main() -> i32 {
-  let i = i32x8(-1) in
   let j = fizz(-1) in
   let k = fizz(12) in
-  return cast<i32>(reduce<+>(bar(i)))
+  return cast<i32>(reduce<+>(bar(i32x8(-1))))
 }
 
 func print_and_return(i : i32) -> i32 {

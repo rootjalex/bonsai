@@ -237,11 +237,6 @@ struct DeadCodeElimination : ir::Mutator {
         }
     }
 
-    uint64_t counter = 0;
-    std::string make_unused_var_name() {
-        return "_unused" + std::to_string(counter++);
-    }
-
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
         if (const auto cmap = dependent_use_counts.find(loc.base);
@@ -266,51 +261,45 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (use_counts[node->loc.base] == 0) {
-            if (!node->mutating) {
-                // Definition of this write loc.
-                erase_dependents(node->loc);
-            }
-            if (has_side_effects(node->value)) {
-                // We need to keep the locs used by this value.
-                add_use_counts(node->value);
-                if (ir::Expr e = find_first_with_side_effects(node->value);
-                    e.defined() && e.is<ir::Call>()) {
-                    const auto *call = e.as<ir::Call>();
-                    return ir::CallStmt::make(std::move(call->func),
-                                              std::move(call->args));
-                }
-                // TODO(ajr): we could just grab the side effecting Expr
-                // and not compute the rest.
-                // For now, we rewrite this to an unused LetStmt
-                ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                return ir::LetStmt::make(std::move(loc), node->value);
-            }
+        if (use_counts[node->loc.base] != 0) {
+            return node;
+        }
+        if (!node->mutating) {
+            // Definition of this write loc.
+            erase_dependents(node->loc);
+        }
+        if (!has_side_effects(node->value)) {
             return ir::Stmt();
         }
-        return node;
+        // We need to keep the locs used by this value.
+        add_use_counts(node->value);
+        if (ir::Expr e = find_first_with_side_effects(node->value);
+            e.defined() && e.is<ir::Call>()) {
+            const auto *call = e.as<ir::Call>();
+            return ir::CallStmt::make(std::move(call->func),
+                                      std::move(call->args));
+        }
+        internal_error << "[unimplemented] side-effecting expression: "
+                       << node->value;
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] == 0) {
-            if (has_side_effects(node->value)) {
-                // We need to keep the locs used by this value.
-                add_use_counts(node->value);
-                if (ir::Expr e = find_first_with_side_effects(node->value);
-                    e.defined() && e.is<ir::Call>()) {
-                    const auto *call = e.as<ir::Call>();
-                    return ir::CallStmt::make(std::move(call->func),
-                                              std::move(call->args));
-                }
-                // TODO(ajr): we could just grab the side effecting Expr
-                // and not compute the rest.
-                // For now, we rewrite this to an unused LetStmt
-                ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                return ir::LetStmt::make(std::move(loc), node->value);
-            }
+        if (use_counts[node->loc.base] != 0) {
+            return node;
+        }
+        if (!has_side_effects(node->value)) {
             return ir::Stmt();
         }
-        return node;
+        // We need to keep the locs used by this value.
+        add_use_counts(node->value);
+        if (ir::Expr e = find_first_with_side_effects(node->value);
+            e.defined() && e.is<ir::Call>()) {
+            const auto *call = e.as<ir::Call>();
+            return ir::CallStmt::make(std::move(call->func),
+                                      std::move(call->args));
+        }
+        internal_error << "[unimplemented] side-effecting expression: "
+                       << node->value;
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
