@@ -82,25 +82,16 @@ func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
   _best0 := build<(f32, Triangle)>((f32)inf, build<Triangle>())
   match triangles {
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
-    if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
-      if (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0]) {
-        from (triangles as Interior).left
-      }
+    if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) && (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0])) {
+      from (triangles as Interior).left
     }
-    if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
-      if (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0]) {
-        from (triangles as Interior).right
-      }
+    if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) && (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0])) {
+      from (triangles as Interior).right
     }
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
-    if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
-      if (intersects(ray, (triangles as Leaf).data)) {
-        if (distmin(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < _best0[0]) {
-          let _best0_temp0 = distmin(ray, (triangles as Leaf).data) in
-          if (_best0_temp0 < _best0[0]) {
-            _best0 = build<(f32, Triangle)>(_best0_temp0, (triangles as Leaf).data)
-          }
-        }
+    if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) && (distmin(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < _best0[0])) {
+      if (intersects(ray, (triangles as Leaf).data) && (distmin(ray, (triangles as Leaf).data) < _best0[0])) {
+        _best0 = build<(f32, Triangle)>(distmin(ray, (triangles as Leaf).data), (triangles as Leaf).data)
       }
     }
   }
