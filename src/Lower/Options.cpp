@@ -20,7 +20,7 @@ struct RewriteOptions : public ir::Mutator {
     size_t counter = 0;
 
     std::string get_unique_option_name() {
-        return "?option" + std::to_string(counter++);
+        return "_option" + std::to_string(counter++);
     }
 
     ir::Type construct_option_struct(const ir::Type &etype) {

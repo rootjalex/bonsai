@@ -245,8 +245,19 @@ struct Parser {
     }
 
     std::string get_id() {
-        const Token id = expect(Token::Type::IDENTIFIER);
-        return std::get<std::string>(id.value);
+        const Token token = expect(Token::Type::IDENTIFIER);
+        std::string id = std::get<std::string>(token.value);
+        if (id.empty()) {
+            report_error() << "unexpected: empty identifier name.";
+        }
+        // We special-case the string "_", which is used as a wild card in
+        // layout switch statements.
+        if (id.size() > 1 && id.starts_with('_')) {
+            report_error() << "identifier: " << id
+                           << " cannot begin with `_`. This is reserved for "
+                              "compiler-generated variables.";
+        }
+        return id;
     }
 
     void parse_program_stream(const bool allow_externs) {
@@ -685,6 +696,25 @@ struct Parser {
         }
     }
 
+    // Parses a call statement, i.e., a call statement with no return value.
+    // This assumes the next token will have an id found in this program's
+    // functions.
+    // TODO(cgyurgyik): Need to eventually extend this to support struct methods
+    // as well, e.g., `a.foo(1)`.
+    std::optional<ir::Stmt> parse_call_statement(std::string id) {
+        auto it = program.funcs.find(id);
+        if (it == program.funcs.end()) {
+            return {};
+        }
+        const ir::Function &function = *it->second;
+        expect(Token::Type::LPAREN);
+
+        std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);
+        ir::Expr v = ir::Var::make(function.call_type(), std::move(id));
+        expect(Token::Type::SEMICOL);
+        return ir::CallStmt::make(std::move(v), std::move(args));
+    }
+
     // if expr stmt [elif expr stmt]* [else stmt]?
     // return expr;
     // TODO: allow labels? or inline funcs? of some kind.
@@ -724,9 +754,16 @@ struct Parser {
             expect(Token::Type::SEMICOL);
             return ir::Print::make(value);
         } else if (peek().type == Token::Type::IDENTIFIER) {
+            std::string id = get_id();
+            // TODO(cgyurgyik): This assumes that functions are declared before
+            // they're called. This isn't the only place this constraint holds,
+            // we should eventual support mutual recursion.
+            if (std::optional<ir::Stmt> call = parse_call_statement(id)) {
+                return *call;
+            }
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?
-            ir::WriteLoc loc = parse_write_loc();
+            ir::WriteLoc loc = parse_write_loc(std::move(id));
             if (loc.accesses.empty() && !name_in_scope(loc.base)) {
                 // Just a regular variable write
                 // might be an Assign (if labelled `mut`)
@@ -1585,8 +1622,7 @@ struct Parser {
         return def;
     }
 
-    ir::WriteLoc parse_write_loc() {
-        std::string base = get_id();
+    ir::WriteLoc parse_write_loc(std::string base) {
         ir::Type base_type;
         if (name_in_scope(base)) {
             base_type = get_type_from_frame(base);

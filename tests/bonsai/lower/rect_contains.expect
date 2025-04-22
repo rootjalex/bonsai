@@ -8,7 +8,7 @@ extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
   | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high)
 
-func ?traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
   match points {
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
     if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
@@ -47,7 +47,7 @@ func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
 }
 
 func query(r : AABB) -> set<Point> {
-  return ?traverse_tree0(r, points)
+  return _traverse_tree0(r, points)
 }
 
 

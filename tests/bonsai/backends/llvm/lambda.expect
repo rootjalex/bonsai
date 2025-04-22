@@ -2,8 +2,8 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @"?lambda0"(i32 noundef %x) local_unnamed_addr #0 {
-"?lambda0_entry":
+define noundef i32 @_lambda0(i32 noundef %x) local_unnamed_addr #0 {
+_lambda0_entry:
   %0 = add i32 %x, 1
   ret i32 %0
 }

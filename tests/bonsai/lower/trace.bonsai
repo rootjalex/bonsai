@@ -2,7 +2,7 @@ import tests/bonsai/lower/intersects;
 
 extern triangles : set[Triangle];
 
-func trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 // func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 

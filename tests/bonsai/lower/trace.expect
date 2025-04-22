@@ -1,5 +1,3 @@
-type ?triangles_layout0 = struct ?triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }
-type ?triangles_layout1 = struct ?triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct ?triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }[count] }
 type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
@@ -7,47 +5,49 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type _triangles_layout0 = struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }
+type _triangles_layout1 = struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 type vec3f = f32x3
 
-extern triangles : struct ?triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct ?triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; ?pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }[count] }
+extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 
-func ?traverse_tree0(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
-  ?best0 := build<tuple.0>((f32)inf, build<Triangle>())
-  alloc ?stack : u32[64]
-  ?count := 0u
-  ?top := 0u
-  ?stack[0u] = (u32)inf
+func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
+  _best0 := build<tuple.0>((f32)inf, build<Triangle>())
+  alloc _stack : u32[64]
+  _count := 0u
+  _top := 0u
+  _stack[0u] = (u32)inf
   do {
-    let triangles__index = ?top in
+    let triangles__index = _top in
     if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high))) {
       if (triangles.triangles_index[triangles__index].nPrims == 0u) {
-        if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
-          ?count += 1u
-          ?stack[?count] = triangles__index + 1u
-          ?count += 1u
-          ?stack[?count] = triangles__index + cast<?_layout11>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).offset
+        if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0) {
+          _count += 1u
+          _stack[_count] = triangles__index + 1u
+          _count += 1u
+          _stack[_count] = triangles__index + cast<__layout11>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).offset
         }
       } else {
-        forall ?idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
-          let ?iter0 = triangles.prims[cast<?_layout12>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset + ?idx0] in
-          if (intersectsp_ray_tri(ray, ?iter0).set) {
-            if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < ?best0.?field0) {
-              let ?best0_temp0 = distmin_Ray_Triangle(ray, ?iter0) in
-              if (?best0_temp0 < ?best0.?field0) {
-                ?best0 = build<tuple.0>(?best0_temp0, ?iter0)
+        forall _idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
+          let _iter0 = triangles.prims[cast<__layout12>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0] in
+          if (intersectsp_ray_tri(ray, _iter0).set) {
+            if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0) {
+              let _best0_temp0 = distmin_Ray_Triangle(ray, _iter0) in
+              if (_best0_temp0 < _best0._field0) {
+                _best0 = build<tuple.0>(_best0_temp0, _iter0)
               }
             }
           }
         }
       }
     }
-    ?top = ?stack[?count]
-    ?count -= 1u
-  } while (?top != (u32)inf)
-  return ?best0.?field1
+    _top = _stack[_count]
+    _count -= 1u
+  } while (_top != (u32)inf)
+  return _best0._field1
 }
 
-func _cross(v0 : f32x3, v1 : f32x3) -> f32x3 {
+func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
   return build<f32x3>(prod_diff(v0[1u], v1[2u], v0[2u], v1[1u]), prod_diff(v0[2u], v1[0u], v0[0u], v1[2u]), prod_diff(v0[0u], v1[1u], v0[1u], v1[0u]))
 }
 
@@ -72,8 +72,8 @@ func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
 func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
   let isect = intersectsp_ray_tri(ray, tri) in
   if (isect.set) {
-    let _isect = isect.value in
-    return _isect.t
+    let isect_ = isect.value in
+    return isect_.t
   } else {
     return (f32)inf
   }
@@ -96,7 +96,7 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func intersectsp_ray_aabb(r : Ray, b : AABB) -> ?option0 {
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option0 {
   let invDir = f32x3(1f) / r.d in
   let dirIsNeg = invDir < f32x3(0f) in
   let low_parts = select(dirIsNeg, b.low, b.high) in
@@ -105,21 +105,21 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> ?option0 {
   tMax := (high_parts - r.o) * invDir
   tMax *= 1f + (2f * ((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))))
   if ((tMax[1u] < tMin[0u]) || (tMax[0u] < tMin[1u])) {
-    return build<?option0>()
+    return build<_option0>()
   }
   tmin := max(tMin[0u], tMin[1u])
   tmax := min(tMax[0u], tMax[1u])
   if ((tMax[2u] < tmin) || (tmax < tMin[2u])) {
-    return build<?option0>()
+    return build<_option0>()
   }
   tmin = max(tmin, tMin[2u])
   tmax = min(tmax, tMax[2u])
-  return build<?option0>(build<FInterval>(tmin, tmax), true)
+  return build<_option0>(build<FInterval>(tmin, tmax), true)
 }
 
-func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
-  if (reduce<+>(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0) * _cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0f) {
-    return build<?option1>()
+func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
+  if (reduce<+>(cross_(tri.p2 - tri.p0, tri.p1 - tri.p0) * cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0f) {
+    return build<_option1>()
   }
   p0t := tri.p0 - ray.o
   p1t := tri.p1 - ray.o
@@ -144,20 +144,20 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
   let e1 = (p2t[0u] * p0t[1u]) - (p2t[1u] * p0t[0u]) in
   let e2 = (p0t[0u] * p1t[1u]) - (p0t[1u] * p1t[0u]) in
   if ((((e0 < 0f) || (e1 < 0f)) || (e2 < 0f)) && (((0f < e0) || (0f < e1)) || (0f < e2))) {
-    return build<?option1>()
+    return build<_option1>()
   }
   let det = (e0 + e1) + e2 in
   if (det == 0f) {
-    return build<?option1>()
+    return build<_option1>()
   }
   p0t[2u] *= Sz
   p1t[2u] *= Sz
   p2t[2u] *= Sz
   let tScaled = ((e0 * p0t[2u]) + (e1 * p1t[2u])) + (e2 * p2t[2u]) in
   if ((det < 0f) && ((0f <= tScaled) || (tScaled < (ray.t * det)))) {
-    return build<?option1>()
+    return build<_option1>()
   } else if ((0f < det) && ((tScaled <= 0f) || ((ray.t * det) < tScaled))) {
-    return build<?option1>()
+    return build<_option1>()
   }
   let invDet = 1f / det in
   let b0 = e0 * invDet in
@@ -174,9 +174,9 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> ?option1 {
   let maxE = reduce<max>(abs(build<f32x3>(e0, e1, e2))) in
   let deltaT = (3f * ((((((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet) in
   if (t <= deltaT) {
-    return build<?option1>()
+    return build<_option1>()
   }
-  return build<?option1>(build<TriangleIntersection>(b0, b1, b2, t), true)
+  return build<_option1>(build<TriangleIntersection>(b0, b1, b2, t), true)
 }
 
 func prod_diff(a : f32, b : f32, c : f32, d : f32) -> f32 {
@@ -190,8 +190,9 @@ func sqlen(v : f32x3) -> f32 {
   return reduce<+>(v * v)
 }
 
-func trace(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
-  return ?traverse_tree0(ray, triangles)
+func [[export]] trace(_ret0 : mut Triangle, ray : Ray, triangles : _triangles_layout1) -> void {
+  _ret0 = _traverse_tree0(ray, triangles)
+  return
 }
 
 

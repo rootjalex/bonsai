@@ -6,6 +6,7 @@
 #include "IR/Program.h"
 #include "IR/Type.h"
 #include "IR/Visitor.h"
+#include "Utils.h"
 
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
@@ -38,10 +39,7 @@ class TypeEmitter : public ir::Visitor {
         for (const auto &[name, child] : type->fields) {
             increment_indent();
             ss << indent();
-            if (const auto *inner = child.as<ir::Vector_t>()) {
-                inner->etype.accept(this);
-                ss << ' ' << name;
-                ss << '[' << inner->lanes << ']';
+            if (handle_constant_sized_container(name, child)) {
             } else if (const auto *inner = child.as<ir::Struct_t>()) {
                 ss << inner->name << ' ' << name;
             } else {
@@ -53,6 +51,16 @@ class TypeEmitter : public ir::Visitor {
             decrement_indent();
         }
         ss << indent() << '}' << ';' << '\n';
+    }
+    void visit(const ir::Array_t *type) override {
+        // This case should have already been handled.
+        internal_assert(!is_const(type->size));
+        if (const auto *element = type->etype.as<ir::Struct_t>()) {
+            ss << element->name;
+        } else {
+            type->etype.accept(this);
+        }
+        ss << "*";
     }
     void visit(const ir::Int_t *type) override {
         ss << "int" << type->bits << '_' << 't';
@@ -89,6 +97,29 @@ class TypeEmitter : public ir::Visitor {
     }
 
   private:
+    // Prints the type for a constant sized array or vector, and returns true.
+    // If this fails, returns false.
+    bool handle_constant_sized_container(const std::string &name,
+                                         ir::Type type) {
+        if (const auto *t = type.as<ir::Vector_t>()) {
+            t->etype.accept(this);
+            ss << ' ' << name;
+            ss << '[' << t->lanes << ']';
+            return true;
+        }
+        if (const auto *t = type.as<ir::Array_t>()) {
+            std::optional<uint64_t> size = get_constant_value(t->size);
+            if (!size.has_value()) {
+                return false;
+            }
+            t->etype.accept(this);
+            ss << ' ' << name;
+            ss << '[' << *size << ']';
+            return true;
+        }
+        return false;
+    }
+
     std::string indent() { return std::string(indent_level, ' '); }
     void increment_indent() { indent_level += 4; }
     void decrement_indent() { indent_level -= 4; }
@@ -166,6 +197,10 @@ class BonsaiToCpp {
     // Recursively acquire all *unique* types and inserted them into `types`.
     void get_struct_types(const ir::Type &type, std::set<ir::Type> &deduplicate,
                           std::vector<ir::Type> &types) {
+        if (type.is<ir::Vector_t, ir::Array_t>()) {
+            get_struct_types(type.element_of(), deduplicate, types);
+            return;
+        }
         const auto *struct_type = type.as<ir::Struct_t>();
         if (struct_type == nullptr) {
             return;

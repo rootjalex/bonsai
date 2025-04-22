@@ -208,7 +208,7 @@ struct DeadCodeElimination : ir::Mutator {
 
     uint64_t counter = 0;
     std::string make_unused_var_name() {
-        return "?unused" + std::to_string(counter++);
+        return "_unused" + std::to_string(counter++);
     }
 
     void erase_dependents(const ir::WriteLoc &loc) {

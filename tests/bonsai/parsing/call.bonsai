@@ -1,0 +1,9 @@
+//! flags: -p core
+
+func foo(x: i32) -> void { return; }
+
+func main() -> i32 {
+    x: i32 = 1;
+    foo(x);
+    return 0;
+}

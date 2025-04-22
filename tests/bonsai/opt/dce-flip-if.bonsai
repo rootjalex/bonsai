@@ -27,7 +27,7 @@ func fizz(i : i32) -> i32 {
     return abs(i);
 }
 
-func _print(i : i32) -> i32 {
+func print_and_return(i : i32) -> i32 {
     print(i);
     return i;
 }
@@ -37,7 +37,7 @@ func bazz(i : i32) -> i32 {
     k : mut = i;
     if (i > 0) {
         // j cannot be DCEed, k can be, but this stmt needs to stay.
-        k += _print(j);
+        k += print_and_return(j);
     }
     return abs(i);
 }

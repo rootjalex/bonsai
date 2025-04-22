@@ -6,6 +6,7 @@ add_bonsai_tests(
     f42.bonsai
     f_rec_undef.bonsai
     generic_fib.bonsai
+    identifier.bonsai
     import_cycle0.bonsai
     import_cycle1.bonsai
     invalid_name.bonsai

@@ -23,10 +23,10 @@ static size_t name_counter = 0;
 static size_t pad_counter = 0;
 
 std::string unique_struct_name(std::string base) {
-    return "?" + base + "_layout" + std::to_string(name_counter++);
+    return "_" + base + "_layout" + std::to_string(name_counter++);
 }
 
-std::string unique_pad_name() { return "?pad" + std::to_string(pad_counter++); }
+std::string unique_pad_name() { return "_pad" + std::to_string(pad_counter++); }
 
 std::string get_group_name(const std::string &base, const std::string &index) {
     return base + "__" + index;
@@ -34,7 +34,7 @@ std::string get_group_name(const std::string &base, const std::string &index) {
 
 std::string get_split_field_name(const std::string &base,
                                  const std::string &field) {
-    return base + "_?spliton_" + field;
+    return base + "_spliton_" + field;
 }
 
 std::vector<std::pair<std::string, ir::Type>>
@@ -411,12 +411,12 @@ struct LowerUnwrapAccesses : public ir::Mutator {
 
         // TODO: should these be unique? What if nested traversals? e.g. TLAS /
         // BLAS?
-        const std::string stack_name = "?stack";
-        const std::string count_name = "?count";
+        const std::string stack_name = "_stack";
+        const std::string count_name = "_count";
         internal_assert(node->loc.is<ir::Var>())
             << "[unimplemented] Match on non-Var: " << ir::Stmt(node);
         const std::string node_name = node->loc.as<ir::Var>()->name;
-        const std::string top_name = "?top";
+        const std::string top_name = "_top";
 
         const size_t n_branches = node->arms.size();
         std::map<std::string, ir::Stmt> bodies;

@@ -85,7 +85,7 @@ struct LowerToForEach : public ir::Mutator {
     const ir::FuncMap &program_functions;
     size_t counter = 0; // For unique traverse function names.
     std::string unique_func_name() {
-        return "?traverse_array" + std::to_string(counter++);
+        return "_traverse_array" + std::to_string(counter++);
     }
 
     LowerToForEach(const ir::FuncMap &program_functions)
@@ -219,10 +219,10 @@ struct LowerToForAll : public ir::Mutator {
     int64_t acounter = 0; // unique identifier for allocations.
     int64_t lcounter = 0; // unique identifier for load variables.
     std::string unique_alloc_name() {
-        return "?alloc" + std::to_string(acounter++);
+        return "_alloc" + std::to_string(acounter++);
     }
     std::string unique_load_name() {
-        return "?load" + std::to_string(lcounter++);
+        return "_load" + std::to_string(lcounter++);
     }
     // A list of for-each constructs that have been visited already.
     std::set<ir::Stmt> visited;

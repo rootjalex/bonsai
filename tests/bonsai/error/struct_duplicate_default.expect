@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:386
+[internal] Error: src/Parser/Parser.cpp:397
 
 --> !defaults.contains(field_name)
 Duplicate default value for field o of element Ray individually marked: f32x3(2f) and group marked: f32x3(1f)
