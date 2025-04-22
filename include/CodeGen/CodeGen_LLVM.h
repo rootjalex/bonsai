@@ -85,7 +85,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual std::string get_allocation_name(const std::string &n) { return n; }
 
     // Generates a short-circuiting if else.
-    void codegen_short_circuit(ir::Expr cond, llvm::BasicBlock *true_bb, llvm::BasicBlock *false_bb);
+    void codegen_short_circuit(ir::Expr cond, llvm::BasicBlock *true_bb,
+                               llvm::BasicBlock *false_bb);
 
     // Types
     virtual void visit(const ir::Void_t *) override;

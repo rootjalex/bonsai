@@ -1618,10 +1618,12 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     }
 }
 
-void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb, llvm::BasicBlock *false_bb) {
+void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb,
+                                         llvm::BasicBlock *false_bb) {
     if (const BinOp *op = cond.as<BinOp>()) {
         if (op->op == BinOp::And) {
-            llvm::BasicBlock *rhs_bb = llvm::BasicBlock::Create(*context, "and_rhs", current_function);
+            llvm::BasicBlock *rhs_bb =
+                llvm::BasicBlock::Create(*context, "and_rhs", current_function);
             // if a then check b else goto false
             codegen_short_circuit(op->a, rhs_bb, false_bb);
             builder->SetInsertPoint(rhs_bb);
@@ -1629,7 +1631,8 @@ void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb, l
             codegen_short_circuit(op->b, true_bb, false_bb);
             return;
         } else if (op->op == BinOp::Or) {
-            llvm::BasicBlock *rhs_bb = llvm::BasicBlock::Create(*context, "or_rhs", current_function);
+            llvm::BasicBlock *rhs_bb =
+                llvm::BasicBlock::Create(*context, "or_rhs", current_function);
             // if a then goto true else check b
             codegen_short_circuit(op->a, true_bb, rhs_bb);
             builder->SetInsertPoint(rhs_bb);
