@@ -1,0 +1,8 @@
+func main() -> i32 {
+  let x = true in
+  let y = false in
+  let z = x & y in
+  return 0
+}
+
+

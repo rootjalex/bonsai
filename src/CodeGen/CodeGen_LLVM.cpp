@@ -838,6 +838,7 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
     } else if (node->a.type().is_bool()) {
         switch (node->op) {
+        case BinOp::BwAnd:
         case BinOp::And: {
             value = builder->CreateAnd(a, b);
             return;
