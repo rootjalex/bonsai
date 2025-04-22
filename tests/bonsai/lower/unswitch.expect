@@ -10,11 +10,11 @@ func foo() -> void {
 
 func norewrite1(a : mut bool) -> void {
   if (a) {
-    let _ = foo() in
+    foo()
     a = !a
   }
   if (a) {
-    let __ = bar() in
+    bar()
   }
   return
 }
@@ -22,9 +22,9 @@ func norewrite1(a : mut bool) -> void {
 func rewrite0(a : bool, b : bool) -> void {
   if (b) {
     if (a) {
-      let _ = foo() in
+      foo()
     } else {
-      let __ = bar() in
+      bar()
     }
   }
   return
@@ -32,8 +32,8 @@ func rewrite0(a : bool, b : bool) -> void {
 
 func rewrite1(a : bool) -> void {
   if (a) {
-    let _ = foo() in
-    let __ = bar() in
+    foo()
+    bar()
   }
   return
 }

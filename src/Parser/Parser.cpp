@@ -685,6 +685,17 @@ struct Parser {
         }
     }
 
+    ir::Stmt parse_call_statement() {
+        std::string id = get_id();
+        const ir::Function &function = *program.funcs[id];
+        expect(Token::Type::LPAREN);
+
+        std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);
+        ir::Expr v = ir::Var::make(function.call_type(), id);
+        expect(Token::Type::SEMICOL);
+        return ir::CallStmt::make(std::move(v), std::move(args));
+    }
+
     // if expr stmt [elif expr stmt]* [else stmt]?
     // return expr;
     // TODO: allow labels? or inline funcs? of some kind.
@@ -723,7 +734,16 @@ struct Parser {
             expect(Token::Type::RPAREN);
             expect(Token::Type::SEMICOL);
             return ir::Print::make(value);
-        } else if (peek().type == Token::Type::IDENTIFIER) {
+        } else if (const Token token = peek();
+                   token.type == Token::Type::IDENTIFIER) {
+            internal_assert(std::holds_alternative<std::string>(token.value));
+            std::string id = std::get<std::string>(token.value);
+            // TODO(cgyurgyik): This assumes that functions are declared before
+            // they're called. This isn't the only place this constraint holds,
+            // we should eventual support mutual recursion.
+            if (program.funcs.contains(id)) {
+                return parse_call_statement();
+            }
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?
             ir::WriteLoc loc = parse_write_loc();
