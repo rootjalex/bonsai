@@ -1,0 +1,28 @@
+//! flags: -b llvm
+
+func check0(a : i32, b : array[f32]) {
+    if a >= 0 && b[a] < 0 {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+func check1(a : i32, b : array[f32]) {
+    if a < 0 || b[a] < 0 {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+// Expected to simplify to no short circuiting
+// TODO(ajr): investigate why this still short circuits?
+// Oddly, this is the same codegen for C++ https://godbolt.org/z/bYE7qrfrx
+func check2_noshortcircuit(a : i32, b : array[f32]) {
+    if a >= 0 && a <= 4 {
+        return b[a];
+    } else {
+        return -1.0;
+    }
+}

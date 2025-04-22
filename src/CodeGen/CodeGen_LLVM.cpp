@@ -1561,8 +1561,6 @@ void CodeGen_LLVM::visit(const LetStmt *node) {
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
-    // internal_error << "TODO: implement codegen for IfElse: " << Stmt(node);
-
     // Gather the conditions and values in an if-else chain
     struct Block {
         Expr expr;
@@ -1601,7 +1599,7 @@ void CodeGen_LLVM::visit(const IfElse *node) {
             llvm::BasicBlock::Create(*context, "then_bb", current_function);
         llvm::BasicBlock *next_bb =
             llvm::BasicBlock::Create(*context, "next_bb", current_function);
-        builder->CreateCondBr(codegen_expr(p.expr), then_bb, next_bb);
+        codegen_short_circuit(p.expr, then_bb, next_bb);
         builder->SetInsertPoint(then_bb);
         codegen_stmt(p.stmt);
         if (!p.returns) {
@@ -1618,6 +1616,33 @@ void CodeGen_LLVM::visit(const IfElse *node) {
         builder->CreateBr(after_bb);
         builder->SetInsertPoint(after_bb);
     }
+}
+
+void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb,
+                                         llvm::BasicBlock *false_bb) {
+    if (const BinOp *op = cond.as<BinOp>()) {
+        if (op->op == BinOp::And) {
+            llvm::BasicBlock *rhs_bb =
+                llvm::BasicBlock::Create(*context, "and_rhs", current_function);
+            // if a then check b else goto false
+            codegen_short_circuit(op->a, rhs_bb, false_bb);
+            builder->SetInsertPoint(rhs_bb);
+            // if also b then goto true else goto false
+            codegen_short_circuit(op->b, true_bb, false_bb);
+            return;
+        } else if (op->op == BinOp::Or) {
+            llvm::BasicBlock *rhs_bb =
+                llvm::BasicBlock::Create(*context, "or_rhs", current_function);
+            // if a then goto true else check b
+            codegen_short_circuit(op->a, true_bb, rhs_bb);
+            builder->SetInsertPoint(rhs_bb);
+            // if b then goto true else goto false
+            codegen_short_circuit(op->b, true_bb, false_bb);
+            return;
+        }
+    }
+    // Base case: not a short-circuiting expression, emit a regular branch
+    builder->CreateCondBr(codegen_expr(std::move(cond)), true_bb, false_bb);
 }
 
 void CodeGen_LLVM::visit(const DoWhile *node) {
