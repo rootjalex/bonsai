@@ -245,8 +245,16 @@ struct Parser {
     }
 
     std::string get_id() {
-        const Token id = expect(Token::Type::IDENTIFIER);
-        return std::get<std::string>(id.value);
+        const Token token = expect(Token::Type::IDENTIFIER);
+        std::string id = std::get<std::string>(token.value);
+        // We special-case the string "_", which is used as a wild card in
+        // layout switch statements.
+        if (id.size() > 1 && id.starts_with('_')) {
+            report_error() << "identifier: " << id
+                           << " cannot begin with `_`. This is reserved for "
+                              "compiler-generated variables.";
+        }
+        return id;
     }
 
     void parse_program_stream(const bool allow_externs) {
@@ -685,9 +693,22 @@ struct Parser {
         }
     }
 
-    ir::Stmt parse_call_statement() {
-        std::string id = get_id();
-        const ir::Function &function = *program.funcs[id];
+    // Parses a call statement, i.e., a call statement with no return value.
+    // This assumes the next token will have an id found in this program's
+    // functions.
+    std::optional<ir::Stmt> parse_call_statement() {
+        const Token &token = peek();
+        if (!std::holds_alternative<std::string>(token.value)) {
+            return {};
+        }
+        std::string id = std::get<std::string>(token.value);
+        auto it = program.funcs.find(id);
+        if (it == program.funcs.end()) {
+            return {};
+        }
+        // Only consume the identifier after confirming this is a function call.
+        expect(Token::Type::IDENTIFIER);
+        const ir::Function &function = *it->second;
         expect(Token::Type::LPAREN);
 
         std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);
@@ -734,15 +755,12 @@ struct Parser {
             expect(Token::Type::RPAREN);
             expect(Token::Type::SEMICOL);
             return ir::Print::make(value);
-        } else if (const Token token = peek();
-                   token.type == Token::Type::IDENTIFIER) {
-            internal_assert(std::holds_alternative<std::string>(token.value));
-            std::string id = std::get<std::string>(token.value);
+        } else if (peek().type == Token::Type::IDENTIFIER) {
             // TODO(cgyurgyik): This assumes that functions are declared before
             // they're called. This isn't the only place this constraint holds,
             // we should eventual support mutual recursion.
-            if (program.funcs.contains(id)) {
-                return parse_call_statement();
+            if (std::optional<ir::Stmt> call = parse_call_statement()) {
+                return *call;
             }
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?

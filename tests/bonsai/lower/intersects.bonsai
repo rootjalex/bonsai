@@ -12,7 +12,7 @@ func prod_diff(a : Float, b : Float, c : Float, d : Float) -> Float {
     return diff + err;
 }
 
-func _cross(v0 : vector[Float, 3], v1 : vector[Float, 3]) -> vector[Float, 3] {
+func cross_(v0 : vector[Float, 3], v1 : vector[Float, 3]) -> vector[Float, 3] {
     return {prod_diff(v0.y, v1.z, v0.z, v1.y), prod_diff(v0.z, v1.x, v0.x, v1.z), prod_diff(v0.x, v1.y, v0.y, v1.x)};
 }
 
@@ -106,7 +106,7 @@ element TriangleIntersection {
 // TODO: need special intrinsic parsing!
 func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
     // Return no intersection if triangle is degenerate
-    if (sqlen(_cross(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
+    if (sqlen(cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
         return {};
 
     // Transform triangle vertices to ray coordinate space
@@ -205,8 +205,8 @@ func distmin(ray : Ray, tri : Triangle) -> Float {
     isect = intersectsp_ray_tri(ray, tri);
     if isect {
         // TODO(ajr): this is annoying syntax. Fix.
-        _isect = *isect;
-        return _isect.t;
+        isect_ = *isect;
+        return isect_.t;
     } else {
         return inf;
     }

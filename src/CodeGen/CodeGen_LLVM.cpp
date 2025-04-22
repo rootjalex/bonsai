@@ -995,7 +995,7 @@ void CodeGen_LLVM::visit(const Print *node) {
     if (node->value.type().is<Array_t>()) {
         static int counter = 0;
         Expr size = node->value.type().as<Array_t>()->size;
-        std::string index = "?print_iter" + std::to_string(counter++);
+        std::string index = "_print_iter" + std::to_string(counter++);
         std::string value = index + "_value";
 
         Expr var = Var::make(node->value.type().element_of(), value);

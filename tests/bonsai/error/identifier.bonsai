@@ -1,0 +1,5 @@
+//! flags: -p core
+func main() -> i32 {
+    _x: i32 = 42;
+    return 0;
+}

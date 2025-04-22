@@ -58,7 +58,7 @@ struct LowerToForAll : public ir::Mutator {
     uint64_t lcounter = 0; // unique identifier for iterator variables.
 
     std::string unique_idx_name() {
-        return "?idx" + std::to_string(lcounter++);
+        return "_idx" + std::to_string(lcounter++);
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {

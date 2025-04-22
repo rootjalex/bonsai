@@ -1,67 +1,67 @@
-func ?traverse_array0(fs : i32[8]) -> i32[8] {
-  alloc ?alloc0 : i32[8]
+func _traverse_array0(fs : i32[8]) -> i32[8] {
+  alloc _alloc0 : i32[8]
   forall x in [0:8:1] {
-    let ?load0 = fs[x] in
-    ?alloc0[x] = f(?load0) + 1
+    let _load0 = fs[x] in
+    _alloc0[x] = f(_load0) + 1
   }
-  return ?alloc0
+  return _alloc0
 }
 
-func ?traverse_array1(xs : i32[3]) -> i32[3] {
-  alloc ?alloc1 : i32[3]
+func _traverse_array1(xs : i32[3]) -> i32[3] {
+  alloc _alloc1 : i32[3]
   forall x in [0:3:1] {
-    let ?load1 = xs[x] in
-    ?alloc1[x] = ?load1 + 1
+    let _load1 = xs[x] in
+    _alloc1[x] = _load1 + 1
   }
-  return ?alloc1
+  return _alloc1
 }
 
-func ?traverse_array2(ij : i32[4][8]) -> i32[4][8] {
-  alloc ?alloc2 : i32[4][8]
+func _traverse_array2(ij : i32[4][8]) -> i32[4][8] {
+  alloc _alloc2 : i32[4][8]
   forall i in [0:4:1] {
     forall j in [0:8:1] {
-      let ?load2 = ij[i][j] in
-      ?alloc2[build<i32x2>(i, j)] = ?load2 + 1
+      let _load2 = ij[i][j] in
+      _alloc2[build<i32x2>(i, j)] = _load2 + 1
     }
   }
-  return ?alloc2
+  return _alloc2
 }
 
-func ?traverse_array3(ijk : i32[32][16][8]) -> i32[32][16][8] {
-  alloc ?alloc3 : i32[32][16][8]
+func _traverse_array3(ijk : i32[32][16][8]) -> i32[32][16][8] {
+  alloc _alloc3 : i32[32][16][8]
   forall i in [0:32:1] {
     forall j in [0:16:1] {
       forall k in [0:8:1] {
-        let ?load3 = ijk[i][j][k] in
-        ?alloc3[build<i32x3>(i, j, k)] = ?load3 + 1
+        let _load3 = ijk[i][j][k] in
+        _alloc3[build<i32x3>(i, j, k)] = _load3 + 1
       }
     }
   }
-  return ?alloc3
+  return _alloc3
 }
 
-func ?traverse_array4(ij : i32[8][8]) -> i32[8][8] {
-  alloc ?alloc4 : i32[8][8]
+func _traverse_array4(ij : i32[8][8]) -> i32[8][8] {
+  alloc _alloc4 : i32[8][8]
   forall i in [0:8:1] {
     forall j in [0:8:1] {
-      let ?load4 = ij[i][j] in
-      ?alloc4[build<i32x2>(i, j)] = (?load4 + 1) - 1
+      let _load4 = ij[i][j] in
+      _alloc4[build<i32x2>(i, j)] = (_load4 + 1) - 1
     }
   }
-  return ?alloc4
+  return _alloc4
 }
 
-func ?traverse_array5(xs : i32[8]) -> i32[8] {
-  alloc ?alloc5 : i32[8]
+func _traverse_array5(xs : i32[8]) -> i32[8] {
+  alloc _alloc5 : i32[8]
   forall x in [0:8:1] {
-    let ?load5 = xs[x] in
-    ?alloc5[x] = ((?load5 * 2) - 1) + 1
+    let _load5 = xs[x] in
+    _alloc5[x] = ((_load5 * 2) - 1) + 1
   }
-  return ?alloc5
+  return _alloc5
 }
 
 func apply_function(fs : i32[8]) -> i32[8] {
-  return ?traverse_array0(fs)
+  return _traverse_array0(fs)
 }
 
 func f(x : i32) -> i32 {
@@ -70,23 +70,23 @@ func f(x : i32) -> i32 {
 
 func local() -> i32[3] {
   let xs = build<i32[3]>(1, 2, 3) in
-  return ?traverse_array1(xs)
+  return _traverse_array1(xs)
 }
 
 func tall1(ij : i32[4][8]) -> i32[4][8] {
-  return ?traverse_array2(ij)
+  return _traverse_array2(ij)
 }
 
 func tall2(ijk : i32[32][16][8]) -> i32[32][16][8] {
-  return ?traverse_array3(ijk)
+  return _traverse_array3(ijk)
 }
 
 func tall_and_wide(ij : i32[8][8]) -> i32[8][8] {
-  return ?traverse_array4(ij)
+  return _traverse_array4(ij)
 }
 
 func wide(xs : i32[8]) -> i32[8] {
-  return ?traverse_array5(xs)
+  return _traverse_array5(xs)
 }
 
 

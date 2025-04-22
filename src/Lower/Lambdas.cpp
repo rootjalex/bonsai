@@ -41,7 +41,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
     // Returns a unique name for the function replacing this lambda.
     // TODO(cgyurgyik): We need some program-level name hygiene guarantees.
     std::string generate_name() {
-        std::string name = "?lambda";
+        std::string name = "_lambda";
         name += std::to_string(counter++);
         return name;
     }

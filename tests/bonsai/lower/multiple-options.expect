@@ -1,9 +1,9 @@
-func make_option_float(t : f32) -> ?option0 {
-  return build<?option0>(t, true)
+func make_option_float(t : f32) -> _option0 {
+  return build<_option0>(t, true)
 }
 
-func make_option_int(t : i32) -> ?option1 {
-  return build<?option1>(t, true)
+func make_option_int(t : i32) -> _option1 {
+  return build<_option1>(t, true)
 }
 
 

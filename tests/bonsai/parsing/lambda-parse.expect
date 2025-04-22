@@ -1,28 +1,28 @@
-func ?lambda0(x : i32) -> i32 {
+func _lambda0(x : i32) -> i32 {
   return x + 1
 }
 
-func ?lambda1(x : i32, y : i32) -> i32 {
+func _lambda1(x : i32, y : i32) -> i32 {
   return (x + 1) + y
 }
 
-func ?lambda2(e : bool, f : bool) -> bool {
+func _lambda2(e : bool, f : bool) -> bool {
   return e || f
 }
 
-func ?lambda3(e : bool, f : bool) -> bool {
+func _lambda3(e : bool, f : bool) -> bool {
   return e || f
 }
 
-func ?lambda4(y : i32) -> i32 {
+func _lambda4(y : i32) -> i32 {
   return y
 }
 
-func ?lambda5(x : i32, y : i32) -> i32 {
+func _lambda5(x : i32, y : i32) -> i32 {
   return x + y
 }
 
-func ?lambda6(x : i32) -> Fn(i32) -> i32 {
+func _lambda6(x : i32) -> Fn(i32) -> i32 {
   return |y : i32| y
 }
 
@@ -38,9 +38,9 @@ func foo() -> i32 {
   let L5 = |y : i32| y in
   let L6 = |x : i32, y : i32| x + y in
   let L7 = |x : i32| |y : i32| y in
-  let x = ?lambda0(0) in
-  let y = ?lambda1(1, 2) in
-  return ?lambda5(x, y)
+  let x = _lambda0(0) in
+  let y = _lambda1(1, 2) in
+  return _lambda5(x, y)
 }
 
 func relu(v : set<i32>) -> set<i32> {

@@ -22,7 +22,7 @@ namespace {
 
 static size_t counter = 0;
 
-std::string unique_iter_name() { return "?iter" + std::to_string(counter++); }
+std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
 
 // returns has_data, has_children
 std::pair<std::vector<ir::Struct_t::Field>, std::vector<ir::Struct_t::Field>>
@@ -288,7 +288,7 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
     ir::Type tuple_t = ir::Tuple_t::make({metric_t, ret_type});
 
     static size_t counter = 0;
-    std::string name = "?best" + std::to_string(counter++);
+    std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, tuple_t);
 
     ir::Expr inf = ir::Infinity::make(std::move(metric_t));
@@ -488,7 +488,7 @@ struct LowerBVH : public ir::Mutator {
     size_t counter = 0;
 
     std::string new_func_name() {
-        return "?traverse_tree" + std::to_string(counter++);
+        return "_traverse_tree" + std::to_string(counter++);
     }
 
     // Returns a call to the func.

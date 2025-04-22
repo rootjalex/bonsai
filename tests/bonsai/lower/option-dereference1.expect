@@ -1,4 +1,4 @@
-func foo(i : ?option0, j : ?option0) -> i32 {
+func foo(i : _option0, j : _option0) -> i32 {
   if (i.set && j.set) {
     return i.value + j.value
   } else if (i.set) {

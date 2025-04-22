@@ -32,7 +32,7 @@ struct TuplesToStructs : public ir::Mutator {
         const size_t n = node->etypes.size();
         ir::Struct_t::Map fields(n);
         for (size_t i = 0; i < n; i++) {
-            fields[i].first = "?field" + std::to_string(i);
+            fields[i].first = "_field" + std::to_string(i);
             fields[i].second =
                 mutate(node->etypes[i]); // in the case of nested tuples.
         }

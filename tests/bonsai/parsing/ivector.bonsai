@@ -1,29 +1,29 @@
 //! flags: -p core
 
-func _fma<F : IFloat, V : IVector[[F]]>(a : V, b : V, c : V) -> V {
+func fma_<F : IFloat, V : IVector[[F]]>(a : V, b : V, c : V) -> V {
     return a * b + c;
 }
 
 element vec4 = vector[f32, 4];
-func _fma_x4(a : vec4, b : vec4, c : vec4) = _fma[[f32, vec4]](a, b, c);
+func fma_x4_(a : vec4, b : vec4, c : vec4) = fma_[[f32, vec4]](a, b, c);
 
-// Use _fma_x4 to make sure type inference works through generics
-func foo(a : vec4) = _fma_x4(a, a, a);
-func foo_typed(a : vec4) -> vec4 = _fma_x4(a, a, a);
+// Use fma_x4_ to make sure type inference works through generics
+func foo(a : vec4) = fma_x4_(a, a, a);
+func foo_typed(a : vec4) -> vec4 = fma_x4_(a, a, a);
 
 // Try a different instantiation
 element vec2h = vector[f16, 2];
-func _fma_x2h(a : vec2h, b : vec2h, c : vec2h) = _fma[[f16, vec2h]](a, b, c);
+func fma_x2h_(a : vec2h, b : vec2h, c : vec2h) = fma_[[f16, vec2h]](a, b, c);
 
 // Try bfloat16, but with explicitly stated eXmY.
 element vec2bf16 = vector[f8_7, 2];
-func _fma_x2bf16(a : vec2bf16, b : vec2bf16, c : vec2bf16) = _fma[[f8_7, vec2bf16]](a, b, c);
+func fma_x2bf16_(a : vec2bf16, b : vec2bf16, c : vec2bf16) = fma_[[f8_7, vec2bf16]](a, b, c);
 
 // Try non-standard floating point type.
 element vec2f99 = vector[f9_9, 2];
-func _fma_x2f99(a : vec2f99, b : vec2f99, c : vec2f99) = _fma[[f9_9, vec2f99]](a, b, c);
+func fma_x2f99_(a : vec2f99, b : vec2f99, c : vec2f99) = fma_[[f9_9, vec2f99]](a, b, c);
 
 // TODO: allow implicit template parameters (via inference).
-// func _fma_x2_v2(a : vector[f32, 2], b : vector[f32, 2], c : vector[f32, 2]) = _fma(a, b, c);
-// func _fma_x3(a : vector[f32, 3], b : vector[f32, 3], c : vector[f32, 3]) = _fma(a, b, c);
+// func fma_x2_v2_(a : vector[f32, 2], b : vector[f32, 2], c : vector[f32, 2]) = fma_(a, b, c);
+// func fma_x3_(a : vector[f32, 3], b : vector[f32, 3], c : vector[f32, 3]) = fma_(a, b, c);
 

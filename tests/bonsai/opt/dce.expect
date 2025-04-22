@@ -1,9 +1,9 @@
-func ?lambda0(y : i32) -> i32 {
+func _lambda0(y : i32) -> i32 {
   return y + 1
 }
 
 func bar(x : i32) -> i32 {
-  return ?lambda0(x)
+  return _lambda0(x)
 }
 
 func foo(x : i32) -> i32 {
