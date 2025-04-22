@@ -196,8 +196,9 @@ func sqlen(v : f32x3) -> f32 {
   return reduce<+>(v * v)
 }
 
-func trace(ray : Ray, triangles : ?triangles_layout1) -> Triangle {
-  return ?traverse_tree0(ray, triangles)
+func [[export]] trace(_ret0 : mut Triangle, ray : Ray, triangles : ?triangles_layout1) -> void {
+  _ret0 = ?traverse_tree0(ray, triangles)
+  return
 }
 
 
