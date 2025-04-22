@@ -247,6 +247,9 @@ struct Parser {
     std::string get_id() {
         const Token token = expect(Token::Type::IDENTIFIER);
         std::string id = std::get<std::string>(token.value);
+        if (id.empty()) {
+            report_error() << "unexpected: empty identifier name.";
+        }
         // We special-case the string "_", which is used as a wild card in
         // layout switch statements.
         if (id.size() > 1 && id.starts_with('_')) {
@@ -696,6 +699,8 @@ struct Parser {
     // Parses a call statement, i.e., a call statement with no return value.
     // This assumes the next token will have an id found in this program's
     // functions.
+    // TODO(cgyurgyik): Need to eventually extend this to support struct methods
+    // as well, e.g., `a.foo(1)`.
     std::optional<ir::Stmt> parse_call_statement(std::string id) {
         auto it = program.funcs.find(id);
         if (it == program.funcs.end()) {
