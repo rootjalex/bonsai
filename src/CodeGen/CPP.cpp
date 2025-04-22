@@ -30,12 +30,6 @@ namespace codegen {
 
 namespace {
 
-template <typename T>
-struct FixedArray {
-    FixedArray(size_t length) : data(length) {}
-    std::vector<T> data;
-};
-
 class TypeEmitter : public ir::Visitor {
   public:
     TypeEmitter(std::stringstream &ss, int64_t indent_level)
