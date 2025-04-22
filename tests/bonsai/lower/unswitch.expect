@@ -1,0 +1,41 @@
+func bar() -> void {
+  print(1)
+  return
+}
+
+func foo() -> void {
+  print(0)
+  return
+}
+
+func norewrite1(a : mut bool) -> void {
+  if (a) {
+    let _ = foo() in
+    a = !a
+  }
+  if (a) {
+    let __ = bar() in
+  }
+  return
+}
+
+func rewrite0(a : bool, b : bool) -> void {
+  if (b) {
+    if (a) {
+      let _ = foo() in
+    } else {
+      let __ = bar() in
+    }
+  }
+  return
+}
+
+func rewrite1(a : bool) -> void {
+  if (a) {
+    let _ = foo() in
+    let __ = bar() in
+  }
+  return
+}
+
+
