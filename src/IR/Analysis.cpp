@@ -248,6 +248,20 @@ struct GatherStructTypes : public Visitor {
     }
 };
 
+struct FindReads : Visitor {
+    // TODO: enable early outs once `found` is set.
+    const std::set<std::string> &vars;
+    bool found = false;
+
+    FindReads(const std::set<std::string> &vars) : vars(vars) {}
+
+    void visit(const Var *node) override {
+        if (vars.contains(node->name)) {
+            found = true;
+        }
+    }
+};
+
 } // namespace
 
 std::vector<const ir::Var *> gather_free_vars(const Expr &expr) {
@@ -363,6 +377,56 @@ bool contains_generics(const Type &type, const TypeMap &types) {
     ContainsGenerics checker(types);
     type.accept(&checker);
     return !checker.seen_types.empty();
+}
+
+std::set<std::string> mutated_variables(Stmt stmt) {
+    struct Gather : Visitor {
+        std::set<std::string> mutated;
+
+        void visit(const Store *node) override { mutated.insert(node->name); }
+
+        void visit(const Assign *node) override {
+            if (node->mutating) {
+                mutated.insert(node->loc.base);
+            }
+        }
+    };
+
+    Gather g;
+    stmt.accept(&g);
+    return std::move(g.mutated);
+}
+
+bool reads(Expr expr, const std::set<std::string> &vars) {
+    FindReads f(vars);
+    expr.accept(&f);
+    return f.found;
+}
+
+bool reads(Stmt stmt, const std::set<std::string> &vars) {
+    FindReads f(vars);
+    stmt.accept(&f);
+    return f.found;
+}
+
+std::set<std::string> assigned_variables(Stmt stmt) {
+    struct Gather : Visitor {
+        std::set<std::string> mutated;
+
+        void visit(const Store *node) override { mutated.insert(node->name); }
+
+        void visit(const Assign *node) override {
+            mutated.insert(node->loc.base);
+        }
+
+        void visit(const LetStmt *node) override {
+            mutated.insert(node->loc.base);
+        }
+    };
+
+    Gather g;
+    stmt.accept(&g);
+    return std::move(g.mutated);
 }
 
 } // namespace ir

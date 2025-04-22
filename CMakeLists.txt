@@ -119,6 +119,7 @@ target_sources(
     src/Opt/DCE.cpp
     src/Opt/Inline.cpp
     src/Opt/Simplify.cpp
+    src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
     src/Parser/Parser.cpp
     src/Parser/Token.cpp
@@ -189,6 +190,7 @@ target_sources(
     include/Opt/DCE.h
     include/Opt/Inline.h
     include/Opt/Simplify.h
+    include/Opt/Unswitch.h
     include/Parser/Lexer.h
     include/Parser/Parser.h
     include/Parser/Token.h

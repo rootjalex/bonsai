@@ -975,7 +975,7 @@ void Printer::visit(const Match *node) {
     os << get_indent();
     os << "match ";
     print(node->loc);
-    os << "{\n";
+    os << " {\n";
     for (const auto &arm : node->arms) {
         os << get_indent() << "| ";
         print(arm.first);

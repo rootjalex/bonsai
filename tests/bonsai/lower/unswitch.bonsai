@@ -1,0 +1,44 @@
+func foo() {
+    print(0);
+    return;
+}
+
+func bar() {
+    print(1);
+    return;
+}
+
+// TODO(ajr): these tests would be easier to write if we had parsing support for CallStmt
+func rewrite0(a : bool, b : bool) {
+    if (a) {
+        if (b) { _ = foo(); }
+    } else {
+        if (b) { __ = bar(); }
+    }
+    return;
+}
+
+func rewrite1(a : bool) {
+    if (a) {
+        _ = foo();
+    }
+    if (a) {
+        __ = bar();
+    }
+    return;
+}
+
+func norewrite1(a : mut bool) {
+    if (a) {
+        _ = foo();
+        a = !a;
+    }
+    if (a) {
+        __ = bar();
+    }
+    return;
+}
+
+
+// TODO(ajr): when this lowers, it should test the third rewrite of unswitching.
+// func rewrite2(a : bool, l : array[i32, 10]) = map(|i| i + 1, filter(|v| a, l));
