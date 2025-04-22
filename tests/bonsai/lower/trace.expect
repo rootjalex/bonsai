@@ -5,11 +5,11 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type _triangles_layout0 = struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }
-type _triangles_layout1 = struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }[count] }
+type _triangles_layout0 = struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }
+type _triangles_layout1 = struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 type vec3f = f32x3
 
-extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_?spliton_nPrims : u8x4 }[count] }
+extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 
 func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
@@ -25,11 +25,11 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
           _count += 1u
           _stack[_count] = triangles__index + 1u
           _count += 1u
-          _stack[_count] = triangles__index + cast<__layout11>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).offset
+          _stack[_count] = triangles__index + cast<__layout11>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).offset
         }
       } else {
         forall _idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
-          let _iter0 = triangles.prims[cast<__layout12>(triangles.triangles_index[triangles__index].triangles_?spliton_nPrims).pOffset + _idx0] in
+          let _iter0 = triangles.prims[cast<__layout12>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0] in
           if (intersectsp_ray_tri(ray, _iter0).set) {
             if (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0) {
               let _best0_temp0 = distmin_Ray_Triangle(ray, _iter0) in

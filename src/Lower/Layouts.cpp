@@ -34,7 +34,7 @@ std::string get_group_name(const std::string &base, const std::string &index) {
 
 std::string get_split_field_name(const std::string &base,
                                  const std::string &field) {
-    return base + "_?spliton_" + field;
+    return base + "_spliton_" + field;
 }
 
 std::vector<std::pair<std::string, ir::Type>>
