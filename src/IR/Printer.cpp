@@ -599,6 +599,10 @@ std::string to_string(const BinOp::OpType &op) {
         return "||";
     case BinOp::Xor:
         return "^";
+    case BinOp::BwAnd:
+        return "&";
+    default:
+        internal_error << "unsupported op: " << op;
     }
 }
 

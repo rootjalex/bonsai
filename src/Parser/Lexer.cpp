@@ -331,7 +331,7 @@ void Lexer::lex() {
                     program_stream.get();
                     add_token(Token::Type::AND);
                 } else {
-                    report_error("SINGLE `&` not implemented");
+                    add_token(Token::Type::BITWISE_AND);
                 }
                 break;
             case '|': {

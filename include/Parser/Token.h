@@ -66,19 +66,20 @@ class Token {
         SEMICOL,   // ;
         BAR,       // |
 
-        ASSIGN, // =
-        AND,    // &&
-        AT,     // @
-        LOR,    // ||
-        XOR,    // ^
-        NOT,    // !
-        PLUS,   // +
-        INC,    // ++
-        MINUS,  // -
-        DEC,    // --
-        STAR,   // *
-        SLASH,  // /
-        MOD,    // %
+        ASSIGN,      // =
+        AND,         // &&
+        AT,          // @
+        LOR,         // ||
+        XOR,         // ^
+        BITWISE_AND, // &
+        NOT,         // !
+        PLUS,        // +
+        INC,         // ++
+        MINUS,       // -
+        DEC,         // --
+        STAR,        // *
+        SLASH,       // /
+        MOD,         // %
         // EXP, // ^ TODO: OR IS THIS XOR?
         EQ,  // ==
         NEQ, // !=

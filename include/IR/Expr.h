@@ -169,6 +169,7 @@ struct BinOp : ExprNode<BinOp> {
         Or,
         Sub,
         Xor,
+        BwAnd,
     };
 
     OpType op;
