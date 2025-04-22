@@ -253,8 +253,7 @@ struct FindReads : Visitor {
     const std::set<std::string> &vars;
     bool found = false;
 
-    FindReads(const std::set<std::string> &vars)
-        : vars(vars) {}
+    FindReads(const std::set<std::string> &vars) : vars(vars) {}
 
     void visit(const Var *node) override {
         if (vars.contains(node->name)) {
@@ -384,9 +383,7 @@ std::set<std::string> mutated_variables(Stmt stmt) {
     struct Gather : Visitor {
         std::set<std::string> mutated;
 
-        void visit(const Store *node) override {
-            mutated.insert(node->name);
-        }
+        void visit(const Store *node) override { mutated.insert(node->name); }
 
         void visit(const Assign *node) override {
             if (node->mutating) {
@@ -416,9 +413,7 @@ std::set<std::string> assigned_variables(Stmt stmt) {
     struct Gather : Visitor {
         std::set<std::string> mutated;
 
-        void visit(const Store *node) override {
-            mutated.insert(node->name);
-        }
+        void visit(const Store *node) override { mutated.insert(node->name); }
 
         void visit(const Assign *node) override {
             mutated.insert(node->loc.base);

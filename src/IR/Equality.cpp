@@ -42,8 +42,9 @@ std::optional<Cmp> compare_node_types(const T &a, const T &b) {
     return {};
 }
 
-template<typename T, typename F>
-Cmp compare_lists(const std::vector<T> &l0, const std::vector<T> &l1, const F &f) {
+template <typename T, typename F>
+Cmp compare_lists(const std::vector<T> &l0, const std::vector<T> &l1,
+                  const F &f) {
     if (l0.size() != l1.size()) {
         return compare_primitives(l0.size(), l1.size());
     }
@@ -56,8 +57,9 @@ Cmp compare_lists(const std::vector<T> &l0, const std::vector<T> &l1, const F &f
     return Cmp::Equals;
 }
 
-template<typename T, typename F>
-Cmp compare_maps(const std::map<std::string, T> &m0, const std::map<std::string, T> &m1, const F &f) {
+template <typename T, typename F>
+Cmp compare_maps(const std::map<std::string, T> &m0,
+                 const std::map<std::string, T> &m1, const F &f) {
     if (m0.size() != m1.size()) {
         return compare_primitives(m0.size(), m1.size());
     }
@@ -66,11 +68,13 @@ Cmp compare_maps(const std::map<std::string, T> &m0, const std::map<std::string,
     auto it1 = m1.begin();
 
     while (it0 != m0.end() && it1 != m1.end()) {
-        if (const Cmp name = compare_primitives(it0->first, it1->first); name != Cmp::Equals) {
+        if (const Cmp name = compare_primitives(it0->first, it1->first);
+            name != Cmp::Equals) {
             return name;
         }
 
-        if (const Cmp value = f(it0->second, it1->second); value != Cmp::Equals) {
+        if (const Cmp value = f(it0->second, it1->second);
+            value != Cmp::Equals) {
             return value;
         }
 
@@ -194,7 +198,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         const Function_t *f0 = t0.as<Function_t>();
         const Function_t *f1 = t1.as<Function_t>();
 
-        if (const Cmp arg_types = compare_lists(f0->arg_types, f1->arg_types, compare_types); arg_types != Cmp::Equals) {
+        if (const Cmp arg_types =
+                compare_lists(f0->arg_types, f1->arg_types, compare_types);
+            arg_types != Cmp::Equals) {
             return arg_types;
         }
         return compare_types(f0->ret_type, f1->ret_type);
@@ -236,7 +242,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                         return vtype;
                     }
 
-                    if (const Cmp inits = compare_lists(v0.initializers, v1.initializers, compare_primitives<std::string>); inits != Cmp::Equals) {
+                    if (const Cmp inits =
+                            compare_lists(v0.initializers, v1.initializers,
+                                          compare_primitives<std::string>);
+                        inits != Cmp::Equals) {
                         return inits;
                     }
                 }
@@ -322,29 +331,36 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     }
 
     internal_assert(e0.type().defined() && e1.type().defined());
-    if (const Cmp types = compare_types(e0.type(), e1.type()); types != Cmp::Equals) {
+    if (const Cmp types = compare_types(e0.type(), e1.type());
+        types != Cmp::Equals) {
         return types;
     }
 
     // Must both be the same node type.
     switch (e0.node_type()) {
     case IRExprEnum::IntImm: {
-        return compare_primitives(e0.as<IntImm>()->value, e1.as<IntImm>()->value);
+        return compare_primitives(e0.as<IntImm>()->value,
+                                  e1.as<IntImm>()->value);
     }
     case IRExprEnum::UIntImm: {
-        return compare_primitives(e0.as<UIntImm>()->value, e1.as<UIntImm>()->value);
+        return compare_primitives(e0.as<UIntImm>()->value,
+                                  e1.as<UIntImm>()->value);
     }
     case IRExprEnum::IdxImm: {
-        return compare_primitives(e0.as<IdxImm>()->value, e1.as<IdxImm>()->value);
+        return compare_primitives(e0.as<IdxImm>()->value,
+                                  e1.as<IdxImm>()->value);
     }
     case IRExprEnum::FloatImm: {
-        return compare_primitives(e0.as<FloatImm>()->value, e1.as<FloatImm>()->value);
+        return compare_primitives(e0.as<FloatImm>()->value,
+                                  e1.as<FloatImm>()->value);
     }
     case IRExprEnum::BoolImm: {
-        return compare_primitives(e0.as<BoolImm>()->value, e1.as<BoolImm>()->value);
+        return compare_primitives(e0.as<BoolImm>()->value,
+                                  e1.as<BoolImm>()->value);
     }
     case IRExprEnum::VecImm: {
-        return compare_lists(e0.as<VecImm>()->values, e1.as<VecImm>()->values, compare_exprs);
+        return compare_lists(e0.as<VecImm>()->values, e1.as<VecImm>()->values,
+                             compare_exprs);
     }
     case IRExprEnum::Var: {
         return compare_primitives(e0.as<Var>()->name, e1.as<Var>()->name);
@@ -356,7 +372,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::BinOp: {
         const BinOp *b0 = e0.as<BinOp>();
         const BinOp *b1 = e1.as<BinOp>();
-        if (const Cmp op = compare_primitives(b0->op, b1->op); op != Cmp::Equals) {
+        if (const Cmp op = compare_primitives(b0->op, b1->op);
+            op != Cmp::Equals) {
             return op;
         }
         if (const Cmp a = compare_exprs(b0->a, b1->a); a != Cmp::Equals) {
@@ -367,7 +384,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::UnOp: {
         const UnOp *u0 = e0.as<UnOp>();
         const UnOp *u1 = e1.as<UnOp>();
-        if (const Cmp op = compare_primitives(u0->op, u1->op); op != Cmp::Equals) {
+        if (const Cmp op = compare_primitives(u0->op, u1->op);
+            op != Cmp::Equals) {
             return op;
         }
         return compare_exprs(u0->a, u1->a);
@@ -375,10 +393,12 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Select: {
         const Select *s0 = e0.as<Select>();
         const Select *s1 = e1.as<Select>();
-        if (const Cmp op = compare_exprs(s0->cond, s1->cond); op != Cmp::Equals) {
+        if (const Cmp op = compare_exprs(s0->cond, s1->cond);
+            op != Cmp::Equals) {
             return op;
         }
-        if (const Cmp a = compare_exprs(s0->tvalue, s1->tvalue); a != Cmp::Equals) {
+        if (const Cmp a = compare_exprs(s0->tvalue, s1->tvalue);
+            a != Cmp::Equals) {
             return a;
         }
         return compare_exprs(s0->fvalue, s1->fvalue);
@@ -387,12 +407,14 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return compare_exprs(e0.as<Cast>()->value, e1.as<Cast>()->value);
     }
     case IRExprEnum::Broadcast: {
-        return compare_exprs(e0.as<Broadcast>()->value, e1.as<Broadcast>()->value);
+        return compare_exprs(e0.as<Broadcast>()->value,
+                             e1.as<Broadcast>()->value);
     }
     case IRExprEnum::VectorReduce: {
         const VectorReduce *v0 = e0.as<VectorReduce>();
         const VectorReduce *v1 = e1.as<VectorReduce>();
-        if (const Cmp op = compare_primitives(v0->op, v1->op); op != Cmp::Equals) {
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
             return op;
         }
         return compare_exprs(v0->value, v1->value);
@@ -400,7 +422,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::VectorShuffle: {
         const VectorShuffle *v0 = e0.as<VectorShuffle>();
         const VectorShuffle *v1 = e1.as<VectorShuffle>();
-        if (const Cmp idxs = compare_lists(v0->idxs, v1->idxs, compare_exprs); idxs != Cmp::Equals) {
+        if (const Cmp idxs = compare_lists(v0->idxs, v1->idxs, compare_exprs);
+            idxs != Cmp::Equals) {
             return idxs;
         }
         return compare_exprs(v0->value, v1->value);
@@ -408,10 +431,12 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Ramp: {
         const Ramp *v0 = e0.as<Ramp>();
         const Ramp *v1 = e1.as<Ramp>();
-        if (const Cmp lanes = compare_primitives(v0->lanes, v1->lanes); lanes != Cmp::Equals) {
+        if (const Cmp lanes = compare_primitives(v0->lanes, v1->lanes);
+            lanes != Cmp::Equals) {
             return lanes;
         }
-        if (const Cmp base = compare_exprs(v0->base, v1->base); base != Cmp::Equals) {
+        if (const Cmp base = compare_exprs(v0->base, v1->base);
+            base != Cmp::Equals) {
             return base;
         }
         return compare_exprs(v0->stride, v1->stride);
@@ -419,7 +444,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Extract: {
         const Extract *v0 = e0.as<Extract>();
         const Extract *v1 = e1.as<Extract>();
-        if (const Cmp base = compare_exprs(v0->vec, v1->vec); base != Cmp::Equals) {
+        if (const Cmp base = compare_exprs(v0->vec, v1->vec);
+            base != Cmp::Equals) {
             return base;
         }
         return compare_exprs(v0->idx, v1->idx);
@@ -432,7 +458,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Access: {
         const Access *v0 = e0.as<Access>();
         const Access *v1 = e1.as<Access>();
-        if (const Cmp field = compare_primitives(v0->field, v1->field); field != Cmp::Equals) {
+        if (const Cmp field = compare_primitives(v0->field, v1->field);
+            field != Cmp::Equals) {
             return field;
         }
         return compare_exprs(v0->value, v1->value);
@@ -440,7 +467,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Unwrap: {
         const Unwrap *v0 = e0.as<Unwrap>();
         const Unwrap *v1 = e1.as<Unwrap>();
-        if (const Cmp index = compare_primitives(v0->index, v1->index); index != Cmp::Equals) {
+        if (const Cmp index = compare_primitives(v0->index, v1->index);
+            index != Cmp::Equals) {
             return index;
         }
         return compare_exprs(v0->value, v1->value);
@@ -448,7 +476,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Intrinsic: {
         const Intrinsic *v0 = e0.as<Intrinsic>();
         const Intrinsic *v1 = e1.as<Intrinsic>();
-        if (const Cmp op = compare_primitives(v0->op, v1->op); op != Cmp::Equals) {
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
             return op;
         }
         return compare_lists(v0->args, v1->args, compare_exprs);
@@ -456,15 +485,20 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Lambda: {
         const Lambda *v0 = e0.as<Lambda>();
         const Lambda *v1 = e1.as<Lambda>();
-        if (const Cmp value = compare_exprs(v0->value, v1->value); value != Cmp::Equals) {
+        if (const Cmp value = compare_exprs(v0->value, v1->value);
+            value != Cmp::Equals) {
             return value;
         }
-        return compare_lists(v0->args, v1->args, [](const auto &a0, const auto &a1) { return compare_types(a0.type, a1.type); });
+        return compare_lists(v0->args, v1->args,
+                             [](const auto &a0, const auto &a1) {
+                                 return compare_types(a0.type, a1.type);
+                             });
     }
     case IRExprEnum::GeomOp: {
         const GeomOp *v0 = e0.as<GeomOp>();
         const GeomOp *v1 = e1.as<GeomOp>();
-        if (const Cmp op = compare_primitives(v0->op, v1->op); op != Cmp::Equals) {
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
             return op;
         }
         if (const Cmp a = compare_exprs(v0->a, v1->a); a != Cmp::Equals) {
@@ -475,7 +509,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::SetOp: {
         const SetOp *v0 = e0.as<SetOp>();
         const SetOp *v1 = e1.as<SetOp>();
-        if (const Cmp op = compare_primitives(v0->op, v1->op); op != Cmp::Equals) {
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
             return op;
         }
         if (const Cmp a = compare_exprs(v0->a, v1->a); a != Cmp::Equals) {
@@ -486,7 +521,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Call: {
         const Call *v0 = e0.as<Call>();
         const Call *v1 = e1.as<Call>();
-        if (const Cmp func = compare_exprs(v0->func, v1->func); func != Cmp::Equals) {
+        if (const Cmp func = compare_exprs(v0->func, v1->func);
+            func != Cmp::Equals) {
             return func;
         }
         return compare_lists(v0->args, v1->args, compare_exprs);
@@ -494,7 +530,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Instantiate: {
         const Instantiate *v0 = e0.as<Instantiate>();
         const Instantiate *v1 = e1.as<Instantiate>();
-        if (const Cmp expr = compare_exprs(v0->expr, v1->expr); expr != Cmp::Equals) {
+        if (const Cmp expr = compare_exprs(v0->expr, v1->expr);
+            expr != Cmp::Equals) {
             return expr;
         }
         return compare_maps(v0->types, v1->types, compare_types);
