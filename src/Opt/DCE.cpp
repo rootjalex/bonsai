@@ -252,6 +252,21 @@ struct DeadCodeElimination : ir::Mutator {
         }
     }
 
+    // Handles a side effecting expression that is nested inside a statement.
+    ir::Stmt handle_side_effecting(ir::Expr node) {
+        ir::Expr value = find_first_with_side_effects(node);
+        if (!value.defined()) {
+            // No side effecting expression found.
+            return ir::Stmt();
+        }
+        // We need to keep the locs used by this value.
+        add_use_counts(node);
+        if (const auto *c = value.as<ir::Call>()) {
+            return ir::CallStmt::make(std::move(c->func), std::move(c->args));
+        }
+        internal_error << "[unimplemented] side-effecting expression: " << node;
+    }
+
     ir::Stmt visit(const ir::LetStmt *node) override {
         if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
             erase_dependents(node->loc);
@@ -268,38 +283,14 @@ struct DeadCodeElimination : ir::Mutator {
             // Definition of this write loc.
             erase_dependents(node->loc);
         }
-        if (!has_side_effects(node->value)) {
-            return ir::Stmt();
-        }
-        // We need to keep the locs used by this value.
-        add_use_counts(node->value);
-        if (ir::Expr e = find_first_with_side_effects(node->value);
-            e.defined() && e.is<ir::Call>()) {
-            const auto *call = e.as<ir::Call>();
-            return ir::CallStmt::make(std::move(call->func),
-                                      std::move(call->args));
-        }
-        internal_error << "[unimplemented] side-effecting expression: "
-                       << node->value;
+        return handle_side_effecting(node->value);
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
         if (use_counts[node->loc.base] != 0) {
             return node;
         }
-        if (!has_side_effects(node->value)) {
-            return ir::Stmt();
-        }
-        // We need to keep the locs used by this value.
-        add_use_counts(node->value);
-        if (ir::Expr e = find_first_with_side_effects(node->value);
-            e.defined() && e.is<ir::Call>()) {
-            const auto *call = e.as<ir::Call>();
-            return ir::CallStmt::make(std::move(call->func),
-                                      std::move(call->args));
-        }
-        internal_error << "[unimplemented] side-effecting expression: "
-                       << node->value;
+        return handle_side_effecting(node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
