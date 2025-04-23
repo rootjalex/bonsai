@@ -81,7 +81,7 @@ CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls) {
     CallGraph call_graph;
     for (const auto &f : funcs) {
         // TODO: do we need this for funcs with defined ret_types? probably not.
-        if (f.second->ret_type.defined()) {
+        if (undef_calls && f.second->ret_type.defined()) {
             call_graph[f.first] = {}; // can be evaluated in any order.
         } else {
             f.second->body.accept(&builder);
