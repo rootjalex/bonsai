@@ -170,6 +170,35 @@ struct HasSideEffects : ir::Visitor {
     }
 };
 
+struct FindSideEffects : ir::Visitor {
+    // The found side-effecting expressions (if any).
+    std::vector<ir::Expr> expressions;
+    // The found side-effecting statements (if any).
+    std::vector<ir::Stmt> statements;
+    const std::set<std::string> &function_has_side_effects;
+
+    FindSideEffects(const std::set<std::string> &side_effects_functions)
+        : function_has_side_effects(side_effects_functions) {}
+
+    void visit(const ir::Print *node) override { statements.push_back(node); }
+
+    void visit(const ir::Call *node) override {
+        const auto *var = node->func.as<ir::Var>();
+        if (var == nullptr) {
+            return;
+        }
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
+            expressions.push_back(node);
+        }
+    }
+
+    void visit(const ir::Store *node) override {
+        // TODO(ajr): This is conservative. How bad is that?
+        statements.push_back(node);
+    }
+};
+
 std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
     const std::vector<std::string> topo_order =
         lower::func_topological_order(funcs, /*undef_calls=*/false);
@@ -218,12 +247,26 @@ struct DeadCodeElimination : ir::Mutator {
         return checker.found;
     }
 
-    // Returns the first expression with side effects, or an undefined
-    // expression otherwise.
-    ir::Expr find_first_with_side_effects(const ir::Expr &expr) {
-        HasSideEffects checker(side_effects_functions);
+    // Returns a sequence of statements with side effects within this
+    // expression.
+    ir::Stmt find_with_side_effects(const ir::Expr &expr) {
+        FindSideEffects checker(side_effects_functions);
         expr.accept(&checker);
-        return checker.expression;
+        std::vector<ir::Stmt> side_effecting_statements = checker.statements;
+        for (const ir::Expr &value : checker.expressions) {
+            add_use_counts(value);
+            if (const auto *c = value.as<ir::Call>()) {
+                ir::Stmt call =
+                    ir::CallStmt::make(std::move(c->func), std::move(c->args));
+                side_effecting_statements.push_back(std::move(call));
+                continue;
+            }
+            internal_error << "[unimplemented]: " << value;
+        }
+        if (side_effecting_statements.empty()) {
+            return ir::Stmt();
+        }
+        return ir::Sequence::make(std::move(side_effecting_statements));
     }
 
     // Use counts are re-added for side-effecting expressions.
@@ -252,21 +295,6 @@ struct DeadCodeElimination : ir::Mutator {
         }
     }
 
-    // Handles a side effecting expression that is nested inside a statement.
-    ir::Stmt handle_side_effecting(ir::Expr node) {
-        ir::Expr value = find_first_with_side_effects(node);
-        if (!value.defined()) {
-            // No side effecting expression found.
-            return ir::Stmt();
-        }
-        // We need to keep the locs used by this value.
-        add_use_counts(value);
-        if (const auto *c = value.as<ir::Call>()) {
-            return ir::CallStmt::make(std::move(c->func), std::move(c->args));
-        }
-        internal_error << "[unimplemented] side-effecting expression: " << node;
-    }
-
     ir::Stmt visit(const ir::LetStmt *node) override {
         if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
             erase_dependents(node->loc);
@@ -283,14 +311,14 @@ struct DeadCodeElimination : ir::Mutator {
             // Definition of this write loc.
             erase_dependents(node->loc);
         }
-        return handle_side_effecting(node->value);
+        return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
         if (use_counts[node->loc.base] != 0) {
             return node;
         }
-        return handle_side_effecting(node->value);
+        return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
