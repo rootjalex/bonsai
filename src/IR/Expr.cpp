@@ -212,11 +212,6 @@ namespace {
 
 // Returns whether this type is valid for logical operations.
 bool is_valid_logical_operation(ir::Type type) {
-    if (type.is<ir::Vector_t>()) {
-        // TODO(cgyurgyik): Required otherwise rect_contains.bonsai fails.
-        // What does `a` && `b` mean for a: boolxN, b: boolxN?
-        return type.element_of().is<ir::Option_t, Bool_t>();
-    }
     return type.is<ir::Option_t, Bool_t>();
 }
 

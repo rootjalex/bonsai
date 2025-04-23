@@ -12,11 +12,11 @@ element Point {
 }
 
 func contains(r : AABB, p : Point) -> bool {
-    return all(p.data >= r.low && p.data <= r.high);
+    return all(p.data >= r.low & p.data <= r.high);
 }
 
 func contains(a : AABB, b : AABB) -> bool {
-    return all(a.low <= b.low && a.high >= b.high);
+    return all(a.low <= b.low & a.high >= b.high);
 }
 
 func intersects(a : AABB, b : AABB) -> bool {

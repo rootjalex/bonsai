@@ -33,11 +33,11 @@ func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
 }
 
 func contains_AABB_AABB(a : AABB, b : AABB) -> bool {
-  return reduce<all>((a.low <= b.low) && (b.high <= a.high))
+  return reduce<all>((a.low <= b.low) & (b.high <= a.high))
 }
 
 func contains_AABB_Point(r : AABB, p : Point) -> bool {
-  return reduce<all>((r.low <= p.data) && (p.data <= r.high))
+  return reduce<all>((r.low <= p.data) & (p.data <= r.high))
 }
 
 func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
