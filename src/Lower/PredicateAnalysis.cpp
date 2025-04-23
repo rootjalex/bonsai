@@ -126,7 +126,7 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
-        case ir::BinOp::And: {
+        case ir::BinOp::LAnd: {
             if (!node->type.is_bool()) {
                 break; // TODO: handle non-booleans
             }

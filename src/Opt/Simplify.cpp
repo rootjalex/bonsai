@@ -180,7 +180,7 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
-        case ir::BinOp::OpType::And: {
+        case ir::BinOp::OpType::LAnd: {
             if (ir::Expr e = constant_fold(std::logical_and<>{}, a, b);
                 e.defined()) {
                 return e;
@@ -204,7 +204,7 @@ struct Simplifier : ir::Mutator {
             return make(node, std::move(a), std::move(b));
         }
 
-        case ir::BinOp::OpType::Or: {
+        case ir::BinOp::OpType::LOr: {
             if (ir::Expr e = constant_fold(std::logical_or<>{}, a, b);
                 e.defined()) {
                 return e;
