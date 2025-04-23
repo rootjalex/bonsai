@@ -48,6 +48,14 @@ class Lexer {
 
     const TokenStream &get_tokens() { return stream; }
 
+    bool consume_if(std::ifstream &ifs, char c) {
+        if (ifs.peek() == c) {
+            ifs.get();
+            return true;
+        }
+        return false;
+    }
+
     // Returns whether the tokens parsed are currently error-free.
     const bool is_valid() const { return stream.is_valid(); }
 
@@ -318,8 +326,7 @@ void Lexer::lex() {
                 break;
             case '=':
                 program_stream.get();
-                if (program_stream.peek() == '=') {
-                    program_stream.get();
+                if (consume_if(program_stream, '=')) {
                     add_token(Token::Type::EQ);
                 } else {
                     add_token(Token::Type::ASSIGN);
@@ -327,8 +334,7 @@ void Lexer::lex() {
                 break;
             case '&':
                 program_stream.get();
-                if (program_stream.peek() == '&') {
-                    program_stream.get();
+                if (consume_if(program_stream, '&')) {
                     add_token(Token::Type::LOGICAL_AND);
                 } else {
                     add_token(Token::Type::BITWISE_AND);
@@ -336,8 +342,7 @@ void Lexer::lex() {
                 break;
             case '|': {
                 program_stream.get();
-                if (program_stream.peek() == '|') {
-                    program_stream.get();
+                if (consume_if(program_stream, '|')) {
                     add_token(Token::Type::LOGICAL_OR);
                     break;
                 }
@@ -349,8 +354,7 @@ void Lexer::lex() {
                 break;
             case '!':
                 program_stream.get();
-                if (program_stream.peek() == '=') {
-                    program_stream.get();
+                if (consume_if(program_stream, '=')) {
                     add_token(Token::Type::NEQ);
                 } else {
                     add_token(Token::Type::NOT);
@@ -358,8 +362,7 @@ void Lexer::lex() {
                 break;
             case '+':
                 program_stream.get();
-                if (program_stream.peek() == '+') {
-                    program_stream.get();
+                if (consume_if(program_stream, '+')) {
                     add_token(Token::Type::INC);
                 } else {
                     add_token(Token::Type::PLUS);
@@ -367,11 +370,9 @@ void Lexer::lex() {
                 break;
             case '-':
                 program_stream.get();
-                if (program_stream.peek() == '>') {
-                    program_stream.get();
+                if (consume_if(program_stream, '>')) {
                     add_token(Token::Type::RARROW);
-                } else if (program_stream.peek() == '-') {
-                    program_stream.get();
+                } else if (consume_if(program_stream, '-')) {
                     add_token(Token::Type::DEC);
                 } else if (std::isdigit(program_stream.peek())) {
                     std::optional<Token> token = lex_number(program_stream);
@@ -418,8 +419,7 @@ void Lexer::lex() {
             // EQ, NEQ already handled
             case '<':
                 program_stream.get();
-                if (program_stream.peek() == '=') {
-                    program_stream.get();
+                if (consume_if(program_stream, '=')) {
                     add_token(Token::Type::LEQ);
                 } else {
                     add_token(Token::Type::LT);
@@ -427,8 +427,7 @@ void Lexer::lex() {
                 break;
             case '>':
                 program_stream.get();
-                if (program_stream.peek() == '=') {
-                    program_stream.get();
+                if (consume_if(program_stream, '=')) {
                     add_token(Token::Type::GEQ);
                 } else {
                     add_token(Token::Type::GT);
