@@ -16,8 +16,6 @@ Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
     const Function_t *f = func.type().as<Function_t>();
     internal_assert(f) << "CallStmt::make received bad function type: "
                        << func.type();
-    internal_assert(f->ret_type.is<ir::Void_t>())
-        << "CallStmt::make received non-void return type: " << func.type();
 
     node->func = std::move(func);
     node->args = std::move(args);

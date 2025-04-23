@@ -1,5 +1,6 @@
 #include "Opt/DCE.h"
 
+#include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
@@ -132,18 +133,49 @@ struct HasSideEffects : ir::Visitor {
     HasSideEffects(const std::set<std::string> &side_effects_functions)
         : function_has_side_effects(side_effects_functions) {}
 
-    void visit(const ir::Print *) override { found = true; }
+    void visit(const ir::Print *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
 
-    void visit(const ir::Var *node) override {
-        if (node->type.is<ir::Function_t>() &&
-            function_has_side_effects.contains(node->name)) {
+    void visit(const ir::Call *node) override {
+        if (found) {
+            return;
+        }
+        const auto *var = node->func.as<ir::Var>();
+        if (var == nullptr) {
+            return;
+        }
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
             found = true;
         }
     }
 
-    void visit(const ir::Store *) override {
+    void visit(const ir::Store *node) override {
         // TODO(ajr): This is conservative. How bad is that?
         found = true;
+    }
+};
+
+struct FindSideEffects : ir::Visitor {
+    // The found side-effecting expressions (if any).
+    std::vector<ir::Expr> expressions;
+    const std::set<std::string> &function_has_side_effects;
+
+    FindSideEffects(const std::set<std::string> &side_effects_functions)
+        : function_has_side_effects(side_effects_functions) {}
+    void visit(const ir::Call *node) override {
+        const auto *var = node->func.as<ir::Var>();
+        if (var == nullptr) {
+            return;
+        }
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
+            expressions.push_back(node);
+        }
     }
 };
 
@@ -195,6 +227,28 @@ struct DeadCodeElimination : ir::Mutator {
         return checker.found;
     }
 
+    // Returns a sequence of statements with side effects within this
+    // expression.
+    ir::Stmt find_with_side_effects(const ir::Expr &expr) {
+        FindSideEffects checker(side_effects_functions);
+        expr.accept(&checker);
+        std::vector<ir::Stmt> side_effecting_statements;
+        for (const ir::Expr &value : checker.expressions) {
+            add_use_counts(value);
+            if (const auto *c = value.as<ir::Call>()) {
+                ir::Stmt call =
+                    ir::CallStmt::make(std::move(c->func), std::move(c->args));
+                side_effecting_statements.push_back(std::move(call));
+                continue;
+            }
+            internal_error << "[unimplemented]: " << value;
+        }
+        if (side_effecting_statements.empty()) {
+            return ir::Stmt();
+        }
+        return ir::Sequence::make(std::move(side_effecting_statements));
+    }
+
     // Use counts are re-added for side-effecting expressions.
     void add_use_counts(const ir::Expr &expr) {
         ComputeUseCounts counter({}); // TODO(ajr): is this right?
@@ -204,11 +258,6 @@ struct DeadCodeElimination : ir::Mutator {
             internal_assert(use_counts.contains(var));
             use_counts[var] += count;
         }
-    }
-
-    uint64_t counter = 0;
-    std::string make_unused_var_name() {
-        return "_unused" + std::to_string(counter++);
     }
 
     void erase_dependents(const ir::WriteLoc &loc) {
@@ -235,41 +284,21 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (use_counts[node->loc.base] == 0) {
-            if (!node->mutating) {
-                // Definition of this write loc.
-                erase_dependents(node->loc);
-            }
-
-            if (has_side_effects(node->value)) {
-                // TODO(ajr): we could just grab the side effecting Expr
-                // and not compute the rest.
-                // For now, we rewrite this to an unused LetStmt
-                ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                // We need to keep the locs used by this value.
-                add_use_counts(node->value);
-                return ir::LetStmt::make(std::move(loc), node->value);
-            }
-
-            return ir::Stmt();
+        if (use_counts[node->loc.base] != 0) {
+            return node;
         }
-        return node;
+        if (!node->mutating) {
+            // Definition of this write loc.
+            erase_dependents(node->loc);
+        }
+        return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] == 0) {
-            if (has_side_effects(node->value)) {
-                // TODO(ajr): we could just grab the side effecting Expr
-                // and not compute the rest.
-                // For now, we rewrite this to an unused LetStmt
-                ir::WriteLoc loc(make_unused_var_name(), node->value.type());
-                // We need to keep the locs used by this value.
-                add_use_counts(node->value);
-                return ir::LetStmt::make(std::move(loc), node->value);
-            }
-            return ir::Stmt();
+        if (use_counts[node->loc.base] != 0) {
+            return node;
         }
-        return node;
+        return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
