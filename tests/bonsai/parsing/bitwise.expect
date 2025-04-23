@@ -1,8 +1,9 @@
-func main() -> i32 {
-  let x = true in
-  let y = false in
-  let z = x & y in
-  return 0
+func foo() -> bool {
+  let w = true in
+  let x = false in
+  let y = w | x in
+  let z = y & x in
+  return z
 }
 
 

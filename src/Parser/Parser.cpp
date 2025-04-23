@@ -995,7 +995,7 @@ struct Parser {
     ir::Expr parse_bwor() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_xor(); },
-            {{{ir::BinOp::BwOr, Token::Type::BITWISE_OR}}});
+            {{{ir::BinOp::BwOr, Token::Type::BAR}}});
     }
 
     // bwand_expr := bwor_expr ('&' bwor_expr)*

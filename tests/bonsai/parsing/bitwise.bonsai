@@ -1,6 +1,6 @@
 //! flags: -p core
 
-func main() -> i32 {
+func foo() -> bool {
     w: bool = 1;
     x: bool = 0;
     y: bool = w | x;

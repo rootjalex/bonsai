@@ -73,7 +73,6 @@ uint64_t Token::size() const {
     case Token::Type::AT:
     case Token::Type::XOR:
     case Token::Type::BITWISE_AND:
-    case Token::Type::BITWISE_OR:
     case Token::Type::NOT:
     case Token::Type::PLUS:
     case Token::Type::MINUS:
@@ -229,8 +228,6 @@ std::string Token::token_type_string(Token::Type type) {
         return "xor";
     case Token::Type::BITWISE_AND:
         return "bw-and";
-    case Token::Type::BITWISE_OR:
-        return "bw-or";
     case Token::Type::NOT:
         return "not";
     case Token::Type::PLUS:
