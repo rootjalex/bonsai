@@ -288,6 +288,13 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
             << to_string(op) << " " << b << " : " << b.type();
 
         if (op == BinOp::And || op == BinOp::Or) {
+            ir::Type at = a.type(), bt = b.type();
+            auto valid = [](ir::Type t) -> bool {
+                return t.is<ir::Option_t, Bool_t>();
+            };
+            internal_assert((valid(at) && valid(bt)) ||
+                            (valid(at.element_of()) && valid(bt.element_of())))
+                << at << ", " << bt;
             if (a.type().is<Option_t>() || b.type().is<Option_t>()) {
                 // TODO: handle vectors of options?
                 node->type = Bool_t::make();
@@ -328,6 +335,7 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
+            internal_assert((a.type().is<Option_t, Bool_t>())) << a.type();
             if (a.type().is<Option_t>()) {
                 a = Cast::make(Bool_t::make(), a);
             }
