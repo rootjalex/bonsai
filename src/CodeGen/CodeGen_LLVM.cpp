@@ -794,6 +794,14 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             value = builder->CreateOr(a, b);
             return;
         }
+        case BinOp::Shl: {
+            value = builder->CreateShl(a, b);
+            return;
+        }
+        case BinOp::Shr: {
+            value = builder->CreateAShr(a, b);
+            return;
+        }
         default: {
             internal_error
                 << "Unimplemented BinOp lowering for signed integer: "
@@ -852,6 +860,14 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         case BinOp::BwOr: {
             value = builder->CreateOr(a, b);
+            return;
+        }
+        case BinOp::Shl: {
+            value = builder->CreateShl(a, b);
+            return;
+        }
+        case BinOp::Shr: {
+            value = builder->CreateLShr(a, b);
             return;
         }
         default: {

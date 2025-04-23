@@ -888,7 +888,7 @@ struct Parser {
     // TODO: precedence 2: member access...
     // precedence 5: mul, div, mod
     // precedence 6: addition/subtraction
-    // precedence 7: bit shifts (TODO: support)
+    // precedence 7: bit shifts
     // precedence 9: relational operators
     // precedence 10: equality operators
     // precedence 11: bitwise and
@@ -944,7 +944,7 @@ struct Parser {
             }});
     }
 
-    // addsub_expr := rel_expr (('+' | '-') rel_expr)*
+    // addsub_expr := shift_expr (('+' | '-') shift_expr)*
     ir::Expr parse_add_sub() {
         return parse_bin_op_with_precedence<2>(
             [this]() { return parse_mul_div_mod(); },
@@ -954,10 +954,20 @@ struct Parser {
             }});
     }
 
+    // shift_expr := rel_expr (('<<' | '>>') rel_expr)*
+    ir::Expr parse_shift() {
+        return parse_bin_op_with_precedence<2>(
+            [this]() { return parse_add_sub(); },
+            {{
+                {ir::BinOp::Shl, Token::Type::SHIFT_LEFT},
+                {ir::BinOp::Shr, Token::Type::SHIFT_RIGHT},
+            }});
+    }
+
     // rel_expr := eq_expr (('<=' | '<') eq_expr)*
     ir::Expr parse_rels() {
         return parse_bin_op_with_precedence<4>(
-            [this]() { return parse_add_sub(); },
+            [this]() { return parse_shift(); },
             {{
                 {ir::BinOp::Lt, Token::Type::LT},
                 {ir::BinOp::Le, Token::Type::LEQ},
