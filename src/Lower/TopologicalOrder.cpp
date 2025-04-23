@@ -114,6 +114,8 @@ std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
                 << "Type inference found a cycle containing function: " << fname
                 << "\nYou may need to specify return types on one or more "
                    "functions to break the cycle";
+        } else if (visiting.contains(fname)) {
+            return;
         }
         visiting.insert(fname);
         for (const auto &gname : call_graph.at(fname)) {
