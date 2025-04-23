@@ -21,7 +21,7 @@ namespace lower {
 namespace {
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
-                         IntervalMap intervals);
+                         const IntervalMap &intervals);
 
 static size_t counter = 0;
 
@@ -242,18 +242,16 @@ ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
 }
 
 ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
-                      const ir::TypeMap &tree_types, IntervalMap intervals) {
+                      const ir::TypeMap &tree_types,
+                      const IntervalMap &intervals) {
     struct RewriteArgmin : public Rewriter {
         ir::Expr metric;
         ir::WriteLoc loc;
-        ir::Expr best;
         ir::Type tuple_t;
-        const IntervalMap &intervals;
 
-        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Expr b, ir::Type t,
-                      const IntervalMap &intervals)
-            : metric(std::move(met)), loc(std::move(l)), best(std::move(b)),
-              tuple_t(std::move(t)), intervals(intervals) {}
+        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t)
+            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)) {
+        }
 
         size_t counter = 0;
 
@@ -319,14 +317,14 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
     // No lower bound (can always get better)
     // Upper bound is the current value (must be at least that good).
-    intervals[best_metric] = Interval{ir::Expr(), best_metric};
+    IntervalMap local_intervals = intervals;
+    local_intervals[best_metric] = Interval{ir::Expr(), best_metric};
 
     // Try to build fused filter inside.
     ir::Expr fused_filter = try_fuse_filter(lambda, best_metric, inner);
-    ir::Stmt body = build_traversal(fused_filter, tree_types, intervals);
+    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
-    body = RewriteArgmin(std::move(metric), std::move(loc),
-                         std::move(best_metric), std::move(tuple_t), intervals)
+    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t))
                .mutate(body);
 
     return ir::Sequence::make(
@@ -415,7 +413,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
 }
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
-                         IntervalMap intervals) {
+                         const IntervalMap &intervals) {
     // TODO: not necessarily always a Var, could be e.g. an Access.
     if (auto as_var = expr.as<ir::Var>()) {
         internal_assert(as_var->type.is<ir::Set_t>())
