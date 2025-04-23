@@ -26,3 +26,19 @@ func check2_noshortcircuit(a : i32, b : array[f32]) {
         return -1.0;
     }
 }
+
+func check3(a : i32, b : array[f32]) {
+    if !(a >= 0 && b[a] < 0) {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+func check4(a : i32, b : array[f32]) {
+    if !(a < 0 || b[a] < 0) {
+        return 1;
+    } else {
+        return 2;
+    }
+}

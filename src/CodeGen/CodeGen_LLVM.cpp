@@ -1640,6 +1640,11 @@ void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb,
             codegen_short_circuit(op->b, true_bb, false_bb);
             return;
         }
+    } else if (const UnOp *op = cond.as<UnOp>()) {
+        if (op->op == UnOp::Not) {
+            codegen_short_circuit(op->a, false_bb, true_bb);
+            return;
+        }
     }
     // Base case: not a short-circuiting expression, emit a regular branch
     builder->CreateCondBr(codegen_expr(std::move(cond)), true_bb, false_bb);

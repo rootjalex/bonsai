@@ -9,3 +9,25 @@ func bar(x : i32) -> i32 {
     L1 = |y: i32| y + 1;
     return L1(x);
 }
+
+
+func f1_se(i : i32) -> i32 {
+    print(i);
+    return i;
+}
+
+func f2_se(i : i32) -> i32 {
+    print(i);
+    return i;
+}
+
+func f3_se(i : i32) -> i32 {
+    print(i);
+    return i;
+}
+
+func fizz(x: i32, y: i32) -> i32 {
+    z: mut = x;
+    z = f1_se(x) + f2_se(f3_se(x));
+    return x + y;
+}
