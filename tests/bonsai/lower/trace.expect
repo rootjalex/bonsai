@@ -17,7 +17,7 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) ->
   alloc _alloc0 : Triangle[n]
   forall r in [0u:n:1u] {
     let _load0 = rays[r] in
-    _alloc0[r] = trace(_load0, triangles)
+    _alloc0[r] = _traverse_tree0(_load0, triangles)
   }
   return _alloc0
 }
@@ -40,6 +40,10 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
     }
   }
   return _best0._field1
+}
+
+func _unexported_trace(ray : Ray, triangles : _triangles_layout1) -> Triangle {
+  return _traverse_tree0(ray, triangles)
 }
 
 func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {

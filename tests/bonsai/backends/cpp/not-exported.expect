@@ -21,6 +21,9 @@ void id(G& _ret0, const G& g);
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
+%struct.G = type { %struct.F }
+%struct.F = type { i32, i32 }
+
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef i32 @IGNORE_FUNC(i32 noundef %i, i32 noundef %j) local_unnamed_addr #0 {
 IGNORE_FUNC_entry:
@@ -28,8 +31,20 @@ IGNORE_FUNC_entry:
   ret i32 %0
 }
 
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define %struct.G @_unexported_id(ptr nocapture noundef nonnull readonly %g1) local_unnamed_addr #1 {
+_unexported_id_entry:
+  %g.unpack.unpack = load i32, ptr %g1, align 4
+  %0 = insertvalue %struct.F poison, i32 %g.unpack.unpack, 0
+  %g.unpack.elt3 = getelementptr inbounds i8, ptr %g1, i64 4
+  %g.unpack.unpack4 = load i32, ptr %g.unpack.elt3, align 4
+  %g.unpack5 = insertvalue %struct.F %0, i32 %g.unpack.unpack4, 1
+  %g2 = insertvalue %struct.G poison, %struct.F %g.unpack5, 0
+  ret %struct.G %g2
+}
+
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @id(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %g1) local_unnamed_addr #1 {
+define void @id(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %g1) local_unnamed_addr #2 {
 id_entry:
   %0 = load <2 x i32>, ptr %g1, align 4
   store <2 x i32> %0, ptr %_ret0, align 4
@@ -37,4 +52,5 @@ id_entry:
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
+attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
