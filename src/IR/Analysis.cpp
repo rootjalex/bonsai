@@ -20,12 +20,12 @@ struct GatherFreeVars : public Visitor {
     void visit(const Var *node) override {
         // Function calls are not free vars.
         if (seen_vars.count(node->name) == 0 && !node->type.is_func()) {
-            free_vars.push_back({node->name, node->type});
-            seen_vars.insert(node->name);
             // Visit sizes, might be a free var
             if (node->type.is<Array_t>()) {
                 node->type.as<Array_t>()->size.accept(this);
             }
+            free_vars.push_back({node->name, node->type});
+            seen_vars.insert(node->name);
         }
     }
 
