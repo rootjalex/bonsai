@@ -1,8 +1,0 @@
-//! flags: -p core
-
-func main() -> i32 {
-    x: bool = 1;
-    y: bool = 0;
-    z: bool = x & y;
-    return 0;
-}

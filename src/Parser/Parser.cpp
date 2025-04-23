@@ -991,10 +991,17 @@ struct Parser {
             {{{ir::BinOp::Xor, Token::Type::XOR}}});
     }
 
-    // bwand_expr := or_expr ('&' or_expr)*
-    ir::Expr parse_bwand() {
+    // bwor_expr := or_expr ('|' or_expr)*
+    ir::Expr parse_bwor() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_xor(); },
+            {{{ir::BinOp::BwOr, Token::Type::BITWISE_OR}}});
+    }
+
+    // bwand_expr := bwor_expr ('&' bwor_expr)*
+    ir::Expr parse_bwand() {
+        return parse_bin_op_with_precedence<1>(
+            [this]() { return parse_bwor(); },
             {{{ir::BinOp::BwAnd, Token::Type::BITWISE_AND}}});
     }
 

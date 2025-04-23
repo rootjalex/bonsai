@@ -1,0 +1,10 @@
+//! flags: -p core
+
+func main() -> i32 {
+    w: bool = 1;
+    x: bool = 0;
+    y: bool = w | x;
+    z: bool = y & x;
+    
+    return z;
+}

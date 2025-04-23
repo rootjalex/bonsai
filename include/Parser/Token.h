@@ -72,6 +72,7 @@ class Token {
         LOR,         // ||
         XOR,         // ^
         BITWISE_AND, // &
+        BITWISE_OR,  // |
         NOT,         // !
         PLUS,        // +
         INC,         // ++

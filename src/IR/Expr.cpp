@@ -166,12 +166,13 @@ Expr Var::make(Type type, const std::string &name) {
 
 bool BinOp::is_numeric_op(const BinOp::OpType &op) {
     switch (op) {
-    // Technically, And, Or, BwAnd, and Xor keep the type of the operands.
+    // Technically, And, Or, BwAnd, BwOr, and Xor keep the type of the operands.
     // maybe need to rename this function.
     case BinOp::And:
     case BinOp::Or:
     case BinOp::Xor:
     case BinOp::BwAnd:
+    case BinOp::BwOr:
     case BinOp::Add:
     case BinOp::Mod:
     case BinOp::Mul:
@@ -192,6 +193,7 @@ bool BinOp::is_boolean_op(const BinOp::OpType &op) {
     case BinOp::Or:
     case BinOp::Xor:   // see above note
     case BinOp::BwAnd: // see above note
+    case BinOp::BwOr:  // see above note
     case BinOp::Add:
     case BinOp::Mod:
     case BinOp::Mul:

@@ -1,7 +1,7 @@
 add_bonsai_tests(
     LABELS parsing
     FILES
-    bitwise-and.bonsai
+    bitwise.bonsai
     call.bonsai
     export.bonsai
     ivector.bonsai

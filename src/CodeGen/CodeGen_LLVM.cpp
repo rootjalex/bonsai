@@ -838,12 +838,11 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
     } else if (node->a.type().is_bool()) {
         switch (node->op) {
-        case BinOp::BwAnd:
-        case BinOp::And: {
+        case BinOp::BwAnd: {
             value = builder->CreateAnd(a, b);
             return;
         }
-        case BinOp::Or: {
+        case BinOp::BwOr: {
             value = builder->CreateOr(a, b);
             return;
         }
@@ -851,6 +850,8 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             value = builder->CreateXor(a, b);
             return;
         }
+        case BinOp::Or:
+        case BinOp::And:
         default: {
             internal_error << "Unimplemented BinOp lowering for boolean: "
                            << Expr(node);
