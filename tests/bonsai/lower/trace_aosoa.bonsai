@@ -1,10 +1,10 @@
 import tests/bonsai/lower/intersects;
 
-extern triangles : set[Triangle];
+extern ts : set[Triangle];
 
-func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), ts));
 
-// func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+// func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), ts);
 
 
 schedule {
@@ -13,9 +13,9 @@ schedule {
     | Interior(left : TriangleBVH, right : TriangleBVH)
     | Leaf(data : array[Triangle]);
 
-    triangles : TriangleBVH;
+    ts : TriangleBVH;
 
-    layout triangles {
+    layout ts {
         pCount : u32;
         prims : array[Triangle, pCount];
         count : u32;
