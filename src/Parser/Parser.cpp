@@ -891,10 +891,9 @@ struct Parser {
     // precedence 7: bit shifts (TODO: support)
     // precedence 9: relational operators
     // precedence 10: equality operators
-    // TODO: we parse and/xor/or and treat them all the same for now.
-    // precedence 11: bitwise and (TODO: support)
-    // precedence 12: bitwise xor (TODO: support)
-    // precedence 13: bitwise or (TODO: support)
+    // precedence 11: bitwise and
+    // precedence 12: bitwise xor
+    // precedence 13: bitwise or
     // precedence 14: logical and
     // precedence 15: logical or
 
@@ -967,7 +966,7 @@ struct Parser {
             }});
     }
 
-    // eq_expr := and_expr (('==' | '!=') and_expr)*
+    // eq_expr := bwand_expr (('==' | '!=') bwand_expr)*
     ir::Expr parse_eqs() {
         return parse_bin_op_with_precedence<2>(
             [this]() { return parse_rels(); },
@@ -977,39 +976,38 @@ struct Parser {
             }});
     }
 
-    // and_expr := xor_expr ('^' xor_expr)*
-    ir::Expr parse_and() {
+    // bwand_expr := xor_expr ('&' xor_expr)*
+    ir::Expr parse_bwand() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_eqs(); },
-            {{{ir::BinOp::And, Token::Type::AND}}});
+            {{{ir::BinOp::BwAnd, Token::Type::BITWISE_AND}}});
     }
 
-    // xor_expr := bwand_expr ('^' bwand_expr)*
+    // xor_expr := bwor_expr ('^' bwor_expr)*
     ir::Expr parse_xor() {
         return parse_bin_op_with_precedence<1>(
-            [this]() { return parse_and(); },
+            [this]() { return parse_bwand(); },
             {{{ir::BinOp::Xor, Token::Type::XOR}}});
     }
 
-    // bwor_expr := or_expr ('|' or_expr)*
+    // bwor_expr := and_expr ('|' and_expr)*
     ir::Expr parse_bwor() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_xor(); },
             {{{ir::BinOp::BwOr, Token::Type::BAR}}});
     }
 
-    // bwand_expr := bwor_expr ('&' bwor_expr)*
-    ir::Expr parse_bwand() {
+    // and_expr := or_expr ('&&' or_expr)*
+    ir::Expr parse_and() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_bwor(); },
-            {{{ir::BinOp::BwAnd, Token::Type::BITWISE_AND}}});
+            {{{ir::BinOp::And, Token::Type::AND}}});
     }
 
     // or_expr := base_expr ('||' base_expr)*
     ir::Expr parse_or() {
         return parse_bin_op_with_precedence<1>(
-            // TODO: logical and!
-            [this]() { return parse_bwand(); },
+            [this]() { return parse_and(); },
             {{{ir::BinOp::Or, Token::Type::LOR}}});
     }
 

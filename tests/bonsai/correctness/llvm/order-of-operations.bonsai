@@ -1,0 +1,14 @@
+//! flags: -b llvm -e
+
+func main() -> i32 {
+  a: i32 = 12;
+  b: i32 = 10;
+  c: i32 = 6;
+  d: i32 = 1;
+
+  expect: i32 = (((a & b) ^ c) | d);
+  actual: i32 =    a & b  ^ c  | d;
+  print(expect);
+  print(actual);
+  return 0;
+}

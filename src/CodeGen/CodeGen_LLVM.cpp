@@ -782,6 +782,18 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             value = builder->CreateICmpNE(a, b);
             return;
         }
+        case BinOp::Xor: {
+            value = builder->CreateXor(a, b);
+            return;
+        }
+        case BinOp::BwAnd: {
+            value = builder->CreateAnd(a, b);
+            return;
+        }
+        case BinOp::BwOr: {
+            value = builder->CreateOr(a, b);
+            return;
+        }
         default: {
             internal_error
                 << "Unimplemented BinOp lowering for signed integer: "
@@ -828,6 +840,18 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         case BinOp::Neq: {
             value = builder->CreateICmpNE(a, b);
+            return;
+        }
+        case BinOp::Xor: {
+            value = builder->CreateXor(a, b);
+            return;
+        }
+        case BinOp::BwAnd: {
+            value = builder->CreateAnd(a, b);
+            return;
+        }
+        case BinOp::BwOr: {
+            value = builder->CreateOr(a, b);
             return;
         }
         default: {
