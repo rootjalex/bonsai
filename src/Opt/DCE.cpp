@@ -128,10 +128,6 @@ struct ComputeUseCounts : ir::Visitor {
 
 struct HasSideEffects : ir::Visitor {
     bool found = false;
-    // The first found side-effecting expression (if any).
-    ir::Expr expression;
-    // The first found side-effecting statement (if any).
-    ir::Stmt statement;
     const std::set<std::string> &function_has_side_effects;
 
     HasSideEffects(const std::set<std::string> &side_effects_functions)
@@ -141,7 +137,6 @@ struct HasSideEffects : ir::Visitor {
         if (found) {
             return;
         }
-        statement = node;
         found = true;
     }
 
@@ -155,17 +150,12 @@ struct HasSideEffects : ir::Visitor {
         }
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
-            expression = node;
             found = true;
         }
     }
 
     void visit(const ir::Store *node) override {
-        if (found) {
-            return;
-        }
         // TODO(ajr): This is conservative. How bad is that?
-        statement = node;
         found = true;
     }
 };
@@ -173,15 +163,10 @@ struct HasSideEffects : ir::Visitor {
 struct FindSideEffects : ir::Visitor {
     // The found side-effecting expressions (if any).
     std::vector<ir::Expr> expressions;
-    // The found side-effecting statements (if any).
-    std::vector<ir::Stmt> statements;
     const std::set<std::string> &function_has_side_effects;
 
     FindSideEffects(const std::set<std::string> &side_effects_functions)
         : function_has_side_effects(side_effects_functions) {}
-
-    void visit(const ir::Print *node) override { statements.push_back(node); }
-
     void visit(const ir::Call *node) override {
         const auto *var = node->func.as<ir::Var>();
         if (var == nullptr) {
@@ -191,11 +176,6 @@ struct FindSideEffects : ir::Visitor {
             function_has_side_effects.contains(var->name)) {
             expressions.push_back(node);
         }
-    }
-
-    void visit(const ir::Store *node) override {
-        // TODO(ajr): This is conservative. How bad is that?
-        statements.push_back(node);
     }
 };
 
@@ -252,7 +232,7 @@ struct DeadCodeElimination : ir::Mutator {
     ir::Stmt find_with_side_effects(const ir::Expr &expr) {
         FindSideEffects checker(side_effects_functions);
         expr.accept(&checker);
-        std::vector<ir::Stmt> side_effecting_statements = checker.statements;
+        std::vector<ir::Stmt> side_effecting_statements;
         for (const ir::Expr &value : checker.expressions) {
             add_use_counts(value);
             if (const auto *c = value.as<ir::Call>()) {
