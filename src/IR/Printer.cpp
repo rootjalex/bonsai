@@ -760,7 +760,6 @@ void Printer::visit(const Intrinsic *node) {
 void Printer::visit(const Lambda *node) {
     os << "|";
     const size_t n = node->args.size();
-    // TODO: might need Lambdas to store arg types as well...
     for (size_t i = 0; i < n; i++) {
         os << node->args[i].name;
         if (node->args[i].type.defined()) {
@@ -971,6 +970,35 @@ void Printer::visit(const Allocate *node) {
     os << "\n";
 }
 
+void Printer::visit(const Label *node) {
+    os << get_indent();
+    os << "#" << node->name << "{";
+    if (node->body.defined()) {
+        os << "\n";
+        print(node->body);
+    }
+    os << "}\n";
+}
+
+void Printer::visit(const RecLoop *node) {
+    os << get_indent() << "rec(";
+
+    const size_t n = node->args.size();
+    for (size_t i = 0; i < n; i++) {
+        os << node->args[i].name;
+        os << " : ";
+        print(node->args[i].type);
+        if (i < n - 1) {
+            os << ", ";
+        }
+    }
+    os << ") {\n";
+    indent++;
+    print(node->body);
+    indent--;
+    os << get_indent() << "}\n";
+}
+
 void Printer::visit(const Match *node) {
     os << get_indent();
     os << "match ";
@@ -1012,7 +1040,7 @@ void Printer::visit(const ForEach *node) {
     os << get_indent();
     os << "foreach " << node->name << " in ";
     print_no_parens(node->iter);
-    os << "{\n";
+    os << " {\n";
     indent++;
     print(node->body);
     indent--;

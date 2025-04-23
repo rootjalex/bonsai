@@ -498,6 +498,23 @@ Stmt Mutator::visit(const Allocate *node) {
     return Allocate::make(std::move(node->name), std::move(type));
 }
 
+Stmt Mutator::visit(const Label *node) {
+    Stmt body = node->body.defined() ? mutate(node->body) : node->body;
+    if (body.same_as(node->body)) {
+        return node;
+    }
+    return Label::make(node->name, std::move(body));
+}
+
+Stmt Mutator::visit(const RecLoop *node) {
+    // TODO: mutate arg types...?
+    Stmt body = node->body.defined() ? mutate(node->body) : node->body;
+    if (body.same_as(node->body)) {
+        return node;
+    }
+    return RecLoop::make(node->args, std::move(body));
+}
+
 Stmt Mutator::visit(const Match *node) {
     ir::Expr loc = mutate(node->loc);
     bool not_changed = loc.same_as(node->loc);

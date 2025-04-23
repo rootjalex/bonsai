@@ -1857,6 +1857,23 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     frames.add_to_frame(node->name, {alloc, /* mutable=*/false});
 }
 
+void CodeGen_LLVM::visit(const Label *node) {
+    internal_assert(node->body.defined())
+        << "Label with undefined body made it to codegen: " << node->name;
+    // TODO: add label as a comment to body here?
+
+    // Insert an inline asm comment with the label name for debugging
+    std::string asm_str = "; label: " + node->name + "\n";
+    llvm::InlineAsm *label_comment = llvm::InlineAsm::get(
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*context), false),
+        asm_str, "", /* constraints */
+        true /* hasSideEffects */);
+
+    builder->CreateCall(label_comment);
+
+    codegen_stmt(node->body);
+}
+
 void CodeGen_LLVM::visit(const ForAll *node) {
     llvm::Value *begin = codegen_expr(node->slice.begin);
 

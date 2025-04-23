@@ -133,6 +133,8 @@ struct Printer : public Visitor {
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
     void visit(const Allocate *) override;
+    void visit(const Label *) override;
+    void visit(const RecLoop *) override;
     void visit(const Match *) override;
     void visit(const Yield *) override;
     void visit(const Scan *) override;

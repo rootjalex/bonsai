@@ -21,6 +21,7 @@ add_bonsai_tests(
     option.bonsai
     rect_contains.bonsai
     struct_defaults.bonsai
+    trace_aosoa.bonsai
     trace.bonsai
     trees.bonsai
     type_coercion_primitive.bonsai

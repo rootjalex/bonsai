@@ -27,7 +27,9 @@ enum class IRStmtEnum {
     Assign,
     Accumulate,
     Allocate,
+    Label,
 
+    RecLoop,
     Match,
     Yield,
     Scan,
@@ -184,6 +186,33 @@ struct Allocate : StmtNode<Allocate> {
     static Stmt make(std::string name, Type type);
 
     static const IRStmtEnum node_type = IRStmtEnum::Allocate;
+};
+
+// A labelled body of code.
+// e.g. used for "holes" in Layout lowering.
+// Can also be used for scheduling.
+struct Label : StmtNode<Label> {
+    std::string name;
+    Stmt body;
+
+    static Stmt make(std::string name, Stmt body);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Label;
+};
+
+// A (currently inlined) recursive loop
+// Contains `From` nodes that match the args list.
+struct RecLoop : StmtNode<RecLoop> {
+    struct Argument {
+        std::string name;
+        Type type;
+    };
+    std::vector<Argument> args;
+    Stmt body;
+
+    static Stmt make(std::vector<Argument> args, Stmt body);
+
+    static const IRStmtEnum node_type = IRStmtEnum::RecLoop;
 };
 
 struct Match : StmtNode<Match> {

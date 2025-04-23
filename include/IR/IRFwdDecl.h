@@ -70,6 +70,8 @@ struct Sequence;
 struct Assign;
 struct Accumulate;
 struct Allocate;
+struct Label;
+struct RecLoop;
 struct Match;
 struct Yield;
 struct Scan;
