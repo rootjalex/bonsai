@@ -835,7 +835,7 @@ struct Parser {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
             return ir::Assign::make(std::move(loc), std::move(value),
-                                    /*mutating*/ false);
+                                    /*mutating=*/true);
         }
     }
 
