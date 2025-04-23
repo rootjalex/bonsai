@@ -664,9 +664,9 @@ std::string to_string(const VectorReduce::OpType &op) {
     case VectorReduce::Add:
         return "+";
     case VectorReduce::Idxmin:
-        return "argmin";
+        return "idxmin";
     case VectorReduce::Idxmax:
-        return "argmax";
+        return "idxmax";
     case VectorReduce::Mul:
         return "*";
     case VectorReduce::Min:
@@ -957,6 +957,14 @@ void Printer::visit(const Accumulate *node) {
     }
     case Accumulate::OpType::Sub: {
         os << " -= ";
+        break;
+    }
+    case Accumulate::OpType::Argmin: {
+        os << " argmin= ";
+        break;
+    }
+    case Accumulate::OpType::Argmax: {
+        os << " argmax= ";
         break;
     }
     default: {

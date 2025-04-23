@@ -224,8 +224,8 @@ struct VectorReduce : ExprNode<VectorReduce> {
     enum OpType {
         Add,
         And,
-        Idxmax, // argmax
-        Idxmin, // argmin
+        Idxmax, // argmax but only keep the index
+        Idxmin, // argmin but only keep the index
         Max,
         Min,
         Mul,

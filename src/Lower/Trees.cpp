@@ -275,10 +275,7 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
             std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
-            ir::Stmt body =
-                ir::Assign::make(loc, std::move(update), /*mutating=*/true);
-
-            return body;
+            return ir::Accumulate::make(loc, ir::Accumulate::Argmin, std::move(update));
         }
 
         ir::Stmt visit(const ir::Scan *node) override { return node; }

@@ -168,6 +168,10 @@ struct Accumulate : StmtNode<Accumulate> {
         Add,
         Mul,
         Sub,
+        // (key, value) = select(new_value < value, (new_key, new_value), (key, value))
+        Argmin,
+        // (key, value) = select(new_value > value, (new_key, new_value), (key, value))
+        Argmax,
         // TODO: add more.
     };
     WriteLoc loc;

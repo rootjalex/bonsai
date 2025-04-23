@@ -91,7 +91,7 @@ func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) && (distmin(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < _best0[0])) {
       if (intersects(ray, (triangles as Leaf).data) && (distmin(ray, (triangles as Leaf).data) < _best0[0])) {
-        _best0 = build<(f32, Triangle)>(distmin(ray, (triangles as Leaf).data), (triangles as Leaf).data)
+        _best0 argmin= build<(f32, Triangle)>(distmin(ray, (triangles as Leaf).data), (triangles as Leaf).data)
       }
     }
   }

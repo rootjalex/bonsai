@@ -25,7 +25,7 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
         forall _idx0 in [0u:cast<u32>(ts.ts_index[ts__index].ts_bit[ts__bit].nPrims):1u] {
           let _iter0 = ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0] in
           if (intersectsp_ray_tri(ray, _iter0).set && (distmin_Ray_Triangle(ray, _iter0) < _best0._field0)) {
-            _best0 = build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
+            _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
           }
         }
       }
@@ -111,7 +111,7 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
   p0t := tri.p0 - ray.o
   p1t := tri.p1 - ray.o
   p2t := tri.p2 - ray.o
-  let kz = reduce<argmax>(abs(ray.d)) in
+  let kz = reduce<idxmax>(abs(ray.d)) in
   let kx = (kz + 1u) % 3u in
   let ky = (kx + 1u) % 3u in
   let d = shuffle(ray.d, {kx, ky, kz}) in
