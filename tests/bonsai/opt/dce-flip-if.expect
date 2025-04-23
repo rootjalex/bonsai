@@ -10,14 +10,14 @@ func bar(i : i32x8) -> u32x8 {
 func bazz(i : i32) -> i32 {
   j := i + 1
   if (0 < i) {
-    let _unused0 = print_and_return(j) in
+    print_and_return(j)
   }
   return cast<i32>(abs(i))
 }
 
 func fizz(i : i32) -> i32 {
   if (0 < i) {
-    let _unused0 = cast<i32>(reduce<+>(foo(i32x8(-4)))) in
+    foo(i32x8(-4))
   } else {
     print(i)
   }

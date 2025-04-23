@@ -1009,6 +1009,11 @@ struct Parser {
                 // Tuple constructor.
                 std::vector<ir::Expr> values = {std::move(inner)};
                 std::vector<ir::Type> etypes = {values[0].type()};
+                if (!etypes.back().defined()) {
+                    report_error() << "[unimplemented] tuple construction "
+                                      "with value of unknown type: "
+                                   << values.back();
+                }
                 do {
                     ir::Expr next = parse_expr();
                     values.emplace_back(std::move(next));
@@ -1016,7 +1021,8 @@ struct Parser {
                     // TODO: improve type inference to handle this?
                     if (!etypes.back().defined()) {
                         report_error() << "[unimplemented] tuple construction "
-                                          "with unknown type";
+                                          "with value of unknown type: "
+                                       << values.back();
                     }
                 } while (consume(Token::Type::COMMA));
                 // TODO: gracefully

@@ -20,6 +20,9 @@ namespace lower {
 
 namespace {
 
+ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
+                         const IntervalMap &intervals);
+
 static size_t counter = 0;
 
 std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
@@ -94,11 +97,14 @@ struct Rewriter : public ir::Mutator {
     using ir::Mutator::visit;
 };
 
-ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
+ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
+                      const IntervalMap &intervals) {
     struct RewriteFilter : public Rewriter {
         ir::Expr predicate;
+        const IntervalMap &intervals;
 
-        RewriteFilter(ir::Expr pred) : predicate(std::move(pred)) {}
+        RewriteFilter(ir::Expr pred, const IntervalMap &intervals)
+            : predicate(std::move(pred)), intervals(intervals) {}
 
         using ir::Mutator::visit;
 
@@ -135,12 +141,13 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
 
             VolumeMap vols = make_volume_map(lambda->args);
 
-            Interval bounds = predicate_analysis(lambda->value, vols);
+            Interval bounds =
+                predicate_analysis(lambda->value, vols, intervals);
             if (bounds.max.defined()) {
                 // Maybe true.
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
             }
-            if (bounds.min.defined()) {
+            if (bounds.min.defined() && !is_const_zero(bounds.min)) {
                 // Always true.
                 body = ir::IfElse::make(std::move(bounds.min), node,
                                         std::move(body));
@@ -158,7 +165,8 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
 
             VolumeMap vols = make_volume_map(lambda->args);
 
-            Interval bounds = predicate_analysis(lambda->value, vols);
+            Interval bounds =
+                predicate_analysis(lambda->value, vols, intervals);
             internal_assert(bounds.max.defined())
                 << "Cannot accelerate predicate: " << predicate
                 << " on: " << ir::Stmt(node);
@@ -173,7 +181,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
             body = ir::IfElse::make(std::move(bounds.max), std::move(body));
 
             // Check for always case
-            if (bounds.min.defined()) {
+            if (bounds.min.defined() && !is_const_zero(bounds.min)) {
                 body = ir::IfElse::make(std::move(bounds.min), node,
                                         std::move(body));
             }
@@ -189,19 +197,61 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate) {
         }
     };
 
-    return RewriteFilter(std::move(predicate)).mutate(body);
+    return RewriteFilter(std::move(predicate), intervals).mutate(body);
 }
 
-ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
+ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
+                         ir::Expr maybe_filter) {
+    if (const ir::SetOp *as_set = maybe_filter.as<ir::SetOp>()) {
+        if (as_set->op == ir::SetOp::filter) {
+            // Can fuse!
+            const ir::Lambda *predicate = as_set->a.as<ir::Lambda>();
+            internal_assert(predicate); // TODO: support non-lambdas
+
+            // Look if any lambda names don't match up, e.g.
+            // argmin(|t| : ..., filter(|r| ... ))
+            std::map<std::string, ir::Expr> repls;
+            for (size_t i = 0; i < metric->args.size(); i++) {
+                if (metric->args[i].name != predicate->args[i].name) {
+                    repls[metric->args[i].name] = ir::Var::make(
+                        predicate->args[i].type, predicate->args[i].name);
+                }
+                internal_assert(
+                    equals(metric->args[i].type, predicate->args[i].type))
+                    << "Mismatched types in argmin-filter fusion: "
+                    << metric->args[i].type
+                    << " != " << predicate->args[i].type;
+            }
+
+            // Check for convenient case of same naming / types.
+            ir::Expr new_cond =
+                repls.empty() ? (predicate->value && (metric->value < best))
+                              : predicate->value &&
+                                    (replace(repls, metric->value) < best);
+            // Construct fused filter.
+            ir::Expr new_lambda =
+                ir::Lambda::make(predicate->args, std::move(new_cond));
+            return filter(std::move(new_lambda), as_set->b);
+        }
+    }
+
+    // Not a nested filter, so just wrap in a filter and return
+    ir::Expr new_cond = (metric->value < best);
+    ir::Expr new_lambda = ir::Lambda::make(metric->args, std::move(new_cond));
+    return filter(std::move(new_lambda), std::move(maybe_filter));
+}
+
+ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
+                      const ir::TypeMap &tree_types,
+                      const IntervalMap &intervals) {
     struct RewriteArgmin : public Rewriter {
         ir::Expr metric;
         ir::WriteLoc loc;
-        ir::Expr best;
         ir::Type tuple_t;
 
-        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Expr b, ir::Type t)
-            : metric(std::move(met)), loc(std::move(l)), best(std::move(b)),
-              tuple_t(std::move(t)) {}
+        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t)
+            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)) {
+        }
 
         size_t counter = 0;
 
@@ -223,68 +273,24 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
             ir::Expr value =
                 replace(lambda->args[0].name, node->value, lambda->value);
 
-            std::string temp = make_temp_name();
-
-            ir::Type value_t = value.type();
-            ir::Expr var = ir::Var::make(value_t, temp);
-
-            // let temp = metric(data)
-            // if (temp < best[0]) update best
-            ir::WriteLoc temp_loc(temp, value_t);
-            ir::Stmt let =
-                ir::LetStmt::make(std::move(temp_loc), std::move(value));
-
-            std::vector<ir::Expr> values = {ir::Var::make(value_t, temp),
-                                            node->value};
+            std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
-            ir::Stmt body = ir::IfElse::make(
-                var < best,
-                ir::Assign::make(loc, std::move(update), /*mutating=*/true));
-
-            body = ir::Sequence::make({std::move(let), std::move(body)});
-            VolumeMap vols = make_volume_map(lambda->args);
-
-            Interval bounds = predicate_analysis(lambda->value, vols);
-            internal_assert(bounds.min.defined())
-                << "Need lower bound of metric to accelerate argmin: "
-                << lambda->value;
-            body = ir::IfElse::make(bounds.min < best, std::move(body));
-            // TODO: use bounds.max ?
+            ir::Stmt body =
+                ir::Assign::make(loc, std::move(update), /*mutating=*/true);
 
             return body;
         }
 
-        ir::Stmt visit(const ir::Scan *node) override {
-            internal_error << "Handle Scan in argmin: " << node->value;
-        }
+        ir::Stmt visit(const ir::Scan *node) override { return node; }
 
-        ir::Stmt visit(const ir::YieldFrom *node) override {
-            // TODO: this should be wrapped in a argmin, for cases with
-            // simplified predicates. This is required for proper predicate
-            // analysis of conjunctions/disjunctions.
-
-            internal_assert(!volumes.empty());
-            const ir::Lambda *lambda = metric.as<ir::Lambda>();
-            internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
-
-            VolumeMap vols = make_volume_map(lambda->args);
-
-            Interval bounds = predicate_analysis(lambda->value, vols);
-            internal_assert(bounds.min.defined())
-                << "Need lower bound of metric to accelerate argmin: "
-                << lambda->value;
-            // TODO: use bounds.max ?
-            return ir::IfElse::make(bounds.min < best, node);
-        }
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
     };
 
     const ir::Lambda *lambda = metric.as<ir::Lambda>();
     internal_assert(lambda) << "Metric is not a lambda: " << metric;
     ir::Type metric_t = lambda->value.type();
 
+    ir::Type ret_type = inner.type().element_of();
     ir::Type tuple_t = ir::Tuple_t::make({metric_t, ret_type});
 
     static size_t counter = 0;
@@ -309,12 +315,20 @@ ir::Stmt build_argmin(ir::Stmt body, ir::Expr metric, ir::Type ret_type) {
     ir::Stmt footer = ir::Yield::make(std::move(best_ref));
     ir::Expr best_metric = ir::Extract::make(std::move(ret_var), 0);
 
-    ir::Stmt inner = RewriteArgmin(std::move(metric), std::move(loc),
-                                   std::move(best_metric), std::move(tuple_t))
-                         .mutate(body);
+    // No lower bound (can always get better)
+    // Upper bound is the current value (must be at least that good).
+    IntervalMap local_intervals = intervals;
+    local_intervals[best_metric] = Interval{ir::Expr(), best_metric};
+
+    // Try to build fused filter inside.
+    ir::Expr fused_filter = try_fuse_filter(lambda, best_metric, inner);
+    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
+
+    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t))
+               .mutate(body);
 
     return ir::Sequence::make(
-        {std::move(header), std::move(inner), std::move(footer)});
+        {std::move(header), std::move(body), std::move(footer)});
 }
 
 ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
@@ -398,7 +412,8 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
         .mutate(a_body);
 }
 
-ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
+ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
+                         const IntervalMap &intervals) {
     // TODO: not necessarily always a Var, could be e.g. an Access.
     if (auto as_var = expr.as<ir::Var>()) {
         internal_assert(as_var->type.is<ir::Set_t>())
@@ -460,16 +475,16 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types) {
 
     switch (as_set->op) {
     case ir::SetOp::filter: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types);
-        return build_filter(body, as_set->a);
+        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
+        return build_filter(body, as_set->a, intervals);
     }
     case ir::SetOp::argmin: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types);
-        return build_argmin(body, as_set->a, as_set->b.type().element_of());
+        // Argmin is a bit more complicated, because of filter fusion.
+        return build_argmin(as_set->a, as_set->b, tree_types, intervals);
     }
     case ir::SetOp::product: {
-        ir::Stmt a_body = build_traversal(as_set->a, tree_types);
-        ir::Stmt b_body = build_traversal(as_set->b, tree_types);
+        ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
+        ir::Stmt b_body = build_traversal(as_set->b, tree_types, intervals);
         return build_product(a_body, b_body, expr.type().element_of());
     }
     default: {
@@ -507,8 +522,11 @@ struct LowerBVH : public ir::Mutator {
         internal_assert(found)
             << "Lowering of: " << expr << " does not contain any tree types.";
 
-        // TODO: build func
-        ir::Stmt body = build_traversal(expr, tree_types);
+        // TODO(ajr): is there more we can do with intervals?
+        // e.g. bounded interval hierarchies, kd-trees, tri.x < bound queries,
+        // etc?
+        IntervalMap intervals;
+        ir::Stmt body = build_traversal(expr, tree_types, intervals);
 
         internal_assert(body.defined());
 

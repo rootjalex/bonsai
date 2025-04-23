@@ -103,13 +103,13 @@ Expr FloatImm::make(Type t, double value) {
 }
 
 Expr BoolImm::make(bool value) {
-    static BoolImm *global_true = []() {
+    static Expr global_true = []() {
         BoolImm *b = new BoolImm;
         b->value = true;
         b->type = Bool_t::make();
         return b;
     }();
-    static BoolImm *global_false = []() {
+    static Expr global_false = []() {
         BoolImm *b = new BoolImm;
         b->value = false;
         b->type = Bool_t::make();
