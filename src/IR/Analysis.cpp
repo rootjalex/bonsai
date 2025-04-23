@@ -13,15 +13,19 @@ namespace {
 
 struct GatherFreeVars : public Visitor {
     // return in seen-order
-    std::vector<const Var *> free_vars;
+    std::vector<TypedVar> free_vars;
     // no duplicates
     std::set<std::string> seen_vars;
 
     void visit(const Var *node) override {
         // Function calls are not free vars.
         if (seen_vars.count(node->name) == 0 && !node->type.is_func()) {
-            free_vars.push_back(node);
+            free_vars.push_back({node->name, node->type});
             seen_vars.insert(node->name);
+            // Visit sizes, might be a free var
+            if (node->type.is<Array_t>()) {
+                node->type.as<Array_t>()->size.accept(this);
+            }
         }
     }
 
@@ -66,7 +70,18 @@ struct GatherFreeVars : public Visitor {
         }
     }
 
-    RESTRICT_VISITOR(Store);
+    void visit(const Store *node) override {
+        if (seen_vars.count(node->name) == 0) {
+            free_vars.push_back({node->name, node->value.type()});
+            seen_vars.insert(node->name);
+        }
+        node->value.accept(this);
+    }
+
+    void visit(const Allocate *node) override {
+        seen_vars.insert(node->name);
+        ir::Visitor::visit(node);
+    }
 
     void visit(const ir::ForAll *node) override {
         node->slice.begin.accept(this);
@@ -264,19 +279,19 @@ struct FindReads : Visitor {
 
 } // namespace
 
-std::vector<const ir::Var *> gather_free_vars(const Expr &expr) {
+std::vector<TypedVar> gather_free_vars(const Expr &expr) {
     GatherFreeVars gather;
     expr.accept(&gather);
     return std::move(gather.free_vars);
 }
 
-// std::vector<const ir::Var *> gather_free_vars(const Stmt &stmt) {
+// std::vector<TypedVar> gather_free_vars(const Stmt &stmt) {
 //     GatherFreeVars gather;
 //     stmt.accept(&gather);
 //     return std::move(gather.free_vars);
 // }
 
-std::vector<const ir::Var *> gather_free_vars(const Function &func) {
+std::vector<TypedVar> gather_free_vars(const Function &func) {
     GatherFreeVars gather;
     for (const auto &arg : func.args) {
         gather.seen_vars.insert(arg.name);

@@ -4,6 +4,8 @@ extern triangles : set[Triangle];
 
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
+func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r), rays);
+
 // func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
 

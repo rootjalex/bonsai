@@ -811,7 +811,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     return node;
 }
 
-Expr Lambda::make(std::vector<Lambda::Argument> args, Expr value) {
+Expr Lambda::make(std::vector<TypedVar> args, Expr value) {
     internal_assert(value.defined()) << "Lambda::make received undefined value";
     for (const auto &arg : args) {
         internal_assert(!arg.name.empty())

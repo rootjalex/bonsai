@@ -80,7 +80,7 @@ struct Rewriter : public ir::Mutator {
     }
 
     VolumeMap
-    make_volume_map(const std::vector<ir::Lambda::Argument> &args) const {
+    make_volume_map(const std::vector<ir::TypedVar> &args) const {
         VolumeMap vols;
         const size_t n = volumes.size();
         internal_assert(n == args.size())
@@ -511,7 +511,7 @@ struct LowerBVH : public ir::Mutator {
 
         bool found = false;
         for (const auto &var : free_vars) {
-            if (tree_types.contains(var->name)) {
+            if (tree_types.contains(var.name)) {
                 found = true;
                 break;
             }
@@ -530,12 +530,12 @@ struct LowerBVH : public ir::Mutator {
         std::vector<ir::Function::Argument> func_args;
         std::transform(free_vars.cbegin(), free_vars.cend(),
                        std::back_inserter(func_args), [&](const auto &var) {
-                           const auto &iter = this->tree_types.find(var->name);
+                           const auto &iter = this->tree_types.find(var.name);
                            if (iter != this->tree_types.cend()) {
-                               return ir::Function::Argument(var->name,
+                               return ir::Function::Argument(var.name,
                                                              iter->second);
                            }
-                           return ir::Function::Argument(var->name, var->type);
+                           return ir::Function::Argument(var.name, var.type);
                        });
 
         // When should this type be concretized into e.g. a list?
@@ -551,9 +551,9 @@ struct LowerBVH : public ir::Mutator {
         std::transform(free_vars.begin(), free_vars.end(),
                        std::back_inserter(call_args),
                        [&](auto &var) -> ir::Expr {
-                           const auto &iter = this->tree_types.find(var->name);
+                           const auto &iter = this->tree_types.find(var.name);
                            if (iter != this->tree_types.cend()) {
-                               return ir::Var::make(iter->second, var->name);
+                               return ir::Var::make(iter->second, var.name);
                            }
                            return var;
                        });

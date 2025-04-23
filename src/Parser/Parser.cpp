@@ -1075,7 +1075,7 @@ struct Parser {
             // default (pre-type casting) is f32
             return ir::FloatImm::make(f32, value);
         } else if (consume(Token::Type::BAR)) {
-            std::vector<ir::Lambda::Argument> args = parse_lambda_args();
+            std::vector<ir::TypedVar> args = parse_lambda_args();
             new_frame();
             for (const auto &arg : args) {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
@@ -1593,14 +1593,14 @@ struct Parser {
         return types;
     }
 
-    std::vector<ir::Lambda::Argument> parse_lambda_args() {
+    std::vector<ir::TypedVar> parse_lambda_args() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
         // TODO: should we allow no arg lambdas?
         // not sure I want that for now. doesn't
         // that imply some sort of side effects?
         // but maybe we need that for rng?
-        std::vector<ir::Lambda::Argument> args;
+        std::vector<ir::TypedVar> args;
         do {
             auto def = parse_name_def<false, true>(false);
             internal_assert(!def.value.defined())
