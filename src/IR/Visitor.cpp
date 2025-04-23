@@ -228,6 +228,14 @@ void Visitor::visit(const Accumulate *node) {
 
 void Visitor::visit(const Allocate *node) { node->type.accept(this); }
 
+void Visitor::visit(const Label *node) {
+    if (node->body.defined()) {
+        node->body.accept(this);
+    }
+}
+
+void Visitor::visit(const RecLoop *node) { node->body.accept(this); }
+
 void Visitor::visit(const Match *node) {
     node->loc.accept(this);
     for (const auto &[_, stmt] : node->arms) {

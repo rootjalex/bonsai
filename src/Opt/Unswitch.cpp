@@ -169,8 +169,9 @@ struct UnswitchImpl : public Mutator {
                 node->header.defined() ? assigned_variables(node->header)
                                        : std::set<std::string>{};
             varying.insert(node->index);
-            std::set<std::string> mutating = mutated_variables(node->body);
-            varying.insert(mutating.begin(), mutating.end());
+            // TODO(ajr): if ForAll is not guaranteed parallel, we need this.
+            // std::set<std::string> mutating = mutated_variables(node->body);
+            // varying.insert(mutating.begin(), mutating.end());
 
             if (!reads(if_else->cond, varying)) {
                 // Perform loop unswitching.

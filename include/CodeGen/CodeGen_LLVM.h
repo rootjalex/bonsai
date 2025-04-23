@@ -136,7 +136,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::SetOp *) override;
     virtual void visit(const ir::Call *) override;
     virtual void visit(const ir::Instantiate *) override;
-    virtual void visit(const ir::Allocate *) override;
     // Stmts
     virtual void visit(const ir::CallStmt *) override;
     virtual void visit(const ir::Print *) override;
@@ -149,6 +148,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
+    virtual void visit(const ir::Allocate *) override;
+    virtual void visit(const ir::Label *) override;
+    RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::Match);
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Scan);

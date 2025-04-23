@@ -143,6 +143,31 @@ Stmt Allocate::make(std::string name, Type type) {
     return node;
 }
 
+Stmt Label::make(std::string name, Stmt body) {
+    internal_assert(!name.empty()) << "Label::make received empty name";
+
+    Label *node = new Label;
+    node->name = std::move(name);
+    node->body = std::move(body);
+    return node;
+}
+
+Stmt RecLoop::make(std::vector<RecLoop::Argument> args, Stmt body) {
+    internal_assert(body.defined()) << "RecLoop::make received undefined body";
+
+    for (const auto &arg : args) {
+        internal_assert(!arg.name.empty())
+            << "RecLoop::make received empty arg name";
+        internal_assert(arg.type.defined())
+            << "RecLoop::make received undefined arg type: " << arg.name;
+    }
+
+    RecLoop *node = new RecLoop;
+    node->args = std::move(args);
+    node->body = std::move(body);
+    return node;
+}
+
 Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";

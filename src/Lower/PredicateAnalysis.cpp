@@ -1,21 +1,34 @@
 #include "Lower/PredicateAnalysis.h"
 
-#include "Error.h"
-
 #include "IR/Operators.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 
+#include "Error.h"
+#include "Utils.h"
+
 namespace bonsai {
 namespace lower {
+
+bool Interval::is_single_point(const ir::Expr &a) const {
+    return min.same_as(a) && max.same_as(a);
+}
+
+bool Interval::is_single_point() const { return min.same_as(max); }
+
+bool Interval::has_upper_bound() const { return max.defined(); }
+
+bool Interval::has_lower_bound() const { return min.defined(); }
 
 namespace {
 
 struct PredicateAnalysis : public ir::Visitor {
     Interval interval;
     const VolumeMap &bounds;
+    const IntervalMap &intervals;
 
-    PredicateAnalysis(const VolumeMap &bounds) : bounds(bounds) {}
+    PredicateAnalysis(const VolumeMap &bounds, const IntervalMap &intervals)
+        : bounds(bounds), intervals(intervals) {}
 
     // empty -> non-varying
     // undefined -> varying, but no bounding volume
@@ -40,8 +53,18 @@ struct PredicateAnalysis : public ir::Visitor {
     }
 
     Interval get(const ir::Expr &expr) {
+        const auto &iter = intervals.find(expr);
+        if (iter != intervals.cend()) {
+            return iter->second;
+        }
+        // Otherwise recurse.
         expr.accept(this);
         return std::move(interval);
+    }
+
+    void make_bool_bounds() {
+        interval.min = ir::BoolImm::make(false);
+        interval.max = ir::BoolImm::make(true);
     }
 
     void visit(const ir::IntImm *node) override { set(node); }
@@ -56,7 +79,74 @@ struct PredicateAnalysis : public ir::Visitor {
 
     void visit(const ir::Var *node) override { set(node); }
 
+    ir::Expr make_and(ir::Expr a, ir::Expr b) {
+        if (is_const_one(a)) {
+            return b;
+        }
+        if (is_const_one(b)) {
+            return a;
+        }
+        if (is_const_zero(a)) {
+            return a;
+        }
+        if (is_const_zero(b)) {
+            return b;
+        }
+        return a && b;
+    }
+
     void visit(const ir::BinOp *node) override {
+        switch (node->op) {
+        case ir::BinOp::Lt: {
+            Interval a = get(node->a);
+            if (!a.has_upper_bound() && !a.has_lower_bound()) {
+                make_bool_bounds();
+                return;
+            }
+            Interval b = get(node->b);
+            if (!b.has_upper_bound() && !b.has_lower_bound()) {
+                make_bool_bounds();
+                return;
+            }
+            // Initially unbounded.
+            make_bool_bounds();
+
+            // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
+            // as true as a.max <(=) b.min. This does not depend on a's
+            // lower bound or b's upper bound.
+            if (a.has_upper_bound() && b.has_lower_bound()) {
+                interval.min = a.max < b.min;
+            }
+
+            // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
+            // as true as a.min <(=) b.max. This does not depend on a's
+            // upper bound or b's lower bound.
+            if (a.has_lower_bound() && b.has_upper_bound()) {
+                interval.max = a.min < b.max;
+            }
+            return;
+        }
+        case ir::BinOp::And: {
+            if (!node->type.is_bool()) {
+                break; // TODO: handle non-booleans
+            }
+            Interval a = get(node->a);
+            Interval b = get(node->b);
+            // And is monotonic increasing in both args
+            if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min && b.min);
+            } else {
+                interval.min = make_and(a.min, b.min);
+                interval.max = make_and(a.max, b.max);
+            }
+            return;
+        }
+        default: {
+            break;
+        }
+        }
         internal_error << "TODO: implement predicate analysis on BinOp: "
                        << ir::Expr(node);
     }
@@ -152,6 +242,8 @@ struct PredicateAnalysis : public ir::Visitor {
             return;
         }
 
+        make_bool_bounds();
+
         switch (node->op) {
         case ir::GeomOp::intersects: {
             ir::Expr a = a_varying ? *a_vol : node->a;
@@ -160,7 +252,6 @@ struct PredicateAnalysis : public ir::Visitor {
             interval.max = ir::intersects(a, b);
 
             // TODO: handle lower bound? doesn't work for rays...
-            interval.min = ir::Expr();
 
             return;
         }
@@ -187,10 +278,8 @@ struct PredicateAnalysis : public ir::Visitor {
                 // exists that a does not.
                 interval.max = ir::contains(*a_vol, node->b);
                 // No way to prove this is always true if a is varying.
-                interval.min = ir::Expr();
             } else {
                 // Both varying! no way to prove always true.
-                interval.min = ir::Expr();
                 // But can only be true if the volumes intersect/overlap in some
                 // way.
                 interval.max = ir::intersects(*a_vol, *b_vol);
@@ -222,8 +311,9 @@ struct PredicateAnalysis : public ir::Visitor {
 
 } // namespace
 
-Interval predicate_analysis(const ir::Expr &expr, const VolumeMap &bounds) {
-    PredicateAnalysis analysis(bounds);
+Interval predicate_analysis(const ir::Expr &expr, const VolumeMap &bounds,
+                            const IntervalMap &intervals) {
+    PredicateAnalysis analysis(bounds, intervals);
     expr.accept(&analysis);
     return analysis.interval;
 }

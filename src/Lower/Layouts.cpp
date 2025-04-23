@@ -37,9 +37,11 @@ std::string get_split_field_name(const std::string &base,
     return base + "_spliton_" + field;
 }
 
-std::vector<std::pair<std::string, ir::Type>>
-get_index_type(const ir::Layout &layout) {
-    std::vector<std::pair<std::string, ir::Type>> index_ts;
+using IndexTList = std::vector<ir::RecLoop::Argument>;
+
+IndexTList get_index_type(const std::string &base_name,
+                          const ir::Layout &layout) {
+    IndexTList index_ts;
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         ir::Struct_t::Map fields;
         for (const auto &l : chain->layouts) {
@@ -48,14 +50,15 @@ get_index_type(const ir::Layout &layout) {
                 const ir::Group *node = l.as<ir::Group>();
                 internal_assert(index_ts.empty())
                     << "[unimplemented] adjacent groups in layout: " << layout;
-                index_ts = get_index_type(node->inner);
-                index_ts.emplace_back(node->name, node->index_t);
+                std::string iter_name = get_group_name(base_name, node->name);
+                index_ts = get_index_type(base_name, node->inner);
+                index_ts.push_back({iter_name, node->index_t});
                 break;
             }
             case ir::IRLayoutEnum::Split: {
                 const ir::Split *node = l.as<ir::Split>();
                 for (const auto &arm : node->arms) {
-                    auto rec = get_index_type(arm.layout);
+                    auto rec = get_index_type(base_name, arm.layout);
                     internal_assert(rec.empty())
                         << "[unimplemented] groups inside splits: " << layout;
                 }
@@ -298,8 +301,7 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
     return finder.value;
 }
 
-ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies,
-                           ir::Layout layout, ir::Expr base,
+ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
                            const std::string &obj_name) {
     struct FindPaths : public ir::Visitor {
         using Path =
@@ -322,18 +324,11 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies,
     };
     FindPaths finder;
     layout.accept(&finder);
-    internal_assert(bodies.size() == finder.paths.size())
-        << "Incorrect number of labelled paths in layout: " << layout
-        << " expected: " << bodies.size()
-        << " but found: " << finder.paths.size();
 
     // TODO: should this be scheduable...?
     // TODO: we want to insert likely() for non-leaves, I think?
     std::vector<std::string> order;
-    for (const auto &pair : bodies) {
-        internal_assert(finder.paths.contains(pair.first))
-            << "No path found for node type: " << pair.first
-            << " in layout: " << layout;
+    for (const auto &pair : finder.paths) {
         order.push_back(pair.first);
     }
     std::sort(order.begin(), order.end(),
@@ -351,7 +346,9 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies,
 
     ir::Stmt if_chain;
     for (const auto &node_name : std::views::reverse(order)) {
-        internal_assert(bodies.contains(node_name));
+        // Make a hole for the body of this node type.
+        ir::Stmt body = ir::Label::make(node_name, ir::Stmt());
+
         if (if_chain.defined()) {
             ir::Expr cond;
             internal_assert(finder.paths.contains(node_name));
@@ -375,12 +372,12 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies,
 
             internal_assert(cond.defined());
 
-            if_chain = ir::IfElse::make(std::move(cond), bodies.at(node_name),
+            if_chain = ir::IfElse::make(std::move(cond), std::move(body),
                                         std::move(if_chain));
         } else {
             // TODO: this doesn't work if it's possible to have fully NULL
             // reprs.
-            if_chain = bodies.at(node_name);
+            if_chain = std::move(body);
         }
     }
     internal_assert(if_chain.defined());
@@ -388,159 +385,14 @@ ir::Stmt lower_switch_tree(std::map<std::string, ir::Stmt> bodies,
 }
 
 struct LowerUnwrapAccesses : public ir::Mutator {
-    const ir::LayoutMap &layouts;
-    const ir::TypeMap &structs;
+    const std::string &tree_name;
+    const std::string &node_type;
+    const std::map<std::string, ir::Expr> &field_map;
 
-    LowerUnwrapAccesses(const ir::LayoutMap &layouts,
-                        const ir::TypeMap &structs)
-        : layouts(layouts), structs(structs) {}
-
-    std::map<std::string, ir::Type> ref_types;
-    bool in_match = false;
-
-    ir::Stmt visit(const ir::Match *node) override {
-        if (in_match) {
-            // Just lower to an if-else or switch chain!
-            internal_error << "[unimplemented] nested Match lowering";
-        }
-        in_match = true;
-        // TODO: can do stack-top optimizations
-
-        // TODO: this should be taken from the schedule!
-        const int stack_size = 64;
-
-        // TODO: should these be unique? What if nested traversals? e.g. TLAS /
-        // BLAS?
-        const std::string stack_name = "_stack";
-        const std::string count_name = "_count";
-        internal_assert(node->loc.is<ir::Var>())
-            << "[unimplemented] Match on non-Var: " << ir::Stmt(node);
-        const std::string node_name = node->loc.as<ir::Var>()->name;
-        const std::string top_name = "_top";
-
-        const size_t n_branches = node->arms.size();
-        std::map<std::string, ir::Stmt> bodies;
-
-        FindFromType finder;
-        for (size_t i = 0; i < n_branches; i++) {
-            ir::Stmt body = mutate(node->arms[i].second);
-            body.accept(&finder);
-            bodies[node->arms[i].first.name()] = std::move(body);
-        }
-        internal_assert(finder.from_type.defined())
-            << "No YieldFroms in Match: " << ir::Stmt(node);
-
-        // TODO: Array_t for dynamic...?
-        ir::Type stack_etype = std::move(finder.from_type);
-        // ir::Type stack_type = ir::Vector_t::make(stack_etype, stack_size);
-        // ir::Stmt alloc = ir::Assign::make(ir::WriteLoc(stack_name,
-        // stack_type), ir::Build::make(stack_type, std::vector<ir::Expr>{}),
-        // /*mutating=*/false);
-        // TODO(ajr): make stack iterable size scheduable?
-        static const ir::Type count_type = ir::UInt_t::make(32);
-        static const ir::Expr count_zero = make_zero(count_type);
-        ir::Expr stack_size_expr = ir::UIntImm::make(count_type, stack_size);
-        ir::Type stack_type =
-            ir::Array_t::make(stack_etype, std::move(stack_size_expr));
-        ir::Stmt alloc = ir::Allocate::make(stack_name, stack_type);
-        ir::WriteLoc counter_loc(count_name, count_type);
-        ir::Stmt set_count =
-            ir::Assign::make(counter_loc, count_zero, /*mutating=*/false);
-        ir::Expr counter = ir::Var::make(count_type, count_name);
-        ir::Expr stack = ir::Var::make(stack_type, stack_name);
-
-        // TODO(ajr): this doesn't work for nested Matches!! debug with
-        // collision detection. This also assumes that the root is always 0, and
-        // that there is an INFINITY value for stack_etype.
-        ir::WriteLoc top_loc(top_name, stack_etype);
-        ir::Stmt set_root = ir::Assign::make(top_loc, make_zero(stack_etype),
-                                             /*mutating=*/false);
-        ir::Expr inf_value = make_inf(stack_etype);
-        ir::Stmt set_canary =
-            ir::Store::make(stack_name, make_zero(count_type), inf_value);
-        ir::Expr top_var = ir::Var::make(stack_etype, top_name);
-
-        LowerFroms lower_froms(stack_name, counter_loc, counter);
-        for (auto &[_, body] : bodies) {
-            body = lower_froms.mutate(body);
-        }
-
-        // Now, based on layout, form switch-tree.
-        ir::Layout layout = [&]() {
-            const auto &iter = layouts.find(node_name);
-            internal_assert(iter != layouts.cend())
-                << "Failed to find layout of: " << node_name
-                << " for Match lowering: " << ir::Stmt(node);
-            return iter->second;
-        }();
-
-        ir::Type struct_type = [&]() {
-            const auto &iter = structs.find(node_name);
-            internal_assert(iter != structs.cend())
-                << "Failed to find type of: " << node_name
-                << " for Match lowering: " << ir::Stmt(node);
-            return iter->second;
-        }();
-
-        // TODO(ajr): this does not handle nested Matches!
-        ir::Stmt extract_from_top;
-        const auto indexes = get_index_type(layout);
-
-        if (indexes.size() > 1) {
-            std::vector<ir::Stmt> extracts(indexes.size());
-            int n_extracted = 0;
-            for (auto &[name, type] : std::views::reverse(indexes)) {
-                std::string iter_name = get_group_name(node_name, name);
-                ir::WriteLoc loc(std::move(iter_name), std::move(type));
-                ir::Expr value = ir::Extract::make(top_var, n_extracted);
-                extracts[n_extracted++] =
-                    ir::LetStmt::make(std::move(loc), std::move(value));
-            }
-            extract_from_top = ir::Sequence::make(std::move(extracts));
-        } else {
-            internal_assert(indexes.size() == 1);
-            std::string iter_name = get_group_name(node_name, indexes[0].first);
-            ir::WriteLoc loc(std::move(iter_name),
-                             std::move(indexes[0].second));
-            extract_from_top = ir::LetStmt::make(std::move(loc), top_var);
-        }
-
-        ir::Expr base_struct = ir::Var::make(struct_type, node_name);
-        ir::Stmt match_body = lower_switch_tree(
-            std::move(bodies), std::move(layout), base_struct, node_name);
-
-        // TODO: perform top optimizations.
-        ir::Stmt do_while_body = ir::Sequence::make(
-            {// set relevant indices from stack top.
-             std::move(extract_from_top),
-             // perform match on current `top`
-             std::move(match_body),
-             // set current top
-             ir::Assign::make(top_loc, ir::Extract::make(stack, counter),
-                              /*mutating=*/true),
-             ir::Accumulate::make(counter_loc, ir::Accumulate::Sub,
-                                  make_one(count_type))});
-
-        ir::Expr top_not_empty = (top_var != inf_value);
-
-        ir::Stmt do_while = ir::DoWhile::make(std::move(do_while_body),
-                                              std::move(top_not_empty));
-
-        in_match = false;
-
-        std::vector<ir::Stmt> body = {
-            std::move(alloc),      // stack = allocate stack
-            std::move(set_count),  // count = 0;
-            std::move(set_root),   // assign node = 0 // root
-            std::move(set_canary), // stack[0] = INFINITY(reference_type)
-            std::move(do_while)    // do {
-                                   //   extract-from-top;
-                                   //   if-else-body;
-                                   //   node = stack[count--];
-                                   // } while(node != INFINITY(REFERENCE_TYPE))
-        };
-        return ir::Sequence::make(std::move(body));
-    }
+    LowerUnwrapAccesses(const std::string &tree_name,
+                        const std::string &node_type,
+                        const std::map<std::string, ir::Expr> &field_map)
+        : tree_name(tree_name), node_type(node_type), field_map(field_map) {}
 
     ir::Expr visit(const ir::Access *node) override {
         if (!node->value.is<ir::Unwrap>()) {
@@ -551,18 +403,203 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             << "[unimplemented] Access of Unwrap on non-Var: "
             << ir::Expr(node);
 
-        std::string tree_name = as_unwrap->value.as<ir::Var>()->name;
+        std::string var_name = as_unwrap->value.as<ir::Var>()->name;
 
-        internal_assert(structs.contains(tree_name));
-        ir::Expr base = ir::Var::make(structs.at(tree_name), tree_name);
-        // std::cout << "BASE: " << base << "\n";
-        return get_field(base, tree_name, layouts.at(tree_name),
-                         as_unwrap->type.as<ir::Struct_t>()->name, node->field);
+        if (var_name == tree_name) {
+            internal_assert(as_unwrap->type.is<ir::Struct_t>());
+            if (as_unwrap->type.as<ir::Struct_t>()->name == node_type) {
+                const auto &iter = field_map.find(node->field);
+                internal_assert(iter != field_map.cend())
+                    << "In lowering of " << ir::Expr(node)
+                    << ", failed to find field: " << node->field
+                    << " in field map of " << tree_name;
+                return iter->second;
+            }
+        }
+
+        // Not the rewrite we're looking for.
+        return ir::Mutator::visit(node);
+    }
+};
+
+struct FillHole : public ir::Mutator {
+    const std::string &label_name;
+    ir::Stmt repl;
+
+    FillHole(const std::string &label_name, ir::Stmt repl)
+        : label_name(label_name), repl(std::move(repl)) {}
+
+    ir::Stmt visit(const ir::Label *node) override {
+        if (node->name == label_name) {
+            internal_assert(!node->body.defined())
+                << "Expected hole when lowering: " << label_name
+                << " branch to " << repl;
+            internal_assert(repl.defined())
+                << "Found multiple holes when lowering: " << label_name;
+            return std::move(repl);
+        }
+        return ir::Mutator::visit(node);
+    }
+};
+
+ir::Expr flatten_tuple(ir::Expr expr) {
+    std::vector<ir::Expr> exprs;
+
+    std::function<void(const ir::Expr &)> handle_tuple =
+        [&](const ir::Expr &t) -> void {
+        if (const ir::Build *as_build = t.as<ir::Build>()) {
+            for (const ir::Expr &expr : as_build->values) {
+                handle_tuple(expr);
+            }
+        } else {
+            internal_assert(!t.type().is<ir::Tuple_t>())
+                << "[unimplemented] flatten_tuple of non-Build: " << t;
+            exprs.push_back(t);
+        }
+    };
+
+    handle_tuple(expr);
+
+    internal_assert(!exprs.empty());
+
+    // Base case, no tuple:
+    if (exprs.size() == 1) {
+        return expr;
     }
 
-    ir::Expr visit(const ir::Unwrap *node) override {
-        internal_error << "Found Unwrap not handled by Access visitor: "
-                       << ir::Expr(node);
+    std::vector<ir::Type> etypes;
+    etypes.reserve(exprs.size());
+    std::transform(exprs.begin(), exprs.end(), std::back_inserter(etypes),
+                   [](const ir::Expr &e) { return e.type(); });
+
+    ir::Type tuple = ir::Tuple_t::make(std::move(etypes));
+    return ir::Build::make(std::move(tuple), std::move(exprs));
+}
+
+ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body) {
+    struct FlattenYieldFroms : public ir::Mutator {
+        const IndexTList &index_list;
+
+        FlattenYieldFroms(const IndexTList &index_list)
+            : index_list(index_list) {}
+
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            // Base case, single value yield from.
+            ir::Expr value = flatten_tuple(node->value);
+            ir::Type type = value.type();
+
+            if (index_list.size() == 1) {
+                internal_assert(ir::equals(type, index_list[0].type))
+                    << "Mismatching YieldFroms, expected type: "
+                    << index_list[0].type << " but found type: " << type
+                    << " in: " << ir::Stmt(node);
+            } else {
+                const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
+                internal_assert(tuple &&
+                                tuple->etypes.size() == index_list.size())
+                    << "Expected " << index_list.size()
+                    << " values, but found: " << type
+                    << " in recursive function of: " << ir::Stmt(node);
+
+                for (size_t i = 0; i < index_list.size(); i++) {
+                    internal_assert(
+                        ir::equals(index_list[i].type, tuple->etypes[i]))
+                        << "Mismatching YieldFroms, expected type: "
+                        << index_list[i].type
+                        << " but found type: " << tuple->etypes[i]
+                        << " at index: " << i << " in: " << ir::Stmt(node);
+                }
+            }
+            return ir::YieldFrom::make(std::move(value));
+        }
+    };
+
+    FlattenYieldFroms f(index_list);
+    return f.mutate(std::move(body));
+}
+
+struct LowerMatches : public ir::Mutator {
+    const ir::LayoutMap &layouts;
+    const ir::TypeMap &structs;
+
+    LowerMatches(const ir::LayoutMap &layouts, const ir::TypeMap &structs)
+        : layouts(layouts), structs(structs) {}
+
+    std::map<std::string, ir::Type> ref_types;
+    size_t n_matches = 0;
+    IndexTList index_list;
+
+    size_t counter = 0;
+
+    std::string get_unique_loop_label() {
+        return "_loop" + std::to_string(counter++);
+    }
+
+    ir::Stmt visit(const ir::Match *node) override {
+        internal_assert(node->loc.is<ir::Var>())
+            << "[unimplemented] Match on non-Var: " << ir::Stmt(node);
+        const std::string tree_name = node->loc.as<ir::Var>()->name;
+
+        // Now, based on layout, form switch-tree.
+        ir::Layout layout = [&]() {
+            const auto &iter = layouts.find(tree_name);
+            internal_assert(iter != layouts.cend())
+                << "Failed to find layout of: " << tree_name
+                << " for Match lowering: " << ir::Stmt(node);
+            return iter->second;
+        }();
+
+        ir::Type struct_type = [&]() {
+            const auto &iter = structs.find(tree_name);
+            internal_assert(iter != structs.cend())
+                << "Failed to find type of: " << tree_name
+                << " for Match lowering: " << ir::Stmt(node);
+            return iter->second;
+        }();
+
+        ir::Expr base_struct = ir::Var::make(struct_type, tree_name);
+        ir::Stmt body = lower_switch_tree(layout, base_struct, tree_name);
+
+        for (const auto &arm : node->arms) {
+            std::map<std::string, ir::Expr> field_map;
+            const std::string &branch_name = arm.first.name();
+            for (const auto &field : arm.first.fields()) {
+                field_map[field.first] = get_field(
+                    base_struct, tree_name, layout, branch_name, field.first);
+            }
+
+            // Lower these Unwraps.
+            ir::Stmt branch_body =
+                LowerUnwrapAccesses(tree_name, branch_name, field_map)
+                    .mutate(arm.second);
+
+            body = FillHole(branch_name, std::move(branch_body))
+                       .mutate(std::move(body));
+        }
+
+        // std::cout << "pushing back: " << tree_name << " at index: " <<
+        // n_matches << std::endl;
+        IndexTList node_index_list = get_index_type(tree_name, layout);
+        std::reverse(node_index_list.begin(), node_index_list.end());
+        index_list.insert(index_list.end(),
+                          std::make_move_iterator(node_index_list.begin()),
+                          std::make_move_iterator(node_index_list.end()));
+
+        // Now recursively mutate the body, for nested matches.
+        n_matches++;
+        body = mutate(body);
+        n_matches--;
+
+        // The outermost match is a recursive while loop.
+        // To find the types, grab the recursive types from
+        // YieldFroms.
+
+        if (n_matches == 0) {
+            body = flatten_yield_froms(index_list, std::move(body));
+
+            return ir::RecLoop::make(std::move(index_list), std::move(body));
+        }
+        return body;
     }
 };
 
@@ -606,7 +643,7 @@ ir::Program LowerLayouts::run(ir::Program program) const {
     }
 
     // lower all `Access`es on `Unwrap`s
-    LowerUnwrapAccesses lowerer(tree_layouts, types);
+    LowerMatches lowerer(tree_layouts, types);
 
     for (auto &[fname, func] : program.funcs) {
         for (auto &arg : func->args) {
@@ -614,6 +651,7 @@ ir::Program LowerLayouts::run(ir::Program program) const {
                 arg.type = types.at(arg.name);
             }
         }
+        // std::cout << "Lowering: " << func->body << "\n";
         func->body = lowerer.mutate(func->body);
     }
 

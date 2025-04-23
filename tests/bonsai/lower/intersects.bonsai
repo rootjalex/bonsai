@@ -1,5 +1,7 @@
 element Float = f32;
+element Half = f16;
 element vec3f = vector[Float, 3];
+element vec3h = vector[Half, 3];
 
 // TODO: generics
 func sqlen(v : vector[Float, 3]) -> Float = sum(v * v);

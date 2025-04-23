@@ -53,6 +53,15 @@ bool Type::is_int_or_uint() const {
            (this->is<Array_t>() && this->as<Array_t>()->etype.is_int_or_uint());
 }
 
+bool Type::is_int_tuple() const {
+    const Tuple_t *tuple = this->as<Tuple_t>();
+    if (tuple == nullptr) {
+        return false;
+    }
+    return std::all_of(tuple->etypes.cbegin(), tuple->etypes.cend(),
+                       [](const auto &t) { return t.is_int_or_uint(); });
+}
+
 bool Type::is_float() const {
     return this->is<Float_t>() ||
            (this->is<Vector_t>() && this->as<Vector_t>()->etype.is_float()) ||

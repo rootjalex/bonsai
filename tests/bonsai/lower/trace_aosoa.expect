@@ -6,23 +6,24 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type _triangles_layout0 = struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }
-type _triangles_layout1 = struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
+type _ts_layout0 = struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }
+type _ts_layout1 = struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }
+type _ts_layout2 = struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
+extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
 
-func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
+func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
-  rec(triangles__index : u32) {
-    if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
-      if (triangles.triangles_index[triangles__index].nPrims == 0u) {
-        from triangles__index + 1u
-        from triangles__index + cast<__layout6>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).offset
+  rec(ts__index : u32, ts__bit : u1) {
+    if (intersects_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) && (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0)) {
+      if (ts.ts_index[ts__index].ts_bit[ts__bit].nPrims == 0u) {
+        from build<tuple.1>(cast<__layout6>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 0u)
+        from build<tuple.1>(cast<__layout7>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 1u)
       } else {
-        forall _idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
-          let _iter0 = triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0] in
+        forall _idx0 in [0u:cast<u32>(ts.ts_index[ts__index].ts_bit[ts__bit].nPrims):1u] {
+          let _iter0 = ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0] in
           if (intersectsp_ray_tri(ray, _iter0).set && (distmin_Ray_Triangle(ray, _iter0) < _best0._field0)) {
             _best0 = build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
           }
@@ -176,8 +177,8 @@ func sqlen(v : f32x3) -> f32 {
   return reduce<+>(v * v)
 }
 
-func [[export]] trace(_ret0 : mut Triangle, ray : Ray, triangles : _triangles_layout1) -> void {
-  _ret0 = _traverse_tree0(ray, triangles)
+func [[export]] trace(_ret0 : mut Triangle, ray : Ray, ts : _ts_layout2) -> void {
+  _ret0 = _traverse_tree0(ray, ts)
   return
 }
 

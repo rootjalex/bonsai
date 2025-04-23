@@ -37,7 +37,6 @@ struct FindSoloYield : public ir::Visitor {
     RESTRICT_VISITOR(ir::ForEach);
     // TODO: support scans too.
     RESTRICT_VISITOR(ir::Scan);
-    RESTRICT_VISITOR(ir::YieldFrom);
 
     void visit(const ir::ForAll *node) override {
         in_loop++;

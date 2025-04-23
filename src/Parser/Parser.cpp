@@ -1017,6 +1017,30 @@ struct Parser {
     ir::Expr parse_base_expr() {
         if (consume(Token::Type::LPAREN)) {
             ir::Expr inner = parse_expr();
+            if (consume(Token::Type::COMMA)) {
+                // Tuple constructor.
+                std::vector<ir::Expr> values = {std::move(inner)};
+                std::vector<ir::Type> etypes = {values[0].type()};
+                if (!etypes.back().defined()) {
+                    report_error() << "[unimplemented] tuple construction "
+                                      "with value of unknown type: "
+                                   << values.back();
+                }
+                do {
+                    ir::Expr next = parse_expr();
+                    values.emplace_back(std::move(next));
+                    etypes.push_back(values.back().type());
+                    // TODO: improve type inference to handle this?
+                    if (!etypes.back().defined()) {
+                        report_error() << "[unimplemented] tuple construction "
+                                          "with value of unknown type: "
+                                       << values.back();
+                    }
+                } while (consume(Token::Type::COMMA));
+                // TODO: gracefully
+                ir::Type tuple_t = ir::Tuple_t::make(std::move(etypes));
+                inner = ir::Build::make(std::move(tuple_t), std::move(values));
+            }
             expect(Token::Type::RPAREN);
             return inner;
             // TODO: do these have the correct precedence?

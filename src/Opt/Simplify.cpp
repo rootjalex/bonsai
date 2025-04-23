@@ -180,6 +180,53 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
+        case ir::BinOp::OpType::And: {
+            if (ir::Expr e = constant_fold(std::logical_and<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            if (is_const_zero(a) || is_const_zero(b)) {
+                // false && x = false
+                return a;
+            }
+            if (is_const_one(a)) {
+                // true && x = x
+                return b;
+            }
+            if (is_const_one(b)) {
+                // x && true = x
+                return a;
+            }
+            if (ir::equals(a, b)) {
+                // x && x = x
+                return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
+
+        case ir::BinOp::OpType::Or: {
+            if (ir::Expr e = constant_fold(std::logical_or<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            if (is_const_one(a) || is_const_one(b)) {
+                // true || x = true
+                return a;
+            }
+            if (is_const_zero(a)) {
+                // false || x = x
+                return b;
+            }
+            if (is_const_zero(b)) {
+                // x || false = x
+                return a;
+            }
+            if (ir::equals(a, b)) {
+                // x || x = x
+                return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
         default:
             return make(node, std::move(a), std::move(b));
         }

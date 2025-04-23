@@ -1888,6 +1888,13 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     frames.add_to_frame(node->name, {alloc, /* mutable=*/false});
 }
 
+void CodeGen_LLVM::visit(const Label *node) {
+    internal_assert(node->body.defined())
+        << "Label with undefined body made it to codegen: " << node->name;
+    // TODO: add label as a comment to body here?
+    codegen_stmt(node->body);
+}
+
 void CodeGen_LLVM::visit(const ForAll *node) {
     llvm::Value *begin = codegen_expr(node->slice.begin);
 

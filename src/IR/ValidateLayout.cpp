@@ -103,7 +103,9 @@ bool valid_path(const Path &path, const BVH_t::Node &node) {
             return false;
         }
         if (!equals(param.second, iter->second)) {
-            if (param.second.is<ir::Ref_t>() && iter->second.is_int_or_uint()) {
+            if (param.second.is<ir::Ref_t>() &&
+                (iter->second.is_int_or_uint() ||
+                 iter->second.is_int_tuple())) {
                 // TODO: figure out how to validate references as indexes into
                 // groups!
                 continue;

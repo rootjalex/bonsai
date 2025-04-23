@@ -72,6 +72,7 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_int() const;
     bool is_uint() const;
     bool is_int_or_uint() const;
+    bool is_int_tuple() const;
     bool is_float() const;
     bool is_bool() const;
     bool is_scalar() const;

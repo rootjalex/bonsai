@@ -1,0 +1,50 @@
+import tests/bonsai/lower/intersects;
+
+extern ts : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), ts));
+
+// func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), ts);
+
+
+schedule {
+    // TODO: generic over primitive types!
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : array[Triangle]);
+
+    ts : TriangleBVH;
+
+    layout ts {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low_32 : vec3f; // float32
+            high_32 : vec3f; // float32
+
+            group[2] bit : u1 {
+                low_16 : vec3h;
+                low = low_32 + cast[[vec3f]](low_16);
+                high_16 : vec3h;
+                high = high_32 + cast[[vec3f]](high_16);
+                nPrims : u16;
+                axis : u8;
+                8; // pad bits.
+                switch nPrims {
+                    0 => Interior {
+                        offset : u32;
+                        left = (offset, cast[[u1]](0));
+                        right = (offset, cast[[u1]](1));
+                    };
+                    _ => Leaf {
+                        pOffset : u32;
+                        data = range(prims, pOffset, cast[[u32]](nPrims));
+                    };
+                };
+            };
+        };
+    };
+}
+
+

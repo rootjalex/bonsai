@@ -66,6 +66,8 @@ struct Visitor {
     virtual void visit(const Assign *);
     virtual void visit(const Accumulate *);
     virtual void visit(const Allocate *);
+    virtual void visit(const Label *);
+    virtual void visit(const RecLoop *);
     virtual void visit(const Match *);
     virtual void visit(const Yield *);
     virtual void visit(const Scan *);
