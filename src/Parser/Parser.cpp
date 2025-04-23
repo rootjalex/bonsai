@@ -1001,14 +1001,14 @@ struct Parser {
     ir::Expr parse_and() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_bwor(); },
-            {{{ir::BinOp::And, Token::Type::AND}}});
+            {{{ir::BinOp::LAnd, Token::Type::LOGICAL_AND}}});
     }
 
     // or_expr := base_expr ('||' base_expr)*
     ir::Expr parse_or() {
         return parse_bin_op_with_precedence<1>(
             [this]() { return parse_and(); },
-            {{{ir::BinOp::Or, Token::Type::LOR}}});
+            {{{ir::BinOp::LOr, Token::Type::LOGICAL_OR}}});
     }
 
     // base_expr := '(' expr ')' | name (('.' field) | ('[' index (, index)* ']'

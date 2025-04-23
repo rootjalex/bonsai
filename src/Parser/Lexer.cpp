@@ -329,7 +329,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '&') {
                     program_stream.get();
-                    add_token(Token::Type::AND);
+                    add_token(Token::Type::LOGICAL_AND);
                 } else {
                     add_token(Token::Type::BITWISE_AND);
                 }
@@ -338,7 +338,7 @@ void Lexer::lex() {
                 program_stream.get();
                 if (program_stream.peek() == '|') {
                     program_stream.get();
-                    add_token(Token::Type::LOR);
+                    add_token(Token::Type::LOGICAL_OR);
                     break;
                 }
                 add_token(Token::Type::BAR);

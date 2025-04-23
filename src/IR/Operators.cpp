@@ -20,11 +20,11 @@ Expr operator/(Expr a, Expr b) {
 }
 
 Expr operator&&(Expr a, Expr b) {
-    return BinOp::make(BinOp::And, std::move(a), std::move(b));
+    return BinOp::make(BinOp::LAnd, std::move(a), std::move(b));
 }
 
 Expr operator||(Expr a, Expr b) {
-    return BinOp::make(BinOp::Or, std::move(a), std::move(b));
+    return BinOp::make(BinOp::LOr, std::move(a), std::move(b));
 }
 
 Expr operator^(Expr a, Expr b) {

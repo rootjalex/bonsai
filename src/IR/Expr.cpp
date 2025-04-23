@@ -168,8 +168,8 @@ bool BinOp::is_numeric_op(const BinOp::OpType &op) {
     switch (op) {
     // Technically, And, Or, BwAnd, BwOr, and Xor keep the type of the operands.
     // maybe need to rename this function.
-    case BinOp::And:
-    case BinOp::Or:
+    case BinOp::LAnd:
+    case BinOp::LOr:
     case BinOp::Xor:
     case BinOp::BwAnd:
     case BinOp::BwOr:
@@ -189,8 +189,8 @@ bool BinOp::is_numeric_op(const BinOp::OpType &op) {
 
 bool BinOp::is_boolean_op(const BinOp::OpType &op) {
     switch (op) {
-    case BinOp::And:
-    case BinOp::Or:
+    case BinOp::LAnd:
+    case BinOp::LOr:
     case BinOp::Xor:   // see above note
     case BinOp::BwAnd: // see above note
     case BinOp::BwOr:  // see above note
@@ -292,7 +292,7 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
             << "BinOp of mismatched types: " << a << " : " << a.type() << " "
             << to_string(op) << " " << b << " : " << b.type();
 
-        if (op == BinOp::And || op == BinOp::Or) {
+        if (op == BinOp::LAnd || op == BinOp::LOr) {
             // Verify logical operations only act upon options, bools aggregates
             // of bools.
             internal_assert(is_valid_logical_operation(a.type()) &&

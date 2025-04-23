@@ -593,9 +593,9 @@ std::string to_string(const BinOp::OpType &op) {
         return "<=";
     case BinOp::Lt:
         return "<";
-    case BinOp::And:
+    case BinOp::LAnd:
         return "&&";
-    case BinOp::Or:
+    case BinOp::LOr:
         return "||";
     case BinOp::Xor:
         return "^";

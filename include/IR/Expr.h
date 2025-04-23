@@ -158,7 +158,7 @@ struct Infinity : ExprNode<Infinity> {
 struct BinOp : ExprNode<BinOp> {
     enum OpType {
         Add,
-        And,
+        LAnd,
         Div,
         Eq,
         Le,
@@ -166,7 +166,7 @@ struct BinOp : ExprNode<BinOp> {
         Mod,
         Mul,
         Neq,
-        Or,
+        LOr,
         Sub,
         Xor,
         BwAnd,

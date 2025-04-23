@@ -67,9 +67,9 @@ class Token {
         BAR,       // |
 
         ASSIGN,      // =
-        AND,         // &&
+        LOGICAL_AND, // &&
         AT,          // @
-        LOR,         // ||
+        LOGICAL_OR,  // ||
         XOR,         // ^
         BITWISE_AND, // &
         NOT,         // !

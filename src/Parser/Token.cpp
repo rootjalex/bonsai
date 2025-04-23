@@ -83,8 +83,8 @@ uint64_t Token::size() const {
     case Token::Type::GT:
         return 1;
     case Token::Type::INC:
-    case Token::Type::AND:
-    case Token::Type::LOR:
+    case Token::Type::LOGICAL_AND:
+    case Token::Type::LOGICAL_OR:
     case Token::Type::DEC:
     case Token::Type::EQ:
     case Token::Type::NEQ:
@@ -218,16 +218,16 @@ std::string Token::token_type_string(Token::Type type) {
         return "semicol";
     case Token::Type::ASSIGN:
         return "assign";
-    case Token::Type::AND:
-        return "and";
+    case Token::Type::LOGICAL_AND:
+        return "logical-and";
     case Token::Type::AT:
         return "at";
-    case Token::Type::LOR:
+    case Token::Type::LOGICAL_OR:
         return "logical-or";
     case Token::Type::XOR:
         return "xor";
     case Token::Type::BITWISE_AND:
-        return "bw-and";
+        return "bitwise-and";
     case Token::Type::NOT:
         return "not";
     case Token::Type::PLUS:

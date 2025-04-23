@@ -41,7 +41,7 @@ OptionSets get_option_sets(const ir::Expr &expr) {
     if (const ir::BinOp *node = expr.as<ir::BinOp>()) {
         switch (node->op) {
         // sets(a && b) = union(sets(a), sets(b))
-        case ir::BinOp::And: {
+        case ir::BinOp::LAnd: {
             OptionSets a = get_option_sets(node->a);
             OptionSets b = get_option_sets(node->b);
             a.positive.insert(std::make_move_iterator(b.positive.begin()),
