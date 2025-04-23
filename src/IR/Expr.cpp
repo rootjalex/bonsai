@@ -210,6 +210,16 @@ bool BinOp::is_boolean_op(const BinOp::OpType &op) {
 
 namespace {
 
+// Returns whether this type is valid for logical operations.
+bool is_valid_logical_operation(ir::Type type) {
+    if (type.is<ir::Vector_t>()) {
+        // TODO(cgyurgyik): Required otherwise rect_contains.bonsai fails.
+        // What does `a` && `b` mean for a: boolxN, b: boolxN?
+        return type.element_of().is<ir::Option_t, Bool_t>();
+    }
+    return type.is<ir::Option_t, Bool_t>();
+}
+
 void try_match_types(Expr &a, Expr &b) {
     if (a.type().defined() && b.type().defined()) {
         if (equals(a.type(), b.type())) {
@@ -288,13 +298,11 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
             << to_string(op) << " " << b << " : " << b.type();
 
         if (op == BinOp::And || op == BinOp::Or) {
-            ir::Type at = a.type(), bt = b.type();
-            auto valid = [](ir::Type t) -> bool {
-                return t.is<ir::Option_t, Bool_t>();
-            };
-            internal_assert((valid(at) && valid(bt)) ||
-                            (valid(at.element_of()) && valid(bt.element_of())))
-                << at << ", " << bt;
+            // Verify logical operations only act upon options, bools aggregates
+            // of bools.
+            internal_assert(is_valid_logical_operation(a.type()) &&
+                            is_valid_logical_operation(b.type()))
+                << a.type() << ", " << b.type();
             if (a.type().is<Option_t>() || b.type().is<Option_t>()) {
                 // TODO: handle vectors of options?
                 node->type = Bool_t::make();
@@ -335,7 +343,7 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
-            internal_assert((a.type().is<Option_t, Bool_t>())) << a.type();
+            internal_assert(is_valid_logical_operation(a.type())) << a.type();
             if (a.type().is<Option_t>()) {
                 a = Cast::make(Bool_t::make(), a);
             }
