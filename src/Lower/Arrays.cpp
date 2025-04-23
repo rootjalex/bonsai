@@ -286,7 +286,7 @@ struct LowerToForAll : public ir::Mutator {
         // Create the allocation. The type is currently just inferred from the
         // yielded value.
         ir::Type iter_type = toplevel_iterable.type();
-        ir::Type yield_type = ir::Array_t::make(body->value.type(), iter_type.as<ir::Array_t>()->size);
+        ir::Type yield_type = iter_type.with_etype(body->value.type());
         std::string allocation_name = unique_alloc_name();
         ir::Stmt allocation = ir::Allocate::make(allocation_name, yield_type);
 

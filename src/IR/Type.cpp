@@ -148,6 +148,24 @@ Type Type::element_of() const {
     }
 }
 
+Type Type::with_etype(Type etype) const {
+    auto do_recurse = [](const Type &t) { return t.is<Vector_t, Array_t, Set_t>(); };
+    if (const Vector_t *vec = this->as<Vector_t>()) {
+        const Type vtype = vec->etype;
+        Type inner = do_recurse(vtype) ? vtype.with_etype(std::move(etype)) : std::move(etype);
+        return Vector_t::make(std::move(inner), vec->lanes);
+    } else if (const Array_t *array = this->as<Array_t>()) {
+        const Type vtype = array->etype;
+        Type inner = do_recurse(vtype) ? vtype.with_etype(std::move(etype)) : std::move(etype);
+        return Array_t::make(std::move(inner), array->size);
+    } else if (const Set_t *set = this->as<Set_t>()) {
+        const Type vtype = set->etype;
+        Type inner = do_recurse(vtype) ? vtype.with_etype(std::move(etype)) : std::move(etype);
+        return Set_t::make(std::move(inner));
+    }
+    internal_error << "with_etype(" << etype << ") called on " << *this << " which is not a collection.";
+}
+
 Type Void_t::make() {
     static Type global_void = new Void_t;
     return global_void;

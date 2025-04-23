@@ -89,6 +89,8 @@ struct Type : public IRHandle<IRTypeNode> {
     Type to_uint() const;
     // returns (Vector_t | Set_t)'s etype
     Type element_of() const;
+    // Changes the element type to etype
+    Type with_etype(Type etype) const;
 
     // TODO: implement copy/move semantics!
 };
