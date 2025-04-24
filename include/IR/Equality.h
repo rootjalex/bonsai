@@ -15,7 +15,8 @@ struct TypeLessThan {
 };
 
 // TODO(cgyurgyik): There are many mathematical identities that can also apply
-// here, e.g., x + y = y + x (for integral types, at least).
+// here, e.g., x + y = y + x (for integral types, at least). Either we want to
+// look for those, or more likely apply some sort of canonicalization.
 bool equals(const Expr &e0, const Expr &e1);
 
 struct ExprLessThan {

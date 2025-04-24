@@ -61,7 +61,6 @@ func mutating_argument(x: mut i32) -> i32 {
   c: i32 = a + x;    // #3
   x += 1;
   d: i32 = a + x;    // #4
-  e: i32 = a + x;    // #4
 
   return 0;
 }

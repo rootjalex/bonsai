@@ -42,7 +42,6 @@ func mutating_argument(x : mut i32) -> i32 {
   let c = a + x in
   x += 1
   let d = a + x in
-  let e = d in
   return 0
 }
 
