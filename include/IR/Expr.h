@@ -171,6 +171,9 @@ struct BinOp : ExprNode<BinOp> {
         Xor,
         BwAnd,
         BwOr,
+        Shl,
+        // Arithmetic on signed integral types, and logical otherwise.
+        Shr,
     };
 
     OpType op;

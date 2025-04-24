@@ -178,6 +178,8 @@ bool BinOp::is_numeric_op(const BinOp::OpType &op) {
     case BinOp::Mul:
     case BinOp::Div:
     case BinOp::Sub:
+    case BinOp::Shl:
+    case BinOp::Shr:
         return true;
     case BinOp::Neq:
     case BinOp::Eq:
@@ -199,6 +201,8 @@ bool BinOp::is_boolean_op(const BinOp::OpType &op) {
     case BinOp::Mul:
     case BinOp::Div:
     case BinOp::Sub:
+    case BinOp::Shl:
+    case BinOp::Shr:
         return false;
     case BinOp::Neq:
     case BinOp::Eq:

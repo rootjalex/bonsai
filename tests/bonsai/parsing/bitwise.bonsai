@@ -14,9 +14,10 @@ func order_of_operations() -> i32 {
   b: i32 = 10;
   c: i32 = 6;
   d: i32 = 1;
+  e: i32 = 3;
 
-  expect: i32 = (((a & b) ^ c) | d);
-  actual: i32 =    a & b  ^ c  | d;
+  expect: i32 = ((a & (b << e)) ^ c) | d;
+  actual: i32 =   a &  b << e   ^ c  | d;
   print(expect);
   print(actual);
   return 0;

@@ -11,8 +11,9 @@ func order_of_operations() -> i32 {
   let b = 10 in
   let c = 6 in
   let d = 1 in
-  let expect = ((a & b) ^ c) | d in
-  let actual = ((a & b) ^ c) | d in
+  let e = 3 in
+  let expect = ((a & (b << e)) ^ c) | d in
+  let actual = ((a & (b << e)) ^ c) | d in
   print(expect)
   print(actual)
   return 0
