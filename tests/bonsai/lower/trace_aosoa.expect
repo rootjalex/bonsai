@@ -39,7 +39,7 @@ func _unexported_trace(ray : Ray, ts : _ts_layout2) -> Triangle {
 }
 
 func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
-  return build<f32x3>(prod_diff(v0[1u], v1[2u], v0[2u], v1[1u]), prod_diff(v0[2u], v1[0u], v0[0u], v1[2u]), prod_diff(v0[0u], v1[1u], v0[1u], v1[0u]))
+  return build<f32x3>(prod_diff$f32(v0[1u], v1[2u], v0[2u], v1[1u]), prod_diff$f32(v0[2u], v1[0u], v0[0u], v1[2u]), prod_diff$f32(v0[0u], v1[1u], v0[1u], v1[0u]))
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
@@ -131,9 +131,9 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
   p1t[1u] += Sy * p1t[2u]
   p2t[0u] += Sx * p2t[2u]
   p2t[1u] += Sy * p2t[2u]
-  let e0 = (p1t[0u] * p2t[1u]) - (p1t[1u] * p2t[0u]) in
-  let e1 = (p2t[0u] * p0t[1u]) - (p2t[1u] * p0t[0u]) in
-  let e2 = (p0t[0u] * p1t[1u]) - (p0t[1u] * p1t[0u]) in
+  let e0 = prod_diff$f32(p1t[0u], p2t[1u], p1t[1u], p2t[0u]) in
+  let e1 = prod_diff$f32(p2t[0u], p0t[1u], p2t[1u], p0t[0u]) in
+  let e2 = prod_diff$f32(p0t[0u], p1t[1u], p0t[1u], p1t[0u]) in
   if ((((e0 < 0f) || (e1 < 0f)) || (e2 < 0f)) && (((0f < e0) || (0f < e1)) || (0f < e2))) {
     return build<_option1>()
   }
@@ -170,14 +170,14 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
   return build<_option1>(build<TriangleIntersection>(b0, b1, b2, t), true)
 }
 
-func prod_diff(a : f32, b : f32, c : f32, d : f32) -> f32 {
+func prod_diff$f32(a : f32, b : f32, c : f32, d : f32) -> f32 {
   let cd = c * d in
   let diff = fma(a, b, -cd) in
   let err = fma(-c, d, cd) in
   return diff + err
 }
 
-func sqlen(v : f32x3) -> f32 {
+func sqlen$f32(v : f32x3) -> f32 {
   return reduce<+>(v * v)
 }
 

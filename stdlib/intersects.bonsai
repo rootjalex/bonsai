@@ -1,41 +1,7 @@
-element Float = f32;
-element Half = f16;
-element vec3f = vector[Float, 3];
-element vec3h = vector[Half, 3];
-
-// TODO: generics
-func sqlen(v : vector[Float, 3]) -> Float = sum(v * v);
-
-// TODO: implement generics!
-func prod_diff(a : Float, b : Float, c : Float, d : Float) -> Float {
-    cd = c * d;
-    diff = fma(a, b, -cd);
-    err = fma(-c, d, cd);
-    return diff + err;
-}
-
-func cross_(v0 : vector[Float, 3], v1 : vector[Float, 3]) -> vector[Float, 3] {
-    return {prod_diff(v0.y, v1.z, v0.z, v1.y), prod_diff(v0.z, v1.x, v0.x, v1.z), prod_diff(v0.x, v1.y, v0.y, v1.x)};
-}
-
-element Ray {
-    o : vec3f;
-    d : vec3f;
-    t : Float = 0;
-    // TODO: medium
-    // TODO: differential?
-}
-
-element Triangle {
-    p0, p1, p2 : vec3f;
-}
-
-element AABB {
-    low, high : vec3f;
-}
-
-// TODO: generic over F : IFloat
-func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
+import stdlib/aabb;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
 
 element FInterval {
     low, high : Float;
@@ -69,7 +35,6 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     tmax = min(tmax, tMax.z); // TODO: handle inf/nan behavior
 
     return FInterval{tmin, tmax};
-//    return (tmin < r.t) && (tmax > 0);
 }
 
 func intersects(r : Ray, b : AABB) -> bool {
@@ -81,34 +46,15 @@ func intersects(r : Ray, b : AABB) -> bool {
     return false;
 }
 
-func distmax(r : Ray, b : AABB) -> Float {
-    interval = intersectsp_ray_aabb(r, b);
-    if interval {
-        extract = *interval;
-        return extract.high;
-    }
-    return inf;
-}
-
-func distmin(r : Ray, b : AABB) -> Float {
-    interval = intersectsp_ray_aabb(r, b);
-    if interval {
-        extract = *interval;
-        return extract.low;
-    }
-    return -inf;
-}
-
 element TriangleIntersection {
     b0, b1, b2, t : Float;
 }
 
 // pstd::optional<TriangleIntersection> IntersectTriangle
 // shapes.cpp
-// TODO: need special intrinsic parsing!
 func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
     // Return no intersection if triangle is degenerate
-    if (sqlen(cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
+    if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
         return {};
 
     // Transform triangle vertices to ray coordinate space
@@ -138,13 +84,9 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
     p2t.y += Sy * p2t.z;
 
     // Compute edge function coefficients _e0_, _e1_, and _e2_
-    // TODO: understand what that function is doing
-    // e0 = DifferenceOfProducts(p1t.x, p2t.y, p1t.y, p2t.x);
-    // e1 = DifferenceOfProducts(p2t.x, p0t.y, p2t.y, p0t.x);
-    // e2 = DifferenceOfProducts(p0t.x, p1t.y, p0t.y, p1t.x);
-    e0 = p1t.x * p2t.y - p1t.y * p2t.x;
-    e1 = p2t.x * p0t.y - p2t.y * p0t.x;
-    e2 = p0t.x * p1t.y - p0t.y * p1t.x;
+    e0 = prod_diff[[Float]](p1t.x, p2t.y, p1t.y, p2t.x);
+    e1 = prod_diff[[Float]](p2t.x, p0t.y, p2t.y, p0t.x);
+    e2 = prod_diff[[Float]](p0t.x, p1t.y, p0t.y, p1t.x);
 
     // TODO: Fall back to double-precision test at triangle edges
     // if (sizeof(Float) == sizeof(float) && (e0 == 0.0f || e1 == 0.0f || e2 == 0.0f)) { ... }
@@ -201,15 +143,4 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
 
 func intersects(ray : Ray, tri : Triangle) -> bool {
     return cast[[bool]](intersectsp_ray_tri(ray, tri));
-}
-
-func distmin(ray : Ray, tri : Triangle) -> Float {
-    isect = intersectsp_ray_tri(ray, tri);
-    if isect {
-        // TODO(ajr): this is annoying syntax. Fix.
-        isect_ = *isect;
-        return isect_.t;
-    } else {
-        return inf;
-    }
 }

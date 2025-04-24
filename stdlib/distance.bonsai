@@ -1,0 +1,30 @@
+import stdlib/intersects;
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return -inf;
+}
+
+func distmin(ray : Ray, tri : Triangle) -> Float {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        // TODO(ajr): this is annoying syntax. Fix.
+        isect_ = *isect;
+        return isect_.t;
+    } else {
+        return inf;
+    }
+}

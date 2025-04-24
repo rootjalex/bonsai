@@ -1,0 +1,9 @@
+import stdlib/numerics;
+
+element Ray {
+    o : vec3f;
+    d : vec3f;
+    t : Float = 0;
+    // TODO: medium
+    // TODO: differential?
+}

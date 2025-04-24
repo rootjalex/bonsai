@@ -1,0 +1,21 @@
+element Float = f32;
+element Half = f16;
+element vec3f = vector[Float, 3];
+element vec3h = vector[Half, 3];
+
+func sqlen<F : IFloat>(v : vector[F, 3]) -> F = sum(v * v);
+
+func prod_diff<F : IFloat>(a : F, b : F, c : F, d : F) -> F {
+    cd = c * d;
+    diff = fma(a, b, -cd);
+    err = fma(-c, d, cd);
+    return diff + err;
+}
+
+// TODO(ajr): need nested generics for generic here.
+func cross_(v0 : vec3f, v1 : vec3f) -> vec3f {
+    return {prod_diff[[Float]](v0.y, v1.z, v0.z, v1.y), prod_diff[[Float]](v0.z, v1.x, v0.x, v1.z), prod_diff[[Float]](v0.x, v1.y, v0.y, v1.x)};
+}
+
+// TODO(ajr): need generics eps for generic here.
+func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
