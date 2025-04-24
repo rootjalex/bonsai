@@ -38,4 +38,8 @@ func rename(cond : bool) -> i32 {
   return 0
 }
 
+func unnamed_expressions(x : i32, y : i32) -> void {
+  let v = (x + y) + (x + y) in
+}
+
 
