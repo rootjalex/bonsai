@@ -18,17 +18,6 @@ namespace opt {
 
 namespace {
 
-// TODO(cgyurgyik): Provide a real hash function.
-struct ExprHash {
-    std::size_t operator()(const ir::Expr &expr) const { return 0; }
-};
-
-struct ExprEqual {
-    bool operator()(const ir::Expr &a, const ir::Expr &b) const {
-        return ir::equals(a, b);
-    }
-};
-
 // Validates whether the visited expression can undergo CSE.
 struct IsCseLegal : public ir::Visitor {
     IsCseLegal(const std::set<std::string> &side_effect_functions,
@@ -128,7 +117,7 @@ class CseImpl : public ir::Mutator {
     // assignments, and references to allocations.
     std::set<std::string> blacklisted_variables;
     // Maps expressions to the variable of its first occurrence.
-    std::unordered_map<ir::Expr, ir::Expr, ExprHash, ExprEqual>
+    std::unordered_map<ir::Expr, ir::Expr, ir::ExprHashImpl, ir::ExprEqualImpl>
         expression_to_variable;
 
     ir::Expr get(ir::Expr value, std::optional<ir::WriteLoc> location = {}) {

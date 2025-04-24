@@ -326,6 +326,10 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
 }
 
 Cmp compare_exprs(const Expr &e0, const Expr &e1) {
+    if (e0.same_as(e1)) {
+        // Point to the same node.
+        return Cmp::Equals;
+    }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(e0, e1)) {
         return *nodes_cmp;
     }

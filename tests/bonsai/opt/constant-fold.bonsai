@@ -11,3 +11,8 @@ func baz(z : i32) -> i32 {
 func foo(x : i32) -> i32 {
     return x + 0;
 }
+
+func fizz(x : i32) -> i32 {
+    c: i32 = x - x;
+    return c;
+}

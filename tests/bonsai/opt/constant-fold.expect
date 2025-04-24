@@ -6,6 +6,11 @@ func baz(z : i32) -> i32 {
   return z
 }
 
+func fizz(x : i32) -> i32 {
+  let c = 0 in
+  return 0
+}
+
 func foo(x : i32) -> i32 {
   return x
 }
