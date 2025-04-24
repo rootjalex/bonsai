@@ -43,6 +43,7 @@ struct LowerGeomOps : public Mutator {
         internal_assert(func != funcs.cend())
             << "Lowering needs an implementation of: " << name
             << " with types: " << a.type() << " and " << b.type();
+
         // Above shouldn't be possible without this.
         const auto &arg_types = func->second->args;
         internal_assert((arg_types.size() == 2) &&
