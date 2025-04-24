@@ -124,7 +124,9 @@ ir::BinOp::OpType acc_to_bin(const ir::Accumulate::OpType op) {
         return ir::BinOp::OpType::Sub;
     case ir::Accumulate::OpType::Argmin:
     case ir::Accumulate::OpType::Argmax:
-        internal_error << "unimplemented: " << op;
+        internal_error << "[unimplemented] mapping from Accumulate::OpType to "
+                          "respective BinOp::OpType: "
+                       << op;
     }
 }
 
