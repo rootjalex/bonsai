@@ -325,19 +325,6 @@ struct Intrinsic : ExprNode<Intrinsic> {
     static const IRExprEnum node_type = IRExprEnum::Intrinsic;
 };
 
-struct TypedVar {
-    std::string name;
-    Type type; // optional
-
-    operator Expr() const {
-        return build();
-    }
-
-    ir::Expr build() const {
-        return ir::Var::make(type, name);
-    }
-};
-
 struct Lambda : ExprNode<Lambda> {
     std::vector<TypedVar> args;
     Expr value;

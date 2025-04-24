@@ -98,14 +98,13 @@ bool equal_paths(const Path &p0, const Path &p1) {
 
 bool valid_path(const Path &path, const BVH_t::Node &node) {
     for (const auto &param : node.fields()) {
-        const auto &iter = path.find(param.first);
+        const auto &iter = path.find(param.name);
         if (iter == path.cend()) {
             return false;
         }
-        if (!equals(param.second, iter->second)) {
-            if (param.second.is<ir::Ref_t>() &&
-                (iter->second.is_int_or_uint() ||
-                 iter->second.is_int_tuple())) {
+        if (!equals(param.type, iter->second)) {
+            if (param.type.is<ir::Ref_t>() && (iter->second.is_int_or_uint() ||
+                                               iter->second.is_int_tuple())) {
                 // TODO: figure out how to validate references as indexes into
                 // groups!
                 continue;

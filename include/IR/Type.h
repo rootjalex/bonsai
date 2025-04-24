@@ -95,6 +95,17 @@ struct Type : public IRHandle<IRTypeNode> {
     // TODO: implement copy/move semantics!
 };
 
+struct TypedVar {
+    std::string name;
+    Type type; // optional
+
+    TypedVar(std::string name, Type type)
+        : name(std::move(name)), type(std::move(type)) {}
+    TypedVar() {}
+
+    operator Expr() const;
+};
+
 template <typename T>
 Type TypeNode<T>::mutate_type(Mutator *m) const {
     return m->visit((const T *)this);
@@ -201,8 +212,7 @@ struct Struct_t : TypeNode<Struct_t> {
     // intentionally ordered.
     // TODO: re-implement an unordered version (for the front-end):
     // UnorderedStruct_t
-    using Field = std::pair<std::string, Type>;
-    using Map = std::vector<Field>;
+    using Map = std::vector<TypedVar>;
     using DefMap = std::map<std::string, Expr>;
     std::string name;
     Map fields;
@@ -293,7 +303,7 @@ struct BVH_t : TypeNode<BVH_t> {
                      std::vector<Node> nodes);
     // All nodes share the same volume type unless otherwise specified.
     static Type make(ir::Type primitive, std::string name,
-                     const std::vector<Struct_t::Field> &globals,
+                     const std::vector<TypedVar> &globals,
                      std::vector<Node> nodes, Volume volume);
 
     static const IRTypeEnum node_type = IRTypeEnum::BVH_t;

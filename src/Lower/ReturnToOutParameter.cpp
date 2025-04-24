@@ -26,8 +26,7 @@ std::string get_unexported_name(const std::string &name) {
 
 class RtOP : public ir::Mutator {
   public:
-    RtOP(const ir::Function &current)
-        : current(current) {}
+    RtOP(const ir::Function &current) : current(current) {}
 
   private:
     const ir::Function &current;
@@ -40,8 +39,7 @@ class RtOP : public ir::Mutator {
         const auto &arguments = current.args;
         internal_assert(arguments.front().mutating);
         std::string identifier = arguments.front().name;
-        const bool eq = ir::equals(arguments.front().type, value.type());
-        internal_assert(eq);
+        internal_assert(ir::equals(arguments.front().type, value.type()));
         ir::WriteLoc location(identifier, value.type());
         return ir::Sequence::make({
             ir::Assign::make(location, std::move(value), /*mutating=*/true),
@@ -115,7 +113,8 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
         if (func->is_export && func->ret_type.is<ir::Void_t>()) {
             func->body = RtOP(*func).mutate(std::move(func->body));
         }
-        func->body = ReplaceExportedCalls(exported_funcs).mutate(std::move(func->body));
+        func->body =
+            ReplaceExportedCalls(exported_funcs).mutate(std::move(func->body));
     }
     return new_functions;
 }

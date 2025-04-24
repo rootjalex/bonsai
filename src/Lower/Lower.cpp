@@ -100,6 +100,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerGenerics>());
+    // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
     manager.register_alias("core", core);
 
@@ -119,11 +120,12 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
     d.push_back(std::make_unique<LowerGenerics>());
-    d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<opt::Inline>());
+    // This should always run last! It duplicates the exported functions.
+    d.push_back(std::make_unique<ReturnToOutParameter>());
     manager.register_alias("default", d);
 
     return manager;

@@ -358,7 +358,7 @@ struct Parser {
                 // Verify this is not a duplicate.
                 if (std::find_if(fields.cbegin(), fields.cend(),
                                  [&](const auto &p) {
-                                     return p.first == field_name;
+                                     return p.name == field_name;
                                  }) != fields.cend()) {
                     report_error() << "Duplicate field name: " << field_name
                                    << " in element definition: " << name;
@@ -421,7 +421,7 @@ struct Parser {
         expect(Token::Type::EXTERN);
         const std::string name = get_id();
         if (std::find_if(program.externs.cbegin(), program.externs.cend(),
-                         [&](const auto &p) { return p.first == name; }) !=
+                         [&](const auto &p) { return p.name == name; }) !=
             program.externs.cend()) {
             report_error() << "Redefinition of extern: " << name;
         }
@@ -1841,10 +1841,10 @@ struct Parser {
                 // if extern, is tree-assignment
                 const auto extern_iter = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
-                    [&name](const auto &p) { return p.first == name; });
+                    [&name](const auto &p) { return p.name == name; });
                 if (extern_iter != program.externs.cend()) {
                     // name : tree_type;
-                    if (!extern_iter->second.is<ir::Set_t>()) {
+                    if (!extern_iter->type.is<ir::Set_t>()) {
                         report_error() << "Extern: " << name
                                        << " is not a set, cannot be "
                                           "type-reassigned in a schedule.";
@@ -1875,7 +1875,7 @@ struct Parser {
                 std::string name = get_id();
                 const auto extern_iter = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
-                    [&name](const auto &p) { return p.first == name; });
+                    [&name](const auto &p) { return p.name == name; });
 
                 if (extern_iter == program.externs.cend()) {
                     report_error()
@@ -1983,7 +1983,7 @@ struct Parser {
     parse_node() {
         std::string name = get_id();
 
-        std::vector<ir::Struct_t::Field> params;
+        std::vector<ir::TypedVar> params;
         std::optional<ir::BVH_t::Volume> volume;
 
         if (consume(Token::Type::LPAREN)) {
@@ -1998,11 +1998,11 @@ struct Parser {
         return {name, params, volume};
     }
 
-    std::vector<ir::Struct_t::Field> parse_tree_params() {
+    std::vector<ir::TypedVar> parse_tree_params() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
         // no mutability allowed.
-        std::vector<ir::Struct_t::Field> args;
+        std::vector<ir::TypedVar> args;
         do {
             std::vector<std::string> names;
             do {

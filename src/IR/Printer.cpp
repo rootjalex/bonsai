@@ -452,8 +452,7 @@ void Printer::print(const BVH_t::Node &node) {
         if (i != 0) {
             os << ", ";
         }
-        os << as_struct->fields[i].first << " : "
-           << as_struct->fields[i].second;
+        os << as_struct->fields[i].name << " : " << as_struct->fields[i].type;
     }
     os << ")";
 

@@ -607,12 +607,12 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 if (field_count == value_count) {
                     for (size_t i = 0; i < values.size(); i++) {
                         internal_assert(
-                            equals(fields[i].second, values[i].type()))
+                            equals(fields[i].type, values[i].type()))
                             << "Build<Struct_t> requires matching field types, "
                                "expected: "
-                            << fields[i].second << " but received " << values[i]
+                            << fields[i].type << " but received " << values[i]
                             << " of type " << values[i].type() << " for field "
-                            << fields[i].first;
+                            << fields[i].name;
                     }
                 } else {
                     // field_count < value_count
@@ -626,20 +626,20 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     size_t value_i = 0;
                     for (size_t i = 0; i < field_count; i++) {
                         // TODO: perform constant casting here?
-                        if (defaults.contains(fields[i].first)) {
+                        if (defaults.contains(fields[i].name)) {
                             // No need to assert, the default should always be
                             // the correct type for the struct.
-                            filled_values[i] = defaults.at(fields[i].first);
+                            filled_values[i] = defaults.at(fields[i].name);
                         } else {
                             internal_assert(value_i < values.size());
-                            internal_assert(equals(fields[i].second,
-                                                   values[value_i].type()))
+                            internal_assert(
+                                equals(fields[i].type, values[value_i].type()))
                                 << "Build<Struct_t> of type: " << type
                                 << " requires matching field types, expected: "
-                                << fields[i].second << " but received "
+                                << fields[i].type << " but received "
                                 << values[value_i] << " of type "
                                 << values[value_i].type() << " for field "
-                                << fields[i].first;
+                                << fields[i].name;
                             filled_values[i] = values[value_i++];
                         }
                     }
@@ -714,15 +714,15 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
     std::vector<Expr> args;
 
     for (const auto &field : fields) {
-        internal_assert(values.contains(field.first) ||
-                        defaults.contains(field.first))
+        internal_assert(values.contains(field.name) ||
+                        defaults.contains(field.name))
             << "Construction of type: " << type << " has no value for field "
-            << field.first << " in constructor";
-        Expr value = values.contains(field.first) ? values.at(field.first)
-                                                  : defaults.at(field.first);
+            << field.name << " in constructor";
+        Expr value = values.contains(field.name) ? values.at(field.name)
+                                                 : defaults.at(field.name);
         internal_assert(value.defined());
-        if (!equals(value.type(), field.second)) {
-            value = cast_to(field.second, std::move(value));
+        if (!equals(value.type(), field.type)) {
+            value = cast_to(field.type, std::move(value));
             internal_assert(value.defined());
         }
         args.emplace_back(std::move(value));

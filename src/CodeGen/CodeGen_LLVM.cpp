@@ -1062,7 +1062,7 @@ void CodeGen_LLVM::visit(const Cast *node) {
     if (src.is<Vector_t>() && dst.is<Struct_t>() &&
         dst.as<Struct_t>()->fields.size() == 1) {
         ir::Expr repl =
-            Cast::make(dst.as<Struct_t>()->fields[0].second, node->value);
+            Cast::make(dst.as<Struct_t>()->fields[0].type, node->value);
         repl = Build::make(node->type, {std::move(repl)});
         repl.accept(this);
         return;

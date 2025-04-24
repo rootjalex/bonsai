@@ -317,7 +317,8 @@ struct LowerToForAll : public ir::Mutator {
                 /*body=*/final_body);
         }
 
-        ir::Stmt ret = ir::Return::make(ir::Var::make(yield_type, allocation_name));
+        ir::Stmt ret =
+            ir::Return::make(ir::Var::make(yield_type, allocation_name));
         return ir::Sequence::make({
             std::move(allocation),
             std::move(final_body),
