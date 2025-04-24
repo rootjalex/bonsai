@@ -260,7 +260,130 @@ void Printer::print(const Schedule &schedule) {
         print(layout);
         os << '\n';
     }
+
+    std::string prev_func = "";
+    const std::string schedule_indent(2, ' ');
+    for (const auto &rewrite : schedule.rewrites) {
+        if (prev_func != rewrite.func) {
+            if (!prev_func.empty()) {
+                os << ";\n\n";
+            }
+            os << schedule_indent << rewrite.func;
+            prev_func = rewrite.func;
+        } else {
+            const std::string indent(prev_func.size(), ' ');
+            os << "\n" << schedule_indent << indent;
+        }
+        os << ".";
+        print(rewrite.rewrite);
+    }
+    if (!schedule.rewrites.empty()) {
+        os << ";\n";
+    }
     // TODO: the rest of the schedule.
+}
+
+void Printer::print(const schedule::Rewrite::Cmd &rewrite) {
+    struct CmdVisitor {
+        Printer &printer;
+        CmdVisitor(Printer &printer) : printer(printer) {}
+
+        void operator()(const schedule::Bound &cmd) const {
+            printer.os << "bound(";
+            printer.print(cmd.value);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Collapse &cmd) const {
+            printer.os << "collapse(";
+            printer.print(cmd.i);
+            printer.os << ", ";
+            printer.print(cmd.j);
+            printer.os << ", ";
+            printer.print(cmd.ij);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Parallelize &cmd) const {
+            switch (cmd.strategy) {
+            case schedule::Parallelize::CPUVector: {
+                printer.os << "vectorize";
+                break;
+            }
+            case schedule::Parallelize::CPUThread: {
+                printer.os << "parallelize";
+                break;
+            }
+            case schedule::Parallelize::GPUThread: {
+                printer.os << "thread";
+                break;
+            }
+            case schedule::Parallelize::GPUBlock: {
+                printer.os << "block";
+                break;
+            }
+            }
+            printer.os << "(";
+            printer.print(cmd.i);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Prefetch &cmd) const {
+            printer.os << "prefetch(";
+            printer.print(cmd.at);
+            printer.os << ", ";
+            printer.print(cmd.value);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Reorder &cmd) const {
+            printer.os << "reorder(";
+            printer.print(cmd.i);
+            printer.os << ", ";
+            printer.print(cmd.j);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Sort &cmd) const {
+            printer.os << "sort(";
+            printer.print(cmd.i);
+            printer.os << ", ";
+            printer.print(cmd.metric);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Split &cmd) const {
+            printer.os << "split(";
+            printer.print(cmd.i);
+            printer.os << ", ";
+            printer.print(cmd.io);
+            printer.os << ", ";
+            printer.print(cmd.ii);
+            printer.os << ", ";
+            printer.print(cmd.factor);
+            printer.os << ", ";
+            printer.print(cmd.exact);
+            printer.os << ")";
+        }
+
+        void operator()(const schedule::Unroll &cmd) const {
+            printer.os << "unroll(";
+            printer.print(cmd.i);
+            printer.os << ")";
+        }
+    };
+    std::visit(CmdVisitor{*this}, rewrite);
+}
+
+void Printer::print(const schedule::Location &loc) {
+    bool first = true;
+    for (const auto &name : loc.names) {
+        if (!first) {
+            os << ".";
+        }
+        first = false;
+        os << name;
+    }
 }
 
 void Printer::print(const Interface &interface) {

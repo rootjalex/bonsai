@@ -200,4 +200,8 @@ func [[export]] trace_all(n : u32, rays : Ray[n], triangles : _triangles_layout1
 
 
 schedule host{
+  trace_all.bound((i32)64)
+           .split(rays, ro, ri, (i32)8, (i32)1)
+           .reorder(ri, trace)
+           .vectorize(ri);
 }

@@ -33,6 +33,11 @@ schedule {
             };
         };
     };
+
+    trace_all.bound(64)
+             .split(rays, ro, ri, 8, true)
+             // packet trace.
+             .reorder(ri, trace).vectorize(ri);
 }
 
 

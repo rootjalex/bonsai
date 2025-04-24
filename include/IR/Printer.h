@@ -58,7 +58,6 @@ struct Printer : public Visitor {
 
     void print(const Program &program);
     void print(const Function &function);
-    void print(const Schedule &schedule);
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
@@ -69,6 +68,9 @@ struct Printer : public Visitor {
     void print(const WriteLoc &loc);
     void print(const BVH_t::Node &node);
     void print(const Layout &layout);
+    void print(const Schedule &schedule);
+    void print(const schedule::Rewrite::Cmd &rewrite);
+    void print(const schedule::Location &loc);
 
     // Types
     void visit(const Void_t *) override;
