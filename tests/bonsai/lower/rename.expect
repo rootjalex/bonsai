@@ -1,0 +1,41 @@
+func id(x : i32) -> i32 {
+  return x
+}
+
+func rename(cond : bool) -> i32 {
+  let a = 1 in
+  let b = 2 in
+  x := 3
+  let c = a + x in
+  let d = a + x in
+  _0x := x + 1
+  let e = a + _0x in
+  let f = a + _0x in
+  if (cond) {
+    _0x := _0x + 1
+  } else {
+    _0x := _0x + 2
+  }
+  if (cond && (_0x < 0)) {
+    _0x := 0
+  } else {
+    _0x := 1
+  }
+  _1x := _0x + 3
+  _2x := _1x * 2
+  _3x := 42
+  if (cond) {
+    _3x := _3x + 2
+    y := 0
+    y += 1
+    if (cond) {
+      _3x := 0
+    }
+  }
+  _4x := _3x + 2
+  _5x := _4x + 2
+  _6x := _5x + id(_5x)
+  return 0
+}
+
+

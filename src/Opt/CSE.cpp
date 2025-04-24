@@ -50,25 +50,27 @@ class CseImpl : public ir::Mutator {
           blacklisted_variables(mutable_function_arguments) {}
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        ir::Expr value = get(node->value, node->loc);
-        if (!value.defined()) {
-            return node;
+        ir::Expr variable = get(node->value);
+        if (variable.defined()) {
+            // This expression already exists.
+            return ir::LetStmt::make(node->loc, variable);
         }
-        return ir::LetStmt::make(node->loc, std::move(value));
+        update(node->value, node->loc);
+        return ir::Mutator::visit(node);
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        ir::WriteLoc loc = node->loc;
         if (node->mutating) {
-            blacklisted_variables.insert(loc.base);
-            return node;
+            blacklisted_variables.insert(node->loc.base);
+            return ir::Mutator::visit(node);
         }
-        ir::Expr value = get(node->value, node->loc);
-        if (!value.defined()) {
-            return node;
+        ir::Expr variable = get(node->value);
+        if (variable.defined()) {
+            // This expression already exists.
+            return ir::LetStmt::make(node->loc, variable);
         }
-        return ir::Assign::make(node->loc, std::move(value),
-                                /*mutating=*/node->mutating);
+        update(node->value, node->loc);
+        return node;
     }
 
     ir::Stmt visit(const ir::Store *node) override {
@@ -79,6 +81,23 @@ class CseImpl : public ir::Mutator {
 
     ir::Stmt visit(const ir::Accumulate *node) override {
         blacklisted_variables.insert(node->loc.base);
+        return node;
+    }
+
+    ir::Expr visit(const ir::BinOp *node) override {
+        ir::Expr a = mutate(node->a);
+        a = get(node->a);
+        ir::Expr b = mutate(node->b);
+        b = get(node->b);
+        if (a.defined() && b.defined()) {
+            return ir::BinOp::make(node->op, std::move(a), std::move(b));
+        }
+        if (a.defined()) {
+            return ir::BinOp::make(node->op, std::move(a), node->b);
+        }
+        if (b.defined()) {
+            return ir::BinOp::make(node->op, node->a, std::move(b));
+        }
         return node;
     }
 
@@ -120,20 +139,24 @@ class CseImpl : public ir::Mutator {
     std::unordered_map<ir::Expr, ir::Expr, ir::ExprHashImpl, ir::ExprEqualImpl>
         expression_to_variable;
 
-    ir::Expr get(ir::Expr value, std::optional<ir::WriteLoc> location = {}) {
+    ir::Expr get(ir::Expr value) {
         if (!(allow_cse && is_cse_legal(value))) {
             return ir::Expr();
         }
         auto it = expression_to_variable.find(value);
         if (it == expression_to_variable.end()) {
-            if (location.has_value()) {
-                ir::Expr v = ir::Var::make(location->base_type, location->base);
-                // If this expression hasn't been seen, add it to the list.
-                expression_to_variable[value] = std::move(v);
-            }
             return ir::Expr();
         }
         return it->second;
+    }
+
+    void update(ir::Expr value, const ir::WriteLoc &location) {
+        if (!(allow_cse && is_cse_legal(value))) {
+            return;
+        }
+        ir::Expr v = ir::Var::make(location.base_type, location.base);
+        // If this expression hasn't been seen, add it to the list.
+        expression_to_variable[value] = std::move(v);
     }
 
     // Returns whether this is supported in our simplistic variant of CSE.

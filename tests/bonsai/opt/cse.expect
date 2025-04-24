@@ -9,10 +9,6 @@ func foo() -> i32 {
   return 0
 }
 
-func id(x : i32) -> i32 {
-  return x
-}
-
 func id_no_side_effect(x : i32) -> i32 {
   return x
 }
@@ -51,46 +47,15 @@ func mutating_value() -> i32 {
   x := 3
   let c = a + x in
   let d = c in
-  _0x := a
+  let _0x = a in
   let e = a + _0x in
   let f = e in
   return 0
 }
 
-func rename(cond : bool) -> i32 {
-  let a = 1 in
-  let b = 2 in
-  x := 3
-  let c = a + x in
-  let d = c in
-  _0x := x + 1
-  let e = a + _0x in
-  let f = e in
-  if (cond) {
-    _0x := _0x + 1
-  } else {
-    _0x := _0x + 2
-  }
-  if (cond && (_0x < 0)) {
-    _0x := 0
-  } else {
-    _0x := 1
-  }
-  _1x := _0x + 3
-  _2x := _1x * 2
-  _3x := 42
-  if (cond) {
-    _3x := _3x + 2
-    y := 0
-    y += 1
-    if (cond) {
-      _3x := 0
-    }
-  }
-  _4x := _3x + 2
-  _5x := _4x + 2
-  _6x := _5x + id(_5x)
-  return 0
+func nested_binary_operations(x : i32, y : i32) -> void {
+  let a = x + y in
+  let b = a + 1 in
 }
 
 func self_assign() -> void {
@@ -100,9 +65,9 @@ func self_assign() -> void {
 
 func side_effects() -> i32 {
   let a = 1 in
-  let b = id_with_side_effect(a) + 1 in
-  let c = id_with_side_effect(a) + 1 in
-  let d = id_no_side_effect(a) + 1 in
+  let b = id_with_side_effect(a) + a in
+  let c = id_with_side_effect(a) + a in
+  let d = id_no_side_effect(a) + a in
   let e = d in
   return 0
 }
