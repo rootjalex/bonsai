@@ -32,5 +32,9 @@ Expr contains(Expr a, Expr b);
 Expr filter(Expr predicate, Expr set);
 Expr argmin(Expr metric, Expr set);
 
+Expr sqrt(Expr a);
+Expr norm(Expr a);
+Expr dot(Expr a, Expr b);
+
 } // namespace ir
 } // namespace bonsai

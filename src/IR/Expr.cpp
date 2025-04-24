@@ -301,7 +301,7 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
             // of bools.
             internal_assert(is_valid_logical_operation(a.type()) &&
                             is_valid_logical_operation(b.type()))
-                << a.type() << ", " << b.type();
+                << a << " : " << a.type() << ", " << b << " : " << b.type();
             if (a.type().is<Option_t>() || b.type().is<Option_t>()) {
                 // TODO: handle vectors of options?
                 node->type = Bool_t::make();
@@ -374,6 +374,8 @@ Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
         << fvalue;
 
     Select *node = new Select;
+
+    try_match_types(tvalue, fvalue);
 
     const bool infer_types =
         type_enforcement_enabled() ||
@@ -515,7 +517,7 @@ Expr Ramp::make(Expr base, Expr stride, int lanes) {
     return node;
 }
 
-Expr Extract::make(Expr vec, int idx) {
+Expr Extract::make(Expr vec, int32_t idx) {
     internal_assert(vec.defined()) << "Extract of undefined vector";
     internal_assert(idx >= 0)
         << "Extract with negative idx of: " << idx << " for " << vec;
@@ -549,17 +551,24 @@ Expr Extract::make(Expr vec, Expr idx) {
     internal_assert(vec.defined()) << "Extract of undefined vector";
     internal_assert(idx.defined()) << "Extract with undefined idx of: " << vec;
 
-    Extract *node = new Extract;
-
+    Type type;
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        internal_assert((vec.type().is<Vector_t, Array_t>()))
+        internal_assert((vec.type().is<Vector_t, Array_t, Tuple_t>()))
             << "Extract of non-vector: " << vec;
         internal_assert(idx.type().is_int_or_uint())
             << "Extract with non-integer index: " << idx;
-        node->type = vec.type().element_of();
+        if (vec.type().is<Tuple_t>()) {
+            internal_assert(is_const(idx))
+                << "Extract on tuple with non-constant index: "
+                << vec << "[" << idx << "]";
+            return Extract::make(std::move(vec), *as_const_int(idx));
+        }
+        type = vec.type().element_of();
     }
 
+    Extract *node = new Extract;
+    node->type = std::move(type);
     node->vec = std::move(vec);
     node->idx = std::move(idx);
     return node;
@@ -802,6 +811,19 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             } else {
                 node->type = args[0].type();
             }
+            break;
+        }
+        case Intrinsic::dot: {
+            internal_assert(args.size() == 2);
+            internal_assert(ir::equals(args[0].type(), args[1].type()));
+            internal_assert(args[0].type().is<Vector_t>());
+            node->type = args[0].type().element_of();
+            break;
+        }
+        case Intrinsic::norm: {
+            internal_assert(args.size() == 1);
+            internal_assert(args[0].type().is<Vector_t>());
+            node->type = args[0].type().element_of();
             break;
         }
         default: {

@@ -745,12 +745,16 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "cos";
     case Intrinsic::cross:
         return "cross";
+    case Intrinsic::dot:
+        return "dot";
     case Intrinsic::fma:
         return "fma";
     case Intrinsic::max:
         return "max";
     case Intrinsic::min:
         return "min";
+    case Intrinsic::norm:
+        return "norm";
     case Intrinsic::sin:
         return "sin";
     case Intrinsic::sqrt:
