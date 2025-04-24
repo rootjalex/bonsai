@@ -74,5 +74,11 @@ bool reads(Stmt stmt, const std::set<std::string> &vars);
 
 std::set<std::string> assigned_variables(Stmt stmt);
 
+std::set<std::string> find_side_effects(const ir::FuncMap &functions);
+bool has_side_effects(const ir::Expr &expr,
+                      const std::set<std::string> &side_effect_functions);
+
+std::set<std::string> get_mutable_arguments(const ir::Function &function);
+
 } // namespace ir
 } // namespace bonsai

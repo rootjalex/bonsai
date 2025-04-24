@@ -62,7 +62,7 @@ ir::FuncMap Inline::run(ir::FuncMap funcs) const {
     std::unordered_map<std::string, ir::Expr> function_to_expr;
     for (const auto &[name, func] : funcs) {
         if (const auto *body = func->body.as<ir::Return>()) {
-            internal_assert(body->value.defined());
+            internal_assert(body->value.defined()) << *func;
             function_to_expr[name] = body->value;
         }
     }

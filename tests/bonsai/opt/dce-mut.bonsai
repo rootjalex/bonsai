@@ -1,3 +1,5 @@
+//! flags: -p core -p dce
+
 func foo(i : i32) -> u32 {
     // j should be DCEed away
     j : mut = i + 2;

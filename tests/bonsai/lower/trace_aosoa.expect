@@ -99,9 +99,9 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option0 {
   if ((tMax[2u] < tmin) || (tmax < tMin[2u])) {
     return build<_option0>()
   }
-  tmin = max(tmin, tMin[2u])
-  tmax = min(tmax, tMax[2u])
-  return build<_option0>(build<FInterval>(tmin, tmax), true)
+  _0tmin := max(tmin, tMin[2u])
+  _1tmax := min(tmax, tMax[2u])
+  return build<_option0>(build<FInterval>(_0tmin, _1tmax), true)
 }
 
 func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {

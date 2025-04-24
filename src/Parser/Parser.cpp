@@ -783,11 +783,11 @@ struct Parser {
         // This is a never-seen-before write to a variable.
         internal_assert(!loc.type.defined());
         ir::Type type_label;
-        bool _mutable = false;
+        bool is_mutable = false;
 
         if (consume(Token::Type::COL)) {
             if (consume(Token::Type::MUT)) {
-                _mutable = true;
+                is_mutable = true;
                 if (peek().type == Token::Type::IDENTIFIER) {
                     type_label = parse_type();
                 } // otherwise just a `mut` label.
@@ -828,14 +828,14 @@ struct Parser {
                 << " has type " << type;
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
-        add_type_to_frame(loc.base, write_type, _mutable);
+        add_type_to_frame(loc.base, write_type, is_mutable);
 
         loc = ir::WriteLoc(loc.base, std::move(write_type));
-        if (!_mutable) {
+        if (!is_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
             return ir::Assign::make(std::move(loc), std::move(value),
-                                    /*mutating*/ false);
+                                    /*mutating=*/false);
         }
     }
 

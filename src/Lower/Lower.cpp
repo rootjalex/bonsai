@@ -16,6 +16,7 @@
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Lower/Yields.h"
+#include "Opt/CSE.h"
 #include "Opt/DCE.h"
 #include "Opt/Inline.h"
 #include "Opt/Simplify.h"
@@ -78,6 +79,7 @@ PassManager register_passes() {
     manager.register_pass<LowerExterns>();
     manager.register_pass<ReturnToOutParameter>();
     // Optimizing pass registration.
+    manager.register_pass<opt::CSE>();
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
@@ -121,6 +123,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<opt::Simplify>());
+    d.push_back(std::make_unique<opt::CSE>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<opt::Inline>());

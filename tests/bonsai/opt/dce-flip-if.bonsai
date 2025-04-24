@@ -1,3 +1,5 @@
+//! flags: -p core -p dce
+
 func foo(i : vector[i32, 8]) -> vector[u32, 8] {
     if (sum(i) > 0) {
         j = i + 1; // this should get DCEed away.

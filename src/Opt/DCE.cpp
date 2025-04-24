@@ -126,40 +126,6 @@ struct ComputeUseCounts : ir::Visitor {
     // }
 };
 
-struct HasSideEffects : ir::Visitor {
-    bool found = false;
-    const std::set<std::string> &function_has_side_effects;
-
-    HasSideEffects(const std::set<std::string> &side_effects_functions)
-        : function_has_side_effects(side_effects_functions) {}
-
-    void visit(const ir::Print *node) override {
-        if (found) {
-            return;
-        }
-        found = true;
-    }
-
-    void visit(const ir::Call *node) override {
-        if (found) {
-            return;
-        }
-        const auto *var = node->func.as<ir::Var>();
-        if (var == nullptr) {
-            return;
-        }
-        if (var->type.is<ir::Function_t>() &&
-            function_has_side_effects.contains(var->name)) {
-            found = true;
-        }
-    }
-
-    void visit(const ir::Store *node) override {
-        // TODO(ajr): This is conservative. How bad is that?
-        found = true;
-    }
-};
-
 struct FindSideEffects : ir::Visitor {
     // The found side-effecting expressions (if any).
     std::vector<ir::Expr> expressions;
@@ -179,33 +145,6 @@ struct FindSideEffects : ir::Visitor {
     }
 };
 
-std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
-    const std::vector<std::string> topo_order =
-        lower::func_topological_order(funcs, /*undef_calls=*/false);
-    std::set<std::string> side_effects;
-    HasSideEffects checker(side_effects);
-    for (const std::string &f : topo_order) {
-        internal_assert(!checker.function_has_side_effects.contains(f))
-            << "Found cycle involving: " << f;
-        checker.found = false;
-        const auto func = funcs.at(f);
-        // Conservatively say that funcs with mutable arguments have side
-        // effects.
-        if (std::any_of(func->args.cbegin(), func->args.cend(),
-                        [](const auto &arg) { return arg.mutating; })) {
-            side_effects.insert(f);
-            continue;
-        }
-        // Otherwise search for side effecting statements.
-        func->body.accept(&checker);
-        if (checker.found) {
-            side_effects.insert(f);
-        }
-        checker.found = false;
-    }
-    return side_effects;
-}
-
 struct DeadCodeElimination : ir::Mutator {
     // How many times is a variable read.
     UseCountMap use_counts;
@@ -220,12 +159,6 @@ struct DeadCodeElimination : ir::Mutator {
         : use_counts(std::move(use_counts)),
           dependent_use_counts(std::move(dependent_use_counts)),
           side_effects_functions(side_effects_functions) {}
-
-    bool has_side_effects(const ir::Expr &expr) {
-        HasSideEffects checker(side_effects_functions);
-        expr.accept(&checker);
-        return checker.found;
-    }
 
     // Returns a sequence of statements with side effects within this
     // expression.
@@ -276,7 +209,8 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
+        if (use_counts[node->loc.base] == 0 &&
+            !has_side_effects(node->value, side_effects_functions)) {
             erase_dependents(node->loc);
             return ir::Stmt();
         }
@@ -338,7 +272,6 @@ struct DeadCodeElimination : ir::Mutator {
         }
 
         if (stmts.empty()) {
-            std::cout << "erased: " << ir::Stmt(node) << "\n";
             return ir::Stmt();
         } else if (not_changed) {
             return node;
@@ -372,12 +305,7 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     std::set<std::string> se_functions = find_side_effects(funcs);
 
     for (auto &[name, func] : funcs) {
-        std::set<std::string> mutable_func_args;
-        for (const auto &arg : func->args) {
-            if (arg.mutating) {
-                mutable_func_args.insert(arg.name);
-            }
-        }
+        std::set<std::string> mutable_func_args = get_mutable_arguments(*func);
 
         func->body = dce_stmt(mutable_func_args, func->body, se_functions);
     }
