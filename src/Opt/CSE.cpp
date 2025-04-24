@@ -18,128 +18,6 @@ namespace opt {
 
 namespace {
 
-std::optional<ir::BinOp::OpType> acc_to_bin(const ir::Accumulate::OpType op) {
-    switch (op) {
-    case ir::Accumulate::OpType::Add:
-        return ir::BinOp::OpType::Add;
-    case ir::Accumulate::OpType::Mul:
-        return ir::BinOp::OpType::Mul;
-    case ir::Accumulate::OpType::Sub:
-        return ir::BinOp::OpType::Sub;
-    case ir::Accumulate::OpType::Argmin:
-    case ir::Accumulate::OpType::Argmax:
-        return {};
-    }
-}
-
-// Simple variable renaming in straightline code.
-struct RenameVariable : public ir::Mutator {
-    RenameVariable(const std::set<std::string> &mutable_function_arguments)
-        : mutable_function_arguments(mutable_function_arguments) {}
-
-    const std::set<std::string> &mutable_function_arguments;
-    // Tracks the old variable name to the new name.
-    std::unordered_map<std::string, std::string> old_to_new_name;
-
-    std::pair<std::string, bool> rename(std::string name) {
-        auto it = old_to_new_name.find(name);
-        if (should_rename) {
-            std::string new_name = "_" + std::to_string(counter++) + name;
-            old_to_new_name[name] = new_name;
-            return {new_name, true};
-        }
-        if (it != old_to_new_name.end()) {
-            return {it->second, true};
-        }
-        return {name, false};
-    }
-
-    ir::Expr visit(const ir::Var *node) override {
-        auto it = old_to_new_name.find(node->name);
-        if (it == old_to_new_name.end()) {
-            return node;
-        }
-        return ir::Var::make(node->type, it->second);
-    }
-
-    ir::Stmt visit(const ir::Accumulate *node) override {
-        ir::WriteLoc location = node->loc;
-        if (!location.base_type.is_scalar() ||
-            mutable_function_arguments.contains(location.base)) {
-            return ir::Mutator::visit(node);
-        }
-        std::optional<ir::BinOp::OpType> op = acc_to_bin(node->op);
-        // Only rename in the case where there is a binary operation equivalent.
-        ScopedValue<bool> guard(should_rename, should_rename && op.has_value());
-        // Save previous name.
-        auto it = old_to_new_name.find(location.base);
-        std::optional<std::string> old_name;
-        if (it != old_to_new_name.end()) {
-            old_name = it->second;
-        }
-        // Visit the value before updating the mapping.
-        ir::Expr value = mutate(node->value);
-        // Rename current name.
-        auto [new_name, updated] = rename(location.base);
-        if (!updated) {
-            return ir::Mutator::visit(node);
-        }
-        ir::WriteLoc wl(new_name, location.type);
-        if (op.has_value()) {
-            std::string name = old_name.has_value() ? *old_name : location.base;
-            ir::Expr lhs = ir::Var::make(location.type, std::move(name));
-            ir::Expr v = ir::BinOp::make(*op, std::move(lhs), std::move(value));
-            return ir::Assign::make(std::move(wl), std::move(v),
-                                    /*mutating=*/false);
-        }
-        return ir::Accumulate::make(std::move(wl), node->op, std::move(value));
-    }
-
-    ir::Stmt visit(const ir::Assign *node) override {
-        ir::WriteLoc location = node->loc;
-        if (!(node->mutating && location.base_type.is_scalar()) ||
-            mutable_function_arguments.contains(location.base)) {
-            // This is the first occurrence of this variable or a struct member
-            // assignment or a function argument.
-            return ir::Mutator::visit(node);
-        }
-        // Visit the value before updating the mapping.
-        ir::Expr value = mutate(node->value);
-        auto [new_name, updated] = rename(location.base);
-        if (!updated) {
-            return ir::Mutator::visit(node);
-        }
-        return ir::Assign::make(ir::WriteLoc(new_name, location.type),
-                                std::move(value), /*mutating=*/false);
-    }
-
-    ir::Stmt visit(const ir::IfElse *node) override {
-        ScopedValue<bool> guard(should_rename, false);
-        return ir::Mutator::visit(node);
-    }
-
-    ir::Stmt visit(const ir::ForAll *node) override {
-        ScopedValue<bool> guard(should_rename, false);
-        return ir::Mutator::visit(node);
-    }
-
-    ir::Stmt visit(const ir::ForEach *node) override {
-        ScopedValue<bool> guard(should_rename, false);
-        return ir::Mutator::visit(node);
-    }
-
-    ir::Stmt visit(const ir::DoWhile *node) override {
-        ScopedValue<bool> guard(should_rename, false);
-        return ir::Mutator::visit(node);
-    }
-
-  private:
-    // Whether the variable should be given a fresh name.
-    bool should_rename = true;
-    // For unique variable renaming.
-    int64_t counter = 0;
-};
-
 // TODO(cgyurgyik): Provide a real hash function.
 struct ExprHash {
     std::size_t operator()(const ir::Expr &expr) const { return 0; }
@@ -151,6 +29,7 @@ struct ExprEqual {
     }
 };
 
+// Validates whether the visited expression can undergo CSE.
 struct IsCseLegal : public ir::Visitor {
     IsCseLegal(const std::set<std::string> &side_effect_functions,
                const std::set<std::string> &mutable_function_arguments)
@@ -174,11 +53,10 @@ struct IsCseLegal : public ir::Visitor {
     const std::set<std::string> &blacklisted_variables;
 };
 
-class CommonSubexpressionElimination : public ir::Mutator {
+class CseImpl : public ir::Mutator {
   public:
-    CommonSubexpressionElimination(
-        const std::set<std::string> &side_effect_functions,
-        const std::set<std::string> &mutable_function_arguments)
+    CseImpl(const std::set<std::string> &side_effect_functions,
+            const std::set<std::string> &mutable_function_arguments)
         : side_effect_functions(side_effect_functions),
           blacklisted_variables(mutable_function_arguments) {}
 
@@ -241,7 +119,7 @@ class CommonSubexpressionElimination : public ir::Mutator {
 
   private:
     // Whether to allow CSE to occur. Since we don't have phi instructions, this
-    // is false in any control flow constructs.
+    // is false in the presence of control flow divergence.
     bool allow_cse = true;
     // A list of functions that may have side effects.
     const std::set<std::string> &side_effect_functions;
@@ -255,7 +133,6 @@ class CommonSubexpressionElimination : public ir::Mutator {
 
     ir::Expr get(ir::Expr value, std::optional<ir::WriteLoc> location = {}) {
         if (!(allow_cse && is_cse_legal(value))) {
-            // Don't perform CSE on expressions that aren't legal.
             return ir::Expr();
         }
         auto it = expression_to_variable.find(value);
@@ -283,10 +160,7 @@ class CommonSubexpressionElimination : public ir::Mutator {
 ir::FuncMap CSE::run(ir::FuncMap funcs) const {
     std::set<std::string> side_effect_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
-        const std::set<std::string> args = get_mutable_arguments(*func);
-        RenameVariable rename(args);
-        func->body = rename.mutate(std::move(func->body));
-        CommonSubexpressionElimination cse(side_effect_functions, args);
+        CseImpl cse(side_effect_functions, get_mutable_arguments(*func));
         func->body = cse.mutate(std::move(func->body));
     }
     return funcs;

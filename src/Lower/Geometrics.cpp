@@ -43,7 +43,6 @@ struct LowerGeomOps : public Mutator {
         internal_assert(func != funcs.cend())
             << "Lowering needs an implementation of: " << name
             << " with types: " << a.type() << " and " << b.type();
-
         // Above shouldn't be possible without this.
         const auto &arg_types = func->second->args;
         internal_assert((arg_types.size() == 2) &&
@@ -58,9 +57,7 @@ struct LowerGeomOps : public Mutator {
         Expr call = Call::make(std::move(f), {std::move(a), std::move(b)});
 
         if (is_geometric_predicate(name)) {
-            // some macro error with inlining this into internal_assert
-            const bool truthy_type = call.type().is<Option_t, Bool_t>();
-            internal_assert(truthy_type);
+            internal_assert((call.type().is<Option_t, Bool_t>()));
         } else {
             internal_assert(is_geometric_metric(name));
             internal_assert(call.type().is_numeric());
