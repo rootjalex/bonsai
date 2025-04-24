@@ -110,6 +110,10 @@ class CseImpl : public ir::Mutator {
                                 mutate(node->else_body));
     }
 
+    // TODO(cgyurgyik): This is probably overly restrictive, since we already
+    // restrain CSE from occurring on mutable variables / side-effecting
+    // expressions. However, I have no way to unit test this since the parser
+    // doesn't support these constructs yet.
     ir::Stmt visit(const ir::ForAll *node) override {
         ScopedValue<bool> guard(allow_cse, false);
         return ir::Mutator::visit(node);
@@ -127,7 +131,8 @@ class CseImpl : public ir::Mutator {
 
   private:
     // Whether to allow CSE to occur. Since we don't have phi instructions, this
-    // is false in the presence of control flow divergence.
+    // is false in the presence of control flow divergence with mutable or side
+    // effecting values.
     bool allow_cse = true;
     // A list of functions that may have side effects.
     const std::set<std::string> &side_effect_functions;
