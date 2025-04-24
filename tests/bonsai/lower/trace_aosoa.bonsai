@@ -1,4 +1,6 @@
-import tests/bonsai/lower/intersects;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
 
 extern ts : set[Triangle];
 
