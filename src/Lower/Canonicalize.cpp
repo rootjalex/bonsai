@@ -130,10 +130,6 @@ ir::BinOp::OpType acc_to_bin(const ir::Accumulate::OpType op) {
     }
 }
 
-// Simple variable renaming in straightline code.
-// TODO(cgyurgyik): Complex expressions, e.g., nested binary operations on the
-// right hand side of assignments should be broken down into simpler assignments
-// for CSE purposes.
 struct RenameVariable : public ir::Mutator {
     RenameVariable(const std::set<std::string> &mutable_function_arguments)
         : mutable_function_arguments(mutable_function_arguments) {}
