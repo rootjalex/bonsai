@@ -28,7 +28,7 @@ func if_condition(a: bool, b: bool) -> bool {
         r = a;
     } else {
         // TODO(cgyurgyik): CSE can occur within control flow 
-        // as long as both expression are immutable.
+        // as long as both expression are immutable and not side-effecting.
         c2: bool = a && b; // #1
         r = b;
     }
