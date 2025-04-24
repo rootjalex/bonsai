@@ -141,8 +141,7 @@ class CseImpl : public ir::Mutator {
     // assignments, and references to allocations.
     std::set<std::string> blacklisted_variables;
     // Maps expressions to the variable of its first occurrence.
-    std::unordered_map<ir::Expr, ir::Expr, ir::ExprHashImpl, ir::ExprEqualImpl>
-        expression_to_variable;
+    std::map<ir::Expr, ir::Expr, ir::ExprLessThan> expression_to_variable;
 
     ir::Expr get(ir::Expr value) {
         if (!(allow_cse && is_cse_legal(value))) {

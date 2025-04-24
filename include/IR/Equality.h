@@ -5,7 +5,7 @@
 #include "Type.h"
 #include "WriteLoc.h"
 
-#include <unordered_set>
+#include <set>
 
 namespace bonsai {
 namespace ir {
@@ -29,18 +29,7 @@ struct WriteLocLessThan {
     bool operator()(const WriteLoc &w0, const WriteLoc &w1) const;
 };
 
-// TODO(cgyurgyik): Provide a real hash function.
-struct ExprHashImpl {
-    std::size_t operator()(const ir::Expr &expr) const { return 0; }
-};
-
-struct ExprEqualImpl {
-    bool operator()(const ir::Expr &a, const ir::Expr &b) const {
-        return ir::equals(a, b);
-    }
-};
-
-using CseSet = std::unordered_set<ir::Expr, ExprHashImpl, ExprEqualImpl>;
+using CseSet = std::set<ir::Expr, ir::ExprLessThan>;
 
 } // namespace ir
 } // namespace bonsai
