@@ -14,7 +14,7 @@ namespace ir {
 
 using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
 using ScheduleMap = std::map<Target, Schedule>;
-using ExternList = std::vector<std::pair<std::string, Type>>;
+using ExternList = std::vector<TypedVar>;
 
 struct Program {
     // TODO: more things?

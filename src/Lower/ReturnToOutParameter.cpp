@@ -2,6 +2,7 @@
 
 #include "Error.h"
 #include "IR/Analysis.h"
+#include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Program.h"
 #include "IR/Type.h"
@@ -19,108 +20,54 @@ static int32_t counter = 0;
 // Name of the new return value parameter.
 static constexpr std::string_view PARAMETER_NAME = "_ret";
 
+std::string get_unexported_name(const std::string &name) {
+    return "_unexported_" + name;
+}
+
 class RtOP : public ir::Mutator {
   public:
-    RtOP(const ir::Function &current, const ir::FuncMap &functions)
-        : current(current), functions(functions) {}
+    RtOP(const ir::Function &current) : current(current) {}
 
   private:
     const ir::Function &current;
-    const ir::FuncMap &functions;
-
-    // If this is an exported call nested within another exported call, we
-    // handle the updated call statement here.
-    std::optional<ir::Stmt> get_nested_export_call(ir::Expr node,
-                                                   const ir::WriteLoc &loc) {
-        const auto *call = node.as<ir::Call>();
-        if (call == nullptr) {
-            return {};
-        }
-        const auto *v = call->func.as<ir::Var>();
-        internal_assert(v) << call->func;
-        auto it = functions.find(v->name);
-        if (it == functions.end()) {
-            return {};
-        }
-        const ir::Function &f = *it->second;
-        if (!f.is_export || f.args.empty()) {
-            return {};
-        }
-        if (!f.args[0].name.starts_with(PARAMETER_NAME)) {
-            // We assume this is the only place that will use such a name.
-            return {};
-        }
-        ir::Expr updated = ir::Var::make(f.call_type(), f.name);
-        std::vector<ir::Expr> arguments = {ir::Var::make(loc.type, loc.base)};
-        arguments.insert(arguments.end(), call->args.begin(), call->args.end());
-        return ir::CallStmt::make(std::move(updated), std::move(arguments));
-    }
 
     ir::Stmt visit(const ir::Return *node) override {
         ir::Expr value = node->value;
         if (!value.defined()) {
             return node;
         }
-        if (!current.is_export) {
-            return ir::Mutator::visit(node);
-        }
         const auto &arguments = current.args;
-        if (!arguments.front().mutating) {
-            return ir::Mutator::visit(node);
-        }
+        internal_assert(arguments.front().mutating);
         std::string identifier = arguments.front().name;
+        internal_assert(ir::equals(arguments.front().type, value.type()));
         ir::WriteLoc location(identifier, value.type());
-        if (std::optional<ir::Stmt> call =
-                get_nested_export_call(value, location)) {
-            return ir::Sequence::make({*call, ir::Return::make()});
-        }
         return ir::Sequence::make({
             ir::Assign::make(location, std::move(value), /*mutating=*/true),
             ir::Return::make(),
         });
     }
-
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        const auto *call = node->value.as<ir::Call>();
-        if (call == nullptr) {
-            return ir::Mutator::visit(node);
-        }
-        ir::Expr func = call->func;
-        const auto *f = func.as<ir::Var>();
-        internal_assert(f) << func;
-        std::string function_name = f->name;
-        auto it = functions.find(function_name);
-        internal_assert(it != functions.end()) << function_name;
-        const auto &function = it->second;
-        if (!function->is_export) {
-            return ir::Mutator::visit(node);
-        }
-        const auto &arguments = function->args;
-        if (!arguments.front().mutating) {
-            return ir::Mutator::visit(node);
-        }
-        const ir::Type argument_type = arguments.front().type;
-        auto function_variable =
-            ir::Var::make(function->call_type(), function_name);
-
-        ir::WriteLoc location(node->loc.base, argument_type);
-        std::vector<ir::Expr> args = {
-            ir::Var::make(argument_type, node->loc.base)};
-        args.insert(args.end(), call->args.begin(), call->args.end());
-
-        return ir::Sequence::make({
-            ir::Assign::make(location, ir::Build::make(argument_type),
-                             /*mutating=*/false),
-            ir::CallStmt::make(std::move(function_variable), std::move(args)),
-        });
-    }
-
-    ir::Expr visit(const ir::Call *node) override { return node; }
 };
+
+struct ReplaceExportedCalls : public ir::Mutator {
+    const std::set<std::string> &exported_funcs;
+
+    ReplaceExportedCalls(const std::set<std::string> &exported_funcs)
+        : exported_funcs(exported_funcs) {}
+
+    ir::Expr visit(const ir::Var *node) override {
+        if (node->type.is_func() && exported_funcs.contains(node->name)) {
+            return ir::Var::make(node->type, get_unexported_name(node->name));
+        }
+        return node;
+    }
+};
+
 } // namespace
 
 ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
     ir::FuncMap new_functions;
+
+    std::set<std::string> exported_funcs;
 
     // First, update function argument and type signatures.
     for (const auto &[name, function] : functions) {
@@ -134,6 +81,8 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
             new_functions[name] = std::move(function);
             continue;
         }
+
+        exported_funcs.insert(name);
 
         // Update function arguments with additional mutable argument that
         // signifies the returned value.
@@ -152,11 +101,20 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
         new_functions[name] = std::make_shared<ir::Function>(
             name, arguments, ir::Void_t::make(), function->body,
             function->interfaces, function->is_export);
+        // Keep the original function around for other functions that call it.
+        std::string unexported = get_unexported_name(name);
+        new_functions[unexported] = std::make_shared<ir::Function>(
+            unexported, function->args, function->ret_type, function->body,
+            function->interfaces, /*is_export=*/false);
     }
 
     // Next, update function bodies.
     for (auto &[name, func] : new_functions) {
-        func->body = RtOP(*func, new_functions).mutate(func->body);
+        if (func->is_export && func->ret_type.is<ir::Void_t>()) {
+            func->body = RtOP(*func).mutate(std::move(func->body));
+        }
+        func->body =
+            ReplaceExportedCalls(exported_funcs).mutate(std::move(func->body));
     }
     return new_functions;
 }

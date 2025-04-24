@@ -110,7 +110,7 @@ ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
                     << " argument(s): " << ir::Expr(node);
 
                 std::map<std::string, ir::Expr> replacements;
-                std::vector<ir::Lambda::Argument> lambda_args(expected_args);
+                std::vector<ir::TypedVar> lambda_args(expected_args);
                 for (size_t i = 0; i < expected_args; i++) {
                     ir::Type type = etype.is<ir::Tuple_t>()
                                         ? etype.as<ir::Tuple_t>()->etypes[i]
@@ -118,7 +118,7 @@ ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
                     replacements[f->args[i].name] =
                         ir::Var::make(type, f->args[i].name);
                     lambda_args[i] =
-                        ir::Lambda::Argument{f->args[i].name, std::move(type)};
+                        ir::TypedVar{f->args[i].name, std::move(type)};
                 }
 
                 ir::Expr new_lambda_expr =

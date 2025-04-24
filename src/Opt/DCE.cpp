@@ -48,7 +48,7 @@ struct ComputeUseCounts : ir::Visitor {
     }
 
     void visit(const ir::Lambda *node) override {
-        for (const ir::Lambda::Argument &arg : node->args) {
+        for (const ir::TypedVar &arg : node->args) {
             internal_assert(!use_counts.contains(arg.name)) << arg.name;
             if (!curr_var.empty()) {
                 const UseCountMap &dep_map = dependent_use_counts[curr_var];
@@ -57,7 +57,7 @@ struct ComputeUseCounts : ir::Visitor {
         }
         // Need to erase use counts of arguments from use count maps.
         ir::Visitor::visit(node);
-        for (const ir::Lambda::Argument &arg : node->args) {
+        for (const ir::TypedVar &arg : node->args) {
             use_counts.erase(arg.name);
             if (!curr_var.empty()) {
                 // Erase from dependent_use_counts as well.

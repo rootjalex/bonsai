@@ -1,0 +1,24 @@
+//! flags: -b llvm -e
+
+func main() -> i32 {
+  a: i32 = 12;
+  b: i32 = 10;
+  c: i32 = 6;
+  d: i32 = 1;
+
+  expect: i32 = (((a & b) ^ c) | d);
+  actual: i32 =    a & b  ^ c  | d;
+  print(expect);
+  print(actual);
+
+  sx: i32 = -1;
+  sy: i32 = 1;
+  print(sx >> 1); // shra(-1, 1) => -1
+  print(sy >> 1); // shra( 1, 1) => 0
+
+  ux: u32 = cast[[u32]](-1);
+  uy: u32 = 1;
+  print(ux >> 1); // shrl(0xffff'ffff, 1) => 0x7fff'ffff (aka 2147483647)
+  print(uy >> 1); // shrl(1, 1) => 0
+  return 0;
+}

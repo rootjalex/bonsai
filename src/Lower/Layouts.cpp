@@ -564,8 +564,8 @@ struct LowerMatches : public ir::Mutator {
             std::map<std::string, ir::Expr> field_map;
             const std::string &branch_name = arm.first.name();
             for (const auto &field : arm.first.fields()) {
-                field_map[field.first] = get_field(
-                    base_struct, tree_name, layout, branch_name, field.first);
+                field_map[field.name] = get_field(
+                    base_struct, tree_name, layout, branch_name, field.name);
             }
 
             // Lower these Unwraps.

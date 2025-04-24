@@ -452,8 +452,7 @@ void Printer::print(const BVH_t::Node &node) {
         if (i != 0) {
             os << ", ";
         }
-        os << as_struct->fields[i].first << " : "
-           << as_struct->fields[i].second;
+        os << as_struct->fields[i].name << " : " << as_struct->fields[i].type;
     }
     os << ")";
 
@@ -603,6 +602,10 @@ std::string to_string(const BinOp::OpType &op) {
         return "&";
     case BinOp::BwOr:
         return "|";
+    case BinOp::Shl:
+        return "<<";
+    case BinOp::Shr:
+        return ">>";
     default:
         internal_error << "unsupported op: " << op;
     }

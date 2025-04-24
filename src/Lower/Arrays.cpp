@@ -173,7 +173,7 @@ struct LowerToForEach : public ir::Mutator {
 
     ir::Expr build_traversal_function(const ir::Expr &expr) {
         const std::string function_name = unique_func_name();
-        std::vector<const ir::Var *> free_vars = ir::gather_free_vars(expr);
+        std::vector<ir::TypedVar> free_vars = ir::gather_free_vars(expr);
         ir::Stmt body = build_hierarchy(expr);
         internal_assert(body.defined())
             << "traversal building undefined for: " << expr;
@@ -181,7 +181,7 @@ struct LowerToForEach : public ir::Mutator {
         std::vector<ir::Function::Argument> func_args;
         std::transform(free_vars.cbegin(), free_vars.cend(),
                        std::back_inserter(func_args), [&](const auto &var) {
-                           return ir::Function::Argument(var->name, var->type);
+                           return ir::Function::Argument(var.name, var.type);
                        });
 
         auto f = std::make_shared<ir::Function>(
@@ -284,14 +284,14 @@ struct LowerToForAll : public ir::Mutator {
         ir::Expr value = replace(replacements, body->value);
 
         // Create the allocation. The type is currently just inferred from the
-        // top-level iterable.
-        const ir::Array_t *type = toplevel_iterable.type().as<ir::Array_t>();
-        internal_assert(type) << toplevel_iterable.type();
+        // yielded value.
+        ir::Type iter_type = toplevel_iterable.type();
+        ir::Type yield_type = iter_type.with_etype(body->value.type());
         std::string allocation_name = unique_alloc_name();
-        ir::Stmt allocation = ir::Allocate::make(allocation_name, type);
+        ir::Stmt allocation = ir::Allocate::make(allocation_name, yield_type);
 
         std::vector<ir::Expr> indices;
-        ir::Type index_type = type->size.type();
+        ir::Type index_type = iter_type.as<ir::Array_t>()->size.type();
         std::transform(iterator_names.begin(), iterator_names.end(),
                        std::back_inserter(indices),
                        [&](const std::string &name) {
@@ -317,7 +317,8 @@ struct LowerToForAll : public ir::Mutator {
                 /*body=*/final_body);
         }
 
-        ir::Stmt ret = ir::Return::make(ir::Var::make(type, allocation_name));
+        ir::Stmt ret =
+            ir::Return::make(ir::Var::make(yield_type, allocation_name));
         return ir::Sequence::make({
             std::move(allocation),
             std::move(final_body),

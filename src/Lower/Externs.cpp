@@ -20,7 +20,7 @@ namespace lower {
 
 namespace {
 
-using VarList = std::vector<const ir::Var *>;
+using VarList = std::vector<ir::TypedVar>;
 
 struct InsertExternsIntoCalls : public ir::Mutator {
     const std::map<std::string, VarList> &funcs_with_externs;
@@ -93,22 +93,22 @@ ir::Program LowerExterns::run(ir::Program program) const {
             // types match, error if types are !equal()
             const auto it = std::find_if(
                 free_vars.cbegin(), free_vars.cend(),
-                [&](const auto &var) { return var->name == ext.first; });
+                [&](const auto &var) { return var.name == ext.name; });
             if (it == free_vars.cend()) {
                 continue;
             }
-            internal_assert(ir::equals(ext.second, (*it)->type))
+            internal_assert(ir::equals(ext.type, (*it).type))
                 << "Lowering of extern found mistmatched type reference: "
-                << ext.second << " vs. " << (*it)->type;
+                << ext.type << " vs. " << (*it).type;
 
-            new_args[counter].name = ext.first;
-            new_args[counter].type = ext.second;
+            new_args[counter].name = ext.name;
+            new_args[counter].type = ext.type;
             // TODO: mutating = false.
             counter++;
         }
         internal_assert(counter == free_vars.size())
             << "Free vars: " << free_vars.size() << " but added: " << counter
-            << " args";
+            << " args to: " << *func;
         // append new arguments to function call, and store this dependency for
         // calls to this func.
         func->args.insert(func->args.end(),

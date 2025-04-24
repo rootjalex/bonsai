@@ -70,6 +70,8 @@ class Token {
         LOGICAL_AND, // &&
         AT,          // @
         LOGICAL_OR,  // ||
+        SHIFT_LEFT,  // <<
+        SHIFT_RIGHT, // >>
         XOR,         // ^
         BITWISE_AND, // &
         NOT,         // !

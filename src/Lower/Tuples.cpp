@@ -32,8 +32,8 @@ struct TuplesToStructs : public ir::Mutator {
         const size_t n = node->etypes.size();
         ir::Struct_t::Map fields(n);
         for (size_t i = 0; i < n; i++) {
-            fields[i].first = "_field" + std::to_string(i);
-            fields[i].second =
+            fields[i].name = "_field" + std::to_string(i);
+            fields[i].type =
                 mutate(node->etypes[i]); // in the case of nested tuples.
         }
         std::string name = unique_struct_name();
@@ -69,8 +69,8 @@ struct TuplesToStructs : public ir::Mutator {
             << "Extract on tuple is out of bounds: " << ir::Expr(node)
             << " idx: " << idx << " >= " << as_struct->fields.size();
         // Possibly unnecessary safety check.
-        internal_assert(ir::equals(as_struct->fields[idx].second, node->type));
-        std::string field = as_struct->fields[idx].first;
+        internal_assert(ir::equals(as_struct->fields[idx].type, node->type));
+        std::string field = as_struct->fields[idx].name;
         ir::Expr inner = mutate(node->vec);
         return ir::Access::make(std::move(field), std::move(inner));
     }

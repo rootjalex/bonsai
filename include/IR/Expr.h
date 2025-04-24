@@ -171,6 +171,9 @@ struct BinOp : ExprNode<BinOp> {
         Xor,
         BwAnd,
         BwOr,
+        Shl,
+        // Arithmetic on signed integral types, and logical otherwise.
+        Shr,
     };
 
     OpType op;
@@ -326,14 +329,10 @@ struct Intrinsic : ExprNode<Intrinsic> {
 };
 
 struct Lambda : ExprNode<Lambda> {
-    struct Argument {
-        std::string name;
-        Type type; // optional
-    };
-    std::vector<Argument> args;
+    std::vector<TypedVar> args;
     Expr value;
 
-    static Expr make(std::vector<Argument> args, Expr value);
+    static Expr make(std::vector<TypedVar> args, Expr value);
 
     static const IRExprEnum node_type = IRExprEnum::Lambda;
 };

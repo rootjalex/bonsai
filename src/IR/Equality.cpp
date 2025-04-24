@@ -164,12 +164,12 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         }
         const size_t n = s0->fields.size();
         for (size_t i = 0; i < n; i++) {
-            if (s0->fields[i].first != s1->fields[i].first) {
-                return compare_primitives(s0->fields[i].first,
-                                          s1->fields[i].first);
+            if (s0->fields[i].name != s1->fields[i].name) {
+                return compare_primitives(s0->fields[i].name,
+                                          s1->fields[i].name);
             }
             if (const Cmp rec =
-                    compare_types(s0->fields[i].second, s1->fields[i].second);
+                    compare_types(s0->fields[i].type, s1->fields[i].type);
                 rec != Cmp::Equals) {
                 return rec;
             }

@@ -11,6 +11,8 @@
 namespace bonsai {
 namespace ir {
 
+TypedVar::operator Expr() const { return Var::make(type, name); }
+
 uint32_t Type::bits() const {
     if (auto *as_int = this->as<Int_t>()) {
         return as_int->bits;
@@ -94,9 +96,9 @@ bool Type::is_primitive() const {
     return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t>() ||
            (is<Vector_t>() && element_of().is_primitive()) ||
            (is<Struct_t>() &&
-            std::all_of(
-                as<Struct_t>()->fields.cbegin(), as<Struct_t>()->fields.cend(),
-                [](const auto &p) { return p.second.is_primitive(); })) ||
+            std::all_of(as<Struct_t>()->fields.cbegin(),
+                        as<Struct_t>()->fields.cend(),
+                        [](const auto &p) { return p.type.is_primitive(); })) ||
            (is<Tuple_t>() &&
             std::all_of(as<Tuple_t>()->etypes.cbegin(),
                         as<Tuple_t>()->etypes.cend(),
@@ -146,6 +148,30 @@ Type Type::element_of() const {
     } else {
         internal_error << "Called element_of() on bad type: " << *this;
     }
+}
+
+Type Type::with_etype(Type etype) const {
+    auto do_recurse = [](const Type &t) {
+        return t.is<Vector_t, Array_t, Set_t>();
+    };
+    if (const Vector_t *vec = this->as<Vector_t>()) {
+        const Type vtype = vec->etype;
+        Type inner = do_recurse(vtype) ? vtype.with_etype(std::move(etype))
+                                       : std::move(etype);
+        return Vector_t::make(std::move(inner), vec->lanes);
+    } else if (const Array_t *array = this->as<Array_t>()) {
+        const Type vtype = array->etype;
+        Type inner = do_recurse(vtype) ? vtype.with_etype(std::move(etype))
+                                       : std::move(etype);
+        return Array_t::make(std::move(inner), array->size);
+    } else if (const Set_t *set = this->as<Set_t>()) {
+        const Type vtype = set->etype;
+        Type inner = do_recurse(vtype) ? vtype.with_etype(std::move(etype))
+                                       : std::move(etype);
+        return Set_t::make(std::move(inner));
+    }
+    internal_error << "with_etype(" << etype << ") called on " << *this
+                   << " which is not a collection.";
 }
 
 Type Void_t::make() {
@@ -266,9 +292,8 @@ Type Vector_t::make(Type etype, uint32_t lanes) {
 
 Type Struct_t::make(std::string name, Struct_t::Map fields) {
     internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
-    internal_assert(
-        std::all_of(fields.cbegin(), fields.cend(),
-                    [](const auto &p) { return p.second.defined(); }))
+    internal_assert(std::all_of(fields.cbegin(), fields.cend(),
+                                [](const auto &p) { return p.type.defined(); }))
         << "Struct_t::make recieved undefined field type in definition of "
         << name;
     Struct_t *node = new Struct_t;
@@ -280,9 +305,8 @@ Type Struct_t::make(std::string name, Struct_t::Map fields) {
 Type Struct_t::make(std::string name, Struct_t::Map fields,
                     Struct_t::DefMap defaults) {
     internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
-    internal_assert(
-        std::all_of(fields.cbegin(), fields.cend(),
-                    [](const auto &p) { return p.second.defined(); }))
+    internal_assert(std::all_of(fields.cbegin(), fields.cend(),
+                                [](const auto &p) { return p.type.defined(); }))
         << "Struct_t::make recieved undefined field type in definition of "
         << name;
     internal_assert(std::all_of(defaults.cbegin(), defaults.cend(),
@@ -360,7 +384,7 @@ Type Generic_t::make(std::string name, Interface interface) {
 namespace {
 
 bool validate_volume(const BVH_t::Volume &volume,
-                     const std::vector<Struct_t::Field> &params) {
+                     const std::vector<TypedVar> &params) {
     if (!volume.struct_type.is<Struct_t>()) {
         return false;
     }
@@ -372,18 +396,16 @@ bool validate_volume(const BVH_t::Volume &volume,
     for (size_t i = 0; i < fields.size(); i++) {
         const std::string &name = volume.initializers[i];
 
-        auto it = std::find_if(
-            params.begin(), params.end(),
-            [&](const Struct_t::Field &p) { return p.first == name; });
+        auto it =
+            std::find_if(params.begin(), params.end(),
+                         [&](const TypedVar &p) { return p.name == name; });
 
         if (it == params.end()) {
             return false;
         }
 
-        Type type = it->second;
-
         // Validate type
-        if (!equals(type, fields[i].second)) {
+        if (!equals(it->type, fields[i].type)) {
             return false;
         }
     }
@@ -417,7 +439,7 @@ Type BVH_t::make(ir::Type primitive, std::string name,
 }
 
 Type BVH_t::make(ir::Type primitive, std::string name,
-                 const std::vector<Struct_t::Field> &globals,
+                 const std::vector<TypedVar> &globals,
                  std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
     internal_assert(primitive.defined())
         << "BVH_t::make received undefined prim_t";
@@ -431,7 +453,7 @@ Type BVH_t::make(ir::Type primitive, std::string name,
     // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < nodes.size(); i++) {
         // Insert params into the front of nodes[i].params
-        std::vector<Struct_t::Field> copy = globals;
+        std::vector<TypedVar> copy = globals;
         const auto &params = nodes[i].fields();
         // TODO: figure out why insert() segfaults.
         // copy.insert(globals.end(), params.begin(), params.end());

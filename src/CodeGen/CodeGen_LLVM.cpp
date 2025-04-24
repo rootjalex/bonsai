@@ -794,6 +794,14 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             value = builder->CreateOr(a, b);
             return;
         }
+        case BinOp::Shl: {
+            value = builder->CreateShl(a, b);
+            return;
+        }
+        case BinOp::Shr: {
+            value = builder->CreateAShr(a, b);
+            return;
+        }
         default: {
             internal_error
                 << "Unimplemented BinOp lowering for signed integer: "
@@ -852,6 +860,14 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         case BinOp::BwOr: {
             value = builder->CreateOr(a, b);
+            return;
+        }
+        case BinOp::Shl: {
+            value = builder->CreateShl(a, b);
+            return;
+        }
+        case BinOp::Shr: {
+            value = builder->CreateLShr(a, b);
             return;
         }
         default: {
@@ -1062,7 +1078,7 @@ void CodeGen_LLVM::visit(const Cast *node) {
     if (src.is<Vector_t>() && dst.is<Struct_t>() &&
         dst.as<Struct_t>()->fields.size() == 1) {
         ir::Expr repl =
-            Cast::make(dst.as<Struct_t>()->fields[0].second, node->value);
+            Cast::make(dst.as<Struct_t>()->fields[0].type, node->value);
         repl = Build::make(node->type, {std::move(repl)});
         repl.accept(this);
         return;

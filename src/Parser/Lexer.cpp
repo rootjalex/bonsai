@@ -421,6 +421,8 @@ void Lexer::lex() {
                 program_stream.get();
                 if (consume_if(program_stream, '=')) {
                     add_token(Token::Type::LEQ);
+                } else if (consume_if(program_stream, '<')) {
+                    add_token(Token::Type::SHIFT_LEFT);
                 } else {
                     add_token(Token::Type::LT);
                 }
@@ -429,6 +431,8 @@ void Lexer::lex() {
                 program_stream.get();
                 if (consume_if(program_stream, '=')) {
                     add_token(Token::Type::GEQ);
+                } else if (consume_if(program_stream, '>')) {
+                    add_token(Token::Type::SHIFT_RIGHT);
                 } else {
                     add_token(Token::Type::GT);
                 }

@@ -28,16 +28,16 @@ static size_t counter = 0;
 std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
 
 // returns has_data, has_children
-std::pair<std::vector<ir::Struct_t::Field>, std::vector<ir::Struct_t::Field>>
+std::pair<std::vector<ir::TypedVar>, std::vector<ir::TypedVar>>
 analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
-    std::vector<ir::Struct_t::Field> data, children;
+    std::vector<ir::TypedVar> data, children;
     for (const auto &param : node.fields()) {
-        if (ir::equals(prim_t, param.second) ||
-            (param.second.is<ir::Array_t>() &&
-             ir::equals(prim_t, param.second.as<ir::Array_t>()->etype))) {
+        if (ir::equals(prim_t, param.type) ||
+            (param.type.is<ir::Array_t>() &&
+             ir::equals(prim_t, param.type.as<ir::Array_t>()->etype))) {
             data.push_back(param);
-        } else if (param.second.is<ir::Ref_t>()) { // TODO: and is ref to
-                                                   // current tree type?
+        } else if (param.type.is<ir::Ref_t>()) { // TODO: and is ref to
+                                                 // current tree type?
             children.push_back(param);
         }
     }
@@ -79,8 +79,7 @@ struct Rewriter : public ir::Mutator {
         return ir::Match::make(node->loc, std::move(new_arms));
     }
 
-    VolumeMap
-    make_volume_map(const std::vector<ir::Lambda::Argument> &args) const {
+    VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
         VolumeMap vols;
         const size_t n = volumes.size();
         internal_assert(n == args.size())
@@ -275,7 +274,8 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
             std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
-            return ir::Accumulate::make(loc, ir::Accumulate::Argmin, std::move(update));
+            return ir::Accumulate::make(loc, ir::Accumulate::Argmin,
+                                        std::move(update));
         }
 
         ir::Stmt visit(const ir::Scan *node) override { return node; }
@@ -434,12 +434,12 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
             std::vector<ir::Stmt> stmts(data.size() + children.size());
             // TODO: visit order should be scheduable?
             for (size_t i = 0; i < data.size(); i++) {
-                ir::Expr access = ir::Access::make(data[i].first, node);
-                if (data[i].second.is_iterable()) {
+                ir::Expr access = ir::Access::make(data[i].name, node);
+                if (data[i].type.is_iterable()) {
                     // forall d in data: yield d
                     std::string name = unique_iter_name();
                     ir::Stmt body = ir::Yield::make(
-                        ir::Var::make(data[i].second.element_of(), name));
+                        ir::Var::make(data[i].type.element_of(), name));
                     stmts[i] = ir::ForEach::make(
                         std::move(name), std::move(access), std::move(body));
                 } else {
@@ -450,7 +450,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
             for (size_t j = 0; j < children.size(); j++) {
                 // Type is recursively a tree.
                 stmts[data.size() + j] =
-                    ir::Scan::make(ir::Access::make(children[j].first, node));
+                    ir::Scan::make(ir::Access::make(children[j].name, node));
             }
 
             arms[i].first = bvh->nodes[i];
@@ -511,7 +511,7 @@ struct LowerBVH : public ir::Mutator {
 
         bool found = false;
         for (const auto &var : free_vars) {
-            if (tree_types.contains(var->name)) {
+            if (tree_types.contains(var.name)) {
                 found = true;
                 break;
             }
@@ -530,12 +530,12 @@ struct LowerBVH : public ir::Mutator {
         std::vector<ir::Function::Argument> func_args;
         std::transform(free_vars.cbegin(), free_vars.cend(),
                        std::back_inserter(func_args), [&](const auto &var) {
-                           const auto &iter = this->tree_types.find(var->name);
+                           const auto &iter = this->tree_types.find(var.name);
                            if (iter != this->tree_types.cend()) {
-                               return ir::Function::Argument(var->name,
+                               return ir::Function::Argument(var.name,
                                                              iter->second);
                            }
-                           return ir::Function::Argument(var->name, var->type);
+                           return ir::Function::Argument(var.name, var.type);
                        });
 
         // When should this type be concretized into e.g. a list?
@@ -551,9 +551,9 @@ struct LowerBVH : public ir::Mutator {
         std::transform(free_vars.begin(), free_vars.end(),
                        std::back_inserter(call_args),
                        [&](auto &var) -> ir::Expr {
-                           const auto &iter = this->tree_types.find(var->name);
+                           const auto &iter = this->tree_types.find(var.name);
                            if (iter != this->tree_types.cend()) {
-                               return ir::Var::make(iter->second, var->name);
+                               return ir::Var::make(iter->second, var.name);
                            }
                            return var;
                        });
