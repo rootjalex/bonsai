@@ -191,12 +191,12 @@ struct RenameVariable : public ir::Mutator {
         };
         std::string name = old_name.has_value() ? *old_name : location.base;
         ir::Expr lhs = ir::Var::make(location.type, std::move(name));
-        return ir::Assign::make(/*loc=*/ir::WriteLoc(new_name, location.type),
-                                /*value=*/
-                                ir::BinOp::make(acc_to_bin(node->op),
-                                                std::move(lhs),
-                                                std::move(value)),
-                                /*mutating=*/false);
+        return ir::Assign::make(
+            /*loc=*/ir::WriteLoc(std::move(new_name), location.type),
+            /*value=*/
+            ir::BinOp::make(acc_to_bin(node->op), std::move(lhs),
+                            std::move(value)),
+            /*mutating=*/false);
     }
 
     // x: mut i32 = 0;
@@ -227,9 +227,40 @@ struct RenameVariable : public ir::Mutator {
         if (!updated) {
             return ir::Mutator::visit(node);
         }
-        return ir::Assign::make(ir::WriteLoc(new_name, location.type),
-                                std::move(value), /*mutating=*/false);
+        return create_all(ir::Assign::make(
+            ir::WriteLoc(new_name, location.type), std::move(value),
+            /*mutating=*/false));
     }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        return create_all(ir::LetStmt::make(node->loc, std::move(value)));
+    }
+
+    ir::Stmt visit(const ir::Return *node) override {
+        ir::Expr value = mutate(node->value);
+        return create_all(ir::Return::make(value));
+    }
+
+    ir::Expr visit(const ir::Lambda *node) override { return node; }
+
+    ir::Expr visit(const ir::BinOp *node) override {
+        ir::Expr a = mutate(node->a);
+        ir::Expr b = mutate(node->b);
+        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        temporaries.push_back(ir::LetStmt::make(
+            location, ir::BinOp::make(node->op, std::move(a), std::move(b))));
+        return ir::Var::make(node->type, location.base);
+    }
+
+    // TODO(cgyurgyik): Clean up.
+    ir::Stmt create_all(ir::Stmt statement) {
+        temporaries.push_back(std::move(statement));
+        ir::Stmt sequence = ir::Sequence::make(std::move(temporaries));
+        temporaries.clear();
+        return sequence;
+    }
+    std::vector<ir::Stmt> temporaries;
 
     ir::Stmt visit(const ir::IfElse *node) override {
         ScopedValue<bool> guard(should_rename, false);

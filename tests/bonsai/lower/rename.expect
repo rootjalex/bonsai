@@ -6,40 +6,59 @@ func rename(cond : bool) -> i32 {
   let a = 1 in
   let b = 2 in
   x := 3
-  let c = a + x in
-  let d = a + x in
-  _0x := x + 1
-  let e = a + _0x in
-  let f = a + _0x in
+  let _t0 = a + x in
+  let c = _t0 in
+  let _t1 = a + x in
+  let d = _t1 in
+  _2x := x + 1
+  let _t3 = a + _2x in
+  let e = _t3 in
+  let _t4 = a + _2x in
+  let f = _t4 in
   if (cond) {
-    _0x := _0x + 1
+    _2x := _2x + 1
   } else {
-    _0x := _0x + 2
+    _2x := _2x + 2
   }
-  if (cond && (_0x < 0)) {
-    _0x := 0
+  if (_t6) {
+    let _t5 = _2x < 0 in
+    let _t6 = cond && _t5 in
+    _2x := 0
   } else {
-    _0x := 1
+    _2x := 1
   }
-  _1x := _0x + 3
-  _2x := _1x * 2
-  _3x := 42
+  _7x := _2x + 3
+  _8x := _7x * 2
+  _9x := 42
   if (cond) {
-    _3x := _3x + 2
+    _9x := _9x + 2
     y := 0
     y += 1
     if (cond) {
-      _3x := 0
+      _9x := 0
     }
   }
-  _4x := _3x + 2
-  _5x := _4x + 2
-  _6x := _5x + id(_5x)
+  _10x := _9x + 2
+  let _t11 = _10x + 2 in
+  _12x := _t11
+  let _t13 = _12x + id(_12x) in
+  _14x := _t13
   return 0
 }
 
-func unnamed_expressions(x : i32, y : i32) -> void {
-  let v = (x + y) + (x + y) in
+func unnamed_expressions(x : i32, y : i32) -> i32 {
+  let _t0 = x + y in
+  let _t1 = x + y in
+  let _t2 = _t0 + _t1 in
+  let _t3 = _t2 + 2 in
+  let v = _t3 in
+  z := 42
+  _4z := z + 1
+  let _t5 = 42 - v in
+  _6z := _t5
+  let _t7 = x + v in
+  let _t8 = _t7 - _6z in
+  return _t8
 }
 
 
