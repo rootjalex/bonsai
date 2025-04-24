@@ -102,12 +102,12 @@ class CseImpl : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
-        ir::Expr c = get(mutate(node->cond));
-        if (!c.defined()) {
-            ScopedValue<bool> guard(allow_cse, false);
+        ir::Expr cond = get(mutate(node->cond));
+        if (!cond.defined()) {
             return ir::Mutator::visit(node);
         }
-        return ir::IfElse::make(std::move(c), node->then_body, node->else_body);
+        return ir::IfElse::make(std::move(cond), mutate(node->then_body),
+                                mutate(node->else_body));
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {

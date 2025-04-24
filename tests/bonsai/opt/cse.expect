@@ -24,7 +24,7 @@ func if_condition(a : bool, b : bool) -> bool {
   if (c1) {
     r = a
   } else {
-    let c2 = a && b in
+    let c2 = c1 in
     r = b
   }
   let c3 = c1 in
