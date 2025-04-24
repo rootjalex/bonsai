@@ -20,13 +20,20 @@ func mutating_argument(x: mut i32) -> i32 {
   return 0;
 }
 
+
 func if_condition(a: bool, b: bool) -> bool {
-    cond: bool = a && b;
-    if (a && b) {
-        return a;
+    r: mut bool = false;
+    c1: bool = a && b;     // #1
+    if (a && b) {          // #1
+        r = a;
     } else {
-        return b;
+        // TODO(cgyurgyik): CSE can occur within control flow 
+        // as long as both expression are immutable.
+        c2: bool = a && b; // #1
+        r = b;
     }
+    c3: bool = a && b;     // #1
+    return r;
 }
 
 func vector_access(x : vector[i32, 3]) -> i32 {

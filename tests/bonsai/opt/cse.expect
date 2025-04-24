@@ -19,12 +19,16 @@ func id_with_side_effect(x : i32) -> i32 {
 }
 
 func if_condition(a : bool, b : bool) -> bool {
-  let cond = a && b in
-  if (cond) {
-    return a
+  r := false
+  let c1 = a && b in
+  if (c1) {
+    r = a
   } else {
-    return b
+    let c2 = a && b in
+    r = b
   }
+  let c3 = c1 in
+  return r
 }
 
 func mutable_struct(e : mut E) -> void {
