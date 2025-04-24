@@ -1,7 +1,6 @@
 element Float = f32;
 element Half = f16;
 element vec3f = vector[Float, 3];
-element vec2f = vector[Float, 2];
 element vec3h = vector[Half, 3];
 
 func sqlen<F : IFloat>(v : vector[F, 3]) -> F = sum(v * v);

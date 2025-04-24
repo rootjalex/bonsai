@@ -2,6 +2,7 @@ type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
+type Point = struct Point{ vec : f32x3 }
 type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
@@ -12,6 +13,19 @@ type vec3f = f32x3
 type vec3h = f16x3
 
 extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
+
+func ClosestPtPointAABB(pt : Point, a : AABB) -> Point {
+  return cast<Point>(min(max(pt.vec, a.low), a.high))
+}
+
+func SqDistPointAABB(pt : Point, a : AABB) -> f32 {
+  let v = pt.vec in
+  let sqLow = (a.low - v) * (a.low - v) in
+  let low = select(v < a.low, sqLow, f32x3(0f)) in
+  let sqHigh = (v - a.high) * (v - a.high) in
+  let high = select(a.high < v, sqHigh, f32x3(0f)) in
+  return reduce<+>(low + high)
+}
 
 func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) -> Triangle[n] {
   alloc _alloc0 : Triangle[n]
@@ -46,6 +60,53 @@ func _unexported_trace(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   return _traverse_tree0(ray, triangles)
 }
 
+func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
+  let p = pt.vec in
+  let a = tri.p0 in
+  let b = tri.p1 in
+  let c = tri.p2 in
+  let ab = b - a in
+  let ac = c - a in
+  let ap = p - a in
+  let d1 = dot(ab, ap) in
+  let d2 = dot(ac, ap) in
+  if ((d1 <= 0f) && (d2 <= 0f)) {
+    return cast<(Point, Point)>(build<tuple.1>(a, build<Point>(build<f32x3>(1f, 0f, 0f))))
+  }
+  let bp = p - b in
+  let d3 = dot(ab, bp) in
+  let d4 = dot(ac, bp) in
+  if ((0f <= d3) && (d4 <= d3)) {
+    return cast<(Point, Point)>(build<tuple.1>(b, build<Point>(build<f32x3>(0f, 1f, 0f))))
+  }
+  let vc = (d1 * d4) - (d3 * d2) in
+  if (((vc <= 0f) && (0f <= d1)) && (d3 <= 0f)) {
+    let v0 = d1 / (d1 - d3) in
+    return cast<(Point, Point)>(build<tuple.1>(a + (f32x3(v0) * ab), build<Point>(build<f32x3>(1f - v0, v0, 0f))))
+  }
+  let cp = p - c in
+  let d5 = dot(ab, cp) in
+  let d6 = dot(ac, cp) in
+  if ((0f <= d6) && (d5 <= d6)) {
+    return cast<(Point, Point)>(build<tuple.1>(c, build<Point>(build<f32x3>(0f, 0f, 1f))))
+  }
+  let vb = (d5 * d2) - (d1 * d6) in
+  if (((vb <= 0f) && (0f <= d2)) && (d6 <= 0f)) {
+    let w0 = d2 / (d2 - d6) in
+    return cast<(Point, Point)>(build<tuple.1>(a + (f32x3(w0) * ac), build<Point>(build<f32x3>(1f - w0, 0f, w0))))
+  }
+  let va = (d3 * d6) - (d5 * d4) in
+  if (((va <= 0f) && (0f <= (d4 - d3))) && (0f <= (d5 - d6))) {
+    let w1 = (d4 - d3) / ((d4 - d3) + (d5 - d6)) in
+    return cast<(Point, Point)>(build<tuple.1>(b + (f32x3(w1) * (c - b)), build<Point>(build<f32x3>(0f, 1f - w1, w1))))
+  }
+  let denom = 1f / ((va + vb) + vc) in
+  let v = vb * denom in
+  let w = vc * denom in
+  let u = va * denom in
+  return cast<(Point, Point)>(build<tuple.1>((a + (ab * f32x3(v))) + (ac * f32x3(w)), build<Point>(build<f32x3>(u, v, w))))
+}
+
 func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
   return build<f32x3>(prod_diff$f32(v0[1u], v1[2u], v0[2u], v1[1u]), prod_diff$f32(v0[2u], v1[0u], v0[0u], v1[2u]), prod_diff$f32(v0[0u], v1[1u], v0[1u], v1[0u]))
 }
@@ -57,6 +118,16 @@ func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
     return extract.high
   }
   return (f32)inf
+}
+
+func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
+  let pts = closestPointonTriangle(p, tri) in
+  let x = pts._field0 in
+  return norm(p.vec - x.vec)
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
