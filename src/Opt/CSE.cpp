@@ -25,6 +25,7 @@ namespace {
 //  let _t0 = a + b in
 //  let c = _t1 in
 //  in f(_t0, _t0)
+// TODO(cgyurgyik): Add frames.
 class CopyPropagation : public ir::Mutator {
   public:
     CopyPropagation(const std::set<std::string> &mutable_arguments)
@@ -98,6 +99,7 @@ struct IsCseLegal : public ir::Visitor {
     const std::set<std::string> &mutable_variables;
 };
 
+// TODO(cgyurgyik): Add frames.
 class CseImpl : public ir::Mutator {
   public:
     CseImpl(const std::set<std::string> &side_effect_functions,

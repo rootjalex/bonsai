@@ -31,8 +31,13 @@ func if_condition(a: bool, b: bool) -> bool {
         // expressions are immutable and not side-effecting.
         c2: bool = a && b; // #1
         r = b;
+
+        c4: bool = a || b;
     }
     c3: bool = a && b;     // #1
+    
+    // TODO(cgyurgyik): This shouldn't CSE with c4.
+    c5: bool = a || b;
     return r;
 }
 
