@@ -4,6 +4,7 @@ add_bonsai_tests(
     bitwise.bonsai
     call.bonsai
     export.bonsai
+    extract-access.bonsai
     ivector.bonsai
     lambda-parse.bonsai
     parse-negation.bonsai

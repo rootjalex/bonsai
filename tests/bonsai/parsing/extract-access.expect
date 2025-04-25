@@ -1,0 +1,7 @@
+type A = struct A{ x : f32; y : f32 }
+
+func foo(a : Ax2) -> f32 {
+  return a[0].x
+}
+
+
