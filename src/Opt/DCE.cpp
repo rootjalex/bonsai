@@ -306,9 +306,6 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
 
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_func_args = get_mutable_arguments(*func);
-        if (func->name.starts_with("_traverse")) {
-            std::cerr << "func: " << *func << "\n";
-        }
         func->body = dce_stmt(mutable_func_args, func->body, se_functions);
     }
     return funcs;
