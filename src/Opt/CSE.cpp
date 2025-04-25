@@ -19,13 +19,11 @@ namespace opt {
 namespace {
 
 //  let _t0 = a + b in
-//  let c = _t0 in
-//  let _t1 = c in
-//  in f(c, _t1)
+//  let _t1 = a + b in
+//  in f(_t0, _t1)
 //  ->
 //  let _t0 = a + b in
-//  let c = _t0 in
-//  let _t1 = _t0 in
+//  let c = _t1 in
 //  in f(_t0, _t0)
 class CopyPropagation : public ir::Mutator {
   public:

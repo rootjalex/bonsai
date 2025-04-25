@@ -79,7 +79,9 @@ PassManager register_passes() {
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
     manager.register_pass<ReturnToOutParameter>();
+    // This is quite the intrusive pass so we opt not to run it in core.
     manager.register_pass<Rename>();
+
     // Optimizing pass registration.
     manager.register_pass<opt::CSE>();
     manager.register_pass<opt::DCE>();

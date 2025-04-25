@@ -1,5 +1,9 @@
 type E = struct E{ x : i32; y : i32 }
 
+func bar(x : i32, y : i32) -> i32 {
+  return x + y
+}
+
 func foo() -> i32 {
   let a = 1 in
   let b = 2 in
@@ -60,6 +64,12 @@ func mutating_value() -> i32 {
 func nested_binary_operations(x : i32, y : i32) -> void {
   let a = x + y in
   let b = a + 1 in
+}
+
+func propagation(x : i32, y : i32) -> void {
+  let a = x + y in
+  let b = a in
+  let c = bar(a, a) in
 }
 
 func self_assign() -> void {

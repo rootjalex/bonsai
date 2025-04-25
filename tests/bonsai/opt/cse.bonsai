@@ -85,3 +85,11 @@ func nested_binary_operations(x: i32,  y: i32) -> void {
     a: i32 = x + y;
     b: i32 = x + y + 1;
 }
+
+func bar(x: i32, y: i32) -> i32 { return x + y; }
+
+func propagation(x: i32, y: i32) -> void {
+    a: i32 = x + y;
+    b: i32 = x + y;
+    c: i32 = bar(a, b);
+}
