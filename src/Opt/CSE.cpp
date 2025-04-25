@@ -23,7 +23,7 @@ namespace {
 //  in f(_t0, _t1)
 //  ->
 //  let _t0 = a + b in
-//  let c = _t1 in
+//  let _t1 = _t0 in
 //  in f(_t0, _t0)
 // TODO(cgyurgyik): Add frames.
 class CopyPropagation : public ir::Mutator {
