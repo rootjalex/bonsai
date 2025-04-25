@@ -22,16 +22,18 @@ func id_with_side_effect(x : i32) -> i32 {
   return x
 }
 
-func if_condition(a : bool, b : bool) -> bool {
+func if_condition(a : bool, b : bool, c : bool) -> bool {
   r := false
-  let c1 = a && b in
+  let c1 = (a && b) && c in
   if (c1) {
     r = a
   } else {
     let c2 = c1 in
     r = b
+    let c4 = (a || b) || c in
   }
   let c3 = c1 in
+  let c5 = c4 in
   return r
 }
 
@@ -55,34 +57,40 @@ func mutating_value() -> i32 {
   x := 3
   let c = a + x in
   let d = c in
-  x = 1
-  let e = a + x in
-  let f = a + x in
+  let _0x = a in
+  let e = a + a in
+  let f = e in
   return 0
 }
 
 func nested_binary_operations(x : i32, y : i32) -> void {
   let a = x + y in
-  let b = a + 1 in
+  let _t0 = a + 1 in
+  let b = _t0 in
 }
 
 func propagation(x : i32, y : i32) -> void {
   let a = x + y in
   let b = a in
-  let c = bar(a, a) in
+  let _t0 = bar(a, a) in
+  let c = _t0 in
 }
 
 func self_assign() -> void {
   i := 1
-  i = i
+  _0i := i
 }
 
 func side_effects() -> i32 {
   let a = 1 in
-  let b = id_with_side_effect(a) + a in
-  let c = id_with_side_effect(a) + a in
-  let d = id_no_side_effect(a) + a in
-  let e = d in
+  let _t0 = id_with_side_effect(a) in
+  let b = _t0 + a in
+  let _t1 = id_with_side_effect(a) in
+  let c = _t1 + a in
+  let _t2 = id_no_side_effect(a) in
+  let d = _t2 + a in
+  let _t3 = _t2 in
+  let e = _t2 + a in
   return 0
 }
 

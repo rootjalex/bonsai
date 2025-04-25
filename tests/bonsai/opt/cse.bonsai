@@ -1,4 +1,4 @@
-//! flags: -p core -p cse
+//! flags: -p core -p rename -p cse
 
 func foo() -> i32 {
   a: i32 = 1;        // #1
@@ -21,23 +21,23 @@ func mutating_argument(x: mut i32) -> i32 {
 }
 
 
-func if_condition(a: bool, b: bool) -> bool {
+func if_condition(a: bool, b: bool, c: bool) -> bool {
     r: mut bool = false;
-    c1: bool = a && b;     // #1
-    if (a && b) {          // #1
+    c1: bool = a && b && c;     // #1
+    if (a && b && c) {          // #1
         r = a;
     } else {
         // CSE can occur within control flow as long as both
         // expressions are immutable and not side-effecting.
-        c2: bool = a && b; // #1
+        c2: bool = a && b && c; // #1
         r = b;
 
-        c4: bool = a || b;
+        c4: bool = a || b || c;
     }
-    c3: bool = a && b;     // #1
+    c3: bool = a && b && c;     // #1
     
     // TODO(cgyurgyik): This shouldn't CSE with c4.
-    c5: bool = a || b;
+    c5: bool = a || b || c;
     return r;
 }
 

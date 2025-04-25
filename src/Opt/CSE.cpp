@@ -55,6 +55,7 @@ class CopyPropagation : public ir::Mutator {
 
     // Cannot propagate copies through mutable variables.
     ir::Stmt visit(const ir::Assign *node) override { return node; }
+    ir::Stmt visit(const ir::Accumulate *node) override { return node; }
 
     // Don't propagate through lambda bodies.
     ir::Expr visit(const ir::Lambda *node) override { return node; }

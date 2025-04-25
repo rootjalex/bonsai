@@ -22,15 +22,14 @@ func ClosestPtPointAABB(pt : Point, a : AABB) -> Point {
 func SqDistPointAABB(pt : Point, a : AABB) -> f32 {
   let v = pt.vec in
   let _t0 = a.low - v in
-  let _t2 = _t0 * _t0 in
-  let _t3 = v < a.low in
-  let low = select(_t3, _t2, f32x3(0f)) in
-  let _t4 = v - a.high in
-  let _t6 = _t4 * _t4 in
-  let _t7 = a.high < v in
-  let high = select(_t7, _t6, f32x3(0f)) in
-  let _t8 = low + high in
-  return reduce<+>(_t8)
+  let sqLow = _t0 * _t0 in
+  let _t2 = v < a.low in
+  let low = select(_t2, sqLow, f32x3(0f)) in
+  let _t3 = v - a.high in
+  let sqHigh = _t3 * _t3 in
+  let _t5 = a.high < v in
+  let high = select(_t5, sqHigh, f32x3(0f)) in
+  return reduce<+>(low + high)
 }
 
 func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
@@ -64,73 +63,54 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
   let a = tri.p0 in
   let b = tri.p1 in
   let c = tri.p2 in
-  let _t0 = b - a in
-  let _t1 = c - a in
-  let _t2 = p - a in
-  let d1 = dot(_t0, _t2) in
-  let d2 = dot(_t1, _t2) in
+  let ab = b - a in
+  let ac = c - a in
+  let ap = p - a in
+  let d1 = dot(ab, ap) in
+  let d2 = dot(ac, ap) in
   if ((d1 <= 0f) && (d2 <= 0f)) {
     return cast<(Point, Point)>(build<tuple.2>(a, build<Point>(build<f32x3>(1f, 0f, 0f))))
   }
-  let _t3 = p - b in
-  let d3 = dot(_t0, _t3) in
-  let d4 = dot(_t1, _t3) in
+  let bp = p - b in
+  let d3 = dot(ab, bp) in
+  let d4 = dot(ac, bp) in
   if ((0f <= d3) && (d4 <= d3)) {
     return cast<(Point, Point)>(build<tuple.2>(b, build<Point>(build<f32x3>(0f, 1f, 0f))))
   }
-  let _t4 = d1 * d4 in
-  let _t5 = d3 * d2 in
-  let _t6 = _t4 - _t5 in
-  if (((_t6 <= 0f) && (0f <= d1)) && (d3 <= 0f)) {
-    let _t7 = d1 - d3 in
-    let _t8 = d1 / _t7 in
-    let _t9 = f32x3(_t8) * _t0 in
-    let _t10 = a + _t9 in
-    let _t11 = 1f - _t8 in
-    return cast<(Point, Point)>(build<tuple.2>(_t10, build<Point>(build<f32x3>(_t11, _t8, 0f))))
+  let _t0 = (d1 * d4) - (d3 * d2) in
+  if (((_t0 <= 0f) && (0f <= d1)) && (d3 <= 0f)) {
+    let _t1 = d1 / (d1 - d3) in
+    let _t2 = f32x3(_t1) * ab in
+    return cast<(Point, Point)>(build<tuple.2>(a + _t2, build<Point>(build<f32x3>(1f - _t1, _t1, 0f))))
   }
-  let _t12 = p - c in
-  let d5 = dot(_t0, _t12) in
-  let d6 = dot(_t1, _t12) in
+  let cp = p - c in
+  let d5 = dot(ab, cp) in
+  let d6 = dot(ac, cp) in
   if ((0f <= d6) && (d5 <= d6)) {
     return cast<(Point, Point)>(build<tuple.2>(c, build<Point>(build<f32x3>(0f, 0f, 1f))))
   }
-  let _t13 = d5 * d2 in
-  let _t14 = d1 * d6 in
-  let _t15 = _t13 - _t14 in
-  if (((_t15 <= 0f) && (0f <= d2)) && (d6 <= 0f)) {
-    let _t16 = d2 - d6 in
-    let _t17 = d2 / _t16 in
-    let _t18 = f32x3(_t17) * _t1 in
-    let _t19 = a + _t18 in
-    let _t20 = 1f - _t17 in
-    return cast<(Point, Point)>(build<tuple.2>(_t19, build<Point>(build<f32x3>(_t20, 0f, _t17))))
+  let _t3 = (d5 * d2) - (d1 * d6) in
+  if (((_t3 <= 0f) && (0f <= d2)) && (d6 <= 0f)) {
+    let _t4 = d2 / (d2 - d6) in
+    let _t5 = f32x3(_t4) * ac in
+    return cast<(Point, Point)>(build<tuple.2>(a + _t5, build<Point>(build<f32x3>(1f - _t4, 0f, _t4))))
   }
-  let _t21 = d3 * d6 in
-  let _t22 = d5 * d4 in
-  let _t23 = _t21 - _t22 in
-  if (((_t23 <= 0f) && (0f <= (d4 - d3))) && (0f <= (d5 - d6))) {
-    let _t24 = d4 - d3 in
-    let _t26 = d5 - d6 in
-    let _t27 = _t24 + _t26 in
-    let _t28 = _t24 / _t27 in
-    let _t29 = c - b in
-    let _t30 = f32x3(_t28) * _t29 in
-    let _t31 = b + _t30 in
-    let _t32 = 1f - _t28 in
-    return cast<(Point, Point)>(build<tuple.2>(_t31, build<Point>(build<f32x3>(0f, _t32, _t28))))
+  let _t6 = (d3 * d6) - (d5 * d4) in
+  if (((_t6 <= 0f) && (0f <= (d4 - d3))) && (0f <= (d5 - d6))) {
+    let _t7 = (d4 - d3) + (d5 - d6) in
+    let _t8 = (d4 - d3) / _t7 in
+    let _t9 = f32x3(_t8) * (c - b) in
+    return cast<(Point, Point)>(build<tuple.2>(b + _t9, build<Point>(build<f32x3>(0f, 1f - _t8, _t8))))
   }
-  let _t33 = _t23 + _t15 in
-  let _t34 = _t33 + _t6 in
-  let _t35 = 1f / _t34 in
-  let _t36 = _t15 * _t35 in
-  let _t37 = _t6 * _t35 in
-  let _t38 = _t23 * _t35 in
-  let _t39 = _t0 * f32x3(_t36) in
-  let _t40 = a + _t39 in
-  let _t41 = _t1 * f32x3(_t37) in
-  let _t42 = _t40 + _t41 in
-  return cast<(Point, Point)>(build<tuple.2>(_t42, build<Point>(build<f32x3>(_t38, _t36, _t37))))
+  let _t10 = (_t6 + _t3) + _t0 in
+  let denom = 1f / _t10 in
+  let v = _t3 * denom in
+  let w = _t0 * denom in
+  let u = _t6 * denom in
+  let _t11 = ab * f32x3(v) in
+  let _t12 = ac * f32x3(w) in
+  let _t13 = (a + _t11) + _t12 in
+  return cast<(Point, Point)>(build<tuple.2>(_t13, build<Point>(build<f32x3>(u, v, w))))
 }
 
 func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
@@ -182,9 +162,8 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 
 func gamma(n : i32) -> f32 {
   let _t0 = cast<f32>(n) * 5.96046e-08f in
-  let _t2 = 1f - _t0 in
-  let _t3 = _t0 / _t2 in
-  return _t3
+  let _t2 = _t0 / (1f - _t0) in
+  return _t2
 }
 
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
@@ -203,15 +182,14 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
 
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option0 {
   let _t0 = f32x3(1f) / r.d in
-  let _t1 = _t0 < f32x3(0f) in
-  let low_parts = select(_t1, b.low, b.high) in
-  let high_parts = select(_t1, b.high, b.low) in
-  let _t2 = low_parts - r.o in
-  let _t3 = _t2 * _t0 in
-  tMin := _t3
-  let _t4 = high_parts - r.o in
-  let _t5 = _t4 * _t0 in
-  tMax := _t5
+  let invDir = _t0 in
+  let dirIsNeg = _t0 < f32x3(0f) in
+  let low_parts = select(dirIsNeg, b.low, b.high) in
+  let high_parts = select(dirIsNeg, b.high, b.low) in
+  let _t1 = low_parts - r.o in
+  tMin := _t1 * invDir
+  let _t2 = high_parts - r.o in
+  tMax := _t2 * invDir
   tMax *= 1f
   if ((tMax[1u] < tMin[0u]) || (tMax[0u] < tMin[1u])) {
     return build<_option0>()
@@ -231,117 +209,100 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
   let _t1 = tri.p1 - tri.p0 in
   let _t2 = cross_(_t0, _t1) in
   let _t5 = cross_(_t0, _t1) in
-  let _t6 = _t2 * _t5 in
-  let _t7 = reduce<+>(_t6) == 0f in
-  if (_t7) {
+  let _t6 = reduce<+>(_t2 * _t5) == 0f in
+  if (_t6) {
     return build<_option1>()
   }
-  let _t8 = tri.p0 - ray.o in
-  p0t := _t8
-  let _t9 = tri.p1 - ray.o in
-  p1t := _t9
-  let _t10 = tri.p2 - ray.o in
-  p2t := _t10
+  let _t7 = tri.p0 - ray.o in
+  p0t := _t7
+  let _t8 = tri.p1 - ray.o in
+  p1t := _t8
+  let _t9 = tri.p2 - ray.o in
+  p2t := _t9
   let kz = reduce<idxmax>(abs(ray.d)) in
-  let _t11 = kz + 1u in
-  let _t12 = _t11 % 3u in
-  let kx = _t12 in
-  let _t13 = _t12 + 1u in
-  let _t14 = _t13 % 3u in
-  let ky = _t14 in
-  let d = shuffle(ray.d, {_t12, _t14, kz}) in
+  let _t10 = (kz + 1u) % 3u in
+  let kx = _t10 in
+  let _t11 = (_t10 + 1u) % 3u in
+  let ky = _t11 in
+  let d = shuffle(ray.d, {_t10, _t11, kz}) in
   p0t = shuffle(p0t, {kx, ky, kz})
   p1t = shuffle(p1t, {kx, ky, kz})
   p2t = shuffle(p2t, {kx, ky, kz})
-  let _t15 = d[0u] / d[2u] in
-  let Sx = -_t15 in
-  let _t16 = d[1u] / d[2u] in
-  let Sy = -_t16 in
-  let _t17 = 1f / d[2u] in
-  let _t18 = Sx * p0t[2u] in
-  p0t[0u] += _t18
-  let _t19 = Sy * p0t[2u] in
-  p0t[1u] += _t19
-  let _t20 = Sx * p1t[2u] in
-  p1t[0u] += _t20
-  let _t21 = Sy * p1t[2u] in
-  p1t[1u] += _t21
-  let _t22 = Sx * p2t[2u] in
-  p2t[0u] += _t22
-  let _t23 = Sy * p2t[2u] in
-  p2t[1u] += _t23
-  let _t24 = prod_diff$f32(p1t[0u], p2t[1u], p1t[1u], p2t[0u]) in
-  let _t25 = prod_diff$f32(p2t[0u], p0t[1u], p2t[1u], p0t[0u]) in
-  let _t26 = prod_diff$f32(p0t[0u], p1t[1u], p0t[1u], p1t[0u]) in
-  if ((((_t24 < 0f) || (_t25 < 0f)) || (_t26 < 0f)) && (((0f < _t24) || (0f < _t25)) || (0f < _t26))) {
+  let _t12 = d[0u] / d[2u] in
+  let Sx = -_t12 in
+  let _t13 = d[1u] / d[2u] in
+  let Sy = -_t13 in
+  let _t14 = 1f / d[2u] in
+  let Sz = _t14 in
+  let _t15 = Sx * p0t[2u] in
+  p0t[0u] += _t15
+  let _t16 = Sy * p0t[2u] in
+  p0t[1u] += _t16
+  let _t17 = Sx * p1t[2u] in
+  p1t[0u] += _t17
+  let _t18 = Sy * p1t[2u] in
+  p1t[1u] += _t18
+  let _t19 = Sx * p2t[2u] in
+  p2t[0u] += _t19
+  let _t20 = Sy * p2t[2u] in
+  p2t[1u] += _t20
+  let _t21 = prod_diff$f32(p1t[0u], p2t[1u], p1t[1u], p2t[0u]) in
+  let _t22 = prod_diff$f32(p2t[0u], p0t[1u], p2t[1u], p0t[0u]) in
+  let _t23 = prod_diff$f32(p0t[0u], p1t[1u], p0t[1u], p1t[0u]) in
+  if ((((_t21 < 0f) || (_t22 < 0f)) || (_t23 < 0f)) && (((0f < _t21) || (0f < _t22)) || (0f < _t23))) {
     return build<_option1>()
   }
-  let _t27 = _t24 + _t25 in
-  let _t28 = _t27 + _t26 in
-  let _t29 = _t28 == 0f in
-  if (_t29) {
+  let _t24 = (_t21 + _t22) + _t23 in
+  if (_t24 == 0f) {
     return build<_option1>()
   }
-  p0t[2u] *= _t17
-  p1t[2u] *= _t17
-  p2t[2u] *= _t17
-  let _t30 = _t24 * p0t[2u] in
-  let _t31 = _t25 * p1t[2u] in
-  let _t32 = _t30 + _t31 in
-  let _t33 = _t26 * p2t[2u] in
-  let _t34 = _t32 + _t33 in
-  if ((_t28 < 0f) && ((0f <= _t34) || (_t34 < (ray.t * _t28)))) {
+  p0t[2u] *= Sz
+  p1t[2u] *= Sz
+  p2t[2u] *= Sz
+  let _t25 = _t21 * p0t[2u] in
+  let _t26 = _t22 * p1t[2u] in
+  let _t27 = _t23 * p2t[2u] in
+  let _t28 = (_t25 + _t26) + _t27 in
+  if ((_t24 < 0f) && ((0f <= _t28) || (_t28 < (ray.t * _t24)))) {
     return build<_option1>()
-  } else if ((0f < _t28) && ((_t34 <= 0f) || ((ray.t * _t28) < _t34))) {
+  } else if ((0f < _t24) && ((_t28 <= 0f) || ((ray.t * _t24) < _t28))) {
     return build<_option1>()
   }
-  let _t35 = 1f / _t28 in
-  let _t36 = _t24 * _t35 in
-  let _t37 = _t25 * _t35 in
-  let _t38 = _t26 * _t35 in
-  let _t39 = _t34 * _t35 in
+  let invDet = 1f / _t24 in
+  let b0 = _t21 * invDet in
+  let b1 = _t22 * invDet in
+  let b2 = _t23 * invDet in
+  let t = _t28 * invDet in
   let maxZt = reduce<max>(abs(build<f32x3>(p0t[2u], p1t[2u], p2t[2u]))) in
-  let _t40 = 1.78814e-07f * maxZt in
+  let deltaZ = 1.78814e-07f * maxZt in
   let maxXt = reduce<max>(abs(build<f32x3>(p0t[0u], p1t[0u], p2t[0u]))) in
   let maxYt = reduce<max>(abs(build<f32x3>(p0t[1u], p1t[1u], p2t[1u]))) in
-  let _t41 = maxXt + maxZt in
-  let _t42 = 2.98023e-07f * _t41 in
-  let _t43 = maxYt + maxZt in
-  let _t44 = 2.98023e-07f * _t43 in
-  let _t45 = 1.19209e-07f * maxXt in
-  let _t46 = _t45 * maxYt in
-  let _t47 = _t44 * maxXt in
-  let _t48 = _t46 + _t47 in
-  let _t49 = _t42 * maxYt in
-  let _t50 = _t48 + _t49 in
-  let _t51 = 2f * _t50 in
-  let maxE = reduce<max>(abs(build<f32x3>(_t24, _t25, _t26))) in
-  let _t52 = 1.78814e-07f * maxE in
-  let _t53 = _t52 * maxZt in
-  let _t54 = _t51 * maxZt in
-  let _t55 = _t53 + _t54 in
-  let _t56 = _t40 * maxE in
-  let _t57 = _t55 + _t56 in
-  let _t58 = 3f * _t57 in
-  let _t59 = _t58 * abs(_t35) in
-  let _t60 = _t39 <= _t59 in
-  if (_t60) {
+  let _t29 = 2.98023e-07f * (maxXt + maxZt) in
+  let _t30 = 2.98023e-07f * (maxYt + maxZt) in
+  let _t31 = (1.19209e-07f * maxXt) * maxYt in
+  let _t32 = _t31 + (_t30 * maxXt) in
+  let _t33 = _t32 + (_t29 * maxYt) in
+  let deltaE = 2f * _t33 in
+  let maxE = reduce<max>(abs(build<f32x3>(_t21, _t22, _t23))) in
+  let _t34 = (1.78814e-07f * maxE) * maxZt in
+  let _t35 = _t34 + (deltaE * maxZt) in
+  let _t36 = _t35 + (deltaZ * maxE) in
+  let _t37 = (3f * _t36) * abs(invDet) in
+  if (t <= _t37) {
     return build<_option1>()
   }
-  return build<_option1>(build<TriangleIntersection>(_t36, _t37, _t38, _t39), true)
+  return build<_option1>(build<TriangleIntersection>(b0, b1, b2, t), true)
 }
 
 func prod_diff$f32(a : f32, b : f32, c : f32, d : f32) -> f32 {
-  let _t0 = c * d in
-  let diff = fma(a, b, -_t0) in
-  let err = fma(-c, d, _t0) in
-  let _t1 = diff + err in
-  return _t1
+  let cd = c * d in
+  let diff = fma(a, b, -cd) in
+  let err = fma(-c, d, cd) in
+  return diff + err
 }
 
 func sqlen$f32(v : f32x3) -> f32 {
-  let _t0 = v * v in
-  return reduce<+>(_t0)
+  return reduce<+>(v * v)
 }
 
 func [[export]] trace(_ret0 : mut Triangle, ray : Ray, ts : _ts_layout2) -> void {

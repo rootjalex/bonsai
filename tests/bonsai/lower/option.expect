@@ -3,8 +3,7 @@ func make_option0(i : i32) -> _option0 {
 }
 
 func make_option1(i : i32) -> _option0 {
-  let _t0 = 0 < i in
-  if (_t0) {
+  if (0 < i) {
     return build<_option0>(i, true)
   } else {
     return build<_option0>()

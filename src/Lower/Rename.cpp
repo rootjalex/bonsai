@@ -45,7 +45,8 @@ struct ToAnormalForm : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        ir::Expr value = mutate(node->value);
+        ir::Expr value = node->value;
+        value = mutate(std::move(value));
         return anormalize(ir::LetStmt::make(node->loc, std::move(value)));
     }
 
@@ -74,13 +75,25 @@ struct ToAnormalForm : public ir::Mutator {
     ir::Expr visit(const ir::Lambda *node) override { return node; }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        if (node->op == ir::BinOp::OpType::LAnd ||
-            node->op == ir::BinOp::OpType::LOr) {
-            // TODO(cgyurgyik): How to handle without causing code blow-up?
-            return node; // Conservatively skip logical cases...
+        switch (node->op) {
+        // TODO(cgyurgyik): Handle logical operators.
+        case ir::BinOp::OpType::LAnd:
+        case ir::BinOp::OpType::LOr:
+            return node;
+        default:
+            break;
         }
-        ir::Expr a = mutate(node->a);
-        ir::Expr b = mutate(node->b);
+        ir::Expr a = mutate(std::move(node->a));
+        ir::Expr b = mutate(std::move(node->b));
+        if ((a.is<ir::Var>() || is_const(a)) &&
+            (b.is<ir::Var>() || is_const(b))) {
+            // Avoid this case:
+            // c = a + x;
+            // ->
+            // let _t0 = a + x in
+            // let c = _t0 in
+            return ir::BinOp::make(node->op, std::move(a), std::move(b));
+        }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
         temporaries.push_back(ir::LetStmt::make(
             location, ir::BinOp::make(node->op, std::move(a), std::move(b))));
@@ -203,22 +216,22 @@ struct RenameVariable : public ir::Mutator {
         ir::WriteLoc location = node->loc;
         if (!node->mutating) {
             // This is the first occurrence, don't rename it.
-            return ir::Mutator::visit(node);
+            return node;
         }
         if (!location.base_type.is_scalar()) {
             // This is a struct member update, don't rename it.
-            return ir::Mutator::visit(node);
+            return node;
         }
         if (mutable_function_arguments.contains(location.base)) {
             // This is a mutable function argument, don't rename it.
-            return ir::Mutator::visit(node);
+            return node;
         }
         // Visit the value before updating the mapping.
         ir::Expr value = mutate(node->value);
         auto [new_name, updated] = rename(location.base);
         // (Potentially) rename the current assignment's name.
         if (!updated) {
-            return ir::Mutator::visit(node);
+            return node;
         }
         return ir::Assign::make(ir::WriteLoc(new_name, location.type),
                                 std::move(value),

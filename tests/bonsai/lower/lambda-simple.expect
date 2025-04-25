@@ -1,11 +1,9 @@
 func _lambda0(x : i32) -> i32 {
-  let _t0 = x + 1 in
-  return _t0
+  return x + 1
 }
 
 func _lambda1(x : i32) -> i32 {
-  let _t0 = x - 1 in
-  return _t0
+  return x - 1
 }
 
 func foo() -> i32 {
