@@ -584,7 +584,7 @@ struct Parser {
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{}, /*is_export=*/false);
+            ir::Function::InterfaceList{}, std::vector<ir::Function::Attribute>{});
 
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(typed_name), std::move(func));
@@ -596,12 +596,16 @@ struct Parser {
 
     void parse_function() {
         expect(Token::Type::FUNC);
-        bool is_export = false;
+        
+        std::vector<ir::Function::Attribute> attributes;
+        if (context.size() > 1) { // in an imported file.
+            attributes.push_back(ir::Function::Attribute::imported);
+        }
 
         if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
             std::string attribute = get_id();
             if (attribute == "export") {
-                is_export = true;
+                attributes.push_back(ir::Function::Attribute::exported);
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }
@@ -638,7 +642,7 @@ struct Parser {
         // really good type unification or something.
         program.funcs[name] = std::make_shared<ir::Function>(
             name, std::move(args), std::move(ret_type), ir::Stmt(),
-            std::move(interfaces), /*is_export=*/false);
+            std::move(interfaces), std::move(attributes));
 
         ir::Stmt body;
 
@@ -668,7 +672,7 @@ struct Parser {
             << " get a function body before being parsed?";
 
         program.funcs[name]->body = std::move(body);
-        program.funcs[name]->is_export = is_export;
+
         if (!ret_type_set && ret_type.defined()) {
             // we were able to statically infer the return type
             program.funcs[name]->ret_type = std::move(ret_type);

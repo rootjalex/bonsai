@@ -217,7 +217,7 @@ class BonsaiToCpp {
         std::set<ir::Type> deduplicate;
         std::vector<ir::Type> exported_types;
         for (const auto &[_, func] : program.funcs) {
-            if (!func->is_export) {
+            if (!func->is_exported()) {
                 continue;
             }
             for (const ir::Type &type : func->argument_types()) {
@@ -233,7 +233,7 @@ class BonsaiToCpp {
         }
         ss << '\n';
         for (const auto &[_, func] : program.funcs) {
-            if (!func->is_export) {
+            if (!func->is_exported()) {
                 continue;
             }
             ss << indent();

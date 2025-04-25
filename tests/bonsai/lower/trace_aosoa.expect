@@ -15,19 +15,6 @@ type vec3h = f16x3
 
 extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
 
-func ClosestPtPointAABB(pt : Point, a : AABB) -> Point {
-  return cast<Point>(min(max(pt.vec, a.low), a.high))
-}
-
-func SqDistPointAABB(pt : Point, a : AABB) -> f32 {
-  let v = pt.vec in
-  let sqLow = (a.low - v) * (a.low - v) in
-  let low = select(v < a.low, sqLow, f32x3(0f)) in
-  let sqHigh = (v - a.high) * (v - a.high) in
-  let high = select(a.high < v, sqHigh, f32x3(0f)) in
-  return reduce<+>(low + high)
-}
-
 func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(ts__index : u32, ts__bit : u1) {
@@ -50,57 +37,6 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
 
 func _unexported_trace(ray : Ray, ts : _ts_layout2) -> Triangle {
   return _traverse_tree0(ray, ts)
-}
-
-func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
-  let p = pt.vec in
-  let a = tri.p0 in
-  let b = tri.p1 in
-  let c = tri.p2 in
-  let ab = b - a in
-  let ac = c - a in
-  let ap = p - a in
-  let d1 = dot(ab, ap) in
-  let d2 = dot(ac, ap) in
-  if ((d1 <= 0f) && (d2 <= 0f)) {
-    return cast<(Point, Point)>(build<tuple.2>(a, build<Point>(build<f32x3>(1f, 0f, 0f))))
-  }
-  let bp = p - b in
-  let d3 = dot(ab, bp) in
-  let d4 = dot(ac, bp) in
-  if ((0f <= d3) && (d4 <= d3)) {
-    return cast<(Point, Point)>(build<tuple.2>(b, build<Point>(build<f32x3>(0f, 1f, 0f))))
-  }
-  let vc = (d1 * d4) - (d3 * d2) in
-  if (((vc <= 0f) && (0f <= d1)) && (d3 <= 0f)) {
-    let v0 = d1 / (d1 - d3) in
-    return cast<(Point, Point)>(build<tuple.2>(a + (f32x3(v0) * ab), build<Point>(build<f32x3>(1f - v0, v0, 0f))))
-  }
-  let cp = p - c in
-  let d5 = dot(ab, cp) in
-  let d6 = dot(ac, cp) in
-  if ((0f <= d6) && (d5 <= d6)) {
-    return cast<(Point, Point)>(build<tuple.2>(c, build<Point>(build<f32x3>(0f, 0f, 1f))))
-  }
-  let vb = (d5 * d2) - (d1 * d6) in
-  if (((vb <= 0f) && (0f <= d2)) && (d6 <= 0f)) {
-    let w0 = d2 / (d2 - d6) in
-    return cast<(Point, Point)>(build<tuple.2>(a + (f32x3(w0) * ac), build<Point>(build<f32x3>(1f - w0, 0f, w0))))
-  }
-  let va = (d3 * d6) - (d5 * d4) in
-  if (((va <= 0f) && (0f <= (d4 - d3))) && (0f <= (d5 - d6))) {
-    let w1 = (d4 - d3) / ((d4 - d3) + (d5 - d6)) in
-    return cast<(Point, Point)>(build<tuple.2>(b + (f32x3(w1) * (c - b)), build<Point>(build<f32x3>(0f, 1f - w1, w1))))
-  }
-  let denom = 1f / ((va + vb) + vc) in
-  let v = vb * denom in
-  let w = vc * denom in
-  let u = va * denom in
-  return cast<(Point, Point)>(build<tuple.2>((a + (ab * f32x3(v))) + (ac * f32x3(w)), build<Point>(build<f32x3>(u, v, w))))
-}
-
-func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
-  return build<f32x3>(prod_diff$f32(v0[1u], v1[2u], v0[2u], v1[1u]), prod_diff$f32(v0[2u], v1[0u], v0[0u], v1[2u]), prod_diff$f32(v0[0u], v1[1u], v0[1u], v1[0u]))
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
@@ -141,10 +77,6 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
   }
 }
 
-func gamma(n : i32) -> f32 {
-  return (cast<f32>(n) * 5.96046e-08f) / (1f - (cast<f32>(n) * 5.96046e-08f))
-}
-
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
   let interval = intersectsp_ray_aabb(r, b) in
   if (interval.set) {
@@ -156,100 +88,6 @@ func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
 
 func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return intersectsp_ray_tri(ray, tri).set
-}
-
-func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option0 {
-  let invDir = f32x3(1f) / r.d in
-  let dirIsNeg = invDir < f32x3(0f) in
-  let low_parts = select(dirIsNeg, b.low, b.high) in
-  let high_parts = select(dirIsNeg, b.high, b.low) in
-  tMin := (low_parts - r.o) * invDir
-  tMax := (high_parts - r.o) * invDir
-  tMax *= 1f + (2f * ((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))))
-  if ((tMax[1u] < tMin[0u]) || (tMax[0u] < tMin[1u])) {
-    return build<_option0>()
-  }
-  tmin := max(tMin[0u], tMin[1u])
-  tmax := min(tMax[0u], tMax[1u])
-  if ((tMax[2u] < tmin) || (tmax < tMin[2u])) {
-    return build<_option0>()
-  }
-  tmin = max(tmin, tMin[2u])
-  tmax = min(tmax, tMax[2u])
-  return build<_option0>(build<FInterval>(tmin, tmax), true)
-}
-
-func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
-  if (reduce<+>(cross_(tri.p2 - tri.p0, tri.p1 - tri.p0) * cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0f) {
-    return build<_option1>()
-  }
-  p0t := tri.p0 - ray.o
-  p1t := tri.p1 - ray.o
-  p2t := tri.p2 - ray.o
-  let kz = reduce<idxmax>(abs(ray.d)) in
-  let kx = (kz + 1u) % 3u in
-  let ky = (kx + 1u) % 3u in
-  let d = shuffle(ray.d, {kx, ky, kz}) in
-  p0t = shuffle(p0t, {kx, ky, kz})
-  p1t = shuffle(p1t, {kx, ky, kz})
-  p2t = shuffle(p2t, {kx, ky, kz})
-  let Sx = -(d[0u] / d[2u]) in
-  let Sy = -(d[1u] / d[2u]) in
-  let Sz = 1f / d[2u] in
-  p0t[0u] += Sx * p0t[2u]
-  p0t[1u] += Sy * p0t[2u]
-  p1t[0u] += Sx * p1t[2u]
-  p1t[1u] += Sy * p1t[2u]
-  p2t[0u] += Sx * p2t[2u]
-  p2t[1u] += Sy * p2t[2u]
-  let e0 = prod_diff$f32(p1t[0u], p2t[1u], p1t[1u], p2t[0u]) in
-  let e1 = prod_diff$f32(p2t[0u], p0t[1u], p2t[1u], p0t[0u]) in
-  let e2 = prod_diff$f32(p0t[0u], p1t[1u], p0t[1u], p1t[0u]) in
-  if ((((e0 < 0f) || (e1 < 0f)) || (e2 < 0f)) && (((0f < e0) || (0f < e1)) || (0f < e2))) {
-    return build<_option1>()
-  }
-  let det = (e0 + e1) + e2 in
-  if (det == 0f) {
-    return build<_option1>()
-  }
-  p0t[2u] *= Sz
-  p1t[2u] *= Sz
-  p2t[2u] *= Sz
-  let tScaled = ((e0 * p0t[2u]) + (e1 * p1t[2u])) + (e2 * p2t[2u]) in
-  if ((det < 0f) && ((0f <= tScaled) || (tScaled < (ray.t * det)))) {
-    return build<_option1>()
-  } else if ((0f < det) && ((tScaled <= 0f) || ((ray.t * det) < tScaled))) {
-    return build<_option1>()
-  }
-  let invDet = 1f / det in
-  let b0 = e0 * invDet in
-  let b1 = e1 * invDet in
-  let b2 = e2 * invDet in
-  let t = tScaled * invDet in
-  let maxZt = reduce<max>(abs(build<f32x3>(p0t[2u], p1t[2u], p2t[2u]))) in
-  let deltaZ = ((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))) * maxZt in
-  let maxXt = reduce<max>(abs(build<f32x3>(p0t[0u], p1t[0u], p2t[0u]))) in
-  let maxYt = reduce<max>(abs(build<f32x3>(p0t[1u], p1t[1u], p2t[1u]))) in
-  let deltaX = ((cast<f32>(5) * 5.96046e-08f) / (1f - (cast<f32>(5) * 5.96046e-08f))) * (maxXt + maxZt) in
-  let deltaY = ((cast<f32>(5) * 5.96046e-08f) / (1f - (cast<f32>(5) * 5.96046e-08f))) * (maxYt + maxZt) in
-  let deltaE = 2f * ((((((cast<f32>(2) * 5.96046e-08f) / (1f - (cast<f32>(2) * 5.96046e-08f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)) in
-  let maxE = reduce<max>(abs(build<f32x3>(e0, e1, e2))) in
-  let deltaT = (3f * ((((((cast<f32>(3) * 5.96046e-08f) / (1f - (cast<f32>(3) * 5.96046e-08f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet) in
-  if (t <= deltaT) {
-    return build<_option1>()
-  }
-  return build<_option1>(build<TriangleIntersection>(b0, b1, b2, t), true)
-}
-
-func prod_diff$f32(a : f32, b : f32, c : f32, d : f32) -> f32 {
-  let cd = c * d in
-  let diff = fma(a, b, -cd) in
-  let err = fma(-c, d, cd) in
-  return diff + err
-}
-
-func sqlen$f32(v : f32x3) -> f32 {
-  return reduce<+>(v * v)
 }
 
 func [[export]] trace(_ret0 : mut Triangle, ray : Ray, ts : _ts_layout2) -> void {
