@@ -71,7 +71,7 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
 
     // First, update function argument and type signatures.
     for (const auto &[name, function] : functions) {
-        if (!function->is_export) {
+        if (!function->is_exported()) {
             new_functions[name] = std::move(function);
             continue;
         }
@@ -100,17 +100,17 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
                          function_arguments.end());
         new_functions[name] = std::make_shared<ir::Function>(
             name, arguments, ir::Void_t::make(), function->body,
-            function->interfaces, function->is_export);
+            function->interfaces, function->attributes);
         // Keep the original function around for other functions that call it.
         std::string unexported = get_unexported_name(name);
         new_functions[unexported] = std::make_shared<ir::Function>(
             unexported, function->args, function->ret_type, function->body,
-            function->interfaces, /*is_export=*/false);
+            function->interfaces, std::vector<ir::Function::Attribute>{});
     }
 
     // Next, update function bodies.
     for (auto &[name, func] : new_functions) {
-        if (func->is_export && func->ret_type.is<ir::Void_t>()) {
+        if (func->is_exported() && func->ret_type.is<ir::Void_t>()) {
             func->body = RtOP(*func).mutate(std::move(func->body));
         }
         func->body =

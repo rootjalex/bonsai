@@ -98,7 +98,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
             generate_name(), arguments,
             /*return_type=*/type,
             /*body=*/ir::Return::make(lambda->value),
-            /*interfaces=*/ir::Function::InterfaceList{}, /*is_export=*/false);
+            /*interfaces=*/ir::Function::InterfaceList{}, std::vector<ir::Function::Attribute>{});
 
         return lambda;
     }

@@ -211,7 +211,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
 
             new_funcs[new_name] = std::make_shared<Function>(
                 new_name, std::move(args), std::move(ret_type), std::move(body),
-                std::move(interfaces), func->is_export);
+                std::move(interfaces), func->attributes);
         }
     }
 
