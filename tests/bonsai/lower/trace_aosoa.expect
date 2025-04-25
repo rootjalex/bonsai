@@ -118,8 +118,7 @@ func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
 
 func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
   let pts = closestPointonTriangle(p, tri) in
-  let x = pts._field0 in
-  return norm(p.vec - x.vec)
+  return norm(p.vec - pts._field0.vec)
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {

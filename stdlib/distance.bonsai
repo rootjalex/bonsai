@@ -101,8 +101,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
 
 func distmin(p : Point, tri : Triangle) -> Float {
     pts = closestPointonTriangle(p, tri);
-    x = pts[0]; // TODO: fix parsing of pts[0].vec
-    return norm(p.vec - x.vec);
+    return norm(p.vec - pts[0].vec);
 }
 
 // Source: RTCD 5.1.3 pg. 130
