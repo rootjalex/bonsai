@@ -2,6 +2,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
+#include "IR/Frame.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
@@ -84,10 +85,19 @@ struct IsCseLegal : public ir::Visitor {
           mutable_variables(mutable_function_arguments) {}
 
     void visit(const ir::Var *node) override {
+        // We cannot CSE with mutable variables since mutations may have
+        // occurred between. In the future, we can rename mutated variables to
+        // overcome this. For example,
+        // a = x + 1; #1
+        // x += 1;
+        // b = x + 1; #2 (same expression, but x has changed value)
         is_legal &= !mutable_variables.contains(node->name);
     }
 
     void visit(const ir::Call *node) override {
+        // We cannot CSE with side effecting function calls. For example,
+        // a = print_and_return(x); #1
+        // b = print_and_return(x); #2 (same, but would only print once)
         const auto *v = node->func.as<ir::Var>();
         if (v == nullptr) {
             return;
@@ -239,7 +249,7 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         CseImpl cse(side_effect_functions, mutable_arguments);
         func->body = cse.mutate(std::move(func->body));
 
-        // renaming followed by CSE results in lots of copies. We want to
+        // Renaming followed by CSE results in lots of copies. We want to
         // propagate these, and then allow DCE clean up dead assignments
         // afterward.
         CopyPropagation cp(mutable_arguments);

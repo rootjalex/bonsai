@@ -14,36 +14,8 @@ namespace lower {
 
 namespace {
 
-ir::BinOp::OpType acc_to_bin(const ir::Accumulate::OpType op) {
-    switch (op) {
-    case ir::Accumulate::OpType::Add:
-        return ir::BinOp::OpType::Add;
-    case ir::Accumulate::OpType::Mul:
-        return ir::BinOp::OpType::Mul;
-    case ir::Accumulate::OpType::Sub:
-        return ir::BinOp::OpType::Sub;
-    case ir::Accumulate::OpType::Argmin:
-    case ir::Accumulate::OpType::Argmax:
-        internal_error << "[unimplemented] mapping from Accumulate::OpType to "
-                          "respective BinOp::OpType: "
-                       << op;
-    }
-}
-
 // To ANF, kinda.
 struct ToAnormalForm : public ir::Mutator {
-    ir::Stmt visit(const ir::Accumulate *node) override {
-        ir::Expr value = mutate(node->value);
-        return anormalize(
-            ir::Accumulate::make(node->loc, node->op, std::move(value)));
-    }
-
-    ir::Stmt visit(const ir::Assign *node) override {
-        ir::Expr value = mutate(node->value);
-        return anormalize(
-            ir::Assign::make(node->loc, std::move(value), node->mutating));
-    }
-
     ir::Stmt visit(const ir::LetStmt *node) override {
         ir::Expr value = node->value;
         value = mutate(std::move(value));
@@ -70,9 +42,6 @@ struct ToAnormalForm : public ir::Mutator {
         ir::Expr value = mutate(node->value);
         return anormalize(ir::Print::make(std::move(value)));
     }
-
-    // Skip the body expression of a lambda.
-    ir::Expr visit(const ir::Lambda *node) override { return node; }
 
     ir::Expr visit(const ir::BinOp *node) override {
         switch (node->op) {
@@ -111,21 +80,16 @@ struct ToAnormalForm : public ir::Mutator {
         return ir::Var::make(node->type, location.base);
     }
 
-    ir::Stmt anormalize(ir::Stmt statement) {
-        temporaries.push_back(std::move(statement));
-        ir::Stmt sequence = ir::Sequence::make(std::move(temporaries));
-        temporaries.clear();
-        return sequence;
-    }
-
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
         ir::Expr cond = mutate(node->cond);
-
         return anormalize(
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
+
+    // Skip the body expression of a lambda.
+    ir::Expr visit(const ir::Lambda *node) override { return node; }
 
     // TODO(cgyurgyik): todo
     ir::Stmt visit(const ir::ForAll *node) override { return node; }
@@ -134,6 +98,13 @@ struct ToAnormalForm : public ir::Mutator {
     std::vector<ir::Stmt> temporaries;
     // For unique variable renaming.
     int64_t counter = 0;
+
+    ir::Stmt anormalize(ir::Stmt statement) {
+        temporaries.push_back(std::move(statement));
+        ir::Stmt sequence = ir::Sequence::make(std::move(temporaries));
+        temporaries.clear();
+        return sequence;
+    }
 };
 
 struct RenameVariable : public ir::Mutator {
@@ -163,79 +134,6 @@ struct RenameVariable : public ir::Mutator {
             return node;
         }
         return ir::Var::make(node->type, it->second);
-    }
-
-    // x: mut i32 = 0;
-    // x += 1;
-    // use(x)
-    // ->
-    // x: mut i32 = 0;
-    // _0x: mut i32 = x + 1;
-    // use(_0x);
-    ir::Stmt visit(const ir::Accumulate *node) override {
-        ir::WriteLoc location = node->loc;
-        if (!location.base_type.is_scalar()) {
-            // This is a struct member update, don't rename it.
-            return ir::Mutator::visit(node);
-        }
-        if (mutable_function_arguments.contains(location.base)) {
-            // This is a mutable function argument, don't rename it.
-            return ir::Mutator::visit(node);
-        }
-        // Save the previous name (if it exists).
-        auto it = old_to_new_name.find(location.base);
-        std::optional<std::string> old_name;
-        if (it != old_to_new_name.end()) {
-            old_name = it->second;
-        }
-        // Visit the value before updating the mapping.
-        ir::Expr value = mutate(node->value);
-        // (Potentially) rename the current assignment's name.
-        auto [new_name, updated] = rename(location.base);
-        if (!updated) {
-            return ir::Mutator::visit(node);
-        };
-        std::string name = old_name.has_value() ? *old_name : location.base;
-        ir::Expr lhs = ir::Var::make(location.type, std::move(name));
-        return ir::Assign::make(
-            /*loc=*/ir::WriteLoc(std::move(new_name), location.type),
-            /*value=*/
-            ir::BinOp::make(acc_to_bin(node->op), std::move(lhs),
-                            std::move(value)),
-            /*mutating=*/false);
-    }
-
-    // x: mut i32 = 0;
-    // x := 1 + y;
-    // use(x)
-    // ->
-    // x: mut i32 = 0;
-    // _0x: mut i32 = 1 + y;
-    // use(_0x);
-    ir::Stmt visit(const ir::Assign *node) override {
-        ir::WriteLoc location = node->loc;
-        if (!node->mutating) {
-            // This is the first occurrence, don't rename it.
-            return node;
-        }
-        if (!location.base_type.is_scalar()) {
-            // This is a struct member update, don't rename it.
-            return node;
-        }
-        if (mutable_function_arguments.contains(location.base)) {
-            // This is a mutable function argument, don't rename it.
-            return node;
-        }
-        // Visit the value before updating the mapping.
-        ir::Expr value = mutate(node->value);
-        auto [new_name, updated] = rename(location.base);
-        // (Potentially) rename the current assignment's name.
-        if (!updated) {
-            return node;
-        }
-        return ir::Assign::make(ir::WriteLoc(new_name, location.type),
-                                std::move(value),
-                                /*mutating=*/false);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {

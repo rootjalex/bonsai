@@ -42,7 +42,6 @@ func rename(cond: bool) -> i32 {
 
   x += 2;
   x = x + 2;
-  x = x + id(id(x));
 
   return 0;
 }

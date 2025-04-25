@@ -5,7 +5,7 @@ func foo() -> i32 {
   b: i32 = 2;        // #2
   c: i32 = a + b;    // #3
   d: i32 = a + b;    // #3
-  e: i32 = 2;        // #2
+  e: i32 = a + b;    // #3
 
   return 0;
 }
@@ -66,11 +66,6 @@ func mutating_value() -> i32 {
   x: mut = 3;
   c: i32 = a + x;    // #3
   d: i32 = a + x;    // #3
-
-  x = 1;
-  e: i32 = a + x;    // #4
-  f: i32 = a + x;    // #4
-
   return 0;
 }
 

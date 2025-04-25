@@ -9,7 +9,7 @@ func foo() -> i32 {
   let b = 2 in
   let c = a + b in
   let d = c in
-  let e = b in
+  let e = c in
   return 0
 }
 
@@ -57,9 +57,6 @@ func mutating_value() -> i32 {
   x := 3
   let c = a + x in
   let d = c in
-  let _0x = a in
-  let e = a + a in
-  let f = e in
   return 0
 }
 
@@ -78,7 +75,7 @@ func propagation(x : i32, y : i32) -> void {
 
 func self_assign() -> void {
   i := 1
-  _0i := i
+  i = i
 }
 
 func side_effects() -> i32 {
