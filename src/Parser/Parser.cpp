@@ -883,7 +883,8 @@ struct Parser {
         const bool mutating = name_in_scope(loc.base);
 
         if (mutating && !is_mutable(loc.base)) {
-            report_error() << "Cannot assign to non-mutable variable: " << loc.base;
+            report_error() << "Cannot assign to non-mutable variable: "
+                           << loc.base;
         }
 
         // TODO: do type forcing here!
@@ -1310,7 +1311,7 @@ struct Parser {
             return ir::Infinity::make(f32);
         }
 
-        // A string 
+        // A string is a field access, an Expr is an index.
         std::vector<std::variant<std::string, ir::Expr>> accesses;
         while (true) {
             if (consume(Token::Type::PERIOD)) {
@@ -1332,10 +1333,12 @@ struct Parser {
         if (consume(Token::Type::LPAREN)) {
             // Must be a call to a lambda
             if (!accesses.empty()) {
-                report_error() << "[unimplemented] function call on field access or extract.";
+                report_error() << "[unimplemented] function call on field "
+                                  "access or extract.";
             }
 
-            std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);        
+            std::vector<ir::Expr> args =
+                parse_expr_list_until(Token::Type::RPAREN);
             if (name_in_scope(name)) {
                 ir::Type var_type =
                     get_type_from_frame(name); // never undefined.
@@ -1345,8 +1348,8 @@ struct Parser {
 
             // TODO: could be a ctor of a type?
             report_error() << "Unknown function call " << name;
-        } else if (peek().type == Token::Type::LSQUIGGLE &&
-                   accesses.empty() && program.types.contains(name)) {
+        } else if (peek().type == Token::Type::LSQUIGGLE && accesses.empty() &&
+                   program.types.contains(name)) {
             consume(Token::Type::LSQUIGGLE);
             // Type constructor
             ir::Type type = program.types.at(name);
@@ -1362,7 +1365,7 @@ struct Parser {
                     internal_assert(value.defined());
                     args[std::move(field)] = std::move(value);
                 } while (consume(Token::Type::COMMA) &&
-                            consume(Token::Type::PERIOD));
+                         consume(Token::Type::PERIOD));
                 expect(Token::Type::RSQUIGGLE);
                 return ir::Build::make(std::move(type), std::move(args));
             }
@@ -1377,11 +1380,13 @@ struct Parser {
         for (auto &access : accesses) {
             if (std::holds_alternative<std::string>(access)) {
                 // Field access.
-                expr = ir::Access::make(std::get<std::string>(access), std::move(expr));
+                expr = ir::Access::make(std::get<std::string>(access),
+                                        std::move(expr));
             } else {
                 internal_assert(std::holds_alternative<ir::Expr>(access));
                 // Extract
-                expr = ir::Extract::make(std::move(expr), std::get<ir::Expr>(access));
+                expr = ir::Extract::make(std::move(expr),
+                                         std::get<ir::Expr>(access));
             }
         }
         return expr;
@@ -1395,13 +1400,13 @@ struct Parser {
                 expect(Token::Type::RBRACKET);
                 if (template_types.empty()) {
                     report_error() << "Template syntax expects type arguments, "
-                                    "but did not receive any for name: "
-                                << name;
+                                      "but did not receive any for name: "
+                                   << name;
                 }
                 if (peek().type != Token::Type::LPAREN) {
                     report_error() << "Template syntax supported only for "
-                                    "function calls, found on name: "
-                                << name;
+                                      "function calls, found on name: "
+                                   << name;
                 }
             } else {
                 report_error() << "Cannot index into func: " << name;
@@ -1416,7 +1421,8 @@ struct Parser {
                 report_error() << "Cannot use intrinsic as func pointer.";
             }
             const auto &func = program.funcs[name];
-            ir::Type ftype = func->ret_type.defined() ? func->call_type() : ir::Type();
+            ir::Type ftype =
+                func->ret_type.defined() ? func->call_type() : ir::Type();
             return ir::Var::make(std::move(ftype), name);
         }
 
@@ -1480,22 +1486,19 @@ struct Parser {
             // Special built-ins without template parameters
             if (name == "permute") {
                 internal_assert(args.size() == 2)
-                    << "permute takes two arguments, received: "
-                    << args.size();
+                    << "permute takes two arguments, received: " << args.size();
                 internal_assert(args[1].is<ir::Build>())
                     << "permute expects the second argument to be a list "
                        "of indexes, "
                        "instead "
                        "received: "
                     << args[1];
-                return ir::VectorShuffle::make(
-                    std::move(args[0]), args[1].as<ir::Build>()->values);
+                return ir::VectorShuffle::make(std::move(args[0]),
+                                               args[1].as<ir::Build>()->values);
             } else if (name == "select") {
                 internal_assert(args.size() == 3)
-                    << "select takes 3 arguments, received: "
-                    << args.size();
-                return ir::Select::make(std::move(args[0]),
-                                        std::move(args[1]),
+                    << "select takes 3 arguments, received: " << args.size();
+                return ir::Select::make(std::move(args[0]), std::move(args[1]),
                                         std::move(args[2]));
             } else if (name == "range") {
                 internal_assert(args.size() == 3)
@@ -1526,8 +1529,7 @@ struct Parser {
                 ir::Type call_type = ir::Function_t::make(
                     std::move(ret_type),
                     {args[0].type(), args[1].type(), args[2].type()});
-                ir::Expr func =
-                    ir::Var::make(std::move(call_type), "range");
+                ir::Expr func = ir::Var::make(std::move(call_type), "range");
                 return ir::Call::make(std::move(func), std::move(args));
             }
             report_error() << "Unknown builtin: " << name;
@@ -1537,33 +1539,29 @@ struct Parser {
 
         // TODO: handle default params!
         if (args.size() != func->args.size()) {
-            report_error()
-                << "Call to: " << name
-                << " has incorrect number of arguments.\n"
-                << "Expected: " << func->args.size()
-                << " but parsed " << args.size();
+            report_error() << "Call to: " << name
+                           << " has incorrect number of arguments.\n"
+                           << "Expected: " << func->args.size()
+                           << " but parsed " << args.size();
         }
 
         if (func->interfaces.size() != template_types.size()) {
-            report_error()
-                << "Call to: " << name
-                << " has incorrect number of template paramters.\n"
-                << "Expected: " << func->interfaces.size()
-                << " but parsed " << template_types.size();
+            report_error() << "Call to: " << name
+                           << " has incorrect number of template paramters.\n"
+                           << "Expected: " << func->interfaces.size()
+                           << " but parsed " << template_types.size();
         }
 
         const size_t n_generics = func->interfaces.size();
 
         ir::TypeMap instantiations;
         for (size_t i = 0; i < n_generics; i++) {
-            instantiations[func->interfaces[i].name] =
-                template_types[i];
+            instantiations[func->interfaces[i].name] = template_types[i];
 
-            internal_assert(ir::satisfies(
-                template_types[i], func->interfaces[i].interface))
-                << "Template type: " << template_types[i]
-                << " in call to " << name
-                << " does not satisfy interface: "
+            internal_assert(
+                ir::satisfies(template_types[i], func->interfaces[i].interface))
+                << "Template type: " << template_types[i] << " in call to "
+                << name << " does not satisfy interface: "
                 << func->interfaces[i].interface;
         }
 
@@ -1586,9 +1584,8 @@ struct Parser {
             if (args[i].type().defined() &&
                 !ir::equals(expected_type, args[i].type())) {
                 report_error()
-                    << "Argument " << i << " of call to function "
-                    << name << " has incorrect type. Expected "
-                    << expected_type
+                    << "Argument " << i << " of call to function " << name
+                    << " has incorrect type. Expected " << expected_type
                     << " but parsed: " << args[i].type();
             }
         }
@@ -1601,18 +1598,15 @@ struct Parser {
         // the error handling in IR/Type.cpp
         // For now, leave ftype undefined in the else case
         if (func->ret_type.defined()) {
-            ftype = ir::Function_t::make(func->ret_type,
-                                            std::move(arg_types));
+            ftype = ir::Function_t::make(func->ret_type, std::move(arg_types));
         }
 
         ir::Expr f = ir::Var::make(ftype, name);
 
         if (!func->interfaces.empty()) {
-            f = ir::Instantiate::make(std::move(f),
-                                        std::move(instantiations));
+            f = ir::Instantiate::make(std::move(f), std::move(instantiations));
         }
         return ir::Call::make(std::move(f), std::move(args));
-
     }
 
     std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {

@@ -560,8 +560,8 @@ Expr Extract::make(Expr vec, Expr idx) {
             << "Extract with non-integer index: " << idx;
         if (vec.type().is<Tuple_t>()) {
             internal_assert(is_const(idx))
-                << "Extract on tuple with non-constant index: "
-                << vec << "[" << idx << "]";
+                << "Extract on tuple with non-constant index: " << vec << "["
+                << idx << "]";
             return Extract::make(std::move(vec), *as_const_int(idx));
         }
         type = vec.type().element_of();

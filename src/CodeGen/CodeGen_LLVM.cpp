@@ -1289,7 +1289,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         return;
     }
     case Intrinsic::dot: {
-        Expr expr = VectorReduce::make(VectorReduce::Add, node->args[0] * node->args[1]);
+        Expr expr = VectorReduce::make(VectorReduce::Add,
+                                       node->args[0] * node->args[1]);
         value = codegen_expr(expr);
         return;
     }
