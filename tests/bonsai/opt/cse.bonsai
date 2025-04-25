@@ -5,7 +5,6 @@ func foo() -> i32 {
   b: i32 = 2;        // #2
   c: i32 = a + b;    // #3
   d: i32 = a + b;    // #3
-  e: i32 = a + b;    // #3
 
   return 0;
 }
@@ -26,18 +25,18 @@ func if_condition(a: bool, b: bool, c: bool) -> bool {
     c1: bool = a && b && c;     // #1
     if (a && b && c) {          // #1
         r = a;
+        no_cse: bool = a || b || c;
     } else {
         // CSE can occur within control flow as long as both
         // expressions are immutable and not side-effecting.
         c2: bool = a && b && c; // #1
         r = b;
-
-        c4: bool = a || b || c;
+        no_cse: bool = a || b || c;
     }
     c3: bool = a && b && c;     // #1
     
-    // TODO(cgyurgyik): This shouldn't CSE with c4.
-    c5: bool = a || b || c;
+    // Verify this shouldn't CSE with `no_cse` in either branch.
+    c4: bool = a || b || c;
     return r;
 }
 
@@ -88,8 +87,12 @@ func nested_binary_operations(x: i32,  y: i32) -> void {
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
-func propagation(x: i32, y: i32) -> void {
-    a: i32 = x + y;
-    b: i32 = x + y;
-    c: i32 = bar(a, b);
+func if_statement(x: i32, y: i32, cond: bool) -> void {
+    if (cond) {
+        a: i32 = x + y;
+        b: i32 = x + y;
+    } else {
+        c: i32 = x + y;
+    }
+    d: i32 = x + y;
 }

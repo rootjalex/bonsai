@@ -9,7 +9,6 @@ func foo() -> i32 {
   let b = 2 in
   let c = a + b in
   let d = c in
-  let e = c in
   return 0
 }
 
@@ -27,14 +26,25 @@ func if_condition(a : bool, b : bool, c : bool) -> bool {
   let c1 = (a && b) && c in
   if (c1) {
     r = a
+    let no_cse = (a || b) || c in
   } else {
     let c2 = c1 in
     r = b
-    let c4 = (a || b) || c in
+    let no_cse = (a || b) || c in
   }
   let c3 = c1 in
-  let c5 = c4 in
+  let c4 = (a || b) || c in
   return r
+}
+
+func if_statement(x : i32, y : i32, cond : bool) -> void {
+  if (cond) {
+    let a = x + y in
+    let b = a in
+  } else {
+    let c = x + y in
+  }
+  let d = x + y in
 }
 
 func mutable_struct(e : mut E) -> void {
@@ -66,13 +76,6 @@ func nested_binary_operations(x : i32, y : i32) -> void {
   let b = _t0 in
 }
 
-func propagation(x : i32, y : i32) -> void {
-  let a = x + y in
-  let b = a in
-  let _t0 = bar(a, a) in
-  let c = _t0 in
-}
-
 func self_assign() -> void {
   i := 1
   i = i
@@ -87,7 +90,7 @@ func side_effects() -> i32 {
   let _t2 = id_no_side_effect(a) in
   let d = _t2 + a in
   let _t3 = _t2 in
-  let e = _t2 + a in
+  let e = _t3 + a in
   return 0
 }
 

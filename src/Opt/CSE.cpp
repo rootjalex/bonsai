@@ -19,212 +19,141 @@ namespace opt {
 
 namespace {
 
-//  let _t0 = a + b in
-//  let _t1 = a + b in
-//  in f(_t0, _t1)
-//  ->
-//  let _t0 = a + b in
-//  let _t1 = _t0 in
-//  in f(_t0, _t0)
-// TODO(cgyurgyik): Add frames.
-class CopyPropagation : public ir::Mutator {
-  public:
-    CopyPropagation(const std::set<std::string> &mutable_arguments)
-        : mutable_arguments(mutable_arguments) {}
-
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        ir::Expr value = mutate(node->value);
-        internal_assert(value.defined());
-        const auto *variable = value.as<ir::Var>();
-        ir::WriteLoc lhs = node->loc;
-        if (variable == nullptr) {
-            // This is an expression, do nothing.
-            return ir::LetStmt::make(lhs, std::move(value));
-        }
-
-        auto it = variable_to_initial.find(variable->name);
-        if (it == variable_to_initial.end()) {
-            variable_to_initial[lhs.base] = variable->name;
-            // Point this variable to the current variable.
-            return node;
-        }
-        // Point this variable to the previously found variable.
-        std::string previous = it->second;
-        return ir::LetStmt::make(lhs,
-                                 ir::Var::make(variable->type, it->second));
-    }
-
-    // Cannot propagate copies through mutable variables.
-    ir::Stmt visit(const ir::Assign *node) override { return node; }
-    ir::Stmt visit(const ir::Accumulate *node) override { return node; }
-
-    // Don't propagate through lambda bodies.
-    ir::Expr visit(const ir::Lambda *node) override { return node; }
-
-    ir::Expr visit(const ir::Var *node) override {
-        if (mutable_arguments.contains(node->name)) {
-            return node;
-        }
-        auto it = variable_to_initial.find(node->name);
-        if (it == variable_to_initial.end()) {
-            return node;
-        }
-        return ir::Var::make(node->type, it->second);
-    }
-
-  private:
-    const std::set<std::string> &mutable_arguments;
-    std::unordered_map<std::string, std::string> variable_to_initial;
-};
-
-// Validates whether the visited expression can undergo CSE.
-struct IsCseLegal : public ir::Visitor {
-    IsCseLegal(const std::set<std::string> &side_effect_functions,
-               const std::set<std::string> &mutable_function_arguments)
-        : side_effect_functions(side_effect_functions),
-          mutable_variables(mutable_function_arguments) {}
-
-    void visit(const ir::Var *node) override {
-        // We cannot CSE with mutable variables since mutations may have
-        // occurred between. In the future, we can rename mutated variables to
-        // overcome this. For example,
-        // a = x + 1; #1
-        // x += 1;
-        // b = x + 1; #2 (same expression, but x has changed value)
-        is_legal &= !mutable_variables.contains(node->name);
-    }
-
-    void visit(const ir::Call *node) override {
-        // We cannot CSE with side effecting function calls. For example,
-        // a = print_and_return(x); #1
-        // b = print_and_return(x); #2 (same, but would only print once)
-        const auto *v = node->func.as<ir::Var>();
-        if (v == nullptr) {
-            return;
-        }
-        is_legal &= !side_effect_functions.contains(v->name);
-    }
-
-    bool is_legal = true;
-    const std::set<std::string> &side_effect_functions;
-    const std::set<std::string> &mutable_variables;
-};
+// Mutable variables can be seen multiple times.
+using MutableVariableStack =
+    ir::SetStack<std::string, std::less<std::string>, true>;
+// A stack from expressions to their respective variable.
+using CseStack = ir::MapStack<ir::Expr, ir::Expr, ir::ExprLessThan, true>;
 
 class CseImpl : public ir::Mutator {
   public:
     CseImpl(const std::set<std::string> &side_effect_functions,
-            const std::set<std::string> &mutable_function_arguments)
+            const std::set<std::string> &mutable_arguments)
         : side_effect_functions(side_effect_functions),
-          mutable_variables(mutable_function_arguments) {}
+          mutable_arguments(mutable_arguments) {}
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        ir::Expr variable = get(node->value);
-        if (variable.defined()) {
-            // This expression already exists.
-            return ir::LetStmt::make(node->loc, variable);
+        ir::WriteLoc location = node->loc;
+        ir::Stmt let = ir::LetStmt::make(location, get(node->value));
+
+        if (is_cse_legal(node->value)) {
+            ir::Expr v = ir::Var::make(location.base_type, location.base);
+            expression_to_variable.add_to_frame(node->value, std::move(v));
         }
-        update(node->value, node->loc);
-        return ir::Mutator::visit(node);
+
+        return let;
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
         if (node->mutating) {
-            mutable_variables.insert(node->loc.base);
+            mutable_variables.add_to_frame(node->loc.base);
         }
         return ir::Mutator::visit(node);
     }
 
     ir::Stmt visit(const ir::Store *node) override {
-        // Conservatively avoid stores until we have a stronger memory analysis.
-        mutable_variables.insert(node->name);
+        mutable_variables.add_to_frame(node->name);
         return node;
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        mutable_variables.insert(node->loc.base);
+        mutable_variables.add_to_frame(node->loc.base);
         return node;
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        ir::Expr a = get(mutate(node->a));
-        ir::Expr b = get(mutate(node->b));
-        if (a.defined() && b.defined()) {
-            return ir::BinOp::make(node->op, std::move(a), std::move(b));
-        }
-        if (a.defined()) {
-            return ir::BinOp::make(node->op, std::move(a), node->b);
-        }
-        if (b.defined()) {
-            return ir::BinOp::make(node->op, node->a, std::move(b));
-        }
-        return node;
+        return ir::BinOp::make(node->op, get(node->a), get(node->b));
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
-        ir::Expr cond = get(mutate(node->cond));
-        if (!cond.defined()) {
-            return ir::Mutator::visit(node);
-        }
-        return ir::IfElse::make(std::move(cond), mutate(node->then_body),
-                                mutate(node->else_body));
-    }
+        ir::Expr cond = get(node->cond);
 
-    // TODO(cgyurgyik): This is probably overly restrictive, since we already
-    // restrain CSE from occurring on mutable variables / side-effecting
-    // expressions. However, I have no way to unit test this since the parser
-    // doesn't support these constructs yet.
-    ir::Stmt visit(const ir::ForAll *node) override {
-        ScopedValue<bool> guard(allow_cse, false);
-        return ir::Mutator::visit(node);
-    }
+        new_frame();
+        ir::Stmt th = mutate(node->then_body);
+        pop_frame();
 
-    ir::Stmt visit(const ir::ForEach *node) override {
-        ScopedValue<bool> guard(allow_cse, false);
-        return ir::Mutator::visit(node);
-    }
-
-    ir::Stmt visit(const ir::DoWhile *node) override {
-        ScopedValue<bool> guard(allow_cse, false);
-        return ir::Mutator::visit(node);
+        new_frame();
+        ir::Stmt el = mutate(node->else_body);
+        pop_frame();
+        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
   private:
-    // Whether to allow CSE to occur. Since we don't have phi instructions, this
-    // is false in the presence of control flow divergence with mutable or side
-    // effecting values.
-    bool allow_cse = true;
-    // A list of functions that may have side effects.
+    // A list of functions that may have side effects. This is "whole program
+    // analysis", so doesn't require a frame stack.
     const std::set<std::string> &side_effect_functions;
-    // A list of variable names that should stop CSE if found within an
-    // expression. This includes mutable function arguments, mutable
-    // assignments, and references to allocations.
-    std::set<std::string> mutable_variables;
-    // Maps expressions to the variable of its first occurrence.
-    std::map<ir::Expr, ir::Expr, ir::ExprLessThan> expression_to_variable;
+    // A list of function arguments that are mutable. This is "whole function
+    // analysis", so doesn't require a frame stack.
+    const std::set<std::string> &mutable_arguments;
 
-    ir::Expr get(ir::Expr value) {
-        if (!(allow_cse && is_cse_legal(value))) {
-            return ir::Expr();
-        }
-        auto it = expression_to_variable.find(value);
-        if (it == expression_to_variable.end()) {
-            return ir::Expr();
-        }
-        return it->second;
+    // A list of variable names that should stop CSE if found within an
+    // expression. This includes mutable assignments, and references to
+    // allocations.
+    MutableVariableStack mutable_variables;
+    // Maps expressions to the variable of its first occurrence.
+    CseStack expression_to_variable;
+
+    void new_frame() {
+        expression_to_variable.new_frame();
+        mutable_variables.new_frame();
+    }
+    void pop_frame() {
+        expression_to_variable.pop_frame();
+        mutable_variables.pop_frame();
     }
 
-    void update(ir::Expr value, const ir::WriteLoc &location) {
-        if (!(allow_cse && is_cse_legal(value))) {
-            return;
+    // Retrieves either the mutate expression or its CSE'd equivalent.
+    ir::Expr get(ir::Expr value) {
+        value = mutate(std::move(value));
+        if (!is_cse_legal(value)) {
+            return value;
         }
-        ir::Expr v = ir::Var::make(location.base_type, location.base);
-        // If this expression hasn't been seen, add it to the list.
-        expression_to_variable[value] = std::move(v);
+        if (std::optional<ir::Expr> variable =
+                expression_to_variable.from_frames(value)) {
+            return *variable;
+        }
+        return value;
     }
 
     // Returns whether this is supported in our simplistic variant of CSE.
     bool is_cse_legal(ir::Expr e) {
-        IsCseLegal checker(side_effect_functions, mutable_variables);
+        struct CseLegalChecker : public ir::Visitor {
+            CseLegalChecker(const std::set<std::string> &side_effect_functions,
+                            const std::set<std::string> &mutable_arguments,
+                            const MutableVariableStack &mutable_variables)
+                : side_effect_functions(side_effect_functions),
+                  mutable_arguments(mutable_arguments),
+                  mutable_variables(mutable_variables) {}
+
+            void visit(const ir::Var *node) override {
+                // We cannot CSE with mutable variables since mutations may have
+                // occurred between. In the future, we can rename mutated
+                // variables to overcome this. For example, a = x + 1; #1 x +=
+                // 1; b = x + 1; #2 (same expression, but x has changed value)
+                is_legal &= !mutable_variables.contains(node->name) &&
+                            !mutable_arguments.contains(node->name);
+            }
+
+            void visit(const ir::Call *node) override {
+                // We cannot CSE with side effecting function calls. For
+                // example, a = print_and_return(x); #1 b = print_and_return(x);
+                // #2 (same, but would only print once)
+                const auto *v = node->func.as<ir::Var>();
+                if (v == nullptr) {
+                    return;
+                }
+                is_legal &= !side_effect_functions.contains(v->name);
+            }
+
+            bool is_legal = true;
+
+          private:
+            const std::set<std::string> &side_effect_functions;
+            const std::set<std::string> &mutable_arguments;
+            const MutableVariableStack &mutable_variables;
+        };
+        CseLegalChecker checker(side_effect_functions, mutable_arguments,
+                                mutable_variables);
         e.accept(&checker);
         return checker.is_legal;
     }
@@ -232,18 +161,22 @@ class CseImpl : public ir::Mutator {
 
 } // namespace
 
+// TODO(cgyurgyik): This may uncover unnecessary copies. Consider the
+// following code sample transformation:
+//
+// a: i32 = f(x);
+// b: i32 = f(x);
+// c: i32 = bar(a, b);
+//  ->
+// let a: i32 = f(x) in
+// let b: i32 = a in       // <- Remove this
+// let c: i32 = bar(a, b)  // <- Replace with bar(a, a)
 ir::FuncMap CSE::run(ir::FuncMap funcs) const {
     std::set<std::string> side_effect_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
         CseImpl cse(side_effect_functions, mutable_arguments);
         func->body = cse.mutate(std::move(func->body));
-
-        // Renaming followed by CSE results in lots of copies. We want to
-        // propagate these, and then allow DCE clean up dead assignments
-        // afterward.
-        CopyPropagation cp(mutable_arguments);
-        func->body = cp.mutate(std::move(func->body));
     }
     return funcs;
 }

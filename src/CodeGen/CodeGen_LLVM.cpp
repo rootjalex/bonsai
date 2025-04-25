@@ -689,7 +689,9 @@ void CodeGen_LLVM::visit(const Infinity *node) {
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
-    auto [_value, _mutable] = frames.from_frames(node->name);
+    auto v_m = frames.from_frames(node->name);
+    internal_assert(v_m.has_value()) << node->name;
+    auto [_value, _mutable] = *v_m;
     if (_mutable) {
         llvm::Type *var_type = codegen_type(node->type);
         value = builder->CreateLoad(var_type, _value, node->name);
@@ -1289,7 +1291,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         return;
     }
     case Intrinsic::dot: {
-        Expr expr = VectorReduce::make(VectorReduce::Add, node->args[0] * node->args[1]);
+        Expr expr = VectorReduce::make(VectorReduce::Add,
+                                       node->args[0] * node->args[1]);
         value = codegen_expr(expr);
         return;
     }
@@ -2086,8 +2089,9 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
                                                   llvm::Value *idx) {
     llvm::DataLayout d(module.get());
-    auto [base_addr, _] = frames.from_frames(buffer);
-    // llvm::Value *base_addr = frames.from_frames(buffer);
+    auto v_m = frames.from_frames(buffer);
+    internal_assert(v_m.has_value()) << buffer;
+    auto [base_addr, _] = *v_m;
 
     // TODO: upgrade type for storage?
     llvm::Type *load_type = codegen_type(type);
@@ -2172,8 +2176,8 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
     llvm::Value *base = nullptr;
-    if (frames.name_in_scope(loc.base)) {
-        auto [_base, _mutable] = frames.from_frames(loc.base);
+    if (auto v_m = frames.from_frames(loc.base)) {
+        auto [_base, _mutable] = *v_m;
         internal_assert(_mutable)
             << "Attempting to codegen write to immutable data: " << loc.base;
         base = _base;
