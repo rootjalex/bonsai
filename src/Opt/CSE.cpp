@@ -36,20 +36,17 @@ class CopyPropagation : public ir::Mutator {
         const auto *variable = value.as<ir::Var>();
         ir::WriteLoc lhs = node->loc;
         if (variable == nullptr) {
-            // let _t0 = a + b
-            // (i.e., do nothing.)
+            // This is an expression, do nothing.
             return ir::LetStmt::make(lhs, std::move(value));
         }
 
         auto it = variable_to_initial.find(variable->name);
         if (it == variable_to_initial.end()) {
             variable_to_initial[lhs.base] = variable->name;
-            // let c = _t0
-            // (i.e., add this to the map)
+            // Point this variable to the current variable.
             return node;
         }
-        // let _t1 = c
-        // (i.e., update it to point to _t0.)
+        // Point this variable to the previously found variable.
         std::string previous = it->second;
         return ir::LetStmt::make(lhs,
                                  ir::Var::make(variable->type, it->second));
@@ -57,6 +54,9 @@ class CopyPropagation : public ir::Mutator {
 
     // Cannot propagate copies through mutable variables.
     ir::Stmt visit(const ir::Assign *node) override { return node; }
+
+    // Don't propagate through lambda bodies.
+    ir::Expr visit(const ir::Lambda *node) override { return node; }
 
     ir::Expr visit(const ir::Var *node) override {
         if (mutable_arguments.contains(node->name)) {
@@ -79,10 +79,10 @@ struct IsCseLegal : public ir::Visitor {
     IsCseLegal(const std::set<std::string> &side_effect_functions,
                const std::set<std::string> &mutable_function_arguments)
         : side_effect_functions(side_effect_functions),
-          blacklisted_variables(mutable_function_arguments) {}
+          mutable_variables(mutable_function_arguments) {}
 
     void visit(const ir::Var *node) override {
-        is_legal &= !blacklisted_variables.contains(node->name);
+        is_legal &= !mutable_variables.contains(node->name);
     }
 
     void visit(const ir::Call *node) override {
@@ -95,7 +95,7 @@ struct IsCseLegal : public ir::Visitor {
 
     bool is_legal = true;
     const std::set<std::string> &side_effect_functions;
-    const std::set<std::string> &blacklisted_variables;
+    const std::set<std::string> &mutable_variables;
 };
 
 class CseImpl : public ir::Mutator {
@@ -103,7 +103,7 @@ class CseImpl : public ir::Mutator {
     CseImpl(const std::set<std::string> &side_effect_functions,
             const std::set<std::string> &mutable_function_arguments)
         : side_effect_functions(side_effect_functions),
-          blacklisted_variables(mutable_function_arguments) {}
+          mutable_variables(mutable_function_arguments) {}
 
     ir::Stmt visit(const ir::LetStmt *node) override {
         ir::Expr variable = get(node->value);
@@ -117,7 +117,7 @@ class CseImpl : public ir::Mutator {
 
     ir::Stmt visit(const ir::Assign *node) override {
         if (node->mutating) {
-            blacklisted_variables.insert(node->loc.base);
+            mutable_variables.insert(node->loc.base);
             return ir::Mutator::visit(node);
         }
         ir::Expr variable = get(node->value);
@@ -131,12 +131,12 @@ class CseImpl : public ir::Mutator {
 
     ir::Stmt visit(const ir::Store *node) override {
         // Conservatively avoid stores until we have a stronger memory analysis.
-        blacklisted_variables.insert(node->name);
+        mutable_variables.insert(node->name);
         return node;
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        blacklisted_variables.insert(node->loc.base);
+        mutable_variables.insert(node->loc.base);
         return node;
     }
 
@@ -195,7 +195,7 @@ class CseImpl : public ir::Mutator {
     // A list of variable names that should stop CSE if found within an
     // expression. This includes mutable function arguments, mutable
     // assignments, and references to allocations.
-    std::set<std::string> blacklisted_variables;
+    std::set<std::string> mutable_variables;
     // Maps expressions to the variable of its first occurrence.
     std::map<ir::Expr, ir::Expr, ir::ExprLessThan> expression_to_variable;
 
@@ -221,7 +221,7 @@ class CseImpl : public ir::Mutator {
 
     // Returns whether this is supported in our simplistic variant of CSE.
     bool is_cse_legal(ir::Expr e) {
-        IsCseLegal checker(side_effect_functions, blacklisted_variables);
+        IsCseLegal checker(side_effect_functions, mutable_variables);
         e.accept(&checker);
         return checker.is_legal;
     }
@@ -236,6 +236,9 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         CseImpl cse(side_effect_functions, mutable_arguments);
         func->body = cse.mutate(std::move(func->body));
 
+        // renaming followed by CSE results in lots of copies. We want to
+        // propagate these, and then allow DCE clean up dead assignments
+        // afterward.
         CopyPropagation cp(mutable_arguments);
         func->body = cp.mutate(std::move(func->body));
     }
