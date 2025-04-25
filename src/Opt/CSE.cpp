@@ -18,6 +18,64 @@ namespace opt {
 
 namespace {
 
+//  let _t0 = a + b in
+//  let c = _t0 in
+//  let _t1 = c in
+//  in f(c, _t1)
+//  ->
+//  let _t0 = a + b in
+//  let c = _t0 in
+//  let _t1 = _t0 in
+//  in f(_t0, _t0)
+class CopyPropagation : public ir::Mutator {
+  public:
+    CopyPropagation(const std::set<std::string> &mutable_arguments)
+        : mutable_arguments(mutable_arguments) {}
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        internal_assert(value.defined());
+        const auto *variable = value.as<ir::Var>();
+        ir::WriteLoc lhs = node->loc;
+        if (variable == nullptr) {
+            // let _t0 = a + b
+            // (i.e., do nothing.)
+            return ir::LetStmt::make(lhs, std::move(value));
+        }
+
+        auto it = variable_to_initial.find(variable->name);
+        if (it == variable_to_initial.end()) {
+            variable_to_initial[lhs.base] = variable->name;
+            // let c = _t0
+            // (i.e., add this to the map)
+            return node;
+        }
+        // let _t1 = c
+        // (i.e., update it to point to _t0.)
+        std::string previous = it->second;
+        return ir::LetStmt::make(lhs,
+                                 ir::Var::make(variable->type, it->second));
+    }
+
+    // Cannot propagate copies through mutable variables.
+    ir::Stmt visit(const ir::Assign *node) override { return node; }
+
+    ir::Expr visit(const ir::Var *node) override {
+        if (mutable_arguments.contains(node->name)) {
+            return node;
+        }
+        auto it = variable_to_initial.find(node->name);
+        if (it == variable_to_initial.end()) {
+            return node;
+        }
+        return ir::Var::make(node->type, it->second);
+    }
+
+  private:
+    const std::set<std::string> &mutable_arguments;
+    std::unordered_map<std::string, std::string> variable_to_initial;
+};
+
 // Validates whether the visited expression can undergo CSE.
 struct IsCseLegal : public ir::Visitor {
     IsCseLegal(const std::set<std::string> &side_effect_functions,
@@ -176,8 +234,12 @@ class CseImpl : public ir::Mutator {
 ir::FuncMap CSE::run(ir::FuncMap funcs) const {
     std::set<std::string> side_effect_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
-        CseImpl cse(side_effect_functions, get_mutable_arguments(*func));
+        std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
+        CseImpl cse(side_effect_functions, mutable_arguments);
         func->body = cse.mutate(std::move(func->body));
+
+        CopyPropagation cp(mutable_arguments);
+        func->body = cp.mutate(std::move(func->body));
     }
     return funcs;
 }

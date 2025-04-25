@@ -1,19 +1,19 @@
 func _lambda0(x : i32) -> i32 {
-  return x + 1
+  let _t0 = x + 1 in
+  return _t0
 }
 
 func _lambda1(x : i32) -> i32 {
-  return x - 1
+  let _t0 = x - 1 in
+  return _t0
 }
 
 func foo() -> i32 {
-  let y = 0 + 1 in
-  return y
+  return 1
 }
 
 func main() -> i32 {
-  let y = 0 - 1 in
-  return y
+  return -1
 }
 
 func relu(v : set<i32>) -> set<i32> {

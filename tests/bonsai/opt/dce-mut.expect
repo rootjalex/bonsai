@@ -1,8 +1,8 @@
 func bar(i : i32) -> u32 {
   j := i + 2
   let k = abs(i) in
-  _0j := j + cast<i32>(k)
-  return cast<u32>(_0j)
+  j += cast<i32>(k)
+  return cast<u32>(j)
 }
 
 func foo(i : i32) -> u32 {

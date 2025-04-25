@@ -51,9 +51,9 @@ func mutating_value() -> i32 {
   x := 3
   let c = a + x in
   let d = c in
-  let _0x = a in
-  let e = a + _0x in
-  let f = e in
+  x = 1
+  let e = a + x in
+  let f = a + x in
   return 0
 }
 
@@ -64,7 +64,7 @@ func nested_binary_operations(x : i32, y : i32) -> void {
 
 func self_assign() -> void {
   i := 1
-  _0i := i
+  i = i
 }
 
 func side_effects() -> i32 {
