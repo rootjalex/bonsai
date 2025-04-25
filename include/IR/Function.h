@@ -58,7 +58,6 @@ struct Function {
     InterfaceList interfaces;
 
     enum class Attribute {
-        
         exported, // Whether this will be exported to C++.
         imported, // Whether this function was imported from another file.
     };
