@@ -650,6 +650,12 @@ struct Parser {
             return parse_geometric_intrinsic(name); // special case.
         }
 
+        if (is_builtin(name)) {
+            report_error()
+                << name
+                << " is a builtin function or intrinsic, cannot redefine.";
+        }
+
         if (program.funcs.contains(name)) {
             report_error() << "Redefinition of func: " << name;
         }
@@ -1489,10 +1495,7 @@ struct Parser {
                     << "permute takes two arguments, received: " << args.size();
                 internal_assert(args[1].is<ir::Build>())
                     << "permute expects the second argument to be a list "
-                       "of indexes, "
-                       "instead "
-                       "received: "
-                    << args[1];
+                    << "of indexes instead received: " << args[1];
                 return ir::VectorShuffle::make(std::move(args[0]),
                                                args[1].as<ir::Build>()->values);
             } else if (name == "select") {
