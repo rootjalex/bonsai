@@ -1,0 +1,6 @@
+import stdlib/intersects;
+
+element Point {
+    vec : vec3f;
+}
+

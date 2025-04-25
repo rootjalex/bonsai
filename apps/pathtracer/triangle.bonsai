@@ -1,8 +1,0 @@
-// triangle.bonsai
-
-// TODO: make sure everything is #pragma once
-import apps/pathtracer/types;
-
-element Triangle {
-    p0, p1, p2 : vector[Float, 3];
-}

@@ -1288,6 +1288,11 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_expr(expr);
         return;
     }
+    case Intrinsic::dot: {
+        Expr expr = VectorReduce::make(VectorReduce::Add, node->args[0] * node->args[1]);
+        value = codegen_expr(expr);
+        return;
+    }
     case Intrinsic::fma: {
         intrin = llvm::Intrinsic::fma;
         break;
@@ -1325,6 +1330,11 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             // Expr(node);
         }
         break;
+    }
+    case Intrinsic::norm: {
+        Expr expr = sqrt(dot(node->args[0], node->args[0]));
+        value = codegen_expr(expr);
+        return;
     }
     case Intrinsic::sin: {
         intrin = llvm::Intrinsic::sin;

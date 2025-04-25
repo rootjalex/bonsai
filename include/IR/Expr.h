@@ -312,9 +312,11 @@ struct Intrinsic : ExprNode<Intrinsic> {
         abs,
         cos,
         cross,
+        dot,
         fma,
         max,
         min,
+        norm,
         sin,
         sqrt,
         // TODO: more

@@ -56,29 +56,41 @@ Expr operator>(Expr a, Expr b) {
 }
 
 Expr distmax(Expr a, Expr b) {
-    return ir::GeomOp::make(ir::GeomOp::distmax, std::move(a), std::move(b));
+    return GeomOp::make(GeomOp::distmax, std::move(a), std::move(b));
 }
 
 Expr distmin(Expr a, Expr b) {
-    return ir::GeomOp::make(ir::GeomOp::distmin, std::move(a), std::move(b));
+    return GeomOp::make(GeomOp::distmin, std::move(a), std::move(b));
 }
 
 Expr intersects(Expr a, Expr b) {
-    return ir::GeomOp::make(ir::GeomOp::intersects, std::move(a), std::move(b));
+    return GeomOp::make(GeomOp::intersects, std::move(a), std::move(b));
 }
 
 Expr contains(Expr a, Expr b) {
-    return ir::GeomOp::make(ir::GeomOp::contains, std::move(a), std::move(b));
+    return GeomOp::make(GeomOp::contains, std::move(a), std::move(b));
 }
 
 Expr filter(Expr predicate, Expr set) {
-    return ir::SetOp::make(ir::SetOp::filter, std::move(predicate),
+    return SetOp::make(SetOp::filter, std::move(predicate),
                            std::move(set));
 }
 
 Expr argmin(Expr metric, Expr set) {
-    return ir::SetOp::make(ir::SetOp::argmin, std::move(metric),
+    return SetOp::make(SetOp::argmin, std::move(metric),
                            std::move(set));
+}
+
+Expr sqrt(Expr a) {
+    return Intrinsic::make(Intrinsic::sqrt, {std::move(a)});
+}
+
+Expr norm(Expr a) {
+    return Intrinsic::make(Intrinsic::norm, {std::move(a)});
+}
+
+Expr dot(Expr a, Expr b) {
+    return Intrinsic::make(Intrinsic::dot, {std::move(a), std::move(b)});
 }
 
 } // namespace ir

@@ -1,0 +1,36 @@
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/point;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+// TODO: use squared distance.
+func [[export]] closest(p : Point) = argmin(|tri| distmin(p, tri), triangles);
+
+func [[export]] closest_all(n : u32, pts : array[Point, n]) = map(|p : Point| closest(p), pts);
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : array[Triangle]);
+
+    triangles : TriangleBVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low : vec3f;
+            nPrims : i32;
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    // TODO: schedule.
+}

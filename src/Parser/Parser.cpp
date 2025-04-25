@@ -843,6 +843,12 @@ struct Parser {
         ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
 
+        const bool mutating = name_in_scope(loc.base);
+
+        if (mutating && !is_mutable(loc.base)) {
+            report_error() << "Cannot assign to non-mutable variable: " << loc.base;
+        }
+
         // TODO: do type forcing here!
         if (loc.type.defined() && value.type().defined()) {
             internal_assert(ir::equals(loc.type, value.type()))
@@ -850,8 +856,6 @@ struct Parser {
                 << " has type: " << loc.type << " but " << value << " has type "
                 << value.type();
         }
-
-        const bool mutating = name_in_scope(loc.base);
 
         if (!loc.type.defined() && value.type().defined()) {
             // TODO: do type forcing here!
@@ -1176,11 +1180,13 @@ struct Parser {
             {"abs", 1, ir::Intrinsic::abs},
             {"cos", 1, ir::Intrinsic::cos},
             {"cross", 2, ir::Intrinsic::cross},
+            {"dot", 2, ir::Intrinsic::dot},
             {"fma", 3, ir::Intrinsic::fma},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
             {"max", 2, ir::Intrinsic::max, .skippable = true},
             {"min", 2, ir::Intrinsic::min, .skippable = true},
+            {"norm", 1, ir::Intrinsic::norm},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
         });
@@ -1695,6 +1701,14 @@ struct Parser {
     //         | bool | vector[type, int]
     //         | option[type] | declared_type
     ir::Type parse_type() {
+        if (consume(Token::Type::LPAREN)) {
+            // Tuple type.
+            auto etypes = parse_type_list_until(Token::Type::RPAREN);
+            if (etypes.empty()) {
+                report_error() << "Cannot construct empty tuple type.";
+            }
+            return ir::Tuple_t::make(std::move(etypes));
+        }
         // TODO: support tuples of types! AKA unnamed structs.
         const std::string name = get_id();
         // Signed integer types.
