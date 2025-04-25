@@ -110,7 +110,6 @@ struct IsCseLegal : public ir::Visitor {
     const std::set<std::string> &mutable_variables;
 };
 
-// TODO(cgyurgyik): Add frames.
 class CseImpl : public ir::Mutator {
   public:
     CseImpl(const std::set<std::string> &side_effect_functions,
@@ -131,15 +130,8 @@ class CseImpl : public ir::Mutator {
     ir::Stmt visit(const ir::Assign *node) override {
         if (node->mutating) {
             mutable_variables.insert(node->loc.base);
-            return ir::Mutator::visit(node);
         }
-        ir::Expr variable = get(node->value);
-        if (variable.defined()) {
-            // This expression already exists.
-            return ir::LetStmt::make(node->loc, variable);
-        }
-        update(node->value, node->loc);
-        return node;
+        return ir::Mutator::visit(node);
     }
 
     ir::Stmt visit(const ir::Store *node) override {
@@ -154,10 +146,8 @@ class CseImpl : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        ir::Expr a = mutate(node->a);
-        a = get(node->a);
-        ir::Expr b = mutate(node->b);
-        b = get(node->b);
+        ir::Expr a = get(mutate(node->a));
+        ir::Expr b = get(mutate(node->b));
         if (a.defined() && b.defined()) {
             return ir::BinOp::make(node->op, std::move(a), std::move(b));
         }
