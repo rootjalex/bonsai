@@ -2061,7 +2061,6 @@ void CodeGen_LLVM::declare_struct_types(
     for (const auto &_struct : structs) {
         struct_types[_struct->name] =
             llvm::StructType::create(*context, "struct." + _struct->name);
-        // llvm::errs() << "created: " << *struct_types[_struct->name] << "\n";
     }
     // Now build bodies, possibly referencing other struct types.
     for (const auto &_struct : structs) {
@@ -2077,9 +2076,8 @@ void CodeGen_LLVM::declare_struct_types(
             }
         }
         if (!skip) {
-            struct_types[_struct->name]->setBody(types);
+            struct_types[_struct->name]->setBody(types, /*isPacked=*/true);
         }
-        // llvm::errs() << "built: " << *struct_types[_struct->name] << "\n";
     }
 }
 
