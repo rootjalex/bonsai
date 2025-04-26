@@ -16,7 +16,9 @@ namespace {
 
 // Whether we should give this sub-expression its own variable.
 // TODO(cgyurgyik): What else?
-bool rename(const ir::Expr &e) { return !e.is<ir::Var>() && !is_const(e); }
+bool should_rename(const ir::Expr &e) {
+    return !e.is<ir::Var>() && !is_const(e);
+}
 
 // Gives an expensive expression its own variable. For example,
 //   g(foo(i), bar(j));
@@ -26,6 +28,9 @@ bool rename(const ir::Expr &e) { return !e.is<ir::Var>() && !is_const(e); }
 //   g(_t0, _t1);
 struct ToAnormalForm : public ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
+        if (!should_rename(node->value)) {
+            return node;
+        }
         return make(ir::LetStmt::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Assign *node) override {
@@ -66,9 +71,6 @@ struct ToAnormalForm : public ir::Mutator {
         ir::Expr a = mutate(node->a);
         ir::Expr b = mutate(node->b);
         ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
-        if (!rename(op)) {
-            return op;
-        }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(op)));
         return ir::Var::make(node->type, location.base);
