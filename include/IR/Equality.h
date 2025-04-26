@@ -5,8 +5,6 @@
 #include "Type.h"
 #include "WriteLoc.h"
 
-#include <set>
-
 namespace bonsai {
 namespace ir {
 
@@ -28,8 +26,6 @@ struct ExprLessThan {
 struct WriteLocLessThan {
     bool operator()(const WriteLoc &w0, const WriteLoc &w1) const;
 };
-
-using CseSet = std::set<ir::Expr, ir::ExprLessThan>;
 
 } // namespace ir
 } // namespace bonsai
