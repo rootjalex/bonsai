@@ -31,6 +31,9 @@ bool rename(const ir::Expr &e) {
         case ir::BinOp::OpType::BwAnd:
         case ir::BinOp::OpType::BwOr:
         case ir::BinOp::OpType::Xor:
+        case ir::BinOp::OpType::Eq:
+        case ir::BinOp::OpType::Lt:
+        case ir::BinOp::OpType::Le:
             if ((a.is<ir::Var>() || is_const(a)) &&
                 (b.is<ir::Var>() || is_const(b))) {
                 // Adds and subtractions are cheap.
@@ -54,13 +57,6 @@ struct ToAnormalForm : public ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
         return anf(ir::LetStmt::make(node->loc, mutate(node->value)));
     }
-    ir::Stmt visit(const ir::IfElse *node) override {
-        ir::Stmt th = mutate(node->then_body);
-        ir::Stmt el = mutate(node->else_body);
-        ir::Expr cond = mutate(node->cond);
-        return anf(
-            ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
-    }
     ir::Stmt visit(const ir::Assign *node) override {
         return anf(
             ir::Assign::make(node->loc, mutate(node->value), node->mutating));
@@ -75,12 +71,10 @@ struct ToAnormalForm : public ir::Mutator {
         }
         return anf(ir::Return::make(mutate(node->value)));
     }
-
     ir::Stmt visit(const ir::Print *node) override {
         ir::Expr value = mutate(node->value);
         return anf(ir::Print::make(std::move(value)));
     }
-
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Expr> args;
         for (const ir::Expr &arg : node->args) {
@@ -120,6 +114,14 @@ struct ToAnormalForm : public ir::Mutator {
         stmts.push_back(ir::LetStmt::make(
             loc, ir::Call::make(node->func, std::move(args))));
         return ir::Var::make(node->type, loc.base);
+    }
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        ir::Stmt th = mutate(node->then_body);
+        ir::Stmt el = mutate(node->else_body);
+        ir::Expr cond = mutate(node->cond);
+        return anf(
+            ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
 
     // Skip the body of a lambda expression.

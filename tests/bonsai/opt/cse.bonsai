@@ -102,6 +102,7 @@ func if_statement(x: i32, y: i32, z: i32, cond: bool) -> void {
     if (cond) {
         a: i32 = x * y / z;
         b: i32 = x * y / z;
+        c: i32 = bar(a, b);
     } else {
         c: i32 = x * y / z;
     }

@@ -46,14 +46,16 @@ func if_statement(x : i32, y : i32, z : i32, cond : bool) -> void {
     let _t2 = _t0 in
     let _t3 = _t2 / z in
     let b = _t3 in
+    let _t4 = bar(a, b) in
+    let c = _t4 in
   } else {
-    let _t4 = x * y in
-    let _t5 = _t4 / z in
-    let c = _t5 in
+    let _t5 = x * y in
+    let _t6 = _t5 / z in
+    let c = _t6 in
   }
-  let _t6 = x * y in
-  let _t7 = _t6 / z in
-  let d = _t7 in
+  let _t7 = x * y in
+  let _t8 = _t7 / z in
+  let d = _t8 in
 }
 
 func mutable_struct(e : mut E) -> void {
