@@ -14,13 +14,27 @@ namespace lower {
 
 namespace {
 
-// bool do_not_rename(const ir::Expr &e) {
-//     if (const auto *binary_operation = e.as<ir::BinOp>()) {
-//         const ir::Expr &a = binary_operation->a;
-//         const ir::Expr &b = binary_operation->b;
-//         if (b.is<ir::Var>() || is_const(b))
-//     }
-// }
+bool rename(const ir::Expr &e) {
+    if (const auto *binary_operation = e.as<ir::BinOp>()) {
+        const ir::Expr &a = binary_operation->a;
+        const ir::Expr &b = binary_operation->b;
+        switch (binary_operation->op) {
+        case ir::BinOp::OpType::Add:
+        case ir::BinOp::OpType::Sub:
+        case ir::BinOp::OpType::Shl:
+        case ir::BinOp::OpType::Shr:
+            if ((b.is<ir::Var>() || is_const(b)) &&
+                (a.is<ir::Var>() || is_const(a))) {
+                // Adds and subtractions are cheap.
+                return false;
+            }
+        default:
+            return true;
+        }
+    }
+
+    return !e.is<ir::Var>() && !is_const(e);
+}
 
 // Gives an expensive expression its own variable. For example,
 //   g(foo(i), bar(j));
@@ -30,6 +44,9 @@ namespace {
 //   g(_t0, _t1);
 struct ToAnormalForm : public ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
+        if (!rename(node->value)) {
+            return node;
+        }
         return anf(ir::LetStmt::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::IfElse *node) override {
@@ -40,10 +57,16 @@ struct ToAnormalForm : public ir::Mutator {
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
     ir::Stmt visit(const ir::Assign *node) override {
+        if (!rename(node->value)) {
+            return node;
+        }
         return anf(
             ir::Assign::make(node->loc, mutate(node->value), node->mutating));
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
+        if (!rename(node->value)) {
+            return node;
+        }
         return anf(
             ir::Accumulate::make(node->loc, node->op, mutate(node->value)));
     }
@@ -51,10 +74,16 @@ struct ToAnormalForm : public ir::Mutator {
         if (!node->value.defined()) {
             return node;
         }
+        if (!rename(node->value)) {
+            return node;
+        }
         return anf(ir::Return::make(mutate(node->value)));
     }
 
     ir::Stmt visit(const ir::Print *node) override {
+        if (!rename(node->value)) {
+            return node;
+        }
         ir::Expr value = mutate(node->value);
         return anf(ir::Print::make(std::move(value)));
     }
@@ -76,17 +105,8 @@ struct ToAnormalForm : public ir::Mutator {
         default:
             break;
         }
-        ir::Expr a = mutate(std::move(node->a));
-        ir::Expr b = mutate(std::move(node->b));
-        // if ((a.is<ir::Var>() || is_const(a)) &&
-        //     (b.is<ir::Var>() || is_const(b))) {
-        //     // Avoid this case:
-        //     // c = a + x;
-        //     // ->
-        //     // let _t0 = a + x in
-        //     // let c = _t0 in
-        //     return ir::BinOp::make(node->op, std::move(a), std::move(b));
-        // }
+        ir::Expr a = mutate(node->a);
+        ir::Expr b = mutate(node->b);
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(
             location, ir::BinOp::make(node->op, std::move(a), std::move(b))));

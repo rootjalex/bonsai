@@ -1,19 +1,15 @@
 type E = struct E{ x : i32; y : i32 }
 
 func bar(x : i32, y : i32) -> i32 {
-  let _t0 = x + y in
-  return _t0
+  return x + y
 }
 
 func foo() -> i32 {
   let a = 1 in
   let b = 2 in
-  let _t0 = a + b in
-  let c = _t0 in
-  let _t1 = _t0 in
-  let d = _t1 in
-  let _t2 = _t0 in
-  let e = _t2 in
+  let c = a + b in
+  let d = c in
+  let e = c in
   return 0
 }
 
@@ -44,16 +40,12 @@ func if_condition(a : bool, b : bool, c : bool) -> bool {
 
 func if_statement(x : i32, y : i32, cond : bool) -> void {
   if (cond) {
-    let _t0 = x + y in
-    let a = _t0 in
-    let _t1 = _t0 in
-    let b = _t1 in
+    let a = x + y in
+    let b = a in
   } else {
-    let _t2 = x + y in
-    let c = _t2 in
+    let c = x + y in
   }
-  let _t3 = x + y in
-  let d = _t3 in
+  let d = x + y in
 }
 
 func mutable_struct(e : mut E) -> void {
@@ -64,11 +56,9 @@ func mutable_struct(e : mut E) -> void {
 func mutating_argument(x : mut i32) -> i32 {
   let a = 1 in
   let b = 2 in
-  let _t0 = a + x in
-  let c = _t0 in
+  let c = a + x in
   x += 1
-  let _t1 = a + x in
-  let d = _t1 in
+  let d = a + x in
   return 0
 }
 
@@ -76,28 +66,23 @@ func mutating_value() -> i32 {
   let a = 1 in
   let b = 2 in
   x := 3
-  let _t0 = a + x in
-  let c = _t0 in
-  let _t1 = _t0 in
-  let d = _t1 in
+  let c = a + x in
+  let d = c in
   return 0
 }
 
 func nested_binary_operations(x : i32, y : i32) -> void {
-  let _t0 = x + y in
-  let a = _t0 in
-  let _t1 = _t0 in
-  let _t2 = _t1 + 1 in
-  let b = _t2 in
+  let a = x + y in
+  let _t0 = a in
+  let _t1 = _t0 + 1 in
+  let b = _t1 in
 }
 
 func propagate(x : i32, y : i32) -> i32 {
-  let _t0 = x + y in
-  let a = _t0 in
-  let _t1 = _t0 in
-  let b = _t1 in
-  let _t2 = bar(a, b) in
-  return _t2
+  let a = x + y in
+  let b = a in
+  let _t0 = bar(a, b) in
+  return _t0
 }
 
 func self_assign() -> void {

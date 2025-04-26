@@ -30,11 +30,10 @@ func nested_subexpressions(x : i32, y : i32, z : i32) -> i32 {
   let v = _t3 in
   w := 42
   w += 1
-  let _t4 = 42 - v in
-  w = _t4
-  let _t5 = x + v in
-  let _t6 = _t5 - w in
-  return _t6
+  w = 42 - v
+  let _t4 = x + v in
+  let _t5 = _t4 - w in
+  return _t5
 }
 
 func print_and_return(i : i32) -> i32 {
@@ -43,8 +42,7 @@ func print_and_return(i : i32) -> i32 {
 }
 
 func void_call(i : i32, j : i32) -> void {
-  let _t0 = i + j in
-  let z = _t0 in
+  let z = i + j in
   return
 }
 
