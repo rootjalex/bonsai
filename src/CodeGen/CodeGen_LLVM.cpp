@@ -2009,8 +2009,10 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 }
 
 void CodeGen_LLVM::visit(const Continue *node) {
-    internal_assert(!latch_blocks.empty()) << "CodeGen of Continue outside of loop.";
-    internal_assert(!builder->GetInsertBlock()->getTerminator()) << "CodeGen of Continue in already-terminating block";
+    internal_assert(!latch_blocks.empty())
+        << "CodeGen of Continue outside of loop.";
+    internal_assert(!builder->GetInsertBlock()->getTerminator())
+        << "CodeGen of Continue in already-terminating block";
     builder->CreateBr(latch_blocks.back());
 }
 

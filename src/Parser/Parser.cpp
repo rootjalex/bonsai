@@ -621,7 +621,8 @@ struct Parser {
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{}, std::vector<ir::Function::Attribute>{});
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{});
 
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(typed_name), std::move(func));
@@ -633,7 +634,7 @@ struct Parser {
 
     void parse_function() {
         expect(Token::Type::FUNC);
-        
+
         std::vector<ir::Function::Attribute> attributes;
         if (context.size() > 1) { // in an imported file.
             attributes.push_back(ir::Function::Attribute::imported);

@@ -56,7 +56,7 @@ bool contains(const Type &type) {
 template <typename IRNode>
 bool contains(const Stmt &stmt) {
     static_assert(std::is_base_of<BaseStmtNode, IRNode>::value ||
-                  std::is_base_of<BaseExprNode, IRNode>::value,
+                      std::is_base_of<BaseExprNode, IRNode>::value,
                   "IRNode must be a subclass of BaseStmtNode or BaseExprNode");
     struct Checker : public Visitor {
         bool found = false;

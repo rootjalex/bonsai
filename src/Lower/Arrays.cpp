@@ -22,21 +22,21 @@ namespace {
 
 struct ReturnsToYields : public ir::Mutator {
     ir::Stmt visit(const ir::Return *node) override {
-        return ir::Sequence::make({
-            ir::Yield::make(node->value),
-            ir::Continue::make()
-        });
+        return ir::Sequence::make(
+            {ir::Yield::make(node->value), ir::Continue::make()});
     }
 };
 
 struct RewriteYields : public ir::Mutator {
     std::function<ir::Stmt(ir::Expr)> rewriter;
 
-    RewriteYields(std::function<ir::Stmt(ir::Expr )> rewriter) : rewriter(std::move(rewriter)) {}
+    RewriteYields(std::function<ir::Stmt(ir::Expr)> rewriter)
+        : rewriter(std::move(rewriter)) {}
 
     ir::Stmt visit(const ir::Yield *node) override {
         ir::Stmt repl = rewriter(node->value);
-        internal_assert(repl.defined()) << "RewriteYields produced empty stmt: " << ir::Stmt(node);
+        internal_assert(repl.defined())
+            << "RewriteYields produced empty stmt: " << ir::Stmt(node);
         return repl;
     }
 };
@@ -69,12 +69,16 @@ struct RmUnnecessaryContinues : public ir::Mutator {
             return ir::Sequence::make(std::move(stmts));
         } else if (const ir::IfElse *ifelse = stmt.as<ir::IfElse>()) {
             ir::Stmt then_body = rm_continues(ifelse->then_body);
-            ir::Stmt else_body = ifelse->else_body.defined() ? rm_continues(ifelse->else_body) : ifelse->else_body;
-            if (then_body.same_as(ifelse->then_body) && else_body.same_as(ifelse->else_body)) {
+            ir::Stmt else_body = ifelse->else_body.defined()
+                                     ? rm_continues(ifelse->else_body)
+                                     : ifelse->else_body;
+            if (then_body.same_as(ifelse->then_body) &&
+                else_body.same_as(ifelse->else_body)) {
                 return stmt;
             }
             internal_assert(then_body.defined());
-            return ir::IfElse::make(ifelse->cond, std::move(then_body), std::move(else_body));
+            return ir::IfElse::make(ifelse->cond, std::move(then_body),
+                                    std::move(else_body));
         } else if (const ir::Label *label = stmt.as<ir::Label>()) {
             ir::Stmt body = rm_continues(label->body);
             if (body.same_as(label->body)) {
@@ -95,7 +99,8 @@ struct RmUnnecessaryContinues : public ir::Mutator {
         ir::Stmt body = rm_continues(node->body);
         internal_assert(body.defined());
         if (!body.same_as(node->body)) {
-            return ir::ForAll::make(node->index, node->header, node->slice, std::move(body));
+            return ir::ForAll::make(node->index, node->header, node->slice,
+                                    std::move(body));
         }
         // No `Continue` to remove.
         return stmt;
@@ -234,12 +239,13 @@ struct LowerToForEach : public ir::Mutator {
             // TODO(cgyurgyik): Not sure how often this will occur, but we
             // should probably support this.
             if (program_functions.contains(v->name)) {
-                // TODO: this could recursively inline. We do not handle that yet.
+                // TODO: this could recursively inline. We do not handle that
+                // yet.
                 const auto &func = program_functions.at(v->name);
                 ir::Stmt func_body = func->body;
                 internal_assert(!ir::contains<ir::SetOp>(func_body))
-                    << "[unimplemented] map with nested setop in "
-                    << v->name << " from " << expr;
+                    << "[unimplemented] map with nested setop in " << v->name
+                    << " from " << expr;
                 ir::Stmt for_body = ReturnsToYields().mutate(func_body);
                 return ir::ForEach::make(
                     /*name=*/get_argument_name(function),
@@ -247,7 +253,8 @@ struct LowerToForEach : public ir::Mutator {
                     /*body=*/std::move(for_body));
             }
             internal_assert(!v->type.is_func())
-                << "[unimplemented] non-inlined lambda function while building hierarchical loops";
+                << "[unimplemented] non-inlined lambda function while building "
+                   "hierarchical loops";
         }
         // Otherwise, fuse set operations in this level.
         return build_level(expr);
@@ -296,7 +303,8 @@ struct LowerToForEach : public ir::Mutator {
 
         auto f = std::make_shared<ir::Function>(
             function_name, std::move(func_args), expr.type(), std::move(body),
-            ir::Function::InterfaceList{}, std::vector<ir::Function::Attribute>{});
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{});
         ir::Type call_type = f->call_type();
         new_funcs[function_name] = std::move(f);
 
@@ -418,13 +426,16 @@ struct LowerToForAll : public ir::Mutator {
                 internal_assert(ir::equals(yielded_type, yielded.type()))
                     << "Mismatch yield types in lowering: " << node;
             }
-            return ir::Store::make(allocation_name, /*index=*/store_index, std::move(yielded));
+            return ir::Store::make(allocation_name, /*index=*/store_index,
+                                   std::move(yielded));
         };
 
         ir::Stmt repl_body = replace(replacements, foreach->body);
 
-        ir::Stmt final_body = RewriteYields(visitor).mutate(std::move(repl_body));
-        internal_assert(yielded_type.defined()) << "No yields found in: " << foreach->body;
+        ir::Stmt final_body =
+            RewriteYields(visitor).mutate(std::move(repl_body));
+        internal_assert(yielded_type.defined())
+            << "No yields found in: " << foreach->body;
 
         ir::Type yield_type = iter_type.with_etype(yielded_type);
 
