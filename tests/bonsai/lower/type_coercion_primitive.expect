@@ -3,15 +3,18 @@ func a(x : u32) -> u32 {
 }
 
 func b(x : f64) -> f64 {
-  return x + 3
+  let _t0 = x + 3 in
+  return _t0
 }
 
 func c(x : f64) -> f64 {
-  return x + 3
+  let _t0 = x + 3 in
+  return _t0
 }
 
 func d(x : f16) -> f16 {
-  return x + 3h
+  let _t0 = x + 3h in
+  return _t0
 }
 
 func ret_f32x4(x : f32x4) -> f32x4 {

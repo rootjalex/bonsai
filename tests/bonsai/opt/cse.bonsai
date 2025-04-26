@@ -88,20 +88,22 @@ func nested_binary_operations(x: i32,  y: i32) -> void {
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
-// TODO(cgyurgyik): implement copy propagation, expected:
-// return bar(a, a);
+// TODO(cgyurgyik): implement copy propagation, i.e.,
+// let a = x + y in
+// let a = b in
+// return bar(a, a)
 func propagate(x: i32, y: i32) -> i32 {
     a: i32 = x + y;
     b: i32 = x + y;
-    return bar(a, b);
+    return bar(a, b); 
 }
 
-func if_statement(x: i32, y: i32, cond: bool) -> void {
+func if_statement(x: i32, y: i32, z: i32, cond: bool) -> void {
     if (cond) {
-        a: i32 = x + y;
-        b: i32 = x + y;
+        a: i32 = x * y / z;
+        b: i32 = x * y / z;
     } else {
-        c: i32 = x + y;
+        c: i32 = x * y / z;
     }
-    d: i32 = x + y;
+    d: i32 = x * y / z;
 }

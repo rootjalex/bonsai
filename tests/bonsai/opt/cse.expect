@@ -38,14 +38,22 @@ func if_condition(a : bool, b : bool, c : bool) -> bool {
   return r
 }
 
-func if_statement(x : i32, y : i32, cond : bool) -> void {
+func if_statement(x : i32, y : i32, z : i32, cond : bool) -> void {
   if (cond) {
-    let a = x + y in
-    let b = a in
+    let _t0 = x * y in
+    let _t1 = _t0 / z in
+    let a = _t1 in
+    let _t2 = _t0 in
+    let _t3 = _t2 / z in
+    let b = _t3 in
   } else {
-    let c = x + y in
+    let _t4 = x * y in
+    let _t5 = _t4 / z in
+    let c = _t5 in
   }
-  let d = x + y in
+  let _t6 = x * y in
+  let _t7 = _t6 / z in
+  let d = _t7 in
 }
 
 func mutable_struct(e : mut E) -> void {
@@ -73,9 +81,8 @@ func mutating_value() -> i32 {
 
 func nested_binary_operations(x : i32, y : i32) -> void {
   let a = x + y in
-  let _t0 = a in
-  let _t1 = _t0 + 1 in
-  let b = _t1 in
+  let _t0 = a + 1 in
+  let b = _t0 in
 }
 
 func propagate(x : i32, y : i32) -> i32 {
@@ -93,17 +100,13 @@ func self_assign() -> void {
 func side_effects(x : i32) -> i32 {
   let a = 1 in
   let _t0 = id_with_side_effect(a) in
-  let _t1 = _t0 + x in
-  let b = _t1 in
-  let _t2 = id_with_side_effect(a) in
-  let _t3 = _t2 + x in
-  let c = _t3 in
-  let _t4 = id_no_side_effect(a) in
-  let _t5 = _t4 + x in
-  let d = _t5 in
-  let _t6 = _t4 in
-  let _t7 = _t6 + x in
-  let e = _t7 in
+  let b = _t0 + x in
+  let _t1 = id_with_side_effect(a) in
+  let c = _t1 + x in
+  let _t2 = id_no_side_effect(a) in
+  let d = _t2 + x in
+  let _t3 = _t2 in
+  let e = _t3 + x in
   return 0
 }
 

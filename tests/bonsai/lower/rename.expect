@@ -15,8 +15,7 @@ func foo(i : i32) -> i32 {
 
 func if_statement(b : bool) -> i32 {
   let _t0 = 0 == 1 in
-  let _t1 = b ^ _t0 in
-  if (_t1) {
+  if (b ^ _t0) {
     return 1
   }
   return 0
@@ -25,15 +24,13 @@ func if_statement(b : bool) -> i32 {
 func nested_subexpressions(x : i32, y : i32, z : i32) -> i32 {
   let _t0 = x / y in
   let _t1 = x * z in
-  let _t2 = _t0 - _t1 in
-  let _t3 = _t2 + 2 in
-  let v = _t3 in
+  let _t2 = (_t0 - _t1) + 2 in
+  let v = _t2 in
   w := 42
   w += 1
   w = 42 - v
-  let _t4 = x + v in
-  let _t5 = _t4 - w in
-  return _t5
+  let _t3 = (x + v) - w in
+  return _t3
 }
 
 func print_and_return(i : i32) -> i32 {

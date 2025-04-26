@@ -14,8 +14,13 @@ namespace lower {
 
 namespace {
 
+// Whether we should give this sub-expression its own variable.
+// TODO(cgyurgyik): What else?
 bool rename(const ir::Expr &e) {
     if (const auto *binary_operation = e.as<ir::BinOp>()) {
+        if (e.type().is<ir::Float_t>()) {
+            return true;
+        }
         const ir::Expr &a = binary_operation->a;
         const ir::Expr &b = binary_operation->b;
         switch (binary_operation->op) {
@@ -23,8 +28,11 @@ bool rename(const ir::Expr &e) {
         case ir::BinOp::OpType::Sub:
         case ir::BinOp::OpType::Shl:
         case ir::BinOp::OpType::Shr:
-            if ((b.is<ir::Var>() || is_const(b)) &&
-                (a.is<ir::Var>() || is_const(a))) {
+        case ir::BinOp::OpType::BwAnd:
+        case ir::BinOp::OpType::BwOr:
+        case ir::BinOp::OpType::Xor:
+            if ((a.is<ir::Var>() || is_const(a)) &&
+                (b.is<ir::Var>() || is_const(b))) {
                 // Adds and subtractions are cheap.
                 return false;
             }
@@ -44,9 +52,6 @@ bool rename(const ir::Expr &e) {
 //   g(_t0, _t1);
 struct ToAnormalForm : public ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (!rename(node->value)) {
-            return node;
-        }
         return anf(ir::LetStmt::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::IfElse *node) override {
@@ -57,16 +62,10 @@ struct ToAnormalForm : public ir::Mutator {
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
     ir::Stmt visit(const ir::Assign *node) override {
-        if (!rename(node->value)) {
-            return node;
-        }
         return anf(
             ir::Assign::make(node->loc, mutate(node->value), node->mutating));
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (!rename(node->value)) {
-            return node;
-        }
         return anf(
             ir::Accumulate::make(node->loc, node->op, mutate(node->value)));
     }
@@ -74,16 +73,10 @@ struct ToAnormalForm : public ir::Mutator {
         if (!node->value.defined()) {
             return node;
         }
-        if (!rename(node->value)) {
-            return node;
-        }
         return anf(ir::Return::make(mutate(node->value)));
     }
 
     ir::Stmt visit(const ir::Print *node) override {
-        if (!rename(node->value)) {
-            return node;
-        }
         ir::Expr value = mutate(node->value);
         return anf(ir::Print::make(std::move(value)));
     }
@@ -107,9 +100,12 @@ struct ToAnormalForm : public ir::Mutator {
         }
         ir::Expr a = mutate(node->a);
         ir::Expr b = mutate(node->b);
+        ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
+        if (!rename(op)) {
+            return op;
+        }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
-        stmts.push_back(ir::LetStmt::make(
-            location, ir::BinOp::make(node->op, std::move(a), std::move(b))));
+        stmts.push_back(ir::LetStmt::make(location, std::move(op)));
         return ir::Var::make(node->type, location.base);
     }
 
@@ -118,10 +114,12 @@ struct ToAnormalForm : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        // Conservatively always rename function calls (we assume cheap calls
+        // will be inlined).
+        ir::WriteLoc loc("_t" + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(
-            location, ir::Call::make(node->func, std::move(args))));
-        return ir::Var::make(node->type, location.base);
+            loc, ir::Call::make(node->func, std::move(args))));
+        return ir::Var::make(node->type, loc.base);
     }
 
     // Skip the body of a lambda expression.
