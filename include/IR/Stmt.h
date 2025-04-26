@@ -36,6 +36,7 @@ enum class IRStmtEnum {
     YieldFrom,
     ForAll,
     ForEach,
+    Continue,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -276,6 +277,13 @@ struct ForAll : StmtNode<ForAll> {
     static Stmt make(std::string index, Stmt header, Slice slice, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::ForAll;
+};
+
+// End iterating inside this loop.
+struct Continue : StmtNode<Continue> {
+    static Stmt make();
+
+    static const IRStmtEnum node_type = IRStmtEnum::Continue;
 };
 
 } // namespace ir

@@ -78,6 +78,7 @@ struct Scan;
 struct YieldFrom;
 struct ForAll;
 struct ForEach;
+struct Continue;
 
 // Layouts
 struct Name;

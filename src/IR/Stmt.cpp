@@ -247,5 +247,10 @@ Stmt ForAll::make(std::string index, Stmt header, Slice slice, Stmt body) {
     return node;
 }
 
+Stmt Continue::make() {
+    static Stmt global_break = new Continue;
+    return global_break;
+}
+
 } // namespace ir
 } // namespace bonsai

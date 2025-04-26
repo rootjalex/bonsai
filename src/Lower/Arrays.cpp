@@ -20,6 +20,27 @@ namespace lower {
 
 namespace {
 
+struct ReturnsToYields : public ir::Mutator {
+    ir::Stmt visit(const ir::Return *node) override {
+        return ir::Sequence::make({
+            ir::Yield::make(node->value),
+            ir::Continue::make()
+        });
+    }
+};
+
+struct RewriteYields : public ir::Mutator {
+    std::function<ir::Stmt(const ir::Expr &)> rewriter;
+
+    RewriteYields(std::function<ir::Stmt(const ir::Expr &)> rewriter) : rewriter(std::move(rewriter)) {}
+
+    ir::Stmt visit(const ir::Yield *node) override {
+        ir::Stmt repl = rewriter(node->value);
+        internal_assert(repl.defined()) << "RewriteYields produced empty stmt: " << ir::Stmt(node);
+        return repl;
+    }
+};
+
 // Applies the lambda or function call to the top-level yield operation.
 ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
     struct RewriteMap : public ir::Mutator {
@@ -136,6 +157,19 @@ struct LowerToForEach : public ir::Mutator {
         } else if (const auto *v = function.as<ir::Var>()) {
             // TODO(cgyurgyik): Not sure how often this will occur, but we
             // should probably support this.
+            if (program_functions.contains(v->name)) {
+                // TODO: this could recursively inline. We do not handle that yet.
+                const auto &func = program_functions.at(v->name);
+                ir::Stmt func_body = func->body;
+                internal_assert(!ir::contains<ir::SetOp>(func_body))
+                    << "[unimplemented] map with nested setop in "
+                    << v->name << " from " << expr;
+                ir::Stmt for_body = ReturnsToYields().mutate(func_body);
+                return ir::ForEach::make(
+                    /*name=*/get_argument_name(function),
+                    /*iter=*/body,
+                    /*body=*/std::move(for_body));
+            }
             internal_assert(!program_functions.contains(v->name))
                 << "[unimplemented] function while building hierarchical loops";
         }
@@ -255,10 +289,6 @@ struct LowerToForAll : public ir::Mutator {
             return build(foreach->body, dimensions, iterator_names, toplevel);
         }
 
-        const auto *body = foreach->body.as<ir::Yield>();
-        internal_assert(body)
-            << "unexpected body in for-each: " << foreach->body;
-
         std::vector<std::string> reversed_iterator_names;
         std::copy(std::rbegin(iterator_names), std::rend(iterator_names),
                   std::back_inserter(reversed_iterator_names));
@@ -281,14 +311,10 @@ struct LowerToForAll : public ir::Mutator {
         // Replace the uses of the iterator with a concrete loaded value.
         std::map<std::string, ir::Expr> replacements = {
             {iterator_names.back(), header_variable}};
-        ir::Expr value = replace(replacements, body->value);
 
         // Create the allocation. The type is currently just inferred from the
         // yielded value.
         ir::Type iter_type = toplevel_iterable.type();
-        ir::Type yield_type = iter_type.with_etype(body->value.type());
-        std::string allocation_name = unique_alloc_name();
-        ir::Stmt allocation = ir::Allocate::make(allocation_name, yield_type);
 
         std::vector<ir::Expr> indices;
         ir::Type index_type = iter_type.as<ir::Array_t>()->size.type();
@@ -305,9 +331,26 @@ struct LowerToForAll : public ir::Mutator {
             store_index = ir::Build::make(
                 ir::Vector_t::make(index_type, dimensions.size()), indices);
         }
-        ir::Stmt final_body = ir::Store::make(allocation_name,
-                                              /*index=*/store_index,
-                                              /*value=*/value);
+
+        std::string allocation_name = unique_alloc_name();
+
+        ir::Type yielded_type;
+        auto visitor = [&](ir::Expr yielded) {
+            if (!yielded_type.defined()) {
+                yielded_type = yielded.type();
+            } else {
+                internal_assert(ir::equals(yielded_type, yielded.type()))
+                    << "Mismatch yield types in lowering: " << node;
+            }
+            return ir::Store::make(allocation_name, /*index=*/store_index, std::move(yielded));
+        };
+
+        ir::Stmt repl_body = replace(replacements, foreach->body);
+
+        ir::Stmt final_body = RewriteYields(visitor).mutate(std::move(repl_body));
+        internal_assert(yielded_type.defined()) << "No yields found in: " << foreach->body;
+
+        ir::Type yield_type = iter_type.with_etype(yielded_type);
 
         for (int i = 0; i < dimensions.size(); ++i) {
             final_body = ir::ForAll::make(
@@ -316,6 +359,8 @@ struct LowerToForAll : public ir::Mutator {
                 /*slice=*/dimensions[i],
                 /*body=*/final_body);
         }
+
+        ir::Stmt allocation = ir::Allocate::make(allocation_name, yield_type);
 
         ir::Stmt ret =
             ir::Return::make(ir::Var::make(yield_type, allocation_name));
