@@ -1,47 +1,38 @@
 //! flags: -p rename
 
-func id(x: i32) -> i32 { return x; }
+func nested_subexpressions(x: i32, y: i32, z: i32) -> i32 {
+    v = (x / y) - (x * z) + 2;
+    w: mut i32 = 42;
+    w += 1;
+    w = 42 - v;
+    return x + v - w;
+}
 
-func rename(cond: bool) -> i32 {
-  a: i32 = 1;        // #1
-  b: i32 = 2;        // #2
-  x: mut = 3;
-  c: i32 = a + x;    // #3
-  d: i32 = a + x;    // #3
-
-  x += 1;
-  e: i32 = a + x;    // #4
-  f: i32 = a + x;    // #4
-
-  if (cond) {
-    x += 1;
-  } else {
-    x += 2;
+func if_statement(b: bool) {
+  if (b ^ 0 == 1) {
+    return 1;
   }
-
-  if (cond && x < 0) {
-    x = 0;
-  } else if (x > 0) {
-    x = 1;
-  } else {
-    x = 2;
-  }
-
-  x += 3;
-  x *= 2;
-  x = 42;
-
-  if (cond) {
-    x += 2;
-    y: mut = 0;
-    y += 1;
-    if (cond) {
-      x = 0;
-    }
-  }
-
-  x += 2;
-  x = x + 2;
-
   return 0;
+}
+
+func print_and_return(i : i32) -> i32 {
+    print(i);
+    return i;
+}
+
+func void_call(i: i32, j: i32) -> void { 
+  z: i32 = i + j; 
+  return; 
+}
+
+func foo(i : i32) -> i32 {
+    j : mut = i;
+    if (i > 0) {
+      k: mut i32 = 0;
+      k += print_and_return(i);
+    } else {
+        print(i);
+    }
+    void_call(print_and_return(i));
+    return abs(i);
 }

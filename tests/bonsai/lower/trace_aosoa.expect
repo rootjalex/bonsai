@@ -18,8 +18,9 @@ extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x
 func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(ts__index : u32, ts__bit : u1) {
+    let _t0 = ts.ts_index[ts__index].ts_bit[ts__bit].nPrims == 0u in
     if (intersects_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) && (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0)) {
-      if (ts.ts_index[ts__index].ts_bit[ts__bit].nPrims == 0u) {
+      if (_t0) {
         from build<tuple.1>(cast<__layout6>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 0u)
         from build<tuple.1>(cast<__layout7>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 1u)
       } else {
@@ -36,11 +37,13 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
 }
 
 func _unexported_trace(ray : Ray, ts : _ts_layout2) -> Triangle {
-  return _traverse_tree0(ray, ts)
+  let _t0 = _traverse_tree0(ray, ts) in
+  return _t0
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
+  let _t0 = intersectsp_ray_aabb(r, b) in
+  let interval = _t0 in
   if (interval.set) {
     let extract = interval.value in
     return extract.high
@@ -49,16 +52,20 @@ func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
 }
 
 func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
-  return sqrt(SqDistPointAABB(pt, a))
+  let _t0 = SqDistPointAABB(pt, a) in
+  return sqrt(_t0)
 }
 
 func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
-  let pts = closestPointonTriangle(p, tri) in
-  return norm(p.vec - pts._field0.vec)
+  let _t0 = closestPointonTriangle(p, tri) in
+  let pts = _t0 in
+  let _t1 = p.vec - pts._field0.vec in
+  return norm(_t1)
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
+  let _t0 = intersectsp_ray_aabb(r, b) in
+  let interval = _t0 in
   if (interval.set) {
     let extract = interval.value in
     return extract.low
@@ -67,7 +74,8 @@ func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
 }
 
 func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
-  let isect = intersectsp_ray_tri(ray, tri) in
+  let _t0 = intersectsp_ray_tri(ray, tri) in
+  let isect = _t0 in
   if (isect.set) {
     let isect_ = isect.value in
     return isect_.t
@@ -77,7 +85,8 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 }
 
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
-  let interval = intersectsp_ray_aabb(r, b) in
+  let _t0 = intersectsp_ray_aabb(r, b) in
+  let interval = _t0 in
   if (interval.set) {
     let extract = interval.value in
     return (extract.low < r.t) && (0f < extract.high)
@@ -86,11 +95,13 @@ func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
 }
 
 func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
-  return intersectsp_ray_tri(ray, tri).set
+  let _t0 = intersectsp_ray_tri(ray, tri) in
+  return _t0.set
 }
 
 func [[export]] trace(_ret0 : mut Triangle, ray : Ray, ts : _ts_layout2) -> void {
-  _ret0 = _traverse_tree0(ray, ts)
+  let _t0 = _traverse_tree0(ray, ts) in
+  _ret0 = _t0
   return
 }
 

@@ -1,42 +1,51 @@
-func id(x : i32) -> i32 {
-  return x
+func foo(i : i32) -> i32 {
+  j := i
+  let _t1 = 0 < i in
+  if (_t1) {
+    k := 0
+    let _t0 = print_and_return(i) in
+    k += _t0
+  } else {
+    print(i)
+  }
+  let _t2 = print_and_return(i) in
+  void_call(_t2)
+  return cast<i32>(abs(i))
 }
 
-func rename(cond : bool) -> i32 {
-  let a = 1 in
-  let b = 2 in
-  x := 3
-  let c = a + x in
-  let d = a + x in
-  x += 1
-  let e = a + x in
-  let f = a + x in
-  if (cond) {
-    x += 1
-  } else {
-    x += 2
+func if_statement(b : bool) -> i32 {
+  let _t0 = 0 == 1 in
+  let _t1 = b ^ _t0 in
+  if (_t1) {
+    return 1
   }
-  if (cond && (x < 0)) {
-    x = 0
-  } else if (0 < x) {
-    x = 1
-  } else {
-    x = 2
-  }
-  x += 3
-  x *= 2
-  x = 42
-  if (cond) {
-    x += 2
-    y := 0
-    y += 1
-    if (cond) {
-      x = 0
-    }
-  }
-  x += 2
-  x = x + 2
   return 0
+}
+
+func nested_subexpressions(x : i32, y : i32, z : i32) -> i32 {
+  let _t0 = x / y in
+  let _t1 = x * z in
+  let _t2 = _t0 - _t1 in
+  let _t3 = _t2 + 2 in
+  let v = _t3 in
+  w := 42
+  w += 1
+  let _t4 = 42 - v in
+  w = _t4
+  let _t5 = x + v in
+  let _t6 = _t5 - w in
+  return _t6
+}
+
+func print_and_return(i : i32) -> i32 {
+  print(i)
+  return i
+}
+
+func void_call(i : i32, j : i32) -> void {
+  let _t0 = i + j in
+  let z = _t0 in
+  return
 }
 
 

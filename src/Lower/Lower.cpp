@@ -106,7 +106,6 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerGenerics>());
-    core.push_back(std::make_unique<Rename>());
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
     manager.register_alias("core", core);
