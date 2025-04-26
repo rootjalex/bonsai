@@ -39,14 +39,4 @@ func rename(cond : bool) -> i32 {
   return 0
 }
 
-func unnamed_expressions(x : i32, y : i32) -> i32 {
-  let _t0 = (x + y) + (x + y) in
-  let v = _t0 + 2 in
-  z := 42
-  z += 1
-  z = 42 - v
-  let _t1 = (x + v) - z in
-  return _t1
-}
-
 

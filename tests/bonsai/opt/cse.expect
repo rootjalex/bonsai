@@ -72,8 +72,7 @@ func mutating_value() -> i32 {
 
 func nested_binary_operations(x : i32, y : i32) -> void {
   let a = x + y in
-  let _t0 = a + 1 in
-  let b = _t0 in
+  let b = a + 1 in
 }
 
 func self_assign() -> void {
@@ -83,14 +82,10 @@ func self_assign() -> void {
 
 func side_effects() -> i32 {
   let a = 1 in
-  let _t0 = id_with_side_effect(a) in
-  let b = _t0 + a in
-  let _t1 = id_with_side_effect(a) in
-  let c = _t1 + a in
-  let _t2 = id_no_side_effect(a) in
-  let d = _t2 + a in
-  let _t3 = _t2 in
-  let e = _t3 + a in
+  let b = id_with_side_effect(a) in
+  let c = id_with_side_effect(a) in
+  let d = id_no_side_effect(a) in
+  let e = d in
   return 0
 }
 

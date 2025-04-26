@@ -51,11 +51,11 @@ func id_no_side_effect(x: i32) { return x; }
 
 func side_effects() -> i32 {
     a: i32 = 1;
-    b: i32 = id_with_side_effect(a) + 1;
-    c: i32 = id_with_side_effect(a) + 1;
+    b: i32 = id_with_side_effect(a);
+    c: i32 = id_with_side_effect(a);
 
-    d: i32 = id_no_side_effect(a) + 1;
-    e: i32 = id_no_side_effect(a) + 1;
+    d: i32 = id_no_side_effect(a);
+    e: i32 = id_no_side_effect(a);
     return 0;
 }
 

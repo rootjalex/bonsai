@@ -45,11 +45,3 @@ func rename(cond: bool) -> i32 {
 
   return 0;
 }
-
-func unnamed_expressions(x: i32, y: i32) -> i32 {
-    v = (x + y) + (x + y) + 2;
-    z: mut i32 = 42;
-    z += 1;
-    z = 42 - v;
-    return x + v - z;
-}

@@ -20,8 +20,7 @@ func use_option(i : _option0) -> i32 {
 
 func use_option1(i : _option0) -> i32 {
   if (i.set) {
-    let _t0 = i.value + 10 in
-    return _t0
+    return i.value + 10
   } else {
     return 0
   }
