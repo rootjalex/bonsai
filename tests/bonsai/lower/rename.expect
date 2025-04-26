@@ -13,7 +13,8 @@ func foo(i : i32) -> i32 {
   }
   let _t1 = print_and_return(i) in
   void_call(_t1)
-  return cast<i32>(abs(i))
+  let _t2 = abs(i) in
+  return cast<i32>(_t2)
 }
 
 func if_statement(b : bool) -> i32 {

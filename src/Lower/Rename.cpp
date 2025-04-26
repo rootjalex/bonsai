@@ -16,36 +16,7 @@ namespace {
 
 // Whether we should give this sub-expression its own variable.
 // TODO(cgyurgyik): What else?
-bool rename(const ir::Expr &e) {
-    if (const auto *binary_operation = e.as<ir::BinOp>()) {
-        if (e.type().is<ir::Float_t>()) {
-            return true;
-        }
-        const ir::Expr &a = binary_operation->a;
-        const ir::Expr &b = binary_operation->b;
-        switch (binary_operation->op) {
-        case ir::BinOp::OpType::Add:
-        case ir::BinOp::OpType::Sub:
-        case ir::BinOp::OpType::Shl:
-        case ir::BinOp::OpType::Shr:
-        case ir::BinOp::OpType::BwAnd:
-        case ir::BinOp::OpType::BwOr:
-        case ir::BinOp::OpType::Xor:
-        case ir::BinOp::OpType::Eq:
-        case ir::BinOp::OpType::Lt:
-        case ir::BinOp::OpType::Le:
-            if ((a.is<ir::Var>() || is_const(a)) &&
-                (b.is<ir::Var>() || is_const(b))) {
-                // Adds and subtractions are cheap.
-                return false;
-            }
-        default:
-            return true;
-        }
-    }
-
-    return !e.is<ir::Var>() && !is_const(e);
-}
+bool rename(const ir::Expr &e) { return !e.is<ir::Var>() && !is_const(e); }
 
 // Gives an expensive expression its own variable. For example,
 //   g(foo(i), bar(j));
@@ -55,32 +26,32 @@ bool rename(const ir::Expr &e) {
 //   g(_t0, _t1);
 struct ToAnormalForm : public ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
-        return anf(ir::LetStmt::make(node->loc, mutate(node->value)));
+        return make(ir::LetStmt::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Assign *node) override {
-        return anf(
+        return make(
             ir::Assign::make(node->loc, mutate(node->value), node->mutating));
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
-        return anf(
+        return make(
             ir::Accumulate::make(node->loc, node->op, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {
             return node;
         }
-        return anf(ir::Return::make(mutate(node->value)));
+        return make(ir::Return::make(mutate(node->value)));
     }
     ir::Stmt visit(const ir::Print *node) override {
         ir::Expr value = mutate(node->value);
-        return anf(ir::Print::make(std::move(value)));
+        return make(ir::Print::make(std::move(value)));
     }
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Expr> args;
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
-        return anf(ir::CallStmt::make(node->func, std::move(args)));
+        return make(ir::CallStmt::make(node->func, std::move(args)));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
@@ -103,6 +74,17 @@ struct ToAnormalForm : public ir::Mutator {
         return ir::Var::make(node->type, location.base);
     }
 
+    ir::Expr visit(const ir::Intrinsic *node) override {
+        std::vector<ir::Expr> args;
+        for (const ir::Expr &arg : node->args) {
+            args.push_back(mutate(arg));
+        }
+        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        stmts.push_back(ir::LetStmt::make(
+            location, ir::Intrinsic::make(node->op, std::move(args))));
+        return ir::Var::make(node->type, location.base);
+    }
+
     ir::Expr visit(const ir::Call *node) override {
         std::vector<ir::Expr> args;
         for (const ir::Expr &arg : node->args) {
@@ -120,7 +102,7 @@ struct ToAnormalForm : public ir::Mutator {
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
         ir::Expr cond = mutate(node->cond);
-        return anf(
+        return make(
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
 
@@ -139,7 +121,7 @@ struct ToAnormalForm : public ir::Mutator {
 
     // Pushes this `statement` onto the list of generated statements and returns
     // a sequence.
-    ir::Stmt anf(ir::Stmt statement) {
+    ir::Stmt make(ir::Stmt statement) {
         stmts.push_back(std::move(statement));
         ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
         stmts.clear();
@@ -149,6 +131,8 @@ struct ToAnormalForm : public ir::Mutator {
 
 } // namespace
 
+// TODO(cgyurgyik): Mutable variables can also be renamed
+// to increase opportunities for CSE.
 ir::FuncMap Rename::run(ir::FuncMap funcs) const {
     for (auto &[name, func] : funcs) {
         ToAnormalForm lower;

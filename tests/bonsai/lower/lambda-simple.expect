@@ -7,11 +7,15 @@ func _lambda1(x : i32) -> i32 {
 }
 
 func foo() -> i32 {
-  return 1
+  let L1 = |x : i32| x + 1 in
+  let y = _lambda0(0) in
+  return y
 }
 
 func main() -> i32 {
-  return -1
+  let L1 = |x : i32| x - 1 in
+  let y = _lambda1(0) in
+  return y
 }
 
 func relu(v : set<i32>) -> set<i32> {

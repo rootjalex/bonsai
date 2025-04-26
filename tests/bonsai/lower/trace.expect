@@ -64,14 +64,16 @@ func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
 
 func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
   let _t0 = SqDistPointAABB(pt, a) in
-  return sqrt(_t0)
+  let _t1 = sqrt(_t0) in
+  return _t1
 }
 
 func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
   let _t0 = closestPointonTriangle(p, tri) in
   let pts = _t0 in
   let _t1 = p.vec - pts._field0.vec in
-  return norm(_t1)
+  let _t2 = norm(_t1) in
+  return _t2
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {

@@ -307,6 +307,20 @@ struct HasSideEffects : ir::Visitor {
         }
     }
 
+    void visit(const ir::CallStmt *node) override {
+        if (found) {
+            return;
+        }
+        const auto *var = node->func.as<ir::Var>();
+        if (var == nullptr) {
+            return;
+        }
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
+            found = true;
+        }
+    }
+
     void visit(const ir::Store *node) override {
         // TODO(ajr): This is conservative. How bad is that?
         found = true;

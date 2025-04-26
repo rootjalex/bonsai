@@ -22,6 +22,9 @@ Cmp compare_primitives(const T &t0, const T &t1) {
 
 template <typename T>
 std::optional<Cmp> compare_node_types(const T &a, const T &b) {
+    if (a.defined() && b.defined() && a.same_as(b)) {
+        return Cmp::Equals;
+    }
     if (!a.defined()) {
         if (!b.defined()) {
             return Cmp::Equals;
@@ -108,6 +111,9 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1);
 Cmp compare_types(const Type &t0, const Type &t1);
 
 Cmp compare_types(const Type &t0, const Type &t1) {
+    if (t0.defined() && t1.defined() && t0.same_as(t1)) {
+        return Cmp::Equals;
+    }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(t0, t1)) {
         return *nodes_cmp;
     }
@@ -326,8 +332,7 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
 }
 
 Cmp compare_exprs(const Expr &e0, const Expr &e1) {
-    if (e0.same_as(e1)) {
-        // Point to the same node.
+    if (e0.defined() && e1.defined() && e0.same_as(e1)) {
         return Cmp::Equals;
     }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(e0, e1)) {

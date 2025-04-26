@@ -168,7 +168,7 @@ struct Simplifier : ir::Mutator {
                 // a - 0 = 0
                 return a;
             }
-            if (is_same(a, b)) {
+            if (ir::equals(a, b)) {
                 // a - a = 0
                 return make_zero(std::move(type));
             }
@@ -278,15 +278,6 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::Extract::make(std::move(v), std::move(i));
-    }
-
-    // Returns whether `a` and `b` are the same expression.
-    // TODO(cgyurgyik): This does not do any substitution still.
-    bool is_same(ir::Expr a, ir::Expr b) {
-        ir::CseSet set;
-        set.insert(a);
-        set.insert(b);
-        return set.size() == 1;
     }
 
   private:

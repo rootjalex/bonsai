@@ -1,15 +1,19 @@
 type E = struct E{ x : i32; y : i32 }
 
 func bar(x : i32, y : i32) -> i32 {
-  return x + y
+  let _t0 = x + y in
+  return _t0
 }
 
 func foo() -> i32 {
   let a = 1 in
   let b = 2 in
-  let c = a + b in
-  let d = c in
-  let e = c in
+  let _t0 = a + b in
+  let c = _t0 in
+  let _t1 = _t0 in
+  let d = _t1 in
+  let _t2 = _t0 in
+  let e = _t2 in
   return 0
 }
 
@@ -66,9 +70,11 @@ func mutable_struct(e : mut E) -> void {
 func mutating_argument(x : mut i32) -> i32 {
   let a = 1 in
   let b = 2 in
-  let c = a + x in
+  let _t0 = a + x in
+  let c = _t0 in
   x += 1
-  let d = a + x in
+  let _t1 = a + x in
+  let d = _t1 in
   return 0
 }
 
@@ -76,22 +82,28 @@ func mutating_value() -> i32 {
   let a = 1 in
   let b = 2 in
   x := 3
-  let c = a + x in
-  let d = c in
+  let _t0 = a + x in
+  let c = _t0 in
+  let _t1 = _t0 in
+  let d = _t1 in
   return 0
 }
 
 func nested_binary_operations(x : i32, y : i32) -> void {
-  let a = x + y in
-  let _t0 = a + 1 in
-  let b = _t0 in
+  let _t0 = x + y in
+  let a = _t0 in
+  let _t1 = _t0 in
+  let _t2 = _t1 + 1 in
+  let b = _t2 in
 }
 
 func propagate(x : i32, y : i32) -> i32 {
-  let a = x + y in
-  let b = a in
-  let _t0 = bar(a, b) in
-  return _t0
+  let _t0 = x + y in
+  let a = _t0 in
+  let _t1 = _t0 in
+  let b = _t1 in
+  let _t2 = bar(a, b) in
+  return _t2
 }
 
 func self_assign() -> void {
@@ -102,13 +114,17 @@ func self_assign() -> void {
 func side_effects(x : i32) -> i32 {
   let a = 1 in
   let _t0 = id_with_side_effect(a) in
-  let b = _t0 + x in
-  let _t1 = id_with_side_effect(a) in
-  let c = _t1 + x in
-  let _t2 = id_no_side_effect(a) in
-  let d = _t2 + x in
-  let _t3 = _t2 in
-  let e = _t3 + x in
+  let _t1 = _t0 + x in
+  let b = _t1 in
+  let _t2 = id_with_side_effect(a) in
+  let _t3 = _t2 + x in
+  let c = _t3 in
+  let _t4 = id_no_side_effect(a) in
+  let _t5 = _t4 + x in
+  let d = _t5 in
+  let _t6 = _t4 in
+  let _t7 = _t6 + x in
+  let e = _t7 in
   return 0
 }
 
