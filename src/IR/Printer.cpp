@@ -166,6 +166,9 @@ void Printer::print(const Program &program) {
     }
 
     for (const auto &[name, func] : program.funcs) {
+        if (!verbose && func->is_imported()) {
+            continue;
+        }
         print(*func);
         os << '\n' << '\n';
     }
@@ -199,7 +202,7 @@ void Printer::print(const Type &type) {
 
 void Printer::print(const Function &function) {
     os << "func ";
-    if (function.is_export) {
+    if (function.is_exported()) {
         os << "[[export]] ";
     }
     os << function.name;

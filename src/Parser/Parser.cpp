@@ -91,7 +91,42 @@ struct Parser {
   public:
     Parser(TokenStream tokens) {
         context.emplace_back(std::move(tokens));
-        // Add Intrinsic types!
+        builtins = {
+            // Intrinsics
+            "abs",
+            "cos",
+            "cross",
+            "dot",
+            "fma",
+            "max",
+            "min",
+            "norm",
+            "sin",
+            "sqrt",
+            // Set operations
+            "argmin",
+            "filter",
+            "map",
+            "product",
+            // Geometry operations
+            "distmax",
+            "distmin",
+            "intersects",
+            "contains",
+            // Vector reductions
+            "sum",
+            "all",
+            "idxmax",
+            "idxmin",
+            "prod",
+            "any",
+            // Other builtins
+            "cast",
+            "eps",
+            "permute",
+            "select",
+            "range",
+        };
     }
 
     ir::Program parse_program() {
@@ -108,6 +143,8 @@ struct Parser {
     std::vector<TokenStream> context;
     // Filenames of everything visited so far, to avoid double-imports.
     std::set<std::string> visited_files;
+    // Set of all built-in, non-overridable functions.
+    std::set<std::string> builtins;
 
     const TokenStream &tokens() const { return context.back(); }
 
@@ -584,7 +621,7 @@ struct Parser {
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{}, /*is_export=*/false);
+            ir::Function::InterfaceList{}, std::vector<ir::Function::Attribute>{});
 
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(typed_name), std::move(func));
@@ -596,12 +633,16 @@ struct Parser {
 
     void parse_function() {
         expect(Token::Type::FUNC);
-        bool is_export = false;
+        
+        std::vector<ir::Function::Attribute> attributes;
+        if (context.size() > 1) { // in an imported file.
+            attributes.push_back(ir::Function::Attribute::imported);
+        }
 
         if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
             std::string attribute = get_id();
             if (attribute == "export") {
-                is_export = true;
+                attributes.push_back(ir::Function::Attribute::exported);
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }
@@ -611,6 +652,12 @@ struct Parser {
         const std::string name = get_id();
         if (is_geometric_intrinsic(name)) {
             return parse_geometric_intrinsic(name); // special case.
+        }
+
+        if (is_builtin(name)) {
+            report_error()
+                << name
+                << " is a builtin function or intrinsic, cannot redefine.";
         }
 
         if (program.funcs.contains(name)) {
@@ -638,7 +685,7 @@ struct Parser {
         // really good type unification or something.
         program.funcs[name] = std::make_shared<ir::Function>(
             name, std::move(args), std::move(ret_type), ir::Stmt(),
-            std::move(interfaces), /*is_export=*/false);
+            std::move(interfaces), std::move(attributes));
 
         ir::Stmt body;
 
@@ -668,7 +715,7 @@ struct Parser {
             << " get a function body before being parsed?";
 
         program.funcs[name]->body = std::move(body);
-        program.funcs[name]->is_export = is_export;
+
         if (!ret_type_set && ret_type.defined()) {
             // we were able to statically infer the return type
             program.funcs[name]->ret_type = std::move(ret_type);
@@ -846,7 +893,8 @@ struct Parser {
         const bool mutating = name_in_scope(loc.base);
 
         if (mutating && !is_mutable(loc.base)) {
-            report_error() << "Cannot assign to non-mutable variable: " << loc.base;
+            report_error() << "Cannot assign to non-mutable variable: "
+                           << loc.base;
         }
 
         // TODO: do type forcing here!
@@ -1258,33 +1306,106 @@ struct Parser {
         return ir::Expr();
     }
 
+    bool is_builtin(const std::string &name) const {
+        return builtins.contains(name);
+    }
+
     ir::Expr parse_identifier() {
         const std::string name = get_id();
-        std::vector<std::string> fields; // possibly nested
-        while (consume(Token::Type::PERIOD)) {
-            // Member access.
-            const std::string field_name = get_id();
-            fields.push_back(field_name);
+
+        if (program.funcs.contains(name) || is_builtin(name)) {
+            return parse_function_call(name);
         }
 
-        // Only use if not an intrinsic!
-        auto make_expr = [&]() {
-            // Just a variable, possibly with field accesses.
-            // the type might have been provided already, or
-            // might need to be inferred later.
-            ir::Type var_type = get_type_from_frame(name); // never undefined.
-            ir::Expr expr = ir::Var::make(var_type, name);
+        if (name == "inf") {
+            return ir::Infinity::make(f32);
+        }
 
-            for (const auto &field : fields) {
-                expr = ir::Access::make(field, expr);
+        // A string is a field access, an Expr is an index.
+        std::vector<std::variant<std::string, ir::Expr>> accesses;
+        while (true) {
+            if (consume(Token::Type::PERIOD)) {
+                // Field access.
+                std::string field = get_id();
+                accesses.emplace_back(std::move(field));
+            } else if (consume(Token::Type::LBRACKET)) {
+                // Can have multiple indexes in one `[` `]`
+                std::vector<ir::Expr> idxs =
+                    parse_expr_list_until(Token::Type::RBRACKET);
+                for (auto &idx : idxs) {
+                    accesses.emplace_back(std::move(idx));
+                }
+            } else {
+                break;
             }
-            return expr;
-        };
+        }
 
+        if (consume(Token::Type::LPAREN)) {
+            // Must be a call to a lambda
+            if (!accesses.empty()) {
+                report_error() << "[unimplemented] function call on field "
+                                  "access or extract.";
+            }
+
+            std::vector<ir::Expr> args =
+                parse_expr_list_until(Token::Type::RPAREN);
+            if (name_in_scope(name)) {
+                ir::Type var_type =
+                    get_type_from_frame(name); // never undefined.
+                ir::Expr expr = ir::Var::make(var_type, name);
+                return ir::Call::make(std::move(expr), std::move(args));
+            }
+
+            // TODO: could be a ctor of a type?
+            report_error() << "Unknown function call " << name;
+        } else if (peek().type == Token::Type::LSQUIGGLE && accesses.empty() &&
+                   program.types.contains(name)) {
+            consume(Token::Type::LSQUIGGLE);
+            // Type constructor
+            ir::Type type = program.types.at(name);
+            internal_assert(type.defined());
+            // Look for named struct build
+            if (consume(Token::Type::PERIOD)) {
+                // TODO: this could use better error handling/messaging.
+                std::map<std::string, ir::Expr> args;
+                do {
+                    std::string field = get_id();
+                    expect(Token::Type::ASSIGN);
+                    ir::Expr value = parse_expr();
+                    internal_assert(value.defined());
+                    args[std::move(field)] = std::move(value);
+                } while (consume(Token::Type::COMMA) &&
+                         consume(Token::Type::PERIOD));
+                expect(Token::Type::RSQUIGGLE);
+                return ir::Build::make(std::move(type), std::move(args));
+            }
+            // Otherwise just a regular list-like struct build.
+            auto args = parse_expr_list_until(Token::Type::RSQUIGGLE);
+            return ir::Build::make(std::move(type), std::move(args));
+        }
+
+        ir::Type var_type = get_type_from_frame(name); // never undefined.
+        ir::Expr expr = ir::Var::make(var_type, name);
+
+        for (auto &access : accesses) {
+            if (std::holds_alternative<std::string>(access)) {
+                // Field access.
+                expr = ir::Access::make(std::get<std::string>(access),
+                                        std::move(expr));
+            } else {
+                internal_assert(std::holds_alternative<ir::Expr>(access));
+                // Extract
+                expr = ir::Extract::make(std::move(expr),
+                                         std::get<ir::Expr>(access));
+            }
+        }
+        return expr;
+    }
+
+    ir::Expr parse_function_call(std::string name) {
         std::vector<ir::Type> template_types;
         if (consume(Token::Type::LBRACKET)) {
             if (consume(Token::Type::LBRACKET)) {
-                // Parse template type list
                 template_types = parse_type_list_until(Token::Type::RBRACKET);
                 expect(Token::Type::RBRACKET);
                 if (template_types.empty()) {
@@ -1298,289 +1419,201 @@ struct Parser {
                                    << name;
                 }
             } else {
-                std::vector<ir::Expr> idxs =
-                    parse_expr_list_until(Token::Type::RBRACKET);
-                if (idxs.empty()) {
-                    report_error() << "Indexing into array/vector expects at "
-                                      "least one index for name: "
-                                   << name;
-                }
-                ir::Expr expr = make_expr();
-                for (auto &idx : idxs) {
-                    expr = ir::Extract::make(std::move(expr), std::move(idx));
-                }
-                return expr;
+                report_error() << "Cannot index into func: " << name;
             }
         }
 
+        std::vector<ir::Expr> args;
         if (consume(Token::Type::LPAREN)) {
-            std::vector<ir::Expr> args =
-                parse_expr_list_until(Token::Type::RPAREN);
+            args = parse_expr_list_until(Token::Type::RPAREN);
+        } else {
+            if (!program.funcs.contains(name)) {
+                report_error() << "Cannot use intrinsic as func pointer.";
+            }
+            const auto &func = program.funcs[name];
+            ir::Type ftype =
+                func->ret_type.defined() ? func->call_type() : ir::Type();
+            return ir::Var::make(std::move(ftype), name);
+        }
 
-            if (fields.empty()) {
-
-                // Check for built-in intrinsics first. These are not
-                // over-ridable!
-                ir::Expr intrinsic = try_match_intrinsics(name, args);
-                if (intrinsic.defined()) {
-                    if (!template_types.empty()) {
-                        report_error()
-                            << "Intrinsics do not accept template parameters: "
-                            << intrinsic;
-                    }
-                    return intrinsic;
-                }
-
-                // Checking program.funcs first means that users can override
-                // built-in functions. That could be dangerous.
-                if (program.funcs.contains(name)) {
-                    const auto &func = program.funcs[name];
-                    // TODO: handle default params!
-                    if (args.size() != func->args.size()) {
-                        report_error()
-                            << "Call to: " << name
-                            << " has incorrect number of arguments.\n"
-                            << "Expected: " << func->args.size()
-                            << " but parsed " << args.size();
-                    }
-
-                    if (func->interfaces.size() != template_types.size()) {
-                        report_error()
-                            << "Call to: " << name
-                            << " has incorrect number of template paramters.\n"
-                            << "Expected: " << func->interfaces.size()
-                            << " but parsed " << template_types.size();
-                    }
-
-                    const size_t n_generics = func->interfaces.size();
-
-                    ir::TypeMap instantiations;
-                    for (size_t i = 0; i < n_generics; i++) {
-                        instantiations[func->interfaces[i].name] =
-                            template_types[i];
-
-                        internal_assert(ir::satisfies(
-                            template_types[i], func->interfaces[i].interface))
-                            << "Template type: " << template_types[i]
-                            << " in call to " << name
-                            << " does not satisfy interface: "
-                            << func->interfaces[i].interface;
-                    }
-
-                    // TODO(ajr): may want to lift this into an analysis
-                    // function, for reuse in type inference.
-                    const size_t n_args = func->args.size();
-                    std::vector<ir::Type> arg_types(n_args);
-
-                    for (size_t i = 0; i < func->args.size(); i++) {
-                        arg_types[i] = func->args[i].type;
-                        // TODO: we could push types down here, because
-                        // we know the arg types. That mixes type
-                        // inference with parsing though, not sure we
-                        // want that (more than we already do...).
-                        ir::Type expected_type =
-                            func->interfaces.empty()
-                                ? func->args[i].type
-                                : replace(instantiations, func->args[i].type);
-
-                        if (args[i].type().defined() &&
-                            !ir::equals(expected_type, args[i].type())) {
-                            report_error()
-                                << "Argument " << i << " of call to function "
-                                << name << " has incorrect type. Expected "
-                                << expected_type
-                                << " but parsed: " << args[i].type();
-                        }
-                    }
-
-                    ir::Type ftype;
-
-                    // TODO: if we allowed partially-defined types, we could
-                    // make: Fn(arg_types) -> (undef) that would make type
-                    // inference easier, but we'd have to change a lot of
-                    // the error handling in IR/Type.cpp
-                    // For now, leave ftype undefined in the else case
-                    if (func->ret_type.defined()) {
-                        ftype = ir::Function_t::make(func->ret_type,
-                                                     std::move(arg_types));
-                    }
-
-                    ir::Expr f = ir::Var::make(ftype, name);
-
-                    if (!func->interfaces.empty()) {
-                        f = ir::Instantiate::make(std::move(f),
-                                                  std::move(instantiations));
-                    }
-                    return ir::Call::make(std::move(f), std::move(args));
-                } else if (name_in_scope(name)) {
-                    if (!template_types.empty()) {
-                        report_error() << "Error: cannot pass template "
-                                          "parameters to lambda "
-                                       << name;
-                    }
-                    ir::Type var_type =
-                        get_type_from_frame(name); // never undefined.
-                    ir::Expr expr = ir::Var::make(var_type, name);
-                    return ir::Call::make(std::move(expr), std::move(args));
-                }
-
-                // Special built-ins with template parameters.
-                if (name == "cast") {
-                    if (template_types.size() != 1) {
-                        report_error() << "cast() expects a single template "
-                                          "parameter, instead received: "
-                                       << template_types.size();
-                    }
-                    if (args.size() != 1) {
-                        report_error() << "cast() expects a single argument, "
-                                          "instead received: "
-                                       << args.size();
-                    }
-                    return ir::Cast::make(std::move(template_types[0]),
-                                          std::move(args[0]));
-                } else if (name == "eps") {
-                    if (template_types.size() != 1) {
-                        report_error() << "eps() expects a single template "
-                                          "parameter, instead received: "
-                                       << template_types.size();
-                    }
-                    if (args.size() != 0) {
-                        report_error()
-                            << "eps() expects no arguments, instead received: "
-                            << args.size();
-                    }
-
-                    // TODO: or template?
-                    ir::Type type = std::move(template_types[0]);
-                    internal_assert(type.is_float())
-                        << "eps takes only floating point template types, "
-                           "instead "
-                           "received: "
-                        << type;
-                    // TODO: this should be handled in codegen...
-                    return ir::FloatImm::make(type, machine_epsilon(type));
-                }
-
+        if (is_builtin(name)) {
+            // Check for built-in intrinsics first. These are not
+            // over-ridable!
+            ir::Expr intrinsic = try_match_intrinsics(name, args);
+            if (intrinsic.defined()) {
                 if (!template_types.empty()) {
                     report_error()
-                        << name
-                        << " does not take template parameters, but received: "
-                        << template_types.size();
+                        << "Intrinsics do not accept template parameters: "
+                        << intrinsic;
                 }
+                return intrinsic;
+            }
 
-                // Special built-ins without template parameters
-                if (name == "permute") {
-                    internal_assert(args.size() == 2)
-                        << "permute takes two arguments, received: "
-                        << args.size();
-                    internal_assert(args[1].is<ir::Build>())
-                        << "permute expects the second argument to be a list "
-                           "of indexes, "
-                           "instead "
-                           "received: "
-                        << args[1];
-                    return ir::VectorShuffle::make(
-                        std::move(args[0]), args[1].as<ir::Build>()->values);
-                } else if (name == "select") {
-                    internal_assert(args.size() == 3)
-                        << "select takes 3 arguments, received: "
-                        << args.size();
-                    return ir::Select::make(std::move(args[0]),
-                                            std::move(args[1]),
-                                            std::move(args[2]));
-                } else if (name == "range") {
-                    internal_assert(args.size() == 3)
-                        << "range takes 3 arguments, received: " << args.size();
-                    internal_assert(args[0].type().defined() &&
-                                    args[0].type().is<ir::Array_t>())
-                        << "range() expects first argument to be an array "
-                           "type: "
-                        << args[0] << " is " << args[0].type();
-                    internal_assert(args[1].type().defined() &&
-                                    args[1].type().is_int_or_uint())
-                        << "range() expects second argument to be an integer "
-                           "type: "
-                        << args[1] << " is " << args[1].type();
-                    internal_assert(args[2].type().defined() &&
-                                    args[2].type().is_int_or_uint())
-                        << "range() expects third argument to be an integer "
-                           "type: "
-                        << args[2] << " is " << args[2].type();
-                    internal_assert(ir::equals(args[1].type(), args[2].type()))
-                        << "range() expects second and third arguments to be "
-                           "same type "
-                        << "arg1: " << args[1] << " is " << args[1].type()
-                        << " arg2: " << args[2] << " is " << args[2].type();
-                    // TODO: make this an intrinsic?
-                    ir::Type ret_type =
-                        ir::Array_t::make(args[0].type().element_of(), args[2]);
-                    ir::Type call_type = ir::Function_t::make(
-                        std::move(ret_type),
-                        {args[0].type(), args[1].type(), args[2].type()});
-                    ir::Expr func =
-                        ir::Var::make(std::move(call_type), "range");
-                    return ir::Call::make(std::move(func), std::move(args));
+            // Special built-ins with template parameters.
+            if (name == "cast") {
+                if (template_types.size() != 1) {
+                    report_error() << "cast() expects a single template "
+                                      "parameter, instead received: "
+                                   << template_types.size();
                 }
-
-                // Not intrinsic or set op, not sure what this is.
-                // TODO: could be a ctor of a type?
-                report_error() << "Unknown function call " << name;
-            } else {
-                // method access!
-                // TODO: type inference via interface?
-                ir::Expr expr = make_expr();
-                if (!template_types.empty()) {
+                if (args.size() != 1) {
+                    report_error() << "cast() expects a single argument, "
+                                      "instead received: "
+                                   << args.size();
+                }
+                return ir::Cast::make(std::move(template_types[0]),
+                                      std::move(args[0]));
+            } else if (name == "eps") {
+                if (template_types.size() != 1) {
+                    report_error() << "eps() expects a single template "
+                                      "parameter, instead received: "
+                                   << template_types.size();
+                }
+                if (args.size() != 0) {
                     report_error()
-                        << "TODO: support passing template types to a method "
-                           "access: "
-                        << expr << " received " << template_types.size();
+                        << "eps() expects no arguments, instead received: "
+                        << args.size();
                 }
-                return ir::Call::make(std::move(expr), std::move(args));
+
+                // TODO: or template?
+                ir::Type type = std::move(template_types[0]);
+                internal_assert(type.is_float())
+                    << "eps takes only floating point template types, "
+                       "instead "
+                       "received: "
+                    << type;
+                // TODO: this should be handled in codegen...
+                return ir::FloatImm::make(type, machine_epsilon(type));
+            }
+
+            if (!template_types.empty()) {
+                report_error()
+                    << name
+                    << " does not take template parameters, but received: "
+                    << template_types.size();
+            }
+
+            // Special built-ins without template parameters
+            if (name == "permute") {
+                internal_assert(args.size() == 2)
+                    << "permute takes two arguments, received: " << args.size();
+                internal_assert(args[1].is<ir::Build>())
+                    << "permute expects the second argument to be a list "
+                    << "of indexes instead received: " << args[1];
+                return ir::VectorShuffle::make(std::move(args[0]),
+                                               args[1].as<ir::Build>()->values);
+            } else if (name == "select") {
+                internal_assert(args.size() == 3)
+                    << "select takes 3 arguments, received: " << args.size();
+                return ir::Select::make(std::move(args[0]), std::move(args[1]),
+                                        std::move(args[2]));
+            } else if (name == "range") {
+                internal_assert(args.size() == 3)
+                    << "range takes 3 arguments, received: " << args.size();
+                internal_assert(args[0].type().defined() &&
+                                args[0].type().is<ir::Array_t>())
+                    << "range() expects first argument to be an array "
+                       "type: "
+                    << args[0] << " is " << args[0].type();
+                internal_assert(args[1].type().defined() &&
+                                args[1].type().is_int_or_uint())
+                    << "range() expects second argument to be an integer "
+                       "type: "
+                    << args[1] << " is " << args[1].type();
+                internal_assert(args[2].type().defined() &&
+                                args[2].type().is_int_or_uint())
+                    << "range() expects third argument to be an integer "
+                       "type: "
+                    << args[2] << " is " << args[2].type();
+                internal_assert(ir::equals(args[1].type(), args[2].type()))
+                    << "range() expects second and third arguments to be "
+                       "same type "
+                    << "arg1: " << args[1] << " is " << args[1].type()
+                    << " arg2: " << args[2] << " is " << args[2].type();
+                // TODO: make this an intrinsic?
+                ir::Type ret_type =
+                    ir::Array_t::make(args[0].type().element_of(), args[2]);
+                ir::Type call_type = ir::Function_t::make(
+                    std::move(ret_type),
+                    {args[0].type(), args[1].type(), args[2].type()});
+                ir::Expr func = ir::Var::make(std::move(call_type), "range");
+                return ir::Call::make(std::move(func), std::move(args));
+            }
+            report_error() << "Unknown builtin: " << name;
+        }
+
+        const auto &func = program.funcs[name];
+
+        // TODO: handle default params!
+        if (args.size() != func->args.size()) {
+            report_error() << "Call to: " << name
+                           << " has incorrect number of arguments.\n"
+                           << "Expected: " << func->args.size()
+                           << " but parsed " << args.size();
+        }
+
+        if (func->interfaces.size() != template_types.size()) {
+            report_error() << "Call to: " << name
+                           << " has incorrect number of template paramters.\n"
+                           << "Expected: " << func->interfaces.size()
+                           << " but parsed " << template_types.size();
+        }
+
+        const size_t n_generics = func->interfaces.size();
+
+        ir::TypeMap instantiations;
+        for (size_t i = 0; i < n_generics; i++) {
+            instantiations[func->interfaces[i].name] = template_types[i];
+
+            internal_assert(
+                ir::satisfies(template_types[i], func->interfaces[i].interface))
+                << "Template type: " << template_types[i] << " in call to "
+                << name << " does not satisfy interface: "
+                << func->interfaces[i].interface;
+        }
+
+        // TODO(ajr): may want to lift this into an analysis
+        // function, for reuse in type inference.
+        const size_t n_args = func->args.size();
+        std::vector<ir::Type> arg_types(n_args);
+
+        for (size_t i = 0; i < func->args.size(); i++) {
+            arg_types[i] = func->args[i].type;
+            // TODO: we could push types down here, because
+            // we know the arg types. That mixes type
+            // inference with parsing though, not sure we
+            // want that (more than we already do...).
+            ir::Type expected_type =
+                func->interfaces.empty()
+                    ? func->args[i].type
+                    : replace(instantiations, func->args[i].type);
+
+            if (args[i].type().defined() &&
+                !ir::equals(expected_type, args[i].type())) {
+                report_error()
+                    << "Argument " << i << " of call to function " << name
+                    << " has incorrect type. Expected " << expected_type
+                    << " but parsed: " << args[i].type();
             }
         }
 
-        if (!template_types.empty()) {
-            report_error()
-                << "TODO: support template arguments in constructors for: "
-                << name;
+        ir::Type ftype;
+
+        // TODO: if we allowed partially-defined types, we could
+        // make: Fn(arg_types) -> (undef) that would make type
+        // inference easier, but we'd have to change a lot of
+        // the error handling in IR/Type.cpp
+        // For now, leave ftype undefined in the else case
+        if (func->ret_type.defined()) {
+            ftype = ir::Function_t::make(func->ret_type, std::move(arg_types));
         }
 
-        if (peek().type == Token::Type::LSQUIGGLE) {
-            if (fields.empty() && program.types.contains(name)) {
-                expect(Token::Type::LSQUIGGLE);
-                ir::Type type = program.types.at(name);
-                internal_assert(type.defined());
-                // Look for named struct build
-                if (consume(Token::Type::PERIOD)) {
-                    // TODO: this could use better error handling/messaging.
-                    std::map<std::string, ir::Expr> args;
-                    do {
-                        std::string field = get_id();
-                        expect(Token::Type::ASSIGN);
-                        ir::Expr value = parse_expr();
-                        internal_assert(value.defined());
-                        args[std::move(field)] = std::move(value);
-                    } while (consume(Token::Type::COMMA) &&
-                             consume(Token::Type::PERIOD));
-                    expect(Token::Type::RSQUIGGLE);
-                    return ir::Build::make(std::move(type), std::move(args));
-                }
-                // Otherwise just a regular list-like struct build.
-                auto args = parse_expr_list_until(Token::Type::RSQUIGGLE);
-                return ir::Build::make(std::move(type), std::move(args));
-            }
-            // otherwise ignore, not a struct build, e.g. maybe `if` expr { body
-            // }
-        }
+        ir::Expr f = ir::Var::make(ftype, name);
 
-        if (name == "inf") {
-            if (!fields.empty()) {
-                report_error() << "`inf` is a reserved keyword for infinity";
-            }
-            return ir::Infinity::make(f32);
+        if (!func->interfaces.empty()) {
+            f = ir::Instantiate::make(std::move(f), std::move(instantiations));
         }
-
-        return make_expr();
+        return ir::Call::make(std::move(f), std::move(args));
     }
 
     std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {

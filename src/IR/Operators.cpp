@@ -72,22 +72,16 @@ Expr contains(Expr a, Expr b) {
 }
 
 Expr filter(Expr predicate, Expr set) {
-    return SetOp::make(SetOp::filter, std::move(predicate),
-                           std::move(set));
+    return SetOp::make(SetOp::filter, std::move(predicate), std::move(set));
 }
 
 Expr argmin(Expr metric, Expr set) {
-    return SetOp::make(SetOp::argmin, std::move(metric),
-                           std::move(set));
+    return SetOp::make(SetOp::argmin, std::move(metric), std::move(set));
 }
 
-Expr sqrt(Expr a) {
-    return Intrinsic::make(Intrinsic::sqrt, {std::move(a)});
-}
+Expr sqrt(Expr a) { return Intrinsic::make(Intrinsic::sqrt, {std::move(a)}); }
 
-Expr norm(Expr a) {
-    return Intrinsic::make(Intrinsic::norm, {std::move(a)});
-}
+Expr norm(Expr a) { return Intrinsic::make(Intrinsic::norm, {std::move(a)}); }
 
 Expr dot(Expr a, Expr b) {
     return Intrinsic::make(Intrinsic::dot, {std::move(a), std::move(b)});
