@@ -20,7 +20,7 @@ bool should_rename(const ir::Expr &e) {
     return !e.is<ir::Var>() && !is_const(e);
 }
 
-// Gives an expensive expression its own variable. For example,
+// Gives an expression its own variable. For example,
 //   g(foo(i), bar(j));
 //   ->
 //   let _t0 = foo(i) in
