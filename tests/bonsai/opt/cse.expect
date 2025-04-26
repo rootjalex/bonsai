@@ -76,6 +76,12 @@ func nested_binary_operations(x : i32, y : i32) -> void {
   let b = a + 1 in
 }
 
+func propagate(x : i32, y : i32) -> i32 {
+  let a = x + y in
+  let b = a in
+  return bar(a, b)
+}
+
 func self_assign() -> void {
   i := 1
   i = i
