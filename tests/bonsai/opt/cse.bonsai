@@ -5,6 +5,7 @@ func foo() -> i32 {
   b: i32 = 2;        // #2
   c: i32 = a + b;    // #3
   d: i32 = a + b;    // #3
+  e: i32 = a + b;    // #3
 
   return 0;
 }
@@ -49,13 +50,13 @@ func vector_access(x : vector[i32, 3]) -> i32 {
 func id_with_side_effect(x: i32) { print(x); return x; }
 func id_no_side_effect(x: i32) { return x; }
 
-func side_effects() -> i32 {
+func side_effects(x : i32) -> i32 {
     a: i32 = 1;
-    b: i32 = id_with_side_effect(a);
-    c: i32 = id_with_side_effect(a);
+    b: i32 = id_with_side_effect(a) + x;
+    c: i32 = id_with_side_effect(a) + x;
 
-    d: i32 = id_no_side_effect(a);
-    e: i32 = id_no_side_effect(a);
+    d: i32 = id_no_side_effect(a) + x;
+    e: i32 = id_no_side_effect(a) + x;
     return 0;
 }
 

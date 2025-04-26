@@ -20,10 +20,9 @@ namespace opt {
 namespace {
 
 // Mutable variables can be seen multiple times.
-using MutableVariableStack =
-    ir::SetStack<std::string, std::less<std::string>, true>;
+using MutableVariableStack = ir::SetStack<std::string>;
 // A stack from expressions to their respective variable.
-using CseStack = ir::MapStack<ir::Expr, ir::Expr, ir::ExprLessThan, true>;
+using CseStack = ir::MapStack<ir::Expr, ir::Expr, ir::ExprLessThan>;
 
 class CseImpl : public ir::Mutator {
   public:
@@ -35,29 +34,32 @@ class CseImpl : public ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
         ir::WriteLoc location = node->loc;
         ir::Stmt let = ir::LetStmt::make(location, get(node->value));
-
-        if (is_cse_legal(node->value)) {
+        if (is_cse_legal(node->value) &&
+            !expression_to_variable.contains(node->value)) {
             ir::Expr v = ir::Var::make(location.base_type, location.base);
             expression_to_variable.add_to_frame(node->value, std::move(v));
         }
-
         return let;
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (node->mutating) {
+        if (node->mutating && !mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
-        return ir::Mutator::visit(node);
+        return node;
     }
 
     ir::Stmt visit(const ir::Store *node) override {
-        mutable_variables.add_to_frame(node->name);
+        if (!mutable_variables.contains(node->name)) {
+            mutable_variables.add_to_frame(node->name);
+        }
         return node;
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        mutable_variables.add_to_frame(node->loc.base);
+        if (!mutable_variables.contains(node->loc.base)) {
+            mutable_variables.add_to_frame(node->loc.base);
+        }
         return node;
     }
 

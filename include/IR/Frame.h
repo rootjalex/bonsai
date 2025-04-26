@@ -9,11 +9,7 @@
 namespace bonsai {
 namespace ir {
 
-// A generalized container that provides frames for a given std::map
-// implementation. if `IsMultiSet` is false, it will verify that a value
-// is not seen multiple times in the current scope.
-template <typename K, typename V, typename H = std::less<K>,
-          bool IsMultiSet = false>
+template <typename K, typename V, typename H = std::less<K>>
 struct MapStack {
     // Retrieves the variable from this frame stack if it exists, and
     // {} otherwise.
@@ -28,14 +24,13 @@ struct MapStack {
         return {};
     }
 
+    bool contains(const K &k) const { return from_frames(k).has_value(); }
+
     void add_to_frame(K k, V v) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
             const auto &found = frame.find(k);
             if (found == frame.end()) {
-                continue;
-            }
-            if constexpr (IsMultiSet) {
                 continue;
             }
             internal_error << "found duplicate value: " << k;
@@ -51,13 +46,8 @@ struct MapStack {
     std::vector<std::map<K, V, H>> frames = {{}};
 };
 
-// A generalized container that provides frames for a given std::map
-// implementation. if `IsMultiSet` is false, it will verify that a value
-// is not seen multiple times in the current scope.
-template <typename K, typename H = std::less<K>, bool IsMultiSet = false>
+template <typename K, typename H = std::less<K>>
 struct SetStack {
-    // Retrieves the variable from this frame stack if it exists, and
-    // {} otherwise.
     bool contains(const K &k) const {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
@@ -76,12 +66,9 @@ struct SetStack {
             if (found == frame.end()) {
                 continue;
             }
-            if constexpr (IsMultiSet) {
-                continue;
-            }
             internal_error << "found duplicate value: " << k;
         }
-        frames.back().insert(std::move(k));
+        frames.back().insert(k);
     }
 
     void new_frame() { frames.emplace_back(); }

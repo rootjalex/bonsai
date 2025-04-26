@@ -9,6 +9,7 @@ func foo() -> i32 {
   let b = 2 in
   let c = a + b in
   let d = c in
+  let e = c in
   return 0
 }
 
@@ -80,11 +81,11 @@ func self_assign() -> void {
   i = i
 }
 
-func side_effects() -> i32 {
+func side_effects(x : i32) -> i32 {
   let a = 1 in
-  let b = id_with_side_effect(a) in
-  let c = id_with_side_effect(a) in
-  let d = id_no_side_effect(a) in
+  let b = id_with_side_effect(a) + x in
+  let c = id_with_side_effect(a) + x in
+  let d = id_no_side_effect(a) + x in
   let e = d in
   return 0
 }
