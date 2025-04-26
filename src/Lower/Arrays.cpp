@@ -30,9 +30,9 @@ struct ReturnsToYields : public ir::Mutator {
 };
 
 struct RewriteYields : public ir::Mutator {
-    std::function<ir::Stmt(const ir::Expr &)> rewriter;
+    std::function<ir::Stmt(ir::Expr)> rewriter;
 
-    RewriteYields(std::function<ir::Stmt(const ir::Expr &)> rewriter) : rewriter(std::move(rewriter)) {}
+    RewriteYields(std::function<ir::Stmt(ir::Expr )> rewriter) : rewriter(std::move(rewriter)) {}
 
     ir::Stmt visit(const ir::Yield *node) override {
         ir::Stmt repl = rewriter(node->value);
@@ -170,8 +170,8 @@ struct LowerToForEach : public ir::Mutator {
                     /*iter=*/body,
                     /*body=*/std::move(for_body));
             }
-            internal_assert(!program_functions.contains(v->name))
-                << "[unimplemented] function while building hierarchical loops";
+            internal_assert(!v->type.is_func())
+                << "[unimplemented] non-inlined lambda function while building hierarchical loops";
         }
         // Otherwise, fuse set operations in this level.
         return build_level(expr);
