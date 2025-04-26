@@ -2,7 +2,7 @@
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
-func if_statement(x: i32, y: i32, z: i32, cond: bool) -> i32 {
+func foo(x: i32, y: i32, z: i32, cond: bool) -> i32 {
     m: i32 = x * y / z;
     n: i32 = x * y / z - 32;
     if (cond) {
@@ -16,7 +16,7 @@ func if_statement(x: i32, y: i32, z: i32, cond: bool) -> i32 {
     return m + n + (x * y / z);
 }
 
-func mutating(x: mut i32) -> i32 {
+func mutating1(x: mut i32) -> i32 {
     a: i32 = 1 + x;
     x += 1;
     b: i32 = 1 + x;
@@ -26,4 +26,17 @@ func mutating(x: mut i32) -> i32 {
     d: i32 = 1 + y;
     
     return (a / b) - (c * d);
+}
+
+
+element E { x: f32; y: f32; }
+func mutating2(e1: E, e2: mut E) -> f32 {
+    v: f32 = 42.0;
+    a: f32 = e1.x / v;
+    b: f32 = e1.x / v;
+
+    c: f32 = e2.x / v;
+    e2.x += 1.0;
+    d: f32 = e2.x / v;
+    return (a + b) * (c - d);
 }

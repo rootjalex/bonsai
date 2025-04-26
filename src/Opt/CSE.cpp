@@ -20,7 +20,7 @@ namespace opt {
 
 namespace {
 
-// Mutable variables can be seen multiple times.
+// Stack of mutable variable names for a given function.
 using MutableVariableStack = ir::SetStack<std::string>;
 
 class CseImpl : public ir::Mutator {
@@ -34,7 +34,7 @@ class CseImpl : public ir::Mutator {
         ir::Expr value = mutate(node->value);
         const std::optional<int64_t> vn = get_value_number(value);
         if (!vn.has_value()) {
-            return node;
+            return node; // We cannot legally CSE this.
         }
         if (std::optional<std::string> name = vn_to_var.from_frames(*vn)) {
             ir::Expr v = ir::Var::make(value.type(), *name);
@@ -44,17 +44,6 @@ class CseImpl : public ir::Mutator {
         var_to_e.add_to_frame(node->loc.base, std::move(value));
         vn_to_var.add_to_frame(*vn, node->loc.base);
         return node;
-    }
-
-    ir::Stmt visit(const ir::IfElse *node) override {
-        ir::Expr cond = mutate(node->cond);
-        new_frame();
-        ir::Stmt th = mutate(node->then_body);
-        pop_frame();
-        new_frame();
-        ir::Stmt el = mutate(node->else_body);
-        pop_frame();
-        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
@@ -77,6 +66,22 @@ class CseImpl : public ir::Mutator {
         }
         return node;
     }
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        ir::Expr cond = mutate(node->cond);
+        new_frame();
+        ir::Stmt th = mutate(node->then_body);
+        pop_frame();
+        new_frame();
+        ir::Stmt el = mutate(node->else_body);
+        pop_frame();
+        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+    }
+
+    // Skip statements we cannot unit test.
+    ir::Stmt visit(const ir::ForAll *node) override { return node; }
+    ir::Stmt visit(const ir::ForEach *node) override { return node; }
+    ir::Stmt visit(const ir::DoWhile *node) override { return node; }
 
   private:
     // A list of functions that may have side effects. This is "whole program
@@ -204,6 +209,7 @@ class CseImpl : public ir::Mutator {
     }
 };
 
+// Implements copy propagation, e.g.,
 //  let _t0 = a + b in
 //  let _t1 = a + b in
 //  in f(_t0, _t1)
@@ -257,6 +263,10 @@ class CopyPropagation : public ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override { return node; }
     // Don't propagate through lambda bodies.
     ir::Expr visit(const ir::Lambda *node) override { return node; }
+    // Skip statements we cannot unit test.
+    ir::Stmt visit(const ir::ForAll *node) override { return node; }
+    ir::Stmt visit(const ir::ForEach *node) override { return node; }
+    ir::Stmt visit(const ir::DoWhile *node) override { return node; }
 
   private:
     const std::set<std::string> &mutable_arguments;
@@ -308,10 +318,8 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         CseImpl cse(side_effect_functions, mutable_arguments);
         func->body = cse.mutate(std::move(func->body));
 
-        // Renaming followed by CSE results in unnecessary copies. Propagate
-        // these.
-        CopyPropagation cpr(mutable_arguments);
-        func->body = cpr.mutate(std::move(func->body));
+        CopyPropagation cp(mutable_arguments);
+        func->body = cp.mutate(std::move(func->body));
     }
     return funcs;
 }

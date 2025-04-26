@@ -1,9 +1,11 @@
+type E = struct E{ x : f32; y : f32 }
+
 func bar(x : i32, y : i32) -> i32 {
   let _t0 = x + y in
   return _t0
 }
 
-func if_statement(x : i32, y : i32, z : i32, cond : bool) -> i32 {
+func foo(x : i32, y : i32, z : i32, cond : bool) -> i32 {
   let _t0 = x * y in
   let _t1 = _t0 / z in
   let _t4 = _t1 - 32 in
@@ -21,7 +23,7 @@ func if_statement(x : i32, y : i32, z : i32, cond : bool) -> i32 {
   return _t17
 }
 
-func mutating(x : mut i32) -> i32 {
+func mutating1(x : mut i32) -> i32 {
   let _t0 = 1 + x in
   x += 1
   let _t1 = 1 + x in
@@ -32,6 +34,18 @@ func mutating(x : mut i32) -> i32 {
   let _t4 = _t0 / _t1 in
   let _t5 = _t2 * _t3 in
   let _t6 = _t4 - _t5 in
+  return _t6
+}
+
+func mutating2(e1 : E, e2 : mut E) -> f32 {
+  let v = 42f in
+  let _t0 = e1.x / v in
+  let _t2 = e2.x / v in
+  e2.x += 1f
+  let _t3 = e2.x / v in
+  let _t4 = _t0 + _t0 in
+  let _t5 = _t2 - _t3 in
+  let _t6 = _t4 * _t5 in
   return _t6
 }
 
