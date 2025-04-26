@@ -1,110 +1,29 @@
-//! flags: -p core -p rename -p cse
-
-func foo() -> i32 {
-  a: i32 = 1;        // #1
-  b: i32 = 2;        // #2
-  c: i32 = a + b;    // #3
-  d: i32 = a + b;    // #3
-  e: i32 = a + b;    // #3
-
-  return 0;
-}
-
-func mutating_argument(x: mut i32) -> i32 {
-  a: i32 = 1;        // #1
-  b: i32 = 2;        // #2
-  c: i32 = a + x;    // #3
-  x += 1;
-  d: i32 = a + x;    // #4
-
-  return 0;
-}
-
-
-func if_condition(a: bool, b: bool, c: bool) -> bool {
-    r: mut bool = false;
-    c1: bool = a && b && c;     // #1
-    if (a && b && c) {          // #1
-        r = a;
-        no_cse: bool = a || b || c;
-    } else {
-        // CSE can occur within control flow as long as both
-        // expressions are immutable and not side-effecting.
-        c2: bool = a && b && c; // #1
-        r = b;
-        no_cse: bool = a || b || c;
-    }
-    c3: bool = a && b && c;     // #1
-    
-    // Verify this shouldn't CSE with `no_cse` in either branch.
-    c4: bool = a || b || c;
-    return r;
-}
-
-func vector_access(x : vector[i32, 3]) -> i32 {
-    b_0: i32 = x[0]; // #1
-    b_1: i32 = x[0]; // #1
-    return 0;
-}
-
-func id_with_side_effect(x: i32) { print(x); return x; }
-func id_no_side_effect(x: i32) { return x; }
-
-func side_effects(x : i32) -> i32 {
-    a: i32 = 1;
-    b: i32 = id_with_side_effect(a) + x;
-    c: i32 = id_with_side_effect(a) + x;
-
-    d: i32 = id_no_side_effect(a) + x;
-    e: i32 = id_no_side_effect(a) + x;
-    return 0;
-}
-
-func mutating_value() -> i32 {
-  a: i32 = 1;        // #1
-  b: i32 = 2;        // #2
-  x: mut = 3;
-  c: i32 = a + x;    // #3
-  d: i32 = a + x;    // #3
-  return 0;
-}
-
-element E { x: i32; y: i32; }
-
-func mutable_struct(e: mut E) -> void {
-    e.x += 1;
-    e.y = 42;
-}
-
-func self_assign() -> void {
-    i: mut i32 = 1;
-    i = i;
-}
-
-func nested_binary_operations(x: i32,  y: i32) -> void {
-    a: i32 = x + y;
-    b: i32 = x + y + 1;
-}
+//! flags: -p core -p rename -p cse -p dce
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
-// TODO(cgyurgyik): implement copy propagation, i.e.,
-// let a = x + y in
-// let a = b in
-// return bar(a, a)
-func propagate(x: i32, y: i32) -> i32 {
-    a: i32 = x + y;
-    b: i32 = x + y;
-    return bar(a, b); 
-}
-
-func if_statement(x: i32, y: i32, z: i32, cond: bool) -> void {
+func if_statement(x: i32, y: i32, z: i32, cond: bool) -> i32 {
+    m: i32 = x * y / z;
+    n: i32 = x * y / z - 32;
     if (cond) {
         a: i32 = x * y / z;
         b: i32 = x * y / z;
-        c: i32 = bar(a, b);
-    } else {
+        return bar(a, b - 32);
+    } else if (x > 0) {
         c: i32 = x * y / z;
+        return c;
     }
-    d: i32 = x * y / z;
+    return m + n + (x * y / z);
+}
+
+func mutating(x: mut i32) -> i32 {
+    a: i32 = 1 + x;
+    x += 1;
+    b: i32 = 1 + x;
+    y: mut i32 = x;
+    c: i32 = 1 + y;
+    y += 1;
+    d: i32 = 1 + y;
+    
+    return (a / b) - (c * d);
 }

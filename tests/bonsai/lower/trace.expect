@@ -26,14 +26,15 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) ->
 func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(triangles__index : u32) {
-    let _t1 = triangles.triangles_index[triangles__index].nPrims == 0u in
-    if (_t1) {
-      if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
-        from triangles__index + 1u
-      }
-      let _t0 = triangles__index + cast<__layout6>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).offset in
+    let _t2 = triangles.triangles_index[triangles__index].nPrims == 0u in
+    if (_t2) {
+      let _t0 = triangles__index + 1u in
       if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
         from _t0
+      }
+      let _t1 = triangles__index + cast<__layout6>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).offset in
+      if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
+        from _t1
       }
     } else if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
       forall _idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
@@ -54,9 +55,8 @@ func _unexported_trace(ray : Ray, triangles : _triangles_layout1) -> Triangle {
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
   let _t0 = intersectsp_ray_aabb(r, b) in
-  let interval = _t0 in
-  if (interval.set) {
-    let extract = interval.value in
+  if (_t0.set) {
+    let extract = _t0.value in
     return extract.high
   }
   return (f32)inf
@@ -70,17 +70,15 @@ func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
 
 func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
   let _t0 = closestPointonTriangle(p, tri) in
-  let pts = _t0 in
-  let _t1 = p.vec - pts._field0.vec in
+  let _t1 = p.vec - _t0._field0.vec in
   let _t2 = norm(_t1) in
   return _t2
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
   let _t0 = intersectsp_ray_aabb(r, b) in
-  let interval = _t0 in
-  if (interval.set) {
-    let extract = interval.value in
+  if (_t0.set) {
+    let extract = _t0.value in
     return extract.low
   }
   return -(f32)inf
@@ -88,9 +86,8 @@ func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
 
 func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
   let _t0 = intersectsp_ray_tri(ray, tri) in
-  let isect = _t0 in
-  if (isect.set) {
-    let isect_ = isect.value in
+  if (_t0.set) {
+    let isect_ = _t0.value in
     return isect_.t
   } else {
     return (f32)inf
@@ -99,9 +96,8 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
   let _t0 = intersectsp_ray_aabb(r, b) in
-  let interval = _t0 in
-  if (interval.set) {
-    let extract = interval.value in
+  if (_t0.set) {
+    let extract = _t0.value in
     return (extract.low < r.t) && (0f < extract.high)
   }
   return false

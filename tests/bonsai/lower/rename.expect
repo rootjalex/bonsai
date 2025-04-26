@@ -4,23 +4,25 @@ func cond(b : bool) -> bool {
 
 func foo(i : i32) -> i32 {
   j := i
-  if (0 < i) {
+  let _t1 = 0 < i in
+  if (_t1) {
     k := 0
     let _t0 = print_and_return(i) in
     k += _t0
   } else {
     print(i)
   }
-  let _t1 = print_and_return(i) in
-  void_call(_t1)
-  let _t2 = abs(i) in
-  return cast<i32>(_t2)
+  let _t2 = print_and_return(i) in
+  void_call(_t2)
+  let _t3 = abs(i) in
+  return cast<i32>(_t3)
 }
 
 func if_statement(b : bool) -> i32 {
   let _t0 = cond(b) in
-  let _t1 = b ^ (false == _t0) in
-  if (_t1) {
+  let _t1 = false == _t0 in
+  let _t2 = b ^ _t1 in
+  if (_t2) {
     return 1
   }
   return 0
@@ -29,13 +31,16 @@ func if_statement(b : bool) -> i32 {
 func nested_subexpressions(x : i32, y : i32, z : i32) -> i32 {
   let _t0 = x / y in
   let _t1 = x * z in
-  let _t2 = (_t0 - _t1) + 2 in
-  let v = _t2 in
+  let _t2 = _t0 - _t1 in
+  let _t3 = _t2 + 2 in
+  let v = _t3 in
   w := 42
   w += 1
-  w = 42 - v
-  let _t3 = (x + v) - w in
-  return _t3
+  let _t4 = 42 - v in
+  w = _t4
+  let _t5 = x + v in
+  let _t6 = _t5 - w in
+  return _t6
 }
 
 func print_and_return(i : i32) -> i32 {
@@ -44,7 +49,8 @@ func print_and_return(i : i32) -> i32 {
 }
 
 func void_call(i : i32, j : i32) -> void {
-  let z = i + j in
+  let _t0 = i + j in
+  let z = _t0 in
   return
 }
 

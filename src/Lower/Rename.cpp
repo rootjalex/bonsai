@@ -56,7 +56,7 @@ struct ToAnormalForm : public ir::Mutator {
 
     ir::Expr visit(const ir::BinOp *node) override {
         switch (node->op) {
-        // TODO(cgyurgyik): Handle logical operators.
+        // Logical variables cannot safely emit temporary variables.
         case ir::BinOp::OpType::LAnd:
         case ir::BinOp::OpType::LOr:
             return node;
