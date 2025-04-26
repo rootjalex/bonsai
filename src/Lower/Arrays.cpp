@@ -41,6 +41,82 @@ struct RewriteYields : public ir::Mutator {
     }
 };
 
+struct RmUnnecessaryContinues : public ir::Mutator {
+    ir::Stmt rm_continues(const ir::Stmt &stmt) const {
+        if (stmt.is<ir::Continue>()) {
+            return ir::Stmt();
+        } else if (const ir::Sequence *seq = stmt.as<ir::Sequence>()) {
+            internal_assert(seq->stmts.size() != 0);
+            ir::Stmt last = seq->stmts.back();
+            ir::Stmt rec = rm_continues(last);
+            if (rec.same_as(last)) {
+                return stmt;
+            }
+
+            // Removed some `Continue`.
+            std::vector<ir::Stmt> stmts = seq->stmts;
+            if (rec.defined()) {
+                stmts.back() = std::move(rec);
+            } else {
+                stmts.pop_back();
+            }
+            // Return new sequence
+            if (stmts.size() == 0) {
+                return ir::Stmt();
+            } else if (stmts.size() == 1) {
+                return stmts.back();
+            }
+            return ir::Sequence::make(std::move(stmts));
+        } else if (const ir::IfElse *ifelse = stmt.as<ir::IfElse>()) {
+            ir::Stmt then_body = rm_continues(ifelse->then_body);
+            ir::Stmt else_body = ifelse->else_body.defined() ? rm_continues(ifelse->else_body) : ifelse->else_body;
+            if (then_body.same_as(ifelse->then_body) && else_body.same_as(ifelse->else_body)) {
+                return stmt;
+            }
+            internal_assert(then_body.defined());
+            return ir::IfElse::make(ifelse->cond, std::move(then_body), std::move(else_body));
+        } else if (const ir::Label *label = stmt.as<ir::Label>()) {
+            ir::Stmt body = rm_continues(label->body);
+            if (body.same_as(label->body)) {
+                return stmt;
+            }
+            return ir::Label::make(label->name, std::move(body));
+        }
+        // Don't know how to remove a `Continue`
+        return stmt;
+    }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        // First recurse on body.
+        ir::Stmt stmt = ir::Mutator::visit(node);
+        node = stmt.as<ir::ForAll>();
+        internal_assert(node);
+
+        ir::Stmt body = rm_continues(node->body);
+        internal_assert(body.defined());
+        if (!body.same_as(node->body)) {
+            return ir::ForAll::make(node->index, node->header, node->slice, std::move(body));
+        }
+        // No `Continue` to remove.
+        return stmt;
+    }
+
+    ir::Stmt visit(const ir::ForEach *node) override {
+        // First recurse on body.
+        ir::Stmt stmt = ir::Mutator::visit(node);
+        node = stmt.as<ir::ForEach>();
+        internal_assert(node);
+
+        ir::Stmt body = rm_continues(node->body);
+        internal_assert(body.defined());
+        if (!body.same_as(node->body)) {
+            return ir::ForEach::make(node->name, node->iter, std::move(body));
+        }
+        // No `Continue` to remove.
+        return stmt;
+    }
+};
+
 // Applies the lambda or function call to the top-level yield operation.
 ir::Stmt build_map(ir::Stmt body, ir::Expr function) {
     struct RewriteMap : public ir::Mutator {
@@ -359,6 +435,8 @@ struct LowerToForAll : public ir::Mutator {
                 /*slice=*/dimensions[i],
                 /*body=*/final_body);
         }
+
+        final_body = RmUnnecessaryContinues().mutate(std::move(final_body));
 
         ir::Stmt allocation = ir::Allocate::make(allocation_name, yield_type);
 
