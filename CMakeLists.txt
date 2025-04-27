@@ -108,7 +108,6 @@ target_sources(
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
-    src/Lower/Rename.cpp
     src/Lower/ReturnToOutParameter.cpp
     src/Lower/Trees.cpp
     src/Lower/Tuples.cpp
@@ -181,7 +180,6 @@ target_sources(
     include/Lower/Pass.h
     include/Lower/PassManager.h
     include/Lower/PredicateAnalysis.h
-    include/Lower/Rename.h
     include/Lower/ReturnToOutParameter.h
     include/Lower/Trees.h
     include/Lower/Tuples.h

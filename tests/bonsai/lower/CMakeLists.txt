@@ -20,7 +20,6 @@ add_bonsai_tests(
     option-nested.bonsai
     option.bonsai
     rect_contains.bonsai
-    rename.bonsai
     struct_defaults.bonsai
     trace_aosoa.bonsai
     trace.bonsai

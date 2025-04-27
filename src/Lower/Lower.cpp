@@ -10,7 +10,6 @@
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
 #include "Lower/Options.h"
-#include "Lower/Rename.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
@@ -79,8 +78,6 @@ PassManager register_passes() {
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
     manager.register_pass<ReturnToOutParameter>();
-    // This is quite the intrusive pass so we opt not to run it in core.
-    manager.register_pass<Rename>();
 
     // Optimizing pass registration.
     manager.register_pass<opt::CSE>();
@@ -128,7 +125,6 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Inline>());
     d.push_back(std::make_unique<opt::Simplify>());
-    d.push_back(std::make_unique<Rename>());
     d.push_back(std::make_unique<opt::CSE>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Unswitch>());
