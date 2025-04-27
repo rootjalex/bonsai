@@ -74,10 +74,16 @@ class RenameAnalysis : public ir::Visitor {
         : side_effect_functions(side_effect_functions),
           mutable_arguments(mutable_arguments) {}
 
+    void visit(const ir::LetStmt *node) override {
+        var_to_e.add_to_frame(node->loc.base, node->value);
+    }
+
     void visit(const ir::BinOp *node) override {
         update_count(node);
-        node->a.accept(this);
-        node->b.accept(this);
+        ir::Expr a = substitute(node->a);
+        a.accept(this);
+        ir::Expr b = substitute(node->b);
+        b.accept(this);
     }
 
     void visit(const ir::Call *node) override {
@@ -100,6 +106,42 @@ class RenameAnalysis : public ir::Visitor {
         }
     }
 
+    void visit(const ir::IfElse *node) override {
+        node->cond.accept(this);
+        var_to_e.new_frame();
+        node->then_body.accept(this);
+        var_to_e.pop_frame();
+
+        var_to_e.new_frame();
+        if (node->else_body.defined()) {
+            node->else_body.accept(this);
+        }
+        var_to_e.pop_frame();
+    }
+
+    void visit(const ir::ForEach *node) override {
+        var_to_e.new_frame();
+        node->iter.accept(this);
+        node->body.accept(this);
+        var_to_e.pop_frame();
+    }
+
+    void visit(const ir::ForAll *node) override {
+        var_to_e.new_frame();
+        if (node->header.defined()) {
+            node->header.accept(this);
+        }
+        node->body.accept(this);
+        var_to_e.pop_frame();
+    }
+
+    void visit(const ir::DoWhile *node) override {
+        var_to_e.new_frame();
+        node->body.accept(this);
+        node->cond.accept(this);
+        var_to_e.pop_frame();
+    }
+
     ExprSet post_process() {
         ExprSet es;
         for (const auto &[e, count] : expression_count) {
@@ -117,7 +159,21 @@ class RenameAnalysis : public ir::Visitor {
         }
         ++expression_count[e];
     }
+    // The count of each expression.
     std::map<ir::Expr, int64_t, ir::ExprLessThan> expression_count;
+
+    ir::Expr substitute(ir::Expr e) {
+        const auto *v = e.as<ir::Var>();
+        if (v == nullptr) {
+            return e;
+        }
+        if (std::optional<ir::Expr> f = var_to_e.from_frames(v->name)) {
+            return substitute(*f);
+        }
+        return e;
+    }
+    // variable -> expression
+    ir::MapStack<std::string, ir::Expr> var_to_e;
 
     // A list of variable names that should stop CSE if found within an
     // expression. This includes mutable assignments, and references to
@@ -276,7 +332,7 @@ struct Rename : public ir::Mutator {
     // Whether we should give this sub-expression its own variable.
     // TODO(cgyurgyik): What else?
     bool should_rename(const ir::Expr &e) {
-        return !e.is<ir::Var>() && !is_const(e) /*&& to_rename.contains(e)*/;
+        return !e.is<ir::Var>() && !is_const(e) && to_rename.contains(e);
     }
     const ExprSet &to_rename;
     // A list of intermediate statements generated for subexpressions.
@@ -543,8 +599,8 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         RenameAnalysis rename_analysis(side_effect_functions,
                                        mutable_arguments);
 
-        // func->body.accept(&rename_analysis);
-        ExprSet to_rename = {}; // rename_analysis.post_process();
+        func->body.accept(&rename_analysis);
+        ExprSet to_rename = rename_analysis.post_process();
         Rename rename(to_rename);
         func->body = rename.mutate(std::move(func->body));
 

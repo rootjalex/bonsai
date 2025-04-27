@@ -1,24 +1,17 @@
 func bar(x : i32, y : i32) -> i32 {
-  let _t0 = x + y in
-  return _t0
+  return x + y
 }
 
 func foo(x : i32, y : i32, z : i32, cond : bool) -> i32 {
   let _t0 = x * y in
   let _t1 = _t0 / z in
-  let _t4 = _t1 - 32 in
+  let n = _t1 - 32 in
   if (cond) {
-    let _t10 = bar(_t1, _t4) in
-    return _t10
-  } else {
-    let _t13 = 0 < x in
-    if (_t13) {
-      return _t1
-    }
+    return bar(_t1, _t1 - 32)
+  } else if (0 < x) {
+    return _t1
   }
-  let _t14 = _t1 + _t4 in
-  let _t17 = _t14 + _t1 in
-  return _t17
+  return (_t1 + n) + _t1
 }
 
 
