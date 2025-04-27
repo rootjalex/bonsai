@@ -1,12 +1,12 @@
 func _traverse_array0(n : i32, a : i32[n]) -> i32[n] {
   alloc _alloc0 : i32[n]
   forall x in [0:n:1] {
-    let _load0 = a[x] in
-    if (_load0 < 0) {
-      _alloc0[x] = -_load0
+    let _t0 = a[x] in
+    if (_t0 < 0) {
+      _alloc0[x] = -_t0
       continue
     }
-    _alloc0[x] = _load0
+    _alloc0[x] = _t0
   }
   return _alloc0
 }
@@ -14,11 +14,11 @@ func _traverse_array0(n : i32, a : i32[n]) -> i32[n] {
 func _traverse_array1(n : i32, a : i32[n]) -> i32[n] {
   alloc _alloc1 : i32[n]
   forall x in [0:n:1] {
-    let _load1 = a[x] in
-    if (_load1 < 0) {
-      _alloc1[x] = -_load1
+    let _t0 = a[x] in
+    if (_t0 < 0) {
+      _alloc1[x] = -_t0
     } else {
-      _alloc1[x] = _load1
+      _alloc1[x] = _t0
     }
   }
   return _alloc1

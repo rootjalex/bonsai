@@ -145,18 +145,22 @@ class RenameAnalysis : public ir::Visitor {
         if (node->mutating && !mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
+        substitute(node->value).accept(this);
     }
 
     void visit(const ir::Store *node) override {
         if (!mutable_variables.contains(node->name)) {
             mutable_variables.add_to_frame(node->name);
         }
+        substitute(node->index).accept(this);
+        substitute(node->value).accept(this);
     }
 
     void visit(const ir::Accumulate *node) override {
         if (!mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
+        substitute(node->value).accept(this);
     }
 
     void visit(const ir::ForEach *node) override {
@@ -491,7 +495,7 @@ class LVN : public ir::Mutator {
         if (node->mutating && !mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
-        return node;
+        return ir::Assign::make(node->loc, mutate(node->value), node->mutating);
     }
 
     ir::Stmt visit(const ir::Store *node) override {
@@ -505,7 +509,7 @@ class LVN : public ir::Mutator {
         if (!mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
-        return node;
+        return ir::Accumulate::make(node->loc, node->op, mutate(node->value));
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
