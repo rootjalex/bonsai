@@ -1,0 +1,8 @@
+//! flags: -b llvm
+
+element [[packed]] MyPackedStruct {
+    i: i32;
+    f: i8;
+}
+
+func build_struct() = MyPackedStruct{};

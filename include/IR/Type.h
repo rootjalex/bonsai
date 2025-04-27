@@ -218,8 +218,19 @@ struct Struct_t : TypeNode<Struct_t> {
     Map fields;
     DefMap defaults;
 
-    static Type make(std::string name, Map fields);
-    static Type make(std::string name, Map fields, DefMap defaults);
+    enum class Attribute {
+        packed, // Whether this struct is 1-byte aligned.
+    };
+
+    std::vector<Attribute> attributes;
+
+    static Type make(std::string name, Map fields,
+                     std::vector<Attribute> attributes = {});
+    static Type make(std::string name, Map fields, DefMap defaults,
+                     std::vector<Attribute> attributes = {});
+
+    // Whether this type has the `packed` attribute.
+    bool is_packed() const;
 
     static const IRTypeEnum node_type = IRTypeEnum::Struct_t;
 };
