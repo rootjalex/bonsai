@@ -366,6 +366,18 @@ struct Parser {
     void parse_element() {
         expect(Token::Type::ELEMENT);
 
+        std::vector<ir::Struct_t::Attribute> attributes;
+        if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
+            std::string attribute = get_id();
+            if (attribute == "packed") {
+                attributes.push_back(ir::Struct_t::Attribute::packed);
+            } else {
+                report_error() << "unexpected attribute: " << attribute;
+            }
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::RBRACKET);
+        }
+
         // TODO: support methods as well.
         // TODO: figure out overloading policy for that.
         // TODO: for error handling, should we have beginLoc/endLoc like Simit?
@@ -443,9 +455,11 @@ struct Parser {
         } while (!consume(Token::Type::RSQUIGGLE));
 
         program.types[name] = defaults.empty()
-                                  ? ir::Struct_t::make(name, std::move(fields))
+                                  ? ir::Struct_t::make(name, std::move(fields),
+                                                       std::move(attributes))
                                   : ir::Struct_t::make(name, std::move(fields),
-                                                       std::move(defaults));
+                                                       std::move(defaults),
+                                                       std::move(attributes));
     }
 
     void parse_interface_def() {

@@ -10,6 +10,7 @@ add_bonsai_tests(
     map-func.bonsai
     nested-exported-function.bonsai
     option.bonsai
+    packed-struct.bonsai
     short-circuit.bonsai
     simple.bonsai
     struct_defaults.bonsai
