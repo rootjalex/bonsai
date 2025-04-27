@@ -298,9 +298,7 @@ struct HasSideEffects : ir::Visitor {
             return;
         }
         const auto *var = node->func.as<ir::Var>();
-        if (var == nullptr) {
-            return;
-        }
+        internal_assert(var) << node;
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;
@@ -312,9 +310,7 @@ struct HasSideEffects : ir::Visitor {
             return;
         }
         const auto *var = node->func.as<ir::Var>();
-        if (var == nullptr) {
-            return;
-        }
+        internal_assert(var) << node;
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;

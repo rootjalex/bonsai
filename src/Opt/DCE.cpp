@@ -135,9 +135,7 @@ struct FindSideEffects : ir::Visitor {
         : function_has_side_effects(side_effects_functions) {}
     void visit(const ir::Call *node) override {
         const auto *var = node->func.as<ir::Var>();
-        if (var == nullptr) {
-            return;
-        }
+        internal_assert(var) << node;
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             expressions.push_back(node);
