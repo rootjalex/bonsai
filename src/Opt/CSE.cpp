@@ -23,6 +23,8 @@ namespace {
 using MutableVariableStack = ir::SetStack<std::string>;
 using ExprSet = std::set<ir::Expr, ir::ExprLessThan>;
 
+// For checking whether an expression can legally be CSE'd. This is used in two
+// different classes (rename analysis and LVN), so we leave it here.
 struct CseLegalChecker : public ir::Visitor {
     CseLegalChecker(const std::set<std::string> &side_effect_functions,
                     const std::set<std::string> &mutable_arguments,
@@ -63,8 +65,9 @@ struct CseLegalChecker : public ir::Visitor {
 };
 
 // Retrieves all variables that have been seen more than once.
-// TODO(cgyurgyik): This should be stack-based, however we don't have ways to
-// uniquely identify different "scopes".
+// TODO(cgyurgyik): This should be stack-based, i.e., we probably don't need to
+// rename an expression that will never be CSE'd in LVN. However we don't have
+// ways to uniquely identify different "scopes"
 class RenameAnalysis : public ir::Visitor {
   public:
     RenameAnalysis(const std::set<std::string> &side_effect_functions,
@@ -459,10 +462,15 @@ struct Rename : public ir::Mutator {
     }
 };
 
-class CseImpl : public ir::Mutator {
+// A variant of local value numbering [1], where we explore scopes rather than
+// basic blocks. Expressions are fully substituted before given their value
+// number.
+//
+//  1: https://en.wikipedia.org/wiki/Value_numbering
+class LVN : public ir::Mutator {
   public:
-    CseImpl(const std::set<std::string> &side_effect_functions,
-            const std::set<std::string> &mutable_arguments)
+    LVN(const std::set<std::string> &side_effect_functions,
+        const std::set<std::string> &mutable_arguments)
         : side_effect_functions(side_effect_functions),
           mutable_arguments(mutable_arguments) {}
 
@@ -606,7 +614,7 @@ class CseImpl : public ir::Mutator {
     // The "local value number" for expressions in this function. We just use
     // the same number in conjunction with a stack to ensure the values remain
     // truly local to their scope.
-    int64_t local_value_number = 0;
+    int64_t value_number = 0;
     // expression -> value number
     ir::MapStack<ir::Expr, int64_t, ir::ExprLessThan> e_to_vn;
     // variable -> expression
@@ -637,7 +645,7 @@ class CseImpl : public ir::Mutator {
         if (std::optional<int64_t> vn = e_to_vn.from_frames(e)) {
             return *vn;
         }
-        const int64_t vn = local_value_number++;
+        const int64_t vn = value_number++;
         e_to_vn.add_to_frame(e, vn);
         return vn;
     }
@@ -659,6 +667,11 @@ class CseImpl : public ir::Mutator {
     // For simplicity, we replace intermediate variables with their value
     // expression. There might be a better way to do this, but this is how I've
     // implemented LVN for SSA, where use-def chains are immediately available.
+    // To illustrate this with an example, `a` and `c` would not have the same
+    // value number unless substitution occurred:
+    //  a = x + 42   #1
+    //  b = 42       #2
+    //  c = x + b    #3  <-- should be #2
     ir::Expr substitute(ir::Expr e) {
         if (const auto *b = e.as<ir::Build>()) {
             std::vector<ir::Expr> values;
@@ -824,9 +837,10 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         Rename rename(to_rename);
         func->body = rename.mutate(std::move(func->body));
 
-        // Perform local value numbering.
-        CseImpl cse(side_effect_functions, mutable_arguments);
-        func->body = cse.mutate(std::move(func->body));
+        // Perform local value numbering, as well as the common subexpression
+        // elimination.
+        LVN lvn(side_effect_functions, mutable_arguments);
+        func->body = lvn.mutate(std::move(func->body));
 
         // Propagate copies.
         CopyPropagation cp(mutable_arguments);
