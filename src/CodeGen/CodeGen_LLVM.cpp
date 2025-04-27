@@ -1656,7 +1656,7 @@ void CodeGen_LLVM::visit(const IfElse *node) {
         builder->SetInsertPoint(then_bb);
         codegen_stmt(p.stmt);
         if (!p.returns) {
-            builder->CreateBr(after_bb);
+            codegen_branch(after_bb);
         }
         builder->SetInsertPoint(next_bb);
     }
@@ -1666,7 +1666,7 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     }
 
     if (needs_after_bb) {
-        builder->CreateBr(after_bb);
+        codegen_branch(after_bb);
         builder->SetInsertPoint(after_bb);
     }
 }
@@ -1703,16 +1703,25 @@ void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb,
     builder->CreateCondBr(codegen_expr(std::move(cond)), true_bb, false_bb);
 }
 
+void CodeGen_LLVM::codegen_branch(llvm::BasicBlock *bb) {
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(bb);
+    }
+}
+
 void CodeGen_LLVM::visit(const DoWhile *node) {
     // Body of the loop
     llvm::BasicBlock *loop_bb =
-        llvm::BasicBlock::Create(*context, "do.body", current_function);
+        llvm::BasicBlock::Create(*context, "dowhile.body", current_function);
     // Block after the loop.
     llvm::BasicBlock *end_bb =
-        llvm::BasicBlock::Create(*context, "do.end", current_function);
+        llvm::BasicBlock::Create(*context, "dowhile.end", current_function);
+    // Block that checks whether to jump back to the body.
+    llvm::BasicBlock *cond_bb =
+        llvm::BasicBlock::Create(*context, "dowhile.cond", current_function);
 
     // Jump unconditionally to loop body (required for do-while)
-    builder->CreateBr(loop_bb);
+    codegen_branch(loop_bb);
 
     builder->SetInsertPoint(loop_bb);
 
@@ -1721,14 +1730,23 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 
     // Establish new frame
     frames.new_frame();
+    latch_blocks.push_back(cond_bb);
+    // TODO(ajr): will need this for `break` statements.
+    // escape_blocks.push_back(end_bb);
 
     // Emit loop body
     codegen_stmt(node->body);
 
+    latch_blocks.pop_back();
+    // escape_blocks.pop_back();
+
+    codegen_branch(cond_bb);
+
+    builder->SetInsertPoint(cond_bb);
+
     // Maybe exit the loop
-    llvm::Value *loop_back_condition = codegen_expr(node->cond);
     // TODO(ajr): use very_likely_branch?
-    builder->CreateCondBr(loop_back_condition, loop_bb, end_bb);
+    codegen_short_circuit(node->cond, loop_bb, end_bb);
 
     // Following statements should write to end_bb
     builder->SetInsertPoint(end_bb);
@@ -1932,6 +1950,8 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     std::string loop_id =
         node->index + std::to_string(forall_loop_id++) + std::string("_for");
 
+    llvm::BasicBlock *inc_bb =
+        llvm::BasicBlock::Create(*context, loop_id + "_inc", current_function);
     // Body of the loop
     llvm::BasicBlock *loop_bb =
         llvm::BasicBlock::Create(*context, loop_id, current_function);
@@ -1955,9 +1975,19 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     frames.new_frame();
     frames.add_to_frame(node->index, {phi, /*mutable=*/false});
 
+    latch_blocks.push_back(inc_bb);
+    // TODO(ajr): will need this for `break` statements.
+    // escape_blocks.push_back(end_bb);
+
     // Emit loop body
     codegen_stmt(node->header);
     codegen_stmt(node->body);
+
+    latch_blocks.pop_back();
+    // escape_blocks.pop_back();
+
+    codegen_branch(inc_bb);
+    builder->SetInsertPoint(inc_bb);
 
     // Update the counter
     Expr var = Var::make(node->slice.begin.type(), node->index);
@@ -1966,6 +1996,7 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     phi->addIncoming(next_var, builder->GetInsertBlock());
 
     // Maybe exit the loop
+    // TODO(ajr): can this overflow?
     llvm::Value *end_condition = codegen_expr(var + 1 >= node->slice.end);
     // TODO(ajr): use very_likely_branch?
     builder->CreateCondBr(end_condition, end_bb, loop_bb);
@@ -1975,6 +2006,14 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 
     // Pop for-loop local scope names.
     frames.pop_frame();
+}
+
+void CodeGen_LLVM::visit(const Continue *node) {
+    internal_assert(!latch_blocks.empty())
+        << "CodeGen of Continue outside of loop.";
+    internal_assert(!builder->GetInsertBlock()->getTerminator())
+        << "CodeGen of Continue in already-terminating block";
+    builder->CreateBr(latch_blocks.back());
 }
 
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,

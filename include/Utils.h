@@ -99,6 +99,9 @@ ir::Expr replace(const std::string &var_name, ir::Expr repl,
 ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
                  const ir::Expr &orig);
 
+ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
+                 const ir::Stmt &orig);
+
 ir::Type replace(const ir::TypeMap &repls, const ir::Type &type);
 
 bool is_power_of_two(int32_t x);

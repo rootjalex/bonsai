@@ -588,5 +588,7 @@ Stmt Mutator::visit(const ForAll *node) {
                         std::move(body));
 }
 
+Stmt Mutator::visit(const Continue *node) { return node; }
+
 } // namespace ir
 } // namespace bonsai
