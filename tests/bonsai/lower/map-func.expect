@@ -2,7 +2,8 @@ func _traverse_array0(n : i32, a : i32[n]) -> i32[n] {
   alloc _alloc0 : i32[n]
   forall x in [0:n:1] {
     let _load0 = a[x] in
-    if (_load0 < 0) {
+    let _t0 = _load0 < 0 in
+    if (_t0) {
       _alloc0[x] = -_load0
       continue
     }
@@ -15,7 +16,8 @@ func _traverse_array1(n : i32, a : i32[n]) -> i32[n] {
   alloc _alloc1 : i32[n]
   forall x in [0:n:1] {
     let _load1 = a[x] in
-    if (_load1 < 0) {
+    let _t0 = _load1 < 0 in
+    if (_t0) {
       _alloc1[x] = -_load1
     } else {
       _alloc1[x] = _load1
@@ -25,15 +27,18 @@ func _traverse_array1(n : i32, a : i32[n]) -> i32[n] {
 }
 
 func array_abs(n : i32, a : i32[n]) -> i32[n] {
-  return _traverse_array0(n, a)
+  let _t0 = _traverse_array0(n, a) in
+  return _t0
 }
 
 func array_abs2(n : i32, a : i32[n]) -> i32[n] {
-  return _traverse_array1(n, a)
+  let _t0 = _traverse_array1(n, a) in
+  return _t0
 }
 
 func bar(x : i32) -> i32 {
-  if (x < 0) {
+  let _t0 = x < 0 in
+  if (_t0) {
     return -x
   } else {
     return x
@@ -41,7 +46,8 @@ func bar(x : i32) -> i32 {
 }
 
 func foo(x : i32) -> i32 {
-  if (x < 0) {
+  let _t0 = x < 0 in
+  if (_t0) {
     return -x
   }
   return x
