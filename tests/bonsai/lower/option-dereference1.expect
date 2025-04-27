@@ -1,6 +1,7 @@
 func foo(i : _option0, j : _option0) -> i32 {
   if (i.set && j.set) {
-    return i.value + j.value
+    let _t0 = i.value + j.value in
+    return _t0
   } else if (i.set) {
     return i.value
   } else if (j.set) {

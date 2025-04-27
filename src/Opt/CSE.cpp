@@ -62,6 +62,11 @@ struct CseLegalChecker : public ir::Visitor {
 // Retrieves all variables that have been seen more than once.
 // TODO(cgyurgyik): This should be stack-based. This requires being able to
 // mutate values in these stack data structures, which isn't possible yet.
+//
+// TODO(cgyurgyik): Still not working for variable substitution:
+// a = x + y + 2; <--
+// b = x + y;
+// c = b + 2;     <--
 class RenameAnalysis : public ir::Visitor {
   public:
     RenameAnalysis(const std::set<std::string> &side_effect_functions,
@@ -184,10 +189,12 @@ struct Rename : public ir::Mutator {
         default:
             break;
         }
+        // Check before nested renames occur.
+        const bool rename = should_rename(node);
         ir::Expr a = mutate(node->a);
         ir::Expr b = mutate(node->b);
         ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
-        if (!should_rename(op)) {
+        if (!rename) {
             return op;
         }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
@@ -196,12 +203,13 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Intrinsic *node) override {
+        const bool rename = should_rename(node);
         std::vector<ir::Expr> args;
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
         ir::Expr intrinsic = ir::Intrinsic::make(node->op, std::move(args));
-        if (!should_rename(intrinsic)) {
+        if (!rename) {
             return intrinsic;
         }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
@@ -210,12 +218,13 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Call *node) override {
+        const bool rename = should_rename(node);
         std::vector<ir::Expr> args;
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
         ir::Expr call = ir::Call::make(node->func, std::move(args));
-        if (!should_rename(call)) {
+        if (!rename) {
             return call;
         }
         ir::WriteLoc loc("_t" + std::to_string(counter++), node->type);
@@ -256,7 +265,7 @@ struct Rename : public ir::Mutator {
     // Whether we should give this sub-expression its own variable.
     // TODO(cgyurgyik): What else?
     bool should_rename(const ir::Expr &e) {
-        return !e.is<ir::Var>() && !is_const(e) && to_rename.contains(e);
+        return !e.is<ir::Var>() && !is_const(e) /*&& to_rename.contains(e)*/;
     }
     const ExprSet &to_rename;
     // A list of intermediate statements generated for subexpressions.
@@ -517,9 +526,9 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
         RenameAnalysis rename_analysis(side_effect_functions,
                                        mutable_arguments);
-        func->body.accept(&rename_analysis);
 
-        ExprSet to_rename = rename_analysis.post_process();
+        // func->body.accept(&rename_analysis);
+        ExprSet to_rename = {}; // rename_analysis.post_process();
         Rename rename(to_rename);
         func->body = rename.mutate(std::move(func->body));
 
