@@ -1,0 +1,22 @@
+//! flags: -b llvm
+
+// Just an abs(), used to test control flow.
+func foo(x : i32) -> i32 {
+    if x < 0 {
+        return -x;
+    }
+    return x;
+}
+
+func array_abs(n : i32, a : array[i32, n]) = map(foo, a);
+
+// Test the remove continues optimization.
+func bar(x : i32) -> i32 {
+    if x < 0 {
+        return -x;
+    } else {
+        return x;
+    }
+}
+
+func array_abs2(n : i32, a : array[i32, n]) = map(bar, a);

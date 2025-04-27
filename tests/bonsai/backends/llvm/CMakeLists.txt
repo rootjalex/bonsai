@@ -7,6 +7,7 @@ add_bonsai_tests(
     isel.bonsai
     ivector.bonsai
     lambda.bonsai
+    map-func.bonsai
     nested-exported-function.bonsai
     option.bonsai
     short-circuit.bonsai

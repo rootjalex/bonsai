@@ -1091,6 +1091,11 @@ void Printer::visit(const ForAll *node) {
     os << get_indent() << "}\n";
 }
 
+void Printer::visit(const Continue *node) {
+    os << get_indent();
+    os << "continue\n";
+}
+
 void Printer::visit(const Name *node) {
     os << get_indent();
     os << node->name;

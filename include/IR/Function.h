@@ -68,16 +68,18 @@ struct Function {
 
     // Creates a new function with the provided body.
     std::shared_ptr<ir::Function> replace_body(ir::Stmt body) {
-        return std::make_shared<Function>(std::move(name), std::move(args),
-                                          std::move(ret_type), std::move(body),
-                                          std::move(interfaces), std::move(attributes));
+        return std::make_shared<Function>(
+            std::move(name), std::move(args), std::move(ret_type),
+            std::move(body), std::move(interfaces), std::move(attributes));
     }
 
     Function(std::string name, std::vector<Argument> args, Type ret_type,
-             Stmt body, InterfaceList interfaces, std::vector<Attribute> attributes)
+             Stmt body, InterfaceList interfaces,
+             std::vector<Attribute> attributes)
         : name(std::move(name)), args(std::move(args)),
           ret_type(std::move(ret_type)), body(std::move(body)),
-          interfaces(std::move(interfaces)), attributes(std::move(attributes)) {}
+          interfaces(std::move(interfaces)), attributes(std::move(attributes)) {
+    }
 
     // Returns the argument types of this function. This is *not* memoized.
     std::vector<ir::Type> argument_types() const {
@@ -100,11 +102,13 @@ struct Function {
     ~Function() = default;
 
     bool is_exported() const {
-        return std::find(attributes.cbegin(), attributes.cend(), Attribute::exported) != attributes.cend();
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::exported) != attributes.cend();
     }
 
     bool is_imported() const {
-        return std::find(attributes.cbegin(), attributes.cend(), Attribute::imported) != attributes.cend();
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::imported) != attributes.cend();
     }
 };
 

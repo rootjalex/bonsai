@@ -262,6 +262,8 @@ void Visitor::visit(const ForAll *node) {
     node->body.accept(this);
 }
 
+void Visitor::visit(const Continue *node) {}
+
 void Visitor::visit(const Name *node) {}
 
 void Visitor::visit(const Pad *node) {}

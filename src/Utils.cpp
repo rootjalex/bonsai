@@ -164,32 +164,42 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
     return replacer.mutate(orig);
 }
 
+namespace {
+
+struct VarReplacer : public Mutator {
+    VarReplacer(const std::map<std::string, ir::Expr> &repls) : repls(repls) {}
+
+  private:
+    const std::map<std::string, ir::Expr> &repls;
+
+  public:
+    Expr visit(const Var *node) override {
+        const auto &iter = repls.find(node->name);
+        if (iter != repls.cend()) {
+            return iter->second;
+        } else {
+            return node;
+        }
+    }
+};
+
+} // namespace
+
 ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
                  const ir::Expr &orig) {
-    struct Replacer : public Mutator {
-        Replacer(const std::map<std::string, ir::Expr> &repls) : repls(repls) {}
+    VarReplacer replacer(repls);
+    return replacer.mutate(orig);
+}
 
-      private:
-        const std::map<std::string, ir::Expr> &repls;
-
-      public:
-        Expr visit(const Var *node) override {
-            const auto &iter = repls.find(node->name);
-            if (iter != repls.cend()) {
-                return iter->second;
-            } else {
-                return node;
-            }
-        }
-    };
-
-    Replacer replacer(repls);
+ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
+                 const ir::Stmt &orig) {
+    VarReplacer replacer(repls);
     return replacer.mutate(orig);
 }
 
 Type replace(const TypeMap &repls, const Type &type) {
-    struct Replacer : public Mutator {
-        Replacer(const TypeMap &repls) : repls(repls) {}
+    struct TypeReplacer : public Mutator {
+        TypeReplacer(const TypeMap &repls) : repls(repls) {}
 
       private:
         const TypeMap &repls;
@@ -206,7 +216,7 @@ Type replace(const TypeMap &repls, const Type &type) {
         }
     };
 
-    Replacer replacer(repls);
+    TypeReplacer replacer(repls);
     return replacer.mutate(type);
 }
 

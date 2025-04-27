@@ -87,6 +87,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     // Generates a short-circuiting if else.
     void codegen_short_circuit(ir::Expr cond, llvm::BasicBlock *true_bb,
                                llvm::BasicBlock *false_bb);
+    // Inserts a branch only if the block does not already have a terminator
+    // (e.g. a ret or br)
+    void codegen_branch(llvm::BasicBlock *bb);
 
     // Types
     virtual void visit(const ir::Void_t *) override;
@@ -157,6 +160,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::YieldFrom);
     virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
+    virtual void visit(const ir::Continue *) override;
 
   private:
     // Recursively creates IR that will print the given expression. This
@@ -169,6 +173,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;
     llvm::Function *current_function = nullptr;
+    // Used to compile `continue`
+    std::vector<llvm::BasicBlock *> latch_blocks;
+    // TODO(ajr): will need this for `break` statements.
+    // std::vector<llvm::BasicBlock *> escape_blocks;
 
     // Global LLVM state
     std::unique_ptr<llvm::LLVMContext> context;

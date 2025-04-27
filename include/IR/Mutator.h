@@ -83,6 +83,7 @@ struct Mutator {
     virtual Stmt visit(const YieldFrom *);
     virtual Stmt visit(const ForAll *);
     virtual Stmt visit(const ForEach *);
+    virtual Stmt visit(const Continue *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

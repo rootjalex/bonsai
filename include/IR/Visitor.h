@@ -74,6 +74,7 @@ struct Visitor {
     virtual void visit(const YieldFrom *);
     virtual void visit(const ForAll *);
     virtual void visit(const ForEach *);
+    virtual void visit(const Continue *);
     // Layouts
     virtual void visit(const Name *);
     virtual void visit(const Pad *);

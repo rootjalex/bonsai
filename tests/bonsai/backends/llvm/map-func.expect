@@ -1,0 +1,278 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @_traverse_array0(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+_traverse_array0_entry:
+  %size64 = zext i32 %n to i64
+  %0 = shl nuw nsw i64 %size64, 2
+  %mallocsize = mul i64 %0, %size64
+  %_alloc0_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %1 = icmp sgt i32 %n, 0
+  br i1 %1, label %x0_for.preheader, label %x0_for_end, !prof !0
+
+x0_for.preheader:                                 ; preds = %_traverse_array0_entry
+  %min.iters.check = icmp ult i32 %n, 8
+  br i1 %min.iters.check, label %x0_for.preheader2, label %vector.ph
+
+vector.ph:                                        ; preds = %x0_for.preheader
+  %n.vec = and i32 %n, 2147483640
+  br label %vector.body
+
+vector.body:                                      ; preds = %vector.body, %vector.ph
+  %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %2 = zext nneg i32 %index to i64
+  %3 = getelementptr i32, ptr %a, i64 %2
+  %4 = getelementptr i8, ptr %3, i64 16
+  %wide.load = load <4 x i32>, ptr %3, align 4
+  %wide.load1 = load <4 x i32>, ptr %4, align 4
+  %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
+  %6 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
+  %7 = getelementptr inbounds i32, ptr %_alloc0_untyped, i64 %2
+  %8 = getelementptr inbounds i8, ptr %7, i64 16
+  store <4 x i32> %5, ptr %7, align 4
+  store <4 x i32> %6, ptr %8, align 4
+  %index.next = add nuw i32 %index, 8
+  %9 = icmp eq i32 %index.next, %n.vec
+  br i1 %9, label %middle.block, label %vector.body, !llvm.loop !1
+
+middle.block:                                     ; preds = %vector.body
+  %cmp.n = icmp eq i32 %n.vec, %n
+  br i1 %cmp.n, label %x0_for_end, label %x0_for.preheader2
+
+x0_for.preheader2:                                ; preds = %middle.block, %x0_for.preheader
+  %.ph = phi i32 [ 0, %x0_for.preheader ], [ %n.vec, %middle.block ]
+  br label %x0_for
+
+x0_for:                                           ; preds = %x0_for.preheader2, %x0_for
+  %10 = phi i32 [ %13, %x0_for ], [ %.ph, %x0_for.preheader2 ]
+  %11 = zext nneg i32 %10 to i64
+  %extract_ptr = getelementptr i32, ptr %a, i64 %11
+  %extract = load i32, ptr %extract_ptr, align 4
+  %extract.sink = tail call i32 @llvm.abs.i32(i32 %extract, i1 false)
+  %12 = getelementptr inbounds i32, ptr %_alloc0_untyped, i64 %11
+  store i32 %extract.sink, ptr %12, align 4
+  %13 = add nuw nsw i32 %10, 1
+  %.not = icmp slt i32 %13, %n
+  br i1 %.not, label %x0_for, label %x0_for_end, !llvm.loop !4
+
+x0_for_end:                                       ; preds = %x0_for, %middle.block, %_traverse_array0_entry
+  ret ptr %_alloc0_untyped
+}
+
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @_traverse_array1(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+_traverse_array1_entry:
+  %size64 = zext i32 %n to i64
+  %0 = shl nuw nsw i64 %size64, 2
+  %mallocsize = mul i64 %0, %size64
+  %_alloc1_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %1 = icmp sgt i32 %n, 0
+  br i1 %1, label %x1_for.preheader, label %x1_for_end, !prof !0
+
+x1_for.preheader:                                 ; preds = %_traverse_array1_entry
+  %min.iters.check = icmp ult i32 %n, 8
+  br i1 %min.iters.check, label %x1_for.preheader2, label %vector.ph
+
+vector.ph:                                        ; preds = %x1_for.preheader
+  %n.vec = and i32 %n, 2147483640
+  br label %vector.body
+
+vector.body:                                      ; preds = %vector.body, %vector.ph
+  %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %2 = zext nneg i32 %index to i64
+  %3 = getelementptr i32, ptr %a, i64 %2
+  %4 = getelementptr i8, ptr %3, i64 16
+  %wide.load = load <4 x i32>, ptr %3, align 4
+  %wide.load1 = load <4 x i32>, ptr %4, align 4
+  %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
+  %6 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
+  %7 = getelementptr inbounds i32, ptr %_alloc1_untyped, i64 %2
+  %8 = getelementptr inbounds i8, ptr %7, i64 16
+  store <4 x i32> %5, ptr %7, align 4
+  store <4 x i32> %6, ptr %8, align 4
+  %index.next = add nuw i32 %index, 8
+  %9 = icmp eq i32 %index.next, %n.vec
+  br i1 %9, label %middle.block, label %vector.body, !llvm.loop !5
+
+middle.block:                                     ; preds = %vector.body
+  %cmp.n = icmp eq i32 %n.vec, %n
+  br i1 %cmp.n, label %x1_for_end, label %x1_for.preheader2
+
+x1_for.preheader2:                                ; preds = %middle.block, %x1_for.preheader
+  %.ph = phi i32 [ 0, %x1_for.preheader ], [ %n.vec, %middle.block ]
+  br label %x1_for
+
+x1_for:                                           ; preds = %x1_for.preheader2, %x1_for
+  %10 = phi i32 [ %13, %x1_for ], [ %.ph, %x1_for.preheader2 ]
+  %11 = zext nneg i32 %10 to i64
+  %extract_ptr = getelementptr i32, ptr %a, i64 %11
+  %extract = load i32, ptr %extract_ptr, align 4
+  %spec.select = tail call i32 @llvm.abs.i32(i32 %extract, i1 false)
+  %12 = getelementptr inbounds i32, ptr %_alloc1_untyped, i64 %11
+  store i32 %spec.select, ptr %12, align 4
+  %13 = add nuw nsw i32 %10, 1
+  %.not = icmp slt i32 %13, %n
+  br i1 %.not, label %x1_for, label %x1_for_end, !llvm.loop !6
+
+x1_for_end:                                       ; preds = %x1_for, %middle.block, %_traverse_array1_entry
+  ret ptr %_alloc1_untyped
+}
+
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @array_abs(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+array_abs_entry:
+  %size64.i = zext i32 %n to i64
+  %0 = shl nuw nsw i64 %size64.i, 2
+  %mallocsize.i = mul i64 %0, %size64.i
+  %_alloc0_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
+  %1 = icmp sgt i32 %n, 0
+  br i1 %1, label %x0_for.i.preheader, label %_traverse_array0.exit, !prof !0
+
+x0_for.i.preheader:                               ; preds = %array_abs_entry
+  %min.iters.check = icmp ult i32 %n, 8
+  br i1 %min.iters.check, label %x0_for.i.preheader2, label %vector.ph
+
+vector.ph:                                        ; preds = %x0_for.i.preheader
+  %n.vec = and i32 %n, 2147483640
+  br label %vector.body
+
+vector.body:                                      ; preds = %vector.body, %vector.ph
+  %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %2 = zext nneg i32 %index to i64
+  %3 = getelementptr i32, ptr %a, i64 %2
+  %4 = getelementptr i8, ptr %3, i64 16
+  %wide.load = load <4 x i32>, ptr %3, align 4
+  %wide.load1 = load <4 x i32>, ptr %4, align 4
+  %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
+  %6 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
+  %7 = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %2
+  %8 = getelementptr inbounds i8, ptr %7, i64 16
+  store <4 x i32> %5, ptr %7, align 4
+  store <4 x i32> %6, ptr %8, align 4
+  %index.next = add nuw i32 %index, 8
+  %9 = icmp eq i32 %index.next, %n.vec
+  br i1 %9, label %middle.block, label %vector.body, !llvm.loop !7
+
+middle.block:                                     ; preds = %vector.body
+  %cmp.n = icmp eq i32 %n.vec, %n
+  br i1 %cmp.n, label %_traverse_array0.exit, label %x0_for.i.preheader2
+
+x0_for.i.preheader2:                              ; preds = %middle.block, %x0_for.i.preheader
+  %.ph = phi i32 [ 0, %x0_for.i.preheader ], [ %n.vec, %middle.block ]
+  br label %x0_for.i
+
+x0_for.i:                                         ; preds = %x0_for.i.preheader2, %x0_for.i
+  %10 = phi i32 [ %13, %x0_for.i ], [ %.ph, %x0_for.i.preheader2 ]
+  %11 = zext nneg i32 %10 to i64
+  %extract_ptr.i = getelementptr i32, ptr %a, i64 %11
+  %extract.i = load i32, ptr %extract_ptr.i, align 4
+  %extract.sink.i = tail call i32 @llvm.abs.i32(i32 %extract.i, i1 false)
+  %12 = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %11
+  store i32 %extract.sink.i, ptr %12, align 4
+  %13 = add nuw nsw i32 %10, 1
+  %.not.i = icmp slt i32 %13, %n
+  br i1 %.not.i, label %x0_for.i, label %_traverse_array0.exit, !llvm.loop !8
+
+_traverse_array0.exit:                            ; preds = %x0_for.i, %middle.block, %array_abs_entry
+  ret ptr %_alloc0_untyped.i
+}
+
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @array_abs2(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+array_abs2_entry:
+  %size64.i = zext i32 %n to i64
+  %0 = shl nuw nsw i64 %size64.i, 2
+  %mallocsize.i = mul i64 %0, %size64.i
+  %_alloc1_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
+  %1 = icmp sgt i32 %n, 0
+  br i1 %1, label %x1_for.i.preheader, label %_traverse_array1.exit, !prof !0
+
+x1_for.i.preheader:                               ; preds = %array_abs2_entry
+  %min.iters.check = icmp ult i32 %n, 8
+  br i1 %min.iters.check, label %x1_for.i.preheader2, label %vector.ph
+
+vector.ph:                                        ; preds = %x1_for.i.preheader
+  %n.vec = and i32 %n, 2147483640
+  br label %vector.body
+
+vector.body:                                      ; preds = %vector.body, %vector.ph
+  %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %2 = zext nneg i32 %index to i64
+  %3 = getelementptr i32, ptr %a, i64 %2
+  %4 = getelementptr i8, ptr %3, i64 16
+  %wide.load = load <4 x i32>, ptr %3, align 4
+  %wide.load1 = load <4 x i32>, ptr %4, align 4
+  %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
+  %6 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
+  %7 = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %2
+  %8 = getelementptr inbounds i8, ptr %7, i64 16
+  store <4 x i32> %5, ptr %7, align 4
+  store <4 x i32> %6, ptr %8, align 4
+  %index.next = add nuw i32 %index, 8
+  %9 = icmp eq i32 %index.next, %n.vec
+  br i1 %9, label %middle.block, label %vector.body, !llvm.loop !9
+
+middle.block:                                     ; preds = %vector.body
+  %cmp.n = icmp eq i32 %n.vec, %n
+  br i1 %cmp.n, label %_traverse_array1.exit, label %x1_for.i.preheader2
+
+x1_for.i.preheader2:                              ; preds = %middle.block, %x1_for.i.preheader
+  %.ph = phi i32 [ 0, %x1_for.i.preheader ], [ %n.vec, %middle.block ]
+  br label %x1_for.i
+
+x1_for.i:                                         ; preds = %x1_for.i.preheader2, %x1_for.i
+  %10 = phi i32 [ %13, %x1_for.i ], [ %.ph, %x1_for.i.preheader2 ]
+  %11 = zext nneg i32 %10 to i64
+  %extract_ptr.i = getelementptr i32, ptr %a, i64 %11
+  %extract.i = load i32, ptr %extract_ptr.i, align 4
+  %spec.select.i = tail call i32 @llvm.abs.i32(i32 %extract.i, i1 false)
+  %12 = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %11
+  store i32 %spec.select.i, ptr %12, align 4
+  %13 = add nuw nsw i32 %10, 1
+  %.not.i = icmp slt i32 %13, %n
+  br i1 %.not.i, label %x1_for.i, label %_traverse_array1.exit, !llvm.loop !10
+
+_traverse_array1.exit:                            ; preds = %x1_for.i, %middle.block, %array_abs2_entry
+  ret ptr %_alloc1_untyped.i
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @bar(i32 noundef %x) local_unnamed_addr #1 {
+bar_entry:
+  %common.ret.op = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
+  ret i32 %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @foo(i32 noundef %x) local_unnamed_addr #1 {
+foo_entry:
+  %common.ret.op = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
+  ret i32 %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.abs.i32(i32, i1 immarg) #3
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1 immarg) #3
+
+attributes #0 = { nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{!"branch_weights", i32 1073741824, i32 0}
+!1 = distinct !{!1, !2, !3}
+!2 = !{!"llvm.loop.isvectorized", i32 1}
+!3 = !{!"llvm.loop.unroll.runtime.disable"}
+!4 = distinct !{!4, !3, !2}
+!5 = distinct !{!5, !2, !3}
+!6 = distinct !{!6, !3, !2}
+!7 = distinct !{!7, !2, !3}
+!8 = distinct !{!8, !3, !2}
+!9 = distinct !{!9, !2, !3}
+!10 = distinct !{!10, !3, !2}

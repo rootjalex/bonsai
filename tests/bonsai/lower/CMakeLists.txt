@@ -11,6 +11,7 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    map-func.bonsai
     multiple-options.bonsai
     nested-exported-function.bonsai
     option-dereference-struct.bonsai
