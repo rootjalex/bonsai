@@ -18,7 +18,8 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) ->
   alloc _alloc0 : Triangle[n]
   forall r in [0u:n:1u] {
     let _load0 = rays[r] in
-    _alloc0[r] = _traverse_tree0(_load0, triangles)
+    let _t0 = _traverse_tree0(_load0, triangles) in
+    _alloc0[r] = _t0
   }
   return _alloc0
 }
@@ -26,8 +27,8 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) ->
 func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(triangles__index : u32) {
-    let _t2 = triangles.triangles_index[triangles__index].nPrims == 0u in
-    if (_t2) {
+    let _t4 = triangles.triangles_index[triangles__index].nPrims == 0u in
+    if (_t4) {
       let _t0 = triangles__index + 1u in
       if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
         from _t0
@@ -38,9 +39,11 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
       }
     } else if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
       forall _idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
-        let _iter0 = triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0] in
+        let _t2 = cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0 in
+        let _iter0 = triangles.prims[_t2] in
         if (intersectsp_ray_tri(ray, _iter0).set && (distmin_Ray_Triangle(ray, _iter0) < _best0._field0)) {
-          _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
+          let _t3 = distmin_Ray_Triangle(ray, _iter0) in
+          _best0 argmin= build<tuple.0>(_t3, _iter0)
         }
       }
     }

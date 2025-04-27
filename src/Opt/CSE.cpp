@@ -172,6 +172,12 @@ struct Rename : public ir::Mutator {
         ir::Expr value = mutate(node->value);
         return make(ir::Print::make(std::move(value)));
     }
+    ir::Stmt visit(const ir::Store *node) override {
+        ir::Expr value = mutate(node->value);
+        ir::Expr index = mutate(node->index);
+        return make(
+            ir::Store::make(node->name, std::move(index), std::move(value)));
+    }
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Expr> args;
         for (const ir::Expr &arg : node->args) {
@@ -243,9 +249,22 @@ struct Rename : public ir::Mutator {
     // Skip the body of a lambda expression.
     ir::Expr visit(const ir::Lambda *node) override { return node; }
 
-    ir::Stmt visit(const ir::ForEach *node) override { return node; }
-    // TODO(cgyurgyik): Test with trace.bonsai
-    ir::Stmt visit(const ir::ForAll *node) override { return node; }
+    ir::Stmt visit(const ir::ForEach *node) override {
+        ir::Expr iter = mutate(node->iter);
+        ir::Stmt body = mutate(node->body);
+        return make(
+            ir::ForEach::make(node->name, std::move(iter), std::move(body)));
+    }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        ir::Stmt header = node->header;
+        if (header.defined()) {
+            header = mutate(header);
+        }
+        ir::Stmt body = mutate(node->body);
+        return make(ir::ForAll::make(node->index, std::move(header),
+                                     node->slice, std::move(body)));
+    }
 
     ir::Stmt visit(const ir::DoWhile *node) override {
         ir::Stmt body = mutate(node->body);
@@ -330,8 +349,13 @@ class CseImpl : public ir::Mutator {
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
-    // Skip statements we cannot unit test.
-    ir::Stmt visit(const ir::ForEach *node) override { return node; }
+    ir::Stmt visit(const ir::ForEach *node) override {
+        new_frame();
+        ir::Expr iter = mutate(node->iter);
+        ir::Stmt body = mutate(node->body);
+        pop_frame();
+        return ir::ForEach::make(node->name, std::move(iter), std::move(body));
+    }
 
     ir::Stmt visit(const ir::ForAll *node) override {
         ir::Stmt header = node->header;
