@@ -599,6 +599,9 @@ class LVN : public ir::Mutator {
         return ir::Cast::make(node->type, cse(node->value));
     }
 
+    // TODO(cgyurgyik): Add LVN for bodies of lambda expressions.
+    ir::Expr visit(const ir::Lambda *node) override { return node; }
+
   private:
     // A list of functions that may have side effects. This is "whole program
     // analysis", so doesn't require a frame stack.
