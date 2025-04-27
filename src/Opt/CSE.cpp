@@ -427,9 +427,28 @@ class CseImpl : public ir::Mutator {
     ir::Stmt visit(const ir::DoWhile *node) override {
         new_frame();
         ir::Stmt body = mutate(node->body);
-        ir::Expr cond = mutate(node->cond); // TODO(cgyurgyik): ?
+        ir::Expr cond = mutate(node->cond);
         pop_frame();
         return ir::DoWhile::make(std::move(body), std::move(cond));
+    }
+
+    ir::Expr visit(const ir::Call *node) override {
+        std::vector<ir::Expr> args;
+        for (ir::Expr arg : node->args) {
+            arg = substitute(arg);
+            std::optional<int64_t> vn = e_to_vn.from_frames(arg);
+            if (!vn.has_value()) {
+                args.push_back(std::move(arg));
+                continue;
+            }
+            std::optional<std::string> name = vn_to_var.from_frames(*vn);
+            if (!name.has_value()) {
+                args.push_back(std::move(arg));
+                continue;
+            }
+            args.push_back(ir::Var::make(arg.type(), std::move(*name)));
+        }
+        return ir::Call::make(node->func, std::move(args));
     }
 
   private:
@@ -474,24 +493,7 @@ class CseImpl : public ir::Mutator {
         if (!is_cse_legal(e)) {
             return {};
         }
-        // TODO(cgyurgyik): Probably other expressions this should apply?
-        if (const auto *op = e.as<ir::BinOp>()) {
-            e = ir::BinOp::make(op->op, substitute(op->a), substitute(op->b));
-        }
-        if (const auto *op = e.as<ir::Intrinsic>()) {
-            std::vector<ir::Expr> args = op->args;
-            for (int i = 0, e = args.size(); i < e; ++i) {
-                args[i] = substitute(args[i]);
-            }
-            e = ir::Intrinsic::make(op->op, std::move(args));
-        }
-        if (const auto *op = e.as<ir::Call>()) {
-            std::vector<ir::Expr> args = op->args;
-            for (int i = 0, e = args.size(); i < e; ++i) {
-                args[i] = substitute(args[i]);
-            }
-            e = ir::Call::make(op->func, std::move(args));
-        }
+        e = substitute(e);
         if (std::optional<int64_t> vn = e_to_vn.from_frames(e)) {
             return *vn;
         }
@@ -504,6 +506,24 @@ class CseImpl : public ir::Mutator {
     // expression. There might be a better way to do this, but this is how I've
     // implemented LVN for SSA, where use-def chains are immediately available.
     ir::Expr substitute(ir::Expr e) {
+        if (const auto *c = e.as<ir::Call>()) {
+            std::vector<ir::Expr> args;
+            for (const ir::Expr &a : c->args) {
+                args.push_back(substitute(a));
+            }
+            return ir::Call::make(c->func, std::move(args));
+        }
+        if (const auto *o = e.as<ir::BinOp>()) {
+            return ir::BinOp::make(o->op, substitute(o->a), substitute(o->b));
+        }
+        if (const auto *op = e.as<ir::Intrinsic>()) {
+            std::vector<ir::Expr> args = op->args;
+            for (int i = 0, e = args.size(); i < e; ++i) {
+                args[i] = substitute(args[i]);
+            }
+            return ir::Intrinsic::make(op->op, std::move(args));
+        }
+
         const auto *v = e.as<ir::Var>();
         if (v == nullptr) {
             return e;

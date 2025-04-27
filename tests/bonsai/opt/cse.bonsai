@@ -1,4 +1,4 @@
-//! flags: -p core -p cse -p dce
+//! flags: -p core -p cse 
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
