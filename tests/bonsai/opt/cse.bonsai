@@ -1,4 +1,4 @@
-//! flags: -p core -p cse 
+//! flags: -p core -p cse -p dce
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
@@ -14,4 +14,17 @@ func foo(x: i32, y: i32, z: i32, cond: bool) -> i32 {
         return c;
     }
     return m + n + (x * y / z);
+}
+
+
+element E { x: f32; y: f32; }
+func mutating(e1: E, e2: mut E) -> f32 {
+    v: f32 = 42.0;
+    a: f32 = e1.x / v;
+    b: f32 = e1.x / v;
+
+    c: f32 = e2.x / v;
+    e2.x += 1.0;
+    d: f32 = e2.x / v;
+    return (a + b) * (c - d);
 }
