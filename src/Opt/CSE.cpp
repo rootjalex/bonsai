@@ -119,6 +119,24 @@ class RenameAnalysis : public ir::Visitor {
         var_to_e.pop_frame();
     }
 
+    void visit(const ir::Assign *node) override {
+        if (node->mutating && !mutable_variables.contains(node->loc.base)) {
+            mutable_variables.add_to_frame(node->loc.base);
+        }
+    }
+
+    void visit(const ir::Store *node) override {
+        if (!mutable_variables.contains(node->name)) {
+            mutable_variables.add_to_frame(node->name);
+        }
+    }
+
+    void visit(const ir::Accumulate *node) override {
+        if (!mutable_variables.contains(node->loc.base)) {
+            mutable_variables.add_to_frame(node->loc.base);
+        }
+    }
+
     void visit(const ir::ForEach *node) override {
         var_to_e.new_frame();
         node->iter.accept(this);

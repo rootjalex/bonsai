@@ -16,9 +16,21 @@ func foo(x: i32, y: i32, z: i32, cond: bool) -> i32 {
     return m + n + (x * y / z);
 }
 
+func mutating1(x: mut i32) -> i32 {
+    a: i32 = 1 + x;
+    x += 1;
+    b: i32 = 1 + x;
+    y: mut i32 = x;
+    c: i32 = 1 + y;
+    y += 1;
+    d: i32 = 1 + y;
+    
+    return (a / b) - (c * d);
+}
+
 
 element E { x: f32; y: f32; }
-func mutating(e1: E, e2: mut E) -> f32 {
+func mutating2(e1: E, e2: mut E) -> f32 {
     v: f32 = 42.0;
     a: f32 = e1.x / v;
     b: f32 = e1.x / v;
