@@ -292,10 +292,10 @@ Type Vector_t::make(Type etype, uint32_t lanes) {
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
                     std::vector<Attribute> attributes) {
-    internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
+    internal_assert(!name.empty()) << "Struct_t::make received undefined name";
     internal_assert(std::all_of(fields.cbegin(), fields.cend(),
                                 [](const auto &p) { return p.type.defined(); }))
-        << "Struct_t::make recieved undefined field type in definition of "
+        << "Struct_t::make received undefined field type in definition of "
         << name;
     Struct_t *node = new Struct_t;
     node->name = std::move(name);
@@ -307,10 +307,10 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
 Type Struct_t::make(std::string name, Struct_t::Map fields,
                     Struct_t::DefMap defaults,
                     std::vector<Attribute> attributes) {
-    internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
+    internal_assert(!name.empty()) << "Struct_t::make received undefined name";
     internal_assert(std::all_of(fields.cbegin(), fields.cend(),
                                 [](const auto &p) { return p.type.defined(); }))
-        << "Struct_t::make recieved undefined field type in definition of "
+        << "Struct_t::make received undefined field type in definition of "
         << name;
     internal_assert(std::all_of(defaults.cbegin(), defaults.cend(),
                                 [](const auto &p) {
@@ -334,7 +334,7 @@ bool Struct_t::is_packed() const {
 Type Tuple_t::make(std::vector<Type> etypes) {
     internal_assert(std::all_of(etypes.cbegin(), etypes.cend(),
                                 [](const Type &t) { return t.defined(); }))
-        << "Tuple_t::make recieved undefined type";
+        << "Tuple_t::make received undefined type";
     Tuple_t *node = new Tuple_t;
     node->etypes = std::move(etypes);
     return node;

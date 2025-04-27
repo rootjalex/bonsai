@@ -229,7 +229,7 @@ struct Struct_t : TypeNode<Struct_t> {
     static Type make(std::string name, Map fields, DefMap defaults,
                      std::vector<Attribute> attributes = {});
 
-    // Whether this has the Packed attribute.
+    // Whether this type has the `packed` attribute.
     bool is_packed() const;
 
     static const IRTypeEnum node_type = IRTypeEnum::Struct_t;
