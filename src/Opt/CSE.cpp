@@ -330,9 +330,26 @@ class CseImpl : public ir::Mutator {
     }
 
     // Skip statements we cannot unit test.
-    ir::Stmt visit(const ir::ForAll *node) override { return node; }
     ir::Stmt visit(const ir::ForEach *node) override { return node; }
-    ir::Stmt visit(const ir::DoWhile *node) override { return node; }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        ir::Stmt header = node->header;
+        new_frame();
+        if (header.defined()) {
+            header = mutate(header);
+        }
+        ir::Stmt body = mutate(node->body);
+        pop_frame();
+        return ir::ForAll::make(node->index, std::move(header), node->slice,
+                                std::move(body));
+    }
+    ir::Stmt visit(const ir::DoWhile *node) override {
+        new_frame();
+        ir::Stmt body = mutate(node->body);
+        ir::Expr cond = mutate(node->cond); // TODO(cgyurgyik): ?
+        pop_frame();
+        return ir::DoWhile::make(std::move(body), std::move(cond));
+    }
 
   private:
     // A list of functions that may have side effects. This is "whole program
