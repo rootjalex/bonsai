@@ -1,8 +1,8 @@
 func use_nested_option(i : _option1) -> i32 {
   if (i.set) {
-    let j = i.value in
-    if (j.set) {
-      return j.value
+    let _t0 = i.value in
+    if (_t0.set) {
+      return _t0.value
     }
     return 0
   }

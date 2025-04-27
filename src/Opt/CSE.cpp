@@ -75,9 +75,6 @@ class RenameAnalysis : public ir::Visitor {
           mutable_arguments(mutable_arguments) {}
 
     void visit(const ir::LetStmt *node) override {
-        if (node->value.is<ir::Access>()) {
-            return;
-        }
         var_to_e.add_to_frame(node->loc.base, node->value);
     }
 
@@ -194,6 +191,8 @@ class RenameAnalysis : public ir::Visitor {
         node->cond.accept(this);
         var_to_e.pop_frame();
     }
+
+    void visit(const ir::YieldFrom *node) override { node->value.accept(this); }
 
     ExprSet post_process() {
         ExprSet es;
@@ -414,9 +413,6 @@ struct Rename : public ir::Mutator {
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
 
-    // Skip the body of a lambda expression.
-    ir::Expr visit(const ir::Lambda *node) override { return node; }
-
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
@@ -443,6 +439,10 @@ struct Rename : public ir::Mutator {
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);
         return make(ir::DoWhile::make(std::move(body), std::move(cond)));
+    }
+
+    ir::Stmt visit(const ir::YieldFrom *node) override {
+        return make(ir::YieldFrom::make(mutate(node->value)));
     }
 
   private:
@@ -546,12 +546,17 @@ class CseImpl : public ir::Mutator {
         return ir::ForAll::make(node->index, std::move(header),
                                 std::move(slice), std::move(body));
     }
+
     ir::Stmt visit(const ir::DoWhile *node) override {
         new_frame();
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);
         pop_frame();
         return ir::DoWhile::make(std::move(body), std::move(cond));
+    }
+
+    ir::Stmt visit(const ir::YieldFrom *node) override {
+        return ir::YieldFrom::make(mutate(node->value));
     }
 
     ir::Expr visit(const ir::Call *node) override {
@@ -791,8 +796,6 @@ class CopyPropagation : public ir::Mutator {
     // Cannot propagate copies through mutable variables.
     ir::Stmt visit(const ir::Assign *node) override { return node; }
     ir::Stmt visit(const ir::Accumulate *node) override { return node; }
-    // Don't propagate through lambda bodies.
-    ir::Expr visit(const ir::Lambda *node) override { return node; }
 
   private:
     const std::set<std::string> &mutable_arguments;

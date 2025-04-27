@@ -65,9 +65,9 @@ func _unexported_trace(ray : Ray, triangles : _triangles_layout1) -> Triangle {
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t0 = intersectsp_ray_aabb(r, b) in
+  if (_t0.set) {
+    let extract = _t0.value in
     return extract.high
   }
   return (f32)inf
@@ -83,18 +83,18 @@ func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t0 = intersectsp_ray_aabb(r, b) in
+  if (_t0.set) {
+    let extract = _t0.value in
     return extract.low
   }
   return -(f32)inf
 }
 
 func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
-  let isect = intersectsp_ray_tri(ray, tri) in
-  if (isect.set) {
-    let isect_ = isect.value in
+  let _t0 = intersectsp_ray_tri(ray, tri) in
+  if (_t0.set) {
+    let isect_ = _t0.value in
     return isect_.t
   } else {
     return (f32)inf
@@ -102,10 +102,10 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 }
 
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (interval.set) {
-    let extract = interval.value in
-    return (extract.low < r.t) && (0f < extract.high)
+  let _t0 = intersectsp_ray_aabb(r, b) in
+  if (_t0.set) {
+    let _t1 = _t0.value in
+    return (_t1.low < r.t) && (0f < _t1.high)
   }
   return false
 }
