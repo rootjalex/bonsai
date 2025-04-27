@@ -434,21 +434,22 @@ class CseImpl : public ir::Mutator {
 
     ir::Expr visit(const ir::Call *node) override {
         std::vector<ir::Expr> args;
-        for (ir::Expr arg : node->args) {
-            arg = substitute(arg);
-            std::optional<int64_t> vn = e_to_vn.from_frames(arg);
-            if (!vn.has_value()) {
-                args.push_back(std::move(arg));
-                continue;
-            }
-            std::optional<std::string> name = vn_to_var.from_frames(*vn);
-            if (!name.has_value()) {
-                args.push_back(std::move(arg));
-                continue;
-            }
-            args.push_back(ir::Var::make(arg.type(), std::move(*name)));
+        for (const ir::Expr &arg : node->args) {
+            args.push_back(cse(arg));
         }
         return ir::Call::make(node->func, std::move(args));
+    }
+
+    ir::Stmt visit(const ir::CallStmt *node) override {
+        std::vector<ir::Expr> args;
+        for (const ir::Expr &arg : node->args) {
+            args.push_back(cse(arg));
+        }
+        return ir::CallStmt::make(node->func, std::move(args));
+    }
+
+    ir::Expr visit(const ir::BinOp *node) override {
+        return ir::BinOp::make(node->op, cse(node->a), cse(node->b));
     }
 
   private:
@@ -500,6 +501,21 @@ class CseImpl : public ir::Mutator {
         const int64_t vn = local_value_number++;
         e_to_vn.add_to_frame(e, vn);
         return vn;
+    }
+
+    // Finds a common subexpression replacement for `e`, or returns the original
+    // expression otherwise.
+    ir::Expr cse(ir::Expr e) {
+        ir::Expr cse_e = substitute(e);
+        std::optional<int64_t> vn = e_to_vn.from_frames(cse_e);
+        if (!vn.has_value()) {
+            return e;
+        }
+        std::optional<std::string> name = vn_to_var.from_frames(*vn);
+        if (!name.has_value()) {
+            return e;
+        }
+        return ir::Var::make(e.type(), std::move(*name));
     }
 
     // For simplicity, we replace intermediate variables with their value
