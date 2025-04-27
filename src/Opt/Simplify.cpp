@@ -185,9 +185,13 @@ struct Simplifier : ir::Mutator {
                 e.defined()) {
                 return e;
             }
-            if (is_const_zero(a) || is_const_zero(b)) {
+            if (is_const_zero(a)) {
                 // false && x = false
                 return a;
+            }
+            if (is_const_zero(b)) {
+                // x && false = false
+                return b;
             }
             if (is_const_one(a)) {
                 // true && x = x
@@ -203,15 +207,18 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
-
         case ir::BinOp::OpType::LOr: {
             if (ir::Expr e = constant_fold(std::logical_or<>{}, a, b);
                 e.defined()) {
                 return e;
             }
-            if (is_const_one(a) || is_const_one(b)) {
+            if (is_const_one(a)) {
                 // true || x = true
                 return a;
+            }
+            if (is_const_one(b)) {
+                // x || true = true
+                return b;
             }
             if (is_const_zero(a)) {
                 // false || x = x
@@ -227,9 +234,100 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
+        case ir::BinOp::OpType::BwAnd: {
+            /*
+            if (ir::Expr e = constant_fold(std::logical_and<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            */
+            if (is_const_zero(a)) {
+                // 0 & b = 0
+                return a;
+            }
+            if (is_const_zero(b)) {
+                // a & 0 = 0
+                return b;
+            }
+            if (type.is_bool() && is_const_one(a)) {
+                // true & b = b
+                return b;
+            }
+            if (type.is_bool() && is_const_one(b)) {
+                // a & true = a
+                return a;
+            }
+            if (ir::equals(a, b)) {
+                // a & a = a
+                return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
+        case ir::BinOp::OpType::BwOr: {
+            /*
+            if (ir::Expr e = constant_fold(std::logical_or<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            */
+            if (type.is_bool() && is_const_one(a)) {
+                // true | b = true
+                return a;
+            }
+            if (type.is_bool() && is_const_one(b)) {
+                // a | true = true
+                return b;
+            }
+            if (is_const_zero(a)) {
+                // 0 | b = b
+                return b;
+            }
+            if (is_const_zero(b)) {
+                // a | 0 = a
+                return a;
+            }
+            if (ir::equals(a, b)) {
+                // a | a = a
+                return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
         default:
             return make(node, std::move(a), std::move(b));
         }
+    }
+
+    ir::Expr visit(const ir::UnOp *node) override {
+        ir::Expr a = mutate(node->a);
+        // Both are self-inverses.
+        if (const ir::UnOp *u = a.as<ir::UnOp>()) {
+            if (u->op == node->op) {
+                return u->a;
+            }
+        }
+
+        ir::Type type = a.type();
+        switch (node->op) {
+            case ir::UnOp::Not: {
+                if (type.is_bool()) {
+                    if (is_const_zero(a)) {
+                        // ~false = true
+                        return make_one(type);
+                    }
+                    if (is_const_one(a)) {
+                        // true = false
+                        return make_zero(type);
+                    }
+                }
+                break;
+            }
+            default: break;
+        }
+        // TODO: other simplifications.
+        if (a.same_as(node->a)) {
+            return node;
+        }
+        return ir::UnOp::make(node->op, std::move(a));
     }
 
     ir::Expr visit(const ir::Cast *node) override {
@@ -280,6 +378,26 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::Extract::make(std::move(v), std::move(i));
+    }
+
+    ir::Expr visit(const ir::VectorReduce *node) override {
+        ir::Expr value = mutate(node->value);
+        switch (node->op) {
+        case ir::VectorReduce::And:
+        case ir::VectorReduce::Or:
+        case ir::VectorReduce::Min:
+        case ir::VectorReduce::Max:
+            if (const ir::Broadcast *b = value.as<ir::Broadcast>()) {
+                return b->value;
+            }
+            break;
+        default:
+            break;
+        }
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        return ir::VectorReduce::make(node->op, std::move(value));
     }
 
   private:
