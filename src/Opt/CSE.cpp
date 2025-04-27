@@ -333,34 +333,26 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        const bool rename = should_rename(node);
-        ir::Expr a = mutate(node->a);
-        ir::Expr b = node->b;
         switch (node->op) {
         // Logical variables cannot safely emit temporary variables.
         case ir::BinOp::OpType::LAnd:
         case ir::BinOp::OpType::LOr:
-            // TODO(cgyurgyik): a hack to ensure we don't break logical
-            // operations. What we really want to do is lower any CSE'able
-            // logical operations to their respective if-else conditions.
-            if (const auto *inner = node->a.as<ir::BinOp>();
-                inner && ((inner->op == ir::BinOp::OpType::LAnd) ||
-                          (inner->op == ir::BinOp::OpType::LOr))) {
-                return node;
-            }
-            break;
+            // TODO(cgyurgyik): These should be translated to their respective
+            // if-else versions beforehand.
+            return node;
         default:
-            b = mutate(b);
-            break;
+            const bool rename = should_rename(node);
+            ir::Expr a = mutate(node->a);
+            ir::Expr b = mutate(node->b);
+            internal_assert(a.defined() && b.defined());
+            ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
+            if (!rename) {
+                return op;
+            }
+            ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+            stmts.push_back(ir::LetStmt::make(location, std::move(op)));
+            return ir::Var::make(node->type, location.base);
         }
-        internal_assert(a.defined() && b.defined());
-        ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
-        if (!rename) {
-            return op;
-        }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
-        stmts.push_back(ir::LetStmt::make(location, std::move(op)));
-        return ir::Var::make(node->type, location.base);
     }
 
     ir::Expr visit(const ir::Intrinsic *node) override {
