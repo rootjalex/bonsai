@@ -26,12 +26,12 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) ->
 func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(triangles__index : u32) {
-    let _t34 = triangles.triangles_index in
-    let _t35 = _t34[triangles__index] in
-    let _t36 = _t35.nPrims in
-    if (_t36 == 0u) {
-      let _t2 = _t35.low in
-      let _t5 = _t35.high in
+    let _t41 = triangles.triangles_index in
+    let _t42 = _t41[triangles__index] in
+    let _t43 = _t42.nPrims in
+    if (_t43 == 0u) {
+      let _t2 = _t42.low in
+      let _t5 = _t42.high in
       let _t6 = build<AABB>(_t2, _t5) in
       let _t7 = intersects_Ray_AABB(ray, _t6) in
       let _t8 = _t7 && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0) in
@@ -39,18 +39,25 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
         from triangles__index + 1u
       }
       if (_t8) {
-        from triangles__index + cast<__layout6>(_t35.triangles_spliton_nPrims).offset
+        let _t11 = _t42.triangles_spliton_nPrims in
+        from triangles__index + cast<__layout6>(_t11).offset
       }
     } else {
-      forall _idx0 in [0u:cast<u32>(_t36):1u] {
-        let _iter0 = triangles.prims[cast<__layout9>(_t35.triangles_spliton_nPrims).pOffset + _idx0] in
-        let _t24 = _t35.low in
-        let _t27 = _t35.high in
-        let _t28 = build<AABB>(_t24, _t27) in
-        let _t29 = intersects_Ray_AABB(ray, _t28) in
-        let _t30 = _t29 && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0) in
-        if (_t30) {
-          if (intersectsp_ray_tri(ray, _iter0).set && (distmin_Ray_Triangle(ray, _iter0) < _best0._field0)) {
+      forall _idx0 in [0u:cast<u32>(_t43):1u] {
+        let _t21 = triangles.prims in
+        let _t24 = _t42.triangles_spliton_nPrims in
+        let _t25 = cast<__layout9>(_t24) in
+        let _t26 = _t25.pOffset in
+        let _t27 = _t26 + _idx0 in
+        let _t28 = _t21[_t27] in
+        let _iter0 = _t28 in
+        let _t31 = _t42.low in
+        let _t34 = _t42.high in
+        let _t35 = build<AABB>(_t31, _t34) in
+        let _t36 = intersects_Ray_AABB(ray, _t35) in
+        let _t37 = _t36 && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0) in
+        if (_t37) {
+          if (intersectsp_ray_tri(ray, _t28).set && (distmin_Ray_Triangle(ray, _t28) < _best0._field0)) {
             _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
           }
         }

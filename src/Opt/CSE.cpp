@@ -60,13 +60,8 @@ struct CseLegalChecker : public ir::Visitor {
 };
 
 // Retrieves all variables that have been seen more than once.
-// TODO(cgyurgyik): This should be stack-based. This requires being able to
-// mutate values in these stack data structures, which isn't possible yet.
-//
-// TODO(cgyurgyik): Still not working for variable substitution:
-// a = x + y + 2; <--
-// b = x + y;
-// c = b + 2;     <--
+// TODO(cgyurgyik): This should be stack-based, however we don't have ways to
+// uniquely identify different "scopes".
 class RenameAnalysis : public ir::Visitor {
   public:
     RenameAnalysis(const std::set<std::string> &side_effect_functions,
@@ -80,71 +75,64 @@ class RenameAnalysis : public ir::Visitor {
 
     void visit(const ir::BinOp *node) override {
         update_count(node);
-        ir::Expr a = substitute(node->a);
-        a.accept(this);
-        ir::Expr b = substitute(node->b);
-        b.accept(this);
+        substitute(node->a).accept(this);
+        substitute(node->b).accept(this);
     }
 
     void visit(const ir::Access *node) override {
         update_count(node);
-        ir::Expr value = substitute(node->value);
-        value.accept(this);
+        substitute(node->value).accept(this);
     }
 
     void visit(const ir::Build *node) override {
         update_count(node);
         for (const ir::Expr &v : node->values) {
-            ir::Expr value = substitute(v);
-            value.accept(this);
+            substitute(v).accept(this);
         }
     }
 
     void visit(const ir::Cast *node) override {
         update_count(node);
-        ir::Expr value = substitute(node->value);
-        value.accept(this);
+        substitute(node->value).accept(this);
     }
 
     void visit(const ir::Extract *node) override {
         update_count(node);
-        ir::Expr vec = substitute(node->vec);
-        ir::Expr idx = substitute(node->idx);
-        vec.accept(this);
-        idx.accept(this);
+        substitute(node->vec).accept(this);
+        substitute(node->idx).accept(this);
     }
 
     void visit(const ir::Call *node) override {
         update_count(node);
         for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
+            substitute(arg).accept(this);
         }
     }
 
     void visit(const ir::CallStmt *node) override {
         for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
+            substitute(arg).accept(this);
         }
     }
 
     void visit(const ir::Intrinsic *node) override {
         update_count(node);
         for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
+            substitute(arg).accept(this);
         }
     }
 
     void visit(const ir::IfElse *node) override {
         node->cond.accept(this);
-        var_to_e.new_frame();
+        new_frame();
         node->then_body.accept(this);
-        var_to_e.pop_frame();
+        pop_frame();
 
-        var_to_e.new_frame();
+        new_frame();
         if (node->else_body.defined()) {
             node->else_body.accept(this);
         }
-        var_to_e.pop_frame();
+        pop_frame();
     }
 
     void visit(const ir::Assign *node) override {
@@ -166,14 +154,14 @@ class RenameAnalysis : public ir::Visitor {
     }
 
     void visit(const ir::ForEach *node) override {
-        var_to_e.new_frame();
+        new_frame();
         node->iter.accept(this);
         node->body.accept(this);
-        var_to_e.pop_frame();
+        pop_frame();
     }
 
     void visit(const ir::ForAll *node) override {
-        var_to_e.new_frame();
+        new_frame();
         const ir::ForAll::Slice &slice = node->slice;
         slice.begin.accept(this);
         slice.end.accept(this);
@@ -182,29 +170,33 @@ class RenameAnalysis : public ir::Visitor {
             node->header.accept(this);
         }
         node->body.accept(this);
-        var_to_e.pop_frame();
+        pop_frame();
     }
 
     void visit(const ir::DoWhile *node) override {
-        var_to_e.new_frame();
+        new_frame();
         node->body.accept(this);
         node->cond.accept(this);
-        var_to_e.pop_frame();
+        pop_frame();
     }
 
     void visit(const ir::YieldFrom *node) override { node->value.accept(this); }
 
+    // Yields a set of expressions that have been seen more than 1 time.
     ExprSet post_process() {
-        ExprSet es;
+        ExprSet set;
         for (const auto &[e, count] : expression_count) {
             if (count > 1) {
-                es.insert(e);
+                set.insert(e);
             }
         }
-        return es;
+        return set;
     }
 
   private:
+    void new_frame() { var_to_e.new_frame(); }
+    void pop_frame() { var_to_e.pop_frame(); }
+
     void update_count(ir::Expr e) {
         if (!is_cse_legal(e)) {
             return;
@@ -292,6 +284,49 @@ struct Rename : public ir::Mutator {
             args.push_back(mutate(arg));
         }
         return make(ir::CallStmt::make(node->func, std::move(args)));
+    }
+    ir::Stmt visit(const ir::IfElse *node) override {
+        ir::Stmt th = mutate(node->then_body);
+        ir::Stmt el = mutate(node->else_body);
+        // This should be lowered after so that any expressions generated are
+        // not placed in the `then` or `else` body.
+        ir::Expr cond = mutate(node->cond);
+        return make(
+            ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
+    }
+
+    ir::Stmt visit(const ir::ForEach *node) override {
+        ir::Expr iter = mutate(node->iter);
+        ir::Stmt body = mutate(node->body);
+        return make(
+            ir::ForEach::make(node->name, std::move(iter), std::move(body)));
+    }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        ir::Stmt header = node->header;
+        if (header.defined()) {
+            header = mutate(header);
+        }
+        ir::Stmt body = mutate(node->body);
+        // This should be lowered after so that any expressions generated are
+        // not placed in the loop body.
+        ir::ForAll::Slice slice = ir::ForAll::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
+        return make(ir::ForAll::make(node->index, std::move(header),
+                                     std::move(slice), std::move(body)));
+    }
+
+    ir::Stmt visit(const ir::DoWhile *node) override {
+        ir::Stmt body = mutate(node->body);
+        ir::Expr cond = mutate(node->cond);
+        return make(ir::DoWhile::make(std::move(body), std::move(cond)));
+    }
+
+    ir::Stmt visit(const ir::YieldFrom *node) override {
+        return make(ir::YieldFrom::make(mutate(node->value)));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
@@ -405,49 +440,8 @@ struct Rename : public ir::Mutator {
         return ir::Var::make(node->type, loc.base);
     }
 
-    ir::Stmt visit(const ir::IfElse *node) override {
-        ir::Stmt th = mutate(node->then_body);
-        ir::Stmt el = mutate(node->else_body);
-        ir::Expr cond = mutate(node->cond);
-        return make(
-            ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
-    }
-
-    ir::Stmt visit(const ir::ForEach *node) override {
-        ir::Expr iter = mutate(node->iter);
-        ir::Stmt body = mutate(node->body);
-        return make(
-            ir::ForEach::make(node->name, std::move(iter), std::move(body)));
-    }
-
-    ir::Stmt visit(const ir::ForAll *node) override {
-        ir::Stmt header = node->header;
-        if (header.defined()) {
-            header = mutate(header);
-        }
-        ir::Stmt body = mutate(node->body);
-        ir::ForAll::Slice slice = ir::ForAll::Slice{
-            .begin = mutate(node->slice.begin),
-            .end = mutate(node->slice.end),
-            .stride = mutate(node->slice.stride),
-        };
-        return make(ir::ForAll::make(node->index, std::move(header),
-                                     std::move(slice), std::move(body)));
-    }
-
-    ir::Stmt visit(const ir::DoWhile *node) override {
-        ir::Stmt body = mutate(node->body);
-        ir::Expr cond = mutate(node->cond);
-        return make(ir::DoWhile::make(std::move(body), std::move(cond)));
-    }
-
-    ir::Stmt visit(const ir::YieldFrom *node) override {
-        return make(ir::YieldFrom::make(mutate(node->value)));
-    }
-
   private:
     // Whether we should give this sub-expression its own variable.
-    // TODO(cgyurgyik): What else?
     bool should_rename(const ir::Expr &e) {
         return !e.is<ir::Var>() && !is_const(e) && to_rename.contains(e);
     }
