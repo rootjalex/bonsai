@@ -34,16 +34,19 @@ struct CseLegalChecker : public ir::Visitor {
     void visit(const ir::Var *node) override {
         // We cannot CSE with mutable variables since mutations may have
         // occurred between. In the future, we can rename mutated
-        // variables to overcome this. For example, a = x + 1; #1 x +=
-        // 1; b = x + 1; #2 (same expression, but x has changed value)
+        // variables to overcome this. For example,
+        // a = x + 1; #1
+        // x += 1;
+        // b = x + 1; #2 (same expression, but x has changed value)
         is_legal &= !mutable_variables.contains(node->name) &&
                     !mutable_arguments.contains(node->name);
     }
 
     void visit(const ir::Call *node) override {
         // We cannot CSE with side effecting function calls. For
-        // example, a = print_and_return(x); #1 b = print_and_return(x);
-        // #2 (same, but would only print once)
+        // example,
+        // a = print_and_return(x); #1
+        // b = print_and_return(x); #2 (same, but would only print once)
         const auto *v = node->func.as<ir::Var>();
         if (v == nullptr) {
             return;
@@ -330,25 +333,27 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        bool rename = should_rename(node);
-        ir::Expr a = mutate(node->a), b;
+        const bool rename = should_rename(node);
+        ir::Expr a = mutate(node->a);
+        ir::Expr b = node->b;
         switch (node->op) {
         // Logical variables cannot safely emit temporary variables.
         case ir::BinOp::OpType::LAnd:
         case ir::BinOp::OpType::LOr:
+            // TODO(cgyurgyik): a hack to ensure we don't break logical
+            // operations. What we really want to do is lower any CSE'able
+            // logical operations to their respective if-else conditions.
             if (const auto *inner = node->a.as<ir::BinOp>();
                 inner && ((inner->op == ir::BinOp::OpType::LAnd) ||
                           (inner->op == ir::BinOp::OpType::LOr))) {
                 return node;
             }
-            b = node->b;
             break;
         default:
-            b = mutate(node->b);
+            b = mutate(b);
             break;
         }
         internal_assert(a.defined() && b.defined());
-        // Check before nested renames occur.
         ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
         if (!rename) {
             return op;
@@ -443,8 +448,9 @@ struct Rename : public ir::Mutator {
   private:
     // Whether we should give this sub-expression its own variable.
     bool should_rename(const ir::Expr &e) {
-        return !e.is<ir::Var>() && !is_const(e) && to_rename.contains(e);
+        return !e.is<ir::Var>() && to_rename.contains(e) && !is_const(e);
     }
+    // A set of expressions that should be renamed in this pass.
     const ExprSet &to_rename;
     // A list of intermediate statements generated for subexpressions.
     std::vector<ir::Stmt> stmts;
@@ -506,8 +512,8 @@ class CseImpl : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
-        ir::Expr cond = mutate(node->cond);
         new_frame();
+        ir::Expr cond = mutate(node->cond);
         ir::Stmt th = mutate(node->then_body);
         pop_frame();
         new_frame();
@@ -647,8 +653,7 @@ class CseImpl : public ir::Mutator {
     // Finds a common subexpression replacement for `e`, or returns the original
     // expression otherwise.
     ir::Expr cse(ir::Expr e) {
-        ir::Expr cse_e = substitute(e);
-        std::optional<int64_t> vn = e_to_vn.from_frames(cse_e);
+        std::optional<int64_t> vn = e_to_vn.from_frames(substitute(e));
         if (!vn.has_value()) {
             return e;
         }
@@ -669,27 +674,34 @@ class CseImpl : public ir::Mutator {
                 values.push_back(substitute(v));
             }
             return ir::Build::make(b->type, std::move(values));
-        } else if (const auto *c = e.as<ir::Call>()) {
+        }
+        if (const auto *c = e.as<ir::Call>()) {
             std::vector<ir::Expr> args;
             for (const ir::Expr &a : c->args) {
                 args.push_back(substitute(a));
             }
             return ir::Call::make(c->func, std::move(args));
-        } else if (const auto *o = e.as<ir::BinOp>()) {
+        }
+        if (const auto *o = e.as<ir::BinOp>()) {
             return ir::BinOp::make(o->op, substitute(o->a), substitute(o->b));
-        } else if (const auto *op = e.as<ir::Intrinsic>()) {
+        }
+        if (const auto *op = e.as<ir::Intrinsic>()) {
             std::vector<ir::Expr> args = op->args;
             for (int i = 0, e = args.size(); i < e; ++i) {
                 args[i] = substitute(args[i]);
             }
             return ir::Intrinsic::make(op->op, std::move(args));
-        } else if (const auto *op = e.as<ir::Access>()) {
+        }
+        if (const auto *op = e.as<ir::Access>()) {
             return ir::Access::make(op->field, substitute(op->value));
-        } else if (const auto *op = e.as<ir::Cast>()) {
+        }
+        if (const auto *op = e.as<ir::Cast>()) {
             return ir::Cast::make(op->type, substitute(op->value));
-        } else if (const auto *op = e.as<ir::Extract>()) {
+        }
+        if (const auto *op = e.as<ir::Extract>()) {
             return ir::Extract::make(substitute(op->vec), substitute(op->idx));
-        } else if (const auto *v = e.as<ir::Var>()) {
+        }
+        if (const auto *v = e.as<ir::Var>()) {
             if (std::optional<ir::Expr> f = var_to_e.from_frames(v->name)) {
                 return substitute(*f);
             }
@@ -746,20 +758,20 @@ class CopyPropagation : public ir::Mutator {
 
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Expr cond = mutate(node->cond);
-        lhs_to_rhs.new_frame();
+        new_frame();
         ir::Stmt th = mutate(node->then_body);
-        lhs_to_rhs.pop_frame();
-        lhs_to_rhs.new_frame();
+        pop_frame();
+        new_frame();
         ir::Stmt el = mutate(node->else_body);
-        lhs_to_rhs.pop_frame();
+        pop_frame();
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
-        lhs_to_rhs.new_frame();
+        new_frame();
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
-        lhs_to_rhs.pop_frame();
+        pop_frame();
         return ir::ForEach::make(node->name, std::move(iter), std::move(body));
     }
 
@@ -770,20 +782,20 @@ class CopyPropagation : public ir::Mutator {
             .stride = mutate(node->slice.stride),
         };
         ir::Stmt header = node->header;
-        lhs_to_rhs.new_frame();
+        new_frame();
         if (header.defined()) {
             header = mutate(header);
         }
         ir::Stmt body = mutate(node->body);
-        lhs_to_rhs.pop_frame();
+        pop_frame();
         return ir::ForAll::make(node->index, std::move(header),
                                 std::move(slice), std::move(body));
     }
     ir::Stmt visit(const ir::DoWhile *node) override {
-        lhs_to_rhs.new_frame();
+        new_frame();
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);
-        lhs_to_rhs.pop_frame();
+        pop_frame();
         return ir::DoWhile::make(std::move(body), std::move(cond));
     }
 
@@ -792,7 +804,12 @@ class CopyPropagation : public ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override { return node; }
 
   private:
+    void new_frame() { lhs_to_rhs.new_frame(); }
+    void pop_frame() { lhs_to_rhs.pop_frame(); }
+
+    // A list of mutable arguments for this function.
     const std::set<std::string> &mutable_arguments;
+
     // A mapping from the lhs to rhs assignment of variable names, e.g.,
     //   x: i32 = y; // {x, y}
     //   z: i32 = x; // {z, x}
@@ -807,15 +824,19 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
         RenameAnalysis rename_analysis(side_effect_functions,
                                        mutable_arguments);
+        // Find expressions that have been seen > 1  times.
         func->body.accept(&rename_analysis);
         ExprSet to_rename = rename_analysis.post_process();
 
+        // Give each of these expressions its own name.
         Rename rename(to_rename);
         func->body = rename.mutate(std::move(func->body));
 
+        // Perform local value numbering.
         CseImpl cse(side_effect_functions, mutable_arguments);
         func->body = cse.mutate(std::move(func->body));
 
+        // Propagate copies.
         CopyPropagation cp(mutable_arguments);
         func->body = cp.mutate(std::move(func->body));
     }
