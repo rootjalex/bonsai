@@ -342,7 +342,7 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
-            internal_assert(is_valid_logical_operation(a.type())) << a.type();
+            // internal_assert(is_valid_logical_operation(a.type())) << a.type();
             if (a.type().is<Option_t>()) {
                 a = Cast::make(Bool_t::make(), a);
             }

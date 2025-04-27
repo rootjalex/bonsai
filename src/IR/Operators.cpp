@@ -27,6 +27,18 @@ Expr operator||(Expr a, Expr b) {
     return BinOp::make(BinOp::LOr, std::move(a), std::move(b));
 }
 
+Expr operator~(Expr a) {
+    return UnOp::make(UnOp::Not, std::move(a));
+}
+
+Expr operator&(Expr a, Expr b) {
+    return BinOp::make(BinOp::BwAnd, std::move(a), std::move(b));
+}
+
+Expr operator|(Expr a, Expr b) {
+    return BinOp::make(BinOp::BwOr, std::move(a), std::move(b));
+}
+
 Expr operator^(Expr a, Expr b) {
     return BinOp::make(BinOp::Xor, std::move(a), std::move(b));
 }
@@ -85,6 +97,14 @@ Expr norm(Expr a) { return Intrinsic::make(Intrinsic::norm, {std::move(a)}); }
 
 Expr dot(Expr a, Expr b) {
     return Intrinsic::make(Intrinsic::dot, {std::move(a), std::move(b)});
+}
+
+Expr all(Expr a) {
+    return VectorReduce::make(VectorReduce::And, a);
+}
+
+Expr any(Expr a) {
+    return VectorReduce::make(VectorReduce::Or, a);
 }
 
 } // namespace ir

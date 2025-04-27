@@ -428,10 +428,11 @@ Stmt Mutator::visit(const Return *node) {
 Stmt Mutator::visit(const Store *node) {
     Expr index = mutate(node->index);
     Expr value = mutate(node->value);
-    if (index.same_as(node->index) && value.same_as(node->value)) {
+    Expr predicate = node->predicate.defined() ? mutate(node->predicate) : node->predicate;
+    if (index.same_as(node->index) && value.same_as(node->value) && predicate.same_as(node->predicate)) {
         return node;
     }
-    return Store::make(node->name, std::move(index), std::move(value));
+    return Store::make(node->name, std::move(index), std::move(value), std::move(predicate));
 }
 
 Stmt Mutator::visit(const LetStmt *node) {

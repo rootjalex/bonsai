@@ -875,6 +875,13 @@ void Printer::visit(const Return *node) {
 
 void Printer::visit(const Store *node) {
     os << get_indent();
+    if (node->predicate.defined()) {
+        os << "predicate (";
+        print_no_parens(node->predicate);
+        os << ")\n";
+        indent++;
+        os << get_indent();
+    }
     os << node->name << "[";
     if (node->index.defined()) {
         print_no_parens(node->index);
@@ -882,6 +889,9 @@ void Printer::visit(const Store *node) {
     os << "] = ";
     print_no_parens(node->value);
     os << "\n";
+    if (node->predicate.defined()) {
+        indent--;
+    }
 }
 
 void Printer::visit(const LetStmt *node) {

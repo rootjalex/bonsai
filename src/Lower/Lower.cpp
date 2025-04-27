@@ -10,6 +10,7 @@
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
 #include "Lower/Options.h"
+#include "Lower/Packetize.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
@@ -71,6 +72,7 @@ PassManager register_passes() {
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerArrays>();
     manager.register_pass<LowerForEachs>();
+    manager.register_pass<Packetize>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<LowerTuples>();
@@ -95,6 +97,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerForEachs>());
+    core.push_back(std::make_unique<Packetize>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
@@ -115,6 +118,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
+    d.push_back(std::make_unique<Packetize>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());

@@ -427,7 +427,7 @@ struct LowerToForAll : public ir::Mutator {
                     << "Mismatch yield types in lowering: " << node;
             }
             return ir::Store::make(allocation_name, /*index=*/store_index,
-                                   std::move(yielded));
+                                   std::move(yielded), /*predicate=*/ir::Expr());
         };
 
         ir::Stmt repl_body = replace(replacements, foreach->body);

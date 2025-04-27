@@ -42,13 +42,15 @@ Stmt Return::make() {
     return node;
 }
 
-Stmt Store::make(std::string name, Expr index, Expr value) {
+Stmt Store::make(std::string name, Expr index, Expr value, Expr predicate) {
     internal_assert(!name.empty()) << "Empty name in Store::make";
-    internal_assert(value.defined()) << "Undefined value in Store::make";
+    internal_assert(index.defined()) << "Empty index in Store::make of " << name;
+    internal_assert(value.defined()) << "Undefined value in Store::make of " << name;
     Store *node = new Store;
     node->name = std::move(name);
     node->index = std::move(index);
     node->value = std::move(value);
+    node->predicate = std::move(predicate);
     return node;
 }
 

@@ -105,6 +105,7 @@ target_sources(
     src/Lower/Layouts.cpp
     src/Lower/Lower.cpp
     src/Lower/Options.cpp
+    src/Lower/Packetize.cpp
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
@@ -176,6 +177,7 @@ target_sources(
     include/Lower/Layouts.h
     include/Lower/Lower.h
     include/Lower/Options.h
+    include/Lower/Packetize.h
     include/Lower/Pass.h
     include/Lower/PassManager.h
     include/Lower/PredicateAnalysis.h

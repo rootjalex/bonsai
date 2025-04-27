@@ -107,8 +107,9 @@ struct Store : StmtNode<Store> {
     std::string name;
     Expr index;
     Expr value;
+    Expr predicate;
 
-    static Stmt make(std::string name, Expr index, Expr value);
+    static Stmt make(std::string name, Expr index, Expr value, Expr predicate);
 
     static const IRStmtEnum node_type = IRStmtEnum::Store;
 };

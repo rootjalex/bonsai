@@ -20,6 +20,7 @@ add_bonsai_tests(
     option-dereference2.bonsai
     option-nested.bonsai
     option.bonsai
+    packetize.bonsai
     rect_contains.bonsai
     struct_defaults.bonsai
     trace_aosoa.bonsai
