@@ -44,44 +44,40 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
 }
 
 func _unexported_trace(ray : Ray, triangles : _triangles_layout1) -> Triangle {
-  let _t0 = _traverse_tree0(ray, triangles) in
-  return _t0
+  return _traverse_tree0(ray, triangles)
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let _t0 = intersectsp_ray_aabb(r, b) in
-  if (_t0.set) {
-    let extract = _t0.value in
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (interval.set) {
+    let extract = interval.value in
     return extract.high
   }
   return (f32)inf
 }
 
 func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
-  let _t0 = SqDistPointAABB(pt, a) in
-  let _t1 = sqrt(_t0) in
-  return _t1
+  return sqrt(SqDistPointAABB(pt, a))
 }
 
 func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
-  let _t0 = closestPointonTriangle(p, tri) in
-  let _t1 = norm(p.vec - _t0._field0.vec) in
-  return _t1
+  let pts = closestPointonTriangle(p, tri) in
+  return norm(p.vec - pts._field0.vec)
 }
 
 func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let _t0 = intersectsp_ray_aabb(r, b) in
-  if (_t0.set) {
-    let extract = _t0.value in
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (interval.set) {
+    let extract = interval.value in
     return extract.low
   }
   return -(f32)inf
 }
 
 func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
-  let _t0 = intersectsp_ray_tri(ray, tri) in
-  if (_t0.set) {
-    let isect_ = _t0.value in
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (isect.set) {
+    let isect_ = isect.value in
     return isect_.t
   } else {
     return (f32)inf
@@ -89,28 +85,25 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 }
 
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
-  let _t0 = intersectsp_ray_aabb(r, b) in
-  if (_t0.set) {
-    let extract = _t0.value in
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (interval.set) {
+    let extract = interval.value in
     return (extract.low < r.t) && (0f < extract.high)
   }
   return false
 }
 
 func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
-  let _t0 = intersectsp_ray_tri(ray, tri) in
-  return _t0.set
+  return intersectsp_ray_tri(ray, tri).set
 }
 
 func [[export]] trace(_ret0 : mut Triangle, ray : Ray, triangles : _triangles_layout1) -> void {
-  let _t0 = _traverse_tree0(ray, triangles) in
-  _ret0 = _t0
+  _ret0 = _traverse_tree0(ray, triangles)
   return
 }
 
 func [[export]] trace_all(n : u32, rays : Ray[n], triangles : _triangles_layout1) -> Triangle[n] {
-  let _t0 = _traverse_array0(n, rays, triangles) in
-  return _t0
+  return _traverse_array0(n, rays, triangles)
 }
 
 

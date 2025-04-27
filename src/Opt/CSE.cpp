@@ -123,9 +123,12 @@ struct Rename : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
+        ir::Expr intrinsic = ir::Intrinsic::make(node->op, std::move(args));
+        if (!should_rename(intrinsic)) {
+            return intrinsic;
+        }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
-        stmts.push_back(ir::LetStmt::make(
-            location, ir::Intrinsic::make(node->op, std::move(args))));
+        stmts.push_back(ir::LetStmt::make(location, std::move(intrinsic)));
         return ir::Var::make(node->type, location.base);
     }
 
@@ -134,11 +137,12 @@ struct Rename : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
-        // Conservatively always rename function calls (we assume cheap calls
-        // will be inlined).
+        ir::Expr call = ir::Call::make(node->func, std::move(args));
+        if (!should_rename(call)) {
+            return call;
+        }
         ir::WriteLoc loc("_t" + std::to_string(counter++), node->type);
-        stmts.push_back(ir::LetStmt::make(
-            loc, ir::Call::make(node->func, std::move(args))));
+        stmts.push_back(ir::LetStmt::make(loc, std::move(call)));
         return ir::Var::make(node->type, loc.base);
     }
 
@@ -196,6 +200,19 @@ class RenameAnalysis : public ir::Visitor {
     }
 
     void visit(const ir::Call *node) override {
+        update_count(node);
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+
+    void visit(const ir::CallStmt *node) override {
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+
+    void visit(const ir::Intrinsic *node) override {
         update_count(node);
         for (const ir::Expr &arg : node->args) {
             arg.accept(this);

@@ -15,8 +15,7 @@ func safe_idx(v : f32x3, i : i32) -> f32 {
 }
 
 func safe_oob(v : f32x3) -> f32 {
-  let _t0 = safe_idx(v, 4) in
-  return _t0
+  return safe_idx(v, 4)
 }
 
 func second(v : f32x3) -> f32 {
