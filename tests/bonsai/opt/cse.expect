@@ -29,11 +29,12 @@ func mutating1(x : mut i32) -> i32 {
 
 func mutating2(e1 : E, e2 : mut E) -> f32 {
   let v = 42f in
-  let _t0 = e1.x / v in
+  let _t0 = e1.x in
+  let _t1 = _t0 / v in
   let c = e2.x / v in
   e2.x += 1f
   let d = e2.x / v in
-  return (_t0 + _t0) * (c - d)
+  return (_t1 + _t1) * (c - d)
 }
 
 

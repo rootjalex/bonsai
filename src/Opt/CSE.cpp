@@ -204,8 +204,7 @@ class RenameAnalysis : public ir::Visitor {
     void pop_frame() { var_to_e.pop_frame(); }
 
     void update_count(ir::Expr e) {
-        // TODO(cgyurgyik): Assume an access is equivalent to a variable?
-        if (e.is<ir::Access, ir::Var>() || is_const(e) || !is_cse_legal(e)) {
+        if (e.is<ir::Var>() || is_const(e) || !is_cse_legal(e)) {
             return;
         }
         ++expression_count[e];
