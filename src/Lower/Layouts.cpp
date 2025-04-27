@@ -202,8 +202,9 @@ std::vector<ir::Type> layout_to_structs(std::string base,
             }
             }
         }
+        constexpr auto P = ir::Struct_t::Attribute::packed;
         rets.push_back(ir::Struct_t::make(unique_struct_name(std::move(base)),
-                                          std::move(fields)));
+                                          std::move(fields), {P}));
         return rets;
     }
     internal_error << "Handle layout conversion for: " << layout;

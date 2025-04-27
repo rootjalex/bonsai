@@ -9,6 +9,7 @@ add_bonsai_tests(
     lambda.bonsai
     nested-exported-function.bonsai
     option.bonsai
+    packed-struct.bonsai
     short-circuit.bonsai
     simple.bonsai
     struct_defaults.bonsai

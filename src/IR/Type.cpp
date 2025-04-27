@@ -290,7 +290,8 @@ Type Vector_t::make(Type etype, uint32_t lanes) {
     return node;
 }
 
-Type Struct_t::make(std::string name, Struct_t::Map fields) {
+Type Struct_t::make(std::string name, Struct_t::Map fields,
+                    std::vector<Attribute> attributes) {
     internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
     internal_assert(std::all_of(fields.cbegin(), fields.cend(),
                                 [](const auto &p) { return p.type.defined(); }))
@@ -299,11 +300,13 @@ Type Struct_t::make(std::string name, Struct_t::Map fields) {
     Struct_t *node = new Struct_t;
     node->name = std::move(name);
     node->fields = std::move(fields);
+    node->attributes = std::move(attributes);
     return node;
 }
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
-                    Struct_t::DefMap defaults) {
+                    Struct_t::DefMap defaults,
+                    std::vector<Attribute> attributes) {
     internal_assert(!name.empty()) << "Struct_t::make recieved undefined name";
     internal_assert(std::all_of(fields.cbegin(), fields.cend(),
                                 [](const auto &p) { return p.type.defined(); }))
@@ -314,12 +317,18 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
                                     return p.second.defined() &&
                                            p.second.type().defined();
                                 }))
-        << "Struct_t::make recieved undefined default expression";
+        << "Struct_t::make received undefined default expression";
     Struct_t *node = new Struct_t;
     node->name = std::move(name);
     node->fields = std::move(fields);
     node->defaults = std::move(defaults);
+    node->attributes = std::move(attributes);
     return node;
+}
+
+bool Struct_t::is_packed() const {
+    return std::find(attributes.cbegin(), attributes.cend(),
+                     Attribute::packed) != attributes.cend();
 }
 
 Type Tuple_t::make(std::vector<Type> etypes) {

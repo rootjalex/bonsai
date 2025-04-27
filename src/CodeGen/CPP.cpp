@@ -50,8 +50,12 @@ class TypeEmitter : public ir::Visitor {
             ss << ';' << '\n';
             decrement_indent();
         }
-        constexpr std::string_view P = "__attribute__((packed))";
-        ss << indent() << '}' << ' ' << P << ';' << '\n';
+        ss << indent() << '}';
+        if (type->is_packed()) {
+            constexpr std::string_view P = "__attribute__((packed))";
+            ss << ' ' << P;
+        }
+        ss << ';' << '\n';
     }
     void visit(const ir::Array_t *type) override {
         // This case should have already been handled.

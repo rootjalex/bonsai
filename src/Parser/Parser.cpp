@@ -366,6 +366,18 @@ struct Parser {
     void parse_element() {
         expect(Token::Type::ELEMENT);
 
+        std::vector<ir::Struct_t::Attribute> attributes;
+        if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
+            std::string attribute = get_id();
+            if (attribute == "packed") {
+                attributes.push_back(ir::Struct_t::Attribute::packed);
+            } else {
+                report_error() << "unexpected attribute: " << attribute;
+            }
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::RBRACKET);
+        }
+
         // TODO: support methods as well.
         // TODO: figure out overloading policy for that.
         // TODO: for error handling, should we have beginLoc/endLoc like Simit?
@@ -443,9 +455,11 @@ struct Parser {
         } while (!consume(Token::Type::RSQUIGGLE));
 
         program.types[name] = defaults.empty()
-                                  ? ir::Struct_t::make(name, std::move(fields))
+                                  ? ir::Struct_t::make(name, std::move(fields),
+                                                       std::move(attributes))
                                   : ir::Struct_t::make(name, std::move(fields),
-                                                       std::move(defaults));
+                                                       std::move(defaults),
+                                                       std::move(attributes));
     }
 
     void parse_interface_def() {
@@ -621,7 +635,8 @@ struct Parser {
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{}, std::vector<ir::Function::Attribute>{});
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{});
 
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(typed_name), std::move(func));
@@ -633,7 +648,7 @@ struct Parser {
 
     void parse_function() {
         expect(Token::Type::FUNC);
-        
+
         std::vector<ir::Function::Attribute> attributes;
         if (context.size() > 1) { // in an imported file.
             attributes.push_back(ir::Function::Attribute::imported);

@@ -2076,7 +2076,7 @@ void CodeGen_LLVM::declare_struct_types(
             }
         }
         if (!skip) {
-            struct_types[_struct->name]->setBody(types, /*isPacked=*/true);
+            struct_types[_struct->name]->setBody(types, _struct->is_packed());
         }
     }
 }

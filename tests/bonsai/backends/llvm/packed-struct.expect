@@ -1,0 +1,12 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.MyPackedStruct = type <{ i32, i8 }>
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %struct.MyPackedStruct @build_struct() local_unnamed_addr #0 {
+build_struct_entry:
+  ret %struct.MyPackedStruct zeroinitializer
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
