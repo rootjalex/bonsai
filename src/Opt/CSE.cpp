@@ -204,7 +204,7 @@ class RenameAnalysis : public ir::Visitor {
     void pop_frame() { var_to_e.pop_frame(); }
 
     void update_count(ir::Expr e) {
-        if (!is_cse_legal(e)) {
+        if (e.is<ir::Access>() || is_const(e) || !is_cse_legal(e)) {
             return;
         }
         ++expression_count[e];

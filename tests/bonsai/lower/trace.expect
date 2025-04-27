@@ -26,24 +26,18 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) ->
 func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(triangles__index : u32) {
-    let _t14 = triangles.triangles_index in
-    let _t15 = _t14[triangles__index] in
-    let _t16 = _t15.nPrims in
+    let _t6 = triangles.triangles_index[triangles__index] in
     if (intersects_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) && (distmin_Ray_AABB(ray, build<AABB>(triangles.triangles_index[triangles__index].low, triangles.triangles_index[triangles__index].high)) < _best0._field0)) {
-      if (_t16 == 0u) {
+      if (_t6.nPrims == 0u) {
         from triangles__index + 1u
-        let _t2 = _t15.triangles_spliton_nPrims in
-        from triangles__index + cast<__layout6>(_t2).offset
+        from triangles__index + cast<__layout6>(_t6.triangles_spliton_nPrims).offset
       } else {
-        forall _idx0 in [0u:cast<u32>(_t16):1u] {
-          let _t3 = triangles.prims in
-          let _t6 = _t15.triangles_spliton_nPrims in
-          let _t7 = cast<__layout9>(_t6) in
-          let _t8 = _t7.pOffset in
-          let _t9 = _t8 + _idx0 in
-          let _t10 = _t3[_t9] in
-          let _iter0 = _t10 in
-          if (intersectsp_ray_tri(ray, _t10).set && (distmin_Ray_Triangle(ray, _t10) < _best0._field0)) {
+        forall _idx0 in [0u:cast<u32>(_t6.nPrims):1u] {
+          let _t2 = cast<__layout9>(_t6.triangles_spliton_nPrims) in
+          let _t3 = _t2.pOffset + _idx0 in
+          let _t4 = triangles.prims[_t3] in
+          let _iter0 = _t4 in
+          if (intersectsp_ray_tri(ray, _t4).set && (distmin_Ray_Triangle(ray, _t4) < _best0._field0)) {
             _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
           }
         }
@@ -97,8 +91,8 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
   let _t0 = intersectsp_ray_aabb(r, b) in
   if (_t0.set) {
-    let _t1 = _t0.value in
-    return (_t1.low < r.t) && (0f < _t1.high)
+    let extract = _t0.value in
+    return (extract.low < r.t) && (0f < extract.high)
   }
   return false
 }

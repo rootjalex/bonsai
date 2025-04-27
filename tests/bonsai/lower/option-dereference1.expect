@@ -1,22 +1,12 @@
 func foo(i : _option0, j : _option0) -> i32 {
   if (i.set && j.set) {
-    let _t0 = i.value in
-    let _t1 = j.value in
-    return _t0 + _t1
+    return i.value + j.value
+  } else if (i.set) {
+    return i.value
+  } else if (j.set) {
+    return j.value
   } else {
-    let _t5 = i.set in
-    if (_t5) {
-      let _t2 = i.value in
-      return _t2
-    } else {
-      let _t4 = j.set in
-      if (_t4) {
-        let _t3 = j.value in
-        return _t3
-      } else {
-        return 0
-      }
-    }
+    return 0
   }
 }
 
