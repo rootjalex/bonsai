@@ -18,28 +18,52 @@ extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x
 func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(ts__index : u32, ts__bit : u1) {
-    let _t26 = ts.ts_index in
-    let _t27 = _t26[ts__index] in
-    let _t28 = _t27.ts_bit in
-    let _t29 = _t28[ts__bit] in
-    let _t30 = _t29.nPrims in
-    if (intersects_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) && (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0)) {
-      if (_t30 == 0u) {
-        let _t4 = _t29.ts_spliton_nPrims in
+    let _t92 = ts.ts_index in
+    let _t93 = _t92[ts__index] in
+    let _t94 = _t93.ts_bit in
+    let _t95 = _t94[ts__bit] in
+    let _t96 = _t95.nPrims in
+    if (_t96 == 0u) {
+      let _t7 = _t93.low_32 in
+      let _t12 = _t95.low_16 in
+      let _t13 = cast<f32x3>(_t12) in
+      let _t14 = _t7 + _t13 in
+      let _t17 = _t93.high_32 in
+      let _t22 = _t95.high_16 in
+      let _t23 = cast<f32x3>(_t22) in
+      let _t24 = _t17 + _t23 in
+      let _t25 = build<AABB>(_t14, _t24) in
+      let _t26 = intersects_Ray_AABB(ray, _t25) in
+      if (_t26 && (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0)) {
+        let _t4 = _t95.ts_spliton_nPrims in
         from build<tuple.1>(cast<__layout6>(_t4).offset, 0u)
-        let _t9 = _t29.ts_spliton_nPrims in
-        from build<tuple.1>(cast<__layout7>(_t9).offset, 1u)
-      } else {
-        forall _idx0 in [0u:cast<u32>(_t30):1u] {
-          let _t10 = ts.prims in
-          let _t15 = _t29.ts_spliton_nPrims in
-          let _t16 = cast<__layout10>(_t15) in
-          let _t17 = _t16.pOffset in
-          let _t18 = _t17 + _idx0 in
-          let _t19 = _t10[_t18] in
-          if (intersectsp_ray_tri(ray, _t19).set && (distmin_Ray_Triangle(ray, _t19) < _best0._field0)) {
-            let _t20 = distmin_Ray_Triangle(ray, _t19) in
-            _best0 argmin= build<tuple.0>(_t20, _t19)
+      }
+      if (_t26 && (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0)) {
+        let _t31 = _t95.ts_spliton_nPrims in
+        from build<tuple.1>(cast<__layout7>(_t31).offset, 1u)
+      }
+    } else {
+      forall _idx0 in [0u:cast<u32>(_t96):1u] {
+        let _t54 = ts.prims in
+        let _t59 = _t95.ts_spliton_nPrims in
+        let _t60 = cast<__layout10>(_t59) in
+        let _t61 = _t60.pOffset in
+        let _t62 = _t61 + _idx0 in
+        let _t63 = _t54[_t62] in
+        let _t67 = _t93.low_32 in
+        let _t72 = _t95.low_16 in
+        let _t73 = cast<f32x3>(_t72) in
+        let _t74 = _t67 + _t73 in
+        let _t77 = _t93.high_32 in
+        let _t82 = _t95.high_16 in
+        let _t83 = cast<f32x3>(_t82) in
+        let _t84 = _t77 + _t83 in
+        let _t85 = build<AABB>(_t74, _t84) in
+        let _t86 = intersects_Ray_AABB(ray, _t85) in
+        if (_t86 && (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0)) {
+          if (intersectsp_ray_tri(ray, _t63).set && (distmin_Ray_Triangle(ray, _t63) < _best0._field0)) {
+            let _t64 = distmin_Ray_Triangle(ray, _t63) in
+            _best0 argmin= build<tuple.0>(_t64, _t63)
           }
         }
       }
