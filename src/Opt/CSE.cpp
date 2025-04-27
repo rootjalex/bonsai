@@ -235,9 +235,6 @@ class RenameAnalysis : public ir::Visitor {
     // A list of function arguments that are mutable. This is "whole function
     // analysis", so doesn't require a frame stack.
     const std::set<std::string> &mutable_arguments;
-    // A list of variable names that should stop CSE if found within an
-    // expression. This includes mutable assignments, and references to
-    // allocations.
     // Returns whether this is supported in our simplistic variant of CSE.
     bool is_cse_legal(ir::Expr e) {
         CseLegalChecker checker(side_effect_functions, mutable_arguments,
@@ -315,7 +312,7 @@ struct Rename : public ir::Mutator {
         }
         ir::Stmt body = mutate(node->body);
         // This should be lowered after so that any expressions generated are
-        // not placed in the loop body.
+        // not placed in the `header` or `body`.
         ir::ForAll::Slice slice = ir::ForAll::Slice{
             .begin = mutate(node->slice.begin),
             .end = mutate(node->slice.end),
