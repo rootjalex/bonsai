@@ -815,6 +815,7 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
                                        mutable_arguments);
         func->body.accept(&rename_analysis);
         ExprSet to_rename = rename_analysis.post_process();
+
         Rename rename(to_rename);
         func->body = rename.mutate(std::move(func->body));
 
