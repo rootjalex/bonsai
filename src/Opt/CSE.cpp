@@ -242,18 +242,10 @@ struct Rename : public ir::Mutator {
 
     // Skip the body of a lambda expression.
     ir::Expr visit(const ir::Lambda *node) override { return node; }
-    // Skip statements we cannot unit test.
-    ir::Stmt visit(const ir::ForEach *node) override { return node; }
 
-    ir::Stmt visit(const ir::ForAll *node) override {
-        ir::Stmt body = mutate(node->body);
-        ir::Stmt header = node->header;
-        if (header.defined()) {
-            header = mutate(header);
-        }
-        return make(ir::ForAll::make(node->index, std::move(header),
-                                     node->slice, std::move(body)));
-    }
+    ir::Stmt visit(const ir::ForEach *node) override { return node; }
+    // TODO(cgyurgyik): Test with trace.bonsai
+    ir::Stmt visit(const ir::ForAll *node) override { return node; }
 
     ir::Stmt visit(const ir::DoWhile *node) override {
         ir::Stmt body = mutate(node->body);
