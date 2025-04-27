@@ -59,6 +59,83 @@ struct CseLegalChecker : public ir::Visitor {
     const MutableVariableStack &mutable_variables;
 };
 
+// Retrieves all variables that have been seen more than once.
+// TODO(cgyurgyik): This should be stack-based. This requires being able to
+// mutate values in these stack data structures, which isn't possible yet.
+class RenameAnalysis : public ir::Visitor {
+  public:
+    RenameAnalysis(const std::set<std::string> &side_effect_functions,
+                   const std::set<std::string> &mutable_arguments)
+        : side_effect_functions(side_effect_functions),
+          mutable_arguments(mutable_arguments) {}
+
+    void visit(const ir::BinOp *node) override {
+        update_count(node);
+        node->a.accept(this);
+        node->b.accept(this);
+    }
+
+    void visit(const ir::Call *node) override {
+        update_count(node);
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+
+    void visit(const ir::CallStmt *node) override {
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+
+    void visit(const ir::Intrinsic *node) override {
+        update_count(node);
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+
+    ExprSet post_process() {
+        ExprSet es;
+        for (const auto &[e, count] : expression_count) {
+            if (count > 1) {
+                es.insert(e);
+            }
+        }
+        return es;
+    }
+
+  private:
+    void update_count(ir::Expr e) {
+        if (!is_cse_legal(e)) {
+            return;
+        }
+        ++expression_count[e];
+    }
+    std::map<ir::Expr, int64_t, ir::ExprLessThan> expression_count;
+
+    // A list of variable names that should stop CSE if found within an
+    // expression. This includes mutable assignments, and references to
+    // allocations.
+    MutableVariableStack mutable_variables;
+    // A list of functions that may have side effects. This is "whole program
+    // analysis", so doesn't require a frame stack.
+    const std::set<std::string> &side_effect_functions;
+    // A list of function arguments that are mutable. This is "whole function
+    // analysis", so doesn't require a frame stack.
+    const std::set<std::string> &mutable_arguments;
+    // A list of variable names that should stop CSE if found within an
+    // expression. This includes mutable assignments, and references to
+    // allocations.
+    // Returns whether this is supported in our simplistic variant of CSE.
+    bool is_cse_legal(ir::Expr e) {
+        CseLegalChecker checker(side_effect_functions, mutable_arguments,
+                                mutable_variables);
+        e.accept(&checker);
+        return checker.is_legal;
+    }
+};
+
 // Gives an expression its own variable name if it fits certain criteria. For
 // example,
 //   g(foo(i), bar(j));
@@ -157,9 +234,23 @@ struct Rename : public ir::Mutator {
     // Skip the body of a lambda expression.
     ir::Expr visit(const ir::Lambda *node) override { return node; }
     // Skip statements we cannot unit test.
-    ir::Stmt visit(const ir::ForAll *node) override { return node; }
     ir::Stmt visit(const ir::ForEach *node) override { return node; }
-    ir::Stmt visit(const ir::DoWhile *node) override { return node; }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        ir::Stmt body = mutate(node->body);
+        ir::Stmt header = node->header;
+        if (header.defined()) {
+            header = mutate(header);
+        }
+        return make(ir::ForAll::make(node->index, std::move(header),
+                                     node->slice, std::move(body)));
+    }
+
+    ir::Stmt visit(const ir::DoWhile *node) override {
+        ir::Stmt body = mutate(node->body);
+        ir::Expr cond = mutate(node->cond);
+        return make(ir::DoWhile::make(std::move(body), std::move(cond)));
+    }
 
   private:
     // Whether we should give this sub-expression its own variable.
@@ -180,83 +271,6 @@ struct Rename : public ir::Mutator {
         ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
         stmts.clear();
         return sequence;
-    }
-};
-
-// Retrieves all variables that have been seen more than once.
-// TODO(cgyurgyik): This should be stack-based. This requires being able to
-// mutate values in these stack data structures, which isn't possible yet.
-class RenameAnalysis : public ir::Visitor {
-  public:
-    RenameAnalysis(const std::set<std::string> &side_effect_functions,
-                   const std::set<std::string> &mutable_arguments)
-        : side_effect_functions(side_effect_functions),
-          mutable_arguments(mutable_arguments) {}
-
-    void visit(const ir::BinOp *node) override {
-        update_count(node);
-        node->a.accept(this);
-        node->b.accept(this);
-    }
-
-    void visit(const ir::Call *node) override {
-        update_count(node);
-        for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
-        }
-    }
-
-    void visit(const ir::CallStmt *node) override {
-        for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
-        }
-    }
-
-    void visit(const ir::Intrinsic *node) override {
-        update_count(node);
-        for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
-        }
-    }
-
-    ExprSet post_process() {
-        ExprSet es;
-        for (const auto &[e, count] : expression_count) {
-            if (count > 1) {
-                es.insert(e);
-            }
-        }
-        return es;
-    }
-
-  private:
-    void update_count(ir::Expr e) {
-        if (!is_cse_legal(e)) {
-            return;
-        }
-        ++expression_count[e];
-    }
-    std::map<ir::Expr, int64_t, ir::ExprLessThan> expression_count;
-
-    // A list of variable names that should stop CSE if found within an
-    // expression. This includes mutable assignments, and references to
-    // allocations.
-    MutableVariableStack mutable_variables;
-    // A list of functions that may have side effects. This is "whole program
-    // analysis", so doesn't require a frame stack.
-    const std::set<std::string> &side_effect_functions;
-    // A list of function arguments that are mutable. This is "whole function
-    // analysis", so doesn't require a frame stack.
-    const std::set<std::string> &mutable_arguments;
-    // A list of variable names that should stop CSE if found within an
-    // expression. This includes mutable assignments, and references to
-    // allocations.
-    // Returns whether this is supported in our simplistic variant of CSE.
-    bool is_cse_legal(ir::Expr e) {
-        CseLegalChecker checker(side_effect_functions, mutable_arguments,
-                                mutable_variables);
-        e.accept(&checker);
-        return checker.is_legal;
     }
 };
 

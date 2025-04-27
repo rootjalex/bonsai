@@ -2,7 +2,6 @@
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
-// Analysis: First, in each basic block, count the number of each Expr (that should be CSEed, e.g. not mutable or side-effect-y).
 func foo(x: i32, y: i32, z: i32, cond: bool) -> i32 {
     m: i32 = x * y / z;
     n: i32 = x * y / z - 32;
