@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "IR/Equality.h"
@@ -498,6 +499,12 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         return as_vec->etype;
     } else if (const Array_t *as_array = struct_type.as<Array_t>()) {
         return as_array->etype;
+    } else if (const Tuple_t *as_tuple = struct_type.as<Tuple_t>()) {
+        internal_assert(!field.empty());
+        char c = field[field.size() - 1];
+        int64_t position = c - '0';
+        internal_assert(position < as_tuple->etypes.size());
+        return as_tuple->etypes[position];
     } else {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;

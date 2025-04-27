@@ -75,6 +75,9 @@ class RenameAnalysis : public ir::Visitor {
           mutable_arguments(mutable_arguments) {}
 
     void visit(const ir::LetStmt *node) override {
+        if (node->value.is<ir::Access>()) {
+            return;
+        }
         var_to_e.add_to_frame(node->loc.base, node->value);
     }
 
@@ -84,6 +87,34 @@ class RenameAnalysis : public ir::Visitor {
         a.accept(this);
         ir::Expr b = substitute(node->b);
         b.accept(this);
+    }
+
+    void visit(const ir::Access *node) override {
+        update_count(node);
+        ir::Expr value = substitute(node->value);
+        value.accept(this);
+    }
+
+    void visit(const ir::Build *node) override {
+        update_count(node);
+        for (const ir::Expr &v : node->values) {
+            ir::Expr value = substitute(v);
+            value.accept(this);
+        }
+    }
+
+    void visit(const ir::Cast *node) override {
+        update_count(node);
+        ir::Expr value = substitute(node->value);
+        value.accept(this);
+    }
+
+    void visit(const ir::Extract *node) override {
+        update_count(node);
+        ir::Expr vec = substitute(node->vec);
+        ir::Expr idx = substitute(node->idx);
+        vec.accept(this);
+        idx.accept(this);
     }
 
     void visit(const ir::Call *node) override {
@@ -146,6 +177,10 @@ class RenameAnalysis : public ir::Visitor {
 
     void visit(const ir::ForAll *node) override {
         var_to_e.new_frame();
+        const ir::ForAll::Slice &slice = node->slice;
+        slice.begin.accept(this);
+        slice.end.accept(this);
+        slice.stride.accept(this);
         if (node->header.defined()) {
             node->header.accept(this);
         }
@@ -261,18 +296,25 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
+        bool rename = should_rename(node);
+        ir::Expr a = mutate(node->a), b;
         switch (node->op) {
         // Logical variables cannot safely emit temporary variables.
         case ir::BinOp::OpType::LAnd:
         case ir::BinOp::OpType::LOr:
-            return node;
+            if (const auto *inner = node->a.as<ir::BinOp>();
+                inner && ((inner->op == ir::BinOp::OpType::LAnd) ||
+                          (inner->op == ir::BinOp::OpType::LOr))) {
+                return node;
+            }
+            b = node->b;
+            break;
         default:
+            b = mutate(node->b);
             break;
         }
+        internal_assert(a.defined() && b.defined());
         // Check before nested renames occur.
-        const bool rename = should_rename(node);
-        ir::Expr a = mutate(node->a);
-        ir::Expr b = mutate(node->b);
         ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
         if (!rename) {
             return op;
@@ -294,6 +336,58 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(intrinsic)));
+        return ir::Var::make(node->type, location.base);
+    }
+
+    ir::Expr visit(const ir::Access *node) override {
+        const bool rename = should_rename(node);
+        ir::Expr value = mutate(node->value);
+        ir::Expr access = ir::Access::make(node->field, std::move(value));
+        if (!rename) {
+            return access;
+        }
+        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        stmts.push_back(ir::LetStmt::make(location, std::move(access)));
+        return ir::Var::make(node->type, location.base);
+    }
+
+    ir::Expr visit(const ir::Build *node) override {
+        const bool rename = should_rename(node);
+        std::vector<ir::Expr> values;
+        for (const ir::Expr &value : node->values) {
+            values.push_back(mutate(value));
+        }
+        ir::Expr build = ir::Build::make(node->type, std::move(values));
+        if (!rename) {
+            return build;
+        }
+        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        stmts.push_back(ir::LetStmt::make(location, std::move(build)));
+        return ir::Var::make(node->type, location.base);
+    }
+
+    ir::Expr visit(const ir::Cast *node) override {
+        const bool rename = should_rename(node);
+        ir::Expr value = mutate(node->value);
+        ir::Expr cast = ir::Cast::make(node->type, std::move(value));
+        if (!rename) {
+            return cast;
+        }
+        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        stmts.push_back(ir::LetStmt::make(location, std::move(cast)));
+        return ir::Var::make(node->type, location.base);
+    }
+
+    ir::Expr visit(const ir::Extract *node) override {
+        const bool rename = should_rename(node);
+        ir::Expr vec = mutate(node->vec);
+        ir::Expr idx = mutate(node->idx);
+        ir::Expr extract = ir::Extract::make(std::move(vec), std::move(idx));
+        if (!rename) {
+            return extract;
+        }
+        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        stmts.push_back(ir::LetStmt::make(location, std::move(extract)));
         return ir::Var::make(node->type, location.base);
     }
 
@@ -336,8 +430,13 @@ struct Rename : public ir::Mutator {
             header = mutate(header);
         }
         ir::Stmt body = mutate(node->body);
+        ir::ForAll::Slice slice = ir::ForAll::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
         return make(ir::ForAll::make(node->index, std::move(header),
-                                     node->slice, std::move(body)));
+                                     std::move(slice), std::move(body)));
     }
 
     ir::Stmt visit(const ir::DoWhile *node) override {
@@ -432,6 +531,11 @@ class CseImpl : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {
+        ir::ForAll::Slice slice = ir::ForAll::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
         ir::Stmt header = node->header;
         new_frame();
         if (header.defined()) {
@@ -439,8 +543,8 @@ class CseImpl : public ir::Mutator {
         }
         ir::Stmt body = mutate(node->body);
         pop_frame();
-        return ir::ForAll::make(node->index, std::move(header), node->slice,
-                                std::move(body));
+        return ir::ForAll::make(node->index, std::move(header),
+                                std::move(slice), std::move(body));
     }
     ir::Stmt visit(const ir::DoWhile *node) override {
         new_frame();
@@ -468,6 +572,26 @@ class CseImpl : public ir::Mutator {
 
     ir::Expr visit(const ir::BinOp *node) override {
         return ir::BinOp::make(node->op, cse(node->a), cse(node->b));
+    }
+
+    ir::Expr visit(const ir::Access *node) override {
+        return ir::Access::make(node->field, cse(node->value));
+    }
+
+    ir::Expr visit(const ir::Build *node) override {
+        std::vector<ir::Expr> values;
+        for (const ir::Expr &value : node->values) {
+            values.push_back(cse(value));
+        }
+        return ir::Build::make(node->type, std::move(values));
+    }
+
+    ir::Expr visit(const ir::Extract *node) override {
+        return ir::Extract::make(cse(node->vec), cse(node->idx));
+    }
+
+    ir::Expr visit(const ir::Cast *node) override {
+        return ir::Cast::make(node->type, cse(node->value));
     }
 
   private:
@@ -540,30 +664,36 @@ class CseImpl : public ir::Mutator {
     // expression. There might be a better way to do this, but this is how I've
     // implemented LVN for SSA, where use-def chains are immediately available.
     ir::Expr substitute(ir::Expr e) {
-        if (const auto *c = e.as<ir::Call>()) {
+        if (const auto *b = e.as<ir::Build>()) {
+            std::vector<ir::Expr> values;
+            for (const ir::Expr &v : b->values) {
+                values.push_back(substitute(v));
+            }
+            return ir::Build::make(b->type, std::move(values));
+        } else if (const auto *c = e.as<ir::Call>()) {
             std::vector<ir::Expr> args;
             for (const ir::Expr &a : c->args) {
                 args.push_back(substitute(a));
             }
             return ir::Call::make(c->func, std::move(args));
-        }
-        if (const auto *o = e.as<ir::BinOp>()) {
+        } else if (const auto *o = e.as<ir::BinOp>()) {
             return ir::BinOp::make(o->op, substitute(o->a), substitute(o->b));
-        }
-        if (const auto *op = e.as<ir::Intrinsic>()) {
+        } else if (const auto *op = e.as<ir::Intrinsic>()) {
             std::vector<ir::Expr> args = op->args;
             for (int i = 0, e = args.size(); i < e; ++i) {
                 args[i] = substitute(args[i]);
             }
             return ir::Intrinsic::make(op->op, std::move(args));
-        }
-
-        const auto *v = e.as<ir::Var>();
-        if (v == nullptr) {
-            return e;
-        }
-        if (std::optional<ir::Expr> f = var_to_e.from_frames(v->name)) {
-            return substitute(*f);
+        } else if (const auto *op = e.as<ir::Access>()) {
+            return ir::Access::make(op->field, substitute(op->value));
+        } else if (const auto *op = e.as<ir::Cast>()) {
+            return ir::Cast::make(op->type, substitute(op->value));
+        } else if (const auto *op = e.as<ir::Extract>()) {
+            return ir::Extract::make(substitute(op->vec), substitute(op->idx));
+        } else if (const auto *v = e.as<ir::Var>()) {
+            if (std::optional<ir::Expr> f = var_to_e.from_frames(v->name)) {
+                return substitute(*f);
+            }
         }
         return e;
     }
@@ -626,15 +756,43 @@ class CopyPropagation : public ir::Mutator {
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
+    ir::Stmt visit(const ir::ForEach *node) override {
+        lhs_to_rhs.new_frame();
+        ir::Expr iter = mutate(node->iter);
+        ir::Stmt body = mutate(node->body);
+        lhs_to_rhs.pop_frame();
+        return ir::ForEach::make(node->name, std::move(iter), std::move(body));
+    }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        ir::ForAll::Slice slice = ir::ForAll::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
+        ir::Stmt header = node->header;
+        lhs_to_rhs.new_frame();
+        if (header.defined()) {
+            header = mutate(header);
+        }
+        ir::Stmt body = mutate(node->body);
+        lhs_to_rhs.pop_frame();
+        return ir::ForAll::make(node->index, std::move(header),
+                                std::move(slice), std::move(body));
+    }
+    ir::Stmt visit(const ir::DoWhile *node) override {
+        lhs_to_rhs.new_frame();
+        ir::Stmt body = mutate(node->body);
+        ir::Expr cond = mutate(node->cond);
+        lhs_to_rhs.pop_frame();
+        return ir::DoWhile::make(std::move(body), std::move(cond));
+    }
+
     // Cannot propagate copies through mutable variables.
     ir::Stmt visit(const ir::Assign *node) override { return node; }
     ir::Stmt visit(const ir::Accumulate *node) override { return node; }
     // Don't propagate through lambda bodies.
     ir::Expr visit(const ir::Lambda *node) override { return node; }
-    // Skip statements we cannot unit test.
-    ir::Stmt visit(const ir::ForAll *node) override { return node; }
-    ir::Stmt visit(const ir::ForEach *node) override { return node; }
-    ir::Stmt visit(const ir::DoWhile *node) override { return node; }
 
   private:
     const std::set<std::string> &mutable_arguments;
@@ -652,7 +810,6 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
         RenameAnalysis rename_analysis(side_effect_functions,
                                        mutable_arguments);
-
         func->body.accept(&rename_analysis);
         ExprSet to_rename = rename_analysis.post_process();
         Rename rename(to_rename);
