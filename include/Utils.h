@@ -145,6 +145,7 @@ inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
 }
 
+// Updates the type of the passed in expression with the provided type.
 ir::Expr update_type(ir::Expr, ir::Type);
 
 } // namespace bonsai

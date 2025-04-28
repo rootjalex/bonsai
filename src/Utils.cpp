@@ -307,35 +307,9 @@ ir::Expr update_type(ir::Expr expr, ir::Type type) {
         const auto *var = expr.as<ir::Var>();
         return ir::Var::make(std::move(type), var->name);
     }
-    // case ir::IRExprEnum::Access:
-    // case ir::IRExprEnum::BinOp:
-    // case ir::IRExprEnum::BoolImm:
-    // case ir::IRExprEnum::Broadcast:
-
-    // case ir::IRExprEnum::Call:
-    // case ir::IRExprEnum::Cast:
-    // case ir::IRExprEnum::Extract:
-    // case ir::IRExprEnum::FloatImm:
-    // case ir::IRExprEnum::GeomOp:
-    // case ir::IRExprEnum::IdxImm:
-    // case ir::IRExprEnum::Infinity:
-    // case ir::IRExprEnum::Instantiate:
-    // case ir::IRExprEnum::IntImm:
-    // case ir::IRExprEnum::Intrinsic:
-    // case ir::IRExprEnum::Lambda:
-    // case ir::IRExprEnum::Ramp:
-    // case ir::IRExprEnum::Select:
-    // case ir::IRExprEnum::SetOp:
-    // case ir::IRExprEnum::UIntImm:
-    // case ir::IRExprEnum::UnOp:
-    // case ir::IRExprEnum::Unwrap:
-
-    // case ir::IRExprEnum::VecImm:
-    // case ir::IRExprEnum::VectorReduce:
-    // case ir::IRExprEnum::VectorShuffle:
     default:
-        internal_error << "[unimplemented] update_type(" << expr << ", " << type
-                       << ")";
+        internal_error << "[unimplemented] update_type(" << expr << " : "
+                       << expr.type() << ", " << type << ")";
     }
 }
 
