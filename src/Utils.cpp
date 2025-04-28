@@ -1,6 +1,7 @@
 #include "Utils.h"
 
 #include "IR/Equality.h"
+#include "IR/Operators.h"
 
 namespace bonsai {
 
@@ -318,6 +319,25 @@ bool is_writeloc(const Expr &expr) {
         return is_writeloc(idx->vec);
     }
     return false;
+}
+
+namespace {
+
+Type flatten_array_type_helper(Type type, Expr size) {
+    if (const Array_t *array_t = type.as<Array_t>()) {
+        // TODO(ajr): might need to cast types of size/array_t->size
+        return flatten_array_type_helper(array_t->etype, size * array_t->size);
+    }
+    return Array_t::make(std::move(type), std::move(size));
+}
+
+} // namespace
+
+Type flatten_array_type(const Type &type) {
+    if (const Array_t *nested = type.as<Array_t>()) {
+        return flatten_array_type_helper(nested->etype, nested->size);
+    }
+    internal_error << "flatten_array_type called on non-Array_t: " << type;
 }
 
 } // namespace bonsai

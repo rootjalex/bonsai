@@ -106,12 +106,14 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     std::string alloc_name = unique_alloc_name();
     args.result = alloc_name;
 
-    Stmt alloc = Allocate::make(alloc_name, map_expr->type);
+    Type alloc_type = flatten_array_type(map_expr->type);
+
+    Stmt alloc = Allocate::make(alloc_name, alloc_type);
     static const Expr zero = make_zero(index_t);
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);
 
-    Expr ret_var = Var::make(map_expr->type, alloc_name);
+    Expr ret_var = cast(map_expr->type, Var::make(alloc_type, alloc_name));
     Stmt return_var = Return::make(ret_var);
 
     // TODO: flatten sequence?

@@ -151,4 +151,6 @@ inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
 }
 
+ir::Type flatten_array_type(const ir::Type &type);
+
 } // namespace bonsai
