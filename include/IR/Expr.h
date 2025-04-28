@@ -76,7 +76,6 @@ struct Expr : public IRHandle<IRExprNode> {
     /** Override get() to return a BaseExprNode * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
     const BaseExprNode *get() const { return (const BaseExprNode *)ptr; }
-    BaseExprNode *get() { return (BaseExprNode *)ptr; }
 
     // TODO: implement copy/move semantics!
 
