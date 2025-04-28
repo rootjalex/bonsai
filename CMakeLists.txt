@@ -104,6 +104,7 @@ target_sources(
     src/Lower/Lambdas.cpp
     src/Lower/Layouts.cpp
     src/Lower/Lower.cpp
+    src/Lower/Maps.cpp
     src/Lower/Options.cpp
     src/Lower/Packetize.cpp
     src/Lower/Pass.cpp
@@ -118,6 +119,7 @@ target_sources(
     src/Lower/VerifyOptions.cpp
     src/Lower/Yields.cpp
     src/Opt/DCE.cpp
+    src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
     src/Opt/Simplify.cpp
     src/Opt/Unswitch.cpp
@@ -176,6 +178,7 @@ target_sources(
     include/Lower/Lambdas.h
     include/Lower/Layouts.h
     include/Lower/Lower.h
+    include/Lower/Maps.h
     include/Lower/Options.h
     include/Lower/Packetize.h
     include/Lower/Pass.h
@@ -190,6 +193,7 @@ target_sources(
     include/Lower/VerifyOptions.h
     include/Lower/Yields.h
     include/Opt/DCE.h
+    include/Opt/Fusion.h
     include/Opt/Inline.h
     include/Opt/Simplify.h
     include/Opt/Unswitch.h
