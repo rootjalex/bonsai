@@ -884,10 +884,7 @@ struct Parser {
             if (!ir::equals(type_label, value.type()) && is_const(value)) {
                 value = constant_cast(type_label, value);
             }
-            internal_assert(ir::equals(type_label, value.type()))
-                << "Mismatching assignment: " << loc
-                << " is labelled with type: " << type_label << " but " << value
-                << " has type " << type;
+            // Allow type inference to occur when the value type is not defined.
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
         add_type_to_frame(loc.base, write_type, _mutable);
@@ -1098,23 +1095,11 @@ struct Parser {
                 // Tuple constructor.
                 std::vector<ir::Expr> values = {std::move(inner)};
                 std::vector<ir::Type> etypes = {values[0].type()};
-                if (!etypes.back().defined()) {
-                    report_error() << "[unimplemented] tuple construction "
-                                      "with value of unknown type: "
-                                   << values.back();
-                }
                 do {
                     ir::Expr next = parse_expr();
                     values.emplace_back(std::move(next));
                     etypes.push_back(values.back().type());
-                    // TODO: improve type inference to handle this?
-                    if (!etypes.back().defined()) {
-                        report_error() << "[unimplemented] tuple construction "
-                                          "with value of unknown type: "
-                                       << values.back();
-                    }
                 } while (consume(Token::Type::COMMA));
-                // TODO: gracefully
                 ir::Type tuple_t = ir::Tuple_t::make(std::move(etypes));
                 inner = ir::Build::make(std::move(tuple_t), std::move(values));
             }

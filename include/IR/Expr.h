@@ -56,6 +56,8 @@ struct BaseExprNode : public IRExprNode {
     BaseExprNode(IRExprEnum t) : IRExprNode(t) {}
     virtual Expr mutate_expr(Mutator *m) const = 0;
     Type type;
+
+    void update_type(ir::Type new_type) { type = new_type; }
 };
 
 template <typename T>
@@ -76,10 +78,13 @@ struct Expr : public IRHandle<IRExprNode> {
     /** Override get() to return a BaseExprNode * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
     const BaseExprNode *get() const { return (const BaseExprNode *)ptr; }
+    BaseExprNode *get() { return (BaseExprNode *)ptr; }
 
     // TODO: implement copy/move semantics!
 
     Type type() const { return get()->type; }
+
+    void replace_type(ir::Type type) { get()->update_type(std::move(type)); }
 
     explicit Expr(int8_t x);
     explicit Expr(int16_t x);
