@@ -101,9 +101,8 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
 
 // Outermost call, inserts an allocation of the output size.
 Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
-    // TODO(ajr): set by schedule.
+    // TODO(ajr): set `args` by schedule.
     BuildMapArgs args;
-    // args.packet_array_list.insert("a");
     std::string alloc_name = unique_alloc_name();
     args.result = alloc_name;
 
@@ -111,8 +110,6 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     static const Expr zero = make_zero(index_t);
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);
-
-    // TODO: rewrite yields to stores!
 
     Expr ret_var = Var::make(map_expr->type, alloc_name);
     Stmt return_var = Return::make(ret_var);
@@ -157,7 +154,6 @@ struct LowerMapsImpl : public Mutator {
                            return Function::Argument(var.name, var.type);
                        });
 
-        // When should this type be concretized into e.g. a list?
         Type ret_type = node->type;
         ;
         auto f = std::make_shared<Function>(
