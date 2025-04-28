@@ -57,7 +57,7 @@ struct BaseExprNode : public IRExprNode {
     virtual Expr mutate_expr(Mutator *m) const = 0;
     Type type;
 
-    void update_type(ir::Type new_type) { type = new_type; }
+    void update_type(ir::Type new_type) { type = std::move(new_type); }
 };
 
 template <typename T>
