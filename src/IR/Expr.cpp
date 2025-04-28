@@ -617,17 +617,7 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     << " received too many arguments, received: " << value_count
                     << " but expected " << field_count;
 
-                if (field_count == value_count) {
-                    for (size_t i = 0; i < values.size(); i++) {
-                        internal_assert(
-                            equals(fields[i].type, values[i].type()))
-                            << "Build<Struct_t> requires matching field types, "
-                               "expected: "
-                            << fields[i].type << " but received " << values[i]
-                            << " of type " << values[i].type() << " for field "
-                            << fields[i].name;
-                    }
-                } else {
+                if (field_count != value_count) {
                     // field_count < value_count
                     const auto &defaults = type.as<Struct_t>()->defaults;
                     internal_assert(value_count + defaults.size() ==
@@ -674,15 +664,6 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     << type << " takes " << as_tuple->etypes.size()
                     << " elements"
                     << " but received " << values.size();
-
-                for (size_t i = 0; i < values.size(); i++) {
-                    internal_assert(
-                        equals(as_tuple->etypes[i], values[i].type()))
-                        << "Build<Tuple_t> requires matching field types, "
-                        << "expected: " << as_tuple->etypes[i]
-                        << " but received " << values[i] << " of type "
-                        << values[i].type() << " for index: " << i;
-                }
             }
         } else if (const Array_t *as_array = type.as<Array_t>()) {
             if (!values.empty()) {

@@ -177,7 +177,12 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 int e = std::min(struct_t->fields.size(), build->values.size());
                 for (int i = 0; i < e; ++i) {
                     ir::Expr value = build->values[i];
-                    value.replace_type(struct_t->fields[i].type);
+                    if (value.type().defined()) {
+                        values.push_back(std::move(value));
+                        continue;
+                    }
+                    value =
+                        update_type(std::move(value), struct_t->fields[i].type);
                     values.push_back(std::move(value));
                 }
                 return ir::Build::make(expected_type, std::move(values));
@@ -200,7 +205,11 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 std::vector<ir::Expr> values;
                 for (int i = 0, e = tuple->etypes.size(); i < e; ++i) {
                     ir::Expr value = build->values[i];
-                    value.replace_type(std::move(tuple->etypes[i]));
+                    if (value.type().defined()) {
+                        values.push_back(std::move(value));
+                        continue;
+                    }
+                    value = update_type(std::move(value), tuple->etypes[i]);
                     values.push_back(std::move(value));
                 }
                 return ir::Build::make(expected_type, std::move(values));
