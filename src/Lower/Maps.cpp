@@ -69,8 +69,6 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
     // TODO: support nested stores instead.
     Expr nested_idx = stride_index(out_idx, end, index);
 
-    Stmt header;
-
     Stmt loop_body;
 
     // Now apply func to loaded value.
@@ -94,7 +92,7 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
     }
 
     return ForAll::make(
-        loop_idx, std::move(header),
+        loop_idx,
         ForAll::Slice{std::move(begin), std::move(end), std::move(stride)},
         std::move(loop_body));
 }

@@ -258,9 +258,6 @@ void Visitor::visit(const ForAll *node) {
     node->slice.begin.accept(this);
     node->slice.end.accept(this);
     node->slice.stride.accept(this);
-    if (node->header.defined()) {
-        node->header.accept(this);
-    }
     node->body.accept(this);
 }
 

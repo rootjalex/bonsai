@@ -232,7 +232,7 @@ Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
     return node;
 }
 
-Stmt ForAll::make(std::string index, Stmt header, Slice slice, Stmt body) {
+Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
     ForAll *node = new ForAll;
     internal_assert(!index.empty()) << "Empty index name in ForAll::make";
     // Header is optionally defined.
@@ -244,7 +244,6 @@ Stmt ForAll::make(std::string index, Stmt header, Slice slice, Stmt body) {
         << "Undefined Slice.stride in ForAll::make";
     internal_assert(body.defined()) << "Undefined body in ForAll::make";
     node->index = std::move(index);
-    node->header = std::move(header);
     node->slice = std::move(slice);
     node->body = std::move(body);
     return node;

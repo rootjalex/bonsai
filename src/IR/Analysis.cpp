@@ -92,9 +92,6 @@ struct GatherFreeVars : public Visitor {
         internal_assert(!seen_vars.contains(node->index));
         seen_vars.insert(node->index);
 
-        if (node->header.defined()) {
-            node->header.accept(this);
-        }
         node->body.accept(this);
 
         // Erase iteration var.
