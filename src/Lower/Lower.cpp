@@ -90,7 +90,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<VerifyOptions>());
     core.push_back(std::make_unique<VerifyLayouts>());
-    // Fusion must alwasys run before Array or Tree lowering!
+    // Fusion must always run before Array or Tree lowering!
     core.push_back(std::make_unique<opt::Fusion>());
     core.push_back(std::make_unique<LowerMaps>());
     core.push_back(std::make_unique<LowerTrees>());
