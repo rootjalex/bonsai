@@ -28,7 +28,7 @@ TypedVar get_arg(Expr func, const FuncMap &funcs) {
     } else if (const Var *v = func.as<Var>()) {
         const auto &iter = funcs.find(v->name);
         internal_assert(iter != funcs.cend())
-            << "Can't func func in table for fusion: " << func;
+            << "Can't find func in table for fusion: " << func;
         const auto &f = iter->second;
         internal_assert(f->args.size() == 1)
             << "[unimplemented] fusion for tuple set operations\n";
