@@ -187,7 +187,7 @@ struct Simplifier : ir::Mutator {
             }
             if (is_const_zero(a) || is_const_zero(b)) {
                 // false && x = false
-                return a;
+                return make_zero(type);
             }
             if (is_const_one(a)) {
                 // true && x = x
@@ -211,7 +211,7 @@ struct Simplifier : ir::Mutator {
             }
             if (is_const_one(a) || is_const_one(b)) {
                 // true || x = true
-                return a;
+                return make_one(type);
             }
             if (is_const_zero(a)) {
                 // false || x = x
@@ -267,7 +267,11 @@ struct Simplifier : ir::Mutator {
         ir::Expr v = mutate(node->vec), i = mutate(node->idx);
         if (const auto *broadcast = v.as<ir::Broadcast>()) {
             return broadcast->value;
+        } else if (const auto *map = as_map(v)) {
+            internal_assert(map->b.type().is<ir::Array_t>());
+            return mutate(call(map->a, ir::Extract::make(map->b, i)));
         }
+
         std::optional<uint64_t> index = get_constant_value(i);
         if (v.is<ir::VecImm, ir::Build>()) {
             if (index.has_value()) {
