@@ -1,0 +1,10 @@
+func and_no_else(a : bool, b : bool) -> i32 {
+  if (a ^ true) {
+    if (b) {
+      print(a)
+    }
+  }
+  return 0
+}
+
+
