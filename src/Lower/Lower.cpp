@@ -122,11 +122,11 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
+    d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
-    d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<opt::Inline>());
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
