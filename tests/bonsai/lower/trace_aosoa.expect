@@ -28,8 +28,10 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
         forall _idx0 in [0u:cast<u32>(ts.ts_index[ts__index].ts_bit[ts__bit].nPrims):1u] {
           let _iter0 = ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0] in
           if (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0) {
-            if (intersectsp_ray_tri(ray, _iter0).set && (distmin_Ray_Triangle(ray, _iter0) < _best0._field0)) {
-              _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
+            if (intersectsp_ray_tri(ray, _iter0).set) {
+              if (distmin_Ray_Triangle(ray, _iter0) < _best0._field0) {
+                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
+              }
             }
           }
         }

@@ -35,9 +35,9 @@ class LowerImpl : public ir::Mutator {
 
         if (!if_else->else_body.defined()) {
             // if (a && b) { <body> }  ->  if (a) { if (b) { <body> } }
-            return ir::IfElse::make(
-                /*cond=*/cond->a,
-                /*then_body=*/ir::IfElse::make(cond->b, if_else->then_body));
+            ir::Stmt then_body =
+                mutate(ir::IfElse::make(cond->b, if_else->then_body));
+            return mutate(ir::IfElse::make(cond->a, std::move(then_body)));
         }
         return statement;
     }
