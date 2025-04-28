@@ -17,6 +17,8 @@ class Packetize : public Pass {
     // packetize).
     // Also adds new packetized versions of functions.
     ir::Program run(ir::Program program) const override;
+
+    static ir::Stmt packetize_stmt(const std::string &index, const size_t lanes, ir::FuncMap &funcs, ir::Stmt stmt);
 };
 
 } // namespace lower

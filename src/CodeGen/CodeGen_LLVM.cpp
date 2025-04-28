@@ -1394,14 +1394,18 @@ void CodeGen_LLVM::visit(const Call *node) {
     for (size_t i = 0; i < n_args; i++) {
         llvm::Value *argument = codegen_expr(node->args[i]);
 
-        if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
-            args[i] = load->getPointerOperand();
-        } else if (node->args[i].type().is<ir::Struct_t>() &&
-                   !isa<llvm::AllocaInst>(argument)) {
-            // We assume structs will always be passed by pointer.
-            auto *alloca = builder->CreateAlloca(argument->getType());
-            builder->CreateStore(argument, alloca);
-            args[i] = alloca;
+        if (node->args[i].type().is<ir::Struct_t>()) {
+            // TODO(ajr): this is broken.
+            if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
+                args[i] = load->getPointerOperand();
+            } else if (!isa<llvm::AllocaInst>(argument)) {
+                // We assume structs will always be passed by pointer.
+                auto *alloca = builder->CreateAlloca(argument->getType());
+                builder->CreateStore(argument, alloca);
+                args[i] = alloca;
+            } else {
+                args[i] = argument;
+            }
         } else {
             args[i] = argument;
         }
@@ -1982,7 +1986,9 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     // escape_blocks.push_back(end_bb);
 
     // Emit loop body
-    codegen_stmt(node->header);
+    if (node->header.defined()) {
+        codegen_stmt(node->header);
+    }
     codegen_stmt(node->body);
 
     latch_blocks.pop_back();

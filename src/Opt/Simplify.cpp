@@ -361,11 +361,24 @@ struct Simplifier : ir::Mutator {
         return changed ? ir::Build::make(node->type, std::move(values)) : node;
     }
 
+    const ir::SetOp *as_map(const ir::Expr &expr) const {
+        if (const ir::SetOp *setop = expr.as<ir::SetOp>()) {
+            if (setop->op == ir::SetOp::map) {
+                return setop;
+            }
+        }
+        return nullptr;
+    }
+
     ir::Expr visit(const ir::Extract *node) override {
         ir::Expr v = mutate(node->vec), i = mutate(node->idx);
         if (const auto *broadcast = v.as<ir::Broadcast>()) {
             return broadcast->value;
+        } else if (const auto *map = as_map(v)) {
+            internal_assert(map->b.type().is<ir::Array_t>());
+            return mutate(call(map->a, ir::Extract::make(map->b, i)));
         }
+
         std::optional<uint64_t> index = get_constant_value(i);
         if (v.is<ir::VecImm, ir::Build>()) {
             if (index.has_value()) {

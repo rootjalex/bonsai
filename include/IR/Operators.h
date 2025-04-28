@@ -36,6 +36,7 @@ Expr contains(Expr a, Expr b);
 // Sets
 Expr filter(Expr predicate, Expr set);
 Expr argmin(Expr metric, Expr set);
+Expr map(Expr func, Expr set);
 
 // Intrinsics
 Expr sqrt(Expr a);
@@ -45,6 +46,8 @@ Expr dot(Expr a, Expr b);
 // Reductions
 Expr all(Expr a);
 Expr any(Expr a);
+
+Expr cast(Type t, Expr e);
 
 } // namespace ir
 } // namespace bonsai

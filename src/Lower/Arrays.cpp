@@ -20,6 +20,8 @@ namespace lower {
 
 namespace {
 
+
+
 struct ReturnsToYields : public ir::Mutator {
     ir::Stmt visit(const ir::Return *node) override {
         return ir::Sequence::make(
@@ -290,6 +292,7 @@ struct LowerToForEach : public ir::Mutator {
 
     ir::Expr build_traversal_function(const ir::Expr &expr) {
         const std::string function_name = unique_func_name();
+        std::cout << "making " << function_name << " for " << expr << "\n";
         std::vector<ir::TypedVar> free_vars = ir::gather_free_vars(expr);
         ir::Stmt body = build_hierarchy(expr);
         internal_assert(body.defined())

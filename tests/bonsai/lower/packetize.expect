@@ -1,0 +1,96 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @_traverse_array0(ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+_traverse_array0_entry:
+  %_alloc0_untyped = tail call dereferenceable_or_null(256) ptr @malloc(i64 256)
+  %0 = load <4 x i32>, ptr %a, align 4
+  %1 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %0, i1 false)
+  store <4 x i32> %1, ptr %_alloc0_untyped, align 4, !tbaa !0
+  %extract_ptr.4 = getelementptr i8, ptr %a, i64 16
+  %2 = getelementptr inbounds i8, ptr %_alloc0_untyped, i64 16
+  %3 = load <4 x i32>, ptr %extract_ptr.4, align 4
+  %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %3, i1 false)
+  store <4 x i32> %4, ptr %2, align 4, !tbaa !0
+  ret ptr %_alloc0_untyped
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @_traverse_array1(ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+_traverse_array1_entry:
+  %_alloc1_untyped = tail call dereferenceable_or_null(256) ptr @malloc(i64 256)
+  %0 = load <4 x i32>, ptr %a, align 4
+  %1 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %0, i1 false)
+  store <4 x i32> %1, ptr %_alloc1_untyped, align 4, !tbaa !3
+  %extract_ptr.4 = getelementptr i8, ptr %a, i64 16
+  %2 = getelementptr inbounds i8, ptr %_alloc1_untyped, i64 16
+  %3 = load <4 x i32>, ptr %extract_ptr.4, align 4
+  %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %3, i1 false)
+  store <4 x i32> %4, ptr %2, align 4, !tbaa !3
+  ret ptr %_alloc1_untyped
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @array_abs(ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+array_abs_entry:
+  %_alloc0_untyped.i = tail call dereferenceable_or_null(256) ptr @malloc(i64 256)
+  %0 = load <4 x i32>, ptr %a, align 4
+  %1 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %0, i1 false)
+  store <4 x i32> %1, ptr %_alloc0_untyped.i, align 4, !tbaa !0
+  %extract_ptr.4.i = getelementptr i8, ptr %a, i64 16
+  %2 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 16
+  %3 = load <4 x i32>, ptr %extract_ptr.4.i, align 4
+  %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %3, i1 false)
+  store <4 x i32> %4, ptr %2, align 4, !tbaa !0
+  ret ptr %_alloc0_untyped.i
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite)
+define noalias noundef ptr @array_abs2(ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+array_abs2_entry:
+  %_alloc1_untyped.i = tail call dereferenceable_or_null(256) ptr @malloc(i64 256)
+  %0 = load <4 x i32>, ptr %a, align 4
+  %1 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %0, i1 false)
+  store <4 x i32> %1, ptr %_alloc1_untyped.i, align 4, !tbaa !3
+  %extract_ptr.4.i = getelementptr i8, ptr %a, i64 16
+  %2 = getelementptr inbounds i8, ptr %_alloc1_untyped.i, i64 16
+  %3 = load <4 x i32>, ptr %extract_ptr.4.i, align 4
+  %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %3, i1 false)
+  store <4 x i32> %4, ptr %2, align 4, !tbaa !3
+  ret ptr %_alloc1_untyped.i
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @bar(i32 noundef %x) local_unnamed_addr #1 {
+bar_entry:
+  %common.ret.op = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
+  ret i32 %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @foo(i32 noundef %y) local_unnamed_addr #1 {
+foo_entry:
+  %common.ret.op = tail call i32 @llvm.abs.i32(i32 %y, i1 false)
+  ret i32 %common.ret.op
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.abs.i32(i32, i1 immarg) #3
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1 immarg) #3
+
+attributes #0 = { mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"_alloc0", !2, i64 0}
+!2 = !{!"Bonsai buffer"}
+!3 = !{!4, !4, i64 0}
+!4 = !{!"_alloc1", !2, i64 0}

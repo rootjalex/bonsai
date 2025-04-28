@@ -104,6 +104,9 @@ ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
 
 ir::Type replace(const ir::TypeMap &repls, const ir::Type &type);
 
+// Automatic fusion if `func` is a lambda, otherwise just makes a Call node.
+ir::Expr call(ir::Expr func, ir::Expr arg);
+
 bool is_power_of_two(int32_t x);
 int32_t next_power_of_two(int32_t x);
 

@@ -50,17 +50,39 @@ struct PacketizeImpl : public Mutator {
     FuncMap &funcs;
 
     SetStack<std::string> varying;
-    std::vector<Expr> masks;
 
     PacketizeImpl(const std::string &idx_name, const size_t lanes, FuncMap &funcs)
         : idx_name(idx_name), lanes(lanes), funcs(funcs) {
         push_all_true_mask();
+        returned = Broadcast::make(lanes, BoolImm::make(false));
         varying.new_frame();
         varying.add_to_frame(idx_name);
     }
 
+    std::vector<Expr> masks;
+    // Mask of lanes that have returned.
+    Expr returned;
+
     void push_all_true_mask() {
         masks.push_back(Broadcast::make(lanes, BoolImm::make(true)));
+    }
+
+    void push_mask(Expr mask) {
+        masks.emplace_back(std::move(mask));
+    }
+
+    void swap_mask(Expr mask) {
+        internal_assert(!masks.empty());
+        masks.back() = std::move(mask);
+    }
+
+    void pop_mask() {
+        masks.pop_back();
+    }
+
+    Expr get_mask() const {
+        internal_assert(!masks.empty());
+        return masks.back() & ~returned;
     }
 
     bool is_varying(const Expr &expr) const {
@@ -107,13 +129,16 @@ struct PacketizeImpl : public Mutator {
 
         Expr value = mutate(node->value);
 
-        internal_assert(!masks.empty());
+        // TODO: this is unnecesary if Stores with true predicates are codegening correctly.
+        std::cout << "Store: " << ir::Stmt(node) << " with mask: " << get_mask() << "\n";
+        Expr mask = opt::Simplify::simplify(get_mask());
+        std::cout << "  -> " << mask << "\n";
 
-        if (is_const_one(masks.back())) {
+        if (is_const_one(mask)) {
             // No control flow yet.
             return Store::make(node->name, std::move(index), std::move(value), /*predicate=*/Expr());
         } else {
-            return Store::make(node->name, std::move(index), std::move(value), /*predicate=*/masks.back());
+            return Store::make(node->name, std::move(index), std::move(value), /*predicate=*/std::move(mask));
         }
     }
 
@@ -176,18 +201,18 @@ struct PacketizeImpl : public Mutator {
             if (op->op == BinOp::LAnd) {
                 // If a is false, don't compute that lane of b.
                 Expr a = build_short_circuit(op->a);
-                Expr mask = masks.back();
-                masks.push_back(mask & a);
+                Expr mask = get_mask();
+                push_mask(mask & a);
                 Expr b = build_short_circuit(op->b);
-                masks.pop_back();
+                pop_mask();
                 return a & b;
             } else if (op->op == BinOp::LOr) {
                 // If a is true, don't compute that lane of b.
                 Expr a = build_short_circuit(op->a);
-                Expr mask = masks.back();
-                masks.push_back(mask & ~a);
+                Expr mask = get_mask();
+                push_mask(mask & ~a);
                 Expr b = build_short_circuit(op->b);
-                masks.pop_back();
+                pop_mask();
                 return a | b;
             }
         } else if (const UnOp *op = cond.as<UnOp>()) {
@@ -202,17 +227,17 @@ struct PacketizeImpl : public Mutator {
 
     Stmt visit(const IfElse *node) override {
         if (is_varying(node->cond)) {
-            internal_assert(!masks.empty());
+            Expr mask = get_mask();
             // TODO(ajr): do we always want the all() case?
-            Expr all_lanes = all_with_short_circuit(masks.back()) && all_with_short_circuit(node->cond);
-            Expr no_lanes = all_with_short_circuit(masks.back()) && all_with_short_circuit(~node->cond);
+            Expr all_lanes = all_with_short_circuit(mask) && all_with_short_circuit(node->cond);
+            Expr no_lanes = all_with_short_circuit(mask) && all_with_short_circuit(~node->cond);
 
             // If all_lanes do unmasked then_body
             // If no lanes do unmasked else_body
             // Else (some lanes) do masked then + else
 
-            Expr mask_then = masks.back() & build_short_circuit(node->cond);
-            Expr mask_else = masks.back() & build_short_circuit(~node->cond);
+            Expr mask_then = mask & build_short_circuit(node->cond);
+            Expr mask_else = mask & build_short_circuit(~node->cond);
 
             /*
             internal_error << "all_lanes of: " << node->cond << " -> " << all_lanes << "\n"
@@ -234,9 +259,9 @@ struct PacketizeImpl : public Mutator {
 
             varying.pop_frame();
             varying.new_frame();
-            masks.back() = mask_then;
+            swap_mask(mask_then);
             Stmt masked_then = mutate(node->then_body);
-            masks.back() = mask_else;
+            swap_mask(mask_else);
 
             Stmt masked_else;
             if (node->else_body.defined()) {
@@ -246,7 +271,7 @@ struct PacketizeImpl : public Mutator {
             }
 
             varying.pop_frame();
-            masks.pop_back();
+            pop_mask();
 
             if (node->else_body.defined()) {
                 Stmt seq = concat_stmts(masked_then, masked_else);
@@ -269,7 +294,28 @@ struct PacketizeImpl : public Mutator {
     }
 
     RESTRICT_MUTATOR(Stmt, DoWhile); // TODO
-    // Default Sequence behavior is fine.
+
+    // Only overriding in order to remove dead Continue (and Return???) nodes.
+    Stmt visit(const Sequence *node) override {
+        bool not_changed = true;
+        std::vector<Stmt> stmts;
+        for (const auto &s : node->stmts) {
+            Stmt ns = mutate(s);
+            if (ns.defined()) {
+                stmts.emplace_back(std::move(ns));
+            }
+            not_changed = not_changed && stmts.back().same_as(s);
+        }
+        if (not_changed) {
+            return node;
+        } else if (stmts.size() == 0) {
+            return Stmt();
+        } else if (stmts.size() == 1) {
+            return stmts.back();
+        }
+        return Sequence::make(std::move(stmts));
+    }
+
     RESTRICT_MUTATOR(Stmt, Assign); // TODO
     RESTRICT_MUTATOR(Stmt, Accumulate); // TODO
     RESTRICT_MUTATOR(Stmt, Allocate);
@@ -283,7 +329,17 @@ struct PacketizeImpl : public Mutator {
     RESTRICT_MUTATOR(Stmt, ForAll); // TODO
 
     // Need a "returned" mask that clobbers all lanes that have escaped so far.
-    RESTRICT_MUTATOR(Stmt, Continue); // TODO
+    Stmt visit(const Continue *node) override {
+        // TODO: is there more than this?
+        // Anything active right now becomes inactive for the rest of the body.
+        // TODO: in the first `continue` case, we actually want to convert to a return...
+        if (!is_const_one(masks.back())) {
+            returned = returned | masks.back();
+            std::cout << "Set returned: " << returned << "\n";
+            std::cout << "-> " << opt::Simplify::simplify(returned) << "\n";
+        }
+        return ir::Stmt();
+    }
     RESTRICT_MUTATOR(Stmt, Return); // TODO
 };
 
@@ -339,6 +395,8 @@ struct FindPacketizeLoops : public Mutator {
             Expr index = Ramp::make(node->slice.begin, node->slice.stride, lanes);
             Stmt header = LetStmt::make(ir::WriteLoc(node->index, index.type()), std::move(index));
 
+            std::cout << "Made:\n" << repl << "\n";
+
             return concat_stmts(header, repl);
         } else {
             return Mutator::visit(node);
@@ -378,12 +436,16 @@ void packetize(const std::string &fname, const std::string &loop, FuncMap &funcs
 
 Program Packetize::run(Program program) const {
     // TODO(ajr): get this from the schedule.
-    std::string func = "array_abs";
-    std::string array = "a";
+    // std::string func = "array_abs";
+    // std::string array = "a";
 
-    packetize(func, array, program.funcs);
+    // packetize(func, array, program.funcs);
 
     return program;
+}
+
+/*static*/ ir::Stmt packetize_stmt(const std::string &index, const size_t lanes, ir::FuncMap &funcs, ir::Stmt stmt) {
+    return PacketizeImpl(index, lanes, funcs).mutate(std::move(stmt));
 }
 
 } // namespace lower
