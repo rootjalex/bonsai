@@ -225,9 +225,9 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
     // struct type and thus pass in its potentially ill-typed children.
     ir::global_disable_type_enforcement();
     InferBuildTypes infer(return_type);
-    ir::Stmt inferred = infer.mutate(stmt);
-    // ir::global_enable_type_enforcement();
-    return inferred;
+    ir::Stmt with_inferred_build_types = infer.mutate(stmt);
+    ir::global_enable_type_enforcement();
+    return with_inferred_build_types;
 }
 
 ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
@@ -454,8 +454,9 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
     internal_assert(ftypes->ret_type.defined())
         << "Failed to infer return type of: " << ftypes->name
         << ", with body: " << ftypes->body;
-    ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
-    ftypes->body = infer_build_types(ftypes->body, ftypes->ret_type);
+    ftypes->body =
+        coerce_return_types(std::move(ftypes->body), ftypes->ret_type);
+    ftypes->body = infer_build_types(std::move(ftypes->body), ftypes->ret_type);
 
     internal_assert(ftypes->ret_type.is<ir::Void_t>() ||
                     always_returns(ftypes->body))

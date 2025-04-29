@@ -659,7 +659,7 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                                "expected: "
                             << fields[i].type << " but received " << values[i]
                             << " of type " << values[i].type() << " for field "
-                            << fields[i].name;
+                            << fields[i].name << "\n-- " << type;
                     }
                 }
             }
