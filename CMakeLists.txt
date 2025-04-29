@@ -103,6 +103,7 @@ target_sources(
     src/Lower/Intrinsics.cpp
     src/Lower/Lambdas.cpp
     src/Lower/Layouts.cpp
+    src/Lower/LogicalOperations.cpp
     src/Lower/Lower.cpp
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
@@ -174,6 +175,7 @@ target_sources(
     include/Lower/Intrinsics.h
     include/Lower/Lambdas.h
     include/Lower/Layouts.h
+    include/Lower/LogicalOperations.h
     include/Lower/Lower.h
     include/Lower/Options.h
     include/Lower/Pass.h

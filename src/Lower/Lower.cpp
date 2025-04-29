@@ -9,6 +9,7 @@
 #include "Lower/Geometrics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
+#include "Lower/LogicalOperations.h"
 #include "Lower/Options.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
@@ -76,6 +77,7 @@ PassManager register_passes() {
     manager.register_pass<LowerTuples>();
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
+    manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<ReturnToOutParameter>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
@@ -99,6 +101,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
+    core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
@@ -119,10 +122,11 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
+    d.push_back(std::make_unique<opt::Unswitch>());
+    d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
-    d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<opt::Inline>());
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
