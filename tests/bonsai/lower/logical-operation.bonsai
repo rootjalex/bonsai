@@ -1,0 +1,9 @@
+//! flags: -p lower-logical-operation
+
+func and_no_else(a: bool, b: bool, c: bool) -> i32 {
+  if ((a ^ true) && b && c) {
+    print(a);
+  }
+
+  return 0;
+}
