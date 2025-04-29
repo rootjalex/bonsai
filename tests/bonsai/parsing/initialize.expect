@@ -4,8 +4,7 @@ type One_Field = struct One_Field{ x : f32x3 }
 type P = struct P{ x : i32; y : i32; z : i32 }
 type vec3f = f32x3
 
-func bar() -> (One_Field, i32) {
-  let x = (f32x3)[1f,2f,3f] in
+func bar(x : f32x3) -> (One_Field, i32) {
   return build<tuple.0>(x, 42)
 }
 
