@@ -576,8 +576,48 @@ Expr Extract::make(Expr vec, Expr idx) {
 
 Expr Build::make(Type type, std::vector<Expr> values) {
     Build *node = new Build;
-
     const bool infer_types = type_enforcement_enabled();
+
+    // Fill default values.
+    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+        const ir::Struct_t::Map &fields = struct_t->fields;
+        const size_t field_count = fields.size();
+        const size_t value_count = values.size();
+        if (!values.empty() && field_count != value_count) {
+            const ir::Struct_t::DefMap &defaults = struct_t->defaults;
+            if (infer_types) {
+                internal_assert(value_count + defaults.size() == field_count)
+                    << "Build<Struct_t> of type: " << type << " received "
+                    << value_count << " values, has " << defaults.size()
+                    << " defaults, but " << field_count << " fields";
+            }
+            std::vector<Expr> filled_values(field_count);
+            size_t value_i = 0;
+            for (size_t i = 0; i < field_count; i++) {
+                // TODO: perform constant casting here?
+                if (defaults.contains(fields[i].name)) {
+                    // No need to assert, the default should always be
+                    // the correct type for the struct.
+                    filled_values[i] = defaults.at(fields[i].name);
+                } else {
+                    internal_assert(value_i < values.size())
+                        << value_i << " < " << values.size();
+                    if (infer_types) {
+                        internal_assert(
+                            equals(fields[i].type, values[value_i].type()))
+                            << "Build<Struct_t> of type: " << type
+                            << " requires matching field types, expected: "
+                            << fields[i].type << " but received "
+                            << values[value_i] << " of type "
+                            << values[value_i].type() << " for field "
+                            << fields[i].name;
+                    }
+                    filled_values[i] = values[value_i++];
+                }
+            }
+            values = std::move(filled_values);
+        }
+    }
 
     if (infer_types) {
         internal_assert(type.defined())
@@ -607,12 +647,10 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 const auto &fields = type.as<Struct_t>()->fields;
                 const size_t field_count = fields.size();
                 const size_t value_count = values.size();
-
                 internal_assert(value_count <= field_count)
                     << "Build<Struct_t> of type: " << type
                     << " received too many arguments, received: " << value_count
                     << " but expected " << field_count;
-
                 if (field_count == value_count) {
                     for (size_t i = 0; i < values.size(); i++) {
                         internal_assert(
@@ -623,36 +661,6 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                             << " of type " << values[i].type() << " for field "
                             << fields[i].name;
                     }
-                } else {
-                    // field_count < value_count
-                    const auto &defaults = type.as<Struct_t>()->defaults;
-                    internal_assert(value_count + defaults.size() ==
-                                    field_count)
-                        << "Build<Struct_t> of type: " << type << " received "
-                        << value_count << " values, has " << defaults.size()
-                        << " defaults, but " << field_count << " fields";
-                    std::vector<Expr> filled_values(field_count);
-                    size_t value_i = 0;
-                    for (size_t i = 0; i < field_count; i++) {
-                        // TODO: perform constant casting here?
-                        if (defaults.contains(fields[i].name)) {
-                            // No need to assert, the default should always be
-                            // the correct type for the struct.
-                            filled_values[i] = defaults.at(fields[i].name);
-                        } else {
-                            internal_assert(value_i < values.size());
-                            internal_assert(
-                                equals(fields[i].type, values[value_i].type()))
-                                << "Build<Struct_t> of type: " << type
-                                << " requires matching field types, expected: "
-                                << fields[i].type << " but received "
-                                << values[value_i] << " of type "
-                                << values[value_i].type() << " for field "
-                                << fields[i].name;
-                            filled_values[i] = values[value_i++];
-                        }
-                    }
-                    values = std::move(filled_values);
                 }
             }
         } else if (type.is<Option_t>()) {
