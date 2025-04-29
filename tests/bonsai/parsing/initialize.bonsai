@@ -15,3 +15,12 @@ func foo(i : i32 ) -> (P, E) {
 
   return ({ 1, 2, 3 }, { {1.0, 2.0, 3.0} });
 }
+
+element One_Field { x: vec3f; }
+
+func bar() -> (One_Field, i32) {
+  // We can infer that "One_Field" has a single field, 
+  // thus don't need the outer `One_Field { }`.
+  x: vec3f = {1.0, 2.0, 3.0};
+  return (x, 42);
+}

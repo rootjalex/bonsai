@@ -18,6 +18,20 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+
+// Returns whether `type` is a struct with one element, that has the same type
+// as `expected_type`.
+bool is_single_element_struct_with_type(const ir::Type &type,
+                                        const ir::Type &expected_type) {
+    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+        if (struct_t->fields.size() == 1) {
+            return ir::equals(struct_t->fields.front().type, expected_type);
+        }
+    }
+    return false;
+}
+} // namespace
 
 Expr::Expr(int8_t x) : IRHandle(IntImm::make(Int_t::make(8), x)) {}
 
@@ -653,13 +667,16 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     << " but expected " << field_count;
                 if (field_count == value_count) {
                     for (size_t i = 0; i < values.size(); i++) {
+                        const ir::Type &ftype = fields[i].type;
+                        const ir::Type &vtype = values[i].type();
                         internal_assert(
-                            equals(fields[i].type, values[i].type()))
+                            equals(ftype, vtype) ||
+                            is_single_element_struct_with_type(ftype, vtype))
                             << "Build<Struct_t> requires matching field types, "
                                "expected: "
-                            << fields[i].type << " but received " << values[i]
-                            << " of type " << values[i].type() << " for field "
-                            << fields[i].name << "\n-- " << type;
+                            << ftype << " but received " << values[i]
+                            << " of type " << vtype << " for field "
+                            << fields[i].name << " in struct " << type;
                     }
                 }
             }
