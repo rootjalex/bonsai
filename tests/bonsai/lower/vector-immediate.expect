@@ -1,23 +1,23 @@
 func f1() -> i32 {
   let x = 2 in
-  let ts = (i32x3)[1,2,3] in
-  return 3
+  let ts = build<i32x3>(1, 2, x + 1) in
+  return ts[2]
 }
 
 func f2(i : i32) -> i32 {
   let ws = i32x3(-1) in
   let xs = (i32x3)[1,2,3] in
   let ys = (i32x3)[2,3,4] in
-  let zs = (i32x3)[2,4,6] in
-  let x = 10 in
-  let y = 10 in
-  let z = 20 + i in
+  let zs = (ws + xs) + ys in
+  let x = (xs[0] + ys[1]) + zs[2] in
+  let y = x in
+  let z = (x + y) + i in
   return 0
 }
 
 func f3() -> i32 {
   let xs = i32x3(-1) in
-  return -1
+  return xs[0]
 }
 
 func f4(i : i32) -> i32 {
