@@ -888,8 +888,15 @@ class CopyPropagation : public ir::Mutator {
     ir::MapStack<std::string, std::string> lhs_to_rhs;
 };
 
+// Substitute single-use temporary variables for their values, e.g.,
+// let _t0 = x.y in
+// use(_t0)
+// ->
+// use(x.y)
 ir::Stmt substitute_temporaries(ir::Stmt body) {
-    // Count single uses of temporary variables created during CSE.
+    // Count single uses of (compiler-generated) temporary variables created
+    // during the CSE process. This does not require a frame stack because
+    // every temporary variable is given a unique name.
     struct CountSingleUses : public ir::Visitor {
         void visit(const ir::Var *node) override { count(node->name); }
 
