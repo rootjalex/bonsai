@@ -5,8 +5,7 @@ func bar(x : i32, y : i32) -> i32 {
 }
 
 func foo(w : i32, x : i32, y : i32, z : i32, cond : bool) -> i32 {
-  let _t0 = x * y in
-  let _t1 = _t0 / z in
+  let _t1 = (x * y) / z in
   let m = _t1 + w in
   let n = _t1 - 32 in
   if (cond) {
@@ -30,8 +29,7 @@ func mutating1(x : mut i32) -> i32 {
 
 func mutating2(e1 : E, e2 : mut E) -> f32 {
   let v = 42f in
-  let _t0 = e1.x in
-  let _t1 = _t0 / v in
+  let _t1 = e1.x / v in
   let c = e2.x / v in
   e2.x += 1f
   let d = e2.x / v in

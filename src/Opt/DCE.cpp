@@ -280,9 +280,10 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
-ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args,
-                  const ir::Stmt &stmt,
-                  const std::set<std::string> &se_functions) {
+} // namespace
+
+ir::Stmt dce(ir::Stmt stmt, const std::set<std::string> &mutable_func_args,
+             const std::set<std::string> &se_functions) {
     // TODO(ajr): for non-exported functions, we can remove mutable args that
     // are never used.
     ComputeUseCounts analyzer(mutable_func_args);
@@ -293,8 +294,6 @@ ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args,
     return optimizer.mutate(stmt);
 }
 
-} // namespace
-
 ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     // TODO(ajr): We should also erase unused arguments to Lambdas and
     // Functions. This requires mutating the definitions and all calls,
@@ -304,7 +303,8 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
 
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_func_args = get_mutable_arguments(*func);
-        func->body = dce_stmt(mutable_func_args, func->body, se_functions);
+        func->body =
+            dce(std::move(func->body), mutable_func_args, se_functions);
     }
     return funcs;
 }

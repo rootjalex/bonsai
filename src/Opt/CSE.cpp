@@ -7,6 +7,7 @@
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
+#include "Opt/DCE.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -14,6 +15,8 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace bonsai {
 namespace opt {
@@ -882,6 +885,60 @@ class CopyPropagation : public ir::Mutator {
     ir::MapStack<std::string, std::string> lhs_to_rhs;
 };
 
+ir::Stmt substitute_temporaries(ir::Stmt body) {
+    // Count single uses of temporary variables created during CSE.
+    struct CountSingleUses : public ir::Visitor {
+        void visit(const ir::Var *node) override { count(node->name); }
+
+        std::unordered_set<std::string> post_process() {
+            std::unordered_set<std::string> set;
+            for (const auto &[name, count] : variable_to_count) {
+                if (count == 1) {
+                    set.insert(name);
+                }
+            }
+            return set;
+        }
+
+      private:
+        void count(std::string name) {
+            if (!name.starts_with("_t")) {
+                return;
+            }
+            ++variable_to_count[name];
+        }
+        std::unordered_map<std::string, int64_t> variable_to_count;
+    };
+    CountSingleUses count;
+    body.accept(&count);
+    std::unordered_set<std::string> single_use_variables = count.post_process();
+
+    // Substitute single uses of temporary values with its original value.
+    struct Substitute : public ir::Mutator {
+        Substitute(std::unordered_set<std::string> single_use_variables)
+            : single_use_variables(std::move(single_use_variables)) {}
+
+        ir::Stmt visit(const ir::LetStmt *node) override {
+            const std::string &base = node->loc.base;
+            if (!single_use_variables.contains(base)) {
+                return ir::Mutator::visit(node);
+            }
+            variable_to_expr[base] = mutate(node->value);
+            return ir::Mutator::visit(node);
+        }
+        ir::Expr visit(const ir::Var *node) override {
+            auto it = variable_to_expr.find(node->name);
+            if (it == variable_to_expr.end()) {
+                return node;
+            }
+            return it->second;
+        }
+        std::unordered_set<std::string> single_use_variables;
+        std::unordered_map<std::string, ir::Expr> variable_to_expr;
+    };
+    return Substitute{single_use_variables}.mutate(std::move(body));
+}
+
 } // namespace
 
 ir::FuncMap CSE::run(ir::FuncMap funcs) const {
@@ -907,10 +964,12 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         CopyPropagation cp(mutable_arguments);
         func->body = cp.mutate(std::move(func->body));
 
-        // TODO(cgyurgyik): If we want to "improve readability", we could also
-        // add a substitution pass that looks for all "temporary" variables with
-        // exactly one use, and just replace that use with the value. Note that
-        // this occurs because RenameAnalysis is a simple expression counter.
+        // Temporaries that appear once should be rewritten to their respective
+        // value. We perform dead code elimination first to get rid of unused
+        // references to a variable.
+        func->body = dce(std::move(func->body), mutable_arguments,
+                         side_effect_functions);
+        func->body = substitute_temporaries(std::move(func->body));
     }
     return funcs;
 }

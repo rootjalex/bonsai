@@ -18,19 +18,9 @@ extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x
 func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(ts__index : u32, ts__bit : u1) {
-    let _t55 = ts.ts_index in
-    let _t56 = _t55[ts__index] in
-    let _t57 = _t56.low_32 in
-    let _t60 = _t56.ts_bit in
-    let _t61 = _t60[ts__bit] in
-    let _t62 = _t61.low_16 in
-    let _t63 = cast<f32x3>(_t62) in
-    let _t64 = _t57 + _t63 in
-    let _t67 = _t56.high_32 in
-    let _t72 = _t61.high_16 in
-    let _t73 = cast<f32x3>(_t72) in
-    let _t74 = _t67 + _t73 in
-    let _t75 = build<AABB>(_t64, _t74) in
+    let _t56 = ts.ts_index[ts__index] in
+    let _t61 = _t56.ts_bit[ts__bit] in
+    let _t75 = build<AABB>(_t56.low_32 + cast<f32x3>(_t61.low_16), _t56.high_32 + cast<f32x3>(_t61.high_16)) in
     if (intersects_Ray_AABB(ray, _t75)) {
       let _t54 = _best0._field0 in
       if (distmin_Ray_AABB(ray, _t75) < _t54) {
@@ -41,12 +31,7 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
           from build<tuple.1>(cast<__layout7>(_t4).offset, 1u)
         } else {
           forall _idx0 in [0u:cast<u32>(_t32):1u] {
-            let _t10 = ts.prims in
-            let _t15 = _t61.ts_spliton_nPrims in
-            let _t16 = cast<__layout10>(_t15) in
-            let _t17 = _t16.pOffset in
-            let _t18 = _t17 + _idx0 in
-            let _t19 = _t10[_t18] in
+            let _t19 = ts.prims[cast<__layout10>(_t61.ts_spliton_nPrims).pOffset + _idx0] in
             if (intersectsp_ray_tri(ray, _t19).set) {
               let _t21 = distmin_Ray_Triangle(ray, _t19) in
               if (_t21 < _t54) {
