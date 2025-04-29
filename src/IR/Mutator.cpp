@@ -588,5 +588,14 @@ Stmt Mutator::visit(const ForAll *node) {
 
 Stmt Mutator::visit(const Continue *node) { return node; }
 
+Stmt Mutator::visit(const Launch *node) {
+    Expr n = mutate(node->n);
+    auto [args, not_changed] = visit_list(this, node->args);
+    if (not_changed && n.same_as(node->n)) {
+        return node;
+    }
+    return Launch::make(node->func, std::move(n), std::move(args));
+}
+
 } // namespace ir
 } // namespace bonsai

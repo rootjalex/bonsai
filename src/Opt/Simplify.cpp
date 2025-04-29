@@ -93,17 +93,6 @@ struct Simplifier : ir::Mutator {
         return it->second;
     }
 
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        ir::Expr value = mutate(node->value);
-        if (is_const(value)) {
-            name_to_immediate[node->loc.base] = value;
-        }
-        if (value.same_as(node->value)) {
-            return node;
-        }
-        return ir::LetStmt::make(node->loc, std::move(value));
-    }
-
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
@@ -284,6 +273,43 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::Extract::make(std::move(v), std::move(i));
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        if (is_const(value)) {
+            name_to_immediate[node->loc.base] = value;
+        }
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        return ir::LetStmt::make(node->loc, std::move(value));
+    }
+
+    ir::Stmt visit(const ir::Sequence *node) override {
+        bool not_changed = false;
+        std::vector<ir::Stmt> stmts;
+        stmts.reserve(node->stmts.size());
+
+        auto flatten = [&](const ir::Stmt &stmt) {
+            ir::Stmt mut = mutate(stmt);
+            not_changed |= mut.same_as(stmt);
+            if (const ir::Sequence *seq = mut.as<ir::Sequence>()) {
+                stmts.insert(stmts.end(), seq->stmts.begin(), seq->stmts.end());
+                not_changed = true;
+            } else {
+                stmts.emplace_back(std::move(mut));
+            }
+        };
+
+        for (const auto &stmt : node->stmts) {
+            flatten(stmt);
+        }
+
+        if (not_changed) {
+            return node;
+        }
+        return ir::Sequence::make(std::move(stmts));
     }
 
   private:

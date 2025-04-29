@@ -1093,6 +1093,14 @@ void Printer::visit(const Continue *node) {
     os << "continue\n";
 }
 
+void Printer::visit(const Launch *node) {
+    os << get_indent() << "launch ";
+    print_no_parens(node->n);
+    os << " " << node->func << "(";
+    print_expr_list(node->args);
+    os << ")\n";
+}
+
 void Printer::visit(const Name *node) {
     os << get_indent();
     os << node->name;

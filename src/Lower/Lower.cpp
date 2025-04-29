@@ -19,6 +19,7 @@
 #include "Opt/DCE.h"
 #include "Opt/Fusion.h"
 #include "Opt/Inline.h"
+#include "Opt/Parallelize.h"
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
 
@@ -81,6 +82,7 @@ PassManager register_passes() {
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Fusion>();
     manager.register_pass<opt::Inline>();
+    manager.register_pass<opt::Parallelize>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
 

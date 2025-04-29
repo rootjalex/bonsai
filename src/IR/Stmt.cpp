@@ -254,5 +254,20 @@ Stmt Continue::make() {
     return global_break;
 }
 
+Stmt Launch::make(std::string func, Expr n, std::vector<Expr> args) {
+    internal_assert(!func.empty()) << "Launch::make received undefined func";
+    internal_assert(n.defined() && n.type().is_int_or_uint()) << "Launch::make received undefined count: " << n;
+    internal_assert(std::all_of(args.cbegin(), args.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "Launch::make received undefined arg to func: " << func;
+
+    Launch *node = new Launch;
+    node->func = std::move(func);
+    node->n = std::move(n);
+    node->args = std::move(args);
+    return node;
+}
+
+
 } // namespace ir
 } // namespace bonsai

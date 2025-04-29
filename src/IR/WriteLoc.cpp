@@ -33,7 +33,9 @@ void WriteLoc::add_index_access(const Expr &index) {
     // that the current type must be a vector...
     const bool infer_types = type_enforcement_enabled() || type.defined();
     if (infer_types) {
-        internal_assert(type.is<Vector_t>())
+        // TODO(ajr): inlining this breaks the macro somehow.
+        const bool indexable = type.is<Vector_t, Array_t>();
+        internal_assert(indexable)
             << "Write location of non-vector received index: " << index
             << " but has type: " << type;
         ir::Type _type = type.element_of();

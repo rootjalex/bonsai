@@ -743,6 +743,7 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         // TODO: do we ever want NSW?
         switch (node->op) {
         case BinOp::Add: {
+
             value = builder->CreateAdd(a, b);
             return;
         }
@@ -1129,7 +1130,23 @@ void CodeGen_LLVM::visit(const Cast *node) {
     } else if (src.is_float() && dst.is_float()) {
         // Float widening or narrowing
         value = builder->CreateFPCast(inner, llvm_dst);
+    } else if (src.is<Struct_t>() && dst.is<Ptr_t>()) {
+        // Allocate stack memory for the struct
+        llvm::Value *ptr = builder->CreateAlloca(inner->getType());
+
+        // Store the struct value into the pointer
+        builder->CreateStore(inner, ptr);
+
+        // Bitcast the pointer to i8*
+        value = builder->CreateBitCast(ptr, llvm_dst);
     } else {
+        // llvm_dst->print(llvm::errs());
+        // llvm::errs() << "\n";
+        // inner->print(llvm::errs());
+        // llvm::errs() << "\n";
+        // inner->getType()->print(llvm::errs());
+        // llvm::errs() << "\n";
+        // llvm::errs().flush();
         internal_error << "TODO: implement Cast codegen: " << Expr(node);
     }
 }
@@ -2019,6 +2036,77 @@ void CodeGen_LLVM::visit(const Continue *node) {
     builder->CreateBr(latch_blocks.back());
 }
 
+void CodeGen_LLVM::visit(const Launch *node) {
+    llvm::Value *num_iters = codegen_expr(node->n);
+    num_iters = builder->CreateIntCast(num_iters, i64_t, node->n.type().is_int());
+
+    llvm::Function *launch_func = module->getFunction(node->func);
+    internal_assert(launch_func) << "Launch function " << node->func << " not found";
+
+    internal_assert(node->args.size() == 1); // context
+    llvm::Value *ctx = codegen_expr(node->args[0]);
+
+    llvm::StructType *dispatch_queue_s_type = llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");
+	if (! dispatch_queue_s_type)
+		dispatch_queue_s_type = llvm::StructType::create(module->getContext(), "struct.dispatch_queue_s");
+
+    llvm::Value *global_dispatch_queue;
+    {
+        llvm::PointerType *dispatch_queue_t_type = llvm::PointerType::get(dispatch_queue_s_type, 0);
+
+        std::vector<llvm::Type *> dispatch_get_global_queue_functionParams;
+        dispatch_get_global_queue_functionParams.push_back(i64_t);
+        dispatch_get_global_queue_functionParams.push_back(i64_t);
+        llvm::FunctionType *dispatch_get_global_queue_functionType = llvm::FunctionType::get(dispatch_queue_t_type,
+                                                                                dispatch_get_global_queue_functionParams,
+                                                                                false);
+
+        llvm::Function *dispatch_get_global_queue_function = module->getFunction("dispatch_get_global_queue");
+        if (! dispatch_get_global_queue_function) {
+            dispatch_get_global_queue_function = llvm::Function::Create(dispatch_get_global_queue_functionType,
+                llvm::GlobalValue::ExternalLinkage,
+                                                                "dispatch_get_global_queue",
+                                                                module.get());
+        }
+
+        llvm::Constant *zeroValue = llvm::ConstantInt::get(dispatch_get_global_queue_functionType->getParamType(0), 0);
+
+        std::vector<llvm::Value *> args;
+        args.push_back(zeroValue); // identifier
+        args.push_back(zeroValue); // flags
+        global_dispatch_queue = builder->CreateCall(dispatch_get_global_queue_function, args);
+    }
+
+    llvm::Function *dispatch_apply_f = module->getFunction("dispatch_apply_f");
+    if (!dispatch_apply_f) {
+        llvm::Type *ptr_t = llvm::Type::getInt8Ty(*context)->getPointerTo();
+        llvm::FunctionType *dispatch_apply_f_ty = llvm::FunctionType::get(
+            void_t,
+            {
+                i64_t,    // iterations
+                global_dispatch_queue->getType(), // dispatch queue
+                ptr_t,     // context pointer
+                llvm::PointerType::getUnqual(llvm::FunctionType::get(
+                    void_t,
+                    {ptr_t, i64_t},
+                    false))                         // function pointer
+            },
+            false);
+        dispatch_apply_f = llvm::Function::Create(
+            dispatch_apply_f_ty,
+            llvm::Function::ExternalLinkage,
+            "dispatch_apply_f",
+            module.get());
+    }
+
+    llvm::Value *func_ptr = builder->CreatePointerCast(launch_func,
+        llvm::PointerType::getUnqual(dispatch_apply_f->getFunctionType()->getParamType(3)));
+
+    builder->CreateCall(dispatch_apply_f, {
+        num_iters, global_dispatch_queue, ctx, func_ptr
+    });
+}
+
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,
                                      const std::string &buffer,
                                      const Expr &index) {
@@ -2229,18 +2317,27 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
     llvm::Value *ptr = base;
     llvm::Type *ptype = codegen_type(loc.base_type);
     std::string name = loc.base;
+    Type bonsai_type = loc.base_type;
 
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
-            internal_error << "TODO: implement field write access: "
-                           << std::get<std::string>(value)
-                           << " in loc: " << loc;
+            const std::string &field_name = std::get<std::string>(value);
+            const Struct_t *struct_t = bonsai_type.as<Struct_t>();
+            internal_assert(struct_t) << "Field access on non-struct type";
+
+            const size_t idx = find_struct_index(field_name, struct_t->fields);
+
+            llvm::StructType *llvm_struct_type = llvm::cast<llvm::StructType>(codegen_type(bonsai_type));
+            internal_assert(idx < llvm_struct_type->getNumElements());
+
+            ptr = builder->CreateStructGEP(llvm_struct_type, ptr, idx, name + "_" + field_name);
+            bonsai_type = get_field_type(bonsai_type, std::get<std::string>(value));
         } else {
             Expr idx = std::get<Expr>(value);
             llvm::Value *_idx = codegen_expr(idx);
             name += "_idx";
             ptr = builder->CreateGEP(ptype, ptr, {_idx}, name);
-            // TODO: update ptype?
+            bonsai_type = bonsai_type.element_of();
         }
     }
     return ptr;

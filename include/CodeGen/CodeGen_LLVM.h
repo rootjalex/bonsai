@@ -161,6 +161,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
     virtual void visit(const ir::Continue *) override;
+    virtual void visit(const ir::Launch *) override;
 
   private:
     // Recursively creates IR that will print the given expression. This

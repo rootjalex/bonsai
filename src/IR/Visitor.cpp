@@ -263,6 +263,11 @@ void Visitor::visit(const ForAll *node) {
 
 void Visitor::visit(const Continue *node) {}
 
+void Visitor::visit(const Launch *node) {
+    node->n.accept(this);
+    visit_list(this, node->args);
+}
+
 void Visitor::visit(const Name *node) {}
 
 void Visitor::visit(const Pad *node) {}
