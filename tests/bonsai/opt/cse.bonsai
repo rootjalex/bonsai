@@ -2,8 +2,8 @@
 
 func bar(x: i32, y: i32) -> i32 { return x + y; }
 
-func foo(x: i32, y: i32, z: i32, cond: bool) -> i32 {
-    m: i32 = x * y / z;
+func foo(w: i32, x: i32, y: i32, z: i32, cond: bool) -> i32 {
+    m: i32 = x * y / z + w;
     n: i32 = x * y / z - 32;
     if (cond) {
         a: i32 = x * y / z;
