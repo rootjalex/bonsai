@@ -60,7 +60,8 @@ std::optional<T> get_constant_value(const ir::Expr &e,
     }
 
     if (e.is<ir::Infinity>()) {
-        return std::bit_cast<T>(std::numeric_limits<double>::infinity());
+        // Conservatively fail until we find use cases for this.
+        return {};
     }
 
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
