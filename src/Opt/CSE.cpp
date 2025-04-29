@@ -861,6 +861,11 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
         // Propagate copies.
         CopyPropagation cp(mutable_arguments);
         func->body = cp.mutate(std::move(func->body));
+
+        // TODO(cgyurgyik): If we want to "improve readability", we could also
+        // add a substitution pass that looks for all "temporary" variables with
+        // exactly one use, and just replace that use with the value. Note that
+        // this occurs because RenameAnalysis is a simple expression counter.
     }
     return funcs;
 }
