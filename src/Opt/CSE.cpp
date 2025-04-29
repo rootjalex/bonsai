@@ -22,11 +22,13 @@ namespace bonsai {
 namespace opt {
 
 namespace {
-// Prefix to a temporary variable.
+// Prefix for a temporary variable.
 static constexpr char T_PREFIX[] = "_t";
 
 // Stack of mutable variable names for a given function.
 using MutableVariableStack = ir::SetStack<std::string>;
+
+// A set of expressions using IR comparison rather than pointer comparison.
 using ExprSet = std::set<ir::Expr, ir::ExprLessThan>;
 
 // For checking whether an expression can legally be CSE'd. This is used in two
@@ -71,9 +73,6 @@ struct CseLegalChecker : public ir::Visitor {
 };
 
 // Retrieves all variables that have been seen more than once.
-// TODO(cgyurgyik): This should be stack-based, i.e., we probably don't need to
-// rename an expression that will never be CSE'd in LVN. However we don't have
-// ways to uniquely identify different "scopes"
 class RenameAnalysis : public ir::Visitor {
   public:
     RenameAnalysis(const std::set<std::string> &side_effect_functions,
@@ -347,38 +346,27 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
-        bool rename = should_rename(node);
-        ir::Expr a = mutate(node->a);
-        ir::Expr b;
         switch (node->op) {
         // Logical variables cannot safely emit temporary variables.
+        // We could eventually special case for the left most operand of the
+        // logical operation, which will always execute.
         case ir::BinOp::OpType::LAnd:
-        case ir::BinOp::OpType::LOr: {
-            // Special case for the first value of a logical operation, which
-            // will always be executed.
-            // TODO(cgyurgyik): Eventually, these should be lowered beforehand.
-            if (const auto *binop = a.as<ir::BinOp>()) {
-                if (binop->op == ir::BinOp::OpType::LAnd ||
-                    binop->op == ir::BinOp::OpType::LOr) {
-                    return node;
-                }
-            }
-            b = node->b;
-            rename = false;
-            break;
-        }
+        case ir::BinOp::OpType::LOr:
+            return node;
         default:
-            b = mutate(node->b);
-            break;
+            const bool rename = should_rename(node);
+            ir::Expr a = mutate(node->a);
+            ir::Expr b = mutate(node->b);
+            internal_assert(a.defined() && b.defined());
+            ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
+            if (!rename) {
+                return op;
+            }
+            ir::WriteLoc location(T_PREFIX + std::to_string(counter++),
+                                  node->type);
+            stmts.push_back(ir::LetStmt::make(location, std::move(op)));
+            return ir::Var::make(node->type, location.base);
         }
-        internal_assert(a.defined() && b.defined());
-        ir::Expr op = ir::BinOp::make(node->op, std::move(a), std::move(b));
-        if (!rename) {
-            return op;
-        }
-        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
-        stmts.push_back(ir::LetStmt::make(location, std::move(op)));
-        return ir::Var::make(node->type, location.base);
     }
 
     ir::Expr visit(const ir::Intrinsic *node) override {
@@ -955,11 +943,10 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
     std::set<std::string> side_effect_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
-        RenameAnalysis rename_analysis(side_effect_functions,
-                                       mutable_arguments);
+        RenameAnalysis analysis(side_effect_functions, mutable_arguments);
         // Find expressions that have been seen > 1  times.
-        func->body.accept(&rename_analysis);
-        ExprSet to_rename = rename_analysis.post_process();
+        func->body.accept(&analysis);
+        ExprSet to_rename = analysis.post_process();
 
         // Give each of these expressions its own name.
         Rename rename(to_rename);
