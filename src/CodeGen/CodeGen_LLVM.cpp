@@ -1140,13 +1140,6 @@ void CodeGen_LLVM::visit(const Cast *node) {
         // Bitcast the pointer to i8*
         value = builder->CreateBitCast(ptr, llvm_dst);
     } else {
-        // llvm_dst->print(llvm::errs());
-        // llvm::errs() << "\n";
-        // inner->print(llvm::errs());
-        // llvm::errs() << "\n";
-        // inner->getType()->print(llvm::errs());
-        // llvm::errs() << "\n";
-        // llvm::errs().flush();
         internal_error << "TODO: implement Cast codegen: " << Expr(node);
     }
 }

@@ -72,6 +72,7 @@ struct GatherFreeVars : public Visitor {
 
     void visit(const Store *node) override {
         if (seen_vars.count(node->name) == 0) {
+            // TODO(ajr): infer size of array?
             free_vars.push_back({node->name, Array_t::make(node->value.type(), /*size=*/Expr())});
             seen_vars.insert(node->name);
         }

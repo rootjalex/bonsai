@@ -287,16 +287,16 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Sequence *node) override {
-        bool not_changed = false;
+        bool changed = false;
         std::vector<ir::Stmt> stmts;
         stmts.reserve(node->stmts.size());
 
         auto flatten = [&](const ir::Stmt &stmt) {
             ir::Stmt mut = mutate(stmt);
-            not_changed |= mut.same_as(stmt);
+            changed = changed || !mut.same_as(stmt);
             if (const ir::Sequence *seq = mut.as<ir::Sequence>()) {
                 stmts.insert(stmts.end(), seq->stmts.begin(), seq->stmts.end());
-                not_changed = true;
+                changed = true;
             } else {
                 stmts.emplace_back(std::move(mut));
             }
@@ -306,7 +306,7 @@ struct Simplifier : ir::Mutator {
             flatten(stmt);
         }
 
-        if (not_changed) {
+        if (!changed) {
             return node;
         }
         return ir::Sequence::make(std::move(stmts));
