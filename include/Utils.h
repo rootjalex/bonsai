@@ -156,4 +156,14 @@ inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
 }
 
+// Returns a bit mask of size n.
+uint64_t bit_mask(int64_t n);
+
+// Returns whether `value` up to size `width` is all ones.
+template <typename T>
+bool is_all_ones(T value, int64_t width) {
+    const uint64_t mask = bit_mask(width);
+    return (std::bit_cast<uint64_t>(value) & mask) == mask;
+}
+
 } // namespace bonsai

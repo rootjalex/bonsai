@@ -58,15 +58,15 @@ bool is_const_all_ones(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const_all_ones called on undefined value";
     }
-    const uint64_t all_ones = std::numeric_limits<uint64_t>::max();
+
     if (const Broadcast *b = e.as<Broadcast>()) {
         return is_const_all_ones(b->value);
     } else if (const IntImm *i = e.as<IntImm>()) {
-        return std::bit_cast<uint64_t>(i->value) == all_ones;
+        return is_all_ones(i->value, i->type.bits());
     } else if (const UIntImm *u = e.as<UIntImm>()) {
-        return std::bit_cast<uint64_t>(u->value) == all_ones;
+        return is_all_ones(u->value, u->type.bits());
     } else if (const FloatImm *f = e.as<FloatImm>()) {
-        return std::bit_cast<uint64_t>(f->value) == all_ones;
+        return is_all_ones(f->value, f->type.bits());
     } else if (const BoolImm *b = e.as<BoolImm>()) {
         return b->value == 1;
     }
@@ -107,9 +107,7 @@ Expr make_zero(const Type &t) { return make_const(t, 0); }
 
 Expr make_one(const Type &t) { return make_const(t, 1); }
 
-Expr make_all_ones(const Type &t) {
-    return make_const(t, std::numeric_limits<uint64_t>::max());
-}
+Expr make_all_ones(const Type &t) { return make_const(t, bit_mask(t.bits())); }
 
 Expr make_inf(const Type &t) {
     if (t.is<UInt_t, Int_t, Float_t>()) {
@@ -316,6 +314,12 @@ bool is_writeloc(const ir::Expr &expr) {
         return is_writeloc(idx->vec);
     }
     return false;
+}
+
+uint64_t bit_mask(int64_t n) {
+    const uint64_t width = std::numeric_limits<uint64_t>::digits;
+    internal_assert(0 < n && n <= 64) << n;
+    return n >= width ? ~uint64_t{0} : (uint64_t{1} << n) - uint64_t{1};
 }
 
 } // namespace bonsai
