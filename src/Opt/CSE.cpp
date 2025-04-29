@@ -259,6 +259,9 @@ struct Rename : public ir::Mutator {
     Rename(const ExprSet &to_rename) : to_rename(to_rename) {}
 
     ir::Stmt visit(const ir::LetStmt *node) override {
+        if (node->value.is<ir::Access>()) {
+            return node;
+        }
         return make(ir::LetStmt::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Assign *node) override {

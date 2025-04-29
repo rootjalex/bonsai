@@ -105,8 +105,8 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
   let _t0 = intersectsp_ray_aabb(r, b) in
   if (_t0.set) {
-    let _t1 = _t0.value in
-    return (_t1.low < r.t) && (0f < _t1.high)
+    let extract = _t0.value in
+    return (extract.low < r.t) && (0f < extract.high)
   }
   return false
 }
