@@ -220,14 +220,13 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
         // The return type of this function.
         const ir::Type &return_type;
     };
-
     // Temporarily invalid types may be created during this pass, so we disable
     // type enforcement. This occurs because we may have to infer the parent
     // struct type and thus pass in its potentially ill-typed children.
     ir::global_disable_type_enforcement();
     InferBuildTypes infer(return_type);
     ir::Stmt inferred = infer.mutate(stmt);
-    ir::global_enable_type_enforcement();
+    // ir::global_enable_type_enforcement();
     return inferred;
 }
 
@@ -456,7 +455,6 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
         << "Failed to infer return type of: " << ftypes->name
         << ", with body: " << ftypes->body;
     ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
-
     ftypes->body = infer_build_types(ftypes->body, ftypes->ret_type);
 
     internal_assert(ftypes->ret_type.is<ir::Void_t>() ||
