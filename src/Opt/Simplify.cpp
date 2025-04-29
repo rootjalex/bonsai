@@ -42,7 +42,9 @@ const T *is_op(ir::Expr e, C code) {
 // Attempts to constant fold the binary operations. Returns an undefined
 // expression upon failure. A type parameter is optionally passed when
 // interpreting a vector's broadcasted value.
-// TODO(cgyurgyik): Add constant-fold floating point support.
+// TODO(bonsai/issues/120): Add constant-fold floating point support.
+// TODO(bonsai/issues/119): Support overflow arithmetic as Halide does:
+// https://github.com/halide/Halide/blob/main/src/IRMatch.h#L919
 template <typename F>
 ir::Expr constant_fold_integral(F f, ir::Expr a, ir::Expr b,
                                 std::optional<ir::Type> type = {}) {
