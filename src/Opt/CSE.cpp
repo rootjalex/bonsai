@@ -464,32 +464,14 @@ struct Rename : public ir::Mutator {
         if (e.is<ir::Var>() || is_const(e)) {
             return true;
         }
-        if (const auto *unop = e.as<ir::UnOp>()) {
-            return is_simple(unop->a);
-        }
         if (const auto *cast = e.as<ir::Cast>()) {
             return is_simple(cast->value);
-        }
-        if (const auto *intrinsic = e.as<ir::Intrinsic>()) {
-            return std::all_of(intrinsic->args.begin(), intrinsic->args.end(),
-                               [&](const ir::Expr &v) { return is_simple(v); });
-        }
-        if (const auto *binop = e.as<ir::BinOp>()) {
-            return is_simple(binop->a) && is_simple(binop->b);
         }
         if (const auto *access = e.as<ir::Access>()) {
             return is_simple(access->value);
         }
         if (const auto *extract = e.as<ir::Extract>()) {
             return is_simple(extract->vec) && is_simple(extract->idx);
-        }
-        if (const auto *call = e.as<ir::Call>()) {
-            return std::all_of(call->args.begin(), call->args.end(),
-                               [&](const ir::Expr &v) { return is_simple(v); });
-        }
-        if (const auto *build = e.as<ir::Build>()) {
-            return std::all_of(build->values.begin(), build->values.end(),
-                               [&](const ir::Expr &v) { return is_simple(v); });
         }
         return false;
     }
