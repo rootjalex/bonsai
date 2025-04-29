@@ -12,6 +12,7 @@ namespace bonsai {
 
 const int64_t *as_const_int(const ir::Expr &e);
 bool is_const_one(const ir::Expr &e);
+bool is_const_all_ones(const ir::Expr &e);
 bool is_const_zero(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
 

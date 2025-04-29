@@ -140,14 +140,18 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a));
         case ir::UnOp::OpType::Not:
-            if (ir::Expr e = constant_fold_integral(std::bit_xor<>{}, a,
-                                                    make_all_ones(type));
-                e.defined()) {
-                // ~x <=> x ^ 1
-                return e;
+            if (const std::optional<int64_t> v = get_constant_value(a)) {
+                if (*v == 0) {
+                    // !false = true
+                    return make_const(type, 1);
+                }
+                if (*v == 1) {
+                    // !true = false
+                    return make_const(type, 0);
+                }
             }
             if (auto *op = is_op<ir::UnOp>(a, ir::UnOp::OpType::Not)) {
-                // ~(~x) = x
+                // !(!x) = x
                 return op->a;
             }
             return make(node, std::move(a));
@@ -328,6 +332,14 @@ struct Simplifier : ir::Mutator {
                 // x & 0 = 0
                 return zero;
             }
+            if (is_const_all_ones(a)) {
+                // ~0 & x  = x
+                return b;
+            }
+            if (is_const_all_ones(b)) {
+                // x & ~0  = x
+                return a;
+            }
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::BwOr: {
@@ -342,6 +354,10 @@ struct Simplifier : ir::Mutator {
             if (is_const_zero(b)) {
                 // x | 0 = x
                 return a;
+            }
+            if (is_const_all_ones(a) || is_const_all_ones(b)) {
+                // ~0 | x = ~0
+                return make_all_ones(type);
             }
             return make(node, std::move(a), std::move(b));
         }

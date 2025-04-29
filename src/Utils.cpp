@@ -54,6 +54,25 @@ bool is_const_zero(const Expr &e) {
     }
 }
 
+bool is_const_all_ones(const Expr &e) {
+    if (!e.defined()) {
+        internal_error << "is_const_all_ones called on undefined value";
+    }
+    const uint64_t all_ones = std::numeric_limits<uint64_t>::max();
+    if (const Broadcast *b = e.as<Broadcast>()) {
+        return is_const_all_ones(b->value);
+    } else if (const IntImm *i = e.as<IntImm>()) {
+        return std::bit_cast<uint64_t>(i->value) == all_ones;
+    } else if (const UIntImm *u = e.as<UIntImm>()) {
+        return std::bit_cast<uint64_t>(u->value) == all_ones;
+    } else if (const FloatImm *f = e.as<FloatImm>()) {
+        return std::bit_cast<uint64_t>(f->value) == all_ones;
+    } else if (const BoolImm *b = e.as<BoolImm>()) {
+        return b->value == 1;
+    }
+    return false;
+}
+
 bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
