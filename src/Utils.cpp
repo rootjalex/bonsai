@@ -88,6 +88,10 @@ Expr make_zero(const Type &t) { return make_const(t, 0); }
 
 Expr make_one(const Type &t) { return make_const(t, 1); }
 
+Expr make_all_ones(const Type &t) {
+    return make_const(t, std::numeric_limits<uint64_t>::max());
+}
+
 Expr make_inf(const Type &t) {
     if (t.is<UInt_t, Int_t, Float_t>()) {
         return Infinity::make(t);

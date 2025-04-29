@@ -58,6 +58,10 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         return std::bit_cast<T>(value);
     }
 
+    if (e.is<ir::Infinity>()) {
+        return std::bit_cast<T>(std::numeric_limits<double>::infinity());
+    }
+
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
                    << type;
 }
@@ -67,7 +71,12 @@ ir::Expr make_zero(const ir::Type &t);
 
 // Creates an immediate with value `1` and the provided type.
 ir::Expr make_one(const ir::Type &t);
+
+// Create an immediate with value `inf` and the provided type.
 ir::Expr make_inf(const ir::Type &t);
+
+// Create an immediate with value `1` n times, where b is the type's bit width.
+ir::Expr make_all_ones(const ir::Type &t);
 
 template <typename T>
 ir::Expr make_const(const ir::Type &t, const T &v) {
