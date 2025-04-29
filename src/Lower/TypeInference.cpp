@@ -221,8 +221,14 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
         const ir::Type &return_type;
     };
 
+    // Temporarily invalid types may be created during this pass, so we disable
+    // type enforcement. This occurs because we may have to infer the parent
+    // struct type and thus pass in its potentially ill-typed children.
+    ir::global_disable_type_enforcement();
     InferBuildTypes infer(return_type);
-    return infer.mutate(stmt);
+    ir::Stmt inferred = infer.mutate(stmt);
+    ir::global_enable_type_enforcement();
+    return inferred;
 }
 
 ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
