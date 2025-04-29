@@ -22,6 +22,9 @@ namespace bonsai {
 namespace opt {
 
 namespace {
+// Prefix to a temporary variable.
+static constexpr char T_PREFIX[] = "_t";
+
 // Stack of mutable variable names for a given function.
 using MutableVariableStack = ir::SetStack<std::string>;
 using ExprSet = std::set<ir::Expr, ir::ExprLessThan>;
@@ -373,7 +376,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return op;
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(op)));
         return ir::Var::make(node->type, location.base);
     }
@@ -388,7 +391,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return intrinsic;
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(intrinsic)));
         return ir::Var::make(node->type, location.base);
     }
@@ -400,7 +403,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return access;
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(access)));
         return ir::Var::make(node->type, location.base);
     }
@@ -415,7 +418,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return build;
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(build)));
         return ir::Var::make(node->type, location.base);
     }
@@ -427,7 +430,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return cast;
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(cast)));
         return ir::Var::make(node->type, location.base);
     }
@@ -440,7 +443,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return extract;
         }
-        ir::WriteLoc location("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(extract)));
         return ir::Var::make(node->type, location.base);
     }
@@ -455,7 +458,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return call;
         }
-        ir::WriteLoc loc("_t" + std::to_string(counter++), node->type);
+        ir::WriteLoc loc(T_PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(loc, std::move(call)));
         return ir::Var::make(node->type, loc.base);
     }
@@ -902,7 +905,7 @@ ir::Stmt substitute_temporaries(ir::Stmt body) {
 
       private:
         void count(std::string name) {
-            if (!name.starts_with("_t")) {
+            if (!name.starts_with(T_PREFIX)) {
                 return;
             }
             ++variable_to_count[name];
@@ -966,7 +969,7 @@ ir::FuncMap CSE::run(ir::FuncMap funcs) const {
 
         // Temporaries that appear once should be rewritten to their respective
         // value. We perform dead code elimination first to get rid of unused
-        // references to a variable.
+        // references to a temporary variable.
         func->body = dce(std::move(func->body), mutable_arguments,
                          side_effect_functions);
         func->body = substitute_temporaries(std::move(func->body));
