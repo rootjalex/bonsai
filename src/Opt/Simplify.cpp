@@ -40,10 +40,59 @@ const T *is_op(ir::Expr e, C code) {
     return nullptr;
 }
 
+template <typename F>
+ir::Expr constant_fold_float(F f, ir::Expr a, ir::Expr b,
+                             std::optional<ir::Type> type = {}) {
+    if (!(a.defined() && b.defined())) {
+        return ir::Expr();
+    }
+    internal_assert(ir::equals(a.type(), b.type()))
+        << "a: " << a.type() << ", " << "b: " << b.type();
+    if (!type.has_value()) {
+        type = a.type();
+    }
+    // Vector case.
+    if (const auto *vector_type = type->as<ir::Vector_t>()) {
+        std::vector<ir::Expr> values;
+        ir::Type element_of = vector_type->etype;
+        for (int i = 0, e = vector_type->lanes; i < e; ++i) {
+            ir::Expr result = constant_fold_float(f,
+                                                  /*a=*/get_value_at(a, i),
+                                                  /*b=*/get_value_at(b, i),
+                                                  /*type=*/element_of);
+            if (!result.defined()) {
+                return ir::Expr();
+            }
+            values.push_back(std::move(result));
+        }
+        return ir::VecImm::make(std::move(values));
+    }
+
+    // Scalar case.
+    internal_assert(type->is_scalar()) << *type;
+    const auto *float_t = type->as<ir::Float_t>();
+    if (float_t == nullptr || !float_t->is_ieee754()) {
+        return ir::Expr();
+    }
+    std::optional<uint64_t> c_a = get_constant_value(a),
+                            c_b = get_constant_value(b);
+    if (!(c_a.has_value() && c_b.has_value())) {
+        return ir::Expr();
+    }
+    switch (type->bits()) {
+    case 64:
+        return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
+    case 32:
+    // TODO(cgyurgyik): Possible? ir::FloatImm holds a double rather than an
+    // unsigned bit value.
+    default:
+        return ir::Expr();
+    }
+}
+
 // Attempts to constant fold the binary operations. Returns an undefined
 // expression upon failure. A type parameter is optionally passed when
 // interpreting a vector's broadcasted value.
-// TODO(bonsai/issues/120): Add constant-fold floating point support.
 // TODO(bonsai/issues/119): Support overflow arithmetic as Halide does:
 // https://github.com/halide/Halide/blob/main/src/IRMatch.h#L919
 template <typename F>
@@ -89,6 +138,36 @@ ir::Expr constant_fold_integral(F f, ir::Expr a, ir::Expr b,
     }
 
     return ir::Expr();
+}
+
+template <typename F>
+ir::Expr constant_fold(ir::Expr a, ir::Expr b, F &&f) {
+    if (!(a.defined() && b.defined())) {
+        return ir::Expr();
+    }
+    internal_assert(ir::equals(a.type(), b.type()))
+        << "a: " << a.type() << ", " << "b: " << b.type();
+    ir::Type type = a.type();
+    if (type.is_float()) {
+        return constant_fold_float(f, std::move(a), std::move(b), type);
+    }
+    return constant_fold_integral(f, std::move(a), std::move(b), type);
+}
+
+// The second constant fold function is necessary when the functions for
+// integral and float are different, e.g., std::modulus vs std::fmod.
+template <typename Fi, typename Ff>
+ir::Expr constant_fold(ir::Expr a, ir::Expr b, Fi &&fi, Ff &&ff) {
+    if (!(a.defined() && b.defined())) {
+        return ir::Expr();
+    }
+    internal_assert(ir::equals(a.type(), b.type()))
+        << "a: " << a.type() << ", " << "b: " << b.type();
+    ir::Type type = a.type();
+    if (type.is_float()) {
+        return constant_fold_float(ff, std::move(a), std::move(b), type);
+    }
+    return constant_fold_integral(fi, std::move(a), std::move(b), type);
 }
 
 // Creates a new binary operation node with `a` and `b` if they've changed,
@@ -170,8 +249,7 @@ struct Simplifier : ir::Mutator {
         const ir::Expr zero = make_zero(type), one = make_one(type);
         switch (node->op) {
         case ir::BinOp::OpType::Add: {
-            if (ir::Expr e = constant_fold_integral(std::plus<>{}, a, b);
-                e.defined()) {
+            if (ir::Expr e = constant_fold(a, b, std::plus<>{}); e.defined()) {
                 return e;
             }
             if (is_const_zero(a)) {
@@ -185,7 +263,7 @@ struct Simplifier : ir::Mutator {
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mul: {
-            if (ir::Expr e = constant_fold_integral(std::multiplies<>{}, a, b);
+            if (ir::Expr e = constant_fold(a, b, std::multiplies<>{});
                 e.defined()) {
                 return e;
             }
@@ -203,12 +281,12 @@ struct Simplifier : ir::Mutator {
             }
 
             std::optional<int64_t> c_a = get_constant_value(a);
-            if (c_a.has_value() && is_power_of_two(*c_a)) {
+            if (!type.is_float() && c_a.has_value() && is_power_of_two(*c_a)) {
                 // n * x -> x << log2(n), where n is a power of 2.
                 return ir::BinOp::make(ir::BinOp::OpType::Shl, b, log2(*c_a));
             }
             std::optional<int64_t> c_b = get_constant_value(b);
-            if (c_b.has_value() && is_power_of_two(*c_b)) {
+            if (!type.is_float() && c_b.has_value() && is_power_of_two(*c_b)) {
                 // x * n -> x << log2(n), where n is a power of 2.
                 return ir::BinOp::make(ir::BinOp::OpType::Shl, a, log2(*c_b));
             }
@@ -216,7 +294,7 @@ struct Simplifier : ir::Mutator {
         }
         case ir::BinOp::OpType::Div: {
             internal_assert(!is_const_zero(b)) << ir::Expr(node);
-            if (ir::Expr e = constant_fold_integral(std::divides<>{}, a, b);
+            if (ir::Expr e = constant_fold(a, b, std::divides<>{});
                 e.defined()) {
                 return e;
             }
@@ -231,8 +309,7 @@ struct Simplifier : ir::Mutator {
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Sub: {
-            if (ir::Expr e = constant_fold_integral(std::minus<>{}, a, b);
-                e.defined()) {
+            if (ir::Expr e = constant_fold(a, b, std::minus<>{}); e.defined()) {
                 return e;
             }
             if (is_const_zero(b)) {
@@ -252,7 +329,9 @@ struct Simplifier : ir::Mutator {
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mod: {
-            if (ir::Expr e = constant_fold_integral(std::modulus<>{}, a, b);
+            if (ir::Expr e = constant_fold(
+                    a, b, std::modulus<>{},
+                    [](auto a, auto b) { return std::fmod(a, b); });
                 e.defined()) {
                 return e;
             }
