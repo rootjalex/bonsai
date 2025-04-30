@@ -16,9 +16,8 @@ extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Trian
 
 func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) -> Triangle[n] {
   alloc _alloc0 : Triangle[n]
-  forall r in [0u:n:1u] {
-    let _load0 = rays[r] in
-    _alloc0[r] = _traverse_tree0(_load0, triangles)
+  forall _i0 in [0u:n:1u] {
+    _alloc0[_i0] = _traverse_tree0(rays[_i0], triangles)
   }
   return _alloc0
 }
@@ -33,10 +32,9 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
           from triangles__index + cast<__layout6>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).offset
         } else {
           forall _idx0 in [0u:cast<u32>(triangles.triangles_index[triangles__index].nPrims):1u] {
-            let _iter0 = triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0] in
-            if (intersectsp_ray_tri(ray, _iter0).set) {
-              if (distmin_Ray_Triangle(ray, _iter0) < _best0._field0) {
-                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, _iter0), _iter0)
+            if (intersectsp_ray_tri(ray, triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0]).set) {
+              if (distmin_Ray_Triangle(ray, triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0]) < _best0._field0) {
+                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0]), triangles.prims[cast<__layout9>(triangles.triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
               }
             }
           }

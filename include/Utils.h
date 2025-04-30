@@ -68,6 +68,9 @@ std::optional<T> get_constant_value(const ir::Expr &e,
                    << type;
 }
 
+const ir::SetOp *as_map(const ir::Expr &expr);
+const ir::SetOp *as_filter(const ir::Expr &expr);
+
 // Creates an immediate with value `0` and the provided type.
 ir::Expr make_zero(const ir::Type &t);
 
@@ -114,6 +117,9 @@ ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
                  const ir::Stmt &orig);
 
 ir::Type replace(const ir::TypeMap &repls, const ir::Type &type);
+
+// Automatic fusion if `func` is a lambda, otherwise just makes a Call node.
+ir::Expr call(ir::Expr func, ir::Expr arg);
 
 bool is_power_of_two(int32_t x);
 int32_t next_power_of_two(int32_t x);
@@ -165,5 +171,8 @@ bool is_all_ones(T value, int64_t width) {
     const uint64_t mask = bit_mask(width);
     return (std::bit_cast<uint64_t>(value) & mask) == mask;
 }
+
+ir::Type flatten_array_type(const ir::Type &type);
+
 
 } // namespace bonsai

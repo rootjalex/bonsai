@@ -1,5 +1,7 @@
 #include "IR/Operators.h"
 
+#include "IR/Equality.h"
+
 namespace bonsai {
 namespace ir {
 
@@ -25,6 +27,16 @@ Expr operator&&(Expr a, Expr b) {
 
 Expr operator||(Expr a, Expr b) {
     return BinOp::make(BinOp::LOr, std::move(a), std::move(b));
+}
+
+Expr operator~(Expr a) { return UnOp::make(UnOp::Not, std::move(a)); }
+
+Expr operator&(Expr a, Expr b) {
+    return BinOp::make(BinOp::BwAnd, std::move(a), std::move(b));
+}
+
+Expr operator|(Expr a, Expr b) {
+    return BinOp::make(BinOp::BwOr, std::move(a), std::move(b));
 }
 
 Expr operator^(Expr a, Expr b) {
@@ -79,12 +91,27 @@ Expr argmin(Expr metric, Expr set) {
     return SetOp::make(SetOp::argmin, std::move(metric), std::move(set));
 }
 
+Expr map(Expr func, Expr set) {
+    return SetOp::make(SetOp::map, std::move(func), std::move(set));
+}
+
 Expr sqrt(Expr a) { return Intrinsic::make(Intrinsic::sqrt, {std::move(a)}); }
 
 Expr norm(Expr a) { return Intrinsic::make(Intrinsic::norm, {std::move(a)}); }
 
 Expr dot(Expr a, Expr b) {
     return Intrinsic::make(Intrinsic::dot, {std::move(a), std::move(b)});
+}
+
+Expr all(Expr a) { return VectorReduce::make(VectorReduce::And, a); }
+
+Expr any(Expr a) { return VectorReduce::make(VectorReduce::Or, a); }
+
+Expr cast(Type t, Expr e) {
+    if (e.type().defined() && equals(t, e.type())) {
+        return e;
+    }
+    return Cast::make(std::move(t), std::move(e));
 }
 
 } // namespace ir
