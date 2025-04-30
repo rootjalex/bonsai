@@ -171,7 +171,10 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs) 
             Expr n = ((node->slice.end - node->slice.begin) + (node->slice.stride - 1)) / node->slice.stride;
             n = Simplify::simplify(n);
             std::vector<Expr> args = {cast(void_ptr_t, closure.context)};
-            return Launch::make(closure.func->name, n, std::move(args));
+            std::vector<Stmt> seq(2);
+            seq[0] = Assign::make(WriteLoc("ctx", closure.context.type()), closure.context, /*mutating=*/false);
+            seq[1] = Launch::make(closure.func->name, n, {Var::make(closure.context.type(), "ctx")});
+            return Sequence::make(std::move(seq));
         }
     };
 
