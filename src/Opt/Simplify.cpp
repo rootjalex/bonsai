@@ -3,6 +3,7 @@
 #include "Error.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
+#include "IR/Operators.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
@@ -258,7 +259,7 @@ struct Simplifier : ir::Mutator {
             std::optional<uint64_t> c_b = get_constant_value(b);
             if (c_b.has_value() && is_power_of_two(*c_b)) {
                 // x % 2^n -> x & (2^n - 1)
-                // TODO(cgyurgyik): Use & operator when AJ's pr goes through.
+                // TODO(cgyurgyik): return a & make_const(type, *c_b - 1);
                 return ir::BinOp::make(ir::BinOp::OpType::BwAnd, a,
                                        make_const(type, *c_b - 1));
             }

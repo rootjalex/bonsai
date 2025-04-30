@@ -12,9 +12,7 @@ func fizz(x : i32, y : i32, c1 : bool, c2 : bool) -> i32 {
   let c = x & 31 in
   let d = y % 33 in
   let e = x in
-  let f = c1 in
-  let g = c2 in
-  if (f && g) {
+  if (false) {
     return (a + b) + c
   } else if (true) {
     return (c + d) + e

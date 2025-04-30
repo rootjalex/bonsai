@@ -342,11 +342,11 @@ bool is_writeloc(const Expr &expr) {
     return false;
 }
 
-
 uint64_t bit_mask(int64_t n) {
     const uint64_t width = std::numeric_limits<uint64_t>::digits;
     internal_assert(0 < n && n <= 64) << n;
     return n >= width ? ~uint64_t{0} : (uint64_t{1} << n) - uint64_t{1};
+}
 
 namespace {
 
@@ -365,7 +365,6 @@ Type flatten_array_type(const Type &type) {
         return flatten_array_type_helper(nested->etype, nested->size);
     }
     internal_error << "flatten_array_type called on non-Array_t: " << type;
-
 }
 
 } // namespace bonsai
