@@ -181,9 +181,6 @@ class RenameAnalysis : public ir::Visitor {
         slice.begin.accept(this);
         slice.end.accept(this);
         slice.stride.accept(this);
-        if (node->header.defined()) {
-            node->header.accept(this);
-        }
         node->body.accept(this);
         pop_frame();
     }
@@ -319,20 +316,16 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {
-        ir::Stmt header = node->header;
-        if (header.defined()) {
-            header = mutate(header);
-        }
         ir::Stmt body = mutate(node->body);
         // This should be lowered after so that any expressions generated are
-        // not placed in the `header` or `body`.
+        // not placed in the `body`.
         ir::ForAll::Slice slice = ir::ForAll::Slice{
             .begin = mutate(node->slice.begin),
             .end = mutate(node->slice.end),
             .stride = mutate(node->slice.stride),
         };
-        return make(ir::ForAll::make(node->index, std::move(header),
-                                     std::move(slice), std::move(body)));
+        return make(
+            ir::ForAll::make(node->index, std::move(slice), std::move(body)));
     }
 
     ir::Stmt visit(const ir::DoWhile *node) override {
@@ -588,15 +581,10 @@ class LVN : public ir::Mutator {
             .end = mutate(node->slice.end),
             .stride = mutate(node->slice.stride),
         };
-        ir::Stmt header = node->header;
         new_frame();
-        if (header.defined()) {
-            header = mutate(header);
-        }
         ir::Stmt body = mutate(node->body);
         pop_frame();
-        return ir::ForAll::make(node->index, std::move(header),
-                                std::move(slice), std::move(body));
+        return ir::ForAll::make(node->index, std::move(slice), std::move(body));
     }
 
     ir::Stmt visit(const ir::DoWhile *node) override {
@@ -841,15 +829,10 @@ class CopyPropagation : public ir::Mutator {
             .end = mutate(node->slice.end),
             .stride = mutate(node->slice.stride),
         };
-        ir::Stmt header = node->header;
         new_frame();
-        if (header.defined()) {
-            header = mutate(header);
-        }
         ir::Stmt body = mutate(node->body);
         pop_frame();
-        return ir::ForAll::make(node->index, std::move(header),
-                                std::move(slice), std::move(body));
+        return ir::ForAll::make(node->index, std::move(slice), std::move(body));
     }
     ir::Stmt visit(const ir::DoWhile *node) override {
         new_frame();
