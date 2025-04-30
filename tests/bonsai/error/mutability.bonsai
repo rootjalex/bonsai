@@ -1,0 +1,13 @@
+func mutate0(i : mut array[i32, 4]) -> void {
+   i[0] = 2;
+   return;
+}
+
+func main() -> i32 {
+    a : array[i32, 4] = {1, 2, 3, 4};
+    print(a);
+    mutate0(a); // `a` is not mutable
+    print(a);
+
+    return 0;
+}

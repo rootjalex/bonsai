@@ -152,8 +152,16 @@ Type Mutator::visit(const Set_t *node) {
 
 Type Mutator::visit(const Function_t *node) {
     Type ret_type = mutate(node->ret_type);
-    auto [arg_types, not_changed] = visit_list(this, node->arg_types);
-    if (ret_type.same_as(node->ret_type) && not_changed) {
+    bool not_changed = ret_type.same_as(node->ret_type);
+    const size_t n = node->arg_types.size();
+    std::vector<Function_t::ArgSig> arg_types(n);
+    for (size_t i = 0; i < n; i++) {
+        arg_types[i].type = mutate(node->arg_types[i].type);
+        arg_types[i].is_mutable = node->arg_types[i].is_mutable;
+        not_changed =
+            not_changed && arg_types[i].type.same_as(node->arg_types[i].type);
+    }
+    if (not_changed) {
         return node;
     }
     return Function_t::make(std::move(ret_type), std::move(arg_types));

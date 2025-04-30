@@ -1,0 +1,25 @@
+//! flags: -p core
+
+
+element vec3f = vector[f32, 3];
+element P { x: i32; y: i32; z: i32; }
+
+element E { e : vec3f; }
+element E_nested { e: E; z: i32; }
+
+func foo(i : i32 ) -> (P, E) {
+
+  x: (P, E) = (P{ 1, 2, 3 }, E{ vec3f{1.0, 2.0, 3.0} });
+  y: (P, E) = ({ 1, 2, 3 }, { {1.0, 2.0, 3.0} });
+  z: E_nested = {{ {1.0, 2.0, 3.0} }, 42};
+
+  return ({ 1, 2, 3 }, { {1.0, 2.0, 3.0} });
+}
+
+element One_Field { x: vec3f; }
+
+func bar(x: vec3f) -> (One_Field, i32) {
+  // We can infer that "One_Field" has a single field, 
+  // thus don't need the outer `One_Field { }`.
+  return (x, 42);
+}

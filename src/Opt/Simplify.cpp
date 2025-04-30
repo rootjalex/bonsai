@@ -3,6 +3,7 @@
 #include "Error.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
+#include "IR/Operators.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
@@ -10,6 +11,7 @@
 #include "Utils.h"
 
 #include <bit>
+#include <functional>
 #include <string>
 #include <unordered_map>
 
@@ -18,18 +20,35 @@ namespace opt {
 
 namespace {
 
+uint64_t log2(uint64_t value) {
+    internal_assert(value > 0) << value;
+    return std::bit_width(value) - 1;
+}
 // Bit casts `a` and `b` to type T, then applies `f`.
 template <typename T, typename F>
 T apply(F f, uint64_t a, uint64_t b) {
     return f(std::bit_cast<T>(a), std::bit_cast<T>(b));
 }
 
+template <typename T, typename C>
+const T *is_op(ir::Expr e, C code) {
+    if (const auto *v = e.as<T>()) {
+        if (v->op == code) {
+            return v;
+        }
+    }
+    return nullptr;
+}
+
 // Attempts to constant fold the binary operations. Returns an undefined
 // expression upon failure. A type parameter is optionally passed when
 // interpreting a vector's broadcasted value.
+// TODO(bonsai/issues/120): Add constant-fold floating point support.
+// TODO(bonsai/issues/119): Support overflow arithmetic as Halide does:
+// https://github.com/halide/Halide/blob/main/src/IRMatch.h#L919
 template <typename F>
-ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
-                       std::optional<ir::Type> type = {}) {
+ir::Expr constant_fold_integral(F f, ir::Expr a, ir::Expr b,
+                                std::optional<ir::Type> type = {}) {
     if (!(a.defined() && b.defined())) {
         return ir::Expr();
     }
@@ -43,10 +62,10 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
         std::vector<ir::Expr> values;
         ir::Type element_of = vector_type->etype;
         for (int i = 0, e = vector_type->lanes; i < e; ++i) {
-            ir::Expr result = constant_fold(f,
-                                            /*a=*/get_value_at(a, i),
-                                            /*b=*/get_value_at(b, i),
-                                            /*type=*/element_of);
+            ir::Expr result = constant_fold_integral(f,
+                                                     /*a=*/get_value_at(a, i),
+                                                     /*b=*/get_value_at(b, i),
+                                                     /*type=*/element_of);
             if (!result.defined()) {
                 return ir::Expr();
             }
@@ -68,9 +87,6 @@ ir::Expr constant_fold(F f, ir::Expr a, ir::Expr b,
     if (type->is_uint()) {
         return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
     }
-    if (type->is_float()) {
-        return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
-    }
 
     return ir::Expr();
 }
@@ -83,6 +99,12 @@ ir::Expr make(const ir::BinOp *node, ir::Expr a, ir::Expr b) {
     }
     return ir::BinOp::make(node->op, std::move(a), std::move(b));
 }
+ir::Expr make(const ir::UnOp *node, ir::Expr a) {
+    if (a.same_as(node->a)) {
+        return node;
+    }
+    return ir::UnOp::make(node->op, std::move(a));
+}
 
 struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::Var *node) override {
@@ -93,15 +115,52 @@ struct Simplifier : ir::Mutator {
         return it->second;
     }
 
+    ir::Expr visit(const ir::UnOp *node) override {
+        ir::Expr a = mutate(node->a);
+        const ir::Type type = a.type();
+        const ir::Expr zero = make_zero(type);
+        switch (node->op) {
+        case ir::UnOp::OpType::Neg:
+            if (ir::Expr e = constant_fold_integral(std::minus<>{}, zero, a);
+                e.defined()) {
+                // -x <=> 0 - x
+                return e;
+            }
+            if (auto *op = is_op<ir::UnOp>(a, ir::UnOp::OpType::Neg)) {
+                // -(-x) = x
+                return op->a;
+            }
+            return make(node, std::move(a));
+        case ir::UnOp::OpType::Not:
+            if (const std::optional<int64_t> v = get_constant_value(a)) {
+                if (*v == 0) {
+                    // !false = true
+                    return make_const(type, 1);
+                }
+                if (*v == 1) {
+                    // !true = false
+                    return make_const(type, 0);
+                }
+            }
+            if (auto *op = is_op<ir::UnOp>(a, ir::UnOp::OpType::Not)) {
+                // !(!x) = x
+                return op->a;
+            }
+            return make(node, std::move(a));
+        }
+    }
+
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
             << "a: " << a.type() << ", " << "b: " << b.type();
 
-        ir::Type type = a.type();
+        const ir::Type type = a.type();
+        const ir::Expr zero = make_zero(type), one = make_one(type);
         switch (node->op) {
         case ir::BinOp::OpType::Add: {
-            if (ir::Expr e = constant_fold(std::plus<>{}, a, b); e.defined()) {
+            if (ir::Expr e = constant_fold_integral(std::plus<>{}, a, b);
+                e.defined()) {
                 return e;
             }
             if (is_const_zero(a)) {
@@ -115,13 +174,13 @@ struct Simplifier : ir::Mutator {
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mul: {
-            if (ir::Expr e = constant_fold(std::multiplies<>{}, a, b);
+            if (ir::Expr e = constant_fold_integral(std::multiplies<>{}, a, b);
                 e.defined()) {
                 return e;
             }
             if (is_const_zero(a) || is_const_zero(b)) {
                 // x * 0 = 0
-                return make_zero(std::move(type));
+                return zero;
             }
             if (is_const_one(a)) {
                 // x * 1 = x
@@ -131,11 +190,22 @@ struct Simplifier : ir::Mutator {
                 // 1 * x = x
                 return a;
             }
+
+            std::optional<int64_t> c_a = get_constant_value(a);
+            if (c_a.has_value() && is_power_of_two(*c_a)) {
+                // n * x -> x << log2(n), where n is a power of 2.
+                return ir::BinOp::make(ir::BinOp::OpType::Shl, b, log2(*c_a));
+            }
+            std::optional<int64_t> c_b = get_constant_value(b);
+            if (c_b.has_value() && is_power_of_two(*c_b)) {
+                // x * n -> x << log2(n), where n is a power of 2.
+                return ir::BinOp::make(ir::BinOp::OpType::Shl, a, log2(*c_b));
+            }
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Div: {
             internal_assert(!is_const_zero(b)) << ir::Expr(node);
-            if (ir::Expr e = constant_fold(std::divides<>{}, a, b);
+            if (ir::Expr e = constant_fold_integral(std::divides<>{}, a, b);
                 e.defined()) {
                 return e;
             }
@@ -145,12 +215,13 @@ struct Simplifier : ir::Mutator {
             }
             if (a.same_as(b)) {
                 // a / a = 1
-                return make_one(std::move(type));
+                return one;
             }
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Sub: {
-            if (ir::Expr e = constant_fold(std::minus<>{}, a, b); e.defined()) {
+            if (ir::Expr e = constant_fold_integral(std::minus<>{}, a, b);
+                e.defined()) {
                 return e;
             }
             if (is_const_zero(b)) {
@@ -161,16 +232,27 @@ struct Simplifier : ir::Mutator {
             // also check for semantic equality.
             if (a.same_as(b)) {
                 // a - a = 0
-                return make_zero(std::move(type));
+                return zero;
             }
             if (is_const_zero(a)) {
                 // 0 - a = -a
-                return ir::UnOp::make(ir::UnOp::Neg, a);
+                return -a;
             }
             return make(node, std::move(a), std::move(b));
         }
+        case ir::BinOp::OpType::Mod: {
+            if (ir::Expr e = constant_fold_integral(std::modulus<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            std::optional<uint64_t> c_b = get_constant_value(b);
+            if (c_b.has_value() && is_power_of_two(*c_b)) {
+                // x % 2^n -> x & (2^n - 1)
+                return a & make_const(type, *c_b - 1);
+            }
+        }
         case ir::BinOp::OpType::LAnd: {
-            if (ir::Expr e = constant_fold(std::logical_and<>{}, a, b);
+            if (ir::Expr e = constant_fold_integral(std::logical_and<>{}, a, b);
                 e.defined()) {
                 return e;
             }
@@ -194,7 +276,7 @@ struct Simplifier : ir::Mutator {
         }
 
         case ir::BinOp::OpType::LOr: {
-            if (ir::Expr e = constant_fold(std::logical_or<>{}, a, b);
+            if (ir::Expr e = constant_fold_integral(std::logical_or<>{}, a, b);
                 e.defined()) {
                 return e;
             }
@@ -213,6 +295,59 @@ struct Simplifier : ir::Mutator {
             if (ir::equals(a, b)) {
                 // x || x = x
                 return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
+        case ir::BinOp::OpType::Xor: {
+            if (ir::Expr e = constant_fold_integral(std::bit_xor<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            if (is_const_zero(a)) {
+                // 0 ^ x = x
+                return b;
+            }
+            if (is_const_zero(b)) {
+                // x ^ 0 = x
+                return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
+        case ir::BinOp::OpType::BwAnd: {
+            if (ir::Expr e = constant_fold_integral(std::bit_and<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            if (is_const_zero(a) || is_const_zero(b)) {
+                // x & 0 = 0
+                return zero;
+            }
+            if (is_const_all_ones(a)) {
+                // ~0 & x  = x
+                return b;
+            }
+            if (is_const_all_ones(b)) {
+                // x & ~0  = x
+                return a;
+            }
+            return make(node, std::move(a), std::move(b));
+        }
+        case ir::BinOp::OpType::BwOr: {
+            if (ir::Expr e = constant_fold_integral(std::bit_or<>{}, a, b);
+                e.defined()) {
+                return e;
+            }
+            if (is_const_zero(a)) {
+                // 0 | x = x
+                return b;
+            }
+            if (is_const_zero(b)) {
+                // x | 0 = x
+                return a;
+            }
+            if (is_const_all_ones(a) || is_const_all_ones(b)) {
+                // ~0 | x = ~0
+                return make_all_ones(type);
             }
             return make(node, std::move(a), std::move(b));
         }
@@ -310,6 +445,35 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::Sequence::make(std::move(stmts));
+    }
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        ir::Expr cond = mutate(node->cond);
+        ir::Stmt then_body = mutate(node->then_body);
+        ir::Stmt else_body = mutate(node->else_body);
+
+        if (auto x = get_constant_value(cond); x.has_value()) {
+            if (*x == 0) {
+                return else_body;
+            } else {
+                return then_body;
+            }
+        }
+
+        if (!then_body.defined()) {
+            if (!else_body.defined()) {
+                // No-op
+                return then_body;
+            }
+            return ir::IfElse::make(~cond, std::move(else_body));
+        }
+
+        if (cond.same_as(node->cond) && then_body.same_as(node->then_body) &&
+            else_body.same_as(node->else_body)) {
+            return node;
+        }
+        return ir::IfElse::make(std::move(cond), std::move(then_body),
+                        std::move(else_body));
     }
 
   private:

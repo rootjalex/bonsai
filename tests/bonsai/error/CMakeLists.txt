@@ -13,6 +13,7 @@ add_bonsai_tests(
     lambda-empty-body.bonsai
     lambda-no-arguments.bonsai
     mismatched_types.bonsai
+    mutability.bonsai
     negate-unsigned.bonsai
     no-return.bonsai
     option-dereference1.bonsai

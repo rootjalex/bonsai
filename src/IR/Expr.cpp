@@ -18,6 +18,20 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+
+// Returns whether `type` is a struct with one element, that has the same type
+// as `expected_type`.
+bool is_single_element_struct_with_type(const ir::Type &type,
+                                        const ir::Type &expected_type) {
+    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+        if (struct_t->fields.size() == 1) {
+            return ir::equals(struct_t->fields.front().type, expected_type);
+        }
+    }
+    return false;
+}
+} // namespace
 
 Expr::Expr(int8_t x) : IRHandle(IntImm::make(Int_t::make(8), x)) {}
 
@@ -576,12 +590,48 @@ Expr Extract::make(Expr vec, Expr idx) {
 
 Expr Build::make(Type type, std::vector<Expr> values) {
     Build *node = new Build;
+    const bool infer_types = type_enforcement_enabled();
 
-    const bool infer_types =
-        type_enforcement_enabled() ||
-        (type.defined() &&
-         std::all_of(values.cbegin(), values.cend(),
-                     [](const auto &v) { return v.type().defined(); }));
+    // Fill default values.
+    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+        const ir::Struct_t::Map &fields = struct_t->fields;
+        const size_t field_count = fields.size();
+        const size_t value_count = values.size();
+        if (!values.empty() && field_count != value_count) {
+            const ir::Struct_t::DefMap &defaults = struct_t->defaults;
+            if (infer_types) {
+                internal_assert(value_count + defaults.size() == field_count)
+                    << "Build<Struct_t> of type: " << type << " received "
+                    << value_count << " values, has " << defaults.size()
+                    << " defaults, but " << field_count << " fields";
+            }
+            std::vector<Expr> filled_values(field_count);
+            size_t value_i = 0;
+            for (size_t i = 0; i < field_count; i++) {
+                // TODO: perform constant casting here?
+                if (defaults.contains(fields[i].name)) {
+                    // No need to assert, the default should always be
+                    // the correct type for the struct.
+                    filled_values[i] = defaults.at(fields[i].name);
+                } else {
+                    internal_assert(value_i < values.size())
+                        << value_i << " < " << values.size();
+                    if (infer_types) {
+                        internal_assert(
+                            equals(fields[i].type, values[value_i].type()))
+                            << "Build<Struct_t> of type: " << type
+                            << " requires matching field types, expected: "
+                            << fields[i].type << " but received "
+                            << values[value_i] << " of type "
+                            << values[value_i].type() << " for field "
+                            << fields[i].name;
+                    }
+                    filled_values[i] = values[value_i++];
+                }
+            }
+            values = std::move(filled_values);
+        }
+    }
 
     if (infer_types) {
         internal_assert(type.defined())
@@ -611,52 +661,23 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 const auto &fields = type.as<Struct_t>()->fields;
                 const size_t field_count = fields.size();
                 const size_t value_count = values.size();
-
                 internal_assert(value_count <= field_count)
                     << "Build<Struct_t> of type: " << type
                     << " received too many arguments, received: " << value_count
                     << " but expected " << field_count;
-
                 if (field_count == value_count) {
                     for (size_t i = 0; i < values.size(); i++) {
+                        const ir::Type &ftype = fields[i].type;
+                        const ir::Type &vtype = values[i].type();
                         internal_assert(
-                            equals(fields[i].type, values[i].type()))
+                            equals(ftype, vtype) ||
+                            is_single_element_struct_with_type(ftype, vtype))
                             << "Build<Struct_t> requires matching field types, "
                                "expected: "
-                            << fields[i].type << " but received " << values[i]
-                            << " of type " << values[i].type() << " for field "
-                            << fields[i].name;
+                            << ftype << " but received " << values[i]
+                            << " of type " << vtype << " for field "
+                            << fields[i].name << " in struct " << type;
                     }
-                } else {
-                    // field_count < value_count
-                    const auto &defaults = type.as<Struct_t>()->defaults;
-                    internal_assert(value_count + defaults.size() ==
-                                    field_count)
-                        << "Build<Struct_t> of type: " << type << " received "
-                        << value_count << " values, has " << defaults.size()
-                        << " defaults, but " << field_count << " fields";
-                    std::vector<Expr> filled_values(field_count);
-                    size_t value_i = 0;
-                    for (size_t i = 0; i < field_count; i++) {
-                        // TODO: perform constant casting here?
-                        if (defaults.contains(fields[i].name)) {
-                            // No need to assert, the default should always be
-                            // the correct type for the struct.
-                            filled_values[i] = defaults.at(fields[i].name);
-                        } else {
-                            internal_assert(value_i < values.size());
-                            internal_assert(
-                                equals(fields[i].type, values[value_i].type()))
-                                << "Build<Struct_t> of type: " << type
-                                << " requires matching field types, expected: "
-                                << fields[i].type << " but received "
-                                << values[value_i] << " of type "
-                                << values[value_i].type() << " for field "
-                                << fields[i].name;
-                            filled_values[i] = values[value_i++];
-                        }
-                    }
-                    values = std::move(filled_values);
                 }
             }
         } else if (type.is<Option_t>()) {
@@ -858,9 +879,11 @@ Expr Lambda::make(std::vector<TypedVar> args, Expr value) {
         // TODO: assert that the vars are used?
         // or we can just optimize those out later, sometimes ppl write dumb
         // code.
-        std::vector<Type> arg_types(args.size());
+        std::vector<Function_t::ArgSig> arg_types(args.size());
         for (size_t i = 0; i < args.size(); i++) {
-            arg_types[i] = args[i].type;
+            arg_types[i].type = args[i].type;
+            // TODO(ajr): do we ever need mutable lambda arguments?
+            arg_types[i].is_mutable = false;
         }
         node->type = Function_t::make(value.type(), std::move(arg_types));
     }
@@ -945,7 +968,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             if (f->arg_types.size() == 1) {
-                internal_assert(equals(f->arg_types[0], b.type().element_of()))
+                internal_assert(
+                    equals(f->arg_types[0].type, b.type().element_of()))
                     << "Expected filter function to accept element of type: "
                     << b.type().element_of() << " instead got " << a << " : "
                     << a.type();
@@ -970,7 +994,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
+                            equals(f->arg_types[0].type, b.type().element_of()))
                 << "Expected argmin function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
@@ -985,7 +1009,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << b << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
+                            equals(f->arg_types[0].type, b.type().element_of()))
                 << "Expected map function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
@@ -1034,18 +1058,23 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
             << ", expected: " << f->arg_types.size()
             << " but received: " << args.size();
         for (size_t i = 0; i < args.size(); i++) {
-            internal_assert(f->arg_types[i].defined());
+            internal_assert(f->arg_types[i].type.defined());
             if (!args[i].type().defined()) {
                 internal_assert(is_const(args[i]))
                     << "Undefined type in function call for non-constant "
                        "expression: "
                     << args[i];
-                args[i] = constant_cast(f->arg_types[i], args[i]);
+                args[i] = constant_cast(f->arg_types[i].type, args[i]);
             } else {
-                internal_assert(equals(args[i].type(), f->arg_types[i]))
+                internal_assert(equals(args[i].type(), f->arg_types[i].type))
                     << "Call::make received bad argument: " << args[i]
-                    << " when expecting type: " << f->arg_types[i]
+                    << " when expecting type: " << f->arg_types[i].type
                     << " at index " << i << " of call to func: " << func;
+            }
+            if (f->arg_types[i].is_mutable) {
+                internal_assert(is_location_expr(args[i]))
+                    << "Cannot pass non-mutable argument: " << args[i]
+                    << " as mutable parameter\n";
             }
         }
         node->type = f->ret_type;

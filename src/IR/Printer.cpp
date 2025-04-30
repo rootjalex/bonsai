@@ -415,7 +415,15 @@ void Printer::visit(const Set_t *node) {
 
 void Printer::visit(const Function_t *node) {
     os << "Fn(";
-    print_type_list(node->arg_types);
+    for (size_t i = 0; i < node->arg_types.size(); i++) {
+        if (node->arg_types[i].is_mutable) {
+            os << "mut ";
+        }
+        print(node->arg_types[i].type);
+        if (i < node->arg_types.size() - 1) {
+            os << ", ";
+        }
+    }
     os << ") -> ";
     print(node->ret_type);
 }

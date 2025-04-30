@@ -9,3 +9,25 @@ func baz(z : i32) -> i32 {
 func foo(x : i32) -> i32 {
     return x + 0;
 }
+
+func fizz(x: i32, y: i32, c1: bool, c2: bool) -> i32 {
+    a: i32 = x * 32;
+    b: i32 = y * 31;
+
+    c: i32 = x % 32;
+    d: i32 = y % 33;
+
+    negative1: i32 = -1;
+    e: i32 = (-(-(x))) & negative1;
+    f: bool = c1 ^ 0;
+    g: bool = c2 | 0;
+    h: bool = c1 & 0;
+    i: bool = !(!(!h));
+    if (f && g && h) {
+      return a + b + c;
+    } else if (i && i) {
+      return c + d + e;
+    } else {
+      return x | negative1;
+    }
+}

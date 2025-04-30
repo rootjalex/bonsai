@@ -67,7 +67,7 @@ struct Function {
     Function() {}
 
     // Creates a new function with the provided body.
-    std::shared_ptr<ir::Function> replace_body(ir::Stmt body) {
+    std::shared_ptr<Function> replace_body(Stmt body) {
         return std::make_shared<Function>(
             std::move(name), std::move(args), std::move(ret_type),
             std::move(body), std::move(interfaces), std::move(attributes));
@@ -82,17 +82,19 @@ struct Function {
     }
 
     // Returns the argument types of this function. This is *not* memoized.
-    std::vector<ir::Type> argument_types() const {
-        std::vector<ir::Type> types;
-        std::transform(
-            args.begin(), args.end(), std::back_inserter(types),
-            [](const Function::Argument &argument) { return argument.type; });
+    std::vector<Function_t::ArgSig> argument_types() const {
+        std::vector<Function_t::ArgSig> types;
+        std::transform(args.begin(), args.end(), std::back_inserter(types),
+                       [](const Function::Argument &argument) {
+                           return Function_t::ArgSig{argument.type,
+                                                     argument.mutating};
+                       });
         return types;
     }
 
-    ir::Type call_type() const {
+    Type call_type() const {
         internal_assert(ret_type.defined());
-        return ir::Function_t::make(ret_type, this->argument_types());
+        return Function_t::make(ret_type, this->argument_types());
     }
 
     Function(const Function &) = default;

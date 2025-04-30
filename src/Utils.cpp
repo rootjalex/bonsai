@@ -55,6 +55,25 @@ bool is_const_zero(const Expr &e) {
     }
 }
 
+bool is_const_all_ones(const Expr &e) {
+    if (!e.defined()) {
+        internal_error << "is_const_all_ones called on undefined value";
+    }
+
+    if (const Broadcast *b = e.as<Broadcast>()) {
+        return is_const_all_ones(b->value);
+    } else if (const IntImm *i = e.as<IntImm>()) {
+        return is_all_ones(i->value, i->type.bits());
+    } else if (const UIntImm *u = e.as<UIntImm>()) {
+        return is_all_ones(u->value, u->type.bits());
+    } else if (const FloatImm *f = e.as<FloatImm>()) {
+        return is_all_ones(f->value, f->type.bits());
+    } else if (const BoolImm *b = e.as<BoolImm>()) {
+        return b->value == 1;
+    }
+    return false;
+}
+
 bool is_const(const Expr &e) {
     if (!e.defined()) {
         internal_error << "is_const called on undefined value";
@@ -66,6 +85,10 @@ bool is_const(const Expr &e) {
         return b->values.empty(); // default is constant!
     }
     return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
+}
+
+bool is_location_expr(const Expr &expr) {
+    return expr.is<Var, Access>();
 }
 
 Expr get_value_at(Expr v, int64_t index) {
@@ -106,6 +129,8 @@ const SetOp *as_filter(const Expr &expr) {
 Expr make_zero(const Type &t) { return make_const(t, 0); }
 
 Expr make_one(const Type &t) { return make_const(t, 1); }
+
+Expr make_all_ones(const Type &t) { return make_const(t, bit_mask(t.bits())); }
 
 Expr make_inf(const Type &t) {
     if (t.is<UInt_t, Int_t, Float_t>()) {
@@ -319,6 +344,31 @@ bool is_writeloc(const Expr &expr) {
         return is_writeloc(idx->vec);
     }
     return false;
+}
+
+
+uint64_t bit_mask(int64_t n) {
+    const uint64_t width = std::numeric_limits<uint64_t>::digits;
+    internal_assert(0 < n && n <= 64) << n;
+    return n >= width ? ~uint64_t{0} : (uint64_t{1} << n) - uint64_t{1};
+}
+  
+Expr update_type(Expr expr, Type type) {
+    internal_assert(type.defined());
+    internal_assert(expr.defined());
+    switch (expr->node_type) {
+    case IRExprEnum::Build: {
+        const auto *build = expr.as<Build>();
+        return Build::make(std::move(type), build->values);
+    }
+    case IRExprEnum::Var: {
+        const auto *var = expr.as<Var>();
+        return Var::make(std::move(type), var->name);
+    }
+    default:
+        internal_error << "[unimplemented] update_type(" << expr << " : "
+                       << expr.type() << ", " << type << ")";
+    }
 }
 
 namespace {
