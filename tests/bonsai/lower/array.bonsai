@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p lower-arrays
+//! flags: -p canonicalize -p lower-maps -p simplify
 
 // TODO(cgyurgyik): add tests for runtime values in the array size.
 // TODO(cgyurgyik): add tests for maps over tuples.

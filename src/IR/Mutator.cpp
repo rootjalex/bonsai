@@ -569,17 +569,15 @@ Stmt Mutator::visit(const ForEach *node) {
 
 Stmt Mutator::visit(const ForAll *node) {
     Stmt body = mutate(node->body);
-    Stmt header = mutate(node->header);
     ForAll::Slice s = node->slice;
     Expr begin = mutate(s.begin);
     Expr end = mutate(s.end);
     Expr stride = mutate(s.stride);
-    if (header.same_as(node->header) && body.same_as(node->body) &&
-        begin.same_as(s.begin) && end.same_as(s.end) &&
-        stride.same_as(s.stride)) {
+    if (body.same_as(node->body) && begin.same_as(s.begin) &&
+        end.same_as(s.end) && stride.same_as(s.stride)) {
         return node;
     }
-    return ForAll::make(std::move(node->index), std::move(header),
+    return ForAll::make(std::move(node->index),
                         ForAll::Slice{
                             .begin = std::move(begin),
                             .end = std::move(end),

@@ -1,6 +1,7 @@
 #include "Utils.h"
 
 #include "IR/Equality.h"
+#include "IR/Operators.h"
 
 namespace bonsai {
 
@@ -67,21 +68,39 @@ bool is_const(const Expr &e) {
     return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
 }
 
-ir::Expr get_value_at(ir::Expr v, int64_t index) {
-    const ir::Type &type = v.type();
+Expr get_value_at(Expr v, int64_t index) {
+    const Type &type = v.type();
     internal_assert(type.is_vector()) << type;
     internal_assert(0 <= index && index < type.lanes())
         << index << " is not within bounds [0, " << type.lanes() << ")";
-    if (const auto *broadcast = v.as<ir::Broadcast>()) {
+    if (const auto *broadcast = v.as<Broadcast>()) {
         return broadcast->value;
     }
-    if (const auto *immediate = v.as<ir::VecImm>()) {
+    if (const auto *immediate = v.as<VecImm>()) {
         return immediate->values[index];
     }
-    if (const auto *build = v.as<ir::Build>()) {
+    if (const auto *build = v.as<Build>()) {
         return build->values[index];
     }
-    return ir::Expr();
+    return Expr();
+}
+
+const SetOp *as_map(const Expr &expr) {
+    if (const SetOp *setop = expr.as<SetOp>()) {
+        if (setop->op == SetOp::map) {
+            return setop;
+        }
+    }
+    return nullptr;
+}
+
+const SetOp *as_filter(const Expr &expr) {
+    if (const SetOp *setop = expr.as<SetOp>()) {
+        if (setop->op == SetOp::filter) {
+            return setop;
+        }
+    }
+    return nullptr;
 }
 
 Expr make_zero(const Type &t) { return make_const(t, 0); }
@@ -167,10 +186,10 @@ Expr replace(const std::string &var_name, Expr repl, const Expr &orig) {
 namespace {
 
 struct VarReplacer : public Mutator {
-    VarReplacer(const std::map<std::string, ir::Expr> &repls) : repls(repls) {}
+    VarReplacer(const std::map<std::string, Expr> &repls) : repls(repls) {}
 
   private:
-    const std::map<std::string, ir::Expr> &repls;
+    const std::map<std::string, Expr> &repls;
 
   public:
     Expr visit(const Var *node) override {
@@ -185,14 +204,12 @@ struct VarReplacer : public Mutator {
 
 } // namespace
 
-ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
-                 const ir::Expr &orig) {
+Expr replace(const std::map<std::string, Expr> &repls, const Expr &orig) {
     VarReplacer replacer(repls);
     return replacer.mutate(orig);
 }
 
-ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
-                 const ir::Stmt &orig) {
+Stmt replace(const std::map<std::string, Expr> &repls, const Stmt &orig) {
     VarReplacer replacer(repls);
     return replacer.mutate(orig);
 }
@@ -218,6 +235,15 @@ Type replace(const TypeMap &repls, const Type &type) {
 
     TypeReplacer replacer(repls);
     return replacer.mutate(type);
+}
+
+Expr call(Expr func, Expr arg) {
+    if (const Lambda *l = func.as<Lambda>()) {
+        internal_assert(l->args.size() == 1)
+            << "[unimplemented] call fusion for tuple set operations\n";
+        return replace(l->args[0].name, arg, l->value);
+    }
+    return Call::make(std::move(func), {std::move(arg)});
 }
 
 bool is_power_of_two(int32_t x) { return (x & (x - 1)) == 0; }
@@ -268,31 +294,50 @@ double machine_epsilon(const Type &t) {
 }
 
 // Convert an expression, e.g. `a.field0.field1` into a `WriteLoc`.
-ir::WriteLoc read_to_writeloc(const ir::Expr &expr) {
-    if (const ir::Var *var = expr.as<ir::Var>()) {
-        return ir::WriteLoc(var->name, var->type);
-    } else if (const ir::Access *acc = expr.as<ir::Access>()) {
-        ir::WriteLoc rec = read_to_writeloc(acc->value);
+WriteLoc read_to_writeloc(const Expr &expr) {
+    if (const Var *var = expr.as<Var>()) {
+        return WriteLoc(var->name, var->type);
+    } else if (const Access *acc = expr.as<Access>()) {
+        WriteLoc rec = read_to_writeloc(acc->value);
         rec.add_struct_access(acc->field);
         return rec;
-    } else if (const ir::Extract *idx = expr.as<ir::Extract>()) {
-        ir::WriteLoc rec = read_to_writeloc(idx->vec);
+    } else if (const Extract *idx = expr.as<Extract>()) {
+        WriteLoc rec = read_to_writeloc(idx->vec);
         rec.add_index_access(idx->idx);
         return rec;
     }
     internal_error << "Cannot convert to WriteLoc: " << expr;
-    return ir::WriteLoc();
+    return WriteLoc();
 }
 
-bool is_writeloc(const ir::Expr &expr) {
-    if (expr.as<ir::Var>()) {
+bool is_writeloc(const Expr &expr) {
+    if (expr.as<Var>()) {
         return true;
-    } else if (const ir::Access *acc = expr.as<ir::Access>()) {
+    } else if (const Access *acc = expr.as<Access>()) {
         return is_writeloc(acc->value);
-    } else if (const ir::Extract *idx = expr.as<ir::Extract>()) {
+    } else if (const Extract *idx = expr.as<Extract>()) {
         return is_writeloc(idx->vec);
     }
     return false;
+}
+
+namespace {
+
+Type flatten_array_type_helper(Type type, Expr size) {
+    if (const Array_t *array_t = type.as<Array_t>()) {
+        // TODO(ajr): might need to cast types of size/array_t->size
+        return flatten_array_type_helper(array_t->etype, size * array_t->size);
+    }
+    return Array_t::make(std::move(type), std::move(size));
+}
+
+} // namespace
+
+Type flatten_array_type(const Type &type) {
+    if (const Array_t *nested = type.as<Array_t>()) {
+        return flatten_array_type_helper(nested->etype, nested->size);
+    }
+    internal_error << "flatten_array_type called on non-Array_t: " << type;
 }
 
 } // namespace bonsai

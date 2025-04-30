@@ -165,23 +165,19 @@ struct UnswitchImpl : public Mutator {
 
         // TODO(ajr): partition condition into varying and unvarying conditions.
         if (const IfElse *if_else = node->body.as<IfElse>()) {
-            std::set<std::string> varying =
-                node->header.defined() ? assigned_variables(node->header)
-                                       : std::set<std::string>{};
-            varying.insert(node->index);
+            std::set<std::string> varying = {node->index};
             // TODO(ajr): if ForAll is not guaranteed parallel, we need this.
             // std::set<std::string> mutating = mutated_variables(node->body);
             // varying.insert(mutating.begin(), mutating.end());
 
             if (!reads(if_else->cond, varying)) {
                 // Perform loop unswitching.
-                ir::Stmt body0 = ForAll::make(node->index, node->header,
-                                              node->slice, if_else->then_body);
-                ir::Stmt body1 =
-                    if_else->else_body.defined()
-                        ? ForAll::make(node->index, node->header, node->slice,
-                                       if_else->else_body)
-                        : if_else->else_body;
+                ir::Stmt body0 =
+                    ForAll::make(node->index, node->slice, if_else->then_body);
+                ir::Stmt body1 = if_else->else_body.defined()
+                                     ? ForAll::make(node->index, node->slice,
+                                                    if_else->else_body)
+                                     : if_else->else_body;
                 return IfElse::make(if_else->cond, std::move(body0),
                                     std::move(body1));
             }
