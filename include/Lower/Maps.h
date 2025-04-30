@@ -9,9 +9,9 @@
 namespace bonsai {
 namespace lower {
 
-class LowerArrays : public Pass {
+class LowerMaps : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-arrays"; }
+    constexpr std::string name() const override { return "lower-maps"; }
 
     // Requires full-program analysis (needs access to schedule).
     ir::Program run(ir::Program program) const override;

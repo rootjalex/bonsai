@@ -1,7 +1,6 @@
 #include "Lower/Lower.h"
 
 #include "IR/Mutator.h"
-#include "Lower/Arrays.h"
 #include "Lower/Canonicalize.h"
 #include "Lower/Externs.h"
 #include "Lower/ForEachs.h"
@@ -9,6 +8,8 @@
 #include "Lower/Geometrics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
+#include "Lower/Maps.h"
+#include "Lower/LogicalOperations.h"
 #include "Lower/Options.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
@@ -17,6 +18,7 @@
 #include "Lower/VerifyOptions.h"
 #include "Lower/Yields.h"
 #include "Opt/DCE.h"
+#include "Opt/Fusion.h"
 #include "Opt/Inline.h"
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
@@ -69,19 +71,20 @@ PassManager register_passes() {
     manager.register_pass<LowerGenerics>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
-    manager.register_pass<LowerArrays>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<LowerTuples>();
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
+    manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<ReturnToOutParameter>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
+    manager.register_pass<opt::Fusion>();
+    manager.register_pass<opt::Inline>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
-    manager.register_pass<opt::Inline>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
@@ -89,7 +92,9 @@ PassManager register_passes() {
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<VerifyOptions>());
     core.push_back(std::make_unique<VerifyLayouts>());
-    core.push_back(std::make_unique<LowerArrays>());
+    // Fusion must always run before Array or Tree lowering!
+    core.push_back(std::make_unique<opt::Fusion>());
+    core.push_back(std::make_unique<LowerMaps>());
     core.push_back(std::make_unique<LowerTrees>());
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
@@ -99,6 +104,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
+    core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
@@ -109,7 +115,9 @@ PassManager register_passes() {
     d.push_back(std::make_unique<Canonicalize>());
     d.push_back(std::make_unique<VerifyOptions>());
     d.push_back(std::make_unique<VerifyLayouts>());
-    d.push_back(std::make_unique<LowerArrays>());
+    // Fusion must always run before Array or Tree lowering!
+    d.push_back(std::make_unique<opt::Fusion>());
+    d.push_back(std::make_unique<LowerMaps>());
     d.push_back(std::make_unique<LowerTrees>());
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
@@ -119,10 +127,11 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
+    d.push_back(std::make_unique<opt::Unswitch>());
+    d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
-    d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<opt::Inline>());
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());

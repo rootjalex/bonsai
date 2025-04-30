@@ -2016,7 +2016,6 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     // escape_blocks.push_back(end_bb);
 
     // Emit loop body
-    codegen_stmt(node->header);
     codegen_stmt(node->body);
 
     latch_blocks.pop_back();

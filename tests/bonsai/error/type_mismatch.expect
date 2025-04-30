@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/Expr.cpp:136
+[internal] Error: src/IR/Expr.cpp:150
 
 --> ir::equals(e.type(), element_type)
 VecImm requires uniform element type, expected: u32, but received: 0

@@ -93,7 +93,6 @@ target_sources(
     src/IR/ValidateLayout.cpp
     src/IR/Visitor.cpp
     src/IR/WriteLoc.cpp
-    src/Lower/Arrays.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
     src/Lower/Externs.cpp
@@ -103,7 +102,9 @@ target_sources(
     src/Lower/Intrinsics.cpp
     src/Lower/Lambdas.cpp
     src/Lower/Layouts.cpp
+    src/Lower/LogicalOperations.cpp
     src/Lower/Lower.cpp
+    src/Lower/Maps.cpp
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
@@ -117,6 +118,7 @@ target_sources(
     src/Lower/VerifyOptions.cpp
     src/Lower/Yields.cpp
     src/Opt/DCE.cpp
+    src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
     src/Opt/Simplify.cpp
     src/Opt/Unswitch.cpp
@@ -165,7 +167,6 @@ target_sources(
     include/IR/WriteLoc.h
     include/IntrusivePtr.h
     include/LLVMIncl.h
-    include/Lower/Arrays.h
     include/Lower/Canonicalize.h
     include/Lower/Externs.h
     include/Lower/ForEachs.h
@@ -174,7 +175,9 @@ target_sources(
     include/Lower/Intrinsics.h
     include/Lower/Lambdas.h
     include/Lower/Layouts.h
+    include/Lower/LogicalOperations.h
     include/Lower/Lower.h
+    include/Lower/Maps.h
     include/Lower/Options.h
     include/Lower/Pass.h
     include/Lower/PassManager.h
@@ -188,6 +191,7 @@ target_sources(
     include/Lower/VerifyOptions.h
     include/Lower/Yields.h
     include/Opt/DCE.h
+    include/Opt/Fusion.h
     include/Opt/Inline.h
     include/Opt/Simplify.h
     include/Opt/Unswitch.h

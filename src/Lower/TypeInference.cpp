@@ -79,6 +79,157 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
     return replacer.mutate(stmt);
 }
 
+ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
+    struct InferBuildTypes : public ir::Mutator {
+        InferBuildTypes(const ir::Type &return_type)
+            : return_type(return_type) {}
+
+      public:
+        ir::Stmt visit(const ir::LetStmt *node) override {
+            ir::Type expected_type = node->loc.type;
+            if (!expected_type.defined()) {
+                return node;
+            }
+            if (std::optional<ir::Expr> value =
+                    infer_type(node->value, expected_type)) {
+                return ir::LetStmt::make(node->loc, mutate(*value));
+            }
+            return node;
+        }
+
+        ir::Stmt visit(const ir::Assign *node) override {
+            ir::Type expected_type = node->loc.type;
+            if (!expected_type.defined()) {
+                return node;
+            }
+            if (std::optional<ir::Expr> value =
+                    infer_type(node->value, expected_type)) {
+                return ir::Assign::make(node->loc, mutate(*value),
+                                        node->mutating);
+            }
+            return node;
+        }
+
+        ir::Stmt visit(const ir::Return *node) override {
+            if (!node->value.defined() || !return_type.defined()) {
+                return node;
+            }
+            if (std::optional<ir::Expr> value =
+                    infer_type(node->value, return_type)) {
+                return ir::Return::make(mutate(*value));
+            }
+            return node;
+        }
+
+        ir::Expr visit(const ir::Build *node) override {
+            // We can only infer cases when this node has a type already.
+            if (!node->type.defined()) {
+                return node;
+            }
+            // Case 1: all these members are well defined, work through their
+            // children (if any).
+            if (std::all_of(
+                    node->values.begin(), node->values.end(),
+                    [](const ir::Expr &e) { return e.type().defined(); })) {
+                std::vector<ir::Expr> values;
+                for (int i = 0, e = node->values.size(); i < e; ++i) {
+                    values.push_back(mutate(node->values[i]));
+                }
+                return ir::Build::make(node->type, std::move(values));
+            }
+            // Case 2: all these members are not well defined. Define them, and
+            // then work through their children (if any).
+            if (std::optional<ir::Expr> inferred_value =
+                    infer_type(node, node->type)) {
+                return mutate(*inferred_value);
+            }
+            return node;
+        }
+
+      private:
+        // Finds the first non-cast value from `e`.
+        ir::Expr through_cast(ir::Expr e) {
+            internal_assert(e.defined());
+            ir::Expr value = std::move(e);
+            while (value.is<ir::Cast>()) {
+                value = value.as<ir::Cast>()->value;
+            }
+            return value;
+        }
+
+        // Infers the type of `value` from `expected_type`. This returns an
+        // optional type so we don't accidentally return the value found through
+        // casts.
+        std::optional<ir::Expr> infer_type(ir::Expr value,
+                                           ir::Type expected_type) {
+            value = through_cast(value);
+            const auto *build = value.as<ir::Build>();
+
+            if (build == nullptr) {
+                return {};
+            }
+            if (const auto *struct_t = expected_type.as<ir::Struct_t>()) {
+                std::vector<ir::Expr> values;
+                internal_assert(build->values.size() <= struct_t->fields.size())
+                    << "received more values: " << build->values.size()
+                    << " than struct fields: " << struct_t->fields.size()
+                    << " for type: " << ir::Type(struct_t);
+                int e = std::min(struct_t->fields.size(), build->values.size());
+                for (int i = 0; i < e; ++i) {
+                    ir::Expr value = build->values[i];
+                    if (value.type().defined()) {
+                        values.push_back(std::move(value));
+                        continue;
+                    }
+                    value =
+                        update_type(std::move(value), struct_t->fields[i].type);
+                    values.push_back(std::move(value));
+                }
+                return ir::Build::make(expected_type, std::move(values));
+            }
+            if (const auto *vector = expected_type.as<ir::Vector_t>()) {
+                internal_assert(vector->lanes == build->values.size())
+                    << "Received different number of values: "
+                    << build->values.size()
+                    << " than lanes in the vector: " << vector->lanes;
+                for (int i = 0, e = vector->lanes; i < e; ++i) {
+                    const ir::Expr &value = build->values[i];
+                    internal_assert(value.defined()) << value;
+                    internal_assert(ir::equals(value.type(), vector->etype))
+                        << "Mismatch in vector element type: " << vector->etype
+                        << " and initializer list type: " << value.type();
+                }
+                return ir::Build::make(expected_type, build->values);
+            }
+            if (const auto *tuple = expected_type.as<ir::Tuple_t>()) {
+                std::vector<ir::Expr> values;
+                for (int i = 0, e = tuple->etypes.size(); i < e; ++i) {
+                    ir::Expr value = build->values[i];
+                    if (value.type().defined()) {
+                        values.push_back(std::move(value));
+                        continue;
+                    }
+                    value = update_type(std::move(value), tuple->etypes[i]);
+                    values.push_back(std::move(value));
+                }
+                return ir::Build::make(expected_type, std::move(values));
+            }
+            return {};
+        }
+
+        // The return type of this function.
+        const ir::Type &return_type;
+    };
+    // Temporarily invalid types may be created during this pass, so we disable
+    // type enforcement. This occurs because we may have to infer the parent
+    // struct type and thus pass in its potentially ill-typed children.
+    ir::global_disable_type_enforcement();
+    InferBuildTypes infer(return_type);
+    ir::Stmt with_inferred_build_types = infer.mutate(stmt);
+    ir::global_enable_type_enforcement();
+    return with_inferred_build_types;
+}
+
 ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
     struct SetLambdaTypes : public ir::Mutator {
         ir::Expr visit(const ir::SetOp *node) override {
@@ -303,7 +454,9 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
     internal_assert(ftypes->ret_type.defined())
         << "Failed to infer return type of: " << ftypes->name
         << ", with body: " << ftypes->body;
-    ftypes->body = coerce_return_types(ftypes->body, ftypes->ret_type);
+    ftypes->body =
+        coerce_return_types(std::move(ftypes->body), ftypes->ret_type);
+    ftypes->body = infer_build_types(std::move(ftypes->body), ftypes->ret_type);
 
     internal_assert(ftypes->ret_type.is<ir::Void_t>() ||
                     always_returns(ftypes->body))

@@ -332,9 +332,6 @@ bool Struct_t::is_packed() const {
 }
 
 Type Tuple_t::make(std::vector<Type> etypes) {
-    internal_assert(std::all_of(etypes.cbegin(), etypes.cend(),
-                                [](const Type &t) { return t.defined(); }))
-        << "Tuple_t::make received undefined type";
     Tuple_t *node = new Tuple_t;
     node->etypes = std::move(etypes);
     return node;

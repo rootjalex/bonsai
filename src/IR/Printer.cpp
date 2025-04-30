@@ -1091,9 +1091,6 @@ void Printer::visit(const ForAll *node) {
     print_no_parens(s.stride);
     os << "] {\n";
     ++indent;
-    if (node->header.defined()) {
-        print(node->header);
-    }
     print(node->body);
     --indent;
     os << get_indent() << "}\n";

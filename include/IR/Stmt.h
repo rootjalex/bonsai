@@ -271,10 +271,9 @@ struct ForAll : StmtNode<ForAll> {
         Expr begin, end, stride;
     } slice;
     std::string index;
-    Stmt header; // let x = extract[<...>]
-    Stmt body;   // use(x)
+    Stmt body;
 
-    static Stmt make(std::string index, Stmt header, Slice slice, Stmt body);
+    static Stmt make(std::string index, Slice slice, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::ForAll;
 };

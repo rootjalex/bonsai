@@ -95,27 +95,6 @@ struct FindFromType : public ir::Visitor {
     }
 };
 
-struct LowerFroms : public ir::Mutator {
-    std::string stack_name;
-    ir::WriteLoc counter_loc;
-    ir::Expr counter;
-
-    ir::Expr one;
-
-    LowerFroms(std::string stack_name, ir::WriteLoc counter_loc,
-               ir::Expr counter)
-        : stack_name(std::move(stack_name)),
-          counter_loc(std::move(counter_loc)), counter(std::move(counter)) {
-        one = make_one(this->counter.type());
-    }
-
-    ir::Stmt visit(const ir::YieldFrom *node) override {
-        return ir::Sequence::make(
-            {ir::Accumulate::make(counter_loc, ir::Accumulate::Add, one),
-             ir::Store::make(stack_name, counter, node->value)});
-    }
-};
-
 ir::Expr fill(const ir::FrameStack<ir::Expr> &frames, const ir::Expr &expr) {
     struct Rewrite : public ir::Mutator {
         const ir::FrameStack<ir::Expr> &frames;
