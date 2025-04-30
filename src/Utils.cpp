@@ -337,6 +337,7 @@ ir::Expr update_type(ir::Expr expr, ir::Type type) {
         internal_error << "[unimplemented] update_type(" << expr << " : "
                        << expr.type() << ", " << type << ")";
     }
+}
 
 namespace {
 
