@@ -172,6 +172,10 @@ bool is_all_ones(T value, int64_t width) {
     return (std::bit_cast<uint64_t>(value) & mask) == mask;
 }
 
+// Updates the type of the passed in expression with the provided type.
+ir::Expr update_type(ir::Expr, ir::Type);
+
 ir::Type flatten_array_type(const ir::Type &type);
+
 
 } // namespace bonsai

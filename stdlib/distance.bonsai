@@ -47,7 +47,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     d2 = dot(ac, ap);
     if d1 <= 0.0 && d2 <= 0.0 {
         // barycentric coordinates (1,0,0)
-        return (a, Point{vec3f{1.0, 0.0, 0.0}});
+        return (a, {{1.0, 0.0, 0.0}});
     }
 
     // Check if P in vertex region outside B
@@ -56,7 +56,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     d4 = dot(ac, bp);
     if (d3 >= 0.0) && (d4 <= d3) {
         // barycentric coordinates (0,1,0)
-        return (b, Point{vec3f{0.0, 1.0, 0.0}});
+        return (b, {{0.0, 1.0, 0.0}});
     }
 
     // Check if P in edge region of AB, if so return projection of P onto AB
@@ -64,7 +64,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     if (vc <= 0.0) && (d1 >= 0.0) && (d3 <= 0.0) {
         // barycentric coordinates (1-v,v,0)
         v0 = d1 / (d1 - d3);
-        return (a + v0 * ab, Point{vec3f{1.0 - v0, v0, 0.0}});
+        return (a + v0 * ab, {{1.0 - v0, v0, 0.0}});
     }
 
     // Check if P in vertex region outside C
@@ -73,7 +73,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     d6 = dot(ac, cp);
     if (d6 >= 0.0) && (d5 <= d6) {
         // barycentric coordinates (0,0,1)
-        return (c, Point{vec3f{0.0, 0.0, 1.0}});
+        return (c, {{0.0, 0.0, 1.0}});
     }
 
     // Check if P in edge region of AC, if so return projection of P onto AC
@@ -81,7 +81,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     if (vb <= 0.0) && (d2 >= 0.0) && (d6 <= 0.0) {
         // barycentric coordinates (1-w,0,w)
         w0 = d2 / (d2 - d6);
-        return (a + w0 * ac, Point{vec3f{1.0-w0, 0.0, w0}});
+        return (a + w0 * ac, {{1.0-w0, 0.0, w0}});
     }
 
     // Check if P in edge region of BC, if so return projection of P onto BC
@@ -89,14 +89,14 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     if (va <= 0.0) && ((d4 - d3) >= 0.0) && ((d5 - d6) >= 0.0) {
         // barycentric coordinates (0,1-w,w)
         w1 = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        return (b + w1 * (c - b), Point{vec3f{0.0, 1.0-w1, w1}});
+        return (b + w1 * (c - b), {{0.0, 1.0-w1, w1}});
     }
     // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
     denom = 1.0 / (va + vb + vc);
     v = vb * denom;
     w = vc * denom;
     u = va * denom;
-    return (a + ab * v + ac * w, Point{vec3f{u, v, w}}); // = u*a + v*b + w*c, u = va * denom = 1.0-v-w
+    return (a + ab * v + ac * w, {{u, v, w}}); // = u*a + v*b + w*c, u = va * denom = 1.0-v-w
 }
 
 func distmin(p : Point, tri : Triangle) -> Float {
