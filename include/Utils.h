@@ -80,7 +80,7 @@ ir::Expr make_one(const ir::Type &t);
 // Create an immediate with value `inf` and the provided type.
 ir::Expr make_inf(const ir::Type &t);
 
-// Create an immediate with value `1` n times, where b is the type's bit width.
+// Create an immediate with value `1` n times, where n is the type's bit width.
 ir::Expr make_all_ones(const ir::Type &t);
 
 template <typename T>
@@ -173,6 +173,5 @@ bool is_all_ones(T value, int64_t width) {
 }
 
 ir::Type flatten_array_type(const ir::Type &type);
-
 
 } // namespace bonsai
