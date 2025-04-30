@@ -1417,12 +1417,6 @@ void CodeGen_LLVM::visit(const Call *node) {
                 // Pass pointer to the alloca.
                 args[i] = alloca;
             }
-
-            // if (function_t->arg_types[i].is_mutable) {
-            //     // Expect the codegen to be a load from an alloc-ed thing.
-            //     llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(argument);
-            //     internal_assert(load);
-            //     args[i] = load->getPointerOperand();
         } else if (function_t->arg_types[i].is_mutable) {
             if (argument->getType()->isPointerTy()) {
                 // Already a pointer to value — pass as-is
@@ -1436,18 +1430,6 @@ void CodeGen_LLVM::visit(const Call *node) {
             // Pass by value.
             args[i] = argument;
         }
-
-        // if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
-        //     args[i] = load->getPointerOperand();
-        // } else if (node->args[i].type().is<ir::Struct_t>() &&
-        //            !isa<llvm::AllocaInst>(argument)) {
-        //     // We assume structs will always be passed by pointer.
-        //     auto *alloca = builder->CreateAlloca(argument->getType());
-        //     builder->CreateStore(argument, alloca);
-        //     args[i] = alloca;
-        // } else {
-        //     args[i] = argument;
-        // }
     }
     value = builder->CreateCall(func, args);
 }

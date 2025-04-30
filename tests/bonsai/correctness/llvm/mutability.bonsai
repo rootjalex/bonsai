@@ -54,8 +54,21 @@ func test_c() {
     return;
 }
 
-// TODO(ajr): figure out expected behavior of this?
+func mutate3(i : mut i32) {
+    i = 10;
+    return;
+}
+
 func test_d() {
+    a : mut i32 = 4;
+    print(a);
+    mutate3(a);
+    print(a);
+    return;
+}
+
+// TODO(ajr): figure out expected behavior of this?
+func test_e() {
     a : array[i32, 4] = {1, 2, 3, 4};
     c : mut Example1 = {a, 3};
     print(c);
@@ -68,6 +81,6 @@ func main() -> i32 {
     test_a();
     test_b();
     test_c();
-
+    test_d();
     return 0;
 }
