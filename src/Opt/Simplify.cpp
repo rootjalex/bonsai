@@ -421,6 +421,20 @@ struct Simplifier : ir::Mutator {
         return ir::Extract::make(std::move(v), std::move(i));
     }
 
+    ir::Stmt visit(const ir::IfElse *node) override {
+        std::optional<uint64_t> x = get_constant_value(mutate(node->cond));
+        if (!x.has_value()) {
+            return ir::Mutator::visit(node);
+        }
+        if (x == 0) {
+            if (node->else_body.defined()) {
+                return mutate(node->else_body);
+            }
+            internal_error << "ir::Stmt as a nop, open an issue please!";
+        }
+        return mutate(node->then_body);
+    }
+
   private:
     // Mapping from a variable name to its immediate value. This assumes
     // variable shadowing is illegal; if this were to change, we'd need to

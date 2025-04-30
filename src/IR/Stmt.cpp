@@ -101,9 +101,6 @@ Stmt DoWhile::make(Stmt body, Expr cond) {
 
 Stmt Sequence::make(std::vector<Stmt> stmts) {
     internal_assert(!stmts.empty()) << "Empty stmts in Sequence::make";
-    for (const auto &s : stmts) {
-        internal_assert(s.defined()) << "Undefined stmt in Sequence::make";
-    }
     if (stmts.size() == 1) {
         return stmts[0];
     }

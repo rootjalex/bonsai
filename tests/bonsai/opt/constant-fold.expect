@@ -7,18 +7,10 @@ func baz(z : i32) -> i32 {
 }
 
 func fizz(x : i32, y : i32, c1 : bool, c2 : bool) -> i32 {
-  let a = x << 5 in
-  let b = y * 31 in
   let c = x & 31 in
   let d = y % 33 in
   let e = x in
-  if (false) {
-    return (a + b) + c
-  } else if (true) {
-    return (c + d) + e
-  } else {
-    return -1
-  }
+  return (c + d) + e
 }
 
 func foo(x : i32) -> i32 {
