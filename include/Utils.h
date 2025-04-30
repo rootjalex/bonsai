@@ -14,6 +14,7 @@ const int64_t *as_const_int(const ir::Expr &e);
 bool is_const_one(const ir::Expr &e);
 bool is_const_zero(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
+bool is_location_expr(const ir::Expr &expr);
 
 // Attempts to infer the value at the given index in the vector `v`, otherwise
 // returns an undefined expression upon failure.

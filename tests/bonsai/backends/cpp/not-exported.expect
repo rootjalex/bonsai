@@ -32,21 +32,21 @@ IGNORE_FUNC_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.G @_unexported_id(ptr nocapture noundef nonnull readonly %g1) local_unnamed_addr #1 {
+define %struct.G @_unexported_id(ptr nocapture noundef nonnull readonly %g) local_unnamed_addr #1 {
 _unexported_id_entry:
-  %g.unpack.unpack = load i32, ptr %g1, align 4
-  %0 = insertvalue %struct.F poison, i32 %g.unpack.unpack, 0
-  %g.unpack.elt3 = getelementptr inbounds i8, ptr %g1, i64 4
-  %g.unpack.unpack4 = load i32, ptr %g.unpack.elt3, align 4
-  %g.unpack5 = insertvalue %struct.F %0, i32 %g.unpack.unpack4, 1
-  %g2 = insertvalue %struct.G poison, %struct.F %g.unpack5, 0
-  ret %struct.G %g2
+  %g1.unpack.unpack = load i32, ptr %g, align 4
+  %0 = insertvalue %struct.F poison, i32 %g1.unpack.unpack, 0
+  %g1.unpack.elt3 = getelementptr inbounds i8, ptr %g, i64 4
+  %g1.unpack.unpack4 = load i32, ptr %g1.unpack.elt3, align 4
+  %g1.unpack5 = insertvalue %struct.F %0, i32 %g1.unpack.unpack4, 1
+  %g12 = insertvalue %struct.G poison, %struct.F %g1.unpack5, 0
+  ret %struct.G %g12
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @id(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %g1) local_unnamed_addr #2 {
+define void @id(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %g) local_unnamed_addr #2 {
 id_entry:
-  %0 = load <2 x i32>, ptr %g1, align 4
+  %0 = load <2 x i32>, ptr %g, align 4
   store <2 x i32> %0, ptr %_ret0, align 4
   ret void
 }

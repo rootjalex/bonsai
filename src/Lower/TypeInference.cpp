@@ -341,13 +341,15 @@ ir::Program infer_types(const ir::Program &program) {
         new_program.funcs[f] =
             infer_types(program.funcs.at(f), new_program, func_types);
         {
-            const size_t n_args = new_program.funcs[f]->args.size();
-            std::vector<ir::Type> arg_types(n_args);
+            auto func = new_program.funcs[f];
+            const size_t n_args = func->args.size();
+            std::vector<ir::Function_t::ArgSig> arg_types(n_args);
             for (size_t i = 0; i < n_args; i++) {
-                arg_types[i] = new_program.funcs[f]->args[i].type;
+                arg_types[i].type = func->args[i].type;
+                arg_types[i].is_mutable = func->args[i].mutating;
             }
             func_types[f] =
-                ir::Function_t::make(new_program.funcs[f]->ret_type, arg_types);
+                ir::Function_t::make(func->ret_type, arg_types);
         }
     }
 

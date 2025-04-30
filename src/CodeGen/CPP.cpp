@@ -225,8 +225,8 @@ class BonsaiToCpp {
             if (!func->is_exported()) {
                 continue;
             }
-            for (const ir::Type &type : func->argument_types()) {
-                get_struct_types(type, deduplicate, exported_types);
+            for (const auto &arg_sig : func->argument_types()) {
+                get_struct_types(arg_sig.type, deduplicate, exported_types);
             }
             if (ir::Type type = func->ret_type; type.is<ir::Struct_t>()) {
                 get_struct_types(type, deduplicate, exported_types);

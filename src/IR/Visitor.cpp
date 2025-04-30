@@ -67,7 +67,9 @@ void Visitor::visit(const Set_t *node) { node->etype.accept(this); }
 
 void Visitor::visit(const Function_t *node) {
     node->ret_type.accept(this);
-    visit_list(this, node->arg_types);
+    for (const auto &p : node->arg_types) {
+        p.type.accept(this);
+    }
 }
 
 void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }

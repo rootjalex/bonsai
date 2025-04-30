@@ -67,6 +67,10 @@ bool is_const(const Expr &e) {
     return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
 }
 
+bool is_location_expr(const ir::Expr &expr) {
+    return expr.is<ir::Var, ir::Access>();
+}
+
 ir::Expr get_value_at(ir::Expr v, int64_t index) {
     const ir::Type &type = v.type();
     internal_assert(type.is_vector()) << type;

@@ -332,17 +332,18 @@ void CodeGen_LLVM::compile_function(const Function &func,
     for (auto &arg : function->args()) {
         const auto &arg_info = func.args[arg_idx];
         std::string name = arg_info.name;
-        llvm::Value *arg_value = &arg;
-        // immutable structs are ptrs, so need some indirection.
-        if (const bool immutable_struct =
-                arg_info.type.is<Struct_t>() && !arg_info.mutating;
-            immutable_struct) {
-            llvm::Type *arg_type = codegen_type(arg_info.type);
-            arg_value = builder->CreateLoad(arg_type, arg_value, name);
-        }
         arg.setName(name);
-        frames.add_to_frame(arg_info.name,
-                            {arg_value, /*mutable=*/arg_info.mutating});
+        llvm::Value *arg_value = &arg;
+        
+        const bool is_struct = arg_info.type.is<Struct_t>();
+
+        FrameVar frame_arg;
+        frame_arg.is_mutable = arg_info.mutating;
+        // immutable structs are ptrs, so need some indirection.
+        frame_arg.do_load = is_struct || frame_arg.is_mutable;
+        frame_arg.value = arg_value;
+        
+        frames.add_to_frame(arg_info.name, frame_arg);
         arg_idx++;
     }
 
@@ -689,12 +690,13 @@ void CodeGen_LLVM::visit(const Infinity *node) {
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
-    auto [_value, _mutable] = frames.from_frames(node->name);
-    if (_mutable) {
+    auto frame_var = frames.from_frames(node->name);
+
+    if (frame_var.do_load) {
         llvm::Type *var_type = codegen_type(node->type);
-        value = builder->CreateLoad(var_type, _value, node->name);
-    } else {
-        value = _value; // immutable so not pointer.
+        value = builder->CreateLoad(var_type, frame_var.value, node->name);
+    } else  {
+        value = frame_var.value;
     }
 }
 
@@ -1389,20 +1391,63 @@ void CodeGen_LLVM::visit(const Call *node) {
     const size_t n_args = node->args.size();
     std::vector<llvm::Value *> args(n_args);
 
+    const Function_t *function_t = node->func.type().as<Function_t>();
+    internal_assert(function_t);
+
     for (size_t i = 0; i < n_args; i++) {
         llvm::Value *argument = codegen_expr(node->args[i]);
 
-        if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
-            args[i] = load->getPointerOperand();
-        } else if (node->args[i].type().is<ir::Struct_t>() &&
-                   !isa<llvm::AllocaInst>(argument)) {
-            // We assume structs will always be passed by pointer.
-            auto *alloca = builder->CreateAlloca(argument->getType());
-            builder->CreateStore(argument, alloca);
-            args[i] = alloca;
+        if (function_t->arg_types[i].type.is<Struct_t>()) {
+            // Pass by pointer.
+            if (argument->getType()->isPointerTy()) {
+                // Already a pointer to struct — pass as-is
+                args[i] = argument;
+            } else if (function_t->arg_types[i].is_mutable) {
+                // Expect the codegen to be a load from an alloc-ed thing.
+                llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(argument);
+                internal_assert(load);
+                args[i] = load->getPointerOperand();
+            } else {
+                // Should not be trying to pass a non-pointer mutable struct
+                // Allocate space on stack
+                llvm::AllocaInst *alloca = builder->CreateAlloca(argument->getType());
+                // Store struct in stack
+                builder->CreateStore(argument, alloca);
+                // Pass pointer to the alloca.
+                args[i] = alloca;
+            }
+
+            
+            // if (function_t->arg_types[i].is_mutable) {
+            //     // Expect the codegen to be a load from an alloc-ed thing.
+            //     llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(argument);
+            //     internal_assert(load);
+            //     args[i] = load->getPointerOperand();
+        } else if (function_t->arg_types[i].is_mutable) {
+            if (argument->getType()->isPointerTy()) {
+                // Already a pointer to value — pass as-is
+                args[i] = argument;
+            } else {
+                auto *load = dyn_cast<llvm::LoadInst>(argument);
+                internal_assert(load);
+                args[i] = load->getPointerOperand();
+            }
         } else {
+            // Pass by value.
             args[i] = argument;
         }
+
+        // if (auto *load = dyn_cast<llvm::LoadInst>(argument)) {
+        //     args[i] = load->getPointerOperand();
+        // } else if (node->args[i].type().is<ir::Struct_t>() &&
+        //            !isa<llvm::AllocaInst>(argument)) {
+        //     // We assume structs will always be passed by pointer.
+        //     auto *alloca = builder->CreateAlloca(argument->getType());
+        //     builder->CreateStore(argument, alloca);
+        //     args[i] = alloca;
+        // } else {
+        //     args[i] = argument;
+        // }
     }
     value = builder->CreateCall(func, args);
 }
@@ -1609,8 +1654,11 @@ void CodeGen_LLVM::visit(const Store *node) {
 }
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
-    llvm::Value *_value = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, {_value, /*mutable=*/false});
+    FrameVar frame_var;
+    frame_var.value = codegen_expr(node->value);
+    frame_var.is_mutable = false;
+    frame_var.do_load = false;
+    frames.add_to_frame(node->loc.base, frame_var);
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -1930,7 +1978,12 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 
     // We set mutable to false because Var codegen would perform a load from
     // this pointer if it was mutable.
-    frames.add_to_frame(node->name, {alloc, /* mutable=*/false});
+    FrameVar frame_var;
+    frame_var.value = alloc;
+    frame_var.is_mutable = true;
+    // load from a scalar, but not an array.
+    frame_var.do_load = !node->type.is<Array_t>();
+    frames.add_to_frame(node->name, frame_var);
 }
 
 void CodeGen_LLVM::visit(const Label *node) {
@@ -1973,7 +2026,7 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 
     // Add index to new frame.
     frames.new_frame();
-    frames.add_to_frame(node->index, {phi, /*mutable=*/false});
+    frames.add_to_frame(node->index, FrameVar{phi, /*is_mutable=*/false, /*do_load=*/false});
 
     latch_blocks.push_back(inc_bb);
     // TODO(ajr): will need this for `break` statements.
@@ -2124,8 +2177,9 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
                                                   llvm::Value *idx) {
     llvm::DataLayout d(module.get());
-    auto [base_addr, _] = frames.from_frames(buffer);
-    // llvm::Value *base_addr = frames.from_frames(buffer);
+    FrameVar frame_var = frames.from_frames(buffer);
+    internal_assert(frame_var.is_mutable && !frame_var.do_load);
+    llvm::Value *base_addr = frame_var.value;
 
     // TODO: upgrade type for storage?
     llvm::Type *load_type = codegen_type(type);
@@ -2211,33 +2265,52 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
     llvm::Value *base = nullptr;
     if (frames.name_in_scope(loc.base)) {
-        auto [_base, _mutable] = frames.from_frames(loc.base);
-        internal_assert(_mutable)
+        FrameVar frame_var = frames.from_frames(loc.base);
+        internal_assert(frame_var.is_mutable)
             << "Attempting to codegen write to immutable data: " << loc.base;
-        base = _base;
+        base = frame_var.value;
     } else {
         // Create alloc of base type
         llvm::Type *base_type = codegen_type(loc.base_type);
 
         base = builder->CreateAlloca(base_type, /* arraysize ? */ nullptr,
                                      loc.base);
-        frames.add_to_frame(loc.base, {base, /* mutable */ true});
+        FrameVar frame_var;
+        frame_var.value = base;
+        frame_var.is_mutable = true;
+        frame_var.do_load = true;
+
+        frames.add_to_frame(loc.base, frame_var);
     }
     llvm::Value *ptr = base;
     llvm::Type *ptype = codegen_type(loc.base_type);
     std::string name = loc.base;
+    Type bonsai_type = loc.base_type;
 
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
-            internal_error << "TODO: implement field write access: "
-                           << std::get<std::string>(value)
-                           << " in loc: " << loc;
+            const std::string &field_name = std::get<std::string>(value);
+            const Struct_t *struct_t = bonsai_type.as<Struct_t>();
+            internal_assert(struct_t) << "Field access on non-struct type";
+            const size_t idx = find_struct_index(field_name, struct_t->fields);
+
+            llvm::StructType *llvm_struct_type = llvm::cast<llvm::StructType>(ptype);
+            internal_assert(idx < llvm_struct_type->getNumElements());
+
+            ptr = builder->CreateStructGEP(llvm_struct_type, ptr, idx, name + "_" + field_name);
+            bonsai_type = get_field_type(bonsai_type, std::get<std::string>(value));
+            ptype = codegen_type(bonsai_type);
+            // FIX: If the field is a pointer, we need to load it before GEP
+            if (ptype->isPointerTy()) {
+                ptr = builder->CreateLoad(ptype, ptr, name + "_" + field_name + "_ld");
+            }
         } else {
             Expr idx = std::get<Expr>(value);
             llvm::Value *_idx = codegen_expr(idx);
             name += "_idx";
             ptr = builder->CreateGEP(ptype, ptr, {_idx}, name);
-            // TODO: update ptype?
+            bonsai_type = bonsai_type.element_of();
+            ptype = codegen_type(bonsai_type);
         }
     }
     return ptr;
