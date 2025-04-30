@@ -12,14 +12,19 @@ func foo(x : i32) -> i32 {
     return x + 0;
 }
 
-func fizz(x: i32, y: i32, z: mut f64, c1: bool, c2: bool) -> i32 {
+func fs(x: mut f64, y: mut f32) -> void {
+  x += cast[[f64]](10.1) * cast[[f64]](8.3);
+  y += 8.5 * 4.5;
+
+  return;
+}
+
+func fizz(x: i32, y: i32, c1: bool, c2: bool) -> i32 {
     a: i32 = x * 32;
     b: i32 = y * 31;
 
     c: i32 = x % 32;
     d: i32 = y % 33;
-
-    z += cast[[f64]](10.1) * cast[[f64]](8.3);
 
     negative1: i32 = -1;
     e: i32 = (-(-(x))) & negative1;

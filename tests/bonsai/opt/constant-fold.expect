@@ -6,12 +6,11 @@ func baz(z : i32) -> i32 {
   return z
 }
 
-func fizz(x : i32, y : i32, z : mut f64, c1 : bool, c2 : bool) -> i32 {
+func fizz(x : i32, y : i32, c1 : bool, c2 : bool) -> i32 {
   let a = x << 5 in
   let b = y * 31 in
   let c = x & 31 in
   let d = y % 33 in
-  z += 83.83
   let negative1 = -1 in
   let e = x in
   let f = c1 in
@@ -23,6 +22,12 @@ func fizz(x : i32, y : i32, z : mut f64, c1 : bool, c2 : bool) -> i32 {
 
 func foo(x : i32) -> i32 {
   return x
+}
+
+func fs(x : mut f64, y : mut f32) -> void {
+  x += 83.83
+  y += 38.25f
+  return
 }
 
 

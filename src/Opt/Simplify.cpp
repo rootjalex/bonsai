@@ -83,8 +83,7 @@ ir::Expr constant_fold_float(F f, ir::Expr a, ir::Expr b,
     case 64:
         return ir::FloatImm::make(*type, apply<double>(f, *c_a, *c_b));
     case 32:
-    // TODO(cgyurgyik): Possible? ir::FloatImm holds a double rather than an
-    // unsigned bit value.
+        return ir::FloatImm::make(*type, (float)apply<double>(f, *c_a, *c_b));
     default:
         return ir::Expr();
     }
