@@ -342,13 +342,12 @@ bool is_writeloc(const Expr &expr) {
     return false;
 }
 
-
 uint64_t bit_mask(int64_t n) {
     const uint64_t width = std::numeric_limits<uint64_t>::digits;
     internal_assert(0 < n && n <= 64) << n;
     return n >= width ? ~uint64_t{0} : (uint64_t{1} << n) - uint64_t{1};
 }
-  
+
 ir::Expr update_type(ir::Expr expr, ir::Type type) {
     internal_assert(type.defined());
     internal_assert(expr.defined());

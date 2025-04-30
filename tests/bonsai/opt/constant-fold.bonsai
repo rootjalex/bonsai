@@ -1,3 +1,5 @@
+//! flags: -p core -p simplify
+
 func bar(y : i32) -> i32 {
     return y * 0;
 }
@@ -8,6 +10,13 @@ func baz(z : i32) -> i32 {
 
 func foo(x : i32) -> i32 {
     return x + 0;
+}
+
+func fs(x: mut f64, y: mut f32) -> void {
+  x += cast[[f64]](10.1) * cast[[f64]](8.3);
+  y += 8.5 * 4.5;
+
+  return;
 }
 
 func fizz(x: i32, y: i32, c1: bool, c2: bool) -> i32 {
