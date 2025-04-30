@@ -1,5 +1,3 @@
-//! flags: --verbose
-
 import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;

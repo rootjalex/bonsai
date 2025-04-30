@@ -14,46 +14,33 @@ type vec3h = f16x3
 
 extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 
-func ClosestPtPointAABB(pt : Point, a : AABB) -> Point {
-  return cast<struct Point{ vec : f32x3 }>(min(max(pt.vec, a.low), a.high))
-}
-
-func SqDistPointAABB(pt : Point, a : AABB) -> f32 {
-  let v = pt.vec in
-  let sqLow = (a.low - v) * (a.low - v) in
-  let low = select(v < a.low, sqLow, f32x3((f32)0)) in
-  let sqHigh = (v - a.high) * (v - a.high) in
-  let high = select(a.high < v, sqHigh, f32x3((f32)0)) in
-  return reduce<+>(low + high)
-}
-
 func _traverse_array0(n : u32, rays : Ray[n], triangles : _triangles_layout1) -> Triangle[n] {
   alloc _alloc0 : Triangle[n]
-  forall _i0 in [(u32)0:n:(u32)1] {
+  forall _i0 in [0u:n:1u] {
     _alloc0[_i0] = _traverse_tree0(rays[_i0], triangles)
   }
   return _alloc0
 }
 
 func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
-  (struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } })_best0 := build<struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }>((f32)inf, build<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>())
+  _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(triangles__index : u32) {
     let _t53 = triangles.triangles_index[triangles__index] in
-    let _t58 = build<struct AABB{ low : f32x3; high : f32x3 }>(_t53.low, _t53.high) in
+    let _t58 = build<AABB>(_t53.low, _t53.high) in
     if (intersects_Ray_AABB(ray, _t58)) {
       let _t51 = _best0._field0 in
       if (distmin_Ray_AABB(ray, _t58) < _t51) {
         let _t43 = _t53.nPrims in
-        if (_t43 == (u16)0) {
-          from triangles__index + (u32)1
-          from triangles__index + cast<struct __layout6{ offset : u32 }>(_t53.triangles_spliton_nPrims).offset
+        if (_t43 == 0u) {
+          from triangles__index + 1u
+          from triangles__index + cast<__layout6>(_t53.triangles_spliton_nPrims).offset
         } else {
-          forall _idx0 in [(u32)0:cast<u32>(_t43):(u32)1] {
-            let _t37 = triangles.prims[cast<struct __layout9{ pOffset : u32 }>(_t53.triangles_spliton_nPrims).pOffset + _idx0] in
+          forall _idx0 in [0u:cast<u32>(_t43):1u] {
+            let _t37 = triangles.prims[cast<__layout9>(_t53.triangles_spliton_nPrims).pOffset + _idx0] in
             if (intersectsp_ray_tri(ray, _t37).set) {
               let _t28 = distmin_Ray_Triangle(ray, _t37) in
               if (_t28 < _t51) {
-                (struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } })_best0 argmin= build<struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }>(_t28, _t37)
+                _best0 argmin= build<tuple.0>(_t28, _t37)
               }
             }
           }
@@ -66,83 +53,6 @@ func _traverse_tree0(ray : Ray, triangles : _triangles_layout1) -> Triangle {
 
 func _unexported_trace(ray : Ray, triangles : _triangles_layout1) -> Triangle {
   return _traverse_tree0(ray, triangles)
-}
-
-func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
-  let p = pt.vec in
-  let a = tri.p0 in
-  let b = tri.p1 in
-  let c = tri.p2 in
-  let ab = b - a in
-  let ac = c - a in
-  let ap = p - a in
-  let d1 = dot(ab, ap) in
-  let d2 = dot(ac, ap) in
-  if (d1 <= (f32)0) {
-    if (d2 <= (f32)0) {
-      return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>(a, build<struct Point{ vec : f32x3 }>(build<f32x3>((f32)1, (f32)0, (f32)0))))
-    }
-  }
-  let bp = p - b in
-  let d3 = dot(ab, bp) in
-  let d4 = dot(ac, bp) in
-  if ((f32)0 <= d3) {
-    if (d4 <= d3) {
-      return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>(b, build<struct Point{ vec : f32x3 }>(build<f32x3>((f32)0, (f32)1, (f32)0))))
-    }
-  }
-  let _t2 = (d1 * d4) - (d3 * d2) in
-  if (_t2 <= (f32)0) {
-    if ((f32)0 <= d1) {
-      if (d3 <= (f32)0) {
-        let _t4 = d1 / (d1 - d3) in
-        return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>(a + (f32x3(_t4) * ab), build<struct Point{ vec : f32x3 }>(build<f32x3>((f32)1 - _t4, _t4, (f32)0))))
-      }
-    }
-  }
-  let cp = p - c in
-  let d5 = dot(ab, cp) in
-  let d6 = dot(ac, cp) in
-  if ((f32)0 <= d6) {
-    if (d5 <= d6) {
-      return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>(c, build<struct Point{ vec : f32x3 }>(build<f32x3>((f32)0, (f32)0, (f32)1))))
-    }
-  }
-  let _t7 = (d5 * d2) - (d1 * d6) in
-  if (_t7 <= (f32)0) {
-    if ((f32)0 <= d2) {
-      if (d6 <= (f32)0) {
-        let _t9 = d2 / (d2 - d6) in
-        return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>(a + (f32x3(_t9) * ac), build<struct Point{ vec : f32x3 }>(build<f32x3>((f32)1 - _t9, (f32)0, _t9))))
-      }
-    }
-  }
-  let _t12 = (d3 * d6) - (d5 * d4) in
-  if (_t12 <= (f32)0) {
-    let _t19 = d4 - d3 in
-    if ((f32)0 <= _t19) {
-      let _t18 = d5 - d6 in
-      if ((f32)0 <= _t18) {
-        let _t17 = _t19 / (_t19 + _t18) in
-        return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>(b + (f32x3(_t17) * (c - b)), build<struct Point{ vec : f32x3 }>(build<f32x3>((f32)0, (f32)1 - _t17, _t17))))
-      }
-    }
-  }
-  let _t22 = (f32)1 / ((_t12 + _t7) + _t2) in
-  let v = _t7 * _t22 in
-  let w = _t2 * _t22 in
-  let u = _t12 * _t22 in
-  return cast<(struct Point{ vec : f32x3 }, struct Point{ vec : f32x3 })>(build<struct tuple.1{ _field0 : f32x3; _field1 : struct Point{ vec : f32x3 } }>((a + (ab * f32x3(v))) + (ac * f32x3(w)), build<struct Point{ vec : f32x3 }>(build<f32x3>(u, v, w))))
-}
-
-func cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
-  let _t0 = v0[(u32)1] in
-  let _t1 = v1[(u32)2] in
-  let _t2 = v0[(u32)2] in
-  let _t3 = v1[(u32)1] in
-  let _t5 = v1[(u32)0] in
-  let _t6 = v0[(u32)0] in
-  return build<f32x3>(prod_diff$f32(_t0, _t1, _t2, _t3), prod_diff$f32(_t2, _t5, _t6, _t1), prod_diff$f32(_t6, _t3, _t0, _t5))
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
@@ -182,16 +92,11 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
   }
 }
 
-func gamma(n : i32) -> f32 {
-  let _t1 = cast<f32>(n) * (f32)5.96046e-08 in
-  return _t1 / ((f32)1 - _t1)
-}
-
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
   let interval = intersectsp_ray_aabb(r, b) in
   if (interval.set) {
     let extract = interval.value in
-    return (extract.low < r.t) && ((f32)0 < extract.high)
+    return (extract.low < r.t) && (0f < extract.high)
   }
   return false
 }
@@ -200,114 +105,8 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option0 {
-  let _t1 = f32x3((f32)1) / r.d in
-  let dirIsNeg = _t1 < f32x3((f32)0) in
-  let _t2 = b.low in
-  let _t3 = b.high in
-  let low_parts = select(dirIsNeg, _t2, _t3) in
-  let high_parts = select(dirIsNeg, _t3, _t2) in
-  let _t6 = r.o in
-  (f32x3)tMin := (low_parts - _t6) * _t1
-  (f32x3)tMax := (high_parts - _t6) * _t1
-  (f32x3)tMax *= (f32)1
-  if ((tMax[(u32)1] < tMin[(u32)0]) || (tMax[(u32)0] < tMin[(u32)1])) {
-    return build<struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool }>()
-  }
-  (f32)tmin := max(tMin[(u32)0], tMin[(u32)1])
-  (f32)tmax := min(tMax[(u32)0], tMax[(u32)1])
-  if ((tMax[(u32)2] < tmin) || (tmax < tMin[(u32)2])) {
-    return build<struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool }>()
-  }
-  (f32)tmin = max(tmin, tMin[(u32)2])
-  (f32)tmax = min(tmax, tMax[(u32)2])
-  return build<struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool }>(build<struct FInterval{ low : f32; high : f32 }>(tmin, tmax), true)
-}
-
-func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> _option1 {
-  let _t0 = tri.p2 in
-  let _t1 = tri.p0 in
-  let _t3 = tri.p1 in
-  let _t6 = cross_(_t0 - _t1, _t3 - _t1) in
-  if (reduce<+>(_t6 * _t6) == (f32)0) {
-    return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>()
-  }
-  let _t15 = ray.o in
-  (f32x3)p0t := _t1 - _t15
-  (f32x3)p1t := _t3 - _t15
-  (f32x3)p2t := _t0 - _t15
-  let _t20 = ray.d in
-  let kz = reduce<idxmax>(abs(_t20)) in
-  let kx = (kz + (u32)1) % (u32)3 in
-  let ky = (kx + (u32)1) % (u32)3 in
-  let d = shuffle(_t20, {kx, ky, kz}) in
-  (f32x3)p0t = shuffle(p0t, {kx, ky, kz})
-  (f32x3)p1t = shuffle(p1t, {kx, ky, kz})
-  (f32x3)p2t = shuffle(p2t, {kx, ky, kz})
-  let _t23 = d[(u32)2] in
-  let Sx = -(d[(u32)0] / _t23) in
-  let Sy = -(d[(u32)1] / _t23) in
-  let Sz = (f32)1 / _t23 in
-  (f32)p0t[(u32)0] += Sx * p0t[(u32)2]
-  (f32)p0t[(u32)1] += Sy * p0t[(u32)2]
-  (f32)p1t[(u32)0] += Sx * p1t[(u32)2]
-  (f32)p1t[(u32)1] += Sy * p1t[(u32)2]
-  (f32)p2t[(u32)0] += Sx * p2t[(u32)2]
-  (f32)p2t[(u32)1] += Sy * p2t[(u32)2]
-  let _t30 = prod_diff$f32(p1t[(u32)0], p2t[(u32)1], p1t[(u32)1], p2t[(u32)0]) in
-  let _t31 = prod_diff$f32(p2t[(u32)0], p0t[(u32)1], p2t[(u32)1], p0t[(u32)0]) in
-  let _t32 = prod_diff$f32(p0t[(u32)0], p1t[(u32)1], p0t[(u32)1], p1t[(u32)0]) in
-  if (((_t30 < (f32)0) || (_t31 < (f32)0)) || (_t32 < (f32)0)) {
-    if ((((f32)0 < _t30) || ((f32)0 < _t31)) || ((f32)0 < _t32)) {
-      return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>()
-    }
-  }
-  let _t34 = (_t30 + _t31) + _t32 in
-  if (_t34 == (f32)0) {
-    return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>()
-  }
-  (f32)p0t[(u32)2] *= Sz
-  (f32)p1t[(u32)2] *= Sz
-  (f32)p2t[(u32)2] *= Sz
-  let tScaled = ((_t30 * p0t[(u32)2]) + (_t31 * p1t[(u32)2])) + (_t32 * p2t[(u32)2]) in
-  if ((_t34 < (f32)0) && (((f32)0 <= tScaled) || (tScaled < (ray.t * _t34)))) {
-    return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>()
-  } else if (((f32)0 < _t34) && ((tScaled <= (f32)0) || ((ray.t * _t34) < tScaled))) {
-    return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>()
-  }
-  let invDet = (f32)1 / _t34 in
-  let b0 = _t30 * invDet in
-  let b1 = _t31 * invDet in
-  let b2 = _t32 * invDet in
-  let t = tScaled * invDet in
-  let maxZt = reduce<max>(abs(build<f32x3>(p0t[(u32)2], p1t[(u32)2], p2t[(u32)2]))) in
-  let deltaZ = (f32)1.78814e-07 * maxZt in
-  let maxXt = reduce<max>(abs(build<f32x3>(p0t[(u32)0], p1t[(u32)0], p2t[(u32)0]))) in
-  let maxYt = reduce<max>(abs(build<f32x3>(p0t[(u32)1], p1t[(u32)1], p2t[(u32)1]))) in
-  let deltaX = (f32)2.98023e-07 * (maxXt + maxZt) in
-  let deltaY = (f32)2.98023e-07 * (maxYt + maxZt) in
-  let deltaE = (f32)2 * (((((f32)1.19209e-07 * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)) in
-  let maxE = reduce<max>(abs(build<f32x3>(_t30, _t31, _t32))) in
-  let deltaT = ((f32)3 * (((((f32)1.78814e-07 * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet) in
-  if (t <= deltaT) {
-    return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>()
-  }
-  return build<struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }>(build<struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }>(b0, b1, b2, t), true)
-}
-
-func prod_diff$f32(a : f32, b : f32, c : f32, d : f32) -> f32 {
-  let cd = c * d in
-  let diff = fma(a, b, -cd) in
-  let err = fma(-c, d, cd) in
-  return diff + err
-}
-
-func sqlen$f32(v : f32x3) -> f32 {
-  return reduce<+>(v * v)
-}
-
 func [[export]] trace(_ret0 : mut Triangle, ray : Ray, triangles : _triangles_layout1) -> void {
-  (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 })_ret0 = _traverse_tree0(ray, triangles)
+  _ret0 = _traverse_tree0(ray, triangles)
   return
 }
 
