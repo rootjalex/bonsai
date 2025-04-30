@@ -57,8 +57,17 @@ ir::Expr get_range_iterable(const ir::Expr &expr) {
 struct LowerToForAll : public ir::Mutator {
     uint64_t lcounter = 0; // unique identifier for iterator variables.
 
+    std::map<std::string, ir::Expr> repls;
+
     std::string unique_idx_name() {
         return "_idx" + std::to_string(lcounter++);
+    }
+
+    ir::Expr visit(const ir::Var *node) override {
+        if (auto iter = repls.find(node->name); iter != repls.end()) {
+            return iter->second;
+        }
+        return node;
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
@@ -87,17 +96,19 @@ struct LowerToForAll : public ir::Mutator {
 
         load = ir::Extract::make(iterable, idx);
         // `var = iterable[idx]`
-        ir::Stmt do_load = ir::LetStmt::make(
-            ir::WriteLoc(node->name, iterable.type().element_of()),
-            std::move(load));
+        auto [_, inserted] = repls.try_emplace(node->name, load);
+        internal_assert(inserted)
+            << "Lowering ForEach encountered duplicate variable: "
+            << node->name;
 
         ir::Stmt body = mutate(node->body);
+
+        repls.erase(node->name);
 
         ir::ForAll::Slice slice{std::move(begin), std::move(end),
                                 std::move(stride)};
 
-        return ir::ForAll::make(idx_name, std::move(do_load), std::move(slice),
-                                std::move(body));
+        return ir::ForAll::make(idx_name, std::move(slice), std::move(body));
     }
 };
 
