@@ -947,7 +947,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             if (f->arg_types.size() == 1) {
-                internal_assert(equals(f->arg_types[0].type, b.type().element_of()))
+                internal_assert(
+                    equals(f->arg_types[0].type, b.type().element_of()))
                     << "Expected filter function to accept element of type: "
                     << b.type().element_of() << " instead got " << a << " : "
                     << a.type();
@@ -1050,7 +1051,9 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
                     << " at index " << i << " of call to func: " << func;
             }
             if (f->arg_types[i].is_mutable) {
-                internal_assert(is_location_expr(args[i])) << "Cannot pass non-mutable argument: " << args[i] << " as mutable parameter\n";
+                internal_assert(is_location_expr(args[i]))
+                    << "Cannot pass non-mutable argument: " << args[i]
+                    << " as mutable parameter\n";
             }
         }
         node->type = f->ret_type;

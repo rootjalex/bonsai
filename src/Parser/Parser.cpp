@@ -789,15 +789,16 @@ struct Parser {
         internal_assert(function_t);
         if (function_t->arg_types.size() != args.size()) {
             report_error() << "Incorrect number of arguments to: " << id
-                << "parsed: " << args.size() << " but expected: " << function_t->arg_types.size();
+                           << "parsed: " << args.size()
+                           << " but expected: " << function_t->arg_types.size();
         }
 
         for (size_t i = 0; i < args.size(); i++) {
             // TODO(ajr): add other type checking here?
             if (function_t->arg_types[i].is_mutable && !is_mutable(args[i])) {
                 report_error()
-                    << "Argument " << args[i] << " at position " << i << " of call to function " << id
-                    << " must be mutable.";
+                    << "Argument " << args[i] << " at position " << i
+                    << " of call to function " << id << " must be mutable.";
             }
         }
 
@@ -1578,8 +1579,9 @@ struct Parser {
                 ir::Type ret_type =
                     ir::Array_t::make(args[0].type().element_of(), args[2]);
                 ir::Type call_type = ir::Function_t::make(
-                    std::move(ret_type),
-                    {{args[0].type(), false}, {args[1].type(), false}, {args[2].type(), false}});
+                    std::move(ret_type), {{args[0].type(), false},
+                                          {args[1].type(), false},
+                                          {args[2].type(), false}});
                 ir::Expr func = ir::Var::make(std::move(call_type), "range");
                 return ir::Call::make(std::move(func), std::move(args));
             }
@@ -1642,8 +1644,8 @@ struct Parser {
             }
             if (func->args[i].mutating && !is_mutable(args[i])) {
                 report_error()
-                    << "Argument " << args[i] << " at position " << i << " of call to function " << name
-                    << " must be mutable.";
+                    << "Argument " << args[i] << " at position " << i
+                    << " of call to function " << name << " must be mutable.";
             }
         }
 

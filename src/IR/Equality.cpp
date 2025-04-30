@@ -198,7 +198,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         const Function_t *f0 = t0.as<Function_t>();
         const Function_t *f1 = t1.as<Function_t>();
 
-        auto compare_arg_sigs = [](const Function_t::ArgSig &a, const Function_t::ArgSig &b) {
+        auto compare_arg_sigs = [](const Function_t::ArgSig &a,
+                                   const Function_t::ArgSig &b) {
             if ((int)a.is_mutable < (int)b.is_mutable) {
                 return Cmp::Less;
             } else if ((int)a.is_mutable > (int)b.is_mutable) {

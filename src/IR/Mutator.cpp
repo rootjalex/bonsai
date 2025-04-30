@@ -158,7 +158,8 @@ Type Mutator::visit(const Function_t *node) {
     for (size_t i = 0; i < n; i++) {
         arg_types[i].type = mutate(node->arg_types[i].type);
         arg_types[i].is_mutable = node->arg_types[i].is_mutable;
-        not_changed = not_changed && arg_types[i].type.same_as(node->arg_types[i].type);
+        not_changed =
+            not_changed && arg_types[i].type.same_as(node->arg_types[i].type);
     }
     if (not_changed) {
         return node;

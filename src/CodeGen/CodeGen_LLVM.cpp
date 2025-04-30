@@ -334,7 +334,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
         std::string name = arg_info.name;
         arg.setName(name);
         llvm::Value *arg_value = &arg;
-        
+
         const bool is_struct = arg_info.type.is<Struct_t>();
 
         FrameVar frame_arg;
@@ -342,7 +342,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
         // immutable structs are ptrs, so need some indirection.
         frame_arg.do_load = is_struct || frame_arg.is_mutable;
         frame_arg.value = arg_value;
-        
+
         frames.add_to_frame(arg_info.name, frame_arg);
         arg_idx++;
     }
@@ -695,7 +695,7 @@ void CodeGen_LLVM::visit(const Var *node) {
     if (frame_var.do_load) {
         llvm::Type *var_type = codegen_type(node->type);
         value = builder->CreateLoad(var_type, frame_var.value, node->name);
-    } else  {
+    } else {
         value = frame_var.value;
     }
 }
@@ -1410,14 +1410,14 @@ void CodeGen_LLVM::visit(const Call *node) {
             } else {
                 // Should not be trying to pass a non-pointer mutable struct
                 // Allocate space on stack
-                llvm::AllocaInst *alloca = builder->CreateAlloca(argument->getType());
+                llvm::AllocaInst *alloca =
+                    builder->CreateAlloca(argument->getType());
                 // Store struct in stack
                 builder->CreateStore(argument, alloca);
                 // Pass pointer to the alloca.
                 args[i] = alloca;
             }
 
-            
             // if (function_t->arg_types[i].is_mutable) {
             //     // Expect the codegen to be a load from an alloc-ed thing.
             //     llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(argument);
@@ -2026,7 +2026,8 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 
     // Add index to new frame.
     frames.new_frame();
-    frames.add_to_frame(node->index, FrameVar{phi, /*is_mutable=*/false, /*do_load=*/false});
+    frames.add_to_frame(node->index,
+                        FrameVar{phi, /*is_mutable=*/false, /*do_load=*/false});
 
     latch_blocks.push_back(inc_bb);
     // TODO(ajr): will need this for `break` statements.
@@ -2294,15 +2295,19 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc) {
             internal_assert(struct_t) << "Field access on non-struct type";
             const size_t idx = find_struct_index(field_name, struct_t->fields);
 
-            llvm::StructType *llvm_struct_type = llvm::cast<llvm::StructType>(ptype);
+            llvm::StructType *llvm_struct_type =
+                llvm::cast<llvm::StructType>(ptype);
             internal_assert(idx < llvm_struct_type->getNumElements());
 
-            ptr = builder->CreateStructGEP(llvm_struct_type, ptr, idx, name + "_" + field_name);
-            bonsai_type = get_field_type(bonsai_type, std::get<std::string>(value));
+            ptr = builder->CreateStructGEP(llvm_struct_type, ptr, idx,
+                                           name + "_" + field_name);
+            bonsai_type =
+                get_field_type(bonsai_type, std::get<std::string>(value));
             ptype = codegen_type(bonsai_type);
             // FIX: If the field is a pointer, we need to load it before GEP
             if (ptype->isPointerTy()) {
-                ptr = builder->CreateLoad(ptype, ptr, name + "_" + field_name + "_ld");
+                ptr = builder->CreateLoad(ptype, ptr,
+                                          name + "_" + field_name + "_ld");
             }
         } else {
             Expr idx = std::get<Expr>(value);

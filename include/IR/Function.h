@@ -84,9 +84,11 @@ struct Function {
     // Returns the argument types of this function. This is *not* memoized.
     std::vector<Function_t::ArgSig> argument_types() const {
         std::vector<Function_t::ArgSig> types;
-        std::transform(
-            args.begin(), args.end(), std::back_inserter(types),
-            [](const Function::Argument &argument) { return Function_t::ArgSig{argument.type, argument.mutating}; });
+        std::transform(args.begin(), args.end(), std::back_inserter(types),
+                       [](const Function::Argument &argument) {
+                           return Function_t::ArgSig{argument.type,
+                                                     argument.mutating};
+                       });
         return types;
     }
 

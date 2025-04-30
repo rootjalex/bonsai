@@ -348,8 +348,7 @@ ir::Program infer_types(const ir::Program &program) {
                 arg_types[i].type = func->args[i].type;
                 arg_types[i].is_mutable = func->args[i].mutating;
             }
-            func_types[f] =
-                ir::Function_t::make(func->ret_type, arg_types);
+            func_types[f] = ir::Function_t::make(func->ret_type, arg_types);
         }
     }
 
