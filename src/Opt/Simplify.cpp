@@ -247,7 +247,7 @@ struct Simplifier : ir::Mutator {
             }
             if (is_const_zero(a)) {
                 // 0 - a = -a
-                return ir::UnOp::make(ir::UnOp::Neg, a);
+                return -a;
             }
             return make(node, std::move(a), std::move(b));
         }
@@ -259,9 +259,7 @@ struct Simplifier : ir::Mutator {
             std::optional<uint64_t> c_b = get_constant_value(b);
             if (c_b.has_value() && is_power_of_two(*c_b)) {
                 // x % 2^n -> x & (2^n - 1)
-                // TODO(cgyurgyik): return a & make_const(type, *c_b - 1);
-                return ir::BinOp::make(ir::BinOp::OpType::BwAnd, a,
-                                       make_const(type, *c_b - 1));
+                return a & make_const(type, *c_b - 1);
             }
         }
         case ir::BinOp::OpType::LAnd: {
