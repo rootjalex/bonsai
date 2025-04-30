@@ -29,8 +29,6 @@ Expr operator||(Expr a, Expr b) {
     return BinOp::make(BinOp::LOr, std::move(a), std::move(b));
 }
 
-Expr operator~(Expr a) { return UnOp::make(UnOp::Not, std::move(a)); }
-
 Expr operator&(Expr a, Expr b) {
     return BinOp::make(BinOp::BwAnd, std::move(a), std::move(b));
 }
@@ -66,6 +64,10 @@ Expr operator<(Expr a, Expr b) {
 Expr operator>(Expr a, Expr b) {
     return BinOp::make(BinOp::Lt, std::move(b), std::move(a));
 }
+
+Expr operator~(Expr a) { return UnOp::make(UnOp::Not, std::move(a)); }
+
+Expr operator-(Expr a) { return UnOp::make(UnOp::Neg, std::move(a)); }
 
 Expr distmax(Expr a, Expr b) {
     return GeomOp::make(GeomOp::distmax, std::move(a), std::move(b));

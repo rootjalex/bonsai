@@ -1,0 +1,18 @@
+type E = struct E{ e : f32x3 }
+type E_nested = struct E_nested{ e : struct E{ e : f32x3 }; z : i32 }
+type One_Field = struct One_Field{ x : f32x3 }
+type P = struct P{ x : i32; y : i32; z : i32 }
+type vec3f = f32x3
+
+func bar(x : f32x3) -> (One_Field, i32) {
+  return build<tuple.0>(x, 42)
+}
+
+func foo(i : i32) -> (P, E) {
+  let x = build<tuple.1>(build<P>(1, 2, 3), build<E>(build<f32x3>(1f, 2f, 3f))) in
+  let y = build<tuple.1>(build<P>(1, 2, 3), build<E>(build<f32x3>(1f, 2f, 3f))) in
+  let z = build<E_nested>(build<E>(build<f32x3>(1f, 2f, 3f)), 42) in
+  return build<tuple.1>(build<P>(1, 2, 3), build<E>(build<f32x3>(1f, 2f, 3f)))
+}
+
+

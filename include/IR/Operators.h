@@ -15,6 +15,8 @@ Expr operator*(Expr a, Expr b);
 Expr operator/(Expr a, Expr b);
 Expr operator&&(Expr a, Expr b);
 Expr operator||(Expr a, Expr b);
+Expr operator&(Expr a, Expr b);
+Expr operator|(Expr a, Expr b);
 Expr operator^(Expr a, Expr b);
 Expr operator==(Expr a, Expr b);
 Expr operator!=(Expr a, Expr b);
@@ -22,6 +24,9 @@ Expr operator<=(Expr a, Expr b);
 Expr operator>=(Expr a, Expr b);
 Expr operator<(Expr a, Expr b);
 Expr operator>(Expr a, Expr b);
+
+Expr operator~(Expr a);
+Expr operator-(Expr a);
 // TODO: the rest
 
 // Geometric

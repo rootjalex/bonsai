@@ -18,6 +18,20 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+
+// Returns whether `type` is a struct with one element, that has the same type
+// as `expected_type`.
+bool is_single_element_struct_with_type(const ir::Type &type,
+                                        const ir::Type &expected_type) {
+    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+        if (struct_t->fields.size() == 1) {
+            return ir::equals(struct_t->fields.front().type, expected_type);
+        }
+    }
+    return false;
+}
+} // namespace
 
 Expr::Expr(int8_t x) : IRHandle(IntImm::make(Int_t::make(8), x)) {}
 
@@ -576,12 +590,48 @@ Expr Extract::make(Expr vec, Expr idx) {
 
 Expr Build::make(Type type, std::vector<Expr> values) {
     Build *node = new Build;
+    const bool infer_types = type_enforcement_enabled();
 
-    const bool infer_types =
-        type_enforcement_enabled() ||
-        (type.defined() &&
-         std::all_of(values.cbegin(), values.cend(),
-                     [](const auto &v) { return v.type().defined(); }));
+    // Fill default values.
+    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+        const ir::Struct_t::Map &fields = struct_t->fields;
+        const size_t field_count = fields.size();
+        const size_t value_count = values.size();
+        if (!values.empty() && field_count != value_count) {
+            const ir::Struct_t::DefMap &defaults = struct_t->defaults;
+            if (infer_types) {
+                internal_assert(value_count + defaults.size() == field_count)
+                    << "Build<Struct_t> of type: " << type << " received "
+                    << value_count << " values, has " << defaults.size()
+                    << " defaults, but " << field_count << " fields";
+            }
+            std::vector<Expr> filled_values(field_count);
+            size_t value_i = 0;
+            for (size_t i = 0; i < field_count; i++) {
+                // TODO: perform constant casting here?
+                if (defaults.contains(fields[i].name)) {
+                    // No need to assert, the default should always be
+                    // the correct type for the struct.
+                    filled_values[i] = defaults.at(fields[i].name);
+                } else {
+                    internal_assert(value_i < values.size())
+                        << value_i << " < " << values.size();
+                    if (infer_types) {
+                        internal_assert(
+                            equals(fields[i].type, values[value_i].type()))
+                            << "Build<Struct_t> of type: " << type
+                            << " requires matching field types, expected: "
+                            << fields[i].type << " but received "
+                            << values[value_i] << " of type "
+                            << values[value_i].type() << " for field "
+                            << fields[i].name;
+                    }
+                    filled_values[i] = values[value_i++];
+                }
+            }
+            values = std::move(filled_values);
+        }
+    }
 
     if (infer_types) {
         internal_assert(type.defined())
@@ -611,52 +661,23 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 const auto &fields = type.as<Struct_t>()->fields;
                 const size_t field_count = fields.size();
                 const size_t value_count = values.size();
-
                 internal_assert(value_count <= field_count)
                     << "Build<Struct_t> of type: " << type
                     << " received too many arguments, received: " << value_count
                     << " but expected " << field_count;
-
                 if (field_count == value_count) {
                     for (size_t i = 0; i < values.size(); i++) {
+                        const ir::Type &ftype = fields[i].type;
+                        const ir::Type &vtype = values[i].type();
                         internal_assert(
-                            equals(fields[i].type, values[i].type()))
+                            equals(ftype, vtype) ||
+                            is_single_element_struct_with_type(ftype, vtype))
                             << "Build<Struct_t> requires matching field types, "
                                "expected: "
-                            << fields[i].type << " but received " << values[i]
-                            << " of type " << values[i].type() << " for field "
-                            << fields[i].name;
+                            << ftype << " but received " << values[i]
+                            << " of type " << vtype << " for field "
+                            << fields[i].name << " in struct " << type;
                     }
-                } else {
-                    // field_count < value_count
-                    const auto &defaults = type.as<Struct_t>()->defaults;
-                    internal_assert(value_count + defaults.size() ==
-                                    field_count)
-                        << "Build<Struct_t> of type: " << type << " received "
-                        << value_count << " values, has " << defaults.size()
-                        << " defaults, but " << field_count << " fields";
-                    std::vector<Expr> filled_values(field_count);
-                    size_t value_i = 0;
-                    for (size_t i = 0; i < field_count; i++) {
-                        // TODO: perform constant casting here?
-                        if (defaults.contains(fields[i].name)) {
-                            // No need to assert, the default should always be
-                            // the correct type for the struct.
-                            filled_values[i] = defaults.at(fields[i].name);
-                        } else {
-                            internal_assert(value_i < values.size());
-                            internal_assert(
-                                equals(fields[i].type, values[value_i].type()))
-                                << "Build<Struct_t> of type: " << type
-                                << " requires matching field types, expected: "
-                                << fields[i].type << " but received "
-                                << values[value_i] << " of type "
-                                << values[value_i].type() << " for field "
-                                << fields[i].name;
-                            filled_values[i] = values[value_i++];
-                        }
-                    }
-                    values = std::move(filled_values);
                 }
             }
         } else if (type.is<Option_t>()) {
