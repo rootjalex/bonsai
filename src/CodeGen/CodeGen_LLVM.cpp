@@ -315,7 +315,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
 
 void CodeGen_LLVM::compile_function(const Function &func,
                                     llvm::Function *function) {
-    frames.new_frame();
+    frames.push_frame();
 
     // TODO: allow nested functions? Can LLVM even do that?
     internal_assert(current_function == nullptr);
@@ -370,7 +370,7 @@ CodeGen_LLVM::compile_program(const Program &program,
     const auto struct_types = gather_struct_types(program);
     declare_struct_types(struct_types);
 
-    frames.new_frame();
+    frames.push_frame();
     // TODO: add program.externs to the global frame.
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
@@ -691,8 +691,9 @@ void CodeGen_LLVM::visit(const Infinity *node) {
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
-    internal_assert(frames.name_in_scope(node->name));
-    value = frames.from_frames(node->name);
+    auto frame_value = frames.from_frames(node->name);
+    internal_assert(frame_value.has_value()) << node->name;
+    value = *frame_value;
 }
 
 void CodeGen_LLVM::visit(const BinOp *node) {
@@ -1702,7 +1703,7 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     // For now, assume LLVM optimizes loads/stores into phi nodes.
 
     // Establish new frame
-    frames.new_frame();
+    frames.push_frame();
     latch_blocks.push_back(cond_bb);
     // TODO(ajr): will need this for `break` statements.
     // escape_blocks.push_back(end_bb);
@@ -1739,7 +1740,7 @@ void CodeGen_LLVM::visit(const Assign *node) {
         // This must alloca the ptr and store
         internal_assert(node->loc.accesses.empty())
             << "Allocating Assign to non-local value: " << Stmt(node);
-        internal_assert(!frames.name_in_scope(name));
+        internal_assert(!frames.from_frames(name).has_value()) << name;
 
         llvm::Type *value_type = codegen_type(node->loc.base_type);
 
@@ -1930,7 +1931,7 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     phi->addIncoming(begin, preheader_bb);
 
     // Add index to new frame.
-    frames.new_frame();
+    frames.push_frame();
     frames.add_to_frame(node->index, phi);
 
     latch_blocks.push_back(inc_bb);
@@ -2081,7 +2082,9 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
                                                   llvm::Value *idx) {
     llvm::DataLayout d(module.get());
-    llvm::Value *base_addr = frames.from_frames(buffer);
+    auto frame_value = frames.from_frames(buffer);
+    internal_assert(frame_value.has_value()) << buffer;
+    llvm::Value *base_addr = *frame_value;
 
     // TODO: upgrade type for storage?
     llvm::Type *load_type = codegen_type(type);
@@ -2166,8 +2169,9 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
     std::string name = wloc.base;
-    internal_assert(frames.name_in_scope(name));
-    llvm::Value *loc = frames.from_frames(name);
+    auto frame_value = frames.from_frames(name);
+    internal_assert(frame_value.has_value()) << name;
+    llvm::Value *loc = *frame_value;
     Type bonsai_type = wloc.base_type;
 
     for (const auto &value : wloc.accesses) {

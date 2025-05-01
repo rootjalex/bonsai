@@ -95,11 +95,13 @@ struct FindFromType : public ir::Visitor {
     }
 };
 
-ir::Expr fill(const ir::FrameStack<ir::Expr> &frames, const ir::Expr &expr) {
+ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
+              const ir::Expr &expr) {
     struct Rewrite : public ir::Mutator {
-        const ir::FrameStack<ir::Expr> &frames;
+        const ir::MapStack<std::string, ir::Expr> &frames;
 
-        Rewrite(const ir::FrameStack<ir::Expr> &frames) : frames(frames) {}
+        Rewrite(const ir::MapStack<std::string, ir::Expr> &frames)
+            : frames(frames) {}
 
         ir::Expr visit(const ir::Var *var) override {
             if (var->name == "range" && var->type.is<ir::Function_t>()) {
@@ -114,12 +116,10 @@ ir::Expr fill(const ir::FrameStack<ir::Expr> &frames, const ir::Expr &expr) {
                     ir::Function_t::make(std::move(ret_type), func->arg_types),
                     var->name);
             }
-            internal_assert(frames.name_in_scope(var->name))
+            std::optional<ir::Expr> expr = frames.from_frames(var->name);
+            internal_assert(expr.has_value())
                 << "Materialization fill cannot find: " << var->name;
-            if (frames.name_in_scope(var->name)) {
-                return frames.from_frames(var->name);
-            }
-            return var;
+            return *expr;
         }
     };
     return Rewrite(frames).mutate(expr);
@@ -200,10 +200,10 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
                   const std::string &node_name, const std::string &field)
             : base_name(obj_name), node_name(node_name), field(field),
               path(std::move(base)) {
-            frames.new_frame();
+            frames.push_frame();
         }
 
-        ir::FrameStack<ir::Expr> frames;
+        ir::MapStack<std::string, ir::Expr> frames;
 
         ir::Expr path;
         ir::Expr value;
@@ -236,7 +236,7 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
                     ir::Type reinterpret_type =
                         layout_to_structs("", arm.layout).back();
                     path = ir::Cast::make(reinterpret_type, path);
-                    frames.new_frame();
+                    frames.push_frame();
                     arm.layout.accept(this);
                     frames.pop_frame();
                     path = old_path;
@@ -254,7 +254,7 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
             std::string field_name = base_name + "_" + node->name;
             path = ir::Extract::make(ir::Access::make(field_name, path), var);
 
-            frames.new_frame();
+            frames.push_frame();
             frames.add_to_frame(node->name, std::move(var));
             ir::Visitor::visit(node);
             frames.pop_frame();
