@@ -2180,7 +2180,7 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             const std::string &field_name = std::get<std::string>(value);
             const Struct_t *struct_t = bonsai_type.as<Struct_t>();
             internal_assert(struct_t) << "Field access (" << field_name
-                                        << ") on non-struct type " << bonsai_type;
+                                      << ") on non-struct type " << bonsai_type;
             const size_t idx = find_struct_index(field_name, struct_t->fields);
 
             // Get lvalue to loc.`field_name`
@@ -2198,7 +2198,7 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
 
             // First do a load, then index.
             loc = builder->CreateLoad(codegen_type(bonsai_type), loc,
-                                        name + "_ld");
+                                      name + "_ld");
 
             // Get lvalue to loc[`idx`]
             name += "_ld";
