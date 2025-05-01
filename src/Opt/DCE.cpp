@@ -153,11 +153,6 @@ struct HasSideEffects : ir::Visitor {
             found = true;
         }
     }
-
-    void visit(const ir::Store *node) override {
-        // TODO(ajr): This is conservative. How bad is that?
-        found = true;
-    }
 };
 
 struct FindSideEffects : ir::Visitor {

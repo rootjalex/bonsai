@@ -450,15 +450,6 @@ Stmt Mutator::visit(const Return *node) {
     return Return::make(std::move(value));
 }
 
-Stmt Mutator::visit(const Store *node) {
-    Expr index = mutate(node->index);
-    Expr value = mutate(node->value);
-    if (index.same_as(node->index) && value.same_as(node->value)) {
-        return node;
-    }
-    return Store::make(node->name, std::move(index), std::move(value));
-}
-
 Stmt Mutator::visit(const LetStmt *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
@@ -513,14 +504,6 @@ Stmt Mutator::visit(const Accumulate *node) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value));
-}
-
-Stmt Mutator::visit(const Allocate *node) {
-    Type type = mutate(node->type);
-    if (type.same_as(node->type)) {
-        return node;
-    }
-    return Allocate::make(std::move(node->name), std::move(type));
 }
 
 Stmt Mutator::visit(const Label *node) {

@@ -337,11 +337,6 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
         const bool is_struct = arg_info.type.is<Struct_t>();
 
-        FrameVar frame_arg;
-        frame_arg.is_mutable = arg_info.mutating;
-        // immutable structs are ptrs, so need some indirection.
-        frame_arg.do_load = is_struct || frame_arg.is_mutable;
-
         if (is_struct) {
             // Mutable structs have been converted to pointers already.
             internal_assert(!arg_info.mutating);
@@ -349,9 +344,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
             arg_value = builder->CreateLoad(arg_type, arg_value, name);
         }
 
-        frame_arg.value = arg_value;
-
-        frames.add_to_frame(arg_info.name, frame_arg);
+        frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
     }
 
@@ -698,15 +691,8 @@ void CodeGen_LLVM::visit(const Infinity *node) {
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
-    auto frame_var = frames.from_frames(node->name);
-    value = frame_var.value;
-
-    // if (frame_var.do_load) {
-    //     llvm::Type *var_type = codegen_type(node->type);
-    //     value = builder->CreateLoad(var_type, frame_var.value, node->name);
-    // } else {
-    //     value = frame_var.value;
-    // }
+    internal_assert(frames.name_in_scope(node->name));
+    value = frames.from_frames(node->name);
 }
 
 void CodeGen_LLVM::visit(const BinOp *node) {
@@ -1462,25 +1448,14 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
 }
 
 void CodeGen_LLVM::visit(const Deref *node) {
-    /*
-    internal_assert(node->expr.is<Var>());
-    const std::string &name = node->expr.as<Var>()->name;
-    internal_assert(frames.name_in_scope(name));
-    auto frame_var = frames.from_frames(name);
-    value = frame_var.value;
-    */
-    // Make sure the expression is a pointer (to emulate dereferencing a
-    // pointer)
     llvm::Value *pointer_value = codegen_expr(node->expr);
-    // value = pointer_value;
 
-    // Check if the pointer is valid
+    // Make sure the expression is a pointer
     if (pointer_value->getType()->isPointerTy()) {
         // Dereference the pointer (load the value at the pointer address)
         value = builder->CreateLoad(codegen_type(node->type), pointer_value,
                                     "deref_temp");
     } else {
-        // If the expression is not a pointer, raise an error
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
     }
@@ -1610,92 +1585,10 @@ void CodeGen_LLVM::visit(const Return *node) {
     builder->CreateRet(codegen_expr(value));
 }
 
-void CodeGen_LLVM::visit(const Store *node) {
-    // TODO: eventually handle atomics...
-    // TODO: eventually handle predication...
-    llvm::Value *expr = codegen_expr(node->value);
-    Type value_type = node->value.type();
-
-    if (value_type.is_scalar()) {
-        // Scalar
-        llvm::Value *ptr =
-            codegen_buffer_pointer(node->name, value_type, node->index);
-        // TODO: handle booleans better.
-        llvm::StoreInst *store = builder->CreateAlignedStore(
-            expr, ptr, llvm::Align(value_type.bytes()));
-        // TODO: fix this, add type-based metadata to all stores to allow
-        // reordering! annotate_store(store, op->index);
-        add_tbaa_metadata(store, node->name, node->index);
-    } else {
-        // TODO: handle alignment info better.
-        int alignment = value_type.element_of().bytes();
-        const Ramp *ramp = node->index.as<Ramp>();
-        bool is_dense = ramp && is_const_one(ramp->stride);
-
-        if (is_dense) {
-            // Generate native vector store(s).
-            // TODO: do manual splitting into native vector stores.
-            llvm::Value *base_ptr = codegen_buffer_pointer(
-                node->name, value_type.element_of(), ramp->base);
-            llvm::Value *vec_ptr = builder->CreateBitCast(
-                base_ptr, llvm::PointerType::getUnqual(expr->getType()));
-            // TODO: is this always aligned? figure out alignment stuff.
-            llvm::StoreInst *store = builder->CreateAlignedStore(
-                expr, vec_ptr, llvm::Align(alignment));
-            add_tbaa_metadata(store, node->name, node->index);
-        } else if (ramp) {
-            // Generate strided stores.
-            Type ptr_type = value_type.element_of();
-            llvm::Value *ptr =
-                codegen_buffer_pointer(node->name, ptr_type, ramp->base);
-            const IntImm *const_stride = ramp->stride.as<IntImm>();
-            llvm::Value *stride = codegen_expr(ramp->stride);
-            llvm::Type *load_type = codegen_type(ptr_type);
-            // Scatter without generating the indices as a vector
-            for (int i = 0; i < ramp->lanes; i++) {
-                llvm::Constant *lane = llvm::ConstantInt::get(i32_t, i);
-                llvm::Value *v = builder->CreateExtractElement(expr, lane);
-                if (const_stride) {
-                    // Use a constant offset from the base pointer
-                    llvm::Value *p = builder->CreateConstInBoundsGEP1_32(
-                        load_type, ptr, const_stride->value * i);
-                    llvm::StoreInst *store = builder->CreateStore(v, p);
-                    // annotate_store(store, op->index);
-                    add_tbaa_metadata(store, node->name, node->index);
-                } else {
-                    // Increment the pointer by the stride for each element
-                    llvm::StoreInst *store = builder->CreateStore(v, ptr);
-                    // annotate_store(store, op->index);
-                    add_tbaa_metadata(store, node->name, node->index);
-                    // ptr = CreateInBoundsGEP(builder.get(), load_type, ptr,
-                    // stride);
-                    ptr = builder->CreateInBoundsGEP(load_type, ptr, {stride});
-                }
-            }
-        } else {
-            // Generate scatter.
-            // TODO: do better on some archs?
-            llvm::Value *index = codegen_expr(node->index);
-            for (int i = 0; i < value_type.lanes(); i++) {
-                llvm::Value *lane = llvm::ConstantInt::get(i32_t, i);
-                llvm::Value *idx = builder->CreateExtractElement(index, lane);
-                llvm::Value *v = builder->CreateExtractElement(expr, lane);
-                llvm::Value *ptr = codegen_buffer_pointer(
-                    node->name, value_type.element_of(), idx);
-                llvm::StoreInst *store = builder->CreateStore(v, ptr);
-                // annotate_store(store, node->index);
-                add_tbaa_metadata(store, node->name, node->index);
-            }
-        }
-    }
-}
-
 void CodeGen_LLVM::visit(const LetStmt *node) {
-    FrameVar frame_var;
-    frame_var.value = codegen_expr(node->value);
-    frame_var.is_mutable = false;
-    frame_var.do_load = false;
-    frames.add_to_frame(node->loc.base, frame_var);
+    internal_assert(node->loc.accesses.empty());
+    llvm::Value *v = codegen_expr(node->value);
+    frames.add_to_frame(node->loc.base, v);
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -1840,6 +1733,8 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     frames.pop_frame();
 }
 
+// TODO(ajr): Figure out which parts of Halide's Store
+// codegen we can steal. They do better with __restrict
 void CodeGen_LLVM::visit(const Assign *node) {
     llvm::Value *rhs = codegen_expr(node->value);
 
@@ -1855,61 +1750,18 @@ void CodeGen_LLVM::visit(const Assign *node) {
 
         llvm::Value *loc =
             builder->CreateAlloca(value_type, /* arraysize ? */ nullptr, name);
-        FrameVar frame_var;
-        frame_var.value = loc;
-        frame_var.is_mutable = true;
-        frame_var.do_load = true;
-        frames.add_to_frame(node->loc.base, frame_var);
+        frames.add_to_frame(node->loc.base, loc);
+        // TODO: when is isVolatile true?
         builder->CreateStore(rhs, loc, /*isVolatile=*/false);
         return;
     }
-    internal_assert(frames.name_in_scope(name));
-    const FrameVar &frame_var = frames.from_frames(name);
-    internal_assert(frame_var.is_mutable && frame_var.do_load);
-    // TODO: do we need to deref this?
-    llvm::Value *loc = frame_var.value;
-    Type bonsai_type = node->loc.base_type;
+    llvm::Value *loc = codegen_write_loc(node->loc);
 
-    for (const auto &value : node->loc.accesses) {
-        if (std::holds_alternative<std::string>(value)) {
-            const std::string &field_name = std::get<std::string>(value);
-            const Struct_t *struct_t = bonsai_type.as<Struct_t>();
-            internal_assert(struct_t) << "Field access (" << field_name
-                                      << ") on non-struct type " << bonsai_type;
-            const size_t idx = find_struct_index(field_name, struct_t->fields);
-
-            // Get lvalue to loc.`field_name`
-            name += "_" + field_name;
-            loc = builder->CreateStructGEP(
-                codegen_type(bonsai_type), // The LLVM type of the struct
-                loc,                       // The pointer to the struct
-                idx,                       // The field index
-                name                       // Optional name for debugging
-            );
-            bonsai_type = struct_t->fields[idx].type;
-        } else {
-            Expr idx = std::get<Expr>(value);
-            llvm::Value *llvm_idx = codegen_expr(idx);
-
-            // First do a load, then index.
-            loc = builder->CreateLoad(codegen_type(bonsai_type), loc,
-                                      name + "_ld");
-
-            // Get lvalue to loc[`idx`]
-            name += "_ld";
-            bonsai_type = bonsai_type.element_of();
-            loc = builder->CreateGEP(
-                codegen_type(bonsai_type), // The LLVM element type
-                loc,                       // The pointer to the container
-                llvm_idx,                  // GEP indices
-                name);
-        }
-    }
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
-    llvm::Value *loc = codegen_write_loc(node->loc, /*create=*/false);
+    llvm::Value *loc = codegen_write_loc(node->loc);
 
     llvm::Value *_value = codegen_expr(node->value);
 
@@ -2044,37 +1896,6 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
     return ptr;
 }
 
-void CodeGen_LLVM::visit(const Allocate *node) {
-    // TODO(ajr): like Halide, we should put "small" allocations on the stack.
-    // TODO(ajr): We may want to pull some of this logic into a helper function.
-
-    llvm::Type *node_type = nullptr;
-    llvm::Value *node_size = nullptr;
-
-    // Handle arrays as a special case.
-    if (node->type.is<Array_t>()) {
-        const Array_t *array_t = node->type.as<Array_t>();
-        node_type = codegen_type(array_t->etype);
-        node_size = codegen_expr(array_t->size);
-    } else {
-        // Scalar allocation.
-        node_type = codegen_type(node->type);
-        node_size = llvm::ConstantInt::get(i32_t, 1);
-    }
-
-    llvm::Value *alloc = create_malloc(node_type, node_size,
-                                       /*zero_initialize=*/false, node->name);
-
-    // We set mutable to false because Var codegen would perform a load from
-    // this pointer if it was mutable.
-    FrameVar frame_var;
-    frame_var.value = alloc;
-    frame_var.is_mutable = true;
-    // load from a scalar, but not an array.
-    frame_var.do_load = true;
-    frames.add_to_frame(node->name, frame_var);
-}
-
 void CodeGen_LLVM::visit(const Label *node) {
     internal_assert(node->body.defined())
         << "Label with undefined body made it to codegen: " << node->name;
@@ -2115,8 +1936,7 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 
     // Add index to new frame.
     frames.new_frame();
-    frames.add_to_frame(node->index,
-                        FrameVar{phi, /*is_mutable=*/false, /*do_load=*/false});
+    frames.add_to_frame(node->index, phi);
 
     latch_blocks.push_back(inc_bb);
     // TODO(ajr): will need this for `break` statements.
@@ -2266,9 +2086,7 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
                                                   llvm::Value *idx) {
     llvm::DataLayout d(module.get());
-    FrameVar frame_var = frames.from_frames(buffer);
-    internal_assert(frame_var.is_mutable && !frame_var.do_load);
-    llvm::Value *base_addr = frame_var.value;
+    llvm::Value *base_addr = frames.from_frames(buffer);
 
     // TODO: upgrade type for storage?
     llvm::Type *load_type = codegen_type(type);
@@ -2351,72 +2169,48 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
     internal_error << "TODO: cannot codegen function pointer from: " << expr;
 }
 
-llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &loc,
-                                             const bool create) {
-    llvm::Value *base = nullptr;
-    if (frames.name_in_scope(loc.base)) {
-        internal_assert(!create);
-        FrameVar frame_var = frames.from_frames(loc.base);
-        internal_assert(frame_var.is_mutable)
-            << "Attempting to codegen write to immutable data: " << loc.base;
-        base = frame_var.value;
-    } else {
-        internal_assert(create);
-        // Create alloc of base type
-        llvm::Type *base_type = codegen_type(loc.base_type);
+llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
+    std::string name = wloc.base;
+    internal_assert(frames.name_in_scope(name));
+    llvm::Value *loc = frames.from_frames(name);
+    Type bonsai_type = wloc.base_type;
 
-        base = builder->CreateAlloca(base_type, /* arraysize ? */ nullptr,
-                                     loc.base);
-        FrameVar frame_var;
-        frame_var.value = base;
-        frame_var.is_mutable = true;
-        frame_var.do_load = true;
-
-        frames.add_to_frame(loc.base, frame_var);
-    }
-    llvm::Value *ptr = base;
-    std::string name = loc.base;
-    Type bonsai_type = loc.base_type;
-
-    for (const auto &value : loc.accesses) {
+    for (const auto &value : wloc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
             const std::string &field_name = std::get<std::string>(value);
             const Struct_t *struct_t = bonsai_type.as<Struct_t>();
-            internal_assert(struct_t) << "Field access on non-struct type";
+            internal_assert(struct_t) << "Field access (" << field_name
+                                        << ") on non-struct type " << bonsai_type;
             const size_t idx = find_struct_index(field_name, struct_t->fields);
 
-            llvm::Type *ptype = codegen_type(bonsai_type);
-            llvm::StructType *llvm_struct_type =
-                llvm::cast<llvm::StructType>(ptype);
-            internal_assert(llvm_struct_type &&
-                            idx < llvm_struct_type->getNumElements());
-
-            ptr = builder->CreateStructGEP(llvm_struct_type, ptr, idx,
-                                           name + "_" + field_name);
-            bonsai_type =
-                get_field_type(bonsai_type, std::get<std::string>(value));
-            name += ("_" + field_name);
+            // Get lvalue to loc.`field_name`
+            name += "_" + field_name;
+            loc = builder->CreateStructGEP(
+                codegen_type(bonsai_type), // The LLVM type of the struct
+                loc,                       // The pointer to the struct
+                idx,                       // The field index
+                name                       // Optional name for debugging
+            );
+            bonsai_type = struct_t->fields[idx].type;
         } else {
             Expr idx = std::get<Expr>(value);
-            llvm::Value *_idx = codegen_expr(idx);
-            name += "_idx";
+            llvm::Value *llvm_idx = codegen_expr(idx);
 
-            // If mutable arrays are always ptrs-to-ptrs.
-            llvm::Type *elt_type = codegen_type(bonsai_type.element_of());
+            // First do a load, then index.
+            loc = builder->CreateLoad(codegen_type(bonsai_type), loc,
+                                        name + "_ld");
 
-            // Load the T* from the outer pointer
-            ptr = builder->CreateLoad(elt_type->getPointerTo(), ptr,
-                                      name + "_ld");
-
-            // GEP into the T* (which is now loaded into ptr)
-            ptr = builder->CreateGEP(elt_type, ptr, {_idx}, name);
-
-            // Advance the logical type
-            bonsai_type = bonsai_type.element_of();
+            // Get lvalue to loc[`idx`]
             name += "_ld";
+            bonsai_type = bonsai_type.element_of();
+            loc = builder->CreateGEP(
+                codegen_type(bonsai_type), // The LLVM element type
+                loc,                       // The pointer to the container
+                llvm_idx,                  // GEP indices
+                name);
         }
     }
-    return ptr;
+    return loc;
 }
 
 std::unique_ptr<llvm::raw_fd_ostream>

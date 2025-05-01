@@ -893,17 +893,6 @@ void Printer::visit(const Return *node) {
     os << "\n";
 }
 
-void Printer::visit(const Store *node) {
-    os << get_indent();
-    os << node->name << "[";
-    if (node->index.defined()) {
-        print_no_parens(node->index);
-    }
-    os << "] = ";
-    print_no_parens(node->value);
-    os << "\n";
-}
-
 void Printer::visit(const LetStmt *node) {
     // ScopedBinding<> bind(known_type, node->name);
     os << get_indent() << "let " << node->loc << " = ";
@@ -1006,12 +995,6 @@ void Printer::visit(const Accumulate *node) {
     os << "\n";
     // TODO: fix this!! bring back SSA
     // print(node->body);
-}
-
-void Printer::visit(const Allocate *node) {
-    os << get_indent();
-    os << "alloc " << node->name << " : " << node->type;
-    os << "\n";
 }
 
 void Printer::visit(const Label *node) {

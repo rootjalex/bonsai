@@ -190,13 +190,6 @@ void Visitor::visit(const Return *node) {
     node->value.accept(this);
 }
 
-void Visitor::visit(const Store *node) {
-    if (node->index.defined()) {
-        node->index.accept(this);
-    }
-    node->value.accept(this);
-}
-
 void Visitor::visit(const LetStmt *node) {
     node->value.accept(this);
     // TODO: fix this!! bring back SSA
@@ -231,8 +224,6 @@ void Visitor::visit(const Accumulate *node) {
     // TODO: fix this!! bring back SSA
     // node->body.accept(this);
 }
-
-void Visitor::visit(const Allocate *node) { node->type.accept(this); }
 
 void Visitor::visit(const Label *node) {
     if (node->body.defined()) {

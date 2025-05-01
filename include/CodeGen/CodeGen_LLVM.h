@@ -67,7 +67,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     void codegen_stmt(const ir::Stmt &stmt);
     llvm::Type *codegen_type(const ir::Type &type);
     llvm::Function *codegen_func_ptr(const ir::Expr &expr);
-    llvm::Value *codegen_write_loc(const ir::WriteLoc &loc, const bool create);
+    llvm::Value *codegen_write_loc(const ir::WriteLoc &loc);
 
     llvm::Value *codegen_buffer_pointer(const std::string &buffer,
                                         const ir::Type &type,
@@ -145,7 +145,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::CallStmt *) override;
     virtual void visit(const ir::Print *) override;
     virtual void visit(const ir::Return *) override;
-    virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::LetStmt *) override;
     virtual void visit(const ir::IfElse *) override;
     virtual void visit(const ir::DoWhile *) override;
@@ -153,7 +152,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
-    virtual void visit(const ir::Allocate *) override;
     virtual void visit(const ir::Label *) override;
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::Match);
@@ -185,13 +183,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     llvm::MDNode *very_likely_branch = nullptr;
-    // Scope<llvm::Value *> scope;
-    struct FrameVar {
-        llvm::Value *value;
-        bool is_mutable;
-        bool do_load;
-    };
-    ir::FrameStack<FrameVar> frames;
+    ir::FrameStack<llvm::Value *> frames;
     std::map<std::string, llvm::StructType *> struct_types;
 
     /** Some useful llvm types */

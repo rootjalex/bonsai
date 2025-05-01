@@ -42,19 +42,6 @@ Stmt Return::make() {
     return node;
 }
 
-Stmt Store::make(std::string name, Expr index, Expr value) {
-    internal_assert(!name.empty()) << "Empty name in Store::make";
-    internal_assert(index.defined())
-        << "Empty index in Store::make of " << name;
-    internal_assert(value.defined())
-        << "Undefined value in Store::make of " << name;
-    Store *node = new Store;
-    node->name = std::move(name);
-    node->index = std::move(index);
-    node->value = std::move(value);
-    return node;
-}
-
 // Stmt LetStmt::make(std::string name, Expr value, Stmt body) {
 Stmt LetStmt::make(WriteLoc loc, Expr value) {
     internal_assert(loc.defined())
@@ -130,16 +117,6 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     node->op = op;
     node->value = std::move(value);
     // node->body = std::move(body);
-    return node;
-}
-
-Stmt Allocate::make(std::string name, Type type) {
-    internal_assert(!name.empty()) << "Allocate::make received empty name";
-    internal_assert(type.defined()) << "Allocate::make received undefined type";
-
-    Allocate *node = new Allocate;
-    node->name = std::move(name);
-    node->type = std::move(type);
     return node;
 }
 
