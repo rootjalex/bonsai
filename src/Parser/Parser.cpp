@@ -5,6 +5,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
+#include "IR/Frame.h"
 #include "IR/Layout.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -131,9 +132,9 @@ struct Parser {
 
     ir::Program parse_program() {
         internal_assert(frames.empty());
-        new_frame();
+        push_frame();
         parse_program_stream(/*allow_externs=*/true);
-        end_frame();
+        pop_frame();
         internal_assert(frames.empty());
         return std::move(program);
     }
@@ -152,7 +153,11 @@ struct Parser {
 
     ir::Program program;
     // Function variable frames. Maps name to type and mutability.
-    std::list<std::map<std::string, std::pair<ir::Type, bool>>> frames;
+    struct FunctionVariable {
+        ir::Type type;
+        bool mutating;
+    };
+    ir::MapStack<std::string, FunctionVariable> frames;
     // TODO: if we allow nested functions or any other way to allow nested
     // generics, we need this to be a stack!
     ir::TypeMap current_generics;
@@ -180,16 +185,14 @@ struct Parser {
     }
 
     ir::Type get_type_from_frame(const std::string &name) const {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(name);
-            if (found != frame.cend()) {
-                internal_assert(!program.funcs.contains(name))
-                    << "found a value in the current frame with the same name "
-                       "as a previously defined function: "
-                    << name;
-                return found->second.first;
-            }
+        std::optional<FunctionVariable> variable_type =
+            frames.from_frames(name);
+        if (variable_type.has_value()) {
+            internal_assert(!program.funcs.contains(name))
+                << "found a value in the current frame with the same name "
+                   "as a previously defined function: "
+                << name;
+            return variable_type->type;
         }
 
         if (auto it = program.funcs.find(name); it != program.funcs.end()) {
@@ -199,23 +202,14 @@ struct Parser {
     }
 
     bool name_in_scope(const std::string &name) const {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(name);
-            if (found != frame.cend()) {
-                return true;
-            }
-        }
-        return false;
+        return frames.contains(name);
     }
 
     bool is_mutable(const std::string &name) const {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(name);
-            if (found != frame.cend()) {
-                return found->second.second;
-            }
+        std::optional<FunctionVariable> variable_type =
+            frames.from_frames(name);
+        if (variable_type.has_value()) {
+            return variable_type->mutating;
         }
         report_error() << "Cannot check mutability of unknown var: " << name;
     }
@@ -232,34 +226,28 @@ struct Parser {
     }
 
     void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(name);
-            if (found != frame.cend()) {
-                report_error() << name << " shadows another variable";
-            }
-        }
-        frames.back()[name] = {std::move(type), mut};
+        frames.add_to_frame(name, FunctionVariable{
+                                      .type = type,
+                                      .mutating = mut,
+                                  });
     }
 
     void modify_type_in_frame(const std::string &name, ir::Type type) {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            auto &frame = *it;
-            auto found = frame.find(name);
-            if (found != frame.end()) {
-                internal_assert(!found->second.first.defined())
-                    << "Attempt to modify defined type for name: " << name;
-                found->second.first = std::move(type);
-                return;
-            }
+        std::optional<FunctionVariable> variable_type =
+            frames.from_frames(name);
+        if (variable_type.has_value()) {
+            internal_assert(!variable_type->type.defined())
+                << "Attempt to modify defined type for name: " << name;
         }
-        report_error() << "Cannot modify_type of unknown var: " << name
-                       << " to type " << type;
+        frames.replace(name, FunctionVariable{
+                                 .type = type,
+                                 .mutating = variable_type->mutating,
+                             });
     }
 
-    void new_frame() { frames.emplace_back(); }
+    void push_frame() { frames.push_frame(); }
 
-    void end_frame() { frames.pop_back(); }
+    void pop_frame() { frames.pop_frame(); }
 
     Token peek(uint32_t k = 0) const { return tokens().peek(k); }
 
@@ -567,7 +555,7 @@ struct Parser {
 
     void parse_geometric_intrinsic(const std::string &name) {
         // TODO: support generics for geometric intrinsics.
-        new_frame();
+        push_frame();
         std::vector<ir::Function::Argument> args = parse_func_args();
 
         // Build a unique identifier, because all function names are unique.
@@ -642,7 +630,7 @@ struct Parser {
                            << ret_type;
         }
 
-        end_frame();
+        pop_frame();
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
@@ -691,7 +679,7 @@ struct Parser {
         }
 
         ir::Function::InterfaceList interfaces = parse_func_interfaces();
-        new_frame();
+        push_frame();
         std::vector<ir::Function::Argument> args = parse_func_args();
 
         // Optional RARROW with return_type: otherwise, requires type inference!
@@ -733,7 +721,7 @@ struct Parser {
             }
         }
 
-        end_frame();
+        pop_frame();
         current_generics.clear();
 
         internal_assert(!program.funcs[name]->body.defined())
@@ -752,13 +740,13 @@ struct Parser {
         std::vector<ir::Stmt> stmts;
         expect(Token::Type::LSQUIGGLE);
         // brackets enclose a new frame!
-        new_frame();
+        push_frame();
 
         while (!consume(Token::Type::RSQUIGGLE)) {
             stmts.push_back(parse_statement());
         }
         // close the frame.
-        end_frame();
+        pop_frame();
         internal_assert(!stmts.empty())
             << "Failed to parse a Sequence at line: "
             << peek().line_begin(); // TODO: this fails when the stream is empty
@@ -1168,7 +1156,7 @@ struct Parser {
             return ir::FloatImm::make(f32, value);
         } else if (consume(Token::Type::BAR)) {
             std::vector<ir::TypedVar> args = parse_lambda_args();
-            new_frame();
+            push_frame();
             for (const auto &arg : args) {
                 add_type_to_frame(arg.name, arg.type, /* mutable */ false);
             }
@@ -1179,7 +1167,7 @@ struct Parser {
             if (has_squiggles) {
                 expect(Token::Type::RSQUIGGLE);
             }
-            end_frame();
+            pop_frame();
             return ir::Lambda::make(std::move(args), std::move(expr));
         } else if (consume(Token::Type::LSQUIGGLE)) {
             // Could be a build or an empty
@@ -2115,7 +2103,7 @@ struct Parser {
 
     // Wrapper that adds built-ins into scope and then calls parse_layout()
     ir::Layout parse_top_level_layout() {
-        new_frame();
+        push_frame();
 
         // TODO: support other non-u32 indexing.
         // add_type_to_frame("count", u32, /* mutable=*/false);
@@ -2128,7 +2116,7 @@ struct Parser {
         ir::Layout layout = parse_layout();
         expect(Token::Type::SEMICOL);
 
-        end_frame();
+        pop_frame();
         return layout;
     }
 
@@ -2139,12 +2127,12 @@ struct Parser {
         case Token::Type::LSQUIGGLE: {
             consume();
             std::vector<ir::Layout> layouts;
-            new_frame();
+            push_frame();
             do {
                 layouts.emplace_back(parse_layout());
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
-            end_frame();
+            pop_frame();
             return ir::Chain::make(std::move(layouts));
         }
         case Token::Type::GROUP: {

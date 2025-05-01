@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:59
+[internal] Error: src/Parser/Parser.cpp:60
 tests/bonsai/error/lambda-no-arguments.bonsai:3:10: [parse error] unexpected token: logical-or
 
     L2 = || 1 + 1;
