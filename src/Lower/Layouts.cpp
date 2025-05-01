@@ -114,12 +114,10 @@ ir::Expr fill(const ir::FrameStack<ir::Expr> &frames, const ir::Expr &expr) {
                     ir::Function_t::make(std::move(ret_type), func->arg_types),
                     var->name);
             }
-            internal_assert(frames.name_in_scope(var->name))
+            std::optional<ir::Expr> expr = frames.from_frames(var->name);
+            internal_assert(expr.has_value())
                 << "Materialization fill cannot find: " << var->name;
-            if (frames.name_in_scope(var->name)) {
-                return frames.from_frames(var->name);
-            }
-            return var;
+            return *expr;
         }
     };
     return Rewrite(frames).mutate(expr);
