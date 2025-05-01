@@ -1859,8 +1859,9 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
     }
 
     // TODO: figure out alignment?
-    llvm::Value *untyped_ptr = builder->CreateMalloc(
-        i64_t, etype, /*AllocSize=*/elemSize, /*ArraySize=*/size, nullptr, name + "_untyped");
+    llvm::Value *untyped_ptr =
+        builder->CreateMalloc(i64_t, etype, /*AllocSize=*/elemSize,
+                              /*ArraySize=*/size, nullptr, name + "_untyped");
 
     // if (etype->isVectorTy() || !is_llvm_const_one(size)) {
     //     untyped_ptr->setAlignment(llvm::Align(align));
