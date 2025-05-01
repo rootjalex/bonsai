@@ -40,6 +40,9 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Assign *node) override {
+        if (node->mutating && !seen_vars.contains(node->loc.base)) {
+            free_vars.push_back({node->loc.base, node->loc.base_type});
+        }
         seen_vars.insert(node->loc.base);
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {

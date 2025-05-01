@@ -168,14 +168,12 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs) 
             auto [_, inserted] = funcs.try_emplace(closure.func->name, closure.func);
             internal_assert(inserted);
 
-            static Type void_ptr_t = Ptr_t::make(UInt_t::make(8));
-
             Expr n = ((node->slice.end - node->slice.begin) + (node->slice.stride - 1)) / node->slice.stride;
             n = Simplify::simplify(n);
-            std::vector<Expr> args = {cast(void_ptr_t, closure.context)};
+            std::vector<Expr> args = {closure.context};
             std::vector<Stmt> seq(2);
             seq[0] = Assign::make(WriteLoc("ctx", closure.context.type()), closure.context, /*mutating=*/false);
-            seq[1] = Launch::make(closure.func->name, n, {Var::make(closure.context.type(), "ctx")});
+            seq[1] = Launch::make(closure.func->name, n, {Var::make(Ptr_t::make(closure.context.type()), "ctx")});
             return Sequence::make(std::move(seq));
         }
     };
@@ -188,9 +186,10 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs) 
 } // namespace
 
 ir::FuncMap Parallelize::run(FuncMap funcs) const {
+
     for (auto &[name, func] : funcs) {
         // TODO: get loop_idx and func from schedule.
-        func->body = parallelize_forall("_i0", func->body, funcs);
+        // func->body = parallelize_forall("_i0", func->body, funcs);
     }
     return funcs;
 }

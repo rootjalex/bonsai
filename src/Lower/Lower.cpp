@@ -138,6 +138,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Inline>());
+    d.push_back(std::make_unique<opt::Parallelize>());
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<Mutability>());

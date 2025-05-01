@@ -1984,7 +1984,6 @@ void CodeGen_LLVM::visit(const Continue *node) {
 }
 
 void CodeGen_LLVM::visit(const Launch *node) {
-    /*
     llvm::Value *num_iters = codegen_expr(node->n);
     num_iters = builder->CreateIntCast(num_iters, i64_t, node->n.type().is_int());
 
@@ -2053,13 +2052,6 @@ void CodeGen_LLVM::visit(const Launch *node) {
     builder->CreateCall(dispatch_apply_f, {
         num_iters, global_dispatch_queue, ctx, func_ptr
     });
-    */
-    Type i64_t = Int_t::make(64);
-    Expr func = Var::make(Function_t::make(Void_t::make(), {{node->args[0].type(), true}, {i64_t, false}}), node->func);
-    Stmt body = CallStmt::make(func, {node->args[0], Var::make(i64_t, "_launch_seq_i")});
-    Stmt forall = ForAll::make("_launch_seq_i", ForAll::Slice{make_zero(i64_t), node->n, make_one(i64_t)}, body);
-    std::cout << "codegen: " << forall << "\n";
-    codegen_stmt(forall);
 }
 
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,
@@ -2255,7 +2247,7 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
     std::string name = wloc.base;
-    internal_assert(frames.name_in_scope(name));
+    internal_assert(frames.name_in_scope(name)) << name;
     llvm::Value *loc = frames.from_frames(name);
     Type bonsai_type = wloc.base_type;
 
