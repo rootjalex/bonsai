@@ -37,10 +37,16 @@ struct MapStack {
         return {};
     }
 
+    // Whether T is an ir::Expr or ir::Stmt.
+    template <typename T>
+    static constexpr bool I =
+        std::is_same_v<T, ir::Expr> || std::is_same_v<T, ir::Stmt>;
+
     // Returns the value at key `k` if found, and nullptr otherwise. This is a
     // safe way to update the value at key `k`. (We opt against using iterators
     // for simplicity.)
-    V *find(const K &k) {
+    template <typename T = V>
+    typename std::enable_if<!I<T>, V>::type *find(const K &k) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             auto &frame = *it;
             auto found = frame.find(k);
