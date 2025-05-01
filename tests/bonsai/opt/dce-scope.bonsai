@@ -1,0 +1,12 @@
+//! flags: -p core -p dce
+
+func foo(x : f32, y : f32) {
+    if (x > 0 && y > 0) {
+        w = x * y;
+        dead_code: i32 = 42;
+        return sqrt(w);
+    } else {
+        w = abs(x + y);
+        return sqrt(w);
+    }
+}

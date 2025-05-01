@@ -2,6 +2,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
+#include "IR/Frame.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
@@ -25,33 +26,35 @@ using DepUseCountMap = std::map<std::string, UseCountMap>;
 
 struct ComputeUseCounts : ir::Visitor {
     // How many times is a variable read.
-    UseCountMap use_counts;
+    ir::History<int32_t> use_counts;
     // How many times does a variable definition reference another variable.
-    DepUseCountMap dependent_use_counts;
+    ir::History<UseCountMap> dependent_use_counts;
     // Name of the current variable whose definition is being traversed.
     std::string curr_var;
 
     ComputeUseCounts(const std::set<std::string> &mutable_func_args) {
         for (const auto &arg : mutable_func_args) {
             // Conservatively set to 1, so Assign statements are not removed.
-            use_counts[arg] = 1;
-            dependent_use_counts[arg] = {};
+            use_counts.add_to_frame(arg, 1);
+            dependent_use_counts.add_to_frame(arg, {});
         }
     }
 
     void visit(const ir::Var *node) override {
-        ++use_counts[node->name];
+        use_counts.increment(node->name, 1);
         if (!curr_var.empty()) {
             // Inside a LetStmt/Assign
-            ++dependent_use_counts[curr_var][node->name];
+            UseCountMap &dep_map = dependent_use_counts.from_frames(curr_var);
+            ++dep_map[node->name];
         }
     }
 
     void visit(const ir::Lambda *node) override {
         for (const ir::TypedVar &arg : node->args) {
-            internal_assert(!use_counts.contains(arg.name)) << arg.name;
+            internal_assert(!use_counts.name_in_scope(arg.name)) << arg.name;
             if (!curr_var.empty()) {
-                const UseCountMap &dep_map = dependent_use_counts[curr_var];
+                const UseCountMap &dep_map =
+                    dependent_use_counts.from_frames(curr_var);
                 internal_assert(!dep_map.contains(arg.name));
             }
         }
@@ -61,7 +64,9 @@ struct ComputeUseCounts : ir::Visitor {
             use_counts.erase(arg.name);
             if (!curr_var.empty()) {
                 // Erase from dependent_use_counts as well.
-                dependent_use_counts[curr_var].erase(arg.name);
+                UseCountMap &dep_map =
+                    dependent_use_counts.from_frames(curr_var);
+                dep_map.erase(arg.name);
             }
         }
     }
@@ -72,14 +77,14 @@ struct ComputeUseCounts : ir::Visitor {
             << " when traversing for: " << curr_var;
         // TODO(ajr): Should LetStmts just contain a string name for writes? Can
         // never immutably write to an access.
-        internal_assert(!use_counts.contains(node->loc.base))
+        internal_assert(!use_counts.name_in_scope(node->loc.base))
             << "ComputeUseCounts already active for var: " << node->loc;
-        internal_assert(!dependent_use_counts.contains(node->loc.base))
+        internal_assert(!dependent_use_counts.name_in_scope(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
-        use_counts[node->loc.base] = 0;
-        dependent_use_counts[node->loc.base] = {};
+        use_counts.add_to_frame(node->loc.base, 0);
+        dependent_use_counts.add_to_frame(node->loc.base, {});
 
         curr_var = node->loc.base;
         node->value.accept(this);
@@ -90,17 +95,18 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Assign: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(!node->mutating || use_counts.contains(node->loc.base))
+        internal_assert(!node->mutating ||
+                        use_counts.name_in_scope(node->loc.base))
             << "ComputeUseCounts already active for var: " << node->loc
             << " in stmt: " << ir::Stmt(node);
         internal_assert(!node->mutating ||
-                        dependent_use_counts.contains(node->loc.base))
+                        dependent_use_counts.name_in_scope(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
         if (!node->mutating) {
-            use_counts[node->loc.base] = 0;
-            dependent_use_counts[node->loc.base] = {};
+            use_counts.add_to_frame(node->loc.base, 0);
+            dependent_use_counts.add_to_frame(node->loc.base, {});
         }
 
         curr_var = node->loc.base;
@@ -112,15 +118,36 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Accumulate: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(use_counts.contains(node->loc.base))
+        internal_assert(use_counts.name_in_scope(node->loc.base))
             << "ComputeUseCounts not active for var: " << node->loc;
-        internal_assert(dependent_use_counts.contains(node->loc.base))
+        internal_assert(dependent_use_counts.name_in_scope(node->loc.base))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
         curr_var = node->loc.base;
         node->value.accept(this);
         curr_var.clear();
     }
 
+    void visit(const ir::IfElse *node) override {
+        // new_frame();
+        node->cond.accept(this);
+        node->then_body.accept(this);
+        // pop_frame();
+        // new_frame();
+        if (node->else_body.defined()) {
+            node->else_body.accept(this);
+        }
+        // pop_frame();
+    }
+
+    void new_frame() {
+        use_counts.new_frame();
+        dependent_use_counts.new_frame();
+    }
+
+    void pop_frame() {
+        use_counts.pop_frame();
+        dependent_use_counts.pop_frame();
+    }
     // void visit(const ir::Match *node) override {
     //     internal_error << "TODO: implement ComputeUseCounts for Match";
     // }
@@ -208,17 +235,28 @@ std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
 
 struct DeadCodeElimination : ir::Mutator {
     // How many times is a variable read.
-    UseCountMap use_counts;
+    ir::FrameHistory<int32_t> use_counts;
     // How many times does a variable definition reference another variable.
-    DepUseCountMap dependent_use_counts;
+    ir::FrameHistory<UseCountMap> dependent_use_counts;
     // Which functions have side effects.
     const std::set<std::string> &side_effects_functions;
 
-    DeadCodeElimination(UseCountMap use_counts,
-                        DepUseCountMap dependent_use_counts,
+    void new_frame() {
+        use_counts.new_frame();
+        dependent_use_counts.new_frame();
+    }
+
+    void pop_frame() {
+        use_counts.pop_frame();
+        dependent_use_counts.pop_frame();
+    }
+
+    DeadCodeElimination(ir::History<int32_t> use_counts,
+                        ir::History<UseCountMap> dependent_use_counts,
                         const std::set<std::string> &side_effects_functions)
-        : use_counts(std::move(use_counts)),
-          dependent_use_counts(std::move(dependent_use_counts)),
+        : use_counts(ir::FrameHistory(std::move(use_counts))),
+          dependent_use_counts(
+              ir::FrameHistory(std::move(dependent_use_counts))),
           side_effects_functions(side_effects_functions) {}
 
     bool has_side_effects(const ir::Expr &expr) {
@@ -254,17 +292,17 @@ struct DeadCodeElimination : ir::Mutator {
         ComputeUseCounts counter({}); // TODO(ajr): is this right?
         expr.accept(&counter);
         internal_assert(counter.dependent_use_counts.empty());
-        for (const auto &[var, count] : counter.use_counts) {
-            internal_assert(use_counts.contains(var));
+        for (const auto &[var, count] : counter.use_counts.find_all()) {
+            internal_assert(use_counts.name_in_scope(var)) << var;
             use_counts[var] += count;
         }
     }
 
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
-        if (const auto cmap = dependent_use_counts.find(loc.base);
-            cmap != dependent_use_counts.cend()) {
-            for (const auto &[var, count] : cmap->second) {
+        if (dependent_use_counts.name_in_scope(loc.base)) {
+            UseCountMap &dep_map = dependent_use_counts[loc.base];
+            for (const auto &[var, count] : dep_map) {
                 internal_assert(use_counts[var] >= count)
                     << "Overflow failure in DCE: " << var
                     << " has count: " << use_counts[var]
@@ -276,7 +314,11 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
+        if (!use_counts.name_in_scope(node->loc.base)) {
+            use_counts.add_to_frame(node->loc.base, 0);
+        }
+        if (use_counts.from_frames(node->loc.base) == 0 &&
+            !has_side_effects(node->value)) {
             erase_dependents(node->loc);
             return ir::Stmt();
         }
@@ -284,7 +326,10 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (!use_counts.name_in_scope(node->loc.base)) {
+            use_counts.add_to_frame(node->loc.base, 0);
+        }
+        if (use_counts.from_frames(node->loc.base) != 0) {
             return node;
         }
         if (!node->mutating) {
@@ -295,15 +340,25 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (!use_counts.name_in_scope(node->loc.base)) {
+            use_counts.add_to_frame(node->loc.base, 0);
+        }
+        if (use_counts.from_frames(node->loc.base) != 0) {
             return node;
         }
         return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
+        // new_frame();
         ir::Stmt then_body = mutate(node->then_body);
-        ir::Stmt else_body = mutate(node->else_body);
+        // pop_frame();
+        // new_frame();
+        ir::Stmt else_body = node->else_body;
+        if (else_body.defined()) {
+            else_body = mutate(std::move(else_body));
+        }
+        // pop_frame();
         if (then_body.same_as(node->then_body) &&
             else_body.same_as(node->else_body)) {
             return node;
@@ -338,7 +393,6 @@ struct DeadCodeElimination : ir::Mutator {
         }
 
         if (stmts.empty()) {
-            std::cout << "erased: " << ir::Stmt(node) << "\n";
             return ir::Stmt();
         } else if (not_changed) {
             return node;

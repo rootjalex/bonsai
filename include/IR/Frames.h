@@ -9,49 +9,25 @@
 namespace bonsai {
 namespace ir {
 
-template <typename K, typename V, typename H = std::less<K>>
-struct MapStack {
-    // Retrieves the variable from this frame stack if it exists, and
-    // {} otherwise.
-    std::optional<V> from_frames(const K &k) const {
+template <typename T>
+struct FrameStack {
+    std::list<std::map<std::string, T>> frames = {{}};
+
+    T from_frames(const std::string &name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
-            const auto &found = frame.find(k);
+            const auto &found = frame.find(name);
             if (found != frame.cend()) {
                 return found->second;
             }
         }
-        return {};
+        internal_error << "Cannot get from frame: " << name;
     }
 
-    bool contains(const K &k) const { return from_frames(k).has_value(); }
-
-    void add_to_frame(K k, V v) {
+    bool name_in_scope(const std::string &name) const {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
-            const auto &found = frame.find(k);
-            if (found == frame.end()) {
-                continue;
-            }
-            internal_error << "found duplicate value: " << k;
-        }
-        frames.back()[std::move(k)] = std::move(v);
-    }
-
-    void new_frame() { frames.emplace_back(); }
-
-    void pop_frame() { frames.pop_back(); }
-
-  private:
-    std::vector<std::map<K, V, H>> frames = {{}};
-};
-
-template <typename K, typename H = std::less<K>>
-struct SetStack {
-    bool contains(const K &k) const {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(k);
+            const auto &found = frame.find(name);
             if (found != frame.cend()) {
                 return true;
             }
@@ -59,34 +35,26 @@ struct SetStack {
         return false;
     }
 
-    void add_to_frame(K k) {
+    void add_to_frame(const std::string &name, T value) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             const auto &frame = *it;
-            const auto &found = frame.find(k);
-            if (found == frame.end()) {
-                continue;
-            }
-            internal_error << "found duplicate value: " << k;
+            const auto &found = frame.find(name);
+            internal_assert(found == frame.cend())
+                << name << " shadows another variable (of the same name)";
         }
-        frames.back().insert(k);
+        internal_assert(!frames.empty());
+        frames.back()[name] = value;
     }
 
     void new_frame() { frames.emplace_back(); }
 
     void pop_frame() { frames.pop_back(); }
-
-  private:
-    std::vector<std::set<K, H, std::allocator<K>>> frames = {{}};
 };
-
-// Mapping from string identifiers, e.g., variables names, to some type T.
-template <typename T>
-using FrameStack = MapStack<std::string, T>;
 
 // Creates a history of stack frames. This is necessary when we want to do some
 // scoped analysis, for example, when computing use counts in DCE.
 template <typename T>
-struct HistoryBuilder {
+struct History {
     bool name_in_scope(const std::string &name) {
         return current_frame().name_in_scope(name);
     }
@@ -183,6 +151,45 @@ struct HistoryBuilder {
         internal_assert(!history.empty());
         return history.back();
     }
+};
+
+template <typename T>
+struct FrameHistory {
+    FrameHistory(History<T> history) : history(std::move(history)) {
+        history.__post_process();
+    }
+
+    bool name_in_scope(const std::string &name) {
+        return history.name_in_scope(name);
+    }
+
+    void add_to_frame(const std::string &name, T value) {
+        history.add_to_frame(name, value);
+    }
+
+    T &from_frames(const std::string &name) {
+        return history.from_frames(name);
+    }
+
+    std::vector<std::pair<std::string, T>> find_all() {
+        return history.find_all();
+    }
+
+    T &operator[](std::string name) { return history.from_frames(name); }
+
+    void erase(const std::string &name) { history.erase(name); }
+
+    bool empty() { history.empty(); }
+
+    void increment(const std::string &name, T value) {
+        history.increment(name, value);
+    }
+
+    void new_frame() { history.__pop_back(); }
+    void pop_frame() { history.__pop_back(); }
+
+  private:
+    History<T> history;
 };
 
 } // namespace ir

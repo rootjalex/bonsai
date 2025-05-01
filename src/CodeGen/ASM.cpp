@@ -46,10 +46,10 @@ void emit_file(const std::string &filename,
 
     // NOTE: use of the "legacy" PassManager here is still required; it is
     // deprecated for optimization, but is still the only complete API for
-    // codegen as of work-in-progress LLVM14. At the time of this comment (Dec
-    // 2021), there is no firm plan as to when codegen will be fully available
-    // in the new PassManager, so don't worry about this 'legacy' tag until
-    // there's any indication that the old APIs start breaking.
+    // codegen as of work-in-progress LLVM14. At the time of this comment
+    // (Dec 2021), there is no firm plan as to when codegen will be fully
+    // available in the new PassManager, so don't worry about this 'legacy'
+    // tag until there's any indication that the old APIs start breaking.
     //
     // See:
     // https://lists.llvm.org/pipermail/llvm-dev/2021-April/150100.html
