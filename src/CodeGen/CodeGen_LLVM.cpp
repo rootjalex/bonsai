@@ -1533,12 +1533,6 @@ void CodeGen_LLVM::visit(const Build *node) {
         internal_assert(array_t->size.defined());
         llvm::Value *size = codegen_expr(array_t->size);
         // TODO(ajr): zero_initialize is broken, it should be set true here.
-        // llvm::errs() << "create_malloc(";
-        // etype->print(llvm::errs());
-        // llvm::errs() << ", ";
-        // size->print(llvm::errs());
-        // llvm::errs() << ")\n";
-        // llvm::errs().flush();
         llvm::Value *alloc =
             create_malloc(etype, size, /*zero_initialize=*/false, "");
 

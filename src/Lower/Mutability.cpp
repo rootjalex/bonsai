@@ -12,7 +12,7 @@ namespace lower {
 
 namespace {
 
-// Rewrite a vector of equal immediates to a broadcast.
+// Mutable things become ptrs, arguments to mutable slots become references.
 struct RewriteMutables : public ir::Mutator {
     const std::set<std::string> &mut_args;
     std::set<std::string> mut_locals;
@@ -23,9 +23,6 @@ struct RewriteMutables : public ir::Mutator {
         : mut_args(mut_args), funcs(funcs) {}
 
     ir::Expr visit(const ir::Var *node) override {
-        // if (mut_args.contains(node->name)) {
-        //     return ir::Deref::make(node);
-        // }
         if (mut_args.contains(node->name) || mut_locals.contains(node->name)) {
             ir::Expr var =
                 ir::Var::make(ir::Ptr_t::make(node->type), node->name);

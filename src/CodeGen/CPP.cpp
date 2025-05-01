@@ -101,6 +101,15 @@ class TypeEmitter : public ir::Visitor {
                "before and after the argument name, i.e., `T name[N]`";
     }
 
+    void visit(const ir::Ptr_t *type) override {
+        if (const ir::Struct_t *struct_t = type->etype.as<ir::Struct_t>()) {
+            ss << struct_t->name << "&";
+        } else {
+            type->etype.accept(this);
+            ss << "&";
+        }
+    }
+
   private:
     // Prints the type for a constant sized array or vector, and returns true.
     // If this fails, returns false.
@@ -159,20 +168,19 @@ class BonsaiToCpp {
                              bool is_return_type = false) {
         const auto *struct_type = type.as<ir::Struct_t>();
         if (struct_type == nullptr) {
-            emit_type(type);
-            if (is_mutating) {
-                ss << '&';
+            if (!is_mutating && !is_return_type) {
+                ss << "const ";
             }
+            emit_type(type);
             return;
         }
+        // Mutable structs must be passed in as pointers.
+        internal_assert(!is_mutating);
         if (is_return_type) {
             ss << struct_type->name;
             return;
         }
-        if (!is_mutating) {
-            ss << "const" << ' ';
-        }
-        ss << struct_type->name << '&';
+        ss << "const " << struct_type->name << "&";
     }
 
     void emit_func(const ir::Function &func) {
@@ -204,6 +212,10 @@ class BonsaiToCpp {
                           std::vector<ir::Type> &types) {
         if (type.is<ir::Vector_t, ir::Array_t>()) {
             get_struct_types(type.element_of(), deduplicate, types);
+            return;
+        }
+        if (const ir::Ptr_t *ptr_t = type.as<ir::Ptr_t>()) {
+            get_struct_types(ptr_t->etype, deduplicate, types);
             return;
         }
         const auto *struct_type = type.as<ir::Struct_t>();

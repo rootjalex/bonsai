@@ -88,11 +88,9 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
             WriteLoc loc(args.result, args.base_type);
             loc.add_index_access(nested_idx);
             loop_body = Assign::make(loc, expr, /*mutating=*/true);
-            // loop_body = Store::make(args.result, nested_idx, expr);
         }
     } else {
         Expr expr = Call::make(func, {load});
-        // loop_body = Store::make(args.result, nested_idx, expr);
         WriteLoc loc(args.result, args.base_type);
         loc.add_index_access(nested_idx);
         loop_body = Assign::make(loc, expr, /*mutating=*/true);
@@ -114,7 +112,6 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
 
     Type alloc_type = flatten_array_type(map_expr->type);
 
-    // Stmt alloc = Allocate::make(alloc_name, alloc_type);
     Stmt alloc = Assign::make(WriteLoc(alloc_name, alloc_type),
                               Build::make(alloc_type), /*mutating=*/false);
     static const Expr zero = make_zero(index_t);
