@@ -45,6 +45,9 @@ enum class IRExprEnum {
     SetOp,
     Call,
     Instantiate,
+    // Pointer operations
+    PtrTo,
+    Deref,
 };
 
 using IRExprNode = IRNode<Expr, IRExprEnum>;
@@ -398,6 +401,22 @@ struct Instantiate : ExprNode<Instantiate> {
     static Expr make(Expr expr, TypeMap types);
 
     static const IRExprEnum node_type = IRExprEnum::Instantiate;
+};
+
+struct PtrTo : ExprNode<PtrTo> {
+    Expr expr; // must be convertible to WriteLoc
+
+    static Expr make(Expr expr);
+
+    static const IRExprEnum node_type = IRExprEnum::PtrTo;
+};
+
+struct Deref : ExprNode<Deref> {
+    Expr expr; // must be ptr
+
+    static Expr make(Expr expr);
+
+    static const IRExprEnum node_type = IRExprEnum::Deref;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary

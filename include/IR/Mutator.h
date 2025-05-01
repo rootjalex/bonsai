@@ -63,6 +63,8 @@ struct Mutator {
     virtual Expr visit(const SetOp *);
     virtual Expr visit(const Call *);
     virtual Expr visit(const Instantiate *);
+    virtual Expr visit(const PtrTo *);
+    virtual Expr visit(const Deref *);
     // Stmts
     virtual Stmt visit(const CallStmt *);
     virtual Stmt visit(const Print *);

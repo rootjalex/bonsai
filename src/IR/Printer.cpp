@@ -856,6 +856,18 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
+void Printer::visit(const PtrTo *node) {
+    os << "(&";
+    print_no_parens(node->expr);
+    os << ")";
+}
+
+void Printer::visit(const Deref *node) {
+    os << "(*";
+    print_no_parens(node->expr);
+    os << ")";
+}
+
 void Printer::visit(const CallStmt *node) {
     os << get_indent();
     print_no_parens(node->func);

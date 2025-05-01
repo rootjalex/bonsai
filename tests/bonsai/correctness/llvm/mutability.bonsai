@@ -67,8 +67,34 @@ func test_d() {
     return;
 }
 
-// TODO(ajr): figure out expected behavior of this?
+element Example2 {
+    e : Example1;
+    b : i32;
+}
+
+
+func mutate4(i : mut Example2) {
+    i.b = i.e.b + i.e.a[0];
+    // TODO: fix type inf + parsing on this.
+    // i.e.a = array[i32, 4]{7, 8, 9, 10};
+    temp : mut array[i32, 4] = {7, 8, 9, 10};
+    i.e.a = temp;
+    return;
+}
+
 func test_e() {
+    a : mut array[i32, 4] = {1, 2, 3, 4};
+    c : mut Example1 = {a, 3};
+    e : mut Example2 = {c, 9};
+    print(e);
+    mutate4(e);
+    print(e);
+    print(a);
+    return;
+}
+
+// TODO(ajr): figure out expected behavior of this?
+func test_TODO() {
     a : array[i32, 4] = {1, 2, 3, 4};
     c : mut Example1 = {a, 3};
     print(c);
@@ -82,5 +108,6 @@ func main() -> i32 {
     test_b();
     test_c();
     test_d();
+    test_e();
     return 0;
 }

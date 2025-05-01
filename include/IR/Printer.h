@@ -121,6 +121,8 @@ struct Printer : public Visitor {
     void visit(const SetOp *) override;
     void visit(const Call *) override;
     void visit(const Instantiate *) override;
+    void visit(const PtrTo *) override;
+    void visit(const Deref *) override;
     // Stmts
     void visit(const CallStmt *) override;
     void visit(const Print *) override;

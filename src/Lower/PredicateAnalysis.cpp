@@ -307,6 +307,16 @@ struct PredicateAnalysis : public ir::Visitor {
         internal_error << "TODO: implement predicate analysis on Instantiate: "
                        << ir::Expr(node);
     }
+
+    void visit(const ir::PtrTo *node) override {
+        internal_error << "TODO: implement predicate analysis on PtrTo: "
+                       << ir::Expr(node);
+    }
+
+    void visit(const ir::Deref *node) override {
+        internal_error << "TODO: implement predicate analysis on Deref: "
+                       << ir::Expr(node);
+    }
 };
 
 } // namespace

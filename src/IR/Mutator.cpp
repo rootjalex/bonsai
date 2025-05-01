@@ -406,6 +406,22 @@ Expr Mutator::visit(const Instantiate *node) {
     return Instantiate::make(std::move(expr), node->types);
 }
 
+Expr Mutator::visit(const PtrTo *node) {
+    Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return PtrTo::make(std::move(expr));
+}
+
+Expr Mutator::visit(const Deref *node) {
+    Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return Deref::make(std::move(expr));
+}
+
 Stmt Mutator::visit(const CallStmt *node) {
     Expr func = mutate(node->func);
     auto [args, not_changed] = visit_list(this, node->args);

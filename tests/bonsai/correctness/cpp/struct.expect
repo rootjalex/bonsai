@@ -1,4 +1,21 @@
 [test] clang++ -c tests/bonsai/correctness/cpp/main_struct.cpp -o tests/bonsai/correctness/cpp/main_struct.o
-[test] clang++ tests/bonsai/correctness/cpp/main_struct.o tests/bonsai/correctness/cpp/struct.o -o tests/bonsai/correctness/cpp/struct
-[test] ./tests/bonsai/correctness/cpp/struct
-x: 11, y: 22
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:1582
+Lowering of an Access's value did not result in a struct type: i.x
+tests/bonsai/correctness/cpp/main_struct.cpp:7:5: error: unknown type name 'Position'
+    Position i;
+    ^
+tests/bonsai/correctness/cpp/main_struct.cpp:10:5: error: unknown type name 'Position'
+    Position j;
+    ^
+tests/bonsai/correctness/cpp/main_struct.cpp:13:5: error: unknown type name 'Position'
+    Position r;
+    ^
+3 errors generated.
+command failed (exit 256)
+rm: tests/bonsai/correctness/cpp/struct: No such file or directory
+rm: tests/bonsai/correctness/cpp/main_struct.o: No such file or directory
+rm: tests/bonsai/correctness/cpp/struct.h: No such file or directory
+rm: tests/bonsai/correctness/cpp/struct.o: No such file or directory

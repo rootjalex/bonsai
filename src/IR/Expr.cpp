@@ -769,8 +769,6 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
 }
 
 Expr Build::make(Type type) {
-    internal_assert(type.is<Struct_t>())
-        << "Cannot build with named fields for non-struct: " << type;
     Build *node = new Build;
     node->type = std::move(type);
     return node;
@@ -1107,6 +1105,41 @@ Expr Instantiate::make(Expr expr, TypeMap types) {
 
     node->expr = std::move(expr);
     node->types = std::move(types);
+    return node;
+}
+
+Expr PtrTo::make(Expr expr) {
+    internal_assert(expr.defined())
+        << "PtrTo::make received undefined expr";
+    internal_assert(expr.type().defined())
+        << "PtrTo::make received untyped expr: " << expr;
+
+    if (const Deref *ref = expr.as<Deref>()) {
+        return ref->expr;
+    }
+
+    PtrTo *node = new PtrTo;
+    node->type = Ptr_t::make(expr.type());
+    node->expr = std::move(expr);
+    return node;
+}
+
+Expr Deref::make(Expr expr) {
+    internal_assert(expr.defined())
+        << "Deref::make received undefined expr";
+    internal_assert(expr.type().defined())
+        << "Deref::make received untyped expr: " << expr;
+    internal_assert(expr.type().is<Ptr_t>())
+        << "Deref::make received non-ptr expr: " << expr
+        << " has type: " << expr.type();
+
+    if (const PtrTo *ptr = expr.as<PtrTo>()) {
+        return ptr->expr;
+    }
+
+    Deref *node = new Deref;
+    node->type = expr.type().as<Ptr_t>()->etype;
+    node->expr = std::move(expr);
     return node;
 }
 

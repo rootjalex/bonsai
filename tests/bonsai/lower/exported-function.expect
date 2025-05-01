@@ -4,7 +4,7 @@ func _unexported_foo(i : Position, j : Position) -> Position {
   return build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
 }
 
-func [[export]] foo(_ret0 : mut Position, i : Position, j : Position) -> void {
+func [[export]] foo(_ret0 : mut (Position*), i : Position, j : Position) -> void {
   _ret0 = build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
   return
 }

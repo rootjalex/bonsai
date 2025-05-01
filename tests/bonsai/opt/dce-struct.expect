@@ -11,7 +11,7 @@ func bazz(i : i32, f : f32) -> f32 {
   } else {
     j += cast<u32>(-f)
   }
-  return cast<f32>(j)
+  return cast<f32>((*j))
 }
 
 func fizz(i : i32, f : f32) -> f32 {
@@ -21,7 +21,7 @@ func fizz(i : i32, f : f32) -> f32 {
   } else {
     j += cast<u32>(-f)
   }
-  return cast<f32>(j)
+  return cast<f32>((*j))
 }
 
 func foo(i : i32, f : f32) -> f32 {

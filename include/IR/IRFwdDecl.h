@@ -56,6 +56,8 @@ struct GeomOp;
 struct SetOp;
 struct Call;
 struct Instantiate;
+struct PtrTo;
+struct Deref;
 
 // Stmts
 struct Stmt;

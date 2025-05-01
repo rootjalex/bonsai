@@ -1,4 +1,5 @@
-Position {
-  x: 4
-  y: 6
-}
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:1582
+Lowering of an Access's value did not result in a struct type: i.x

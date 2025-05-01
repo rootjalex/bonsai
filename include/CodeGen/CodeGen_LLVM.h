@@ -67,7 +67,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     void codegen_stmt(const ir::Stmt &stmt);
     llvm::Type *codegen_type(const ir::Type &type);
     llvm::Function *codegen_func_ptr(const ir::Expr &expr);
-    llvm::Value *codegen_write_loc(const ir::WriteLoc &loc);
+    llvm::Value *codegen_write_loc(const ir::WriteLoc &loc, const bool create);
 
     llvm::Value *codegen_buffer_pointer(const std::string &buffer,
                                         const ir::Type &type,
@@ -139,6 +139,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::SetOp *) override;
     virtual void visit(const ir::Call *) override;
     virtual void visit(const ir::Instantiate *) override;
+    virtual void visit(const ir::PtrTo *) override;
+    virtual void visit(const ir::Deref *) override;
     // Stmts
     virtual void visit(const ir::CallStmt *) override;
     virtual void visit(const ir::Print *) override;

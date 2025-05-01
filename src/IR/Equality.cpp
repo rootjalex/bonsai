@@ -547,6 +547,16 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_maps(v0->types, v1->types, compare_types);
     }
+    case IRExprEnum::PtrTo: {
+        const PtrTo *v0 = e0.as<PtrTo>();
+        const PtrTo *v1 = e1.as<PtrTo>();
+        return compare_exprs(v0->expr, v1->expr);
+    }
+    case IRExprEnum::Deref: {
+        const Deref *v0 = e0.as<Deref>();
+        const Deref *v1 = e1.as<Deref>();
+        return compare_exprs(v0->expr, v1->expr);
+    }
     }
 }
 

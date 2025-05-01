@@ -88,7 +88,7 @@ bool is_const(const Expr &e) {
 }
 
 bool is_location_expr(const Expr &expr) {
-    return expr.is<Var, Access>();
+    return expr.is<Var, Access, PtrTo>();
 }
 
 Expr get_value_at(Expr v, int64_t index) {

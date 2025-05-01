@@ -22,3 +22,18 @@ Example1 {
 }
 4
 10
+Example2 {
+  e: Example1 {
+    a: {1, 2, 3, 4}
+    b: 3
+  }
+  b: 9
+}
+Example2 {
+  e: Example1 {
+    a: {7, 8, 9, 10}
+    b: 3
+  }
+  b: 4
+}
+{1, 2, 3, 4}
