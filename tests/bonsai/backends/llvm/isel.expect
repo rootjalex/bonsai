@@ -13,6 +13,3 @@ declare <8 x i8> @llvm.sadd.sat.v8i8(<8 x i8>, <8 x i8>) #1
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
----STDERR---
-let wide_x =   %0 = sext <8 x i8> %x to <8 x i16>
-let wide_y =   %1 = sext <8 x i8> %y to <8 x i16>

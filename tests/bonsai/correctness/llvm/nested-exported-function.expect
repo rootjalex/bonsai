@@ -1,8 +1,3 @@
 X {
   v: 42
 }
----STDERR---
-let c =   %4 = call %struct.X @_unexported_A(ptr %3)
-let c =   %4 = call %struct.X @_unexported_A(ptr %3)
-let x = %struct.X { i32 39 }
-let c =   %1 = call %struct.X @_unexported_C(ptr %0)

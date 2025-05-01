@@ -4,7 +4,3 @@ Position {
   z: 33
   c: 42.000000
 }
----STDERR---
-let i = %struct.Position { i32 1, i32 2, i32 3, float 1.000000e+00 }
-let j = %struct.Position { i32 10, i32 20, i32 30, float 4.100000e+01 }
-let r = %struct.Position { i32 11, i32 22, i32 33, float 4.200000e+01 }

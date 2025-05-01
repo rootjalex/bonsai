@@ -1,3 +1,1 @@
 32
----STDERR---
-let r =   %0 = call i32 @dbl(i32 1, i32 5)

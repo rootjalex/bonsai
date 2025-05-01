@@ -1,5 +1,2 @@
 {-1, 1, 2, -2, -214, 365, 12, -2147483647}
 {1, 1, 2, 2, 214, 365, 12, 2147483647}
----STDERR---
-let xs =   %_untyped = tail call ptr @malloc(i64 64)
-let abs_xs =   %1 = call ptr @_traverse_array0(ptr %_untyped)

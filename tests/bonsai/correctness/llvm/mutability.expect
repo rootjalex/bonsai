@@ -37,5 +37,3 @@ Example2 {
   b: 4
 }
 {1, 2, 3, 4}
----STDERR---
-let a =   %_untyped = tail call ptr @malloc(i64 16)

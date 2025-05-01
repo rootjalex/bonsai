@@ -3,5 +3,3 @@
 [test] ./tests/bonsai/correctness/cpp/swap
 i: 1, j: 2
 i: 2, j: 1
----STDERR---
-let t =   %deref_temp = load i32, ptr %x, align 4

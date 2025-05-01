@@ -1693,8 +1693,6 @@ void CodeGen_LLVM::visit(const LetStmt *node) {
     frame_var.value = codegen_expr(node->value);
     frame_var.is_mutable = false;
     frame_var.do_load = false;
-    llvm::errs() << "let " << node->loc.base << " = " << *frame_var.value << "\n";
-    llvm::errs().flush();
     frames.add_to_frame(node->loc.base, frame_var);
 }
 

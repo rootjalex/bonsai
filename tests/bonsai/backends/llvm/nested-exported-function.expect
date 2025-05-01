@@ -69,6 +69,3 @@ _unexported_D_entry:
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
----STDERR---
-let y =   %x1 = load %struct.X, ptr %x, align 4
-let y =   %x1 = load %struct.X, ptr %x, align 4

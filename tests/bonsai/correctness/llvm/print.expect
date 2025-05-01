@@ -14,7 +14,3 @@ Foo {
     y: 1
   }
 }
----STDERR---
-let u =   %_untyped = tail call ptr @malloc(i64 4)
-let position = %struct.Position { i32 -1, i32 1 }
-let f = %struct.Foo { i32 42, <3 x i32> <i32 1, i32 2, i32 3>, %struct.Position { i32 -1, i32 1 } }
