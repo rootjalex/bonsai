@@ -55,31 +55,6 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
             }
         }
 
-        /*
-        Stmt visit(const Store *node) override {
-            Expr index = mutate(node->index);
-            Expr value = mutate(node->value);
-
-            const auto &iter = repls.find(node->name);
-            if (iter != repls.cend()) {
-                WriteLoc new_loc = ctx;
-                new_loc.add_struct_access(node->name);
-                // internal_assert(!node->predicate.defined())
-                //     << "[unimplemented] predicated Assign needed in parallel"
-                //     << " ForAll closure generation of: " << Stmt(node);
-                if (index.defined()) {
-                    new_loc.add_index_access(index);
-                }
-                return Assign::make(std::move(new_loc), std::move(value), true);
-            } if (index.same_as(node->index) && value.same_as(node->value)) {
-                return node;
-            } else {
-                return Store::make(node->name, std::move(index),
-        std::move(value));
-            }
-        }
-        */
-
         std::pair<WriteLoc, bool>
         mutate_writeloc(const WriteLoc &loc) override {
             if (repls.contains(loc.base)) {

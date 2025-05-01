@@ -429,7 +429,10 @@ struct Simplifier : ir::Mutator {
         auto flatten = [&](const ir::Stmt &stmt) {
             ir::Stmt mut = mutate(stmt);
             changed = changed || !mut.same_as(stmt);
-            if (const ir::Sequence *seq = mut.as<ir::Sequence>()) {
+            if (!mut.defined()) {
+                changed = true;
+                return;
+            } else if (const ir::Sequence *seq = mut.as<ir::Sequence>()) {
                 stmts.insert(stmts.end(), seq->stmts.begin(), seq->stmts.end());
                 changed = true;
             } else {
@@ -443,6 +446,9 @@ struct Simplifier : ir::Mutator {
 
         if (!changed) {
             return node;
+        }
+        if (stmts.empty()) {
+            return ir::Stmt();
         }
         return ir::Sequence::make(std::move(stmts));
     }
