@@ -9,11 +9,7 @@ struct Position {
     int32_t y;
 };
 
-void add(struct Position {
-    int32_t x;
-    int32_t y;
-};
-& _ret0, const Position& i, const Position& j);
+void add(Position& _ret0, const Position& i, const Position& j);
 }
 
 ------------------------------------------

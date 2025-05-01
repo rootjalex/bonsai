@@ -12,10 +12,7 @@ struct G {
     F f;
 };
 
-void id(struct G {
-    F f;
-};
-& _ret0, const G& g);
+void id(G& _ret0, const G& g);
 }
 
 ------------------------------------------
