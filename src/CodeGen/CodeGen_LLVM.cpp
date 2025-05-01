@@ -315,7 +315,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
 
 void CodeGen_LLVM::compile_function(const Function &func,
                                     llvm::Function *function) {
-    frames.new_frame();
+    frames.push_frame();
 
     // TODO: allow nested functions? Can LLVM even do that?
     internal_assert(current_function == nullptr);
@@ -368,7 +368,7 @@ CodeGen_LLVM::compile_program(const Program &program,
     const auto struct_types = gather_struct_types(program);
     declare_struct_types(struct_types);
 
-    frames.new_frame();
+    frames.push_frame();
     // TODO: add program.externs to the global frame.
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
@@ -1735,7 +1735,7 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     // For now, assume LLVM optimizes loads/stores into phi nodes.
 
     // Establish new frame
-    frames.new_frame();
+    frames.push_frame();
     latch_blocks.push_back(cond_bb);
     // TODO(ajr): will need this for `break` statements.
     // escape_blocks.push_back(end_bb);
@@ -1978,7 +1978,7 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     phi->addIncoming(begin, preheader_bb);
 
     // Add index to new frame.
-    frames.new_frame();
+    frames.push_frame();
     frames.add_to_frame(node->index, {phi, /*mutable=*/false});
 
     latch_blocks.push_back(inc_bb);

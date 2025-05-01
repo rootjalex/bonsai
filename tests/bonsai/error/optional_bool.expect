@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:59
+[internal] Error: src/Parser/Parser.cpp:60
 tests/bonsai/error/optional_bool.bonsai:1:28: [parse error] Bonsai does not support option[bool] because the semantics are easily misconstrued.
 
 func use_option(i : option[bool]) -> void {}

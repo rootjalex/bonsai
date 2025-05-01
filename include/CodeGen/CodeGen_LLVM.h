@@ -184,7 +184,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::unique_ptr<llvm::IRBuilder<>> builder;
     llvm::MDNode *very_likely_branch = nullptr;
     // Scope<llvm::Value *> scope;
-    ir::FrameStack<std::pair<llvm::Value *, bool>> frames;
+    ir::MapStack<std::string, std::pair<llvm::Value *, bool>> frames;
     std::map<std::string, llvm::StructType *> struct_types;
 
     /** Some useful llvm types */
