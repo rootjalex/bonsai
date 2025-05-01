@@ -5,7 +5,7 @@ source_filename = "bonsai_module"
 define noalias noundef ptr @_traverse_array0(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
 _traverse_array0_entry:
   %size64 = zext i32 %n to i64
-  %mallocsize = mul nuw i64 %size64, %size64
+  %mallocsize = shl nuw nsw i64 %size64, 2
   %_untyped = tail call ptr @malloc(i64 %mallocsize)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i00_for.preheader, label %_i00_for_end, !prof !0
@@ -63,7 +63,7 @@ _i00_for_end:                                     ; preds = %_i00_for, %middle.b
 define noalias noundef ptr @_traverse_array1(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
 _traverse_array1_entry:
   %size64 = zext i32 %n to i64
-  %mallocsize = mul nuw i64 %size64, %size64
+  %mallocsize = shl nuw nsw i64 %size64, 2
   %_untyped = tail call ptr @malloc(i64 %mallocsize)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i01_for.preheader, label %_i01_for_end, !prof !0
@@ -121,7 +121,7 @@ _i01_for_end:                                     ; preds = %_i01_for, %middle.b
 define noalias noundef ptr @array_abs(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
 array_abs_entry:
   %size64.i = zext i32 %n to i64
-  %mallocsize.i = mul nuw i64 %size64.i, %size64.i
+  %mallocsize.i = shl nuw nsw i64 %size64.i, 2
   %_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i00_for.i.preheader, label %_traverse_array0.exit, !prof !0
@@ -179,7 +179,7 @@ _traverse_array0.exit:                            ; preds = %_i00_for.i, %middle
 define noalias noundef ptr @array_abs2(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
 array_abs2_entry:
   %size64.i = zext i32 %n to i64
-  %mallocsize.i = mul nuw i64 %size64.i, %size64.i
+  %mallocsize.i = shl nuw nsw i64 %size64.i, 2
   %_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i01_for.i.preheader, label %_traverse_array1.exit, !prof !0

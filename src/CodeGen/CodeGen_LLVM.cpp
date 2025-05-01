@@ -1847,19 +1847,19 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
 
     int align = native_vector_bits() / 8;
 
-    // Total allocation size = elemSize * count
     // Size of the element in bytes
     llvm::DataLayout dataLayout(module.get());
+    uint64_t typeSize = dataLayout.getTypeAllocSize(etype);
+    llvm::Value *elemSize = llvm::ConstantInt::get(i64_t, typeSize);
 
     if (size->getType() != i64_t) {
         size =
             builder->CreateIntCast(size, i64_t, /*isSigned=*/false, "size64");
     }
 
-    // This returns a pointer of type i32*
     // TODO: figure out alignment?
     llvm::Value *untyped_ptr = builder->CreateMalloc(
-        i64_t, etype, size, size, nullptr, name + "_untyped");
+        i64_t, etype, /*AllocSize=*/elemSize, /*ArraySize=*/size, nullptr, name + "_untyped");
 
     // if (etype->isVectorTy() || !is_llvm_const_one(size)) {
     //     untyped_ptr->setAlignment(llvm::Align(align));
