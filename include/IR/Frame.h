@@ -37,24 +37,25 @@ struct MapStack {
         return {};
     }
 
-    bool contains(const K &k) const { return from_frames(k).has_value(); }
-
-    // There is always at least one frame (the global scope).
-    bool empty() const { return frames.size() == 1; }
-
-    // Replaces the value at `k` with `v`. Precondition: `k` must be present in
-    // the scope. TODO(cgyurgyik): This double lookup idiom is bad.
-    void replace(const K &k, V v) {
+    // Returns the value at key `k` if found, and nullptr otherwise. This is a
+    // safe way to update the value at key `k`. (We opt against using iterators
+    // for simplicity.)
+    V *find(const K &k) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             auto &frame = *it;
             auto found = frame.find(k);
             if (found != frame.end()) {
-                found->second = std::move(v);
-                return;
+                return &found->second;
             }
         }
-        internal_error << "Key: " << k << " not found";
+        return nullptr;
     }
+
+    // Returns whether `k` is in this stack.
+    bool contains(const K &k) const { return from_frames(k).has_value(); }
+
+    // There is always at least one frame (the global scope).
+    bool empty() const { return frames.size() == 1; }
 
     void add_to_frame(K k, V v) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
@@ -79,35 +80,20 @@ struct MapStack {
 // Similar to MapStack, but only inserts keys.
 template <typename K, typename H = std::less<K>>
 struct SetStack {
-    bool contains(const K &k) const {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(k);
-            if (found != frame.cend()) {
-                return true;
-            }
-        }
-        return false;
-    }
+    bool contains(const K &k) const { return from_frames(k).has_value(); }
 
-    void add_to_frame(K k) {
-        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-            const auto &frame = *it;
-            const auto &found = frame.find(k);
-            if (found == frame.end()) {
-                continue;
-            }
-            internal_error << "found duplicate value: " << k;
-        }
-        frames.back().insert(k);
-    }
+    bool empty() const { return frames.empty(); }
 
-    void push_frame() { frames.emplace_back(); }
+    void add_to_frame(K k) { frames.add_to_frame(std::move(k), false); }
+
+    void push_frame() { frames.push_frame(); }
 
     void pop_frame() { frames.pop_back(); }
 
   private:
-    std::vector<std::set<K, H, std::allocator<K>>> frames = {{}};
+    // TODO(cgyurgyik): The "value" here is dead. Eventually this should just be
+    // a set, but I'm keeping it this way as we iterate on the design of this.
+    ir::MapStack<K, bool, H> frames;
 };
 
 } // namespace ir
