@@ -1,21 +1,51 @@
 [test] clang++ -c tests/bonsai/correctness/cpp/main_struct.cpp -o tests/bonsai/correctness/cpp/main_struct.o
----CODE---
-1
 ---STDERR---
-[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:1582
-Lowering of an Access's value did not result in a struct type: i.x
-tests/bonsai/correctness/cpp/main_struct.cpp:7:5: error: unknown type name 'Position'
-    Position i;
-    ^
-tests/bonsai/correctness/cpp/main_struct.cpp:10:5: error: unknown type name 'Position'
-    Position j;
-    ^
-tests/bonsai/correctness/cpp/main_struct.cpp:13:5: error: unknown type name 'Position'
-    Position r;
-    ^
-3 errors generated.
+In file included from tests/bonsai/correctness/cpp/main_struct.cpp:1:
+tests/bonsai/correctness/cpp/struct.h:11:17: error: 'Position' cannot be defined in a parameter type
+void add(struct Position {
+                ^
+tests/bonsai/correctness/cpp/struct.h:14:2: error: expected ')'
+};
+ ^
+tests/bonsai/correctness/cpp/struct.h:11:9: note: to match this '('
+void add(struct Position {
+        ^
+tests/bonsai/correctness/cpp/struct.h:15:3: error: a type specifier is required for all declarations
+& _ret0, const Position& i, const Position& j);
+  ^
+tests/bonsai/correctness/cpp/struct.h:15:3: error: declaration of reference variable '_ret0' requires an initializer
+& _ret0, const Position& i, const Position& j);
+  ^~~~~
+tests/bonsai/correctness/cpp/struct.h:15:10: error: expected unqualified-id
+& _ret0, const Position& i, const Position& j);
+         ^
+tests/bonsai/correctness/cpp/struct.h:15:9: error: expected ';' after top level declarator
+& _ret0, const Position& i, const Position& j);
+        ^
+        ;
+tests/bonsai/correctness/cpp/struct.h:15:26: error: declaration of reference variable 'i' requires an initializer
+& _ret0, const Position& i, const Position& j);
+                         ^
+tests/bonsai/correctness/cpp/struct.h:15:29: error: expected unqualified-id
+& _ret0, const Position& i, const Position& j);
+                            ^
+tests/bonsai/correctness/cpp/struct.h:15:28: error: expected ';' after top level declarator
+& _ret0, const Position& i, const Position& j);
+                           ^
+                           ;
+tests/bonsai/correctness/cpp/struct.h:15:45: error: declaration of reference variable 'j' requires an initializer
+& _ret0, const Position& i, const Position& j);
+                                            ^
+tests/bonsai/correctness/cpp/struct.h:15:46: error: extraneous ')' before ';'
+& _ret0, const Position& i, const Position& j);
+                                             ^
+tests/bonsai/correctness/cpp/main_struct.cpp:16:5: error: no matching function for call to 'add'
+    add(r, i, j);
+    ^~~
+tests/bonsai/correctness/cpp/struct.h:11:6: note: candidate function not viable: requires 1 argument, but 3 were provided
+void add(struct Position {
+     ^
+12 errors generated.
 command failed (exit 256)
 rm: tests/bonsai/correctness/cpp/struct: No such file or directory
 rm: tests/bonsai/correctness/cpp/main_struct.o: No such file or directory
-rm: tests/bonsai/correctness/cpp/struct.h: No such file or directory
-rm: tests/bonsai/correctness/cpp/struct.o: No such file or directory

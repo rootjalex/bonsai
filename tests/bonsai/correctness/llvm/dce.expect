@@ -1,1 +1,3 @@
 10
+---STDERR---
+let j =   %1 = call i32 @print_and_return(i32 %i)

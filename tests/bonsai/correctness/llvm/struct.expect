@@ -1,5 +1,8 @@
----CODE---
-1
+Position {
+  x: 4
+  y: 6
+}
 ---STDERR---
-[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:1582
-Lowering of an Access's value did not result in a struct type: i.x
+let i = %struct.Position { i32 1, i32 2 }
+let j = %struct.Position { i32 3, i32 4 }
+let r = %struct.Position { i32 4, i32 6 }

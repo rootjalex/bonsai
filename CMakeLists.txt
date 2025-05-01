@@ -105,6 +105,7 @@ target_sources(
     src/Lower/LogicalOperations.cpp
     src/Lower/Lower.cpp
     src/Lower/Maps.cpp
+    src/Lower/Mutability.cpp
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
@@ -178,6 +179,7 @@ target_sources(
     include/Lower/LogicalOperations.h
     include/Lower/Lower.h
     include/Lower/Maps.h
+    include/Lower/Mutability.h
     include/Lower/Options.h
     include/Lower/Pass.h
     include/Lower/PassManager.h

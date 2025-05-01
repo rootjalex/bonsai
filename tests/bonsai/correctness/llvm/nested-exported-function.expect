@@ -1,5 +1,8 @@
----CODE---
-1
+X {
+  v: 42
+}
 ---STDERR---
-[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:1582
-Lowering of an Access's value did not result in a struct type: x.v
+let c =   %4 = call %struct.X @_unexported_A(ptr %3)
+let c =   %4 = call %struct.X @_unexported_A(ptr %3)
+let x = %struct.X { i32 39 }
+let c =   %1 = call %struct.X @_unexported_C(ptr %0)

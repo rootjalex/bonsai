@@ -23,3 +23,5 @@ foo_entry:
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+---STDERR---
+let y =   %1 = add i32 %0, 1

@@ -341,6 +341,14 @@ void CodeGen_LLVM::compile_function(const Function &func,
         frame_arg.is_mutable = arg_info.mutating;
         // immutable structs are ptrs, so need some indirection.
         frame_arg.do_load = is_struct || frame_arg.is_mutable;
+
+        if (is_struct) {
+            // Mutable structs have been converted to pointers already.
+            internal_assert(!arg_info.mutating);
+            llvm::Type *arg_type = codegen_type(arg_info.type);
+            arg_value = builder->CreateLoad(arg_type, arg_value, name);
+        }
+
         frame_arg.value = arg_value;
 
         frames.add_to_frame(arg_info.name, frame_arg);
@@ -1579,6 +1587,8 @@ void CodeGen_LLVM::visit(const Access *node) {
         value = builder->CreateExtractValue(inner, idx);
         return;
     }
+    llvm::errs() << *inner << "\n";
+    llvm::errs().flush();
     internal_error
         << "Lowering of an Access's value did not result in a struct type: "
         << Expr(node);
@@ -1683,6 +1693,8 @@ void CodeGen_LLVM::visit(const LetStmt *node) {
     frame_var.value = codegen_expr(node->value);
     frame_var.is_mutable = false;
     frame_var.do_load = false;
+    llvm::errs() << "let " << node->loc.base << " = " << *frame_var.value << "\n";
+    llvm::errs().flush();
     frames.add_to_frame(node->loc.base, frame_var);
 }
 

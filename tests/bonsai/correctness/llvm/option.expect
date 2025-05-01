@@ -1,1 +1,3 @@
 42
+---STDERR---
+let i = %struct._option0 { i32 42, i1 true }
