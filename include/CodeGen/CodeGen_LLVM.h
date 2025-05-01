@@ -139,11 +139,12 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::SetOp *) override;
     virtual void visit(const ir::Call *) override;
     virtual void visit(const ir::Instantiate *) override;
+    virtual void visit(const ir::PtrTo *) override;
+    virtual void visit(const ir::Deref *) override;
     // Stmts
     virtual void visit(const ir::CallStmt *) override;
     virtual void visit(const ir::Print *) override;
     virtual void visit(const ir::Return *) override;
-    virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::LetStmt *) override;
     virtual void visit(const ir::IfElse *) override;
     virtual void visit(const ir::DoWhile *) override;
@@ -151,7 +152,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Assign *) override;
     virtual void visit(const ir::Accumulate *) override;
-    virtual void visit(const ir::Allocate *) override;
     virtual void visit(const ir::Label *) override;
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::Match);
@@ -184,13 +184,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     llvm::MDNode *very_likely_branch = nullptr;
-    // Scope<llvm::Value *> scope;
-    struct FrameVar {
-        llvm::Value *value;
-        bool is_mutable;
-        bool do_load;
-    };
-    ir::FrameStack<FrameVar> frames;
+    ir::FrameStack<llvm::Value *> frames;
     std::map<std::string, llvm::StructType *> struct_types;
 
     /** Some useful llvm types */

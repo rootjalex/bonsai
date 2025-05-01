@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace bonsai {
@@ -95,6 +96,16 @@ struct Function {
     Type call_type() const {
         internal_assert(ret_type.defined());
         return Function_t::make(ret_type, this->argument_types());
+    }
+
+    std::set<std::string> mutable_args() const {
+        std::set<std::string> ret;
+        for (const auto &arg : args) {
+            if (arg.mutating) {
+                ret.insert(arg.name);
+            }
+        }
+        return ret;
     }
 
     Function(const Function &) = default;

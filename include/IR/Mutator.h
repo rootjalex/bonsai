@@ -63,18 +63,18 @@ struct Mutator {
     virtual Expr visit(const SetOp *);
     virtual Expr visit(const Call *);
     virtual Expr visit(const Instantiate *);
+    virtual Expr visit(const PtrTo *);
+    virtual Expr visit(const Deref *);
     // Stmts
     virtual Stmt visit(const CallStmt *);
     virtual Stmt visit(const Print *);
     virtual Stmt visit(const Return *);
-    virtual Stmt visit(const Store *);
     virtual Stmt visit(const LetStmt *);
     virtual Stmt visit(const IfElse *);
     virtual Stmt visit(const DoWhile *);
     virtual Stmt visit(const Sequence *);
     virtual Stmt visit(const Assign *);
     virtual Stmt visit(const Accumulate *);
-    virtual Stmt visit(const Allocate *);
     virtual Stmt visit(const Label *);
     virtual Stmt visit(const RecLoop *);
     virtual Stmt visit(const Match *);

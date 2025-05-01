@@ -36,6 +36,7 @@ std::string unique_loop_name(const size_t depth) {
 
 struct BuildMapArgs {
     std::string result;
+    Type base_type;
     // TODO: store scheduling information here, it's static
     // across compiling foralls.
 };
@@ -84,11 +85,15 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
             loop_body = build_traversal_helper(next_func, next_array, depth + 1,
                                                nested_idx, args, funcs);
         } else {
-            loop_body = Store::make(args.result, nested_idx, expr);
+            WriteLoc loc(args.result, args.base_type);
+            loc.add_index_access(nested_idx);
+            loop_body = Assign::make(loc, expr, /*mutating=*/true);
         }
     } else {
         Expr expr = Call::make(func, {load});
-        loop_body = Store::make(args.result, nested_idx, expr);
+        WriteLoc loc(args.result, args.base_type);
+        loc.add_index_access(nested_idx);
+        loop_body = Assign::make(loc, expr, /*mutating=*/true);
     }
 
     return ForAll::make(
@@ -103,10 +108,12 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     BuildMapArgs args;
     std::string alloc_name = unique_alloc_name();
     args.result = alloc_name;
+    args.base_type = map_expr->type;
 
     Type alloc_type = flatten_array_type(map_expr->type);
 
-    Stmt alloc = Allocate::make(alloc_name, alloc_type);
+    Stmt alloc = Assign::make(WriteLoc(alloc_name, alloc_type),
+                              Build::make(alloc_type), /*mutating=*/false);
     static const Expr zero = make_zero(index_t);
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);

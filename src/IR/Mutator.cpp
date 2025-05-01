@@ -406,6 +406,22 @@ Expr Mutator::visit(const Instantiate *node) {
     return Instantiate::make(std::move(expr), node->types);
 }
 
+Expr Mutator::visit(const PtrTo *node) {
+    Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return PtrTo::make(std::move(expr));
+}
+
+Expr Mutator::visit(const Deref *node) {
+    Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return Deref::make(std::move(expr));
+}
+
 Stmt Mutator::visit(const CallStmt *node) {
     Expr func = mutate(node->func);
     auto [args, not_changed] = visit_list(this, node->args);
@@ -432,15 +448,6 @@ Stmt Mutator::visit(const Return *node) {
         return node;
     }
     return Return::make(std::move(value));
-}
-
-Stmt Mutator::visit(const Store *node) {
-    Expr index = mutate(node->index);
-    Expr value = mutate(node->value);
-    if (index.same_as(node->index) && value.same_as(node->value)) {
-        return node;
-    }
-    return Store::make(node->name, std::move(index), std::move(value));
 }
 
 Stmt Mutator::visit(const LetStmt *node) {
@@ -497,14 +504,6 @@ Stmt Mutator::visit(const Accumulate *node) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value));
-}
-
-Stmt Mutator::visit(const Allocate *node) {
-    Type type = mutate(node->type);
-    if (type.same_as(node->type)) {
-        return node;
-    }
-    return Allocate::make(std::move(node->name), std::move(type));
 }
 
 Stmt Mutator::visit(const Label *node) {

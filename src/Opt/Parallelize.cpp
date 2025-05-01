@@ -55,6 +55,7 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx, const std::map<std::string, E
             }
         }
 
+        /*
         Stmt visit(const Store *node) override {
             Expr index = mutate(node->index);
             Expr value = mutate(node->value);
@@ -69,13 +70,14 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx, const std::map<std::string, E
                 if (index.defined()) {
                     new_loc.add_index_access(index);
                 }
-                return Assign::make(std::move(new_loc), std::move(value), /*mutating*/true);
+                return Assign::make(std::move(new_loc), std::move(value), true);
             } if (index.same_as(node->index) && value.same_as(node->value)) {
                 return node;
             } else {
                 return Store::make(node->name, std::move(index), std::move(value));
             }
         }
+        */
 
         std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc) override {
             if (repls.contains(loc.base)) {

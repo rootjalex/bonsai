@@ -121,18 +121,18 @@ struct Printer : public Visitor {
     void visit(const SetOp *) override;
     void visit(const Call *) override;
     void visit(const Instantiate *) override;
+    void visit(const PtrTo *) override;
+    void visit(const Deref *) override;
     // Stmts
     void visit(const CallStmt *) override;
     void visit(const Print *) override;
     void visit(const Return *) override;
-    void visit(const Store *) override;
     void visit(const LetStmt *) override;
     void visit(const IfElse *) override;
     void visit(const DoWhile *) override;
     void visit(const Sequence *) override;
     void visit(const Assign *) override;
     void visit(const Accumulate *) override;
-    void visit(const Allocate *) override;
     void visit(const Label *) override;
     void visit(const RecLoop *) override;
     void visit(const Match *) override;

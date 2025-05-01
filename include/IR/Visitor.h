@@ -54,18 +54,18 @@ struct Visitor {
     virtual void visit(const SetOp *);
     virtual void visit(const Call *);
     virtual void visit(const Instantiate *);
+    virtual void visit(const PtrTo *);
+    virtual void visit(const Deref *);
     // Stmts
     virtual void visit(const CallStmt *);
     virtual void visit(const Print *);
     virtual void visit(const Return *);
-    virtual void visit(const Store *);
     virtual void visit(const LetStmt *);
     virtual void visit(const IfElse *);
     virtual void visit(const DoWhile *);
     virtual void visit(const Sequence *);
     virtual void visit(const Assign *);
     virtual void visit(const Accumulate *);
-    virtual void visit(const Allocate *);
     virtual void visit(const Label *);
     virtual void visit(const RecLoop *);
     virtual void visit(const Match *);

@@ -1,17 +1,17 @@
 func _traverse_array0(n : i32, a : i32[n]) -> i32[n] {
-  alloc _alloc0 : i32[n]
+  _alloc0 := build<i32[n]>()
   forall _i0 in [0:n:1] {
     _alloc0[_i0] = foo(a[_i0])
   }
-  return _alloc0
+  return (*_alloc0)
 }
 
 func _traverse_array1(n : i32, a : i32[n]) -> i32[n] {
-  alloc _alloc1 : i32[n]
+  _alloc1 := build<i32[n]>()
   forall _i0 in [0:n:1] {
     _alloc1[_i0] = bar(a[_i0])
   }
-  return _alloc1
+  return (*_alloc1)
 }
 
 func array_abs(n : i32, a : i32[n]) -> i32[n] {

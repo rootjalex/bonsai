@@ -27,8 +27,8 @@ use_option_entry:
   %i1 = load %struct._option0, ptr %i, align 4
   %0 = extractvalue %struct._option0 %i1, 1
   %1 = extractvalue %struct._option0 %i1, 0
-  %spec.select = select i1 %0, i32 %1, i32 0
-  ret i32 %spec.select
+  %common.ret.op = select i1 %0, i32 %1, i32 0
+  ret i32 %common.ret.op
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)

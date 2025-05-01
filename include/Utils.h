@@ -178,5 +178,4 @@ ir::Expr update_type(ir::Expr, ir::Type);
 
 ir::Type flatten_array_type(const ir::Type &type);
 
-
 } // namespace bonsai

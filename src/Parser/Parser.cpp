@@ -1564,9 +1564,9 @@ struct Parser {
                 ir::Type ret_type =
                     ir::Array_t::make(args[0].type().element_of(), args[2]);
                 ir::Type call_type = ir::Function_t::make(
-                    std::move(ret_type), {{args[0].type(), false},
-                                          {args[1].type(), false},
-                                          {args[2].type(), false}});
+                    std::move(ret_type), {{args[0].type(), /*mutable=*/false},
+                                          {args[1].type(), /*mutable=*/false},
+                                          {args[2].type(), /*mutable=*/false}});
                 ir::Expr func = ir::Var::make(std::move(call_type), "range");
                 return ir::Call::make(std::move(func), std::move(args));
             }

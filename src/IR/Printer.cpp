@@ -856,6 +856,18 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
+void Printer::visit(const PtrTo *node) {
+    os << "(&";
+    print_no_parens(node->expr);
+    os << ")";
+}
+
+void Printer::visit(const Deref *node) {
+    os << "(*";
+    print_no_parens(node->expr);
+    os << ")";
+}
+
 void Printer::visit(const CallStmt *node) {
     os << get_indent();
     print_no_parens(node->func);
@@ -878,17 +890,6 @@ void Printer::visit(const Return *node) {
         os << ' ';
         print_no_parens(node->value);
     }
-    os << "\n";
-}
-
-void Printer::visit(const Store *node) {
-    os << get_indent();
-    os << node->name << "[";
-    if (node->index.defined()) {
-        print_no_parens(node->index);
-    }
-    os << "] = ";
-    print_no_parens(node->value);
     os << "\n";
 }
 
@@ -994,12 +995,6 @@ void Printer::visit(const Accumulate *node) {
     os << "\n";
     // TODO: fix this!! bring back SSA
     // print(node->body);
-}
-
-void Printer::visit(const Allocate *node) {
-    os << get_indent();
-    os << "alloc " << node->name << " : " << node->type;
-    os << "\n";
 }
 
 void Printer::visit(const Label *node) {

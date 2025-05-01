@@ -19,14 +19,14 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(ts__index : u32, ts__bit : u1) {
     if (intersects_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16)))) {
-      if (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < _best0._field0) {
+      if (distmin_Ray_AABB(ray, build<AABB>(ts.ts_index[ts__index].low_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].low_16), ts.ts_index[ts__index].high_32 + cast<f32x3>(ts.ts_index[ts__index].ts_bit[ts__bit].high_16))) < (*_best0)._field0) {
         if (ts.ts_index[ts__index].ts_bit[ts__bit].nPrims == 0u) {
           from build<tuple.1>(cast<__layout6>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 0u)
           from build<tuple.1>(cast<__layout7>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 1u)
         } else {
           forall _idx0 in [0u:cast<u32>(ts.ts_index[ts__index].ts_bit[ts__bit].nPrims):1u] {
             if (intersectsp_ray_tri(ray, ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0]).set) {
-              if (distmin_Ray_Triangle(ray, ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0]) < _best0._field0) {
+              if (distmin_Ray_Triangle(ray, ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0]) < (*_best0)._field0) {
                 _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0]), ts.prims[cast<__layout10>(ts.ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])
               }
             }
@@ -35,7 +35,7 @@ func _traverse_tree0(ray : Ray, ts : _ts_layout2) -> Triangle {
       }
     }
   }
-  return _best0._field1
+  return (*_best0)._field1
 }
 
 func _unexported_trace(ray : Ray, ts : _ts_layout2) -> Triangle {
@@ -92,7 +92,7 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func [[export]] trace(_ret0 : mut Triangle, ray : Ray, ts : _ts_layout2) -> void {
+func [[export]] trace(_ret0 : mut (Triangle*), ray : Ray, ts : _ts_layout2) -> void {
   _ret0 = _traverse_tree0(ray, ts)
   return
 }
