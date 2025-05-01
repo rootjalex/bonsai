@@ -7,7 +7,7 @@ source_filename = "bonsai_module"
 define void @write_w(ptr nocapture noundef nonnull readonly %e) local_unnamed_addr #0 {
 write_w_entry:
   %_untyped = tail call dereferenceable_or_null(4) ptr @malloc(i64 4)
-  %build_ptr1 = getelementptr i8, ptr %_untyped, i64 4
+  %build_ptr1 = getelementptr inbounds i8, ptr %_untyped, i64 4
   store i32 3, ptr %build_ptr1, align 4
   %0 = insertvalue %struct.Example { i32 1, ptr undef }, ptr %_untyped, 1
   %e_ld = load ptr, ptr %e, align 8
@@ -35,7 +35,7 @@ write_y_entry:
 define void @write_z(ptr nocapture noundef nonnull readonly %z) local_unnamed_addr #2 {
 write_z_entry:
   %z_ld = load ptr, ptr %z, align 8
-  %z_ld1 = getelementptr i8, ptr %z_ld, i64 4
+  %z_ld1 = getelementptr inbounds i8, ptr %z_ld, i64 4
   store i32 3, ptr %z_ld1, align 4
   ret void
 }

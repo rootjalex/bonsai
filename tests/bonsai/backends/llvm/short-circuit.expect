@@ -16,7 +16,7 @@ next_bb:                                          ; preds = %and_rhs, %check0_en
 
 and_rhs:                                          ; preds = %check0_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %common.ret, label %next_bb
@@ -37,7 +37,7 @@ next_bb:                                          ; preds = %or_rhs
 
 or_rhs:                                           ; preds = %check1_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %common.ret, label %next_bb
@@ -55,7 +55,7 @@ common.ret:                                       ; preds = %check2_noshortcircu
 
 then_bb:                                          ; preds = %check2_noshortcircuit_entry
   %0 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr float, ptr %b, i64 %0
+  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %0
   %extract = load float, ptr %extract_ptr, align 4
   br label %common.ret
 }
@@ -75,7 +75,7 @@ next_bb:                                          ; preds = %and_rhs
 
 and_rhs:                                          ; preds = %check3_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %next_bb, label %common.ret
@@ -96,7 +96,7 @@ next_bb:                                          ; preds = %or_rhs, %check4_ent
 
 or_rhs:                                           ; preds = %check4_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %next_bb, label %common.ret

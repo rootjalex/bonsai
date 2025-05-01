@@ -1257,7 +1257,8 @@ void CodeGen_LLVM::visit(const Extract *node) {
         value = builder->CreateExtractElement(vec, idx);
     } else if (node->vec.type().is<Array_t>()) {
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
-        llvm::Value *ptr = builder->CreateGEP(etype, vec, idx, "extract_ptr");
+        llvm::Value *ptr =
+            builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
         value = builder->CreateLoad(etype, ptr, "extract");
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
@@ -1539,7 +1540,7 @@ void CodeGen_LLVM::visit(const Build *node) {
         for (size_t i = 0; i < values.size(); i++) {
             llvm::Value *index = llvm::ConstantInt::get(size->getType(), i);
             llvm::Value *ptr =
-                builder->CreateGEP(etype, alloc, index, "build_ptr");
+                builder->CreateInBoundsGEP(etype, alloc, index, "build_ptr");
             builder->CreateStore(values[i], ptr);
         }
         value = alloc;
@@ -2197,7 +2198,7 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             // Get lvalue to loc[`idx`]
             name += "_ld";
             bonsai_type = bonsai_type.element_of();
-            loc = builder->CreateGEP(
+            loc = builder->CreateInBoundsGEP(
                 codegen_type(bonsai_type), // The LLVM element type
                 loc,                       // The pointer to the container
                 llvm_idx,                  // GEP indices
