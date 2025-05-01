@@ -200,11 +200,12 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
 } // namespace
 
 ir::FuncMap Parallelize::run(FuncMap funcs) const {
-
+    /*
     for (auto &[name, func] : funcs) {
         // TODO: get loop_idx and func from schedule.
-        // func->body = parallelize_forall("_i0", func->body, funcs);
+        func->body = parallelize_forall("_i0", func->body, funcs);
     }
+    */
     return funcs;
 }
 

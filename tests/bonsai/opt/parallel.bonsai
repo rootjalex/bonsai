@@ -1,5 +1,5 @@
 func f(i : i32) {
-  print(i);
+  print(i); // need side effect to make sure parallel threads are actually running
   return i + 1;
 }
 
