@@ -18,7 +18,8 @@ struct RewriteMutables : public ir::Mutator {
     std::set<std::string> mut_locals;
     const ir::FuncMap &funcs;
 
-    RewriteMutables(const std::set<std::string> &mut_args, const ir::FuncMap &funcs)
+    RewriteMutables(const std::set<std::string> &mut_args,
+                    const ir::FuncMap &funcs)
         : mut_args(mut_args), funcs(funcs) {}
 
     ir::Expr visit(const ir::Var *node) override {
@@ -26,7 +27,8 @@ struct RewriteMutables : public ir::Mutator {
         //     return ir::Deref::make(node);
         // }
         if (mut_args.contains(node->name) || mut_locals.contains(node->name)) {
-            ir::Expr var = ir::Var::make(ir::Ptr_t::make(node->type), node->name);
+            ir::Expr var =
+                ir::Var::make(ir::Ptr_t::make(node->type), node->name);
             return ir::Deref::make(std::move(var));
         }
         return node;
@@ -38,7 +40,8 @@ struct RewriteMutables : public ir::Mutator {
         bool rewrote_mut;
     };
 
-    ArgsMutate mutate_args(const ir::Function_t *func_t, const std::vector<ir::Expr> &args) {
+    ArgsMutate mutate_args(const ir::Function_t *func_t,
+                           const std::vector<ir::Expr> &args) {
         const size_t n = args.size();
         internal_assert(func_t->arg_types.size() == n);
 
@@ -64,16 +67,19 @@ struct RewriteMutables : public ir::Mutator {
         std::vector<ir::Function_t::ArgSig> arg_types(n);
 
         for (size_t i = 0; i < n; i++) {
-            arg_types[i].type = func_t->arg_types[i].is_mutable ? ir::Ptr_t::make(func_t->arg_types[i].type) : func_t->arg_types[i].type;
+            arg_types[i].type = func_t->arg_types[i].is_mutable
+                                    ? ir::Ptr_t::make(func_t->arg_types[i].type)
+                                    : func_t->arg_types[i].type;
             arg_types[i].is_mutable = func_t->arg_types[i].is_mutable;
         }
         return ir::Function_t::make(func_t->ret_type, std::move(arg_types));
     }
 
-    template<typename I, typename T>
+    template <typename I, typename T>
     I handle(const T *node) {
         // TODO(ajr): do we ever mutate node->func?
-        const ir::Function_t *func_t = node->func.type().template as<ir::Function_t>();
+        const ir::Function_t *func_t =
+            node->func.type().template as<ir::Function_t>();
         internal_assert(func_t);
         auto check = mutate_args(func_t, node->args);
         if (!check.changed) {
@@ -114,7 +120,8 @@ ir::FuncMap Mutability::run(ir::FuncMap funcs) const {
     // TODO(ajr): also handle immutable_struct -> ptr[struct] ?
     for (auto &[name, func] : funcs) {
         // First rewrite calls and derefs.
-        func->body = RewriteMutables(func->mutable_args(), funcs).mutate(func->body);
+        func->body =
+            RewriteMutables(func->mutable_args(), funcs).mutate(func->body);
         // Then rewrite function signature.
         for (auto &arg_sig : func->args) {
             if (arg_sig.mutating) {

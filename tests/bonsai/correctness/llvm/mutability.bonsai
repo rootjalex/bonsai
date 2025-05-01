@@ -93,6 +93,22 @@ func test_e() {
     return;
 }
 
+func mutate5(i : mut Example1) {
+    i.b += 4;
+    i.a[0] += i.a[1];
+    return;
+}
+
+func test_f() {
+    a : mut array[i32, 4] = {1, 2, 3, 4};
+    c : mut Example1 = {a, 3};
+    print(c);
+    mutate5(c);
+    print(c);
+    print(a);
+    return;
+}
+
 // TODO(ajr): figure out expected behavior of this?
 func test_TODO() {
     a : array[i32, 4] = {1, 2, 3, 4};
@@ -109,5 +125,6 @@ func main() -> i32 {
     test_c();
     test_d();
     test_e();
+    test_f();
     return 0;
 }

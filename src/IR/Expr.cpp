@@ -1109,8 +1109,7 @@ Expr Instantiate::make(Expr expr, TypeMap types) {
 }
 
 Expr PtrTo::make(Expr expr) {
-    internal_assert(expr.defined())
-        << "PtrTo::make received undefined expr";
+    internal_assert(expr.defined()) << "PtrTo::make received undefined expr";
     internal_assert(expr.type().defined())
         << "PtrTo::make received untyped expr: " << expr;
 
@@ -1125,8 +1124,7 @@ Expr PtrTo::make(Expr expr) {
 }
 
 Expr Deref::make(Expr expr) {
-    internal_assert(expr.defined())
-        << "Deref::make received undefined expr";
+    internal_assert(expr.defined()) << "Deref::make received undefined expr";
     internal_assert(expr.type().defined())
         << "Deref::make received untyped expr: " << expr;
     internal_assert(expr.type().is<Ptr_t>())

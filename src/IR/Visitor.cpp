@@ -172,13 +172,9 @@ void Visitor::visit(const Instantiate *node) {
     // TODO: should we visit the instantiated types?
 }
 
-void Visitor::visit(const PtrTo *node) {
-    node->expr.accept(this);
-}
+void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
 
-void Visitor::visit(const Deref *node) {
-    node->expr.accept(this);
-}
+void Visitor::visit(const Deref *node) { node->expr.accept(this); }
 
 void Visitor::visit(const CallStmt *node) {
     node->func.accept(this);

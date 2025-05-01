@@ -115,7 +115,8 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     Type alloc_type = flatten_array_type(map_expr->type);
 
     // Stmt alloc = Allocate::make(alloc_name, alloc_type);
-    Stmt alloc = Assign::make(WriteLoc(alloc_name, alloc_type), Build::make(alloc_type), /*mutating=*/false);
+    Stmt alloc = Assign::make(WriteLoc(alloc_name, alloc_type),
+                              Build::make(alloc_type), /*mutating=*/false);
     static const Expr zero = make_zero(index_t);
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);
