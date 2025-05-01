@@ -1128,15 +1128,6 @@ void CodeGen_LLVM::visit(const Cast *node) {
     } else if (src.is_float() && dst.is_float()) {
         // Float widening or narrowing
         value = builder->CreateFPCast(inner, llvm_dst);
-    } else if (src.is<Struct_t>() && dst.is<Ptr_t>()) {
-        // Allocate stack memory for the struct
-        llvm::Value *ptr = builder->CreateAlloca(inner->getType());
-
-        // Store the struct value into the pointer
-        builder->CreateStore(inner, ptr);
-
-        // Bitcast the pointer to i8*
-        value = builder->CreateBitCast(ptr, llvm_dst);
     } else {
         internal_error << "TODO: implement Cast codegen: " << Expr(node);
     }
