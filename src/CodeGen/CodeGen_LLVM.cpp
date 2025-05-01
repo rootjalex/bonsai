@@ -1985,43 +1985,52 @@ void CodeGen_LLVM::visit(const Continue *node) {
 
 void CodeGen_LLVM::visit(const Launch *node) {
     llvm::Value *num_iters = codegen_expr(node->n);
-    num_iters = builder->CreateIntCast(num_iters, i64_t, node->n.type().is_int());
+    num_iters =
+        builder->CreateIntCast(num_iters, i64_t, node->n.type().is_int());
 
     llvm::Function *launch_func = module->getFunction(node->func);
-    internal_assert(launch_func) << "Launch function " << node->func << " not found";
+    internal_assert(launch_func)
+        << "Launch function " << node->func << " not found";
 
     internal_assert(node->args.size() == 1); // context
     llvm::Value *ctx = codegen_expr(node->args[0]);
 
-    llvm::StructType *dispatch_queue_s_type = llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");
-	if (! dispatch_queue_s_type)
-		dispatch_queue_s_type = llvm::StructType::create(module->getContext(), "struct.dispatch_queue_s");
+    llvm::StructType *dispatch_queue_s_type =
+        llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");
+    if (!dispatch_queue_s_type)
+        dispatch_queue_s_type = llvm::StructType::create(
+            module->getContext(), "struct.dispatch_queue_s");
 
     llvm::Value *global_dispatch_queue;
     {
-        llvm::PointerType *dispatch_queue_t_type = llvm::PointerType::get(dispatch_queue_s_type, 0);
+        llvm::PointerType *dispatch_queue_t_type =
+            llvm::PointerType::get(dispatch_queue_s_type, 0);
 
         std::vector<llvm::Type *> dispatch_get_global_queue_functionParams;
         dispatch_get_global_queue_functionParams.push_back(i64_t);
         dispatch_get_global_queue_functionParams.push_back(i64_t);
-        llvm::FunctionType *dispatch_get_global_queue_functionType = llvm::FunctionType::get(dispatch_queue_t_type,
-                                                                                dispatch_get_global_queue_functionParams,
-                                                                                false);
+        llvm::FunctionType *dispatch_get_global_queue_functionType =
+            llvm::FunctionType::get(dispatch_queue_t_type,
+                                    dispatch_get_global_queue_functionParams,
+                                    false);
 
-        llvm::Function *dispatch_get_global_queue_function = module->getFunction("dispatch_get_global_queue");
-        if (! dispatch_get_global_queue_function) {
-            dispatch_get_global_queue_function = llvm::Function::Create(dispatch_get_global_queue_functionType,
-                llvm::GlobalValue::ExternalLinkage,
-                                                                "dispatch_get_global_queue",
-                                                                module.get());
+        llvm::Function *dispatch_get_global_queue_function =
+            module->getFunction("dispatch_get_global_queue");
+        if (!dispatch_get_global_queue_function) {
+            dispatch_get_global_queue_function = llvm::Function::Create(
+                dispatch_get_global_queue_functionType,
+                llvm::GlobalValue::ExternalLinkage, "dispatch_get_global_queue",
+                module.get());
         }
 
-        llvm::Constant *zeroValue = llvm::ConstantInt::get(dispatch_get_global_queue_functionType->getParamType(0), 0);
+        llvm::Constant *zeroValue = llvm::ConstantInt::get(
+            dispatch_get_global_queue_functionType->getParamType(0), 0);
 
         std::vector<llvm::Value *> args;
         args.push_back(zeroValue); // identifier
         args.push_back(zeroValue); // flags
-        global_dispatch_queue = builder->CreateCall(dispatch_get_global_queue_function, args);
+        global_dispatch_queue =
+            builder->CreateCall(dispatch_get_global_queue_function, args);
     }
 
     llvm::Function *dispatch_apply_f = module->getFunction("dispatch_apply_f");
@@ -2030,28 +2039,25 @@ void CodeGen_LLVM::visit(const Launch *node) {
         llvm::FunctionType *dispatch_apply_f_ty = llvm::FunctionType::get(
             void_t,
             {
-                i64_t,    // iterations
+                i64_t,                            // iterations
                 global_dispatch_queue->getType(), // dispatch queue
-                ptr_t,     // context pointer
-                llvm::PointerType::getUnqual(llvm::FunctionType::get(
-                    void_t,
-                    {ptr_t, i64_t},
-                    false))                         // function pointer
+                ptr_t,                            // context pointer
+                llvm::PointerType::getUnqual(
+                    llvm::FunctionType::get(void_t, {ptr_t, i64_t},
+                                            false)) // function pointer
             },
             false);
         dispatch_apply_f = llvm::Function::Create(
-            dispatch_apply_f_ty,
-            llvm::Function::ExternalLinkage,
-            "dispatch_apply_f",
-            module.get());
+            dispatch_apply_f_ty, llvm::Function::ExternalLinkage,
+            "dispatch_apply_f", module.get());
     }
 
-    llvm::Value *func_ptr = builder->CreatePointerCast(launch_func,
-        llvm::PointerType::getUnqual(dispatch_apply_f->getFunctionType()->getParamType(3)));
+    llvm::Value *func_ptr = builder->CreatePointerCast(
+        launch_func, llvm::PointerType::getUnqual(
+                         dispatch_apply_f->getFunctionType()->getParamType(3)));
 
-    builder->CreateCall(dispatch_apply_f, {
-        num_iters, global_dispatch_queue, ctx, func_ptr
-    });
+    builder->CreateCall(dispatch_apply_f,
+                        {num_iters, global_dispatch_queue, ctx, func_ptr});
 }
 
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,

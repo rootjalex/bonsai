@@ -473,7 +473,7 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::IfElse::make(std::move(cond), std::move(then_body),
-                        std::move(else_body));
+                                std::move(else_body));
     }
 
   private:
