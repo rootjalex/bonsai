@@ -31,3 +31,16 @@ func fizz(x: i32, y: i32) -> i32 {
     z = f1_se(x) + f2_se(f3_se(x));
     return x + y;
 }
+
+func foobar(cond: bool, a: vector[i32, 3], b: vector[i32, 3], c: vector[i32, 3]) -> i32 {
+   tmin : mut = min(a[0], b[0]);
+   tmin = tmin + 1;
+   tmin = tmin + 1;
+   if (cond) {
+    tmin = tmin - 1;
+   } else if (!cond) {
+    tmin += 1;
+   }
+   tmin = tmin + 1;
+   return tmin * -1;
+}

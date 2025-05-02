@@ -31,4 +31,17 @@ func foo(x : i32) -> i32 {
   return x
 }
 
+func foobar(cond : bool, a : i32x3, b : i32x3, c : i32x3) -> i32 {
+  tmin := min(a[0], b[0])
+  tmin = tmin + 1
+  tmin = tmin + 1
+  if (cond) {
+    tmin = tmin - 1
+  } else if (!cond) {
+    tmin += 1
+  }
+  tmin = tmin + 1
+  return tmin * -1
+}
+
 

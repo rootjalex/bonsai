@@ -49,6 +49,21 @@ struct ComputeUseCounts : ir::Visitor {
         }
     }
 
+    void visit(const ir::Call *node) override {
+        // Don't visit the call's `func` argument, which is also
+        // a variable.
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+    void visit(const ir::CallStmt *node) override {
+        // Don't visit the call's `func` argument, which is also
+        // a variable.
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
+    }
+
     void visit(const ir::Lambda *node) override {
         for (const ir::TypedVar &arg : node->args) {
             internal_assert(!use_counts.contains(arg.name)) << arg.name;
@@ -76,7 +91,8 @@ struct ComputeUseCounts : ir::Visitor {
         // TODO(ajr): Should LetStmts just contain a string name for writes? Can
         // never immutably write to an access.
         internal_assert(!use_counts.contains(node->loc.base))
-            << "ComputeUseCounts already active for var: " << node->loc;
+            << "ComputeUseCounts already active for var: " << node->loc << " = "
+            << node->value;
         internal_assert(!dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
@@ -93,11 +109,11 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Assign: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(!node->mutating || use_counts.contains(node->loc.base))
+        internal_assert(!node->mutating || use_counts.exists(node->loc.base))
             << "ComputeUseCounts already active for var: " << node->loc
             << " in stmt: " << ir::Stmt(node);
         internal_assert(!node->mutating ||
-                        dependent_use_counts.contains(node->loc.base))
+                        dependent_use_counts.exists(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
@@ -115,9 +131,9 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Accumulate: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(use_counts.contains(node->loc.base))
+        internal_assert(use_counts.exists(node->loc.base))
             << "ComputeUseCounts not active for var: " << node->loc;
-        internal_assert(dependent_use_counts.contains(node->loc.base))
+        internal_assert(dependent_use_counts.exists(node->loc.base))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
         curr_var = node->loc.base;
         node->value.accept(this);
@@ -125,7 +141,6 @@ struct ComputeUseCounts : ir::Visitor {
     }
 
     void new_window(int32_t previous_index) {
-        internal_assert(use_counts.size() == dependent_use_counts.size());
         use_counts.new_window(previous_index);
         dependent_use_counts.new_window(previous_index);
     }
@@ -136,6 +151,7 @@ struct ComputeUseCounts : ir::Visitor {
     }
 
     void visit(const ir::IfElse *node) override {
+        // Save the index of the parent.
         const int32_t previous_index = get_previous_index();
         new_window(previous_index);
         node->then_body.accept(this);
@@ -422,8 +438,8 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
                 mutable_func_args.insert(arg.name);
             }
         }
-
-        func->body = dce_stmt(mutable_func_args, func->body, se_functions);
+        func->body =
+            dce_stmt(mutable_func_args, std::move(func->body), se_functions);
     }
     return funcs;
 }

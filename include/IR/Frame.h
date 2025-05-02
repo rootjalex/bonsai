@@ -3,6 +3,7 @@
 #include <list>
 #include <map>
 #include <string>
+#include <type_traits>
 
 #include "Error.h"
 
@@ -114,7 +115,7 @@ template <typename K, typename V>
 struct Window {
     std::map<K, V> map = {};
     // The previous window. If this is -1, then we've reached the global scope.
-    int32_t previous = -1;
+    int32_t previous;
 };
 
 template <typename K, typename V>
@@ -130,11 +131,29 @@ class History {
 
     // (Used when creating the window history.)
     void new_window(int32_t previous_index) {
-        windows.push_back({.map = {}, .previous = previous_index});
+        internal_assert(0 <= previous_index && previous_index < windows.size());
+        windows.push_back({
+            .map = {},
+            .previous = previous_index,
+        });
+    }
+
+    void add_to_window(const K &k, V v) {
+        for (int i = current_index; i != -1;) {
+            internal_assert(0 <= i && i < windows.size()) << i;
+            Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it != window.map.end()) {
+                internal_error << "duplicate value found: " << k;
+            }
+            i = window.previous;
+        }
+        windows.back().map[k] = std::move(v);
     }
 
     V &operator[](const K &k) {
         for (int i = current_index; i != -1;) {
+            internal_assert(0 <= i && i < windows.size()) << i;
             Window<K, V> &window = windows[i];
             auto it = window.map.find(k);
             if (it != window.map.end()) {
@@ -143,21 +162,8 @@ class History {
             i = window.previous;
         }
         // TODO(cgyurgyik): Yeah buddy, we can do better.
-        auto [it, _] = windows[current_index].map.emplace(k, V{});
+        auto [it, _] = windows.back().map.emplace(k, V{});
         return it->second;
-    }
-
-    void add_to_window(const K &k, V v) {
-        for (int i = current_index; i != -1;) {
-            const Window<K, V> &window = windows[i];
-            auto it = window.map.find(k);
-            if (it == window.map.end()) {
-                i = window.previous;
-                continue;
-            }
-            internal_error << "duplicate value found: " << k;
-        }
-        windows.back().map[k] = std::move(v);
     }
 
     std::optional<V> from_window(const K &k) const {
@@ -173,21 +179,22 @@ class History {
         return {};
     }
 
-    V *find(const K &k) {
-        for (int i = current_index; i != -1;) {
-            const Window<K, V> &window = windows[i];
-            auto it = window.map.find(k);
-            if (it != window.map.end()) {
-                return &it->second;
-            }
-            i = window.previous;
-        }
-        return nullptr;
-    }
+    // V *find(const K &k) {
+    //     for (int i = current_index; i != -1;) {
+    //         const Window<K, V> &window = windows[i];
+    //         auto it = window.map.find(k);
+    //         if (it != window.map.end()) {
+    //             return &it->second;
+    //         }
+    //         i = window.previous;
+    //     }
+    //     return nullptr;
+    // }
 
     std::vector<std::pair<K, V>> elements() const {
         std::vector<std::pair<K, V>> elements;
         for (int i = current_index; i != -1;) {
+            internal_assert(0 <= i && i < windows.size()) << i;
             for (const auto &[k, v] : windows[i].map) {
                 elements.push_back({k, v});
             }
@@ -209,9 +216,37 @@ class History {
         internal_error << "no key found: " << k;
     }
 
+    // Returns whether this key `k` exists anywhere in the current history.
+    bool exists(const K &k) const {
+        for (const Window<K, V> &window : windows) {
+            if (auto it = window.map.find(k); it == window.map.end()) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
     bool contains(const K &k) const { return from_window(k).has_value(); }
     bool size() const { return windows.size(); }
     bool empty() const { return size() == 1 && windows.front().map.empty(); }
+
+    // TODO(cgyurgyik): Support this for other value types.
+    void dump()
+        requires std::is_integral_v<V>
+    {
+        std::cout << "\n---\n";
+        for (int i = 0; i < windows.size(); ++i) {
+            const auto &window = windows[i];
+            std::cout << "Window " << i << ": " << "{ ";
+            for (const auto &[k, v] : window.map) {
+
+                std::cout << k << ":" << v << ", ";
+            }
+            std::cout << "}, previous: " << window.previous << "\n";
+        }
+        std::cout << "---\n";
+    }
 
   private:
     // Used when traversing the window history.
