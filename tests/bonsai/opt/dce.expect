@@ -6,6 +6,26 @@ func bar(x : i32) -> i32 {
   return _lambda0(x)
 }
 
+func doobar(c : bool, a : i32x3, v : i32) -> i32 {
+  if (c) {
+    return -1
+  }
+  tmin := min(a[0], a[1])
+  let x = 42 + a[0] in
+  if (tmin < a[2]) {
+    return -1
+  }
+  if (tmin < a[3]) {
+    let y = (1 + 2) + v in
+    let z = 1 + v in
+    return y
+  } else {
+    let y = (1 + 3) + v in
+    let z = 2 + v in
+    return y
+  }
+}
+
 func f1_se(i : i32) -> i32 {
   print(i)
   return i

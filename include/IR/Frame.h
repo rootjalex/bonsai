@@ -179,17 +179,18 @@ class History {
         return {};
     }
 
-    // V *find(const K &k) {
-    //     for (int i = current_index; i != -1;) {
-    //         const Window<K, V> &window = windows[i];
-    //         auto it = window.map.find(k);
-    //         if (it != window.map.end()) {
-    //             return &it->second;
-    //         }
-    //         i = window.previous;
-    //     }
-    //     return nullptr;
-    // }
+    std::optional<V> from_back(const K &k) const {
+        for (int i = windows.size() - 1; i != -1;) {
+            internal_assert(0 <= i && i < windows.size()) << i;
+            const Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it != window.map.end()) {
+                return it->second;
+            }
+            i = window.previous;
+        }
+        return {};
+    }
 
     std::vector<std::pair<K, V>> elements() const {
         std::vector<std::pair<K, V>> elements;
@@ -216,7 +217,8 @@ class History {
         internal_error << "no key found: " << k;
     }
 
-    // Returns whether this key `k` exists anywhere in the current history.
+    // Returns whether this key `k` exists anywhere in the current history. This
+    // is necessary for
     bool exists(const K &k) const {
         for (const Window<K, V> &window : windows) {
             if (auto it = window.map.find(k); it == window.map.end()) {
@@ -228,6 +230,7 @@ class History {
     }
 
     bool contains(const K &k) const { return from_window(k).has_value(); }
+    bool contains_back(const K &k) const { return from_back(k).has_value(); }
     bool size() const { return windows.size(); }
     bool empty() const { return size() == 1 && windows.front().map.empty(); }
 

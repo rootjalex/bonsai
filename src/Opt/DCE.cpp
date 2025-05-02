@@ -90,12 +90,6 @@ struct ComputeUseCounts : ir::Visitor {
             << " when traversing for: " << curr_var;
         // TODO(ajr): Should LetStmts just contain a string name for writes? Can
         // never immutably write to an access.
-        internal_assert(!use_counts.contains(node->loc.base))
-            << "ComputeUseCounts already active for var: " << node->loc << " = "
-            << node->value;
-        internal_assert(!dependent_use_counts.contains(node->loc.base))
-            << "ComputeUseCounts already active for var (dependent): "
-            << node->loc;
 
         use_counts.add_to_window(node->loc.base, 0);
         dependent_use_counts.add_to_window(node->loc.base, {});
@@ -109,14 +103,6 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Assign: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(!node->mutating || use_counts.exists(node->loc.base))
-            << "ComputeUseCounts already active for var: " << node->loc
-            << " in stmt: " << ir::Stmt(node);
-        internal_assert(!node->mutating ||
-                        dependent_use_counts.exists(node->loc.base))
-            << "ComputeUseCounts already active for var (dependent): "
-            << node->loc;
-
         if (!node->mutating) {
             use_counts.add_to_window(node->loc.base, 0);
             dependent_use_counts.add_to_window(node->loc.base, {});
@@ -131,10 +117,6 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Accumulate: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(use_counts.exists(node->loc.base))
-            << "ComputeUseCounts not active for var: " << node->loc;
-        internal_assert(dependent_use_counts.exists(node->loc.base))
-            << "ComputeUseCounts not active for var (dependent): " << node->loc;
         curr_var = node->loc.base;
         node->value.accept(this);
         curr_var.clear();
