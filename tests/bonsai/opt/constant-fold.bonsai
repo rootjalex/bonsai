@@ -31,3 +31,8 @@ func fizz(x: i32, y: i32, c1: bool, c2: bool) -> i32 {
       return x | negative1;
     }
 }
+
+func fuzz() -> i32 {
+  if (false) { return 0; }
+  return 1;
+}
