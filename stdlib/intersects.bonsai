@@ -41,7 +41,7 @@ func intersects(r : Ray, b : AABB) -> bool {
     interval = intersectsp_ray_aabb(r, b);
     if interval {
         extract = *interval;
-        return extract.low < r.t && extract.high > 0;
+        return extract.low < r.t & extract.high > 0;
     }
     return false;
 }
