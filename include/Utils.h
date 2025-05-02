@@ -84,6 +84,10 @@ ir::Expr make_inf(const ir::Type &t);
 // Create an immediate with value `1` n times, where n is the type's bit width.
 ir::Expr make_all_ones(const ir::Type &t);
 
+// Build a one-hot vector of etype `t` with `lanes` lanes and a value of `1` at
+// index `idx`
+ir::Expr make_one_hot(ir::Type t, ir::Expr idx, size_t lanes);
+
 template <typename T>
 ir::Expr make_const(const ir::Type &t, const T &v) {
     if (t.is<ir::Int_t>()) {

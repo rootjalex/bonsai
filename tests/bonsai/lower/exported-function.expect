@@ -1,23 +1,23 @@
 type Position = struct Position{ x : i32; y : i32; z : i32; c : f32 }
 
-func _unexported_foo(i : Position, j : Position) -> Position {
-  return build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
+func _unexported_foo(i : (Position*), j : (Position*)) -> Position {
+  return build<Position>((*i).x + (*j).x, (*i).y + (*j).y, (*i).z + (*j).z, (*i).c + (*j).c)
 }
 
-func [[export]] foo(_ret0 : mut (Position*), i : Position, j : Position) -> void {
-  _ret0 = build<Position>(i.x + j.x, i.y + j.y, i.z + j.z, i.c + j.c)
+func [[export]] foo(_ret0 : mut (Position*), i : (Position*), j : (Position*)) -> void {
+  _ret0 = build<Position>((*i).x + (*j).x, (*i).y + (*j).y, (*i).z + (*j).z, (*i).c + (*j).c)
   return
 }
 
-func id(x : Position) -> Position {
-  return x
+func id(x : (Position*)) -> Position {
+  return (*x)
 }
 
 func main() -> i32 {
   let i = build<Position>(1, 2, 3, 1f) in
   let j = build<Position>(10, 20, 30, 41f) in
-  let r1 = _unexported_foo(i, j) in
-  let r2 = id(r1) in
+  let r1 = _unexported_foo((&i), (&j)) in
+  let r2 = id((&r1)) in
   return 0
 }
 

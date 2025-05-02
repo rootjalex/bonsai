@@ -139,6 +139,15 @@ Expr make_inf(const Type &t) {
     internal_error << "Unknown infinity for type: " << t;
 }
 
+Expr make_one_hot(Type t, Expr idx, size_t lanes) {
+    std::vector<Expr> values(lanes);
+    for (size_t i = 0; i < lanes; i++) {
+        Expr lane = make_const(idx.type(), i);
+        values[i] = Select::make(lane == idx, make_one(t), make_zero(t));
+    }
+    return Build::make(Vector_t::make(t, lanes), std::move(values));
+}
+
 Expr constant_cast(const Type &t, const Expr &e) {
     internal_assert(t.defined() && e.defined())
         << "received bad type conversion:" << e << " to " << t;
@@ -181,6 +190,10 @@ Expr cast_to(const Type &t, const Expr &e) {
     if (t.is_vector() && e.type().is_scalar()) {
         Expr inner = cast_to(t.element_of(), e);
         return Broadcast::make(t.lanes(), std::move(inner));
+    }
+    if (t.is<Struct_t>() && t.as<Struct_t>()->fields.size() == 1 &&
+        equals(t.as<Struct_t>()->fields[0].type, e.type())) {
+        return Build::make(t, std::vector<Expr>{e});
     }
     return Cast::make(t, e);
 }

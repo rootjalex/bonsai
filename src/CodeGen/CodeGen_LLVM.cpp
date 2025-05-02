@@ -298,7 +298,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
 
         attrs.addAttribute(llvm::Attribute::NoUndef);
 
-        if (arg_info.type.is<Struct_t>() || arg_info.mutating) {
+        if (arg_info.type.is<Ptr_t>()) {
             attrs.addAttribute(llvm::Attribute::NonNull);
 
             if (!arg_info.mutating) {
@@ -1397,33 +1397,18 @@ void CodeGen_LLVM::visit(const Call *node) {
 
         if (function_t->arg_types[i].type.is<Struct_t>()) {
             // Pass by pointer.
-            if (argument->getType()->isPointerTy()) {
-                // Already a pointer to struct — pass as-is
-                args[i] = argument;
-            } else if (function_t->arg_types[i].is_mutable) {
-                // Expect the codegen to be a load from an alloc-ed thing.
-                llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(argument);
-                internal_assert(load);
-                args[i] = load->getPointerOperand();
-            } else {
-                // Should not be trying to pass a non-pointer mutable struct
-                // Allocate space on stack
-                llvm::AllocaInst *alloca =
-                    builder->CreateAlloca(argument->getType());
-                // Store struct in stack
-                builder->CreateStore(argument, alloca);
-                // Pass pointer to the alloca.
-                args[i] = alloca;
-            }
+            internal_assert(!argument->getType()->isPointerTy());
+            internal_assert(!function_t->arg_types[i].is_mutable);
+            // Allocate space on stack
+            llvm::AllocaInst *alloca =
+                builder->CreateAlloca(argument->getType());
+            // Store struct in stack
+            builder->CreateStore(argument, alloca);
+            // Pass pointer to the alloca.
+            args[i] = alloca;
         } else if (function_t->arg_types[i].is_mutable) {
-            if (argument->getType()->isPointerTy()) {
-                // Already a pointer to value — pass as-is
-                args[i] = argument;
-            } else {
-                auto *load = dyn_cast<llvm::LoadInst>(argument);
-                internal_assert(load);
-                args[i] = load->getPointerOperand();
-            }
+            internal_assert(argument->getType()->isPointerTy());
+            args[i] = argument;
         } else {
             // Pass by value.
             args[i] = argument;
@@ -1442,6 +1427,14 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
 
     if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
         value = load->getPointerOperand();
+    } else if (node->expr.type().is<Struct_t>()) {
+        // Allocate space on stack
+        llvm::Value *alloca = builder->CreateAlloca(
+            pointee->getType(), /* arraysize=*/nullptr,
+            node->expr.type().as<Struct_t>()->name + "_ptrto");
+
+        builder->CreateStore(pointee, alloca);
+        value = alloca;
     } else {
         pointee->print(llvm::errs());
         llvm::errs() << "\n";
@@ -1758,36 +1751,92 @@ void CodeGen_LLVM::visit(const Assign *node) {
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
+    if (node->loc.base_type.is<Vector_t>() && node->loc.accesses.size() == 1) {
+        // Update a single element of a vector.
+        // For now, we rewrite this into an equivalent expr.
+        // This is an unfortunate hack.
+        // TODO(ajr): fix.
+        Type vtype = node->loc.base_type;
+        Expr load = Deref::make(Var::make(Ptr_t::make(vtype), node->loc.base));
+        Expr lane = std::get<Expr>(node->loc.accesses[0]);
+        const size_t lanes = vtype.lanes();
+        Type etype = vtype.element_of();
+
+        Expr equiv;
+
+        switch (node->op) {
+        case Accumulate::Add: {
+            Expr one_hot = make_one_hot(etype, lane, lanes);
+            equiv = load + (node->value * one_hot);
+            break;
+        }
+        case Accumulate::Sub: {
+            Expr one_hot = make_one_hot(etype, lane, lanes);
+            equiv = load - (node->value * one_hot);
+            break;
+        }
+        case Accumulate::Mul: {
+            Expr one_hot = make_one_hot(etype, lane, lanes);
+            Expr ones = make_one(vtype);
+            equiv = load * ((ones - one_hot) + node->value * one_hot);
+            break;
+        }
+        case Accumulate::Argmin:
+        default: {
+            internal_error << "TODO: implement codegen for accumulate: "
+                           << Stmt(node);
+        }
+        }
+        WriteLoc base(node->loc.base, node->loc.base_type);
+        Stmt equiv_stmt =
+            Assign::make(std::move(base), std::move(equiv), /*mutating=*/true);
+        codegen_stmt(equiv_stmt);
+        return;
+    }
+
     llvm::Value *loc = codegen_write_loc(node->loc);
-
-    llvm::Value *_value = codegen_expr(node->value);
-
-    llvm::Value *current = builder->CreateLoad(_value->getType(), loc);
+    llvm::Value *update = codegen_expr(node->value);
+    llvm::Value *current = builder->CreateLoad(update->getType(), loc);
     llvm::Value *acc = nullptr;
 
     switch (node->op) {
     case Accumulate::Add: {
         if (node->value.type().is_float()) {
-            acc = builder->CreateFAdd(current, _value);
+            acc = builder->CreateFAdd(current, update);
         } else {
-            acc = builder->CreateAdd(current, _value);
+            acc = builder->CreateAdd(current, update);
         }
         break;
     }
     case Accumulate::Sub: {
         if (node->value.type().is_float()) {
-            acc = builder->CreateFSub(current, _value);
+            acc = builder->CreateFSub(current, update);
         } else {
-            acc = builder->CreateSub(current, _value);
+            acc = builder->CreateSub(current, update);
         }
         break;
     }
     case Accumulate::Mul: {
         if (node->value.type().is_float()) {
-            acc = builder->CreateFMul(current, _value);
+            acc = builder->CreateFMul(current, update);
         } else {
-            acc = builder->CreateMul(current, _value);
+            acc = builder->CreateMul(current, update);
         }
+        break;
+    }
+    case Accumulate::Argmin: {
+        // acc = select(curr.first < update.first, curr, update)
+        llvm::Value *curr_key =
+            builder->CreateExtractValue(current, 0); // curr.first
+        llvm::Value *new_key =
+            builder->CreateExtractValue(update, 0); // update.first
+
+        internal_assert(curr_key->getType()->isFloatingPointTy());
+        llvm::Value *cmp =
+            builder->CreateFCmpOLT(curr_key, new_key); // curr_key < new_key
+
+        // Select the full struct based on which key is smaller
+        acc = builder->CreateSelect(cmp, current, update);
         break;
     }
     default: {

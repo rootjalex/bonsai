@@ -191,15 +191,19 @@ struct Simplifier : ir::Mutator {
                 return a;
             }
 
-            std::optional<int64_t> c_a = get_constant_value(a);
-            if (c_a.has_value() && is_power_of_two(*c_a)) {
-                // n * x -> x << log2(n), where n is a power of 2.
-                return ir::BinOp::make(ir::BinOp::OpType::Shl, b, log2(*c_a));
-            }
-            std::optional<int64_t> c_b = get_constant_value(b);
-            if (c_b.has_value() && is_power_of_two(*c_b)) {
-                // x * n -> x << log2(n), where n is a power of 2.
-                return ir::BinOp::make(ir::BinOp::OpType::Shl, a, log2(*c_b));
+            if (type.is_int_or_uint()) {
+                std::optional<int64_t> c_a = get_constant_value(a);
+                if (c_a.has_value() && is_power_of_two(*c_a)) {
+                    // n * x -> x << log2(n), where n is a power of 2.
+                    return ir::BinOp::make(ir::BinOp::OpType::Shl, b,
+                                           log2(*c_a));
+                }
+                std::optional<int64_t> c_b = get_constant_value(b);
+                if (c_b.has_value() && is_power_of_two(*c_b)) {
+                    // x * n -> x << log2(n), where n is a power of 2.
+                    return ir::BinOp::make(ir::BinOp::OpType::Shl, a,
+                                           log2(*c_b));
+                }
             }
             return make(node, std::move(a), std::move(b));
         }

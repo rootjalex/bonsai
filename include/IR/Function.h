@@ -108,6 +108,16 @@ struct Function {
         return ret;
     }
 
+    std::set<std::string> immutable_args() const {
+        std::set<std::string> ret;
+        for (const auto &arg : args) {
+            if (!arg.mutating) {
+                ret.insert(arg.name);
+            }
+        }
+        return ret;
+    }
+
     Function(const Function &) = default;
     Function(Function &&) noexcept = default;
     Function &operator=(const Function &) = default;

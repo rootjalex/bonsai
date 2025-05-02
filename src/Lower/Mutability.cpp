@@ -15,15 +15,23 @@ namespace {
 // Mutable things become ptrs, arguments to mutable slots become references.
 struct RewriteMutables : public ir::Mutator {
     const std::set<std::string> &mut_args;
+    const std::set<std::string> &immut_args;
     std::set<std::string> mut_locals;
     const ir::FuncMap &funcs;
 
     RewriteMutables(const std::set<std::string> &mut_args,
+                    const std::set<std::string> &immut_args,
                     const ir::FuncMap &funcs)
-        : mut_args(mut_args), funcs(funcs) {}
+        : mut_args(mut_args), immut_args(immut_args), funcs(funcs) {}
 
     ir::Expr visit(const ir::Var *node) override {
         if (mut_args.contains(node->name) || mut_locals.contains(node->name)) {
+            ir::Expr var =
+                ir::Var::make(ir::Ptr_t::make(node->type), node->name);
+            return ir::Deref::make(std::move(var));
+        }
+
+        if (immut_args.contains(node->name) && node->type.is<ir::Struct_t>()) {
             ir::Expr var =
                 ir::Var::make(ir::Ptr_t::make(node->type), node->name);
             return ir::Deref::make(std::move(var));
@@ -49,7 +57,8 @@ struct RewriteMutables : public ir::Mutator {
 
         for (size_t i = 0; i < n; i++) {
             ir::Expr arg = mutate(args[i]);
-            if (func_t->arg_types[i].is_mutable) {
+            if (func_t->arg_types[i].is_mutable ||
+                func_t->arg_types[i].type.is<ir::Struct_t>()) {
                 arg = ir::PtrTo::make(std::move(arg));
                 ret.rewrote_mut = true;
             }
@@ -64,7 +73,8 @@ struct RewriteMutables : public ir::Mutator {
         std::vector<ir::Function_t::ArgSig> arg_types(n);
 
         for (size_t i = 0; i < n; i++) {
-            arg_types[i].type = func_t->arg_types[i].is_mutable
+            arg_types[i].type = (func_t->arg_types[i].is_mutable ||
+                                 func_t->arg_types[i].type.is<ir::Struct_t>())
                                     ? ir::Ptr_t::make(func_t->arg_types[i].type)
                                     : func_t->arg_types[i].type;
             arg_types[i].is_mutable = func_t->arg_types[i].is_mutable;
@@ -119,14 +129,14 @@ struct RewriteMutables : public ir::Mutator {
 } // namespace
 
 ir::FuncMap Mutability::run(ir::FuncMap funcs) const {
-    // TODO(ajr): also handle immutable_struct -> ptr[struct] ?
     for (auto &[name, func] : funcs) {
         // First rewrite calls and derefs.
         func->body =
-            RewriteMutables(func->mutable_args(), funcs).mutate(func->body);
+            RewriteMutables(func->mutable_args(), func->immutable_args(), funcs)
+                .mutate(func->body);
         // Then rewrite function signature.
         for (auto &arg_sig : func->args) {
-            if (arg_sig.mutating) {
+            if (arg_sig.mutating || arg_sig.type.is<ir::Struct_t>()) {
                 arg_sig.type = ir::Ptr_t::make(arg_sig.type);
             }
         }

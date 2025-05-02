@@ -24,19 +24,19 @@ make_option1_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define i32 @use_option(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
 use_option_entry:
-  %i1 = load %struct._option0, ptr %i, align 4
-  %0 = extractvalue %struct._option0 %i1, 1
-  %1 = extractvalue %struct._option0 %i1, 0
-  %common.ret.op = select i1 %0, i32 %1, i32 0
-  ret i32 %common.ret.op
+  %deref_temp = load %struct._option0, ptr %i, align 4
+  %0 = extractvalue %struct._option0 %deref_temp, 1
+  %1 = extractvalue %struct._option0 %deref_temp, 0
+  %spec.select = select i1 %0, i32 %1, i32 0
+  ret i32 %spec.select
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define i32 @use_option1(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
 use_option1_entry:
-  %i1 = load %struct._option0, ptr %i, align 4
-  %0 = extractvalue %struct._option0 %i1, 1
-  %1 = extractvalue %struct._option0 %i1, 0
+  %deref_temp = load %struct._option0, ptr %i, align 4
+  %0 = extractvalue %struct._option0 %deref_temp, 1
+  %1 = extractvalue %struct._option0 %deref_temp, 0
   %2 = add i32 %1, 10
   %common.ret.op = select i1 %0, i32 %2, i32 0
   ret i32 %common.ret.op

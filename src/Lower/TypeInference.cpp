@@ -206,6 +206,7 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 for (int i = 0, e = tuple->etypes.size(); i < e; ++i) {
                     ir::Expr value = build->values[i];
                     if (value.type().defined()) {
+                        value = cast_to(tuple->etypes[i], std::move(value));
                         values.push_back(std::move(value));
                         continue;
                     }

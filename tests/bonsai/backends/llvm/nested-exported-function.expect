@@ -6,65 +6,65 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @A(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
 A_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  store i32 %x1.unpack, ptr %_ret0, align 4
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  store i32 %deref_temp.unpack, ptr %_ret0, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @B(ptr nocapture noundef nonnull writeonly %_ret1, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
 B_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  store i32 %x1.unpack, ptr %_ret1, align 4
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  store i32 %deref_temp.unpack, ptr %_ret1, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @C(ptr nocapture noundef nonnull writeonly %_ret2, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
 C_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  store i32 %x1.unpack, ptr %_ret2, align 4
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  store i32 %deref_temp.unpack, ptr %_ret2, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @D(ptr nocapture noundef nonnull writeonly %_ret3, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
 D_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  store i32 %x1.unpack, ptr %_ret3, align 4
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  store i32 %deref_temp.unpack, ptr %_ret3, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define %struct.X @_unexported_A(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
 _unexported_A_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  %x12 = insertvalue %struct.X poison, i32 %x1.unpack, 0
-  ret %struct.X %x12
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
+  ret %struct.X %deref_temp1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define %struct.X @_unexported_B(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
 _unexported_B_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  %x12 = insertvalue %struct.X poison, i32 %x1.unpack, 0
-  ret %struct.X %x12
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
+  ret %struct.X %deref_temp1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define %struct.X @_unexported_C(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
 _unexported_C_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  %x12 = insertvalue %struct.X poison, i32 %x1.unpack, 0
-  ret %struct.X %x12
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
+  ret %struct.X %deref_temp1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define %struct.X @_unexported_D(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
 _unexported_D_entry:
-  %x1.unpack = load i32, ptr %x, align 4
-  %x12 = insertvalue %struct.X poison, i32 %x1.unpack, 0
-  ret %struct.X %x12
+  %deref_temp.unpack = load i32, ptr %x, align 4
+  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
+  ret %struct.X %deref_temp1
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

@@ -154,10 +154,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
     RESTRICT_VISITOR(ir::RecLoop);
+    RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Scan);
-    RESTRICT_VISITOR(ir::YieldFrom);
     virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
     virtual void visit(const ir::Continue *) override;
