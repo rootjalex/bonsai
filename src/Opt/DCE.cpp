@@ -2,6 +2,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
+#include "IR/Frame.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
@@ -20,22 +21,23 @@ namespace opt {
 
 namespace {
 
-using UseCountMap = std::map<std::string, uint32_t>;
-using DepUseCountMap = std::map<std::string, UseCountMap>;
+using UseCountMap = std::map<std::string, int32_t>;
+using UseCountHistory = ir::History<std::string, int32_t>;
+using DepUseCountHistory = ir::History<std::string, UseCountMap>;
 
 struct ComputeUseCounts : ir::Visitor {
     // How many times is a variable read.
-    UseCountMap use_counts;
+    UseCountHistory use_counts;
     // How many times does a variable definition reference another variable.
-    DepUseCountMap dependent_use_counts;
+    DepUseCountHistory dependent_use_counts;
     // Name of the current variable whose definition is being traversed.
     std::string curr_var;
 
     ComputeUseCounts(const std::set<std::string> &mutable_func_args) {
         for (const auto &arg : mutable_func_args) {
             // Conservatively set to 1, so Assign statements are not removed.
-            use_counts[arg] = 1;
-            dependent_use_counts[arg] = {};
+            use_counts.add_to_window(arg, 1);
+            dependent_use_counts.add_to_window(arg, {});
         }
     }
 
@@ -51,7 +53,8 @@ struct ComputeUseCounts : ir::Visitor {
         for (const ir::TypedVar &arg : node->args) {
             internal_assert(!use_counts.contains(arg.name)) << arg.name;
             if (!curr_var.empty()) {
-                const UseCountMap &dep_map = dependent_use_counts[curr_var];
+                const std::map<std::string, int32_t> &dep_map =
+                    dependent_use_counts[curr_var];
                 internal_assert(!dep_map.contains(arg.name));
             }
         }
@@ -78,8 +81,8 @@ struct ComputeUseCounts : ir::Visitor {
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
-        use_counts[node->loc.base] = 0;
-        dependent_use_counts[node->loc.base] = {};
+        use_counts.add_to_window(node->loc.base, 0);
+        dependent_use_counts.add_to_window(node->loc.base, {});
 
         curr_var = node->loc.base;
         node->value.accept(this);
@@ -99,8 +102,8 @@ struct ComputeUseCounts : ir::Visitor {
             << node->loc;
 
         if (!node->mutating) {
-            use_counts[node->loc.base] = 0;
-            dependent_use_counts[node->loc.base] = {};
+            use_counts.add_to_window(node->loc.base, 0);
+            dependent_use_counts.add_to_window(node->loc.base, {});
         }
 
         curr_var = node->loc.base;
@@ -121,9 +124,29 @@ struct ComputeUseCounts : ir::Visitor {
         curr_var.clear();
     }
 
-    // void visit(const ir::Match *node) override {
-    //     internal_error << "TODO: implement ComputeUseCounts for Match";
-    // }
+    void new_window(int32_t previous_index) {
+        internal_assert(use_counts.size() == dependent_use_counts.size());
+        use_counts.new_window(previous_index);
+        dependent_use_counts.new_window(previous_index);
+    }
+
+    int32_t get_previous_index() {
+        internal_assert(use_counts.size() == dependent_use_counts.size());
+        return use_counts.size() - 1;
+    }
+
+    void visit(const ir::IfElse *node) override {
+        const int32_t previous_index = get_previous_index();
+        new_window(previous_index);
+        node->then_body.accept(this);
+        new_window(previous_index);
+        if (!node->else_body.defined()) {
+            return;
+        }
+        new_window(previous_index);
+        node->else_body.accept(this);
+        new_window(previous_index);
+    }
 };
 
 struct HasSideEffects : ir::Visitor {
@@ -207,15 +230,8 @@ std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
 }
 
 struct DeadCodeElimination : ir::Mutator {
-    // How many times is a variable read.
-    UseCountMap use_counts;
-    // How many times does a variable definition reference another variable.
-    DepUseCountMap dependent_use_counts;
-    // Which functions have side effects.
-    const std::set<std::string> &side_effects_functions;
-
-    DeadCodeElimination(UseCountMap use_counts,
-                        DepUseCountMap dependent_use_counts,
+    DeadCodeElimination(UseCountHistory use_counts,
+                        DepUseCountHistory dependent_use_counts,
                         const std::set<std::string> &side_effects_functions)
         : use_counts(std::move(use_counts)),
           dependent_use_counts(std::move(dependent_use_counts)),
@@ -254,7 +270,7 @@ struct DeadCodeElimination : ir::Mutator {
         ComputeUseCounts counter({}); // TODO(ajr): is this right?
         expr.accept(&counter);
         internal_assert(counter.dependent_use_counts.empty());
-        for (const auto &[var, count] : counter.use_counts) {
+        for (const auto &[var, count] : counter.use_counts.elements()) {
             internal_assert(use_counts.contains(var));
             use_counts[var] += count;
         }
@@ -262,21 +278,24 @@ struct DeadCodeElimination : ir::Mutator {
 
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
-        if (const auto cmap = dependent_use_counts.find(loc.base);
-            cmap != dependent_use_counts.cend()) {
-            for (const auto &[var, count] : cmap->second) {
-                internal_assert(use_counts[var] >= count)
-                    << "Overflow failure in DCE: " << var
-                    << " has count: " << use_counts[var]
-                    << " but is used: " << count
-                    << " times in declaration of: " << loc;
-                use_counts[var] -= count;
-            }
+        std::optional<UseCountMap> map =
+            dependent_use_counts.from_window(loc.base);
+        if (!map.has_value()) {
+            return;
+        }
+        for (const auto &[var, count] : *map) {
+            internal_assert(use_counts[var] >= count)
+                << "Overflow failure in DCE: " << var
+                << " has count: " << use_counts[var]
+                << " but is used: " << count
+                << " times in declaration of: " << loc;
+            use_counts[var] -= count;
         }
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
+        if (use_counts.from_window(node->loc.base) == 0 &&
+            !has_side_effects(node->value)) {
             erase_dependents(node->loc);
             return ir::Stmt();
         }
@@ -284,7 +303,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (use_counts.from_window(node->loc.base) != 0) {
             return node;
         }
         if (!node->mutating) {
@@ -295,15 +314,23 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (use_counts.from_window(node->loc.base) != 0) {
             return node;
         }
         return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
+        push_window();
         ir::Stmt then_body = mutate(node->then_body);
-        ir::Stmt else_body = mutate(node->else_body);
+        pop_window();
+        // No need to push before, there is no state between and if - else.
+        ir::Stmt else_body = node->else_body;
+        if (else_body.defined()) {
+            push_window();
+            else_body = mutate(std::move(else_body));
+            pop_window();
+        }
         if (then_body.same_as(node->then_body) &&
             else_body.same_as(node->else_body)) {
             return node;
@@ -338,7 +365,6 @@ struct DeadCodeElimination : ir::Mutator {
         }
 
         if (stmts.empty()) {
-            std::cout << "erased: " << ir::Stmt(node) << "\n";
             return ir::Stmt();
         } else if (not_changed) {
             return node;
@@ -346,6 +372,24 @@ struct DeadCodeElimination : ir::Mutator {
 
         std::reverse(stmts.begin(), stmts.end());
         return ir::Sequence::make(std::move(stmts));
+    }
+
+  private:
+    // How many times is a variable read.
+    ir::History<std::string, int32_t> use_counts;
+    // How many times does a variable definition reference another variable.
+    ir::History<std::string, UseCountMap> dependent_use_counts;
+    // Which functions have side effects.
+    const std::set<std::string> &side_effects_functions;
+
+    void push_window() {
+        use_counts.push_window();
+        dependent_use_counts.push_window();
+    }
+
+    void pop_window() {
+        use_counts.pop_window();
+        dependent_use_counts.pop_window();
     }
 };
 

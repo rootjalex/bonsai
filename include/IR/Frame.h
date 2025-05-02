@@ -110,5 +110,113 @@ struct SetStack {
     std::vector<std::set<K, H, std::allocator<K>>> frames = {{}};
 };
 
+template <typename K, typename V>
+struct Window {
+    std::map<K, V> map = {};
+    // The previous window. If this is -1, then we've reached the global scope.
+    int32_t previous = -1;
+};
+
+template <typename K, typename V>
+class History {
+  public:
+    std::vector<Window<K, V>> windows = {
+        Window<K, V>{.map = {}, .previous = -1},
+    };
+
+    // (Used for indexing through the window history.)
+    void push_window() { ++current_index; }
+    void pop_window() { ++current_index; }
+
+    // (Used when creating the window history.)
+    void new_window(int32_t previous_index) {
+        windows.push_back({.map = {}, .previous = previous_index});
+    }
+
+    V &operator[](const K &k) {
+        for (int i = current_index; i != -1;) {
+            Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it != window.map.end()) {
+                return it->second;
+            }
+            i = window.previous;
+        }
+        // TODO(cgyurgyik): Yeah buddy, we can do better.
+        auto [it, _] = windows[current_index].map.emplace(k, V{});
+        return it->second;
+    }
+
+    void add_to_window(const K &k, V v) {
+        for (int i = current_index; i != -1;) {
+            const Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it == window.map.end()) {
+                i = window.previous;
+                continue;
+            }
+            internal_error << "duplicate value found: " << k;
+        }
+        windows.back().map[k] = std::move(v);
+    }
+
+    std::optional<V> from_window(const K &k) const {
+        for (int i = current_index; i != -1;) {
+            internal_assert(0 <= i && i < windows.size()) << i;
+            const Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it != window.map.end()) {
+                return it->second;
+            }
+            i = window.previous;
+        }
+        return {};
+    }
+
+    V *find(const K &k) {
+        for (int i = current_index; i != -1;) {
+            const Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it != window.map.end()) {
+                return &it->second;
+            }
+            i = window.previous;
+        }
+        return nullptr;
+    }
+
+    std::vector<std::pair<K, V>> elements() const {
+        std::vector<std::pair<K, V>> elements;
+        for (int i = current_index; i != -1;) {
+            for (const auto &[k, v] : windows[i].map) {
+                elements.push_back({k, v});
+            }
+            i = windows[i].previous;
+        }
+        return elements;
+    }
+
+    void erase(const K &k) {
+        for (int i = current_index; i != -1;) {
+            Window<K, V> &window = windows[i];
+            auto it = window.map.find(k);
+            if (it != window.map.end()) {
+                window.map.erase(it);
+                return;
+            }
+            i = window.previous;
+        }
+        internal_error << "no key found: " << k;
+    }
+
+    bool contains(const K &k) const { return from_window(k).has_value(); }
+    bool size() const { return windows.size(); }
+    bool empty() const { return size() == 1 && windows.front().map.empty(); }
+
+  private:
+    // Used when traversing the window history.
+    int32_t current_index = 0;
+};
+
 } // namespace ir
 } // namespace bonsai
