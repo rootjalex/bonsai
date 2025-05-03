@@ -19,9 +19,144 @@ namespace bonsai {
 namespace opt {
 
 namespace {
+static int64_t counter = 0;
+constexpr char DELIMITER[] = "#";
 
 using UseCountMap = std::map<std::string, uint32_t>;
 using DepUseCountMap = std::map<std::string, UseCountMap>;
+
+// Gives unique names to variables in diverging control flow. This is necessary
+// because the DCE pass currently does not account for diverging control flow.
+struct NameHygiene : ir::Mutator {
+    ir::Expr visit(const ir::Var *node) override {
+        auto it = old_to_new.find(node->name);
+        if (it == old_to_new.end()) {
+            return node;
+        }
+        return ir::Var::make(node->type, it->second);
+    }
+
+    ir::Stmt visit(const ir::Assign *node) override {
+        if (!rename) {
+            return node;
+        }
+
+        if (bool is_assignment = !node->mutating; is_assignment) {
+            // TODO(cgyurgyik): The opposite of mutating is not assigning; this
+            // should be an enum or something: Action { Assign, Mutate };
+            ir::WriteLoc location = do_rename(node->loc);
+            return ir::Assign::make(std::move(location), node->value,
+                                    node->mutating);
+        }
+        auto it = old_to_new.find(node->loc.base);
+        if (it == old_to_new.end()) {
+            return node;
+        }
+        ir::WriteLoc location(it->second, node->loc.type);
+        return ir::Assign::make(std::move(location), mutate(node->value),
+                                node->mutating);
+    }
+
+    ir::Stmt visit(const ir::Accumulate *node) override {
+        if (!rename) {
+            return node;
+        }
+        auto it = old_to_new.find(node->loc.base);
+        if (it == old_to_new.end()) {
+            return ir::Mutator::visit(node);
+        }
+        ir::WriteLoc location(it->second, node->loc.type);
+        return ir::Accumulate::make(std::move(location), node->op,
+                                    mutate(node->value));
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        if (!rename) {
+            return node;
+        }
+        ir::WriteLoc location = do_rename(node->loc);
+        return ir::LetStmt::make(std::move(location), mutate(node->value));
+    }
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        ir::Expr cond = mutate(node->cond);
+        // Rename where control flow diverges.
+        rename = true;
+        ir::Stmt th = mutate(node->then_body);
+        ir::Stmt el = mutate(node->else_body);
+        rename = false;
+        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+    }
+
+  private:
+    ir::WriteLoc do_rename(const ir::WriteLoc &location) {
+        std::string name =
+            DELIMITER + location.base + DELIMITER + std::to_string(counter++);
+        // Replacement is expected here; this is why this pass exists.
+        old_to_new[location.base] = name;
+        return ir::WriteLoc(std::move(name), location.type);
+    }
+    bool rename = false; // Whether to perform a rename.
+    // Mapping from old name to "newly renamed" name.
+    std::unordered_map<std::string, std::string> old_to_new;
+};
+
+// Undo the hygienic naming.
+struct UnnameHygiene : ir::Mutator {
+    ir::Expr visit(const ir::Var *node) override {
+        if (!node->name.starts_with(DELIMITER)) {
+            return node;
+        }
+        return ir::Var::make(node->type, extract(node->name));
+    }
+
+    ir::Stmt visit(const ir::Assign *node) override {
+        if (!node->loc.base.starts_with(DELIMITER)) {
+            return ir::Mutator::visit(node);
+        }
+        ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        return ir::Assign::make(std::move(loc), mutate(node->value),
+                                node->mutating);
+    }
+
+    ir::Stmt visit(const ir::Accumulate *node) override {
+        if (!node->loc.base.starts_with(DELIMITER)) {
+            return ir::Mutator::visit(node);
+        }
+        ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        return ir::Accumulate::make(std::move(loc), node->op,
+                                    mutate(node->value));
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        if (!node->loc.base.starts_with(DELIMITER)) {
+            return ir::Mutator::visit(node);
+        }
+        ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        return ir::LetStmt::make(std::move(loc), mutate(node->value));
+    }
+
+  private:
+    std::string extract(const std::string &input) {
+        std::string result = "";
+        size_t start = 0;
+        size_t end = 0;
+        if (start = input.find(DELIMITER, end); start == std::string::npos) {
+            return result;
+        }
+        start++;
+        end = input.find(DELIMITER, start);
+        internal_assert(end != std::string::npos)
+            << "unexpected: found delimiter: " << DELIMITER
+            << " with no closing delimiter in: " << input;
+
+        if (end > start) {
+            result += input.substr(start, end - start);
+        }
+
+        return result;
+    }
+};
 
 struct ComputeUseCounts : ir::Visitor {
     // How many times is a variable read.
@@ -344,17 +479,18 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
-ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args,
-                  const ir::Stmt &stmt,
+// TODO(ajr): for non-exported functions, we can remove mutable args that
+// are never used.
+ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args, ir::Stmt stmt,
                   const std::set<std::string> &se_functions) {
-    // TODO(ajr): for non-exported functions, we can remove mutable args that
-    // are never used.
+    stmt = NameHygiene().mutate(std::move(stmt));
     ComputeUseCounts analyzer(mutable_func_args);
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts),
                                   se_functions);
-    return optimizer.mutate(stmt);
+    stmt = optimizer.mutate(std::move(stmt));
+    return UnnameHygiene().mutate(stmt);
 }
 
 } // namespace
@@ -373,7 +509,6 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
                 mutable_func_args.insert(arg.name);
             }
         }
-
         func->body = dce_stmt(mutable_func_args, func->body, se_functions);
     }
     return funcs;

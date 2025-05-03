@@ -1,0 +1,23 @@
+//! flags: -p core -p dce
+
+func foo(x : f32, y : f32) {
+    if (x > 0 && y > 0) {
+        z: mut f32 = 1.0;
+        z += 2.0;
+        w = x * y + z;
+        DEAD: f32 = 42.0;     // dce
+        return sqrt(w);
+    } else {
+        z: mut f32 = 1.0;
+        z *= 2.0;
+        w = abs(x + y) / z;
+        if (x < 0 && y > 0) {
+            a: f32 = 1.0;     // dce
+            return w;
+        } else {
+            a: f32 = 2.0;     // dce
+            DEAD: f32 = 42.0; // dce
+            return w + 1;
+        }
+    }
+}
