@@ -35,7 +35,32 @@ func build_ray(i : i32, j : i32, width : i32) {
     return Ray{camera_center, ray_direction};
 }
 
+func hit_sphere(center : vec3f, radius : f32, r : Ray) {
+    oc = center - r.orig;
+    a = dot(r.dir, r.dir);
+    b = -2.0 * dot(r.dir, oc);
+    c = dot(oc, oc) - radius * radius;
+    disc = b * b - 4 * a * c;
+    if (disc < 0) {
+        return -1.0;
+    } else {
+        denom = 2.0 * a;
+        // negation parsing bug.
+        top = b + sqrt(disc);
+        return (-top) / denom;
+    }
+}
+
+func unit_vector(v : vec3f) = v / norm(v);
+
+func at(r : Ray, t : f32) = r.orig + t * r.dir;
+
 func pixel(r : Ray) -> vec3f {
+    t = hit_sphere(vec3f{0.0, 0.0, -1.0}, 0.5, r);
+    if (t > 0.0) {
+        N = unit_vector(at(r, t) - vec3f{0.0, 0.0, -1.0});
+        return 0.5 * (N + 1);
+    }
     unit_direction = r.dir / norm(r.dir);
     a = 0.5 * (unit_direction.y + 1.0);
     return (1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0};
@@ -45,18 +70,13 @@ func to_rgb(v : vec3f) {
     return cast[[vector[i32, 3]]](255.999 * v);
 }
 
-func [[export]] image__(width : i32) {
-    aspect_ratio : f32 = 16.0 / 9.0;
-    height : mut = cast[[i32]](cast[[f32]](width) / aspect_ratio);
-    height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, width))), iter(width)), iter(height));
-}
-
-func test_broken(v : vector[i32, 3], c : i32) = v[c];
+// necessary because an array of vecs gets malloced poorly.
+// we need a flattener.
+func indirect(v : vector[i32, 3], c : i32) = v[c];
 
 func [[export]] image(width : i32) {
     aspect_ratio : f32 = 16.0 / 9.0;
     height : mut = cast[[i32]](cast[[f32]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| map(|c : i32| test_broken(to_rgb(pixel(build_ray(i, j, width))), c), iter(3)), iter(width)), iter(height));
+    return map(|j : i32| map(|i : i32| map(|c : i32| indirect(to_rgb(pixel(build_ray(i, j, width))), c), iter(3)), iter(width)), iter(height));
 }
