@@ -41,6 +41,13 @@ struct ComputeUseCounts : ir::Visitor {
         }
     }
 
+    void visit(const ir::Sequence *node) override {
+        for (auto iter = node->stmts.begin(); iter != node->stmts.end();
+             iter++) {
+            iter->accept(this);
+        }
+    }
+
     void visit(const ir::Var *node) override {
         ++use_counts[node->name];
         if (!curr_var.empty()) {
@@ -136,6 +143,7 @@ struct ComputeUseCounts : ir::Visitor {
         // Save the index of the parent.
         const int32_t previous_index = get_previous_index();
         new_window(previous_index);
+        node->cond.accept(this);
         node->then_body.accept(this);
         new_window(previous_index);
         if (!node->else_body.defined()) {
@@ -301,6 +309,9 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
+        std::cout << ir::Stmt(node) << " at index " << use_counts.current_index
+                  << " with dump: ";
+        use_counts.dump();
         if (use_counts.from_window(node->loc.base) != 0) {
             return node;
         }
@@ -351,7 +362,7 @@ struct DeadCodeElimination : ir::Mutator {
     ir::Stmt visit(const ir::Sequence *node) override {
         bool not_changed = true;
         std::vector<ir::Stmt> stmts;
-        for (auto iter = node->stmts.rbegin(); iter != node->stmts.rend();
+        for (auto iter = node->stmts.begin(); iter != node->stmts.end();
              iter++) {
             ir::Stmt stmt = mutate(*iter);
             if (!stmt.defined()) {
@@ -368,7 +379,7 @@ struct DeadCodeElimination : ir::Mutator {
             return node;
         }
 
-        std::reverse(stmts.begin(), stmts.end());
+        // std::reverse(stmts.begin(), stmts.end());
         return ir::Sequence::make(std::move(stmts));
     }
 

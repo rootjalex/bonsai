@@ -251,9 +251,11 @@ class History {
         std::cout << "---\n";
     }
 
-  private:
     // Used when traversing the window history.
+    // TODO(cgyurgyik): Should be private.
     int32_t current_index = 0;
+
+  private:
 };
 
 } // namespace ir
