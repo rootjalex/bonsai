@@ -51,6 +51,7 @@ struct Build;
 struct Access;
 struct Unwrap;
 struct Intrinsic;
+struct Generator;
 struct Lambda;
 struct GeomOp;
 struct SetOp;

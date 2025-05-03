@@ -360,6 +360,14 @@ Expr Mutator::visit(const Intrinsic *node) {
     return Intrinsic::make(node->op, std::move(args));
 }
 
+Expr Mutator::visit(const Generator *node) {
+    auto [args, not_changed] = visit_list(this, node->args);
+    if (not_changed) {
+        return node;
+    }
+    return Generator::make(node->op, std::move(args));
+}
+
 Expr Mutator::visit(const Lambda *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {

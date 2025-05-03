@@ -59,7 +59,6 @@ class TypeEmitter : public ir::Visitor {
     }
     void visit(const ir::Array_t *type) override {
         // This case should have already been handled.
-        internal_assert(!is_const(type->size));
         if (const auto *element = type->etype.as<ir::Struct_t>()) {
             ss << element->name;
         } else {

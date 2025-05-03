@@ -780,6 +780,21 @@ void Printer::visit(const Intrinsic *node) {
     os << ")";
 }
 
+std::string to_string(const Generator::OpType &op) {
+    switch (op) {
+    case Generator::iter:
+        return "iter";
+    case Generator::range:
+        return "range";
+    }
+}
+
+void Printer::visit(const Generator *node) {
+    os << to_string(node->op) << "(";
+    print_expr_list(node->args);
+    os << ")";
+}
+
 // TODO: work on syntax?
 void Printer::visit(const Lambda *node) {
     os << "|";

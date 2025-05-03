@@ -398,6 +398,11 @@ struct Simplifier : ir::Mutator {
         } else if (const auto *map = as_map(v)) {
             internal_assert(map->b.type().is<ir::Array_t>());
             return mutate(call(map->a, ir::Extract::make(map->b, i)));
+        } else if (const auto *gen = v.as<ir::Generator>()) {
+            if (gen->op == ir::Generator::iter) {
+                return i; // just the index.
+            }
+            // TODO(ajr): handle range() simplification
         }
 
         std::optional<uint64_t> index = get_constant_value(i);

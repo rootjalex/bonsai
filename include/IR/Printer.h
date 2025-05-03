@@ -42,6 +42,7 @@ std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
 std::string to_string(const VectorReduce::OpType &op);
 std::string to_string(const Intrinsic::OpType &op);
+std::string to_string(const Generator::OpType &op);
 std::string to_string(const GeomOp::OpType &op);
 std::string to_string(const SetOp::OpType &op);
 
@@ -116,6 +117,7 @@ struct Printer : public Visitor {
     void visit(const Access *) override;
     void visit(const Unwrap *) override;
     void visit(const Intrinsic *) override;
+    void visit(const Generator *) override;
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;
     void visit(const SetOp *) override;

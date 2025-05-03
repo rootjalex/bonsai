@@ -104,13 +104,13 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
 
 // Outermost call, inserts an allocation of the output size.
 Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
+    Type alloc_type = flatten_array_type(map_expr->type);
+
     // TODO(ajr): set `args` by schedule.
     BuildMapArgs args;
     std::string alloc_name = unique_alloc_name();
     args.result = alloc_name;
-    args.base_type = map_expr->type;
-
-    Type alloc_type = flatten_array_type(map_expr->type);
+    args.base_type = alloc_type;
 
     Stmt alloc = Assign::make(WriteLoc(alloc_name, alloc_type),
                               Build::make(alloc_type), /*mutating=*/false);

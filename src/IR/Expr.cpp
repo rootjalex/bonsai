@@ -22,11 +22,11 @@ namespace {
 
 // Returns whether `type` is a struct with one element, that has the same type
 // as `expected_type`.
-bool is_single_element_struct_with_type(const ir::Type &type,
-                                        const ir::Type &expected_type) {
-    if (const auto *struct_t = type.as<ir::Struct_t>()) {
+bool is_single_element_struct_with_type(const Type &type,
+                                        const Type &expected_type) {
+    if (const auto *struct_t = type.as<Struct_t>()) {
         if (struct_t->fields.size() == 1) {
-            return ir::equals(struct_t->fields.front().type, expected_type);
+            return equals(struct_t->fields.front().type, expected_type);
         }
     }
     return false;
@@ -133,21 +133,21 @@ Expr BoolImm::make(bool value) {
     return value ? global_true : global_false;
 }
 
-Expr VecImm::make(std::vector<ir::Expr> values) {
+Expr VecImm::make(std::vector<Expr> values) {
     internal_assert(!values.empty()) << "unexpected empty values in VecImm";
 
     VecImm *node = new VecImm;
-    ir::Type element_type = values.front().type();
+    Type element_type = values.front().type();
     if (const bool infer_types =
             type_enforcement_enabled() || element_type.defined();
         infer_types) {
         // TODO: support?
         internal_assert(element_type.is_scalar())
             << "immediate of non-scalar: " << element_type;
-        for (const ir::Expr &e : values) {
+        for (const Expr &e : values) {
             internal_assert(is_const(e))
                 << "VecImm requires all constant values, received: " << e;
-            internal_assert(ir::equals(e.type(), element_type))
+            internal_assert(equals(e.type(), element_type))
                 << "VecImm requires uniform element type, expected: "
                 << element_type << ", but received: " << e;
         }
@@ -229,8 +229,8 @@ bool BinOp::is_boolean_op(const BinOp::OpType &op) {
 namespace {
 
 // Returns whether this type is valid for logical operations.
-bool is_valid_logical_operation(ir::Type type) {
-    return type.is<ir::Option_t, Bool_t>();
+bool is_valid_logical_operation(Type type) {
+    return type.is<Option_t, Bool_t>();
 }
 
 void try_match_types(Expr &a, Expr &b) {
@@ -251,12 +251,12 @@ void try_match_types(Expr &a, Expr &b) {
 
         // Try broadcasting
         if (a.type().is_vector() && b.type().is_scalar()) {
-            b = ir::Broadcast::make(a.type().lanes(), b);
+            b = Broadcast::make(a.type().lanes(), b);
             // recurse in case wrong constant types still.
             try_match_types(a, b);
             return;
         } else if (b.type().is_vector() && a.type().is_scalar()) {
-            a = ir::Broadcast::make(b.type().lanes(), a);
+            a = Broadcast::make(b.type().lanes(), a);
             // recurse in case wrong constant types still.
             try_match_types(a, b);
             return;
@@ -593,12 +593,12 @@ Expr Build::make(Type type, std::vector<Expr> values) {
     const bool infer_types = type_enforcement_enabled();
 
     // Fill default values.
-    if (const auto *struct_t = type.as<ir::Struct_t>()) {
-        const ir::Struct_t::Map &fields = struct_t->fields;
+    if (const auto *struct_t = type.as<Struct_t>()) {
+        const Struct_t::Map &fields = struct_t->fields;
         const size_t field_count = fields.size();
         const size_t value_count = values.size();
         if (!values.empty() && field_count != value_count) {
-            const ir::Struct_t::DefMap &defaults = struct_t->defaults;
+            const Struct_t::DefMap &defaults = struct_t->defaults;
             if (infer_types) {
                 internal_assert(value_count + defaults.size() == field_count)
                     << "Build<Struct_t> of type: " << type << " received "
@@ -667,8 +667,8 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     << " but expected " << field_count;
                 if (field_count == value_count) {
                     for (size_t i = 0; i < values.size(); i++) {
-                        const ir::Type &ftype = fields[i].type;
-                        const ir::Type &vtype = values[i].type();
+                        const Type &ftype = fields[i].type;
+                        const Type &vtype = values[i].type();
                         internal_assert(
                             equals(ftype, vtype) ||
                             is_single_element_struct_with_type(ftype, vtype))
@@ -834,7 +834,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
         }
         case Intrinsic::dot: {
             internal_assert(args.size() == 2);
-            internal_assert(ir::equals(args[0].type(), args[1].type()));
+            internal_assert(equals(args[0].type(), args[1].type()));
             internal_assert(args[0].type().is<Vector_t>());
             node->type = args[0].type().element_of();
             break;
@@ -847,6 +847,64 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
         }
         default: {
             node->type = args[0].type();
+            break;
+        }
+        }
+    }
+    node->op = op;
+    node->args = std::move(args);
+    return node;
+}
+
+Expr Generator::make(OpType op, std::vector<Expr> args) {
+    internal_assert(!args.empty() &&
+                    std::all_of(args.cbegin(), args.cend(),
+                                [](const auto &arg) { return arg.defined(); }))
+        << "Generator received undefined argument";
+
+    Generator *node = new Generator;
+
+    const bool infer_types =
+        type_enforcement_enabled() ||
+        std::all_of(args.cbegin(), args.cend(),
+                    [](const auto &arg) { return arg.type().defined(); });
+    // TODO: implement type enforcement for all intrinsics.
+    if (infer_types) {
+        switch (op) {
+        case Generator::iter: {
+            internal_assert(args.size() == 1)
+                << "iter takes 1 argument, received: " << args.size();
+            internal_assert(args[0].type().defined() &&
+                            args[0].type().is_int_or_uint())
+                << "iter() expects argument to be an integer type: " << args[0]
+                << " is " << args[0].type();
+            node->type = Array_t::make(args[0].type(), args[0]);
+            break;
+        }
+        case Generator::range: {
+            internal_assert(args.size() == 3)
+                << "range takes 3 arguments, received: " << args.size();
+            internal_assert(args[0].type().defined() &&
+                            args[0].type().is<Array_t>())
+                << "range() expects first argument to be an array "
+                   "type: "
+                << args[0] << " is " << args[0].type();
+            internal_assert(args[1].type().defined() &&
+                            args[1].type().is_int_or_uint())
+                << "range() expects second argument to be an integer "
+                   "type: "
+                << args[1] << " is " << args[1].type();
+            internal_assert(args[2].type().defined() &&
+                            args[2].type().is_int_or_uint())
+                << "range() expects third argument to be an integer "
+                   "type: "
+                << args[2] << " is " << args[2].type();
+            internal_assert(equals(args[1].type(), args[2].type()))
+                << "range() expects second and third arguments to be "
+                   "same type "
+                << "arg1: " << args[1] << " is " << args[1].type()
+                << " arg2: " << args[2] << " is " << args[2].type();
+            node->type = Array_t::make(args[0].type().element_of(), args[2]);
             break;
         }
         }
@@ -1024,7 +1082,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
             Type atype = a.type().element_of();
             Type btype = b.type().element_of();
             Type tuple_t = Tuple_t::make({std::move(atype), std::move(btype)});
-            node->type = ir::Set_t::make(std::move(tuple_t));
+            node->type = Set_t::make(std::move(tuple_t));
         }
     }
 

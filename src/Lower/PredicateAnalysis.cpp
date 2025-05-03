@@ -212,6 +212,11 @@ struct PredicateAnalysis : public ir::Visitor {
                        << ir::Expr(node);
     }
 
+    void visit(const ir::Generator *node) override {
+        internal_error << "TODO: implement predicate analysis on Generator: "
+                       << ir::Expr(node);
+    }
+
     void visit(const ir::Lambda *node) override {
         internal_error << "TODO: implement predicate analysis on Lambda: "
                        << ir::Expr(node);

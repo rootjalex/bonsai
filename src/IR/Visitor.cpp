@@ -150,6 +150,8 @@ void Visitor::visit(const Unwrap *node) { node->value.accept(this); }
 
 void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 
+void Visitor::visit(const Generator *node) { visit_list(this, node->args); }
+
 void Visitor::visit(const Lambda *node) { node->value.accept(this); }
 
 void Visitor::visit(const GeomOp *node) {

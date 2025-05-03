@@ -493,6 +493,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_lists(v0->args, v1->args, compare_exprs);
     }
+    case IRExprEnum::Generator: {
+        const Generator *v0 = e0.as<Generator>();
+        const Generator *v1 = e1.as<Generator>();
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
+            return op;
+        }
+        return compare_lists(v0->args, v1->args, compare_exprs);
+    }
     case IRExprEnum::Lambda: {
         const Lambda *v0 = e0.as<Lambda>();
         const Lambda *v1 = e1.as<Lambda>();

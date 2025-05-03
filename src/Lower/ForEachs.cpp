@@ -22,33 +22,27 @@ bool is_range_call(const ir::Expr &expr) {
     if (!expr.type().is<ir::Array_t>()) {
         return false;
     }
-    const ir::Call *call = expr.as<ir::Call>();
+    const ir::Generator *call = expr.as<ir::Generator>();
     if (call == nullptr) {
         return false;
     }
-    const ir::Var *callee = call->func.as<ir::Var>();
-    if (callee == nullptr) {
-        return false;
-    }
-    return callee->name == "range";
+    return call->op == ir::Generator::range;
 }
 
 ir::Expr get_range_offset(const ir::Expr &expr) {
     internal_assert(expr.type().is<ir::Array_t>());
-    const ir::Call *call = expr.as<ir::Call>();
+    const ir::Generator *call = expr.as<ir::Generator>();
     internal_assert(call);
-    const ir::Var *callee = call->func.as<ir::Var>();
-    internal_assert(callee && callee->name == "range");
+    internal_assert(call->op == ir::Generator::range);
     internal_assert(call->args.size() == 3);
     return call->args[1];
 }
 
 ir::Expr get_range_iterable(const ir::Expr &expr) {
     internal_assert(expr.type().is<ir::Array_t>());
-    const ir::Call *call = expr.as<ir::Call>();
+    const ir::Generator *call = expr.as<ir::Generator>();
     internal_assert(call);
-    const ir::Var *callee = call->func.as<ir::Var>();
-    internal_assert(callee && callee->name == "range");
+    internal_assert(call->op == ir::Generator::range);
     internal_assert(call->args.size() == 3);
     return call->args[0];
 }

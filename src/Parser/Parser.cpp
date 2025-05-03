@@ -127,6 +127,7 @@ struct Parser {
             "permute",
             "select",
             "range",
+            "iter",
         };
     }
 
@@ -1526,37 +1527,11 @@ struct Parser {
                 return ir::Select::make(std::move(args[0]), std::move(args[1]),
                                         std::move(args[2]));
             } else if (name == "range") {
-                internal_assert(args.size() == 3)
-                    << "range takes 3 arguments, received: " << args.size();
-                internal_assert(args[0].type().defined() &&
-                                args[0].type().is<ir::Array_t>())
-                    << "range() expects first argument to be an array "
-                       "type: "
-                    << args[0] << " is " << args[0].type();
-                internal_assert(args[1].type().defined() &&
-                                args[1].type().is_int_or_uint())
-                    << "range() expects second argument to be an integer "
-                       "type: "
-                    << args[1] << " is " << args[1].type();
-                internal_assert(args[2].type().defined() &&
-                                args[2].type().is_int_or_uint())
-                    << "range() expects third argument to be an integer "
-                       "type: "
-                    << args[2] << " is " << args[2].type();
-                internal_assert(ir::equals(args[1].type(), args[2].type()))
-                    << "range() expects second and third arguments to be "
-                       "same type "
-                    << "arg1: " << args[1] << " is " << args[1].type()
-                    << " arg2: " << args[2] << " is " << args[2].type();
-                // TODO: make this an intrinsic?
-                ir::Type ret_type =
-                    ir::Array_t::make(args[0].type().element_of(), args[2]);
-                ir::Type call_type = ir::Function_t::make(
-                    std::move(ret_type), {{args[0].type(), /*mutable=*/false},
-                                          {args[1].type(), /*mutable=*/false},
-                                          {args[2].type(), /*mutable=*/false}});
-                ir::Expr func = ir::Var::make(std::move(call_type), "range");
-                return ir::Call::make(std::move(func), std::move(args));
+                return ir::Generator::make(ir::Generator::range,
+                                           std::move(args));
+            } else if (name == "iter") {
+                return ir::Generator::make(ir::Generator::iter,
+                                           std::move(args));
             }
             report_error() << "Unknown builtin: " << name;
         }
@@ -2106,13 +2081,6 @@ struct Parser {
         push_frame();
 
         // TODO: support other non-u32 indexing.
-        // add_type_to_frame("count", u32, /* mutable=*/false);
-        // add_type_to_frame("index", u32, /* mutable=*/false);
-        // TODO: add range() and other built-ins!
-        // ir::Interface interface = ir::IEmpty::make(); // TODO: IArray
-        // ir::Type range_type; // TODO: T[], int_t, int_t -> T[]
-        // add_type_to_frame("range", range_type, /*mutable=*/false);
-
         ir::Layout layout = parse_layout();
         expect(Token::Type::SEMICOL);
 

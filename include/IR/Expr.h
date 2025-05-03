@@ -40,6 +40,7 @@ enum class IRExprEnum {
     Unwrap,
     // Calls
     Intrinsic,
+    Generator,
     Lambda,
     GeomOp,
     SetOp,
@@ -331,6 +332,22 @@ struct Intrinsic : ExprNode<Intrinsic> {
     static Expr make(OpType op, std::vector<Expr> args);
 
     static const IRExprEnum node_type = IRExprEnum::Intrinsic;
+};
+
+// Useful iterator-generators
+struct Generator : ExprNode<Generator> {
+    enum OpType {
+        iter,
+        range,
+        // TODO: more
+    };
+
+    OpType op;
+    std::vector<Expr> args;
+
+    static Expr make(OpType op, std::vector<Expr> args);
+
+    static const IRExprEnum node_type = IRExprEnum::Generator;
 };
 
 struct Lambda : ExprNode<Lambda> {

@@ -118,6 +118,8 @@ std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
             return;
         }
         visiting.insert(fname);
+        internal_assert(call_graph.contains(fname))
+            << "Call graph does not contain: " << fname;
         for (const auto &gname : call_graph.at(fname)) {
             visit(gname);
         }
