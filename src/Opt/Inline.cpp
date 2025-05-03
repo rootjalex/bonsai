@@ -61,9 +61,11 @@ ir::FuncMap Inline::run(ir::FuncMap funcs) const {
     // size blowup.
     std::unordered_map<std::string, ir::Expr> function_to_expr;
     for (const auto &[name, func] : funcs) {
-        if (const auto *body = func->body.as<ir::Return>()) {
-            internal_assert(body->value.defined());
-            function_to_expr[name] = body->value;
+        if (!func->ret_type.is<ir::Void_t>()) {
+            if (const auto *body = func->body.as<ir::Return>()) {
+                internal_assert(body->value.defined());
+                function_to_expr[name] = body->value;
+            }
         }
     }
 

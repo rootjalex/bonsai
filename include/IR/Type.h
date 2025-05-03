@@ -261,9 +261,13 @@ struct Set_t : TypeNode<Set_t> {
 
 struct Function_t : TypeNode<Function_t> {
     Type ret_type;
-    std::vector<Type> arg_types;
+    struct ArgSig {
+        Type type;
+        bool is_mutable;
+    };
+    std::vector<ArgSig> arg_types;
 
-    static Type make(Type ret_type, std::vector<Type> arg_types);
+    static Type make(Type ret_type, std::vector<ArgSig> arg_types);
 
     static const IRTypeEnum node_type = IRTypeEnum::Function_t;
 };

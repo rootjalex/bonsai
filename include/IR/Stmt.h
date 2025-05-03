@@ -37,6 +37,7 @@ enum class IRStmtEnum {
     ForAll,
     ForEach,
     Continue,
+    Launch
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -283,6 +284,16 @@ struct Continue : StmtNode<Continue> {
     static Stmt make();
 
     static const IRStmtEnum node_type = IRStmtEnum::Continue;
+};
+
+// Launch n calls to func with arguments
+struct Launch : StmtNode<Launch> {
+    std::string func;
+    Expr n;
+    std::vector<Expr> args;
+    static Stmt make(std::string func, Expr n, std::vector<Expr> args);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Launch;
 };
 
 } // namespace ir

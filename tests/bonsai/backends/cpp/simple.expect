@@ -5,7 +5,7 @@
 
 extern "C" {
 
-int32_t add(int32_t i, int32_t j);
+int32_t add(const int32_t i, const int32_t j);
 }
 
 ------------------------------------------

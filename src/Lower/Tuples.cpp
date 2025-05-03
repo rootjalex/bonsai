@@ -37,9 +37,9 @@ struct TuplesToStructs : public ir::Mutator {
                 mutate(node->etypes[i]); // in the case of nested tuples.
         }
         std::string name = unique_struct_name();
-        ir::Type new_struct =
-            ir::Struct_t::make(std::move(name), std::move(fields));
+        ir::Type new_struct = ir::Struct_t::make(name, std::move(fields));
         rewrite_map[node] = new_struct;
+        new_structs[name] = new_struct;
         return new_struct;
     }
 
@@ -142,6 +142,7 @@ ir::Program LowerTuples::run(ir::Program program) const {
             arg.type = converter.mutate(arg.type);
         }
         f->body = converter.mutate(f->body);
+        f->ret_type = converter.mutate(f->ret_type);
     }
 
     // And new structs must be added to program types.

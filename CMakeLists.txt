@@ -105,6 +105,7 @@ target_sources(
     src/Lower/LogicalOperations.cpp
     src/Lower/Lower.cpp
     src/Lower/Maps.cpp
+    src/Lower/Mutability.cpp
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
@@ -120,6 +121,7 @@ target_sources(
     src/Opt/DCE.cpp
     src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
+    src/Opt/Parallelize.cpp
     src/Opt/Simplify.cpp
     src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
@@ -178,6 +180,7 @@ target_sources(
     include/Lower/LogicalOperations.h
     include/Lower/Lower.h
     include/Lower/Maps.h
+    include/Lower/Mutability.h
     include/Lower/Options.h
     include/Lower/Pass.h
     include/Lower/PassManager.h
@@ -193,6 +196,7 @@ target_sources(
     include/Opt/DCE.h
     include/Opt/Fusion.h
     include/Opt/Inline.h
+    include/Opt/Parallelize.h
     include/Opt/Simplify.h
     include/Opt/Unswitch.h
     include/Parser/Lexer.h

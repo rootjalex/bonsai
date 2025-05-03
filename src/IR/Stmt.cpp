@@ -42,19 +42,6 @@ Stmt Return::make() {
     return node;
 }
 
-Stmt Store::make(std::string name, Expr index, Expr value) {
-    internal_assert(!name.empty()) << "Empty name in Store::make";
-    internal_assert(index.defined())
-        << "Empty index in Store::make of " << name;
-    internal_assert(value.defined())
-        << "Undefined value in Store::make of " << name;
-    Store *node = new Store;
-    node->name = std::move(name);
-    node->index = std::move(index);
-    node->value = std::move(value);
-    return node;
-}
-
 // Stmt LetStmt::make(std::string name, Expr value, Stmt body) {
 Stmt LetStmt::make(WriteLoc loc, Expr value) {
     internal_assert(loc.defined())
@@ -130,16 +117,6 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     node->op = op;
     node->value = std::move(value);
     // node->body = std::move(body);
-    return node;
-}
-
-Stmt Allocate::make(std::string name, Type type) {
-    internal_assert(!name.empty()) << "Allocate::make received empty name";
-    internal_assert(type.defined()) << "Allocate::make received undefined type";
-
-    Allocate *node = new Allocate;
-    node->name = std::move(name);
-    node->type = std::move(type);
     return node;
 }
 
@@ -249,6 +226,21 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
 Stmt Continue::make() {
     static Stmt global_break = new Continue;
     return global_break;
+}
+
+Stmt Launch::make(std::string func, Expr n, std::vector<Expr> args) {
+    internal_assert(!func.empty()) << "Launch::make received undefined func";
+    internal_assert(n.defined() && n.type().is_int_or_uint())
+        << "Launch::make received undefined count: " << n;
+    internal_assert(std::all_of(args.cbegin(), args.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "Launch::make received undefined arg to func: " << func;
+
+    Launch *node = new Launch;
+    node->func = std::move(func);
+    node->n = std::move(n);
+    node->args = std::move(args);
+    return node;
 }
 
 } // namespace ir

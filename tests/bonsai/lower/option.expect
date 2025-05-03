@@ -10,17 +10,17 @@ func make_option1(i : i32) -> _option0 {
   }
 }
 
-func use_option(i : _option0) -> i32 {
-  if (i.set) {
-    return i.value
+func use_option(i : (_option0*)) -> i32 {
+  if ((*i).set) {
+    return (*i).value
   } else {
     return 0
   }
 }
 
-func use_option1(i : _option0) -> i32 {
-  if (i.set) {
-    return i.value + 10
+func use_option1(i : (_option0*)) -> i32 {
+  if ((*i).set) {
+    return (*i).value + 10
   } else {
     return 0
   }

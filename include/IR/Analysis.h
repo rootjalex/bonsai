@@ -13,6 +13,7 @@ namespace bonsai {
 namespace ir {
 
 std::vector<TypedVar> gather_free_vars(const Expr &expr);
+std::vector<TypedVar> gather_free_vars(const Stmt &stmt);
 // std::vector<const Var *> gather_free_vars(const Stmt &stmt);
 std::vector<TypedVar> gather_free_vars(const Function &func);
 

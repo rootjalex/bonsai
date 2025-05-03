@@ -15,6 +15,7 @@ bool is_const_one(const ir::Expr &e);
 bool is_const_all_ones(const ir::Expr &e);
 bool is_const_zero(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
+bool is_location_expr(const ir::Expr &expr);
 
 // Attempts to infer the value at the given index in the vector `v`, otherwise
 // returns an undefined expression upon failure.
@@ -82,6 +83,10 @@ ir::Expr make_inf(const ir::Type &t);
 
 // Create an immediate with value `1` n times, where n is the type's bit width.
 ir::Expr make_all_ones(const ir::Type &t);
+
+// Build a one-hot vector of etype `t` with `lanes` lanes and a value of `1` at
+// index `idx`
+ir::Expr make_one_hot(ir::Type t, ir::Expr idx, size_t lanes);
 
 template <typename T>
 ir::Expr make_const(const ir::Type &t, const T &v) {
@@ -176,6 +181,5 @@ bool is_all_ones(T value, int64_t width) {
 ir::Expr update_type(ir::Expr, ir::Type);
 
 ir::Type flatten_array_type(const ir::Type &type);
-
 
 } // namespace bonsai

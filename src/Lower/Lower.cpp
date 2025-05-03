@@ -8,8 +8,9 @@
 #include "Lower/Geometrics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
-#include "Lower/Maps.h"
 #include "Lower/LogicalOperations.h"
+#include "Lower/Maps.h"
+#include "Lower/Mutability.h"
 #include "Lower/Options.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
@@ -20,6 +21,7 @@
 #include "Opt/DCE.h"
 #include "Opt/Fusion.h"
 #include "Opt/Inline.h"
+#include "Opt/Parallelize.h"
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
 
@@ -79,10 +81,12 @@ PassManager register_passes() {
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<ReturnToOutParameter>();
+    manager.register_pass<Mutability>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Fusion>();
     manager.register_pass<opt::Inline>();
+    manager.register_pass<opt::Parallelize>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
 
@@ -108,6 +112,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
+    core.push_back(std::make_unique<Mutability>());
     manager.register_alias("core", core);
 
     // Default: the default work flow (with optimizations).
@@ -133,8 +138,10 @@ PassManager register_passes() {
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Inline>());
+    d.push_back(std::make_unique<opt::Parallelize>());
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
+    d.push_back(std::make_unique<Mutability>());
     manager.register_alias("default", d);
 
     return manager;

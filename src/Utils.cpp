@@ -87,6 +87,10 @@ bool is_const(const Expr &e) {
     return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
 }
 
+bool is_location_expr(const Expr &expr) {
+    return expr.is<Var, Access, PtrTo>();
+}
+
 Expr get_value_at(Expr v, int64_t index) {
     const Type &type = v.type();
     internal_assert(type.is_vector()) << type;
@@ -135,6 +139,15 @@ Expr make_inf(const Type &t) {
     internal_error << "Unknown infinity for type: " << t;
 }
 
+Expr make_one_hot(Type t, Expr idx, size_t lanes) {
+    std::vector<Expr> values(lanes);
+    for (size_t i = 0; i < lanes; i++) {
+        Expr lane = make_const(idx.type(), i);
+        values[i] = Select::make(lane == idx, make_one(t), make_zero(t));
+    }
+    return Build::make(Vector_t::make(t, lanes), std::move(values));
+}
+
 Expr constant_cast(const Type &t, const Expr &e) {
     internal_assert(t.defined() && e.defined())
         << "received bad type conversion:" << e << " to " << t;
@@ -177,6 +190,10 @@ Expr cast_to(const Type &t, const Expr &e) {
     if (t.is_vector() && e.type().is_scalar()) {
         Expr inner = cast_to(t.element_of(), e);
         return Broadcast::make(t.lanes(), std::move(inner));
+    }
+    if (t.is<Struct_t>() && t.as<Struct_t>()->fields.size() == 1 &&
+        equals(t.as<Struct_t>()->fields[0].type, e.type())) {
+        return Build::make(t, std::vector<Expr>{e});
     }
     return Cast::make(t, e);
 }
@@ -348,17 +365,17 @@ uint64_t bit_mask(int64_t n) {
     return n >= width ? ~uint64_t{0} : (uint64_t{1} << n) - uint64_t{1};
 }
 
-ir::Expr update_type(ir::Expr expr, ir::Type type) {
+Expr update_type(Expr expr, Type type) {
     internal_assert(type.defined());
     internal_assert(expr.defined());
     switch (expr->node_type) {
-    case ir::IRExprEnum::Build: {
-        const auto *build = expr.as<ir::Build>();
-        return ir::Build::make(std::move(type), build->values);
+    case IRExprEnum::Build: {
+        const auto *build = expr.as<Build>();
+        return Build::make(std::move(type), build->values);
     }
-    case ir::IRExprEnum::Var: {
-        const auto *var = expr.as<ir::Var>();
-        return ir::Var::make(std::move(type), var->name);
+    case IRExprEnum::Var: {
+        const auto *var = expr.as<Var>();
+        return Var::make(std::move(type), var->name);
     }
     default:
         internal_error << "[unimplemented] update_type(" << expr << " : "

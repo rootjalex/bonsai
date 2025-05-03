@@ -2,7 +2,7 @@ func bar(i : i32) -> u32 {
   j := i + 2
   let k = abs(i) in
   j += cast<i32>(k)
-  return cast<u32>(j)
+  return cast<u32>((*j))
 }
 
 func foo(i : i32) -> u32 {

@@ -365,11 +365,11 @@ Type Set_t::make(Type etype) {
     return node;
 }
 
-Type Function_t::make(Type ret_type, std::vector<Type> arg_types) {
+Type Function_t::make(Type ret_type, std::vector<ArgSig> arg_types) {
     internal_assert(ret_type.defined())
         << "Function_t::make received undefined ret_type";
     internal_assert(std::all_of(arg_types.cbegin(), arg_types.cend(),
-                                [](const Type &t) { return t.defined(); }))
+                                [](const auto &p) { return p.type.defined(); }))
         << "Function_t::make received undefined arg_type";
     Function_t *node = new Function_t;
     node->ret_type = std::move(ret_type);

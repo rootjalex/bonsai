@@ -56,6 +56,8 @@ struct GeomOp;
 struct SetOp;
 struct Call;
 struct Instantiate;
+struct PtrTo;
+struct Deref;
 
 // Stmts
 struct Stmt;
@@ -79,6 +81,7 @@ struct YieldFrom;
 struct ForAll;
 struct ForEach;
 struct Continue;
+struct Launch;
 
 // Layouts
 struct Name;

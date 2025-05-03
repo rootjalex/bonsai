@@ -214,6 +214,17 @@ struct Parser {
         report_error() << "Cannot check mutability of unknown var: " << name;
     }
 
+    bool is_mutable(const ir::Expr &expr) {
+        if (const ir::Var *var = expr.as<ir::Var>()) {
+            return is_mutable(var->name);
+        } else if (const ir::Access *access = expr.as<ir::Access>()) {
+            return is_mutable(access->value);
+        } else if (const ir::Extract *extract = expr.as<ir::Extract>()) {
+            return is_mutable(extract->vec);
+        }
+        return false;
+    }
+
     void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
         frames.add_to_frame(name, FunctionVariable{
                                       .type = type,
@@ -754,9 +765,28 @@ struct Parser {
         }
         const ir::Function &function = *it->second;
         expect(Token::Type::LPAREN);
+        ir::Type f_type = function.call_type();
 
         std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);
-        ir::Expr v = ir::Var::make(function.call_type(), std::move(id));
+
+        const ir::Function_t *function_t = f_type.as<ir::Function_t>();
+        internal_assert(function_t);
+        if (function_t->arg_types.size() != args.size()) {
+            report_error() << "Incorrect number of arguments to: " << id
+                           << "parsed: " << args.size()
+                           << " but expected: " << function_t->arg_types.size();
+        }
+
+        for (size_t i = 0; i < args.size(); i++) {
+            // TODO(ajr): add other type checking here?
+            if (function_t->arg_types[i].is_mutable && !is_mutable(args[i])) {
+                report_error()
+                    << "Argument " << args[i] << " at position " << i
+                    << " of call to function " << id << " must be mutable.";
+            }
+        }
+
+        ir::Expr v = ir::Var::make(f_type, std::move(id));
         expect(Token::Type::SEMICOL);
         return ir::CallStmt::make(std::move(v), std::move(args));
     }
@@ -1518,8 +1548,9 @@ struct Parser {
                 ir::Type ret_type =
                     ir::Array_t::make(args[0].type().element_of(), args[2]);
                 ir::Type call_type = ir::Function_t::make(
-                    std::move(ret_type),
-                    {args[0].type(), args[1].type(), args[2].type()});
+                    std::move(ret_type), {{args[0].type(), /*mutable=*/false},
+                                          {args[1].type(), /*mutable=*/false},
+                                          {args[2].type(), /*mutable=*/false}});
                 ir::Expr func = ir::Var::make(std::move(call_type), "range");
                 return ir::Call::make(std::move(func), std::move(args));
             }
@@ -1559,10 +1590,11 @@ struct Parser {
         // TODO(ajr): may want to lift this into an analysis
         // function, for reuse in type inference.
         const size_t n_args = func->args.size();
-        std::vector<ir::Type> arg_types(n_args);
+        std::vector<ir::Function_t::ArgSig> arg_types(n_args);
 
         for (size_t i = 0; i < func->args.size(); i++) {
-            arg_types[i] = func->args[i].type;
+            arg_types[i].type = func->args[i].type;
+            arg_types[i].is_mutable = func->args[i].mutating;
             // TODO: we could push types down here, because
             // we know the arg types. That mixes type
             // inference with parsing though, not sure we
@@ -1578,6 +1610,11 @@ struct Parser {
                     << "Argument " << i << " of call to function " << name
                     << " has incorrect type. Expected " << expected_type
                     << " but parsed: " << args[i].type();
+            }
+            if (func->args[i].mutating && !is_mutable(args[i])) {
+                report_error()
+                    << "Argument " << args[i] << " at position " << i
+                    << " of call to function " << name << " must be mutable.";
             }
         }
 
@@ -1707,6 +1744,7 @@ struct Parser {
             } else {
                 expect(Token::Type::LBRACKET);
                 ir::Expr index = parse_expr();
+                expect(Token::Type::RBRACKET);
                 loc.add_index_access(std::move(index));
             }
         }
