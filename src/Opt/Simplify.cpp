@@ -153,8 +153,7 @@ struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
-            << "a: " << a.type() << ", " << "b: " << b.type()
-            << " in operation: " << ir::Expr(node);
+            << "a: " << a.type() << ", " << "b: " << b.type();
 
         const ir::Type type = a.type();
         const ir::Expr zero = make_zero(type), one = make_one(type);
