@@ -1136,10 +1136,6 @@ struct Parser {
             }
             expect(Token::Type::RPAREN);
             return inner;
-            // TODO: do these have the correct precedence?
-        } else if (consume(Token::Type::NOT)) {
-            ir::Expr inner = parse_expr();
-            return ir::UnOp::make(ir::UnOp::Not, std::move(inner));
         } else if (peek().type == Token::Type::IDENTIFIER) {
             return parse_identifier();
             // Parse literals.
