@@ -4,7 +4,6 @@ func doobar(c: bool, a: vector[i32, 3], v: i32) -> i32 {
    if (c) {
     return -1;
    }
-   tmax : mut = max(a[0], a[1]);
    tmin : mut = min(a[0], a[1]);
    x: i32 = 42 + a[0];
    if (tmin < a[2]) {
@@ -15,9 +14,10 @@ func doobar(c: bool, a: vector[i32, 3], v: i32) -> i32 {
       z: i32 = 1 + v;      // DCE
       return y;
    } else {
-      y: i32 = 1 + 3 + v;
+      y: i32 = 1 + 3 + v;  // DCE
       z: i32 = 2 + v;      // DCE
-      return y + tmin + tmax;
    }
+   tmin = max(tmin, x);
+   return tmin * -1;
 }
 

@@ -12,6 +12,9 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+static int64_t global_index = 0;
+} // namespace
 
 struct Stmt;
 
@@ -60,12 +63,18 @@ struct Stmt : public IRHandle<IRStmtNode> {
     Stmt() = default;
 
     /** Make a stmt from a concrete stmt node pointer (e.g. Return) */
-    Stmt(const IRStmtNode *n) : IRHandle<IRStmtNode>(n) {}
+    Stmt(const IRStmtNode *n)
+        : IRHandle<IRStmtNode>(n), index(global_index++) {}
 
     /** Override get() to return a BaseStmtNode * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
     const BaseStmtNode *get() const { return (const BaseStmtNode *)ptr; }
 
+    // Returns the unique index for this statement.
+    int64_t id() { return index; }
+
+  private:
+    const int64_t index;
     // TODO: implement copy/move semantics!
 };
 

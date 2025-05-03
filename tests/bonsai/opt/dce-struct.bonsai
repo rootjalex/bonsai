@@ -1,3 +1,5 @@
+//! flags: -p core -p dce
+
 element Pair {
     i : i32;
     f : f32;
@@ -43,4 +45,3 @@ func bazz(i : i32, f : f32) -> f32 {
     }
     return j;
 }
-

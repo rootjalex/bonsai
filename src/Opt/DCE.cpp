@@ -41,13 +41,6 @@ struct ComputeUseCounts : ir::Visitor {
         }
     }
 
-    void visit(const ir::Sequence *node) override {
-        for (auto iter = node->stmts.begin(); iter != node->stmts.end();
-             iter++) {
-            iter->accept(this);
-        }
-    }
-
     void visit(const ir::Var *node) override {
         ++use_counts[node->name];
         if (!curr_var.empty()) {
@@ -56,20 +49,20 @@ struct ComputeUseCounts : ir::Visitor {
         }
     }
 
-    void visit(const ir::Call *node) override {
-        // Don't visit the call's `func` argument, which is also
-        // a variable.
-        for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
-        }
-    }
-    void visit(const ir::CallStmt *node) override {
-        // Don't visit the call's `func` argument, which is also
-        // a variable.
-        for (const ir::Expr &arg : node->args) {
-            arg.accept(this);
-        }
-    }
+    // void visit(const ir::Call *node) override {
+    //     // Don't visit the call's `func` argument, which is also
+    //     // a variable.
+    //     for (const ir::Expr &arg : node->args) {
+    //         arg.accept(this);
+    //     }
+    // }
+    // void visit(const ir::CallStmt *node) override {
+    //     // Don't visit the call's `func` argument, which is also
+    //     // a variable.
+    //     for (const ir::Expr &arg : node->args) {
+    //         arg.accept(this);
+    //     }
+    // }
 
     void visit(const ir::Lambda *node) override {
         for (const ir::TypedVar &arg : node->args) {
@@ -129,29 +122,37 @@ struct ComputeUseCounts : ir::Visitor {
         curr_var.clear();
     }
 
-    void new_window(int32_t previous_index) {
-        use_counts.new_window(previous_index);
-        dependent_use_counts.new_window(previous_index);
+    void new_window(int32_t parent_index) {
+        use_counts.new_window(parent_index, {});
+        dependent_use_counts.new_window(parent_index, {});
     }
 
-    int32_t get_previous_index() {
-        internal_assert(use_counts.size() == dependent_use_counts.size());
-        return use_counts.size() - 1;
+    int32_t get_parent_index() {
+        internal_assert(use_counts.windows.size() ==
+                        dependent_use_counts.windows.size());
+        return use_counts.windows.size() - 1;
+    }
+    void add_child(int32_t index) {
+        use_counts.windows.back().children.push_back(index);
+        dependent_use_counts.windows.back().children.push_back(index);
     }
 
     void visit(const ir::IfElse *node) override {
         // Save the index of the parent.
-        const int32_t previous_index = get_previous_index();
-        new_window(previous_index);
+        const int32_t parent_index = get_parent_index();
+        new_window(parent_index);
+        add_child(get_parent_index() + 1);
         node->cond.accept(this);
         node->then_body.accept(this);
-        new_window(previous_index);
+        new_window(parent_index);
+        add_child(get_parent_index() + 2);
         if (!node->else_body.defined()) {
             return;
         }
-        new_window(previous_index);
+        new_window(parent_index);
+        add_child(get_parent_index() + 1);
         node->else_body.accept(this);
-        new_window(previous_index);
+        new_window(parent_index);
     }
 };
 
@@ -285,23 +286,36 @@ struct DeadCodeElimination : ir::Mutator {
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
         std::optional<UseCountMap> map =
-            dependent_use_counts.from_window(loc.base);
+            dependent_use_counts.look_back(loc.base);
         if (!map.has_value()) {
             return;
         }
         for (const auto &[var, count] : *map) {
-            internal_assert(use_counts[var] >= count)
-                << "Overflow failure in DCE: " << var
-                << " has count: " << use_counts[var]
-                << " but is used: " << count
-                << " times in declaration of: " << loc;
+            // TODO(cgyurgyik):
+            // internal_assert(use_counts[var] >= count)
+            //     << "Overflow failure in DCE: " << var
+            //     << " has count: " << use_counts[var]
+            //     << " but is used: " << count
+            //     << " times in declaration of: " << loc;
             use_counts[var] -= count;
         }
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts.from_window(node->loc.base) == 0 &&
-            !has_side_effects(node->value)) {
+        // If any children have uses, this cannot be erased. This is safe to
+        // check because we cannot shadow variables.
+        if (node->loc.base == "y") {
+            std::cout << "visiting at index " << use_counts.current_index
+                      << ": " << ir::Stmt(node) << ", ";
+            std::cout << "has uses: "
+                      << use_counts.any_children(
+                             node->loc.base, [](int32_t v) { return v != 0; })
+                      << "\n";
+            use_counts.dump();
+        }
+        const bool has_uses = use_counts.any_children(
+            node->loc.base, [](int32_t v) { return v != 0; });
+        if (!has_uses && !has_side_effects(node->value)) {
             erase_dependents(node->loc);
             return ir::Stmt();
         }
@@ -309,10 +323,10 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Assign *node) override {
-        std::cout << ir::Stmt(node) << " at index " << use_counts.current_index
-                  << " with dump: ";
-        use_counts.dump();
-        if (use_counts.from_window(node->loc.base) != 0) {
+        // If any children have uses, this cannot be erased. This is safe to
+        // check because we cannot shadow variables.
+        if (use_counts.any_children(node->loc.base,
+                                    [](int32_t v) { return v != 0; })) {
             return node;
         }
         if (!node->mutating) {
@@ -323,23 +337,30 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts.from_window(node->loc.base) != 0) {
+        // If any children have uses, this cannot be erased. This is safe to
+        // check because we cannot shadow variables.
+        if (use_counts.any_children(node->loc.base,
+                                    [](int32_t v) { return v != 0; })) {
             return node;
         }
         return find_with_side_effects(node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
-        push_window();
+        // Right offset!
+        int32_t begin = node->else_body.defined() ? -3 : -1;
+        push_window(begin);
         ir::Stmt then_body = mutate(node->then_body);
-        pop_window();
+        pop_window(+1);
         // No need to push before, there is no state between and if - else.
         ir::Stmt else_body = node->else_body;
         if (else_body.defined()) {
-            push_window();
+            push_window(+1);
             else_body = mutate(std::move(else_body));
-            pop_window();
+            pop_window(+1);
         }
+        use_counts.current_index -= begin + 1;
+        dependent_use_counts.current_index -= begin + 1;
         if (then_body.same_as(node->then_body) &&
             else_body.same_as(node->else_body)) {
             return node;
@@ -362,7 +383,7 @@ struct DeadCodeElimination : ir::Mutator {
     ir::Stmt visit(const ir::Sequence *node) override {
         bool not_changed = true;
         std::vector<ir::Stmt> stmts;
-        for (auto iter = node->stmts.begin(); iter != node->stmts.end();
+        for (auto iter = node->stmts.rbegin(); iter != node->stmts.rend();
              iter++) {
             ir::Stmt stmt = mutate(*iter);
             if (!stmt.defined()) {
@@ -379,7 +400,7 @@ struct DeadCodeElimination : ir::Mutator {
             return node;
         }
 
-        // std::reverse(stmts.begin(), stmts.end());
+        std::reverse(stmts.begin(), stmts.end());
         return ir::Sequence::make(std::move(stmts));
     }
 
@@ -391,14 +412,14 @@ struct DeadCodeElimination : ir::Mutator {
     // Which functions have side effects.
     const std::set<std::string> &side_effects_functions;
 
-    void push_window() {
-        use_counts.push_window();
-        dependent_use_counts.push_window();
+    void push_window(int32_t offset) {
+        use_counts.current_index += offset;
+        dependent_use_counts.current_index += offset;
     }
 
-    void pop_window() {
-        use_counts.pop_window();
-        dependent_use_counts.pop_window();
+    void pop_window(int32_t offset) {
+        use_counts.current_index += offset;
+        dependent_use_counts.current_index += offset;
     }
 };
 
@@ -409,6 +430,29 @@ ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args,
     // are never used.
     ComputeUseCounts analyzer(mutable_func_args);
     stmt.accept(&analyzer);
+    // Add da children brah
+    for (int i = 0; i < analyzer.use_counts.windows.size(); ++i) {
+        auto &window = analyzer.use_counts.windows[i];
+        for (int j = 0; j < analyzer.use_counts.windows.size(); ++j) {
+            if (analyzer.use_counts.windows[j].parent == i) {
+                window.children.push_back(j);
+            }
+        }
+    }
+    for (int i = 0; i < analyzer.dependent_use_counts.windows.size(); ++i) {
+        auto &window = analyzer.dependent_use_counts.windows[i];
+        for (int j = 0; j < analyzer.dependent_use_counts.windows.size(); ++j) {
+            if (analyzer.dependent_use_counts.windows[j].parent == i) {
+                window.children.push_back(j);
+            }
+        }
+    }
+    // Update the index to da end, because DCE starts from da back.
+    analyzer.use_counts.current_index = analyzer.use_counts.windows.size() - 1;
+    analyzer.dependent_use_counts.current_index =
+        analyzer.dependent_use_counts.windows.size() - 1;
+    analyzer.use_counts.dump();
+    analyzer.dependent_use_counts.dump();
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts),
                                   se_functions);

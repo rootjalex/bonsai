@@ -1,11 +1,15 @@
 //! flags: -p core -p dce
 
 func foo(x : f32, y : f32) {
+    DEAD: mut f32 = 1.0;
+    LIVE: f32 = 1.0;
     if (x > 0 && y > 0) {
         w = x * y;
+        DEAD += 1.0;
         return sqrt(w);
     } else {
-        w = abs(x + y);
+        w = abs(x + y + LIVE);
+        DEAD = 2.0;
         return sqrt(w);
     }
 }
