@@ -4,6 +4,7 @@ add_bonsai_tests(
     constant-fold.bonsai
     dce-flip-if.bonsai
     dce-mut.bonsai
+    dce-scope.bonsai
     dce-struct.bonsai
     dce.bonsai
     inline.bonsai

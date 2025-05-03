@@ -1,0 +1,19 @@
+func foo(x : f32, y : f32) -> f32 {
+  if ((0f < x) && (0f < y)) {
+    z := 1f
+    z += 2f
+    let w = (x * y) + (*z) in
+    return sqrt(w)
+  } else {
+    z := 1f
+    z *= 2f
+    let w = abs(x + y) / (*z) in
+    if ((x < 0f) && (0f < y)) {
+      return w
+    } else {
+      return w + 1f
+    }
+  }
+}
+
+
