@@ -3,6 +3,7 @@
 #include "IR/Equality.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
+#include "Lower/TopologicalOrder.h"
 
 #include <set>
 
@@ -264,6 +265,45 @@ struct FindReads : Visitor {
     }
 };
 
+struct HasSideEffects : ir::Visitor {
+    bool found = false;
+    const std::set<std::string> &function_has_side_effects;
+
+    HasSideEffects(const std::set<std::string> &side_effects_functions)
+        : function_has_side_effects(side_effects_functions) {}
+
+    void visit(const ir::Print *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
+
+    void visit(const ir::Call *node) override {
+        if (found) {
+            return;
+        }
+        const auto *var = node->func.as<ir::Var>();
+        internal_assert(var) << node;
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
+            found = true;
+        }
+    }
+
+    void visit(const ir::CallStmt *node) override {
+        if (found) {
+            return;
+        }
+        const auto *var = node->func.as<ir::Var>();
+        internal_assert(var) << node;
+        if (var->type.is<ir::Function_t>() &&
+            function_has_side_effects.contains(var->name)) {
+            found = true;
+        }
+    }
+};
+
 } // namespace
 
 std::vector<TypedVar> gather_free_vars(const Expr &expr) {
@@ -425,6 +465,50 @@ std::set<std::string> assigned_variables(Stmt stmt) {
     Gather g;
     stmt.accept(&g);
     return std::move(g.mutated);
+}
+
+bool has_side_effects(const ir::Expr &expr,
+                      const std::set<std::string> &side_effect_functions) {
+    HasSideEffects checker(side_effect_functions);
+    expr.accept(&checker);
+    return checker.found;
+}
+
+std::set<std::string> find_side_effects(const ir::FuncMap &functions) {
+    const std::vector<std::string> topo_order =
+        lower::func_topological_order(functions, /*undef_calls=*/false);
+    std::set<std::string> side_effects;
+    HasSideEffects checker(side_effects);
+    for (const std::string &f : topo_order) {
+        internal_assert(!checker.function_has_side_effects.contains(f))
+            << "Found cycle involving: " << f;
+        checker.found = false;
+        const auto func = functions.at(f);
+        // Conservatively say that funcs with mutable arguments have side
+        // effects.
+        if (std::any_of(func->args.cbegin(), func->args.cend(),
+                        [](const auto &arg) { return arg.mutating; })) {
+            side_effects.insert(f);
+            continue;
+        }
+        // Otherwise search for side effecting statements.
+        func->body.accept(&checker);
+        if (checker.found) {
+            side_effects.insert(f);
+        }
+        checker.found = false;
+    }
+    return side_effects;
+}
+
+std::set<std::string> get_mutable_arguments(const ir::Function &function) {
+    std::set<std::string> args;
+    for (const auto &arg : function.args) {
+        if (arg.mutating) {
+            args.insert(arg.name);
+        }
+    }
+    return args;
 }
 
 } // namespace ir
