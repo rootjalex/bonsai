@@ -415,7 +415,15 @@ void Printer::visit(const Set_t *node) {
 
 void Printer::visit(const Function_t *node) {
     os << "Fn(";
-    print_type_list(node->arg_types);
+    for (size_t i = 0; i < node->arg_types.size(); i++) {
+        if (node->arg_types[i].is_mutable) {
+            os << "mut ";
+        }
+        print(node->arg_types[i].type);
+        if (i < node->arg_types.size() - 1) {
+            os << ", ";
+        }
+    }
     os << ") -> ";
     print(node->ret_type);
 }
@@ -848,6 +856,18 @@ void Printer::visit(const Instantiate *node) {
     os << "]]";
 }
 
+void Printer::visit(const PtrTo *node) {
+    os << "(&";
+    print_no_parens(node->expr);
+    os << ")";
+}
+
+void Printer::visit(const Deref *node) {
+    os << "(*";
+    print_no_parens(node->expr);
+    os << ")";
+}
+
 void Printer::visit(const CallStmt *node) {
     os << get_indent();
     print_no_parens(node->func);
@@ -870,17 +890,6 @@ void Printer::visit(const Return *node) {
         os << ' ';
         print_no_parens(node->value);
     }
-    os << "\n";
-}
-
-void Printer::visit(const Store *node) {
-    os << get_indent();
-    os << node->name << "[";
-    if (node->index.defined()) {
-        print_no_parens(node->index);
-    }
-    os << "] = ";
-    print_no_parens(node->value);
     os << "\n";
 }
 
@@ -988,12 +997,6 @@ void Printer::visit(const Accumulate *node) {
     // print(node->body);
 }
 
-void Printer::visit(const Allocate *node) {
-    os << get_indent();
-    os << "alloc " << node->name << " : " << node->type;
-    os << "\n";
-}
-
 void Printer::visit(const Label *node) {
     os << get_indent();
     os << "#" << node->name << "{";
@@ -1091,6 +1094,14 @@ void Printer::visit(const ForAll *node) {
 void Printer::visit(const Continue *node) {
     os << get_indent();
     os << "continue\n";
+}
+
+void Printer::visit(const Launch *node) {
+    os << get_indent() << "launch ";
+    print_no_parens(node->n);
+    os << " " << node->func << "(";
+    print_expr_list(node->args);
+    os << ")\n";
 }
 
 void Printer::visit(const Name *node) {

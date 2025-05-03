@@ -10,7 +10,7 @@ func bar(i : i32x8) -> u32x8 {
 func bazz(i : i32) -> i32 {
   j := i + 1
   if (0 < i) {
-    print_and_return(j)
+    print_and_return((*j))
   }
   return cast<i32>(abs(i))
 }

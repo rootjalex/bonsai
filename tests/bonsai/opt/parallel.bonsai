@@ -1,0 +1,17 @@
+func f(i : i32) {
+  print(i); // need side effect to make sure parallel threads are actually running
+  return i + 1;
+}
+
+func apply_function(fs: array[i32, 8]) -> array[i32, 8] {
+  return map(f, fs);
+}
+
+func main() -> i32 {
+    a : array[i32, 8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    b = apply_function(a);
+    print(b);
+    return 0;
+}
+
+// TODO: schedule parallel loop for apply_function.

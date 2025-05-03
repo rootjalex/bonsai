@@ -1,0 +1,48 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Example = type { i32, ptr }
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: readwrite)
+define void @write_w(ptr nocapture noundef nonnull readonly %e) local_unnamed_addr #0 {
+write_w_entry:
+  %_untyped = tail call dereferenceable_or_null(8) ptr @malloc(i64 8)
+  store <2 x i32> <i32 2, i32 3>, ptr %_untyped, align 4
+  %0 = insertvalue %struct.Example { i32 1, ptr undef }, ptr %_untyped, 1
+  %e_ld = load ptr, ptr %e, align 8
+  store %struct.Example %0, ptr %e_ld, align 8
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @write_x(ptr nocapture noundef nonnull writeonly %e) local_unnamed_addr #1 {
+write_x_entry:
+  store i32 3, ptr %e, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none)
+define void @write_y(ptr nocapture noundef nonnull readonly %e) local_unnamed_addr #2 {
+write_y_entry:
+  %e_y = getelementptr inbounds i8, ptr %e, i64 8
+  %e_y_ld = load ptr, ptr %e_y, align 8
+  store i32 3, ptr %e_y_ld, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none)
+define void @write_z(ptr nocapture noundef nonnull readonly %z) local_unnamed_addr #2 {
+write_z_entry:
+  %z_ld = load ptr, ptr %z, align 8
+  %z_ld1 = getelementptr inbounds i8, ptr %z_ld, i64 4
+  store i32 3, ptr %z_ld1, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #3
+
+attributes #0 = { mustprogress nofree nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: readwrite) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) }
+attributes #3 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }

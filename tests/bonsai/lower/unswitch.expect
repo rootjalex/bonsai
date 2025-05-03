@@ -8,12 +8,12 @@ func foo() -> void {
   return
 }
 
-func norewrite1(a : mut bool) -> void {
-  if (a) {
+func norewrite1(a : mut (bool*)) -> void {
+  if ((*a)) {
     foo()
-    a = !a
+    a = !(*a)
   }
-  if (a) {
+  if ((*a)) {
     bar()
   }
   return

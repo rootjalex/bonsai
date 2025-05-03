@@ -1,0 +1,48 @@
+{1, 2, 3, 4}
+{2, 2, 3, 4}
+Example {
+  x: 1
+  y: 2
+}
+Example {
+  x: 1
+  y: 13
+}
+Example {
+  x: 4
+  y: 1
+}
+Example1 {
+  a: {1, 2, 3, 4}
+  b: 3
+}
+Example1 {
+  a: {4, 2, 3, 4}
+  b: 2
+}
+4
+10
+Example2 {
+  e: Example1 {
+    a: {1, 2, 3, 4}
+    b: 3
+  }
+  b: 9
+}
+Example2 {
+  e: Example1 {
+    a: {7, 8, 9, 10}
+    b: 3
+  }
+  b: 4
+}
+{1, 2, 3, 4}
+Example1 {
+  a: {1, 2, 3, 4}
+  b: 3
+}
+Example1 {
+  a: {3, 2, 3, 4}
+  b: 7
+}
+{3, 2, 3, 4}

@@ -769,8 +769,6 @@ Expr Build::make(Type type, std::map<std::string, Expr> values) {
 }
 
 Expr Build::make(Type type) {
-    internal_assert(type.is<Struct_t>())
-        << "Cannot build with named fields for non-struct: " << type;
     Build *node = new Build;
     node->type = std::move(type);
     return node;
@@ -879,9 +877,11 @@ Expr Lambda::make(std::vector<TypedVar> args, Expr value) {
         // TODO: assert that the vars are used?
         // or we can just optimize those out later, sometimes ppl write dumb
         // code.
-        std::vector<Type> arg_types(args.size());
+        std::vector<Function_t::ArgSig> arg_types(args.size());
         for (size_t i = 0; i < args.size(); i++) {
-            arg_types[i] = args[i].type;
+            arg_types[i].type = args[i].type;
+            // TODO(ajr): do we ever need mutable lambda arguments?
+            arg_types[i].is_mutable = false;
         }
         node->type = Function_t::make(value.type(), std::move(arg_types));
     }
@@ -966,7 +966,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             if (f->arg_types.size() == 1) {
-                internal_assert(equals(f->arg_types[0], b.type().element_of()))
+                internal_assert(
+                    equals(f->arg_types[0].type, b.type().element_of()))
                     << "Expected filter function to accept element of type: "
                     << b.type().element_of() << " instead got " << a << " : "
                     << a.type();
@@ -991,7 +992,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
+                            equals(f->arg_types[0].type, b.type().element_of()))
                 << "Expected argmin function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
@@ -1006,7 +1007,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << b << " : " << b.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0], b.type().element_of()))
+                            equals(f->arg_types[0].type, b.type().element_of()))
                 << "Expected map function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
@@ -1055,18 +1056,23 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
             << ", expected: " << f->arg_types.size()
             << " but received: " << args.size();
         for (size_t i = 0; i < args.size(); i++) {
-            internal_assert(f->arg_types[i].defined());
+            internal_assert(f->arg_types[i].type.defined());
             if (!args[i].type().defined()) {
                 internal_assert(is_const(args[i]))
                     << "Undefined type in function call for non-constant "
                        "expression: "
                     << args[i];
-                args[i] = constant_cast(f->arg_types[i], args[i]);
+                args[i] = constant_cast(f->arg_types[i].type, args[i]);
             } else {
-                internal_assert(equals(args[i].type(), f->arg_types[i]))
+                internal_assert(equals(args[i].type(), f->arg_types[i].type))
                     << "Call::make received bad argument: " << args[i]
-                    << " when expecting type: " << f->arg_types[i]
+                    << " when expecting type: " << f->arg_types[i].type
                     << " at index " << i << " of call to func: " << func;
+            }
+            if (f->arg_types[i].is_mutable) {
+                internal_assert(is_location_expr(args[i]))
+                    << "Cannot pass non-mutable argument: " << args[i]
+                    << " as mutable parameter\n";
             }
         }
         node->type = f->ret_type;
@@ -1099,6 +1105,39 @@ Expr Instantiate::make(Expr expr, TypeMap types) {
 
     node->expr = std::move(expr);
     node->types = std::move(types);
+    return node;
+}
+
+Expr PtrTo::make(Expr expr) {
+    internal_assert(expr.defined()) << "PtrTo::make received undefined expr";
+    internal_assert(expr.type().defined())
+        << "PtrTo::make received untyped expr: " << expr;
+
+    if (const Deref *ref = expr.as<Deref>()) {
+        return ref->expr;
+    }
+
+    PtrTo *node = new PtrTo;
+    node->type = Ptr_t::make(expr.type());
+    node->expr = std::move(expr);
+    return node;
+}
+
+Expr Deref::make(Expr expr) {
+    internal_assert(expr.defined()) << "Deref::make received undefined expr";
+    internal_assert(expr.type().defined())
+        << "Deref::make received untyped expr: " << expr;
+    internal_assert(expr.type().is<Ptr_t>())
+        << "Deref::make received non-ptr expr: " << expr
+        << " has type: " << expr.type();
+
+    if (const PtrTo *ptr = expr.as<PtrTo>()) {
+        return ptr->expr;
+    }
+
+    Deref *node = new Deref;
+    node->type = expr.type().as<Ptr_t>()->etype;
+    node->expr = std::move(expr);
     return node;
 }
 

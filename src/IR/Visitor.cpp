@@ -67,7 +67,9 @@ void Visitor::visit(const Set_t *node) { node->etype.accept(this); }
 
 void Visitor::visit(const Function_t *node) {
     node->ret_type.accept(this);
-    visit_list(this, node->arg_types);
+    for (const auto &p : node->arg_types) {
+        p.type.accept(this);
+    }
 }
 
 void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
@@ -170,6 +172,10 @@ void Visitor::visit(const Instantiate *node) {
     // TODO: should we visit the instantiated types?
 }
 
+void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
+
+void Visitor::visit(const Deref *node) { node->expr.accept(this); }
+
 void Visitor::visit(const CallStmt *node) {
     node->func.accept(this);
     visit_list(this, node->args);
@@ -180,13 +186,6 @@ void Visitor::visit(const Print *node) { node->value.accept(this); }
 void Visitor::visit(const Return *node) {
     if (!node->value.defined()) {
         return;
-    }
-    node->value.accept(this);
-}
-
-void Visitor::visit(const Store *node) {
-    if (node->index.defined()) {
-        node->index.accept(this);
     }
     node->value.accept(this);
 }
@@ -226,8 +225,6 @@ void Visitor::visit(const Accumulate *node) {
     // node->body.accept(this);
 }
 
-void Visitor::visit(const Allocate *node) { node->type.accept(this); }
-
 void Visitor::visit(const Label *node) {
     if (node->body.defined()) {
         node->body.accept(this);
@@ -262,6 +259,11 @@ void Visitor::visit(const ForAll *node) {
 }
 
 void Visitor::visit(const Continue *node) {}
+
+void Visitor::visit(const Launch *node) {
+    node->n.accept(this);
+    visit_list(this, node->args);
+}
 
 void Visitor::visit(const Name *node) {}
 

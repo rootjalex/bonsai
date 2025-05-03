@@ -8,6 +8,7 @@ add_bonsai_tests(
     ivector.bonsai
     lambda.bonsai
     map-func.bonsai
+    mut-basic.bonsai
     nested-exported-function.bonsai
     option.bonsai
     packed-struct.bonsai

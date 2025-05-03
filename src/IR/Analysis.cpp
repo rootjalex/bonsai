@@ -42,6 +42,9 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Assign *node) override {
+        if (node->mutating && !seen_vars.contains(node->loc.base)) {
+            free_vars.push_back({node->loc.base, node->loc.base_type});
+        }
         seen_vars.insert(node->loc.base);
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
@@ -72,19 +75,6 @@ struct GatherFreeVars : public Visitor {
         }
     }
 
-    void visit(const Store *node) override {
-        if (seen_vars.count(node->name) == 0) {
-            free_vars.push_back({node->name, node->value.type()});
-            seen_vars.insert(node->name);
-        }
-        node->value.accept(this);
-    }
-
-    void visit(const Allocate *node) override {
-        seen_vars.insert(node->name);
-        ir::Visitor::visit(node);
-    }
-
     void visit(const ir::ForAll *node) override {
         node->slice.begin.accept(this);
         node->slice.end.accept(this);
@@ -112,13 +102,13 @@ struct GatherFreeVars : public Visitor {
         // Erase iteration var.
         seen_vars.erase(node->name);
     }
+
+    RESTRICT_VISITOR(Launch);
 };
 
 struct AlwaysReturns : public Visitor {
     bool returns = false;
     void visit(const Return *) override { returns = true; }
-
-    void visit(const Store *) override { returns = false; }
 
     void visit(const LetStmt *node) override {
         // TODO: fix this!!
@@ -166,6 +156,7 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(Yield);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
+    RESTRICT_VISITOR(Launch);
 };
 
 struct ReturnType : public Visitor {
@@ -175,8 +166,6 @@ struct ReturnType : public Visitor {
         ir::Expr value = node->value;
         type = value.defined() ? value.type() : ir::Void_t::make();
     }
-
-    void visit(const Store *) override { type = Type(); }
 
     void visit(const LetStmt *node) override {
         // TODO: fix this!! bring back SSA
@@ -198,6 +187,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
+    RESTRICT_VISITOR(Launch);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);
@@ -328,11 +318,11 @@ std::vector<TypedVar> gather_free_vars(const Expr &expr) {
     return std::move(gather.free_vars);
 }
 
-// std::vector<TypedVar> gather_free_vars(const Stmt &stmt) {
-//     GatherFreeVars gather;
-//     stmt.accept(&gather);
-//     return std::move(gather.free_vars);
-// }
+std::vector<TypedVar> gather_free_vars(const Stmt &stmt) {
+    GatherFreeVars gather;
+    stmt.accept(&gather);
+    return std::move(gather.free_vars);
+}
 
 std::vector<TypedVar> gather_free_vars(const Function &func) {
     GatherFreeVars gather;
@@ -441,8 +431,6 @@ std::set<std::string> mutated_variables(Stmt stmt) {
     struct Gather : Visitor {
         std::set<std::string> mutated;
 
-        void visit(const Store *node) override { mutated.insert(node->name); }
-
         void visit(const Assign *node) override {
             if (node->mutating) {
                 mutated.insert(node->loc.base);
@@ -470,8 +458,6 @@ bool reads(Stmt stmt, const std::set<std::string> &vars) {
 std::set<std::string> assigned_variables(Stmt stmt) {
     struct Gather : Visitor {
         std::set<std::string> mutated;
-
-        void visit(const Store *node) override { mutated.insert(node->name); }
 
         void visit(const Assign *node) override {
             mutated.insert(node->loc.base);
