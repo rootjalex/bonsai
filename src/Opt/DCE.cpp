@@ -46,6 +46,21 @@ struct ComputeUseCounts : ir::Visitor {
             ++dependent_use_counts[curr_var][node->name];
         }
     }
+    // Don't visit the function call name; this is currently a ir::Var, and we
+    // don't want to add it to the use counts.
+    void visit(const ir::Call *node) override {
+        for (const ir::Expr &arg : node->args) {
+            arg->accept(this);
+        }
+    }
+
+    // Don't visit the function call name; this is currently a ir::Var, and we
+    // don't want to add it to the use counts.
+    void visit(const ir::CallStmt *node) override {
+        for (const ir::Expr &arg : node->args) {
+            arg->accept(this);
+        }
+    }
 
     void visit(const ir::Lambda *node) override {
         for (const ir::TypedVar &arg : node->args) {
