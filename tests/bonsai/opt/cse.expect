@@ -36,4 +36,16 @@ func mutating2(e1 : (E*), e2 : mut (E*)) -> f32 {
   return (_t1 + _t1) * (c - d)
 }
 
+func scoped(c : i32, cond : bool) -> i32 {
+  if (cond) {
+    let a = 42 in
+    let b = a * 3 in
+    return (b + c) + 1
+  } else {
+    let a = 42 in
+    let b = a * 3 in
+    return b + c
+  }
+}
+
 

@@ -16,6 +16,20 @@ func foo(w: i32, x: i32, y: i32, z: i32, cond: bool) -> i32 {
     return m + n + (x * y / z);
 }
 
+func scoped(c: i32, cond: bool) -> i32 {
+    // CSE is currently a local value numbering implementation,
+    // so we expect this to remain unaffected.
+    if (cond) {
+        a: i32 = 42;
+        b: i32 = a * 3;
+        return b + c + 1;
+    } else {
+        a: i32 = 42;
+        b: i32 = a * 3;
+        return b + c;
+    }
+}
+
 func mutating1(x: mut i32) -> i32 {
     a: i32 = 1 + x;
     x += 1;
