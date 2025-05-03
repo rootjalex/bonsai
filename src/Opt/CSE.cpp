@@ -135,11 +135,11 @@ class RenameAnalysis : public ir::Visitor {
 
     void visit(const ir::IfElse *node) override {
         node->cond.accept(this);
-        new_frame();
+        push_frame();
         node->then_body.accept(this);
         pop_frame();
 
-        new_frame();
+        push_frame();
         if (node->else_body.defined()) {
             node->else_body.accept(this);
         }
@@ -153,14 +153,6 @@ class RenameAnalysis : public ir::Visitor {
         substitute(node->value).accept(this);
     }
 
-    void visit(const ir::Store *node) override {
-        if (!mutable_variables.contains(node->name)) {
-            mutable_variables.add_to_frame(node->name);
-        }
-        substitute(node->index).accept(this);
-        substitute(node->value).accept(this);
-    }
-
     void visit(const ir::Accumulate *node) override {
         if (!mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
@@ -169,14 +161,14 @@ class RenameAnalysis : public ir::Visitor {
     }
 
     void visit(const ir::ForEach *node) override {
-        new_frame();
+        push_frame();
         node->iter.accept(this);
         node->body.accept(this);
         pop_frame();
     }
 
     void visit(const ir::ForAll *node) override {
-        new_frame();
+        push_frame();
         const ir::ForAll::Slice &slice = node->slice;
         slice.begin.accept(this);
         slice.end.accept(this);
@@ -186,7 +178,7 @@ class RenameAnalysis : public ir::Visitor {
     }
 
     void visit(const ir::DoWhile *node) override {
-        new_frame();
+        push_frame();
         node->body.accept(this);
         node->cond.accept(this);
         pop_frame();
@@ -206,7 +198,7 @@ class RenameAnalysis : public ir::Visitor {
     }
 
   private:
-    void new_frame() { var_to_e.new_frame(); }
+    void push_frame() { var_to_e.push_frame(); }
     void pop_frame() { var_to_e.pop_frame(); }
 
     void update_count(ir::Expr e) {
@@ -284,12 +276,6 @@ struct Rename : public ir::Mutator {
     ir::Stmt visit(const ir::Print *node) override {
         ir::Expr value = mutate(node->value);
         return make(ir::Print::make(std::move(value)));
-    }
-    ir::Stmt visit(const ir::Store *node) override {
-        ir::Expr value = mutate(node->value);
-        ir::Expr index = mutate(node->index);
-        return make(
-            ir::Store::make(node->name, std::move(index), std::move(value)));
     }
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Expr> args;
@@ -542,13 +528,6 @@ class LVN : public ir::Mutator {
         return ir::Assign::make(node->loc, mutate(node->value), node->mutating);
     }
 
-    ir::Stmt visit(const ir::Store *node) override {
-        if (!mutable_variables.contains(node->name)) {
-            mutable_variables.add_to_frame(node->name);
-        }
-        return node;
-    }
-
     ir::Stmt visit(const ir::Accumulate *node) override {
         if (!mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
@@ -557,18 +536,18 @@ class LVN : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
-        new_frame();
+        push_frame();
         ir::Expr cond = mutate(node->cond);
         ir::Stmt th = mutate(node->then_body);
         pop_frame();
-        new_frame();
+        push_frame();
         ir::Stmt el = mutate(node->else_body);
         pop_frame();
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
-        new_frame();
+        push_frame();
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
         pop_frame();
@@ -581,14 +560,14 @@ class LVN : public ir::Mutator {
             .end = mutate(node->slice.end),
             .stride = mutate(node->slice.stride),
         };
-        new_frame();
+        push_frame();
         ir::Stmt body = mutate(node->body);
         pop_frame();
         return ir::ForAll::make(node->index, std::move(slice), std::move(body));
     }
 
     ir::Stmt visit(const ir::DoWhile *node) override {
-        new_frame();
+        push_frame();
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);
         pop_frame();
@@ -665,11 +644,11 @@ class LVN : public ir::Mutator {
     // value number -> variable (for subsequent replacement)
     ir::MapStack<int64_t, std::string> vn_to_var;
 
-    void new_frame() {
-        mutable_variables.new_frame();
-        e_to_vn.new_frame();
-        var_to_e.new_frame();
-        vn_to_var.new_frame();
+    void push_frame() {
+        mutable_variables.push_frame();
+        e_to_vn.push_frame();
+        var_to_e.push_frame();
+        vn_to_var.push_frame();
     }
     void pop_frame() {
         mutable_variables.pop_frame();
@@ -806,17 +785,17 @@ class CopyPropagation : public ir::Mutator {
 
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Expr cond = mutate(node->cond);
-        new_frame();
+        push_frame();
         ir::Stmt th = mutate(node->then_body);
         pop_frame();
-        new_frame();
+        push_frame();
         ir::Stmt el = mutate(node->else_body);
         pop_frame();
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
-        new_frame();
+        push_frame();
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
         pop_frame();
@@ -829,13 +808,13 @@ class CopyPropagation : public ir::Mutator {
             .end = mutate(node->slice.end),
             .stride = mutate(node->slice.stride),
         };
-        new_frame();
+        push_frame();
         ir::Stmt body = mutate(node->body);
         pop_frame();
         return ir::ForAll::make(node->index, std::move(slice), std::move(body));
     }
     ir::Stmt visit(const ir::DoWhile *node) override {
-        new_frame();
+        push_frame();
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);
         pop_frame();
@@ -847,7 +826,7 @@ class CopyPropagation : public ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override { return node; }
 
   private:
-    void new_frame() { lhs_to_rhs.new_frame(); }
+    void push_frame() { lhs_to_rhs.push_frame(); }
     void pop_frame() { lhs_to_rhs.pop_frame(); }
 
     // A list of mutable arguments for this function.

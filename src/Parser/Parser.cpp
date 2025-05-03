@@ -233,16 +233,12 @@ struct Parser {
     }
 
     void modify_type_in_frame(const std::string &name, ir::Type type) {
-        std::optional<FunctionVariable> variable_type =
-            frames.from_frames(name);
-        if (variable_type.has_value()) {
-            internal_assert(!variable_type->type.defined())
-                << "Attempt to modify defined type for name: " << name;
-        }
-        frames.replace(name, FunctionVariable{
-                                 .type = type,
-                                 .mutating = variable_type->mutating,
-                             });
+        FunctionVariable *variable_type = frames.find(name);
+        internal_assert(variable_type)
+            << "Attempt to modify unseen variable: " << name;
+        internal_assert(!variable_type->type.defined())
+            << "Attempt to modify already-defined type for name: " << name;
+        variable_type->type = type;
     }
 
     void push_frame() { frames.push_frame(); }
@@ -863,11 +859,11 @@ struct Parser {
         // This is a never-seen-before write to a variable.
         internal_assert(!loc.type.defined());
         ir::Type type_label;
-        bool is_mutable = false;
+        bool _mutable = false;
 
         if (consume(Token::Type::COL)) {
             if (consume(Token::Type::MUT)) {
-                is_mutable = true;
+                _mutable = true;
                 if (peek().type == Token::Type::IDENTIFIER) {
                     type_label = parse_type();
                 } // otherwise just a `mut` label.
@@ -905,14 +901,14 @@ struct Parser {
             // Allow type inference to occur when the value type is not defined.
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
-        add_type_to_frame(loc.base, write_type, is_mutable);
+        add_type_to_frame(loc.base, write_type, _mutable);
 
         loc = ir::WriteLoc(loc.base, std::move(write_type));
-        if (!is_mutable) {
+        if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
             return ir::Assign::make(std::move(loc), std::move(value),
-                                    /*mutating=*/false);
+                                    /*mutating*/ false);
         }
     }
 
