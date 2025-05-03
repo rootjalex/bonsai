@@ -964,10 +964,23 @@ struct Parser {
         return ir::Accumulate::make(std::move(loc), op, std::move(value));
     }
 
+    ir::Expr parse_unary() {
+        if (consume(Token::Type::MINUS)) {
+            ir::Expr inner = parse_unary();
+            return ir::UnOp::make(ir::UnOp::Neg, std::move(inner));
+        } else if (consume(Token::Type::NOT)) {
+            ir::Expr inner = parse_unary();
+            return ir::UnOp::make(ir::UnOp::Not, std::move(inner));
+        } else {
+            return parse_base_expr();
+        }
+    }
+
     // We follow C++'s operator precedence.
     // https://en.cppreference.com/w/cpp/language/operator_precedence
 
     // TODO: precedence 2: member access...
+    // precedence 3: neg, not
     // precedence 5: mul, div, mod
     // precedence 6: addition/subtraction
     // precedence 7: bit shifts
@@ -1018,7 +1031,7 @@ struct Parser {
     // muldivmod_expr := addsub_expr (('*' | '/' | '%') addsub_expr)*
     ir::Expr parse_mul_div_mod() {
         return parse_bin_op_with_precedence<3>(
-            [this]() { return parse_base_expr(); },
+            [this]() { return parse_unary(); },
             {{
                 {ir::BinOp::Mul, Token::Type::STAR},
                 {ir::BinOp::Div, Token::Type::SLASH},
@@ -1124,9 +1137,6 @@ struct Parser {
             expect(Token::Type::RPAREN);
             return inner;
             // TODO: do these have the correct precedence?
-        } else if (consume(Token::Type::MINUS)) {
-            ir::Expr inner = parse_expr();
-            return ir::UnOp::make(ir::UnOp::Neg, std::move(inner));
         } else if (consume(Token::Type::NOT)) {
             ir::Expr inner = parse_expr();
             return ir::UnOp::make(ir::UnOp::Not, std::move(inner));

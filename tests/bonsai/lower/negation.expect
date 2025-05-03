@@ -1,0 +1,21 @@
+func n1(a : f32, b : f32) -> f32 {
+  return -b - a
+}
+
+func n2(a : f32, b : f32) -> f32 {
+  return -b - a
+}
+
+func n3(a : f32, b : f32) -> f32 {
+  return -(b - a) - a
+}
+
+func n4(a : f32, b : f32) -> f32 {
+  return -b + -b
+}
+
+func n5(x : bool) -> bool {
+  return !x | !!x
+}
+
+

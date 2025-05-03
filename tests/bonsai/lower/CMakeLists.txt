@@ -14,6 +14,7 @@ add_bonsai_tests(
     logical-operation.bonsai
     map-func.bonsai
     multiple-options.bonsai
+    negation.bonsai
     nested-exported-function.bonsai
     option-dereference-struct.bonsai
     option-dereference.bonsai
