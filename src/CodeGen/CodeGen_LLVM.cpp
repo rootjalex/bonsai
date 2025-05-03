@@ -1128,8 +1128,11 @@ void CodeGen_LLVM::visit(const Cast *node) {
     } else if (src.is_float() && dst.is_float()) {
         // Float widening or narrowing
         value = builder->CreateFPCast(inner, llvm_dst);
+    } else if (src.is<Array_t>() && dst.is<Array_t>()) {
+        value = inner; // no-op
     } else {
-        internal_error << "TODO: implement Cast codegen: " << Expr(node);
+        internal_error << "TODO: implement Cast codegen: " << Expr(node)
+                       << "with types: " << src << " -> " << dst;
     }
 }
 

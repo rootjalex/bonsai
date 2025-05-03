@@ -188,18 +188,22 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 return ir::Build::make(expected_type, std::move(values));
             }
             if (const auto *vector = expected_type.as<ir::Vector_t>()) {
+                std::vector<ir::Expr> values;
                 internal_assert(vector->lanes == build->values.size())
                     << "Received different number of values: "
                     << build->values.size()
                     << " than lanes in the vector: " << vector->lanes;
                 for (int i = 0, e = vector->lanes; i < e; ++i) {
-                    const ir::Expr &value = build->values[i];
-                    internal_assert(value.defined()) << value;
-                    internal_assert(ir::equals(value.type(), vector->etype))
-                        << "Mismatch in vector element type: " << vector->etype
-                        << " and initializer list type: " << value.type();
+                    ir::Expr value = build->values[i];
+                    if (value.type().defined()) {
+                        value = cast_to(vector->etype, std::move(value));
+                        values.push_back(std::move(value));
+                        continue;
+                    }
+                    value = update_type(std::move(value), vector->etype);
+                    values.push_back(std::move(value));
                 }
-                return ir::Build::make(expected_type, build->values);
+                return ir::Build::make(expected_type, std::move(values));
             }
             if (const auto *tuple = expected_type.as<ir::Tuple_t>()) {
                 std::vector<ir::Expr> values;

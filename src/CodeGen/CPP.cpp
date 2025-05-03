@@ -95,9 +95,11 @@ class TypeEmitter : public ir::Visitor {
     }
 
     void visit(const ir::Vector_t *type) override {
-        internal_error
-            << "Vector_t needs to be handled early since we emit "
-               "before and after the argument name, i.e., `T name[N]`";
+        type->etype.accept(this);
+        ss << "*";
+        // internal_error
+        //     << "Vector_t needs to be handled early since we emit "
+        //        "before and after the argument name, i.e., `T name[N]`";
     }
 
     void visit(const ir::Ptr_t *type) override {

@@ -149,7 +149,8 @@ Expr VecImm::make(std::vector<Expr> values) {
                 << "VecImm requires all constant values, received: " << e;
             internal_assert(equals(e.type(), element_type))
                 << "VecImm requires uniform element type, expected: "
-                << element_type << ", but received: " << e;
+                << element_type << " due to first element: " << values.front()
+                << ", but received: " << e << " of type: " << e.type();
         }
         node->type = Vector_t::make(element_type, values.size());
     }

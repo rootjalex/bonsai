@@ -47,3 +47,5 @@ venv
 # Build dependencies
 deps/llvm-build
 deps/llvm-install
+
+*.ppm

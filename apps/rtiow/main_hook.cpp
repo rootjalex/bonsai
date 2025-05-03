@@ -6,17 +6,20 @@
 #include "main.h"
 
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <width> <height>\n";
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <width>\n";
         return 1;
     }
 
     // Parse width and height from input strings
     int image_width = std::stoi(argv[1]);
-    int image_height = std::stoi(argv[2]);
+    float aspect_ratio = 16.0 / 9.0;
+    float image_height = (int)(image_width / aspect_ratio);
+    image_height = (image_height < 1) ? 1 : image_height;
+    // int image_height = std::stoi(argv[2]);
 
     // Render
-    int *im = (int *)image(image_width, image_height);
+    int *im = (int *)image(image_width);
 
     std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
 
@@ -28,4 +31,6 @@ int main(int argc, char *argv[]) {
             std::cout << ir << ' ' << ig << ' ' << ib << '\n';
         }
     }
+
+    free(im);
 }
