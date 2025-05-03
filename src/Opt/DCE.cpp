@@ -27,7 +27,7 @@ using DepUseCountMap = std::map<std::string, UseCountMap>;
 
 // Gives unique names to variables in diverging control flow. This is necessary
 // because the DCE pass currently does not account for diverging control flow.
-struct Name : ir::Mutator {
+struct NameHygiene : ir::Mutator {
     ir::Expr visit(const ir::Var *node) override {
         auto it = old_to_new.find(node->name);
         if (it == old_to_new.end()) {
@@ -101,8 +101,8 @@ struct Name : ir::Mutator {
     std::unordered_map<std::string, std::string> old_to_new;
 };
 
-// Undo the naming.
-struct Unname : ir::Mutator {
+// Undo the hygienic naming.
+struct UnnameHygiene : ir::Mutator {
     ir::Expr visit(const ir::Var *node) override {
         if (!node->name.starts_with(DELIMITER)) {
             return node;
@@ -483,14 +483,14 @@ struct DeadCodeElimination : ir::Mutator {
 // are never used.
 ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args, ir::Stmt stmt,
                   const std::set<std::string> &se_functions) {
-    stmt = Name().mutate(std::move(stmt));
+    stmt = NameHygiene().mutate(std::move(stmt));
     ComputeUseCounts analyzer(mutable_func_args);
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts),
                                   se_functions);
     stmt = optimizer.mutate(std::move(stmt));
-    return Unname().mutate(stmt);
+    return UnnameHygiene().mutate(stmt);
 }
 
 } // namespace
