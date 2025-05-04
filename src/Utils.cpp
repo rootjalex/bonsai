@@ -171,6 +171,8 @@ Expr constant_cast(const Type &t, const Expr &e) {
         return Build::make(t, empty);
     } else if (e.is<Broadcast>()) {
         return constant_cast(t, e.as<Broadcast>()->value);
+    } else if (e.is<Infinity>()) {
+        return Infinity::make(t);
     } else {
         internal_error << "Unsure how to convert constant to type: " << t
                        << " expr: " << e;

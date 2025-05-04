@@ -335,14 +335,9 @@ void CodeGen_LLVM::compile_function(const Function &func,
         arg.setName(name);
         llvm::Value *arg_value = &arg;
 
-        const bool is_struct = arg_info.type.is<Struct_t>();
+        internal_assert(!arg_info.type.is<Struct_t>());
 
-        if (is_struct) {
-            // Mutable structs have been converted to pointers already.
-            internal_assert(!arg_info.mutating);
-            llvm::Type *arg_type = codegen_type(arg_info.type);
-            arg_value = builder->CreateLoad(arg_type, arg_value, name);
-        }
+        // TODO: lift load.
 
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
@@ -1264,7 +1259,11 @@ void CodeGen_LLVM::visit(const Extract *node) {
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
-        value = builder->CreateLoad(etype, ptr, "extract");
+        llvm::LoadInst *load = builder->CreateLoad(etype, ptr, "extract");
+        const llvm::DataLayout &DL = module->getDataLayout();
+        unsigned align = DL.getABITypeAlign(etype).value();
+        load->setAlignment(llvm::Align(align));
+        value = load;
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << node->vec.type();
@@ -1398,6 +1397,7 @@ void CodeGen_LLVM::visit(const Call *node) {
     for (size_t i = 0; i < n_args; i++) {
         llvm::Value *argument = codegen_expr(node->args[i]);
 
+        internal_assert(!function_t->arg_types[i].type.is<Struct_t>());
         if (function_t->arg_types[i].type.is<Struct_t>()) {
             // Pass by pointer.
             internal_assert(!argument->getType()->isPointerTy());
@@ -1431,11 +1431,9 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
     if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
         value = load->getPointerOperand();
     } else if (node->expr.type().is<Struct_t>()) {
-        // Allocate space on stack
-        llvm::Value *alloca = builder->CreateAlloca(
-            pointee->getType(), /* arraysize=*/nullptr,
-            node->expr.type().as<Struct_t>()->name + "_ptrto");
-
+        llvm::Type *llvm_type = pointee->getType();
+        llvm::Value *alloca = create_alloca_at_entry(
+            llvm_type, node->expr.type().as<Struct_t>()->name + "_ptrto");
         builder->CreateStore(pointee, alloca);
         value = alloca;
     } else {
@@ -1451,9 +1449,14 @@ void CodeGen_LLVM::visit(const Deref *node) {
 
     // Make sure the expression is a pointer
     if (pointer_value->getType()->isPointerTy()) {
+        llvm::Type *loaded_type = codegen_type(node->type);
         // Dereference the pointer (load the value at the pointer address)
-        value = builder->CreateLoad(codegen_type(node->type), pointer_value,
-                                    "deref_temp");
+        llvm::LoadInst *load =
+            builder->CreateLoad(loaded_type, pointer_value, "deref_temp");
+        const llvm::DataLayout &DL = module->getDataLayout();
+        unsigned align = DL.getABITypeAlign(loaded_type).value();
+        load->setAlignment(llvm::Align(align));
+        value = load;
     } else {
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
@@ -1741,8 +1744,8 @@ void CodeGen_LLVM::visit(const Assign *node) {
 
         llvm::Type *value_type = codegen_type(node->loc.base_type);
 
-        llvm::Value *loc =
-            builder->CreateAlloca(value_type, /* arraysize ? */ nullptr, name);
+        llvm::Value *loc = create_alloca_at_entry(value_type, name);
+
         frames.add_to_frame(node->loc.base, loc);
         // TODO: when is isVolatile true?
         builder->CreateStore(rhs, loc, /*isVolatile=*/false);
@@ -1799,7 +1802,13 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
 
     llvm::Value *loc = codegen_write_loc(node->loc);
     llvm::Value *update = codegen_expr(node->value);
-    llvm::Value *current = builder->CreateLoad(update->getType(), loc);
+
+    llvm::Type *loaded_type = update->getType();
+    llvm::LoadInst *current = builder->CreateLoad(loaded_type, loc);
+    const llvm::DataLayout &DL = module->getDataLayout();
+    unsigned align = DL.getABITypeAlign(loaded_type).value();
+    current->setAlignment(llvm::Align(align));
+
     llvm::Value *acc = nullptr;
 
     switch (node->op) {
@@ -1851,49 +1860,26 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     builder->CreateStore(acc, loc);
 }
 
-/*
-llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *etype, llvm::Value
-*size, bool zero_initialize, const std::string &name) {
-    // create alloca at basic block entry.
-    // TODO(ajr): why does Halide do this at BB entry?
-
-    auto here = builder->saveIP();
+llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
+                                                  const std::string &name) {
+    llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     llvm::BasicBlock *entry =
-&builder->GetInsertBlock()->getParent()->getEntryBlock(); if (entry->empty()) {
+        &builder->GetInsertBlock()->getParent()->getEntryBlock();
+    if (entry->empty()) {
         builder->SetInsertPoint(entry);
     } else {
         builder->SetInsertPoint(entry, entry->getFirstInsertionPt());
     }
-    llvm::AllocaInst *ptr = builder->CreateAlloca(etype, size, name);
-    int align = native_vector_bits() / 8;
-    // const llvm::DataLayout &d = module->getDataLayout();
-    if (etype->isVectorTy() || !is_llvm_const_one(size)) {
-        ptr->setAlignment(llvm::Align(align));
-    }
+    llvm::AllocaInst *ptr =
+        builder->CreateAlloca(t, /* arraysize=*/nullptr, name);
 
-    if (zero_initialize) {
-        if (is_llvm_const_one(size)) {
-            builder->CreateStore(llvm::Constant::getNullValue(etype), ptr);
-        } else {
-            internal_error << "[unimplemented] zero initialize array";
-            ptr->getType()->dump();
-            llvm::Constant::getNullValue(etype)->getType()->dump();
-            size->getType()->dump();
-            llvm::Type *i8_ptr_ty = i8_t->getPointerTo();
-            llvm::Value *ptr_i8 = builder->CreateBitCast(ptr, i8_ptr_ty); //
-alloc is %0 llvm::Value *val = builder->getInt8(0); // fill with 0 llvm::Value
-*len = builder->CreateZExt(size, i64_t);                // size is i32 8 -> i64
+    const llvm::DataLayout &DL = module->getDataLayout();
+    unsigned align = DL.getABITypeAlign(t).value();
+    ptr->setAlignment(llvm::Align(align));
 
-
-            // builder->CreateMemSet(ptr, llvm::Constant::getNullValue(etype),
-size, llvm::Align(align)); builder->CreateMemSet(ptr_i8, val, len,
-llvm::Align(align));
-        }
-    }
     builder->restoreIP(here);
     return ptr;
 }
-*/
 
 llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
                                          bool zero_initialize,
@@ -2327,8 +2313,15 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             llvm::Value *llvm_idx = codegen_expr(idx);
 
             // First do a load, then index.
-            loc = builder->CreateLoad(codegen_type(bonsai_type), loc,
-                                      name + "_ld");
+            llvm::Type *llvm_type = codegen_type(bonsai_type);
+            llvm::LoadInst *ld =
+                builder->CreateLoad(llvm_type, loc, name + "_ld");
+
+            const llvm::DataLayout &DL = module->getDataLayout();
+            unsigned align = DL.getABITypeAlign(llvm_type).value();
+            ld->setAlignment(llvm::Align(align));
+
+            loc = ld;
 
             // Get lvalue to loc[`idx`]
             name += "_ld";
