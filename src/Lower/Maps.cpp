@@ -77,12 +77,14 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
         if (expr.type().is_vector()) {
             // TODO(ajr): fix this hack.
             const size_t lanes = expr.type().lanes();
-            std::vector<Stmt> stores(lanes);
+            std::vector<Stmt> stores(lanes + 1);
+            stores[0] = LetStmt::make(WriteLoc("__temp", expr.type()), expr);
+            Expr read = Var::make(expr.type(), "__temp");
             for (size_t i = 0; i < lanes; i++) {
                 WriteLoc lane = loc;
                 lane.add_index_access(idx * lanes + i);
-                stores[i] = Assign::make(lane, Extract::make(expr, i),
-                                         /*mutating=*/true);
+                stores[i + 1] = Assign::make(lane, Extract::make(read, i),
+                                             /*mutating=*/true);
             }
             return Sequence::make(std::move(stores));
         } else {
