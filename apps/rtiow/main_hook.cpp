@@ -18,8 +18,34 @@ int main(int argc, char *argv[]) {
     image_height = (image_height < 1) ? 1 : image_height;
     // int image_height = std::stoi(argv[2]);
 
+    _spheres_layout1 tree;
+    tree.pCount = 2;
+    tree.prims = (Sphere *)malloc(sizeof(Sphere) * tree.pCount);
+    // world.add(make_shared<sphere>(point3(0,0,-1), 0.5));
+    tree.prims[0].center[0] = 0;
+    tree.prims[0].center[1] = 0;
+    tree.prims[0].center[2] = -1;
+    tree.prims[0].radius = 0.5;
+    // world.add(make_shared<sphere>(point3(0,-100.5,-1), 100));
+    tree.prims[1].center[0] = 0;
+    tree.prims[1].center[1] = -100.5;
+    tree.prims[1].center[2] = -1;
+    tree.prims[1].radius = 100;
+
+    tree.count = 1;
+    tree.spheres_index = (_spheres_layout0 *)malloc(sizeof(_spheres_layout0));
+    tree.spheres_index[0].nPrims = 2;
+    // offset = 0
+    tree.spheres_index[0].spheres_spliton_nPrims[0] = 0;
+    tree.spheres_index[0].spheres_spliton_nPrims[1] = 0;
+    // TODO: actually make BV
+    tree.spheres_index[0].center[0] = 0;
+    tree.spheres_index[0].center[1] = 0;
+    tree.spheres_index[0].center[2] = 0;
+    tree.spheres_index[0].radius = 300;
+
     // Render
-    int *im = (int *)image(image_width);
+    int *im = (int *)image(image_width, tree);
 
     std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
 
