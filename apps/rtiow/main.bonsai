@@ -2,6 +2,7 @@
 // clang++ -std=c++20 -O3 main_hook.cpp main.o -o bonsai.out
 
 import stdlib/numerics;
+import stdlib/random;
 import stdlib/ray;
 import stdlib/sphere;
 import stdlib/distance;
@@ -10,14 +11,6 @@ element Camera {
     aspect_ratio : Float;
     width : i32;
     samples_per_pixel : u32 = 100;
-}
-
-func random_float(low : Float, high : Float) -> Float {
-    return low + (high - low) * rand();
-}
-
-func sample_square() -> vec3f {
-    return {rand() - 0.5, rand() - 0.5, 0.0};
 }
 
 func build_ray(i : i32, j : i32, cam : Camera) {
@@ -83,7 +76,8 @@ func sample(r : Ray) -> vec3f {
     isect = trace(r);
     if isect {
         hit = get_hit_record(r, *isect);
-        return 0.5 * (hit.normal + 1);
+        dir = random_on_hemisphere(hit.normal);
+        return 0.5 * sample(Ray{hit.p, dir});
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
