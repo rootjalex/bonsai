@@ -337,7 +337,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
         internal_assert(!arg_info.type.is<Struct_t>());
 
-        // TODO: lift load.
+        // TODO(ajr): lift loads from immutable ptr args.
 
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
@@ -1259,11 +1259,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
-        llvm::LoadInst *load = builder->CreateLoad(etype, ptr, "extract");
-        const llvm::DataLayout &DL = module->getDataLayout();
-        unsigned align = DL.getABITypeAlign(etype).value();
-        load->setAlignment(llvm::Align(align));
-        value = load;
+        value = create_aligned_load(etype, ptr, "extract");
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << node->vec.type();
@@ -1397,19 +1393,9 @@ void CodeGen_LLVM::visit(const Call *node) {
     for (size_t i = 0; i < n_args; i++) {
         llvm::Value *argument = codegen_expr(node->args[i]);
 
+        // Struct args should have been lowered to pointers already.
         internal_assert(!function_t->arg_types[i].type.is<Struct_t>());
-        if (function_t->arg_types[i].type.is<Struct_t>()) {
-            // Pass by pointer.
-            internal_assert(!argument->getType()->isPointerTy());
-            internal_assert(!function_t->arg_types[i].is_mutable);
-            // Allocate space on stack
-            llvm::AllocaInst *alloca =
-                builder->CreateAlloca(argument->getType());
-            // Store struct in stack
-            builder->CreateStore(argument, alloca);
-            // Pass pointer to the alloca.
-            args[i] = alloca;
-        } else if (function_t->arg_types[i].is_mutable) {
+        if (function_t->arg_types[i].is_mutable) {
             internal_assert(argument->getType()->isPointerTy());
             args[i] = argument;
         } else {
@@ -1451,12 +1437,7 @@ void CodeGen_LLVM::visit(const Deref *node) {
     if (pointer_value->getType()->isPointerTy()) {
         llvm::Type *loaded_type = codegen_type(node->type);
         // Dereference the pointer (load the value at the pointer address)
-        llvm::LoadInst *load =
-            builder->CreateLoad(loaded_type, pointer_value, "deref_temp");
-        const llvm::DataLayout &DL = module->getDataLayout();
-        unsigned align = DL.getABITypeAlign(loaded_type).value();
-        load->setAlignment(llvm::Align(align));
-        value = load;
+        value = create_aligned_load(loaded_type, pointer_value, "deref_temp");
     } else {
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
@@ -1803,11 +1784,8 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     llvm::Value *loc = codegen_write_loc(node->loc);
     llvm::Value *update = codegen_expr(node->value);
 
-    llvm::Type *loaded_type = update->getType();
-    llvm::LoadInst *current = builder->CreateLoad(loaded_type, loc);
-    const llvm::DataLayout &DL = module->getDataLayout();
-    unsigned align = DL.getABITypeAlign(loaded_type).value();
-    current->setAlignment(llvm::Align(align));
+    llvm::Value *current =
+        create_aligned_load(update->getType(), loc, "acc_base");
 
     llvm::Value *acc = nullptr;
 
@@ -1858,6 +1836,16 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     }
 
     builder->CreateStore(acc, loc);
+}
+
+llvm::Value *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
+                                               llvm::Value *ptr,
+                                               const std::string &name) {
+    llvm::LoadInst *load = builder->CreateLoad(etype, ptr, name);
+    const llvm::DataLayout &DL = module->getDataLayout();
+    unsigned align = DL.getABITypeAlign(etype).value();
+    load->setAlignment(llvm::Align(align));
+    return load;
 }
 
 llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
@@ -2313,15 +2301,8 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             llvm::Value *llvm_idx = codegen_expr(idx);
 
             // First do a load, then index.
-            llvm::Type *llvm_type = codegen_type(bonsai_type);
-            llvm::LoadInst *ld =
-                builder->CreateLoad(llvm_type, loc, name + "_ld");
-
-            const llvm::DataLayout &DL = module->getDataLayout();
-            unsigned align = DL.getABITypeAlign(llvm_type).value();
-            ld->setAlignment(llvm::Align(align));
-
-            loc = ld;
+            loc = create_aligned_load(codegen_type(bonsai_type), loc,
+                                      name + "_ld");
 
             // Get lvalue to loc[`idx`]
             name += "_ld";
