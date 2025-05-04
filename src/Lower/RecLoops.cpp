@@ -63,10 +63,15 @@ struct LowerRecLoopsImpl : public Mutator {
 
     Stmt visit(const YieldFrom *node) override {
         internal_assert(current_func.defined());
-        internal_assert(!node->value.type().is<Tuple_t>())
-            << "[unimplemented] lowering yieldfrom of tuple";
         std::vector<Expr> call_args = current_args;
-        call_args[0] = node->value;
+        if (const Tuple_t *tuple_t = node->value.type().as<Tuple_t>()) {
+            internal_assert(tuple_t->etypes.size() < current_args.size());
+            for (size_t i = 0; i < tuple_t->etypes.size(); i++) {
+                call_args[i] = Extract::make(node->value, i);
+            }
+        } else {
+            call_args[0] = node->value;
+        }
         return CallStmt::make(current_func, std::move(call_args));
     }
 };

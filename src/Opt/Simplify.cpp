@@ -419,6 +419,24 @@ struct Simplifier : ir::Mutator {
         return ir::Extract::make(std::move(v), std::move(i));
     }
 
+    ir::Expr visit(const ir::Access *node) override {
+        ir::Expr value = mutate(node->value);
+
+        if (const ir::Build *build = value.as<ir::Build>()) {
+            const ir::Struct_t *struct_t =
+                node->value.type().as<ir::Struct_t>();
+            internal_assert(struct_t);
+            const size_t idx = find_struct_index(node->field, struct_t->fields);
+            internal_assert(idx < build->values.size());
+            return build->values[idx];
+        }
+
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Access::make(node->field, std::move(value));
+    }
+
     ir::Stmt visit(const ir::LetStmt *node) override {
         ir::Expr value = mutate(node->value);
         if (is_const(value)) {
