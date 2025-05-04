@@ -501,15 +501,5 @@ std::set<std::string> find_side_effects(const ir::FuncMap &functions) {
     return side_effects;
 }
 
-std::set<std::string> get_mutable_arguments(const ir::Function &function) {
-    std::set<std::string> args;
-    for (const auto &arg : function.args) {
-        if (arg.mutating) {
-            args.insert(arg.name);
-        }
-    }
-    return args;
-}
-
 } // namespace ir
 } // namespace bonsai

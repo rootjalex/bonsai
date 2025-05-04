@@ -83,8 +83,5 @@ std::set<std::string> find_side_effects(const ir::FuncMap &functions);
 bool has_side_effects(const ir::Expr &expr,
                       const std::set<std::string> &side_effect_functions);
 
-// Returns a list of `mutable` arguments in function.
-std::set<std::string> get_mutable_arguments(const ir::Function &function);
-
 } // namespace ir
 } // namespace bonsai
