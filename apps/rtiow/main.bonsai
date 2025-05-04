@@ -6,8 +6,6 @@ import stdlib/ray;
 import stdlib/sphere;
 import stdlib/distance;
 
-
-
 func build_ray(i : i32, j : i32, width : i32) {
     aspect_ratio : Float = 16.0 / 9.0;
     height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
@@ -40,12 +38,39 @@ func unit_vector(v : vec3f) = v / norm(v);
 
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
+
+element hit_record {
+    p, normal : vec3f;
+    t : Float;
+    front_face : bool;
+}
+
+func get_hit_record(r : Ray, s : Sphere) -> option[hit_record] {
+    t = distmin(r, s);
+    if t < 0.0 {
+        return {};
+    }
+    p = at(r, t);
+    outward_normal = (p - s.center) / s.radius;
+    front_face = dot(r.d, outward_normal) < 0;
+    normal = select(front_face, outward_normal, -outward_normal);
+    record : hit_record = {p, normal, t, front_face};
+    return record;
+}
+
 func pixel(r : Ray) -> vec3f {
     s : Sphere = {vec3f{0.0, 0.0, -1.0}, 0.5};
-    t = distmin(r, s);
-    if (t > 0.0) {
-        N = unit_vector(at(r, t) - vec3f{0.0, 0.0, -1.0});
-        return 0.5 * (N + 1);
+    hit = get_hit_record(r, s);
+    if hit {
+        record = *hit;
+        return 0.5 * (record.normal + 1);
+    }
+    // TODO: need accelerator!
+    s1 : Sphere = {vec3f{0.0, -100.5, -1.0}, 100.0};
+    hit1 = get_hit_record(r, s1);
+    if hit1 {
+        record1 = *hit1;
+        return 0.5 * (record1.normal + 1);
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);

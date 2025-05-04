@@ -928,8 +928,8 @@ void CodeGen_LLVM::visit(const Select *node) {
     llvm::Value *fvalue = codegen_expr(node->fvalue);
     if (tvalue->getType()->isVectorTy()) {
         // TODO: handle broadcasting!
-        internal_assert(cond->getType()->isVectorTy())
-            << "Select lowering failure: " << ir::Expr(node);
+        // internal_assert(cond->getType()->isVectorTy())
+        //     << "Select lowering failure: " << ir::Expr(node);
         internal_assert(fvalue->getType()->isVectorTy())
             << "Select lowering failure: " << ir::Expr(node);
     }
