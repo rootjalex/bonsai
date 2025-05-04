@@ -1,6 +1,7 @@
 import stdlib/aabb;
 import stdlib/numerics;
 import stdlib/ray;
+import stdlib/sphere;
 import stdlib/triangle;
 
 element FInterval {

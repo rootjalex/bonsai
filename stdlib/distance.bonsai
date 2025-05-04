@@ -2,6 +2,7 @@ import stdlib/aabb;
 import stdlib/intersects;
 import stdlib/point;
 import stdlib/ray;
+import stdlib/sphere;
 import stdlib/triangle;
 
 func distmax(r : Ray, b : AABB) -> Float {
