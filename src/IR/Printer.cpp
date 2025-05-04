@@ -20,6 +20,12 @@ void print_annotation(const IRNode &node, std::ostream &os) {
 }
 } // namespace
 
+std::ostream &operator<<(std::ostream &os, const Program &program) {
+    Printer printer(os);
+    printer.print(program);
+    return os;
+}
+
 std::string to_string(const Expr &expr) {
     std::ostringstream oss;
     oss << expr;

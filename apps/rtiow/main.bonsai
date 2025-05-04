@@ -9,6 +9,15 @@ import stdlib/distance;
 element Camera {
     aspect_ratio : Float;
     width : i32;
+    samples_per_pixel : u32 = 12;
+}
+
+func random_float(low : Float, high : Float) -> Float {
+    return low + (high - low) * rand();
+}
+
+func sample_square() -> vec3f {
+    return {rand() - 0.5, rand() - 0.5, 0.0};
 }
 
 func build_ray(i : i32, j : i32, cam : Camera) {
@@ -34,18 +43,20 @@ func build_ray(i : i32, j : i32, cam : Camera) {
     viewport_upper_left = camera_center - vec3f{0.0, 0.0, focal_length} - viewport_u / 2 - viewport_v / 2;
     pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
 
-    pixel_center = pixel00_loc + (cast[[Float]](i) * pixel_delta_u) + (cast[[Float]](j) * pixel_delta_v);
-    ray_direction = pixel_center - camera_center;
-    return Ray{camera_center, ray_direction};
+    // Construct a camera ray originating from the origin and directed at randomly sampled
+    // point around the pixel location i, j.
+    offset = sample_square();
+    pixel_sample = pixel00_loc + ((cast[[Float]](i) + offset.x) * pixel_delta_u)
+                               + ((cast[[Float]](j) + offset.y) * pixel_delta_v);
+
+    ray_origin = camera_center;
+    ray_direction = pixel_sample - ray_origin;
+    return Ray{ray_origin, ray_direction};
 }
 
 func unit_vector(v : vec3f) = v / norm(v);
 
 func at(r : Ray, t : Float) = r.o + t * r.d;
-
-func random_float(low : Float, high : Float) -> Float {
-    return low + (high - low) * rand();
-}
 
 element hit_record {
     p, normal : vec3f;
@@ -68,7 +79,7 @@ extern spheres : set[Sphere];
 // TODO: this should return an option[Sphere]...
 func trace(r : Ray) = argmin(|s : Sphere| distmin(r, s), filter(|s : Sphere| intersects(r, s), spheres));
 
-func pixel(r : Ray) -> vec3f {
+func sample(r : Ray) -> vec3f {
     isect = trace(r);
     if isect {
         hit = get_hit_record(r, *isect);
@@ -79,6 +90,10 @@ func pixel(r : Ray) -> vec3f {
     return (1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0};
 }
 
+func pixel(i : i32, j : i32, c : Camera) {
+    return sum(map(|k : u32| sample(build_ray(i, j, c)), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
+} 
+
 func to_rgb(v : vec3f) {
     return cast[[vector[i32, 3]]](255.999 * v);
 }
@@ -88,7 +103,7 @@ func [[export]] image(width : i32) {
     c : Camera = {aspect_ratio, width};
     height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, c))), iter(width)), iter(height));
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(width)), iter(height));
 }
 
 schedule {

@@ -811,7 +811,7 @@ Expr Unwrap::make(size_t index, Expr value) {
 
 namespace {
 
-std::atomic<int> random_number_counter = 0;
+// std::atomic<int> random_number_counter = 0;
 
 } // namespace
 
