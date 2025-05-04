@@ -49,3 +49,6 @@ deps/llvm-build
 deps/llvm-install
 
 *.ppm
+
+# MacOS debug symbol files
+*.dSYM/
