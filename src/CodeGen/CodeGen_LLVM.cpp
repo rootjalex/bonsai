@@ -1849,8 +1849,8 @@ llvm::Value *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
                                                llvm::Value *ptr,
                                                const std::string &name) {
     llvm::LoadInst *load = builder->CreateLoad(etype, ptr, name);
-    const llvm::DataLayout &DL = module->getDataLayout();
-    unsigned align = DL.getABITypeAlign(etype).value();
+    const llvm::DataLayout &dl = module->getDataLayout();
+    unsigned align = dl.getABITypeAlign(etype).value();
     load->setAlignment(llvm::Align(align));
     return load;
 }
@@ -1868,8 +1868,8 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
     llvm::AllocaInst *ptr =
         builder->CreateAlloca(t, /* arraysize=*/nullptr, name);
 
-    const llvm::DataLayout &DL = module->getDataLayout();
-    unsigned align = DL.getABITypeAlign(t).value();
+    const llvm::DataLayout &dl = module->getDataLayout();
+    unsigned align = dl.getABITypeAlign(t).value();
     ptr->setAlignment(llvm::Align(align));
 
     builder->restoreIP(here);
