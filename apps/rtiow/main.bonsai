@@ -46,8 +46,7 @@ func hit_sphere(center : vec3f, radius : f32, r : Ray) {
     } else {
         denom = 2.0 * a;
         // negation parsing bug.
-        top = b + sqrt(disc);
-        return (-top) / denom;
+        return (-b - sqrt(disc)) / denom;
     }
 }
 
