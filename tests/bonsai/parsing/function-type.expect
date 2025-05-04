@@ -1,0 +1,15 @@
+func apply(input : i32, f : Fn(i32) -> i32) -> i32 {
+  return f(input)
+}
+
+func id(x : i32) -> i32 {
+  return x
+}
+
+func main() -> i32 {
+  let o1 = apply(42, |x : i32| x + 1) in
+  let o2 = apply(42, id) in
+  return 0
+}
+
+

@@ -622,6 +622,23 @@ void CodeGen_LLVM::visit(const Tuple_t *node) {
     internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
 }
 
+llvm::FunctionType *CodeGen_LLVM::get_function_type(const ir::Type &type) {
+    const Function_t *node = type.as<ir::Function_t>();
+    internal_assert(node);
+    std::vector<llvm::Type *> input_types;
+    for (const ir::Function_t::ArgSig &arg : node->arg_types) {
+        input_types.push_back(codegen_type(arg.type));
+    }
+    llvm::Type *return_type = codegen_type(node->ret_type);
+    return llvm::FunctionType::get(return_type, std::move(input_types),
+                                   /*isVariadic=*/false);
+}
+
+void CodeGen_LLVM::visit(const Function_t *node) {
+    llvm::FunctionType *function_type = get_function_type(ir::Type(node));
+    type = llvm::PointerType::getUnqual(function_type);
+}
+
 void CodeGen_LLVM::visit(const Array_t *node) {
     // TODO: are nested arrays allowed?
     // lowering should probably flatten arrays.
@@ -1380,12 +1397,6 @@ void CodeGen_LLVM::visit(const SetOp *node) {
 
 void CodeGen_LLVM::visit(const Call *node) {
     llvm::Function *func = codegen_func_ptr(node->func);
-    internal_assert(func) << "Failed to codegen function pointer to: "
-                          << Expr(node);
-
-    // TODO: figure out how to make sure we have the right
-    // number of arguments here for better error handling.
-
     const size_t n_args = node->args.size();
     std::vector<llvm::Value *> args(n_args);
 
@@ -1414,6 +1425,18 @@ void CodeGen_LLVM::visit(const Call *node) {
             args[i] = argument;
         }
     }
+    if (func == nullptr) {
+        // This is an argument with a function type.
+        const auto *f = node->func.as<ir::Var>();
+        internal_assert(f) << ir::Expr(node);
+        llvm::FunctionType *function_type = get_function_type(f->type);
+        internal_assert(function_type) << ir::Expr(f) << " : " << f->type;
+        value =
+            builder->CreateCall(function_type, codegen_expr(node->func), args);
+        return;
+    }
+    // TODO: figure out how to make sure we have the right
+    // number of arguments here for better error handling.
     value = builder->CreateCall(func, args);
 }
 

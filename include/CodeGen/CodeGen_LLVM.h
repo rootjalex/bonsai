@@ -104,10 +104,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;
     virtual void visit(const ir::Tuple_t *) override;
+    virtual void visit(const ir::Function_t *) override;
     RESTRICT_VISITOR(ir::Option_t);
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
-    RESTRICT_VISITOR(ir::Function_t);
     RESTRICT_VISITOR(ir::BVH_t);
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
@@ -164,6 +164,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Launch *) override;
 
   private:
+    llvm::FunctionType *get_function_type(const ir::Type &type);
     // Recursively creates IR that will print the given expression. This
     // performs exactly one call to C's `printf` with the string `to_print` and
     // the arguments `args`.
