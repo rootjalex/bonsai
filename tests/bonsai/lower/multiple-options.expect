@@ -1,3 +1,6 @@
+type _option0 = struct _option0{ value : f32; set : bool }
+type _option1 = struct _option1{ value : i32; set : bool }
+
 func make_option_float(t : f32) -> _option0 {
   return build<_option0>(t, true)
 }

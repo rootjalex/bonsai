@@ -3,10 +3,14 @@ type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
 type Point = struct Point{ vec : f32x3 }
-type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool }
+type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool }
+type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }
 type _triangles_layout0 = struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }
 type _triangles_layout1 = struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 type tuple.0 = struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
@@ -16,43 +20,55 @@ type vec3h = f16x3
 
 extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 
-func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> Triangle[n] {
-  _alloc0 := build<Triangle[n]>()
-  forall _i0 in [0u:n:1u] {
-    _alloc0[_i0] = _traverse_tree0((&rays[_i0]), triangles)
-  }
-  return (*_alloc0)
-}
-
-func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout1*)) -> Triangle {
-  _best0 := build<tuple.0>((f32)inf, build<Triangle>())
-  rec(triangles__index : u32) {
-    if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high)))) {
-      if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
-        if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
-          from triangles__index + 1u
-          from triangles__index + cast<__layout6>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset
-        } else {
-          forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
-            if (intersectsp_ray_tri(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {
-              if (distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
-              }
+func _recloop_func0(triangles__index : u32, triangles : (_triangles_layout1*), ray : (Ray*), _best0 : mut (tuple.0*)) -> void {
+  if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high)))) {
+    if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
+      if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
+        _recloop_func0(triangles__index + 1u, triangles, ray, _best0)
+        _recloop_func0(triangles__index + cast<__layout6>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset, triangles, ray, _best0)
+      } else {
+        forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
+          if (intersectsp_ray_tri(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {
+            if (distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
+              _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
             }
           }
         }
       }
     }
   }
-  return (*_best0)._field1
+  return
 }
 
-func _unexported_trace(ray : (Ray*), triangles : (_triangles_layout1*)) -> Triangle {
+func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[] {
+  _alloc0 := build<option<Triangle>[n]>()
+  forall _i0 in [0u:n:1u] {
+    _alloc0[_i0] = _traverse_tree0((&rays[_i0]), triangles)
+  }
+  return (*_alloc0)
+}
+
+func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout1*)) -> _option0 {
+  _best0 := build<tuple.0>((f32)inf, build<Triangle>())
+  _recloop_func0(0u, triangles, ray, _best0)
+  return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
+}
+
+func _unexported_trace(ray : (Ray*), triangles : (_triangles_layout1*)) -> _option0 {
   return _traverse_tree0(ray, triangles)
 }
 
 func distmax_Ray_AABB(r : (Ray*), b : (AABB*)) -> f32 {
   let interval = intersectsp_ray_aabb(r, b) in
+  if (interval.set) {
+    let extract = interval.value in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Sphere(r : (Ray*), s : (Sphere*)) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
   if (interval.set) {
     let extract = interval.value in
     return extract.high
@@ -78,6 +94,15 @@ func distmin_Ray_AABB(r : (Ray*), b : (AABB*)) -> f32 {
   return -(f32)inf
 }
 
+func distmin_Ray_Sphere(r : (Ray*), s : (Sphere*)) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (interval.set) {
+    let extract = interval.value in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
 func distmin_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> f32 {
   let isect = intersectsp_ray_tri(ray, tri) in
   if (isect.set) {
@@ -92,7 +117,16 @@ func intersects_Ray_AABB(r : (Ray*), b : (AABB*)) -> bool {
   let interval = intersectsp_ray_aabb(r, b) in
   if (interval.set) {
     let extract = interval.value in
-    return (extract.low < (*r).t) & (0f < extract.high)
+    return (extract.low < (*r).tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Sphere(ray : (Ray*), s : (Sphere*)) -> bool {
+  let interval = intersectsp_ray_sphere(ray, s) in
+  if (interval.set) {
+    let extract = interval.value in
+    return (extract.low < (*ray).tmax) & (0f < extract.high)
   }
   return false
 }
@@ -101,12 +135,12 @@ func intersects_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func [[export]] trace(_ret0 : mut (Triangle*), ray : (Ray*), triangles : (_triangles_layout1*)) -> void {
+func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_triangles_layout1*)) -> void {
   _ret0 = _traverse_tree0(ray, triangles)
   return
 }
 
-func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> Triangle[n] {
+func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[] {
   return _traverse_array0(n, rays, triangles)
 }
 

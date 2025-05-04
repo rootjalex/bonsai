@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/Expr.cpp:265
+[internal] Error: src/IR/Expr.cpp:266
 
 --> is_const(a) || is_const(b)
 Implicit casting of types: x is not the same type as y: i32 versus f32

@@ -78,7 +78,7 @@ func _traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree
   }
 }
 
-func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Triangle {
+func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> option<Triangle> {
   _best0 := build<(f32, Triangle)>((f32)inf, build<Triangle>())
   match triangles {
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
@@ -95,7 +95,7 @@ func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> Tri
       }
     }
   }
-  yield _best0[1]
+  yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
 }
 
 func alltrace(ray : Ray) -> set<Triangle> {
@@ -106,7 +106,7 @@ func collisions() -> set<(Triangle, Triangle)> {
   return _traverse_tree1(triangles, triangles2)
 }
 
-func trace(ray : Ray) -> Triangle {
+func trace(ray : Ray) -> option<Triangle> {
   return _traverse_tree2(ray, triangles)
 }
 
