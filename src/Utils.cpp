@@ -389,6 +389,9 @@ Type flatten_array_type_helper(Type type, Expr size) {
     if (const Array_t *array_t = type.as<Array_t>()) {
         // TODO(ajr): might need to cast types of size/array_t->size
         return flatten_array_type_helper(array_t->etype, size * array_t->size);
+    } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
+        return flatten_array_type_helper(vector_t->etype,
+                                         size * vector_t->lanes);
     }
     return Array_t::make(std::move(type), std::move(size));
 }

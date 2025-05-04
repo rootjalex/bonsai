@@ -69,13 +69,9 @@ func to_rgb(v : vec3f) {
     return cast[[vector[i32, 3]]](255.999 * v);
 }
 
-// necessary because an array of vecs gets malloced poorly.
-// we need a flattener.
-func indirect(v : vector[i32, 3], c : i32) = v[c];
-
 func [[export]] image(width : i32) {
     aspect_ratio : f32 = 16.0 / 9.0;
     height : mut = cast[[i32]](cast[[f32]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| map(|c : i32| indirect(to_rgb(pixel(build_ray(i, j, width))), c), iter(3)), iter(width)), iter(height));
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, width))), iter(width)), iter(height));
 }

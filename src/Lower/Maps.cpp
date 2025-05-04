@@ -72,6 +72,25 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
 
     Stmt loop_body;
 
+    auto build_loop_body = [&args](Expr expr, Expr idx) {
+        WriteLoc loc(args.result, args.base_type);
+        if (expr.type().is_vector()) {
+            // TODO(ajr): fix this hack.
+            const size_t lanes = expr.type().lanes();
+            std::vector<Stmt> stores(lanes);
+            for (size_t i = 0; i < lanes; i++) {
+                WriteLoc lane = loc;
+                lane.add_index_access(idx * lanes + i);
+                stores[i] = Assign::make(lane, Extract::make(expr, i),
+                                         /*mutating=*/true);
+            }
+            return Sequence::make(std::move(stores));
+        } else {
+            loc.add_index_access(idx);
+            return Assign::make(loc, expr, /*mutating=*/true);
+        }
+    };
+
     // Now apply func to loaded value.
     internal_assert(func.type().is_func());
     if (const Lambda *l = func.as<Lambda>()) {
@@ -85,15 +104,11 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
             loop_body = build_traversal_helper(next_func, next_array, depth + 1,
                                                nested_idx, args, funcs);
         } else {
-            WriteLoc loc(args.result, args.base_type);
-            loc.add_index_access(nested_idx);
-            loop_body = Assign::make(loc, expr, /*mutating=*/true);
+            loop_body = build_loop_body(std::move(expr), std::move(nested_idx));
         }
     } else {
         Expr expr = Call::make(func, {load});
-        WriteLoc loc(args.result, args.base_type);
-        loc.add_index_access(nested_idx);
-        loop_body = Assign::make(loc, expr, /*mutating=*/true);
+        loop_body = build_loop_body(std::move(expr), std::move(nested_idx));
     }
 
     return ForAll::make(
