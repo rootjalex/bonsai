@@ -3,10 +3,8 @@ set -ex
 cd ../..
 cmake --build build --config Debug -j
 ./build/compiler -i apps/rtiow/main.bonsai -b cpp -o apps/rtiow/main
-./build/compiler -i apps/rtiow/main.bonsai -b llvm -o apps/rtiow/main.ll
-./build/compiler -i apps/rtiow/main.bonsai -o apps/rtiow/main.bir
+# ./build/compiler -i apps/rtiow/main.bonsai -b llvm -o apps/rtiow/main.ll
+# ./build/compiler -i apps/rtiow/main.bonsai -o apps/rtiow/main.bir
 cd apps/rtiow
 clang++ -g -std=c++20 -O3 main_hook.cpp main.o -o bonsai.out
-time ./bonsai.out 800 > bimage.ppm
-clang++ -g -std=c++20 -O3 compare.cpp -o compare.out
-time ./compare.out 800 > image.ppm
+time ./bonsai.out 800 > image.ppm
