@@ -1,0 +1,6 @@
+import stdlib/numerics;
+
+element Sphere {
+    center : vec3f;
+    radius : Float;
+}

@@ -2,8 +2,11 @@ import stdlib/numerics;
 
 element Ray {
     o : vec3f;
+    // tmin : Float = 0;
     d : vec3f;
-    t : Float = 0;
+    tmax : Float = inf;
+    // tmax_ : Float = inf;
+    // tmax__ : Float = inf;
     // TODO: medium
     // TODO: differential?
 }

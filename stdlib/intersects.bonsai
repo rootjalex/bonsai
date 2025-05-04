@@ -41,7 +41,7 @@ func intersects(r : Ray, b : AABB) -> bool {
     interval = intersectsp_ray_aabb(r, b);
     if interval {
         extract = *interval;
-        return extract.low < r.t & extract.high > 0;
+        return extract.low < r.tmax & extract.high > 0;
     }
     return false;
 }
@@ -104,9 +104,9 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
     p2t.z *= Sz;
 
     tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
-    if (det < 0 && (tScaled >= 0 || tScaled < ray.t * det))
+    if (det < 0 && (tScaled >= 0 || tScaled < ray.tmax * det))
         return {};
-    else if (det > 0 && (tScaled <= 0 || tScaled > ray.t * det))
+    else if (det > 0 && (tScaled <= 0 || tScaled > ray.tmax * det))
         return {};
 
     // Compute barycentric coordinates and $t$ value for triangle intersection
@@ -143,4 +143,34 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
 
 func intersects(ray : Ray, tri : Triangle) -> bool {
     return cast[[bool]](intersectsp_ray_tri(ray, tri));
+}
+
+// https://raytracing.github.io/books/RayTracingInOneWeekend.html
+func intersectsp_ray_sphere(r : Ray, s : Sphere) -> option[FInterval] {
+    oc = s.center - r.o;
+    a = sum(r.d * r.d);
+    h = dot(r.d, oc);
+    c = sum(oc * oc) - s.radius * s.radius;
+
+    disc = h * h - a * c;
+
+    if (disc < 0) {
+        return {};
+    }
+
+    sqrtd = sqrt(disc);
+
+    root0 = (h - sqrtd) / a;
+    root1 = (h + sqrtd) / a;
+    interval : FInterval = {min(root0, root1), max(root0, root1)};
+    return interval;
+}
+
+func intersects(ray : Ray, s : Sphere) -> bool {
+    interval = intersectsp_ray_sphere(ray, s);
+    if interval {
+        extract = *interval;
+        return extract.low < ray.tmax & extract.high > 0;
+    }
+    return false;
 }
