@@ -1,0 +1,19 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/vec
+//! commands: clang++ -c $<>/main_vec.cpp -o $<>/main_vec.o, clang++ $<>/main_vec.o $<>/vec.o -o $<>/vec, ./$<>/vec, rm $<>/vec, rm $<>/main_vec.o, rm $<>/vec.h, rm $<>/vec.o
+
+element vec3f = vector[f32, 3];
+
+func [[export]] print_vec(v : vec3f) -> void {
+    print(v);
+    return;
+}
+
+element Sphere {
+    c : vec3f;
+    r : f32;
+}
+
+func [[export]] print_sphere(s : Sphere) -> void {
+    print(s);
+    return;
+}
