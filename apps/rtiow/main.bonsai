@@ -1,21 +1,23 @@
 //! flags: -b cpp -o apps/rtiow/main
 // clang++ -std=c++20 -O3 main_hook.cpp main.o -o bonsai.out
 
-element vec3f = vector[f32, 3];
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+//import stdlib/intersects;
+//import stdlib/distance;
 
-element Ray {
-    orig, dir : vec3f;
-}
+
 
 func build_ray(i : i32, j : i32, width : i32) {
-    aspect_ratio : f32 = 16.0 / 9.0;
-    height : mut = cast[[i32]](cast[[f32]](width) / aspect_ratio);
+    aspect_ratio : Float = 16.0 / 9.0;
+    height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
 
     // Camera
-    focal_length : f32 = 1.0;
-    viewport_height : f32 = 2.0;
-    viewport_width = viewport_height * (cast[[f32]](width) / cast[[f32]](height));
+    focal_length : Float = 1.0;
+    viewport_height : Float = 2.0;
+    viewport_width = viewport_height * (cast[[Float]](width) / cast[[Float]](height));
     camera_center = vec3f{0.0, 0.0, 0.0};
 
     // Calculate vectors across the horizontal dnd down the vertical viewport edges.
@@ -23,22 +25,22 @@ func build_ray(i : i32, j : i32, width : i32) {
     viewport_v = vec3f{0.0, -viewport_height, 0.0};
 
     // Calculate the horizontal and vertical delta vectors from pixel to pixel.
-    pixel_delta_u = viewport_u / cast[[f32]](width);
-    pixel_delta_v = viewport_v / cast[[f32]](height);
+    pixel_delta_u = viewport_u / cast[[Float]](width);
+    pixel_delta_v = viewport_v / cast[[Float]](height);
 
     // Calculate the location of the upper left pixel.
     viewport_upper_left = camera_center - vec3f{0.0, 0.0, focal_length} - viewport_u / 2 - viewport_v / 2;
     pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
 
-    pixel_center = pixel00_loc + (cast[[f32]](i) * pixel_delta_u) + (cast[[f32]](j) * pixel_delta_v);
+    pixel_center = pixel00_loc + (cast[[Float]](i) * pixel_delta_u) + (cast[[Float]](j) * pixel_delta_v);
     ray_direction = pixel_center - camera_center;
     return Ray{camera_center, ray_direction};
 }
 
-func hit_sphere(center : vec3f, radius : f32, r : Ray) {
-    oc = center - r.orig;
-    a = dot(r.dir, r.dir);
-    b = -2.0 * dot(r.dir, oc);
+func hit_sphere(center : vec3f, radius : Float, r : Ray) {
+    oc = center - r.o;
+    a = dot(r.d, r.d);
+    b = -2.0 * dot(r.d, oc);
     c = dot(oc, oc) - radius * radius;
     disc = b * b - 4 * a * c;
     if (disc < 0) {
@@ -52,15 +54,17 @@ func hit_sphere(center : vec3f, radius : f32, r : Ray) {
 
 func unit_vector(v : vec3f) = v / norm(v);
 
-func at(r : Ray, t : f32) = r.orig + t * r.dir;
+func at(r : Ray, t : Float) = r.o + t * r.d;
 
 func pixel(r : Ray) -> vec3f {
-    t = hit_sphere(vec3f{0.0, 0.0, -1.0}, 0.5, r);
+    s : Sphere = {vec3f{0.0, 0.0, -1.0}, 0.5};
+    // TODO(ajr): ise intersects and distmin
+    t = hit_sphere(s.center, s.radius, r);
     if (t > 0.0) {
         N = unit_vector(at(r, t) - vec3f{0.0, 0.0, -1.0});
         return 0.5 * (N + 1);
     }
-    unit_direction = r.dir / norm(r.dir);
+    unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
     return (1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0};
 }
@@ -70,8 +74,8 @@ func to_rgb(v : vec3f) {
 }
 
 func [[export]] image(width : i32) {
-    aspect_ratio : f32 = 16.0 / 9.0;
-    height : mut = cast[[i32]](cast[[f32]](width) / aspect_ratio);
+    aspect_ratio : Float = 16.0 / 9.0;
+    height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
     return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, width))), iter(width)), iter(height));
 }
