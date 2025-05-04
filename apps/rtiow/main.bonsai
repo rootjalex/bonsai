@@ -7,6 +7,16 @@ import stdlib/ray;
 import stdlib/sphere;
 import stdlib/distance;
 
+element MaterialSphere {
+    s : Sphere;
+    material : u32; // 0 = Lambertian, 1 = Metal
+    albedo : vec3f;
+}
+
+func distmin(r : Ray, ms : MaterialSphere) = distmin(r, ms.s);
+func distmax(r : Ray, ms : MaterialSphere) = distmax(r, ms.s);
+func intersects(r : Ray, ms : MaterialSphere) = intersects(r, ms.s);
+
 element Camera {
     aspect_ratio : Float;
     width : i32;
@@ -68,20 +78,50 @@ func get_hit_record(r : Ray, s : Sphere) -> hit_record {
     return record;
 }
 
-extern spheres : set[Sphere];
+element scatter_record {
+    attenuation : vec3f;
+    ray : Ray;
+    hit : bool;
+}
 
-// TODO: this should return an option[Sphere]...
-func trace(r : Ray) = argmin(|s : Sphere| distmin(r, s), filter(|s : Sphere| intersects(r, s), spheres));
+func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
+    hit = get_hit_record(ray, ms.s);
+    if ms.material == 0 {
+        // Lambertian
+        scatter_dir : mut = hit.normal + random_unit_vector();
+
+        if near_zero(scatter_dir) {
+            scatter_dir = hit.normal;
+        }
+
+        l_scattered = Ray{hit.p, scatter_dir};
+
+        return {ms.albedo, l_scattered, true};
+    } else {
+        // Metal ( == 1)
+        reflected = reflect(ray.d, hit.normal);
+        m_scattered = Ray{hit.p, reflected};
+        return {ms.albedo, m_scattered, true};
+    }
+}
+
+extern spheres : set[MaterialSphere];
+
+// TODO: need to inspect llvm/asm to make sure calls only happen once.
+func trace(r : Ray) = argmin(|s : MaterialSphere| distmin(r, s), filter(|s : MaterialSphere| intersects(r, s) && distmin(r, s) > 0.001, spheres));
 
 func sample(r : Ray, depth : i32) -> vec3f {
     if (depth <= 0) {
         return vec3f{0.0, 0.0, 0.0};
     }
-    isect = trace(r);
+    isect : option[MaterialSphere] = trace(r);
     if isect {
-        hit = get_hit_record(r, *isect);
-        dir = random_on_hemisphere(hit.normal);
-        return 0.5 * sample(Ray{hit.p, dir}, depth - 1);
+        data = scatter(r, *isect);
+        if (data.hit) {
+            return data.attenuation * sample(data.ray, depth - 1);
+        } else {
+            return vec3f{0.0, 0.0, 0.0};
+        }
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
@@ -93,7 +133,7 @@ func pixel(i : i32, j : i32, c : Camera) {
 } 
 
 func to_rgb(v : vec3f) {
-    return cast[[vector[i32, 3]]](255.999 * v);
+    return cast[[vector[i32, 3]]](255.999 * linear_to_gamma_v(v));
 }
 
 func [[export]] image(width : i32) {
@@ -108,13 +148,13 @@ schedule {
     // TODO: generic over primitive types!
     tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
     | Interior(left : SphereBVH, right : SphereBVH)
-    | Leaf(data : array[Sphere]);
+    | Leaf(data : array[MaterialSphere]);
 
     spheres : SphereBVH;
 
     layout spheres {
         pCount : u32;
-        prims : array[Sphere, pCount];
+        prims : array[MaterialSphere, pCount];
         count : u32;
         group[count] index : u16 {
             center : vec3f;

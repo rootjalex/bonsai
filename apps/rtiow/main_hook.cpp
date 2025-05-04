@@ -20,17 +20,21 @@ int main(int argc, char *argv[]) {
 
     _spheres_layout1 tree;
     tree.pCount = 2;
-    tree.prims = (Sphere *)malloc(sizeof(Sphere) * tree.pCount);
+    tree.prims = (MaterialSphere *)malloc(sizeof(MaterialSphere) * tree.pCount);
     // world.add(make_shared<sphere>(point3(0,0,-1), 0.5));
-    tree.prims[0].center[0] = 0;
-    tree.prims[0].center[1] = 0;
-    tree.prims[0].center[2] = -1;
-    tree.prims[0].radius = 0.5;
+    tree.prims[0].s.center[0] = 0;
+    tree.prims[0].s.center[1] = 0;
+    tree.prims[0].s.center[2] = -1;
+    tree.prims[0].s.radius = 0.5;
+    tree.prims[0].material = 1; // Metal
+    tree.prims[0].albedo = {0.8, 0.8, 0.8};
     // world.add(make_shared<sphere>(point3(0,-100.5,-1), 100));
-    tree.prims[1].center[0] = 0;
-    tree.prims[1].center[1] = -100.5;
-    tree.prims[1].center[2] = -1;
-    tree.prims[1].radius = 100;
+    tree.prims[1].s.center[0] = 0;
+    tree.prims[1].s.center[1] = -100.5;
+    tree.prims[1].s.center[2] = -1;
+    tree.prims[1].s.radius = 100;
+    tree.prims[1].material = 0; // Lambertian
+    tree.prims[1].albedo = {0.8, 0.8, 0.0};
 
     tree.count = 3;
     tree.spheres_index =
@@ -43,7 +47,7 @@ int main(int argc, char *argv[]) {
             &tree.spheres_index[0].spheres_spliton_nPrims) = 2;
 
         Sphere root_bv;
-        bounding_sphere(root_bv, tree.prims[0], tree.prims[1]);
+        bounding_sphere(root_bv, tree.prims[0].s, tree.prims[1].s);
 
         tree.spheres_index[0].center = root_bv.center;
         tree.spheres_index[0].radius = root_bv.radius;
@@ -54,8 +58,8 @@ int main(int argc, char *argv[]) {
         tree.spheres_index[1].nPrims = 1;
         *reinterpret_cast<uint16_t *>(
             &tree.spheres_index[1].spheres_spliton_nPrims) = 0;
-        tree.spheres_index[1].center = tree.prims[0].center;
-        tree.spheres_index[1].radius = tree.prims[0].radius;
+        tree.spheres_index[1].center = tree.prims[0].s.center;
+        tree.spheres_index[1].radius = tree.prims[0].s.radius;
     }
 
     // Right child
@@ -63,8 +67,8 @@ int main(int argc, char *argv[]) {
         tree.spheres_index[2].nPrims = 1;
         *reinterpret_cast<uint16_t *>(
             &tree.spheres_index[2].spheres_spliton_nPrims) = 1;
-        tree.spheres_index[2].center = tree.prims[1].center;
-        tree.spheres_index[2].radius = tree.prims[1].radius;
+        tree.spheres_index[2].center = tree.prims[1].s.center;
+        tree.spheres_index[2].radius = tree.prims[1].s.radius;
     }
 
     // Render
