@@ -321,6 +321,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
         max,
         min,
         norm,
+        rand,
         sin,
         sqrt,
         // TODO: more

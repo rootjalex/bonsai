@@ -102,6 +102,7 @@ struct Parser {
             "max",
             "min",
             "norm",
+            "rand",
             "sin",
             "sqrt",
             // Set operations
@@ -1260,6 +1261,9 @@ struct Parser {
             {"max", 2, ir::Intrinsic::max, .skippable = true},
             {"min", 2, ir::Intrinsic::min, .skippable = true},
             {"norm", 1, ir::Intrinsic::norm},
+            // rand() can have 0 or 1 args (a seed).
+            {"rand", 0, ir::Intrinsic::rand, .skippable = true},
+            {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
         });

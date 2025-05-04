@@ -766,6 +766,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "min";
     case Intrinsic::norm:
         return "norm";
+    case Intrinsic::rand:
+        return "rand";
     case Intrinsic::sin:
         return "sin";
     case Intrinsic::sqrt:

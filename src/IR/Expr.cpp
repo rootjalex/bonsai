@@ -809,10 +809,18 @@ Expr Unwrap::make(size_t index, Expr value) {
     return node;
 }
 
+namespace {
+
+std::atomic<int> random_number_counter = 0;
+
+} // namespace
+
 Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
-    internal_assert(!args.empty() &&
-                    std::all_of(args.cbegin(), args.cend(),
-                                [](const auto &arg) { return arg.defined(); }))
+    internal_assert(op == OpType::rand ||
+                    (!args.empty() && std::all_of(args.cbegin(), args.cend(),
+                                                  [](const auto &arg) {
+                                                      return arg.defined();
+                                                  })))
         << "Intrinsic received undefined argument";
 
     Intrinsic *node = new Intrinsic;
@@ -846,7 +854,20 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type().element_of();
             break;
         }
+        case Intrinsic::rand: {
+            internal_assert(args.size() == 0);
+            if (args.size() == 0) {
+                node->type = Float_t::make_f32(); // TODO: generalize?
+                // args.push_back(make_const(node->type,
+                // random_number_counter++));
+            } else {
+                internal_assert(args[0].type().is_numeric());
+                node->type = args[0].type();
+            }
+            break;
+        }
         default: {
+            internal_assert(args.size() > 0);
             node->type = args[0].type();
             break;
         }

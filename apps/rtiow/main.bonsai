@@ -6,9 +6,14 @@ import stdlib/ray;
 import stdlib/sphere;
 import stdlib/distance;
 
-func build_ray(i : i32, j : i32, width : i32) {
-    aspect_ratio : Float = 16.0 / 9.0;
-    height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
+element Camera {
+    aspect_ratio : Float;
+    width : i32;
+}
+
+func build_ray(i : i32, j : i32, cam : Camera) {
+    width = cam.width;
+    height : mut = cast[[i32]](cast[[Float]](width) / cam.aspect_ratio);
     height = select(height < 1, 1, height);
 
     // Camera
@@ -38,6 +43,9 @@ func unit_vector(v : vec3f) = v / norm(v);
 
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
+func random_float(low : Float, high : Float) -> Float {
+    return low + (high - low) * rand();
+}
 
 element hit_record {
     p, normal : vec3f;
@@ -77,9 +85,10 @@ func to_rgb(v : vec3f) {
 
 func [[export]] image(width : i32) {
     aspect_ratio : Float = 16.0 / 9.0;
+    c : Camera = {aspect_ratio, width};
     height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, width))), iter(width)), iter(height));
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, c))), iter(width)), iter(height));
 }
 
 schedule {
