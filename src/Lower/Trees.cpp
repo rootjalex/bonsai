@@ -242,7 +242,7 @@ ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
 
 ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
                       const ir::TypeMap &tree_types,
-                      const IntervalMap &intervals) {
+                      const IntervalMap &intervals, ir::Type expect_type) {
     struct RewriteArgmin : public Rewriter {
         ir::Expr metric;
         ir::WriteLoc loc;
@@ -297,7 +297,7 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     ir::Expr inf = ir::Infinity::make(std::move(metric_t));
     static const std::vector<ir::Expr> empty_list = {};
     ir::Expr empty = ir::Build::make(ret_type, empty_list);
-    std::vector<ir::Expr> values = {std::move(inf), std::move(empty)};
+    std::vector<ir::Expr> values = {inf, std::move(empty)};
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
     // Alocate
@@ -306,11 +306,19 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
     // Make return
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
+    ir::Expr best_metric = ir::Extract::make(ret_var, 0);
     ir::Expr best_ref = ir::Extract::make(ret_var, 1);
     // TODO: should this be a Return?
-    // TODO: should this be an If (best[0] != inf) yield best[1] else {} ?
-    ir::Stmt footer = ir::Yield::make(std::move(best_ref));
-    ir::Expr best_metric = ir::Extract::make(std::move(ret_var), 0);
+    ir::Stmt footer;
+    if (!ir::equals(ret_type, expect_type)) {
+        // If (best[0] != inf) yield best[1] else {}
+        ir::Expr result = ir::Select::make(
+            best_metric != inf, ir::Build::make(expect_type, {best_ref}),
+            ir::Build::make(expect_type));
+        footer = ir::Yield::make(std::move(result));
+    } else {
+        footer = ir::Yield::make(std::move(best_ref));
+    }
 
     // No lower bound (can always get better)
     // Upper bound is the current value (must be at least that good).
@@ -477,7 +485,8 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     }
     case ir::SetOp::argmin: {
         // Argmin is a bit more complicated, because of filter fusion.
-        return build_argmin(as_set->a, as_set->b, tree_types, intervals);
+        return build_argmin(as_set->a, as_set->b, tree_types, intervals,
+                            expr.type());
     }
     case ir::SetOp::product: {
         ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
@@ -520,8 +529,8 @@ struct LowerBVH : public ir::Mutator {
             << "Lowering of: " << expr << " does not contain any tree types.";
 
         // TODO(ajr): is there more we can do with intervals?
-        // e.g. bounded interval hierarchies, kd-trees, tri.x < bound queries,
-        // etc?
+        // e.g. bounded interval hierarchies, kd-trees, tri.x < bound
+        // queries, etc?
         IntervalMap intervals;
         ir::Stmt body = build_traversal(expr, tree_types, intervals);
 

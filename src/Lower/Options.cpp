@@ -47,14 +47,7 @@ struct RewriteOptions : public ir::Mutator {
         }
     }
 
-    // Why are these necessary?? This is dumb.
     using ir::Mutator::mutate;
-    // ir::Expr mutate(const ir::Expr &expr) override {
-    //     return ir::Mutator::mutate(expr);
-    // }
-    // ir::Stmt mutate(const ir::Stmt &stmt) override {
-    //     return ir::Mutator::mutate(stmt);
-    // }
 
     ir::Expr visit(const ir::Build *node) override {
         ir::Expr expr = ir::Mutator::visit(node);
@@ -225,6 +218,12 @@ ir::Program LowerOptions::run(ir::Program program) const {
         func = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
             func->interfaces, func->attributes);
+    }
+
+    for (auto &[_, type] : rewriter.rewrite_map) {
+        const ir::Struct_t *struct_t = type.as<ir::Struct_t>();
+        internal_assert(struct_t);
+        program.types[struct_t->name] = std::move(type);
     }
 
     return program;

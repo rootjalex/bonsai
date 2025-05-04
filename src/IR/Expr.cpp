@@ -1055,7 +1055,11 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected argmin function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
-            node->type = b.type().element_of();
+            if (can_be_empty(b)) {
+                node->type = Option_t::make(b.type().element_of());
+            } else {
+                node->type = b.type().element_of();
+            }
         } else if (op == SetOp::map) {
             internal_assert(a.type().is<Function_t>())
                 << "Expected lhs of map to be afunction, instead received: "

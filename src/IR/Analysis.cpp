@@ -362,6 +362,18 @@ bool is_constant_expr(const Expr &expr) {
     }
 }
 
+bool can_be_empty(const Expr &expr) {
+    internal_assert(expr.type().is<Set_t>());
+    if (const SetOp *op = expr.as<SetOp>()) {
+        if (op->op == SetOp::filter) {
+            return true;
+        } else if (op->op == SetOp::map) {
+            return can_be_empty(op->b);
+        }
+    }
+    return false;
+}
+
 bool contains_generics(const Type &type, const TypeMap &types) {
     struct ContainsGenerics : public Visitor {
         ContainsGenerics(const TypeMap &types) : types(types) {}

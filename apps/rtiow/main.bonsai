@@ -45,11 +45,8 @@ element hit_record {
     front_face : bool;
 }
 
-func get_hit_record(r : Ray, s : Sphere) -> option[hit_record] {
+func get_hit_record(r : Ray, s : Sphere) -> hit_record {
     t = distmin(r, s);
-    if t < 0.0 {
-        return {};
-    }
     p = at(r, t);
     outward_normal = (p - s.center) / s.radius;
     front_face = dot(r.d, outward_normal) < 0;
@@ -58,19 +55,16 @@ func get_hit_record(r : Ray, s : Sphere) -> option[hit_record] {
     return record;
 }
 
+extern spheres : set[Sphere];
+
+// TODO: this should return an option[Sphere]...
+func trace(r : Ray) = argmin(|s : Sphere| distmin(r, s), filter(|s : Sphere| intersects(r, s), spheres));
+
 func pixel(r : Ray) -> vec3f {
-    s : Sphere = {vec3f{0.0, 0.0, -1.0}, 0.5};
-    hit = get_hit_record(r, s);
-    if hit {
-        record = *hit;
-        return 0.5 * (record.normal + 1);
-    }
-    // TODO: need accelerator!
-    s1 : Sphere = {vec3f{0.0, -100.5, -1.0}, 100.0};
-    hit1 = get_hit_record(r, s1);
-    if hit1 {
-        record1 = *hit1;
-        return 0.5 * (record1.normal + 1);
+    isect = trace(r);
+    if isect {
+        hit = get_hit_record(r, *isect);
+        return 0.5 * (hit.normal + 1);
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
@@ -86,4 +80,28 @@ func [[export]] image(width : i32) {
     height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
     height = select(height < 1, 1, height);
     return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, width))), iter(width)), iter(height));
+}
+
+schedule {
+    // TODO: generic over primitive types!
+    tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
+    | Interior(left : SphereBVH, right : SphereBVH)
+    | Leaf(data : array[Sphere]);
+
+    spheres : SphereBVH;
+
+    layout spheres {
+        pCount : u32;
+        prims : array[Sphere, pCount];
+        count : u32;
+        group[count] index : u16 {
+            center : vec3f;
+            radius : Float;
+            nPrims : u16;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, nPrims); };
+            };
+        };
+    };
 }

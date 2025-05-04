@@ -180,13 +180,15 @@ std::map<std::string, Path> validate_layout(const Layout &layout,
     validate_splits(layout);
 
     std::vector<Path> paths = get_paths(layout);
-    // for (const auto &path : paths) {
-    //     std::cout << "path {\n";
-    //     for (const auto &[name, type] : path) {
-    //         std::cout << "  " << name << " : " << type << "\n";
-    //     }
-    //     std::cout << "}\n";
-    // }
+    /*
+    for (const auto &path : paths) {
+        std::cout << "path {\n";
+        for (const auto &[name, type] : path) {
+            std::cout << "  " << name << " : " << type << "\n";
+        }
+        std::cout << "}\n";
+    }
+    */
     internal_assert(paths.size() == bvh_node->nodes.size())
         << "Layout: " << layout << "\nhas " << paths.size()
         << " paths. BVH type: " << bvh_t << "\nhas " << bvh_node->nodes.size()
