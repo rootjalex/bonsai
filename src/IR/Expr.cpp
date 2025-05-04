@@ -459,7 +459,7 @@ Expr VectorReduce::make(VectorReduce::OpType op, Expr value) {
     const bool infer_types =
         type_enforcement_enabled() || value.type().defined();
     if (infer_types) {
-        internal_assert(value.type().is_vector())
+        internal_assert(value.type().is_vector() || value.type().is<Array_t>())
             << "VectorReduce of non-vector: " << value;
         if (op == VectorReduce::Idxmin || op == VectorReduce::Idxmax) {
             internal_assert(value.type().element_of().is_scalar())
