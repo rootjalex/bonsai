@@ -226,11 +226,9 @@ class BonsaiToCpp {
             if (!func->is_exported()) {
                 continue;
             }
+            get_declared_types(func->ret_type, deduplicate, exported_types);
             for (const auto &arg_sig : func->argument_types()) {
                 get_declared_types(arg_sig.type, deduplicate, exported_types);
-            }
-            if (Type type = func->ret_type; type.is<Struct_t>()) {
-                get_declared_types(type, deduplicate, exported_types);
             }
         }
         for (const Type &type : exported_types) {
