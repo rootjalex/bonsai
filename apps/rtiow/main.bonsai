@@ -11,6 +11,7 @@ element Camera {
     aspect_ratio : Float;
     width : i32;
     samples_per_pixel : u32 = 100;
+    max_depth : i32 = 10;
 }
 
 func build_ray(i : i32, j : i32, cam : Camera) {
@@ -72,12 +73,15 @@ extern spheres : set[Sphere];
 // TODO: this should return an option[Sphere]...
 func trace(r : Ray) = argmin(|s : Sphere| distmin(r, s), filter(|s : Sphere| intersects(r, s), spheres));
 
-func sample(r : Ray) -> vec3f {
+func sample(r : Ray, depth : i32) -> vec3f {
+    if (depth <= 0) {
+        return vec3f{0.0, 0.0, 0.0};
+    }
     isect = trace(r);
     if isect {
         hit = get_hit_record(r, *isect);
         dir = random_on_hemisphere(hit.normal);
-        return 0.5 * sample(Ray{hit.p, dir});
+        return 0.5 * sample(Ray{hit.p, dir}, depth - 1);
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
@@ -85,7 +89,7 @@ func sample(r : Ray) -> vec3f {
 }
 
 func pixel(i : i32, j : i32, c : Camera) {
-    return sum(map(|k : u32| sample(build_ray(i, j, c)), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
+    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
 } 
 
 func to_rgb(v : vec3f) {
