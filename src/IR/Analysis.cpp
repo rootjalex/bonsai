@@ -101,6 +101,17 @@ struct GatherFreeVars : public Visitor {
         seen_vars.erase(node->name);
     }
 
+    void visit(const ir::RecLoop *node) override {
+        for (const auto &arg : node->args) {
+            internal_assert(!seen_vars.contains(arg.name));
+            seen_vars.insert(arg.name);
+        }
+        node->body.accept(this);
+        for (const auto &arg : node->args) {
+            seen_vars.erase(arg.name);
+        }
+    }
+
     RESTRICT_VISITOR(Launch);
 };
 
@@ -401,6 +412,10 @@ std::set<std::string> mutated_variables(Stmt stmt) {
             if (node->mutating) {
                 mutated.insert(node->loc.base);
             }
+        }
+
+        void visit(const Accumulate *node) override {
+            mutated.insert(node->loc.base);
         }
     };
 

@@ -1129,6 +1129,7 @@ Expr Call::make(Expr func, std::vector<Expr> args) {
             } else {
                 internal_assert(equals(args[i].type(), f->arg_types[i].type))
                     << "Call::make received bad argument: " << args[i]
+                    << " with type: " << args[i].type()
                     << " when expecting type: " << f->arg_types[i].type
                     << " at index " << i << " of call to func: " << func;
             }

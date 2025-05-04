@@ -129,7 +129,7 @@ Stmt Label::make(std::string name, Stmt body) {
     return node;
 }
 
-Stmt RecLoop::make(std::vector<RecLoop::Argument> args, Stmt body) {
+Stmt RecLoop::make(std::vector<TypedVar> args, Stmt body) {
     internal_assert(body.defined()) << "RecLoop::make received undefined body";
 
     for (const auto &arg : args) {

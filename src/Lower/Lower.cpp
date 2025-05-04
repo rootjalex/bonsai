@@ -12,6 +12,7 @@
 #include "Lower/Maps.h"
 #include "Lower/Mutability.h"
 #include "Lower/Options.h"
+#include "Lower/RecLoops.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
@@ -80,6 +81,7 @@ PassManager register_passes() {
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
+    manager.register_pass<LowerRecLoops>();
     manager.register_pass<ReturnToOutParameter>();
     manager.register_pass<Mutability>();
     // Optimizing pass registration.
@@ -105,6 +107,7 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerForEachs>());
     core.push_back(std::make_unique<LowerYields>());
+    core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
@@ -129,6 +132,7 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
     d.push_back(std::make_unique<LowerYields>());
+    d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());

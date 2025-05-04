@@ -76,12 +76,11 @@ struct TuplesToStructs : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Var *node) override {
-        const ir::Tuple_t *as_tuple = node->type.as<ir::Tuple_t>();
-        if (as_tuple == nullptr) {
-            return ir::Mutator::visit(node);
+        ir::Type new_type = mutate(node->type);
+        if (new_type.same_as(node->type)) {
+            return node;
         }
-        ir::Type struct_t = visit(as_tuple);
-        return ir::Var::make(std::move(struct_t), node->name);
+        return ir::Var::make(std::move(new_type), node->name);
     }
 
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.

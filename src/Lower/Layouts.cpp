@@ -37,7 +37,7 @@ std::string get_split_field_name(const std::string &base,
     return base + "_spliton_" + field;
 }
 
-using IndexTList = std::vector<ir::RecLoop::Argument>;
+using IndexTList = std::vector<ir::TypedVar>;
 
 IndexTList get_index_type(const std::string &base_name,
                           const ir::Layout &layout) {

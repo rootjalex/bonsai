@@ -211,14 +211,10 @@ struct Label : StmtNode<Label> {
 // A (currently inlined) recursive loop
 // Contains `From` nodes that match the args list.
 struct RecLoop : StmtNode<RecLoop> {
-    struct Argument {
-        std::string name;
-        Type type;
-    };
-    std::vector<Argument> args;
+    std::vector<TypedVar> args;
     Stmt body;
 
-    static Stmt make(std::vector<Argument> args, Stmt body);
+    static Stmt make(std::vector<TypedVar> args, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::RecLoop;
 };
