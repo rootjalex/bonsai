@@ -32,17 +32,40 @@ int main(int argc, char *argv[]) {
     tree.prims[1].center[2] = -1;
     tree.prims[1].radius = 100;
 
-    tree.count = 1;
-    tree.spheres_index = (_spheres_layout0 *)malloc(sizeof(_spheres_layout0));
-    tree.spheres_index[0].nPrims = 2;
-    // offset = 0
-    tree.spheres_index[0].spheres_spliton_nPrims[0] = 0;
-    tree.spheres_index[0].spheres_spliton_nPrims[1] = 0;
-    // TODO: actually make BV
-    tree.spheres_index[0].center[0] = 0;
-    tree.spheres_index[0].center[1] = 0;
-    tree.spheres_index[0].center[2] = 0;
-    tree.spheres_index[0].radius = 300;
+    tree.count = 3;
+    tree.spheres_index =
+        (_spheres_layout0 *)malloc(tree.count * sizeof(_spheres_layout0));
+    // Parent
+    {
+        tree.spheres_index[0].nPrims = 0;
+        // second child offset offset = 0
+        *reinterpret_cast<uint16_t *>(
+            &tree.spheres_index[0].spheres_spliton_nPrims) = 2;
+
+        Sphere root_bv;
+        bounding_sphere(root_bv, tree.prims[0], tree.prims[1]);
+
+        tree.spheres_index[0].center = root_bv.center;
+        tree.spheres_index[0].radius = root_bv.radius;
+    }
+
+    // Left child
+    {
+        tree.spheres_index[1].nPrims = 1;
+        *reinterpret_cast<uint16_t *>(
+            &tree.spheres_index[1].spheres_spliton_nPrims) = 0;
+        tree.spheres_index[1].center = tree.prims[0].center;
+        tree.spheres_index[1].radius = tree.prims[0].radius;
+    }
+
+    // Right child
+    {
+        tree.spheres_index[2].nPrims = 1;
+        *reinterpret_cast<uint16_t *>(
+            &tree.spheres_index[2].spheres_spliton_nPrims) = 1;
+        tree.spheres_index[2].center = tree.prims[1].center;
+        tree.spheres_index[2].radius = tree.prims[1].radius;
+    }
 
     // Render
     int *im = (int *)image(image_width, tree);
