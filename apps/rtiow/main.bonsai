@@ -4,8 +4,7 @@
 import stdlib/numerics;
 import stdlib/ray;
 import stdlib/sphere;
-//import stdlib/intersects;
-//import stdlib/distance;
+import stdlib/distance;
 
 
 
@@ -37,29 +36,13 @@ func build_ray(i : i32, j : i32, width : i32) {
     return Ray{camera_center, ray_direction};
 }
 
-func hit_sphere(center : vec3f, radius : Float, r : Ray) {
-    oc = center - r.o;
-    a = dot(r.d, r.d);
-    b = -2.0 * dot(r.d, oc);
-    c = dot(oc, oc) - radius * radius;
-    disc = b * b - 4 * a * c;
-    if (disc < 0) {
-        return -1.0;
-    } else {
-        denom = 2.0 * a;
-        // negation parsing bug.
-        return (-b - sqrt(disc)) / denom;
-    }
-}
-
 func unit_vector(v : vec3f) = v / norm(v);
 
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
 func pixel(r : Ray) -> vec3f {
     s : Sphere = {vec3f{0.0, 0.0, -1.0}, 0.5};
-    // TODO(ajr): ise intersects and distmin
-    t = hit_sphere(s.center, s.radius, r);
+    t = distmin(r, s);
     if (t > 0.0) {
         N = unit_vector(at(r, t) - vec3f{0.0, 0.0, -1.0});
         return 0.5 * (N + 1);
