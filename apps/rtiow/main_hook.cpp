@@ -1,9 +1,84 @@
 // clang++ -std=c++20 -O3 apps/rtiow/main_hook.cpp apps/rtiow/main.o -o
 // apps/rtiow/main_runner
 // ./main_runner &> bonsai_image.ppm
+#include <functional>
 #include <iostream>
+#include <vector>
 
 #include "main.h"
+
+constexpr uint32_t LAMBERTIAN = 0;
+constexpr uint32_t METAL = 1;
+
+_spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
+                                   size_t max_prims) {
+    _spheres_layout1 tree;
+    tree.pCount = spheres.size();
+    tree.prims = spheres.data();
+    // Just do a simple split, don't even sort for now.
+    // First compute the number of nodes needed.
+    // Store at most two spheres per leaf node.
+    // Then build the tree.
+    size_t leaf_count = (tree.pCount + (max_prims - 1)) / max_prims;
+    size_t internal_count = leaf_count - 1;
+    tree.count = leaf_count + internal_count;
+    tree.spheres_index =
+        (_spheres_layout0 *)malloc(sizeof(_spheres_layout0) * tree.count);
+
+    uint32_t next_node = 0;
+
+    std::function<uint32_t(uint32_t, uint32_t)> handle_range =
+        [&](uint32_t low, uint32_t high) -> uint32_t {
+        uint32_t count = high - low;
+        uint32_t this_index = next_node++;
+
+        if (count <= 2) {
+            // Leaf node
+            tree.spheres_index[this_index].nPrims = count;
+            *reinterpret_cast<uint16_t *>(
+                &tree.spheres_index[this_index].spheres_spliton_nPrims) = low;
+            if (count == 1) {
+                tree.spheres_index[this_index].center = spheres[low].s.center;
+                tree.spheres_index[this_index].radius = spheres[low].s.radius;
+            } else if (count == 2) {
+                Sphere merged;
+                bounding_sphere(merged, spheres[low].s, spheres[low + 1].s);
+                tree.spheres_index[this_index].center = merged.center;
+                tree.spheres_index[this_index].radius = merged.radius;
+            }
+        } else {
+            // Internal node
+            tree.spheres_index[this_index].nPrims = 0;
+
+            uint32_t mid = low + count / 2;
+
+            uint32_t left = handle_range(low, mid);
+            uint32_t right = handle_range(mid, high);
+
+            // Set split offset (offset from this node to right child)
+            uint32_t offset = right - this_index;
+            *reinterpret_cast<uint16_t *>(
+                &tree.spheres_index[this_index].spheres_spliton_nPrims) =
+                offset;
+
+            // Compute bounding volume
+            Sphere merged;
+            bounding_sphere(merged,
+                            {tree.spheres_index[left].center,
+                             tree.spheres_index[left].radius},
+                            {tree.spheres_index[right].center,
+                             tree.spheres_index[right].radius});
+
+            tree.spheres_index[this_index].center = merged.center;
+            tree.spheres_index[this_index].radius = merged.radius;
+        }
+
+        return this_index;
+    };
+
+    handle_range(0, tree.pCount);
+    return tree;
+}
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -18,58 +93,18 @@ int main(int argc, char *argv[]) {
     image_height = (image_height < 1) ? 1 : image_height;
     // int image_height = std::stoi(argv[2]);
 
-    _spheres_layout1 tree;
-    tree.pCount = 2;
-    tree.prims = (MaterialSphere *)malloc(sizeof(MaterialSphere) * tree.pCount);
-    // world.add(make_shared<sphere>(point3(0,0,-1), 0.5));
-    tree.prims[0].s.center[0] = 0;
-    tree.prims[0].s.center[1] = 0;
-    tree.prims[0].s.center[2] = -1;
-    tree.prims[0].s.radius = 0.5;
-    tree.prims[0].material = 1; // Metal
-    tree.prims[0].albedo = {0.8, 0.8, 0.8};
-    // world.add(make_shared<sphere>(point3(0,-100.5,-1), 100));
-    tree.prims[1].s.center[0] = 0;
-    tree.prims[1].s.center[1] = -100.5;
-    tree.prims[1].s.center[2] = -1;
-    tree.prims[1].s.radius = 100;
-    tree.prims[1].material = 0; // Lambertian
-    tree.prims[1].albedo = {0.8, 0.8, 0.0};
+    std::vector<MaterialSphere> spheres{
+        // Ground
+        {Sphere{{0, -100.5, -1}, 100}, LAMBERTIAN, {0.8, 0.8, 0.0}},
+        // Center
+        {Sphere{{0.0, 0.0, -1.2}, 0.5}, LAMBERTIAN, {0.1, 0.2, 0.5}},
+        // Left
+        {Sphere{{-1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.8, 0.8}},
+        // Right
+        {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}},
+    };
 
-    tree.count = 3;
-    tree.spheres_index =
-        (_spheres_layout0 *)malloc(tree.count * sizeof(_spheres_layout0));
-    // Parent
-    {
-        tree.spheres_index[0].nPrims = 0;
-        // second child offset offset = 0
-        *reinterpret_cast<uint16_t *>(
-            &tree.spheres_index[0].spheres_spliton_nPrims) = 2;
-
-        Sphere root_bv;
-        bounding_sphere(root_bv, tree.prims[0].s, tree.prims[1].s);
-
-        tree.spheres_index[0].center = root_bv.center;
-        tree.spheres_index[0].radius = root_bv.radius;
-    }
-
-    // Left child
-    {
-        tree.spheres_index[1].nPrims = 1;
-        *reinterpret_cast<uint16_t *>(
-            &tree.spheres_index[1].spheres_spliton_nPrims) = 0;
-        tree.spheres_index[1].center = tree.prims[0].s.center;
-        tree.spheres_index[1].radius = tree.prims[0].s.radius;
-    }
-
-    // Right child
-    {
-        tree.spheres_index[2].nPrims = 1;
-        *reinterpret_cast<uint16_t *>(
-            &tree.spheres_index[2].spheres_spliton_nPrims) = 1;
-        tree.spheres_index[2].center = tree.prims[1].s.center;
-        tree.spheres_index[2].radius = tree.prims[1].s.radius;
-    }
+    _spheres_layout1 tree = build_tree_simple(spheres, 1);
 
     // Render
     int *im = (int *)image(image_width, tree);
