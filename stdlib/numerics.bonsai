@@ -40,3 +40,5 @@ func near_zero(v : vec3f) -> bool {
 func reflect(v : vec3f, n : vec3f) {
     return v  - 2.0 * dot(v, n) * n;
 }
+
+func unit_vector(v : vec3f) = v / norm(v);

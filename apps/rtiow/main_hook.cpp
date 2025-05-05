@@ -95,13 +95,19 @@ int main(int argc, char *argv[]) {
 
     std::vector<MaterialSphere> spheres{
         // Ground
-        {Sphere{{0, -100.5, -1}, 100}, LAMBERTIAN, {0.8, 0.8, 0.0}},
+        {Sphere{{0, -100.5, -1}, 100},
+         LAMBERTIAN,
+         {0.8, 0.8, 0.0},
+         /*fuzz=*/0.0},
         // Center
-        {Sphere{{0.0, 0.0, -1.2}, 0.5}, LAMBERTIAN, {0.1, 0.2, 0.5}},
+        {Sphere{{0.0, 0.0, -1.2}, 0.5},
+         LAMBERTIAN,
+         {0.1, 0.2, 0.5},
+         /*fuzz=*/0.0},
         // Left
-        {Sphere{{-1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.8, 0.8}},
+        {Sphere{{-1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.8, 0.8}, 0.3},
         // Right
-        {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}},
+        {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}, 1.0},
     };
 
     _spheres_layout1 tree = build_tree_simple(spheres, 1);

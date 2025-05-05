@@ -11,6 +11,7 @@ element MaterialSphere {
     s : Sphere;
     material : u32; // 0 = Lambertian, 1 = Metal
     albedo : vec3f;
+    fuzz : Float; // Metal only...
 }
 
 func distmin(r : Ray, ms : MaterialSphere) = distmin(r, ms.s);
@@ -58,8 +59,6 @@ func build_ray(i : i32, j : i32, cam : Camera) {
     return Ray{ray_origin, ray_direction};
 }
 
-func unit_vector(v : vec3f) = v / norm(v);
-
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
 element hit_record {
@@ -99,7 +98,8 @@ func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
         return {ms.albedo, l_scattered, true};
     } else {
         // Metal ( == 1)
-        reflected = reflect(ray.d, hit.normal);
+        ref = reflect(ray.d, hit.normal);
+        reflected = unit_vector(ref) + (ms.fuzz * random_unit_vector());
         m_scattered = Ray{hit.p, reflected};
         return {ms.albedo, m_scattered, true};
     }
