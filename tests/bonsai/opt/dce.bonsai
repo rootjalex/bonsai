@@ -28,6 +28,6 @@ func f3_se(i : i32) -> i32 {
 
 func fizz(x: i32, y: i32) -> i32 {
     z: mut = x;
-    z = f1_se(x) + f2_se(f3_se(x));
+    z = f1_se(x) + f3_se(f2_se(x));
     return x + y;
 }

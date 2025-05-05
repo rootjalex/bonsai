@@ -5,6 +5,8 @@
 #include "IR/Visitor.h"
 #include "Lower/TopologicalOrder.h"
 
+#include "Lower/TopologicalOrder.h"
+
 #include <set>
 
 namespace bonsai {

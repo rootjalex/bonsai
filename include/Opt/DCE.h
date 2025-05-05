@@ -3,6 +3,9 @@
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
+#include <set>
+#include <string>
+
 namespace bonsai {
 namespace opt {
 
@@ -16,6 +19,9 @@ class DCE : public lower::Pass {
 
     ir::FuncMap run(ir::FuncMap funcs) const override;
 };
+
+ir::Stmt dce(ir::Stmt, const std::set<std::string> &mutable_func_args,
+             const std::set<std::string> &se_functions);
 
 } // namespace opt
 } // namespace bonsai

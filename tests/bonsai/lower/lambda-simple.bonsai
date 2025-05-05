@@ -1,3 +1,5 @@
+//! flags: -p core
+
 // This should *not* be changed.
 func relu(v: set[i32]) = filter(|x : i32| x > 0, v);
 

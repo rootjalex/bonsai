@@ -154,10 +154,14 @@ struct Sequence : StmtNode<Sequence> {
     static const IRStmtEnum node_type = IRStmtEnum::Sequence;
 };
 
-// Assignment to mutable value.
+// Assignment to a mutable value, i.e., these are *always* `mut`able.
 struct Assign : StmtNode<Assign> {
     WriteLoc loc;
     Expr value;
+    // When true, this means the write location has already been allocated and
+    // we are now mutating it. For example,
+    // x: mut i32 = 1;    // mutating == false
+    // x = 2;             // mutating == true
     bool mutating;
 
     static Stmt make(WriteLoc loc, Expr value, bool mutating);

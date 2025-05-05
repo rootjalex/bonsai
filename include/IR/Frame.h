@@ -1,13 +1,21 @@
 #pragma once
 
-#include <list>
 #include <map>
+#include <set>
 #include <string>
+#include <type_traits>
+#include <vector>
 
 #include "Error.h"
 
 namespace bonsai {
 namespace ir {
+namespace {
+// Whether T is an ir::Expr or ir::Stmt.
+template <typename T>
+static constexpr bool IsBonsaiIR =
+    std::is_same_v<T, ir::Expr> || std::is_same_v<T, ir::Stmt>;
+} // namespace
 
 // Maintains a stack of scopes, where each frame is a map from some key type K
 // to some value type V. This is useful for doing analysis within scopes.
@@ -37,24 +45,28 @@ struct MapStack {
         return {};
     }
 
-    bool contains(const K &k) const { return from_frames(k).has_value(); }
-
-    // There is always at least one frame (the global scope).
-    bool empty() const { return frames.size() == 1; }
-
-    // Replaces the value at `k` with `v`. Precondition: `k` must be present in
-    // the scope. TODO(cgyurgyik): This double lookup idiom is bad.
-    void replace(const K &k, V v) {
+    // Returns the value at key `k` if found, and nullptr otherwise. This is a
+    // safe way to update the value at key `k`. (We opt against using iterators
+    // for simplicity.)
+    template <typename T = V>
+    V *find(const K &k)
+        requires(!IsBonsaiIR<V>)
+    {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {
             auto &frame = *it;
             auto found = frame.find(k);
             if (found != frame.end()) {
-                found->second = std::move(v);
-                return;
+                return &found->second;
             }
         }
-        internal_error << "Key: " << k << " not found";
+        return nullptr;
     }
+
+    // Returns whether `k` is in this stack.
+    bool contains(const K &k) const { return from_frames(k).has_value(); }
+
+    // There is always at least one frame (the global scope).
+    bool empty() const { return frames.size() == 1; }
 
     void add_to_frame(K k, V v) {
         for (auto it = frames.rbegin(); it != frames.rend(); it++) {

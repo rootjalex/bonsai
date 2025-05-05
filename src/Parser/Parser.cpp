@@ -233,16 +233,12 @@ struct Parser {
     }
 
     void modify_type_in_frame(const std::string &name, ir::Type type) {
-        std::optional<FunctionVariable> variable_type =
-            frames.from_frames(name);
-        if (variable_type.has_value()) {
-            internal_assert(!variable_type->type.defined())
-                << "Attempt to modify defined type for name: " << name;
-        }
-        frames.replace(name, FunctionVariable{
-                                 .type = type,
-                                 .mutating = variable_type->mutating,
-                             });
+        FunctionVariable *variable_type = frames.find(name);
+        internal_assert(variable_type)
+            << "Attempt to modify unseen variable: " << name;
+        internal_assert(!variable_type->type.defined())
+            << "Attempt to modify already-defined type for name: " << name;
+        variable_type->type = type;
     }
 
     void push_frame() { frames.push_frame(); }

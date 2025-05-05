@@ -22,6 +22,9 @@ Cmp compare_primitives(const T &t0, const T &t1) {
 
 template <typename T>
 std::optional<Cmp> compare_node_types(const T &a, const T &b) {
+    if (a.same_as(b)) {
+        return Cmp::Equals;
+    }
     if (!a.defined()) {
         if (!b.defined()) {
             return Cmp::Equals;

@@ -21,16 +21,24 @@ extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x
 func _traverse_tree0(ray : (Ray*), ts : (_ts_layout2*)) -> Triangle {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
   rec(ts__index : u32, ts__bit : u1) {
-    if (intersects_Ray_AABB(ray, (&build<AABB>((*ts).ts_index[ts__index].low_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].low_16), (*ts).ts_index[ts__index].high_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].high_16))))) {
-      if (distmin_Ray_AABB(ray, (&build<AABB>((*ts).ts_index[ts__index].low_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].low_16), (*ts).ts_index[ts__index].high_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].high_16)))) < (*_best0)._field0) {
-        if ((*ts).ts_index[ts__index].ts_bit[ts__bit].nPrims == 0u) {
-          from build<tuple.1>(cast<__layout6>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 0u)
-          from build<tuple.1>(cast<__layout7>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 1u)
+    let _t86 = (*ts).ts_index[ts__index] in
+    let _t91 = _t86.ts_bit[ts__bit] in
+    let _t105 = build<AABB>(_t86.low_32 + cast<f32x3>(_t91.low_16), _t86.high_32 + cast<f32x3>(_t91.high_16)) in
+    if (intersects_Ray_AABB(ray, (&_t105))) {
+      let _t84 = (*_best0)._field0 in
+      if (distmin_Ray_AABB(ray, (&_t105)) < _t84) {
+        let _t62 = _t91.nPrims in
+        if (_t62 == 0u) {
+          let _t4 = _t91.ts_spliton_nPrims in
+          from build<tuple.1>(cast<__layout6>(_t4).offset, 0u)
+          from build<tuple.1>(cast<__layout7>(_t4).offset, 1u)
         } else {
-          forall _idx0 in [0u:cast<u32>((*ts).ts_index[ts__index].ts_bit[ts__bit].nPrims):1u] {
-            if (intersectsp_ray_tri(ray, (&(*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])).set) {
-              if (distmin_Ray_Triangle(ray, (&(*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])), (*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])
+          forall _idx0 in [0u:cast<u32>(_t62):1u] {
+            let _t52 = (*ts).prims[cast<__layout10>(_t91.ts_spliton_nPrims).pOffset + _idx0] in
+            if (intersectsp_ray_tri(ray, (&_t52)).set) {
+              let _t41 = distmin_Ray_Triangle(ray, (&_t52)) in
+              if (_t41 < _t84) {
+                _best0 argmin= build<tuple.0>(_t41, _t52)
               }
             }
           }

@@ -1,3 +1,5 @@
+//! flags: -p core -p inline
+
 func A(x : i32) -> i32 {
     return x + 1;
 }

@@ -1,3 +1,5 @@
+//! flags: -p core -p dce
+
 element Pair {
     i : i32;
     f : f32;

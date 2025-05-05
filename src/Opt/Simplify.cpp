@@ -232,9 +232,7 @@ struct Simplifier : ir::Mutator {
                 // a - 0 = 0
                 return a;
             }
-            // TODO(cgyurgyik): This checks for pointer equality, we want to
-            // also check for semantic equality.
-            if (a.same_as(b)) {
+            if (ir::equals(a, b)) {
                 // a - a = 0
                 return zero;
             }

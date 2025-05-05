@@ -58,9 +58,7 @@ struct LowerGeomOps : public Mutator {
         Expr call = Call::make(std::move(f), {std::move(a), std::move(b)});
 
         if (is_geometric_predicate(name)) {
-            // some macro error with inlining this into internal_assert
-            const bool truthy_type = call.type().is<Option_t, Bool_t>();
-            internal_assert(truthy_type);
+            internal_assert((call.type().is<Option_t, Bool_t>()));
         } else {
             internal_assert(is_geometric_metric(name));
             internal_assert(call.type().is_numeric());
