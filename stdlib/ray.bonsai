@@ -5,8 +5,6 @@ element Ray {
     // tmin : Float = 0;
     d : vec3f;
     tmax : Float = inf;
-    // tmax_ : Float = inf;
-    // tmax__ : Float = inf;
     // TODO: medium
     // TODO: differential?
 }
