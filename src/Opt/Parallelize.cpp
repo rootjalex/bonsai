@@ -68,8 +68,7 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
                         new_loc.add_struct_access(std::get<std::string>(value));
                     }
                 }
-                return {new_loc, true};
-
+                return {new_loc, /*not_changed=*/false};
             } else {
                 return Mutator::mutate_writeloc(loc);
             }
@@ -79,7 +78,7 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
     return replacer.mutate(orig);
 }
 
-Closure build_closure(const ForAll *forall) {
+Closure build_closure(const ForAll *forall, TypeMap &types) {
     // TODO: might be able to optimize this with LICM or something.
     std::vector<TypedVar> vars = gather_free_vars(forall);
     // TODO(ajr): if struct supported mutable fields, we would need this.
@@ -87,6 +86,7 @@ Closure build_closure(const ForAll *forall) {
 
     std::string ctx_name = unique_ctx_name();
     Type ctx_t = Struct_t::make(ctx_name, vars);
+    types[ctx_name] = ctx_t;
     std::vector<Expr> build_args;
     build_args.reserve(vars.size());
     std::transform(vars.begin(), vars.end(), std::back_inserter(build_args),
@@ -133,21 +133,23 @@ Closure build_closure(const ForAll *forall) {
     return closure;
 }
 
-Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
-                        FuncMap &funcs) {
+Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
+                        TypeMap &types) {
     struct ParallelizeForAll : public Mutator {
         const std::string &loop_idx;
         FuncMap &funcs;
+        TypeMap &types;
 
-        ParallelizeForAll(const std::string &loop_idx, FuncMap &funcs)
-            : loop_idx(loop_idx), funcs(funcs) {}
+        ParallelizeForAll(const std::string &loop_idx, FuncMap &funcs,
+                          TypeMap &types)
+            : loop_idx(loop_idx), funcs(funcs), types(types) {}
 
         Stmt visit(const ForAll *node) override {
             if (node->index != loop_idx) {
                 return Mutator::visit(node);
             }
             // TODO: this closure is somewhat GCD-specific, maybe generalize?
-            Closure closure = build_closure(node);
+            Closure closure = build_closure(node, types);
 
             auto [_, inserted] =
                 funcs.try_emplace(closure.func->name, closure.func);
@@ -168,20 +170,21 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
         }
     };
 
-    ParallelizeForAll par(loop_idx, funcs);
+    ParallelizeForAll par(loop_idx, funcs, types);
     return par.mutate(std::move(body));
 }
 
 } // namespace
 
-ir::FuncMap Parallelize::run(FuncMap funcs) const {
-    /*
-    for (auto &[name, func] : funcs) {
+Program Parallelize::run(Program program) const {
+    for (auto &[name, func] : program.funcs) {
         // TODO: get loop_idx and func from schedule.
-        func->body = parallelize_forall("_i0", func->body, funcs);
+        if (name == "_traverse_array0") {
+            func->body = parallelize_forall("_i0", func->body, program.funcs,
+                                            program.types);
+        }
     }
-    */
-    return funcs;
+    return program;
 }
 
 } // namespace opt
