@@ -1,0 +1,8 @@
+[test] clang++ -c tests/bonsai/correctness/cpp/main_vec.cpp -o tests/bonsai/correctness/cpp/main_vec.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vec.o tests/bonsai/correctness/cpp/vec.o -o tests/bonsai/correctness/cpp/vec
+[test] ./tests/bonsai/correctness/cpp/vec
+[-1.000000, -2.000000, 5.000000]
+Sphere {
+  c: [4.000000, -8.000000, 16.000000]
+  r: 100.000000
+}

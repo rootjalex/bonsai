@@ -64,10 +64,7 @@ struct Type : public IRHandle<IRTypeNode> {
     const BaseTypeNode *get() const { return (const BaseTypeNode *)ptr; }
 
     uint32_t bits() const;
-    uint32_t bytes() const {
-        // TODO booleans better! we need to bit-pack, unlike Halide.
-        return (bits() + 7) / 8;
-    }
+    uint32_t bytes() const;
     uint32_t lanes() const;
     bool is_int() const;
     bool is_uint() const;

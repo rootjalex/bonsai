@@ -29,6 +29,16 @@ uint32_t Type::bits() const {
     internal_error << "Called bits() on bad type: " << *this;
 }
 
+uint32_t Type::bytes() const {
+    if (is<Int_t, UInt_t, Float_t>()) {
+        // TODO(ajr): is this always right?
+        return (bits() + 7) / 8;
+    } else if (is<Vector_t>()) {
+        return as<Vector_t>()->lanes * as<Vector_t>()->etype.bytes();
+    }
+    internal_error << "[unimplemented] bytes() called on: " << *this;
+}
+
 uint32_t Type::lanes() const {
     if (auto as_vec = this->as<Vector_t>()) {
         // TODO: handle recursive vectors?

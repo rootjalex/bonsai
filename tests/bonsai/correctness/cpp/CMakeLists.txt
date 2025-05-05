@@ -4,4 +4,5 @@ add_bonsai_tests(
     simple.bonsai
     struct.bonsai
     swap.bonsai
+    vec.bonsai
 )
