@@ -1342,6 +1342,10 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_expr(expr);
         return;
     }
+    case Intrinsic::pow: {
+        intrin = llvm::Intrinsic::pow;
+        break;
+    }
     case Intrinsic::rand: {
         // TODO(ajr): use Halide vectorizable rand!
         internal_assert(node->args.size() == 0)
@@ -1374,6 +1378,10 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     }
     case Intrinsic::sqrt: {
         intrin = llvm::Intrinsic::sqrt;
+        break;
+    }
+    case Intrinsic::tan: {
+        intrin = llvm::Intrinsic::tan;
         break;
     }
     default: {

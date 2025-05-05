@@ -11,6 +11,8 @@ constexpr uint32_t LAMBERTIAN = 0;
 constexpr uint32_t METAL = 1;
 constexpr uint32_t DIALECTRIC = 2;
 
+constexpr double pi = 3.1415926535897932385;
+
 _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
     _spheres_layout1 tree;
@@ -94,24 +96,36 @@ int main(int argc, char *argv[]) {
     image_height = (image_height < 1) ? 1 : image_height;
     // int image_height = std::stoi(argv[2]);
 
+    /*
     std::vector<MaterialSphere> spheres{
         // Ground
         {Sphere{{0, -100.5, -1}, 100},
          LAMBERTIAN,
          {0.8, 0.8, 0.0},
-         /*fuzz=*/0.0},
+         0.0},
         // Center
         {Sphere{{0.0, 0.0, -1.2}, 0.5},
          LAMBERTIAN,
          {0.1, 0.2, 0.5},
-         /*fuzz=*/0.0},
+         0.0},
         // Left
-        {Sphere{{-1.0, 0.0, -1.0}, 0.5},
+        {Sphere{{-1.0, 0.0, -1.0}, 0.5}, DIALECTRIC, {0.0, 0.0, 0.0}, 1.50},
+        // Bubble
+        {Sphere{{-1.0, 0.0, -1.0}, 0.4},
          DIALECTRIC,
          {0.0, 0.0, 0.0},
-         1.00 / 1.33},
+         1.00 / 1.50},
         // Right
         {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}, 1.0},
+    };
+    */
+
+    auto R = (float)std::cos(pi / 4);
+
+    std::vector<MaterialSphere> spheres{
+        // Ground
+        {Sphere{{-R, 0, -1}, R}, LAMBERTIAN, {0.0, 0.0, 1.0}, 0.0},
+        {Sphere{{R, 0, -1}, R}, LAMBERTIAN, {1.0, 0.0, 0.0}, 0.0},
     };
 
     _spheres_layout1 tree = build_tree_simple(spheres, 1);

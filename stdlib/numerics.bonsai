@@ -53,3 +53,14 @@ func refract(uv : vec3f, n : vec3f, etai_over_etat : Float) {
 }
 
 func unit_vector(v : vec3f) = v / norm(v);
+
+// Schlick's approximation for reflectance
+func reflectance(cos_theta : Float, refract_idx : Float) -> Float {
+    r0 = (1 - refract_idx) / (1 + refract_idx);
+    r1 = r0 * r0;
+    return r1 + (1 - r1) * pow(1 - cos_theta, 5.0);
+}
+
+func degrees_to_radians(degrees : Float) {
+    return (degrees * 3.1415926535897932385) / 180.0;
+}

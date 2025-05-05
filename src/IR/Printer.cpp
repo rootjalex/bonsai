@@ -772,12 +772,16 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "min";
     case Intrinsic::norm:
         return "norm";
+    case Intrinsic::pow:
+        return "pow";
     case Intrinsic::rand:
         return "rand";
     case Intrinsic::sin:
         return "sin";
     case Intrinsic::sqrt:
         return "sqrt";
+    case Intrinsic::tan:
+        return "tan";
     }
 }
 

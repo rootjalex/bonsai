@@ -23,6 +23,7 @@ element Camera {
     width : i32;
     samples_per_pixel : u32 = 100;
     max_depth : i32 = 10;
+    vfov : Float = 90;
 }
 
 func build_ray(i : i32, j : i32, cam : Camera) {
@@ -32,7 +33,9 @@ func build_ray(i : i32, j : i32, cam : Camera) {
 
     // Camera
     focal_length : Float = 1.0;
-    viewport_height : Float = 2.0;
+    theta = degrees_to_radians(cam.vfov);
+    h = tan(theta / 2);
+    viewport_height : Float = 2 * h * focal_length;
     viewport_width = viewport_height * (cast[[Float]](width) / cast[[Float]](height));
     camera_center = vec3f{0.0, 0.0, 0.0};
 
@@ -111,7 +114,9 @@ func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
         cos_theta = min(dot(-unit_dir, hit.normal), 1.0);
         sin_theta = sqrt(1.0 - cos_theta * cos_theta);
 
-        direction = select(ri * sin_theta > 1.0, reflect(unit_dir, hit.normal), refract(unit_dir, hit.normal, ri));
+        cannot_refract = (ri * sin_theta > 1.0) | reflectance(cos_theta, ri) > rand();
+
+        direction = select(cannot_refract, reflect(unit_dir, hit.normal), refract(unit_dir, hit.normal, ri));
 
         d_scattered = Ray{hit.p, direction};
         return {vec3f{1.0, 1.0, 1.0}, d_scattered, true};
