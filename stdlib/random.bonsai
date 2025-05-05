@@ -39,3 +39,14 @@ func random_on_hemisphere(normal : vec3f) -> vec3f {
         return -on_unit_sphere;
     }
 }
+
+func random_in_unit_disk() -> vec3f {
+    r = sqrt(rand());
+    theta = 2 * 3.1415926535897932385 * rand();
+    return vec3f{r * cos(theta), r * sin(theta), 0.0};
+}
+
+func defocus_disk_sample(center : vec3f, defocus_disk_u : vec3f, defocus_disk_v : vec3f) -> vec3f {
+    p = random_in_unit_disk();
+    return center + (p[0] * defocus_disk_u) + (p[1] * defocus_disk_v);
+}

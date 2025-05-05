@@ -27,6 +27,8 @@ element Camera {
     lookfrom : vec3f = vec3f{0.0, 0.0, 0.0};
     lookat : vec3f = vec3f{0.0, 0.0, -1.0};
     vup : vec3f = vec3f{0.0, 1.0, 0.0};
+    defocus_angle : Float  = 0.0;
+    focus_dist : Float = 10.0;
 }
 
 func build_ray(i : i32, j : i32, cam : Camera) {
@@ -35,10 +37,10 @@ func build_ray(i : i32, j : i32, cam : Camera) {
     height = select(height < 1, 1, height);
 
     // Camera
-    focal_length = norm(cam.lookfrom - cam.lookat);
+    // focal_length = norm(cam.lookfrom - cam.lookat);
     theta = degrees_to_radians(cam.vfov);
     h = tan(theta / 2);
-    viewport_height : Float = 2 * h * focal_length;
+    viewport_height : Float = 2 * h * cam.focus_dist;
     viewport_width = viewport_height * (cast[[Float]](width) / cast[[Float]](height));
     camera_center = cam.lookfrom;
 
@@ -56,8 +58,13 @@ func build_ray(i : i32, j : i32, cam : Camera) {
     pixel_delta_v = viewport_v / cast[[Float]](height);
 
     // Calculate the location of the upper left pixel.
-    viewport_upper_left = camera_center - (focal_length * w) - viewport_u/2 - viewport_v/2;
+    viewport_upper_left = camera_center - (cam.focus_dist * w) - viewport_u/2 - viewport_v/2;
     pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
+
+    // Calculate the camera defocus disk basis vectors.
+    defocus_radius = cam.focus_dist * tan(degrees_to_radians(cam.defocus_angle / 2));
+    defocus_disk_u = u * defocus_radius;
+    defocus_disk_v = v * defocus_radius;
 
     // Construct a camera ray originating from the origin and directed at randomly sampled
     // point around the pixel location i, j.
@@ -65,7 +72,10 @@ func build_ray(i : i32, j : i32, cam : Camera) {
     pixel_sample = pixel00_loc + ((cast[[Float]](i) + offset.x) * pixel_delta_u)
                                + ((cast[[Float]](j) + offset.y) * pixel_delta_v);
 
-    ray_origin = camera_center;
+    ray_origin : mut = camera_center;
+    if cam.defocus_angle > 0 {
+        ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
+    }
     ray_direction = pixel_sample - ray_origin;
     return Ray{ray_origin, ray_direction};
 }
