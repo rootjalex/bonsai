@@ -309,33 +309,6 @@ struct FindSideEffects : ir::Visitor {
     }
 };
 
-std::set<std::string> find_side_effects(const ir::FuncMap &funcs) {
-    const std::vector<std::string> topo_order =
-        lower::func_topological_order(funcs, /*undef_calls=*/false);
-    std::set<std::string> side_effects;
-    HasSideEffects checker(side_effects);
-    for (const std::string &f : topo_order) {
-        internal_assert(!checker.function_has_side_effects.contains(f))
-            << "Found cycle involving: " << f;
-        checker.found = false;
-        const auto func = funcs.at(f);
-        // Conservatively say that funcs with mutable arguments have side
-        // effects.
-        if (std::any_of(func->args.cbegin(), func->args.cend(),
-                        [](const auto &arg) { return arg.mutating; })) {
-            side_effects.insert(f);
-            continue;
-        }
-        // Otherwise search for side effecting statements.
-        func->body.accept(&checker);
-        if (checker.found) {
-            side_effects.insert(f);
-        }
-        checker.found = false;
-    }
-    return side_effects;
-}
-
 struct DeadCodeElimination : ir::Mutator {
     // How many times is a variable read.
     UseCountMap use_counts;
@@ -468,7 +441,6 @@ struct DeadCodeElimination : ir::Mutator {
         }
 
         if (stmts.empty()) {
-            std::cout << "erased: " << ir::Stmt(node) << "\n";
             return ir::Stmt();
         } else if (not_changed) {
             return node;
@@ -479,10 +451,12 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
+} // namespace
+
 // TODO(ajr): for non-exported functions, we can remove mutable args that
 // are never used.
-ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args, ir::Stmt stmt,
-                  const std::set<std::string> &se_functions) {
+ir::Stmt dce(ir::Stmt stmt, const std::set<std::string> &mutable_func_args,
+             const std::set<std::string> &se_functions) {
     stmt = NameHygiene().mutate(std::move(stmt));
     ComputeUseCounts analyzer(mutable_func_args);
     stmt.accept(&analyzer);
@@ -493,8 +467,6 @@ ir::Stmt dce_stmt(const std::set<std::string> &mutable_func_args, ir::Stmt stmt,
     return UnnameHygiene().mutate(stmt);
 }
 
-} // namespace
-
 ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     // TODO(ajr): We should also erase unused arguments to Lambdas and
     // Functions. This requires mutating the definitions and all calls,
@@ -503,13 +475,9 @@ ir::FuncMap DCE::run(ir::FuncMap funcs) const {
     std::set<std::string> se_functions = find_side_effects(funcs);
 
     for (auto &[name, func] : funcs) {
-        std::set<std::string> mutable_func_args;
-        for (const auto &arg : func->args) {
-            if (arg.mutating) {
-                mutable_func_args.insert(arg.name);
-            }
-        }
-        func->body = dce_stmt(mutable_func_args, func->body, se_functions);
+        std::set<std::string> mutable_func_args = func->mutable_args();
+        func->body =
+            dce(std::move(func->body), mutable_func_args, se_functions);
     }
     return funcs;
 }
