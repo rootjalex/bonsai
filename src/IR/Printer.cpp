@@ -626,7 +626,6 @@ void Printer::visit(const BinOp *node) {
     open();
     print(node->a);
     os << " ";
-    // TODO: handle min/max/etc.
     os << to_string(node->op);
     os << " ";
     print(node->b);

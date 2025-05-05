@@ -57,8 +57,8 @@ struct Printer : public Visitor {
     explicit Printer(std::ostream &_os, bool verbose)
         : os(_os), verbose(verbose) {}
 
-    void print(const Program &program);
-    void print(const Function &function);
+    virtual void print(const Program &program);
+    virtual void print(const Function &function);
     void print(const Schedule &schedule);
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
@@ -155,7 +155,7 @@ struct Printer : public Visitor {
 
     void set_indent(int _indent) { indent = _indent; }
 
-  private:
+  protected:
     /** The stream on which we're outputting */
     std::ostream &os;
 
