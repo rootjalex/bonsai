@@ -11,6 +11,7 @@ enum class BackendTarget {
     ASM = 1,  // Generate assembly code for the host machine.
     LLVM = 2, // Generate LLVM IR.
     CPP = 3,  // Generate C++ header with respective .o file.
+    CUDA = 4, // Generate CUDA code.
 };
 
 // Contains information about how the compiler should be executed.

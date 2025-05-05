@@ -75,6 +75,7 @@ target_sources(
     PRIVATE
     src/CLI/CLI.cpp
     src/CodeGen/ASM.cpp
+    src/CodeGen/CodeGen_CUDA.cpp
     src/CodeGen/CodeGen_LLVM.cpp
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
@@ -140,6 +141,7 @@ target_sources(
     include/Bonsai.h
     include/CLI/CLI.h
     include/CodeGen/ASM.h
+    include/CodeGen/CodeGen_CUDA.h
     include/CodeGen/CodeGen_LLVM.h
     include/CodeGen/CPP.h
     include/CodeGen/JIT.h
