@@ -82,7 +82,9 @@ bool is_const(const Expr &e) {
         return is_const(b->value);
     }
     if (const Build *b = e.as<Build>()) {
-        return b->values.empty(); // default is constant!
+        return b->values.empty() ||
+               std::all_of(b->values.begin(), b->values.end(),
+                           [](const Expr &v) { return is_const(v); });
     }
     return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
 }
@@ -149,6 +151,9 @@ Expr make_one_hot(Type t, Expr idx, size_t lanes) {
 }
 
 Expr constant_cast(const Type &t, const Expr &e) {
+    if (equals(e.type(), t)) {
+        return e;
+    }
     internal_assert(t.defined() && e.defined())
         << "received bad type conversion:" << e << " to " << t;
     internal_assert(is_const(e))

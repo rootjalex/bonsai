@@ -96,18 +96,11 @@ int main(int argc, char *argv[]) {
     image_height = (image_height < 1) ? 1 : image_height;
     // int image_height = std::stoi(argv[2]);
 
-    /*
     std::vector<MaterialSphere> spheres{
         // Ground
-        {Sphere{{0, -100.5, -1}, 100},
-         LAMBERTIAN,
-         {0.8, 0.8, 0.0},
-         0.0},
+        {Sphere{{0, -100.5, -1}, 100}, LAMBERTIAN, {0.8, 0.8, 0.0}, 0.0},
         // Center
-        {Sphere{{0.0, 0.0, -1.2}, 0.5},
-         LAMBERTIAN,
-         {0.1, 0.2, 0.5},
-         0.0},
+        {Sphere{{0.0, 0.0, -1.2}, 0.5}, LAMBERTIAN, {0.1, 0.2, 0.5}, 0.0},
         // Left
         {Sphere{{-1.0, 0.0, -1.0}, 0.5}, DIALECTRIC, {0.0, 0.0, 0.0}, 1.50},
         // Bubble
@@ -118,8 +111,8 @@ int main(int argc, char *argv[]) {
         // Right
         {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}, 1.0},
     };
-    */
 
+    /*
     auto R = (float)std::cos(pi / 4);
 
     std::vector<MaterialSphere> spheres{
@@ -127,11 +120,22 @@ int main(int argc, char *argv[]) {
         {Sphere{{-R, 0, -1}, R}, LAMBERTIAN, {0.0, 0.0, 1.0}, 0.0},
         {Sphere{{R, 0, -1}, R}, LAMBERTIAN, {1.0, 0.0, 0.0}, 0.0},
     };
+    */
 
     _spheres_layout1 tree = build_tree_simple(spheres, 1);
 
+    Camera cam;
+    cam.aspect_ratio = aspect_ratio;
+    cam.width = image_width;
+    cam.samples_per_pixel = 100;
+    cam.max_depth = 10;
+    cam.vfov = 20;
+    cam.lookfrom = {-2, 2, 1};
+    cam.lookat = {0, 0, -1};
+    cam.vup = {0, 1, 0};
+
     // Render
-    int *im = (int *)image(image_width, tree);
+    int *im = (int *)image(cam, tree);
 
     std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
 

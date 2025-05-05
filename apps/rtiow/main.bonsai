@@ -24,6 +24,9 @@ element Camera {
     samples_per_pixel : u32 = 100;
     max_depth : i32 = 10;
     vfov : Float = 90;
+    lookfrom : vec3f = vec3f{0.0, 0.0, 0.0};
+    lookat : vec3f = vec3f{0.0, 0.0, -1.0};
+    vup : vec3f = vec3f{0.0, 1.0, 0.0};
 }
 
 func build_ray(i : i32, j : i32, cam : Camera) {
@@ -32,23 +35,28 @@ func build_ray(i : i32, j : i32, cam : Camera) {
     height = select(height < 1, 1, height);
 
     // Camera
-    focal_length : Float = 1.0;
+    focal_length = norm(cam.lookfrom - cam.lookat);
     theta = degrees_to_radians(cam.vfov);
     h = tan(theta / 2);
     viewport_height : Float = 2 * h * focal_length;
     viewport_width = viewport_height * (cast[[Float]](width) / cast[[Float]](height));
-    camera_center = vec3f{0.0, 0.0, 0.0};
+    camera_center = cam.lookfrom;
+
+    // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+    w = unit_vector(cam.lookfrom - cam.lookat);
+    u = unit_vector(cross(cam.vup, w));
+    v = cross(w, u);
 
     // Calculate vectors across the horizontal dnd down the vertical viewport edges.
-    viewport_u = vec3f{viewport_width, 0.0, 0.0};
-    viewport_v = vec3f{0.0, -viewport_height, 0.0};
+    viewport_u = viewport_width * u;    // Vector across viewport horizontal edge
+    viewport_v = viewport_height * -v;  // Vector down viewport vertical edge
 
     // Calculate the horizontal and vertical delta vectors from pixel to pixel.
     pixel_delta_u = viewport_u / cast[[Float]](width);
     pixel_delta_v = viewport_v / cast[[Float]](height);
 
     // Calculate the location of the upper left pixel.
-    viewport_upper_left = camera_center - vec3f{0.0, 0.0, focal_length} - viewport_u / 2 - viewport_v / 2;
+    viewport_upper_left = camera_center - (focal_length * w) - viewport_u/2 - viewport_v/2;
     pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
 
     // Construct a camera ray originating from the origin and directed at randomly sampled
@@ -155,12 +163,10 @@ func to_rgb(v : vec3f) {
     return cast[[vector[i32, 3]]](255.999 * linear_to_gamma_v(v));
 }
 
-func [[export]] image(width : i32) {
-    aspect_ratio : Float = 16.0 / 9.0;
-    c : Camera = {aspect_ratio, width};
-    height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
+func [[export]] image(c : Camera) {
+    height : mut = cast[[i32]](cast[[Float]](c.width) / c.aspect_ratio);
     height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(width)), iter(height));
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(c.width)), iter(height));
 }
 
 schedule {
