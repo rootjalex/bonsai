@@ -20,8 +20,20 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options);
 
 } // namespace codegen
 
-struct CodeGen_CUDA : public ir::Printer {
-    CodeGen_CUDA(std::ostream &os) : ir::Printer(os) {}
+class CodeGen_CUDA : public ir::Printer {
+  public:
+    explicit CodeGen_CUDA(std::ostream &os) : ir::Printer(os), os(os) {}
+
+    virtual void visit(const ir::LetStmt *) override;
+    virtual void visit(const ir::Return *) override;
+
+    void print(const ir::Program &program);
+    void print(const ir::Function &function);
+
+  private:
+    void increment_indent() { set_indent(get_indent().indent + 1); }
+    void decrement_indent() { set_indent(get_indent().indent - 1); }
+    std::ostream &os;
 };
 
 } //  namespace bonsai

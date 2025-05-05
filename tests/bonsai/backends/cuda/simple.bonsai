@@ -1,0 +1,6 @@
+//! flags: -b cuda
+
+func add(x: i32, y: i32) {
+    v: i32 = x + y;
+    return v;
+}

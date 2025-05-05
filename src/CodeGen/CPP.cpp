@@ -31,15 +31,13 @@
 namespace bonsai {
 namespace codegen {
 
-namespace {
-
 using namespace ir;
 
-void emit_type(std::stringstream &ss, Type type) {
+void emit_type(std::ostream &ss, Type type) {
     struct Emit : public Visitor {
-        std::stringstream &ss;
+        std::ostream &ss;
 
-        Emit(std::stringstream &ss) : ss(ss) {}
+        Emit(std::ostream &ss) : ss(ss) {}
 
         void visit(const Void_t *node) override { ss << "void"; }
 
@@ -108,6 +106,8 @@ void emit_type(std::stringstream &ss, Type type) {
     Emit emitter(ss);
     type.accept(&emitter);
 }
+
+namespace {
 
 void emit_type_declaration(std::stringstream &ss, Type type) {
     auto indent = std::string(4, ' ');

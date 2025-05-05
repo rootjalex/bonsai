@@ -154,12 +154,11 @@ struct Printer : public Visitor {
     void visit(const Materialize *) override;
 
     void set_indent(int _indent) { indent = _indent; }
+    Indentation get_indent() const { return Indentation{indent}; }
 
   private:
     /** The stream on which we're outputting */
     std::ostream &os;
-
-    Indentation get_indent() const { return Indentation{indent}; }
 
     /** The current indentation level, useful for pretty-printing
      * statements */
