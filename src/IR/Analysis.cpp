@@ -290,6 +290,14 @@ struct HasSideEffects : ir::Visitor {
         found = true;
     }
 
+    // TODO: use Halide's pure implementation
+    void visit(const ir::Intrinsic *node) override {
+        if (found) {
+            return;
+        }
+        found = node->op == ir::Intrinsic::rand;
+    }
+
     void visit(const ir::Call *node) override {
         if (found) {
             return;
