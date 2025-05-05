@@ -27,6 +27,16 @@ inline float random_float(float min, float max) {
     return min + (max - min) * random_float();
 }
 
+inline vec3_float min(const vec3_float &a, const vec3_float &b) {
+    return vec3_float{std::fminf(a[0], b[0]), std::fminf(a[1], b[1]),
+                      std::fminf(a[2], b[2])};
+}
+
+inline vec3_float max(const vec3_float &a, const vec3_float &b) {
+    return vec3_float{std::fmaxf(a[0], b[0]), std::fmaxf(a[1], b[1]),
+                      std::fmaxf(a[2], b[2])};
+}
+
 _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
     _spheres_layout1 tree;
@@ -66,6 +76,30 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
         } else {
             // Internal node
             tree.spheres_index[this_index].nPrims = 0;
+
+            vec3_float min_bound = spheres[low].s.center;
+            vec3_float max_bound = spheres[low].s.center;
+
+            for (uint32_t i = low + 1; i < high; ++i) {
+                min_bound = min(min_bound, spheres[i].s.center);
+                max_bound = max(max_bound, spheres[i].s.center);
+            }
+
+            // Choose axis with greatest extent
+            vec3_float extent = max_bound - min_bound;
+            int axis = 0;
+            if (extent[1] > extent[0])
+                axis = 1;
+            if (extent[2] > extent[axis])
+                axis = 2;
+
+            // Partition at midpoint along chosen axis
+            auto mid_iter = spheres.begin() + low + count / 2;
+            std::nth_element(
+                spheres.begin() + low, mid_iter, spheres.begin() + high,
+                [axis](const MaterialSphere &a, const MaterialSphere &b) {
+                    return a.s.center[axis] < b.s.center[axis];
+                });
 
             uint32_t mid = low + count / 2;
 
@@ -155,16 +189,6 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
-    /*
-    auto R = (float)std::cos(pi / 4);
-
-    std::vector<MaterialSphere> spheres{
-        // Ground
-        {Sphere{{-R, 0, -1}, R}, LAMBERTIAN, {0.0, 0.0, 1.0}, 0.0},
-        {Sphere{{R, 0, -1}, R}, LAMBERTIAN, {1.0, 0.0, 0.0}, 0.0},
-    };
-    */
 
     _spheres_layout1 tree = build_tree_simple(spheres, 1);
 
