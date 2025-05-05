@@ -11,7 +11,7 @@ element MaterialSphere {
     s : Sphere;
     material : u32; // 0 = Lambertian, 1 = Metal
     albedo : vec3f;
-    fuzz : Float; // Metal only...
+    fuzz : Float; // Metal's fuzz, Dialectric's refraction_index
 }
 
 func distmin(r : Ray, ms : MaterialSphere) = distmin(r, ms.s);
@@ -83,6 +83,7 @@ element scatter_record {
     hit : bool;
 }
 
+// TODO: investigate whether this generates a lookup table.
 func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
     hit = get_hit_record(ray, ms.s);
     if ms.material == 0 {
@@ -96,14 +97,27 @@ func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
         l_scattered = Ray{hit.p, scatter_dir};
 
         return {ms.albedo, l_scattered, true};
-    } else {
-        // Metal ( == 1)
+    } else if ms.material == 1 {
+        // Metal
         ref = reflect(ray.d, hit.normal);
         reflected = unit_vector(ref) + (ms.fuzz * random_unit_vector());
         m_scattered = Ray{hit.p, reflected};
         return {ms.albedo, m_scattered, true};
+    } else {
+        // Dialectric (== 2)
+        ri = select(hit.front_face, 1.0 / ms.fuzz, ms.fuzz);
+        unit_dir = unit_vector(ray.d);
+
+        cos_theta = min(dot(-unit_dir, hit.normal), 1.0);
+        sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+        direction = select(ri * sin_theta > 1.0, reflect(unit_dir, hit.normal), refract(unit_dir, hit.normal, ri));
+
+        d_scattered = Ray{hit.p, direction};
+        return {vec3f{1.0, 1.0, 1.0}, d_scattered, true};
     }
 }
+
 
 extern spheres : set[MaterialSphere];
 

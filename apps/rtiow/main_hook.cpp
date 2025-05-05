@@ -9,6 +9,7 @@
 
 constexpr uint32_t LAMBERTIAN = 0;
 constexpr uint32_t METAL = 1;
+constexpr uint32_t DIALECTRIC = 2;
 
 _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
@@ -105,7 +106,10 @@ int main(int argc, char *argv[]) {
          {0.1, 0.2, 0.5},
          /*fuzz=*/0.0},
         // Left
-        {Sphere{{-1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.8, 0.8}, 0.3},
+        {Sphere{{-1.0, 0.0, -1.0}, 0.5},
+         DIALECTRIC,
+         {0.0, 0.0, 0.0},
+         1.00 / 1.33},
         // Right
         {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}, 1.0},
     };
