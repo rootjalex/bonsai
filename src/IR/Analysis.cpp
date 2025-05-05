@@ -3,6 +3,7 @@
 #include "IR/Equality.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
+#include "Lower/TopologicalOrder.h"
 
 #include "Lower/TopologicalOrder.h"
 
@@ -500,16 +501,6 @@ std::set<std::string> find_side_effects(const ir::FuncMap &functions) {
         checker.found = false;
     }
     return side_effects;
-}
-
-std::set<std::string> get_mutable_arguments(const ir::Function &function) {
-    std::set<std::string> args;
-    for (const auto &arg : function.args) {
-        if (arg.mutating) {
-            args.insert(arg.name);
-        }
-    }
-    return args;
 }
 
 } // namespace ir

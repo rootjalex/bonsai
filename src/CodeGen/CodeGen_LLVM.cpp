@@ -335,14 +335,9 @@ void CodeGen_LLVM::compile_function(const Function &func,
         arg.setName(name);
         llvm::Value *arg_value = &arg;
 
-        const bool is_struct = arg_info.type.is<Struct_t>();
+        internal_assert(!arg_info.type.is<Struct_t>());
 
-        if (is_struct) {
-            // Mutable structs have been converted to pointers already.
-            internal_assert(!arg_info.mutating);
-            llvm::Type *arg_type = codegen_type(arg_info.type);
-            arg_value = builder->CreateLoad(arg_type, arg_value, name);
-        }
+        // TODO(ajr): lift loads from immutable ptr args.
 
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
@@ -620,6 +615,23 @@ void CodeGen_LLVM::visit(const Tuple_t *node) {
     // TODO: struct_types should include tuples, probably? but they're
     // unnamed... maybe use to_string() to map from node to built Struct_t
     internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
+}
+
+llvm::FunctionType *CodeGen_LLVM::get_function_type(const ir::Type &type) {
+    const Function_t *node = type.as<ir::Function_t>();
+    internal_assert(node);
+    std::vector<llvm::Type *> input_types;
+    for (const ir::Function_t::ArgSig &arg : node->arg_types) {
+        input_types.push_back(codegen_type(arg.type));
+    }
+    llvm::Type *return_type = codegen_type(node->ret_type);
+    return llvm::FunctionType::get(return_type, std::move(input_types),
+                                   /*isVariadic=*/false);
+}
+
+void CodeGen_LLVM::visit(const Function_t *node) {
+    llvm::FunctionType *function_type = get_function_type(ir::Type(node));
+    type = llvm::PointerType::getUnqual(function_type);
 }
 
 void CodeGen_LLVM::visit(const Array_t *node) {
@@ -1128,8 +1140,11 @@ void CodeGen_LLVM::visit(const Cast *node) {
     } else if (src.is_float() && dst.is_float()) {
         // Float widening or narrowing
         value = builder->CreateFPCast(inner, llvm_dst);
+    } else if (src.is<Array_t>() && dst.is<Array_t>()) {
+        value = inner; // no-op
     } else {
-        internal_error << "TODO: implement Cast codegen: " << Expr(node);
+        internal_error << "TODO: implement Cast codegen: " << Expr(node)
+                       << "with types: " << src << " -> " << dst;
     }
 }
 
@@ -1261,7 +1276,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
         llvm::Type *etype = codegen_type(node->vec.type().element_of());
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
-        value = builder->CreateLoad(etype, ptr, "extract");
+        value = create_aligned_load(etype, ptr, "extract");
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << node->vec.type();
@@ -1380,12 +1395,6 @@ void CodeGen_LLVM::visit(const SetOp *node) {
 
 void CodeGen_LLVM::visit(const Call *node) {
     llvm::Function *func = codegen_func_ptr(node->func);
-    internal_assert(func) << "Failed to codegen function pointer to: "
-                          << Expr(node);
-
-    // TODO: figure out how to make sure we have the right
-    // number of arguments here for better error handling.
-
     const size_t n_args = node->args.size();
     std::vector<llvm::Value *> args(n_args);
 
@@ -1395,18 +1404,9 @@ void CodeGen_LLVM::visit(const Call *node) {
     for (size_t i = 0; i < n_args; i++) {
         llvm::Value *argument = codegen_expr(node->args[i]);
 
-        if (function_t->arg_types[i].type.is<Struct_t>()) {
-            // Pass by pointer.
-            internal_assert(!argument->getType()->isPointerTy());
-            internal_assert(!function_t->arg_types[i].is_mutable);
-            // Allocate space on stack
-            llvm::AllocaInst *alloca =
-                builder->CreateAlloca(argument->getType());
-            // Store struct in stack
-            builder->CreateStore(argument, alloca);
-            // Pass pointer to the alloca.
-            args[i] = alloca;
-        } else if (function_t->arg_types[i].is_mutable) {
+        // Struct args should have been lowered to pointers already.
+        internal_assert(!function_t->arg_types[i].type.is<Struct_t>());
+        if (function_t->arg_types[i].is_mutable) {
             internal_assert(argument->getType()->isPointerTy());
             args[i] = argument;
         } else {
@@ -1414,6 +1414,18 @@ void CodeGen_LLVM::visit(const Call *node) {
             args[i] = argument;
         }
     }
+    if (func == nullptr) {
+        // This is an argument with a function type.
+        const auto *f = node->func.as<ir::Var>();
+        internal_assert(f) << ir::Expr(node);
+        llvm::FunctionType *function_type = get_function_type(f->type);
+        internal_assert(function_type) << ir::Expr(f) << " : " << f->type;
+        value =
+            builder->CreateCall(function_type, codegen_expr(node->func), args);
+        return;
+    }
+    // TODO: figure out how to make sure we have the right
+    // number of arguments here for better error handling.
     value = builder->CreateCall(func, args);
 }
 
@@ -1428,11 +1440,9 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
     if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
         value = load->getPointerOperand();
     } else if (node->expr.type().is<Struct_t>()) {
-        // Allocate space on stack
-        llvm::Value *alloca = builder->CreateAlloca(
-            pointee->getType(), /* arraysize=*/nullptr,
-            node->expr.type().as<Struct_t>()->name + "_ptrto");
-
+        llvm::Type *llvm_type = pointee->getType();
+        llvm::Value *alloca = create_alloca_at_entry(
+            llvm_type, node->expr.type().as<Struct_t>()->name + "_ptrto");
         builder->CreateStore(pointee, alloca);
         value = alloca;
     } else {
@@ -1448,9 +1458,9 @@ void CodeGen_LLVM::visit(const Deref *node) {
 
     // Make sure the expression is a pointer
     if (pointer_value->getType()->isPointerTy()) {
+        llvm::Type *loaded_type = codegen_type(node->type);
         // Dereference the pointer (load the value at the pointer address)
-        value = builder->CreateLoad(codegen_type(node->type), pointer_value,
-                                    "deref_temp");
+        value = create_aligned_load(loaded_type, pointer_value, "deref_temp");
     } else {
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
@@ -1738,8 +1748,8 @@ void CodeGen_LLVM::visit(const Assign *node) {
 
         llvm::Type *value_type = codegen_type(node->loc.base_type);
 
-        llvm::Value *loc =
-            builder->CreateAlloca(value_type, /* arraysize ? */ nullptr, name);
+        llvm::Value *loc = create_alloca_at_entry(value_type, name);
+
         frames.add_to_frame(node->loc.base, loc);
         // TODO: when is isVolatile true?
         builder->CreateStore(rhs, loc, /*isVolatile=*/false);
@@ -1796,7 +1806,10 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
 
     llvm::Value *loc = codegen_write_loc(node->loc);
     llvm::Value *update = codegen_expr(node->value);
-    llvm::Value *current = builder->CreateLoad(update->getType(), loc);
+
+    llvm::Value *current =
+        create_aligned_load(update->getType(), loc, "acc_base");
+
     llvm::Value *acc = nullptr;
 
     switch (node->op) {
@@ -1848,49 +1861,36 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     builder->CreateStore(acc, loc);
 }
 
-/*
-llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *etype, llvm::Value
-*size, bool zero_initialize, const std::string &name) {
-    // create alloca at basic block entry.
-    // TODO(ajr): why does Halide do this at BB entry?
+llvm::Value *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
+                                               llvm::Value *ptr,
+                                               const std::string &name) {
+    llvm::LoadInst *load = builder->CreateLoad(etype, ptr, name);
+    const llvm::DataLayout &dl = module->getDataLayout();
+    unsigned align = dl.getABITypeAlign(etype).value();
+    load->setAlignment(llvm::Align(align));
+    return load;
+}
 
-    auto here = builder->saveIP();
+llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
+                                                  const std::string &name) {
+    llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     llvm::BasicBlock *entry =
-&builder->GetInsertBlock()->getParent()->getEntryBlock(); if (entry->empty()) {
+        &builder->GetInsertBlock()->getParent()->getEntryBlock();
+    if (entry->empty()) {
         builder->SetInsertPoint(entry);
     } else {
         builder->SetInsertPoint(entry, entry->getFirstInsertionPt());
     }
-    llvm::AllocaInst *ptr = builder->CreateAlloca(etype, size, name);
-    int align = native_vector_bits() / 8;
-    // const llvm::DataLayout &d = module->getDataLayout();
-    if (etype->isVectorTy() || !is_llvm_const_one(size)) {
-        ptr->setAlignment(llvm::Align(align));
-    }
+    llvm::AllocaInst *ptr =
+        builder->CreateAlloca(t, /* arraysize=*/nullptr, name);
 
-    if (zero_initialize) {
-        if (is_llvm_const_one(size)) {
-            builder->CreateStore(llvm::Constant::getNullValue(etype), ptr);
-        } else {
-            internal_error << "[unimplemented] zero initialize array";
-            ptr->getType()->dump();
-            llvm::Constant::getNullValue(etype)->getType()->dump();
-            size->getType()->dump();
-            llvm::Type *i8_ptr_ty = i8_t->getPointerTo();
-            llvm::Value *ptr_i8 = builder->CreateBitCast(ptr, i8_ptr_ty); //
-alloc is %0 llvm::Value *val = builder->getInt8(0); // fill with 0 llvm::Value
-*len = builder->CreateZExt(size, i64_t);                // size is i32 8 -> i64
+    const llvm::DataLayout &dl = module->getDataLayout();
+    unsigned align = dl.getABITypeAlign(t).value();
+    ptr->setAlignment(llvm::Align(align));
 
-
-            // builder->CreateMemSet(ptr, llvm::Constant::getNullValue(etype),
-size, llvm::Align(align)); builder->CreateMemSet(ptr_i8, val, len,
-llvm::Align(align));
-        }
-    }
     builder->restoreIP(here);
     return ptr;
 }
-*/
 
 llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
                                          bool zero_initialize,
@@ -2324,7 +2324,7 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             llvm::Value *llvm_idx = codegen_expr(idx);
 
             // First do a load, then index.
-            loc = builder->CreateLoad(codegen_type(bonsai_type), loc,
+            loc = create_aligned_load(codegen_type(bonsai_type), loc,
                                       name + "_ld");
 
             // Get lvalue to loc[`idx`]

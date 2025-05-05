@@ -5,6 +5,7 @@ add_bonsai_tests(
     dce.bonsai
     exported-function.bonsai
     exported-recursive-function.bonsai
+    function-type.bonsai
     nested-exported-function.bonsai
     option.bonsai
     print.bonsai
