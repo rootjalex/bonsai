@@ -1,8 +1,11 @@
 // clang++ -std=c++20 -O3 apps/rtiow/main_hook.cpp apps/rtiow/main.o -o
 // apps/rtiow/main_runner
 // ./main_runner &> bonsai_image.ppm
+#include <chrono>
+#include <fstream> // for std::ofstream
 #include <functional>
 #include <iostream>
+#include <random>
 #include <vector>
 
 #include "main.h"
@@ -12,6 +15,17 @@ constexpr uint32_t METAL = 1;
 constexpr uint32_t DIALECTRIC = 2;
 
 constexpr double pi = 3.1415926535897932385;
+
+inline float random_float() {
+    static std::uniform_real_distribution<float> distribution(0.0, 1.0);
+    static std::mt19937 generator;
+    return distribution(generator);
+}
+
+inline float random_float(float min, float max) {
+    // Returns a random real in [min,max).
+    return min + (max - min) * random_float();
+}
 
 _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
@@ -84,33 +98,63 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
 }
 
 int main(int argc, char *argv[]) {
+    using clock = std::chrono::high_resolution_clock;
+
     if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <width>\n";
+        std::cerr << "Usage: " << argv[0] << " <outfile>\n";
         return 1;
     }
 
-    // Parse width and height from input strings
-    int image_width = std::stoi(argv[1]);
-    float aspect_ratio = 16.0 / 9.0;
-    float image_height = (int)(image_width / aspect_ratio);
-    image_height = (image_height < 1) ? 1 : image_height;
-    // int image_height = std::stoi(argv[2]);
+    auto t0 = clock::now();
 
     std::vector<MaterialSphere> spheres{
         // Ground
-        {Sphere{{0, -100.5, -1}, 100}, LAMBERTIAN, {0.8, 0.8, 0.0}, 0.0},
-        // Center
-        {Sphere{{0.0, 0.0, -1.2}, 0.5}, LAMBERTIAN, {0.1, 0.2, 0.5}, 0.0},
-        // Left
-        {Sphere{{-1.0, 0.0, -1.0}, 0.5}, DIALECTRIC, {0.0, 0.0, 0.0}, 1.50},
-        // Bubble
-        {Sphere{{-1.0, 0.0, -1.0}, 0.4},
-         DIALECTRIC,
-         {0.0, 0.0, 0.0},
-         1.00 / 1.50},
-        // Right
-        {Sphere{{1.0, 0.0, -1.0}, 0.5}, METAL, {0.8, 0.6, 0.2}, 1.0},
+        {Sphere{{0, -1000, 0}, 1000}, LAMBERTIAN, {0.5, 0.5, 0.5}, 0.0},
+
+        {Sphere{{0, 1, 0}, 1}, DIALECTRIC, {0, 0, 0}, 1.5},
+        {Sphere{{-4, 1, 0}, 1}, LAMBERTIAN, {0.4, 0.2, 0.1}, 0.0},
+        {Sphere{{4, 1, 0}, 1}, METAL, {0.7, 0.6, 0.5}, 0.0},
     };
+
+    for (int a = -11; a < 11; a++) {
+        for (int b = -11; b < 11; b++) {
+            auto choose_mat = random_float();
+            vec3_float center = {static_cast<float>(a + 0.9 * random_float()),
+                                 0.2,
+                                 static_cast<float>(b + 0.9 * random_float())};
+
+            vec3_float a = {4, 0.2, 0};
+
+            vec3_float diff = (center - a);
+            float len =
+                sqrt(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
+
+            if (len > 0.9) {
+                if (choose_mat < 0.8) {
+                    // diffuse
+                    vec3_float r0 = {random_float(), random_float(),
+                                     random_float()};
+                    vec3_float r1 = {random_float(), random_float(),
+                                     random_float()};
+                    auto albedo = r0 * r1;
+                    spheres.push_back(
+                        {Sphere{center, 0.2}, LAMBERTIAN, albedo, 0.0});
+                } else if (choose_mat < 0.95) {
+                    // metal
+                    vec3_float albedo = {random_float(0.5, 1),
+                                         random_float(0.5, 1),
+                                         random_float(0.5, 1)};
+                    float fuzz = random_float(0, 0.5);
+                    spheres.push_back(
+                        {Sphere{center, 0.2}, METAL, albedo, fuzz});
+                } else {
+                    // glass
+                    spheres.push_back(
+                        {Sphere{center, 0.2}, DIALECTRIC, {0, 0, 0}, 1.5});
+                }
+            }
+        }
+    }
 
     /*
     auto R = (float)std::cos(pi / 4);
@@ -125,30 +169,64 @@ int main(int argc, char *argv[]) {
     _spheres_layout1 tree = build_tree_simple(spheres, 1);
 
     Camera cam;
-    cam.aspect_ratio = aspect_ratio;
-    cam.width = image_width;
-    cam.samples_per_pixel = 100;
+    cam.aspect_ratio = 16.0 / 9.0;
+    cam.width = 1200;
+    cam.samples_per_pixel = 50;
     cam.max_depth = 10;
+
     cam.vfov = 20;
-    cam.lookfrom = {-2, 2, 1};
-    cam.lookat = {0, 0, -1};
+    cam.lookfrom = {13, 2, 3};
+    cam.lookat = {0, 0, 0};
     cam.vup = {0, 1, 0};
-    cam.defocus_angle = 10.0;
-    cam.focus_dist = 3.4;
+
+    cam.defocus_angle = 0.6;
+    cam.focus_dist = 10.0;
+
+    int image_width = cam.width;
+    float image_height = (int)(cam.width / cam.aspect_ratio);
+    image_height = (image_height < 1) ? 1 : image_height;
+
+    auto t1 = clock::now();
 
     // Render
     int *im = (int *)image(cam, tree);
 
-    std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
+    auto t2 = clock::now();
+
+    const char *output_filename = argv[1];
+    std::ofstream out(output_filename);
+
+    if (!out) {
+        std::cerr << "Error: Cannot open file " << output_filename
+                  << " for writing\n";
+        free(im);
+        return 1;
+    }
+
+    out << "P3\n" << image_width << ' ' << image_height << "\n255\n";
 
     for (int j = 0; j < image_height; j++) {
         for (int i = 0; i < image_width; i++) {
             int ir = im[(j * image_width + i) * 3 + 0];
             int ig = im[(j * image_width + i) * 3 + 1];
             int ib = im[(j * image_width + i) * 3 + 2];
-            std::cout << ir << ' ' << ig << ' ' << ib << '\n';
+            out << ir << ' ' << ig << ' ' << ib << '\n';
         }
     }
 
+    auto t3 = clock::now();
+
+    auto setup_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    auto render_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    auto write_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+
+    std::cerr << "Setup time: " << setup_ms << " ms\n";
+    std::cerr << "Render time: " << render_ms << " ms\n";
+    std::cerr << "Write-to-output time: " << write_ms << " ms\n";
+
     free(im);
+    return 0;
 }

@@ -866,6 +866,11 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             }
             break;
         }
+        case Intrinsic::min:
+        case Intrinsic::max: {
+            internal_assert(args.size() == 2);
+            try_match_types(args[0], args[1]);
+        }
         default: {
             internal_assert(args.size() > 0);
             node->type = args[0].type();

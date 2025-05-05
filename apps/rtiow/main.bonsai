@@ -170,7 +170,8 @@ func pixel(i : i32, j : i32, c : Camera) {
 } 
 
 func to_rgb(v : vec3f) {
-    return cast[[vector[i32, 3]]](255.999 * linear_to_gamma_v(v));
+    corrected = linear_to_gamma_v(v);
+    return cast[[vector[i32, 3]]](256.0 * clamp(corrected, 0.0, 0.999));
 }
 
 func [[export]] image(c : Camera) {
