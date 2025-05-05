@@ -904,7 +904,7 @@ ir::Stmt substitute_temporaries(ir::Stmt body) {
 ir::FuncMap CSE::run(ir::FuncMap funcs) const {
     std::set<std::string> side_effect_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
-        std::set<std::string> mutable_arguments = get_mutable_arguments(*func);
+        const std::set<std::string> &mutable_arguments = func->mutable_args();
         RenameAnalysis analysis(side_effect_functions, mutable_arguments);
         // Find expressions that have been seen > 1  times.
         func->body.accept(&analysis);
