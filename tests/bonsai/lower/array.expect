@@ -64,7 +64,7 @@ func f(x : i32) -> i32 {
 
 func local() -> i32[3] {
   let xs = build<i32[3]>(1, 2, 3) in
-  return _traverse_array1(xs)
+  return _traverse_array1(build<i32[3]>(1, 2, 3))
 }
 
 func tall1(ij : i32[4][8]) -> i32[4][8] {

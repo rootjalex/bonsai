@@ -1,11 +1,13 @@
 #include "Lower/Canonicalize.h"
 
-#include "IR/Mutator.h"
-
 #include "Error.h"
+#include "IR/Analysis.h"
+#include "IR/Mutator.h"
 #include "Utils.h"
 
 #include <algorithm>
+#include <set>
+#include <string>
 
 namespace bonsai {
 namespace lower {
@@ -116,7 +118,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 ir::FuncMap Canonicalize::run(ir::FuncMap funcs) const {
     for (const auto &[name, func] : funcs) {
-        func->body = canonicalize(func->body);
+        func->body = canonicalize(std::move(func->body));
     }
     return funcs;
 }

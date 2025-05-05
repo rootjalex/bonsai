@@ -78,5 +78,12 @@ bool reads(Stmt stmt, const std::set<std::string> &vars);
 
 std::set<std::string> assigned_variables(Stmt stmt);
 
+// Returns the set of function names that have side effects.
+std::set<std::string> find_side_effects(const ir::FuncMap &functions);
+
+// Returns whether `expr` has side effects.
+bool has_side_effects(const ir::Expr &expr,
+                      const std::set<std::string> &side_effect_functions);
+
 } // namespace ir
 } // namespace bonsai

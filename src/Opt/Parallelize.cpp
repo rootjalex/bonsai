@@ -155,9 +155,10 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
                 funcs.try_emplace(closure.func->name, closure.func);
             internal_assert(inserted);
 
-            Expr n = ((node->slice.end - node->slice.begin) +
-                      (node->slice.stride - 1)) /
-                     node->slice.stride;
+            Expr n =
+                ((node->slice.end - node->slice.begin) +
+                 (node->slice.stride - make_one(node->slice.stride.type()))) /
+                node->slice.stride;
             n = Simplify::simplify(n);
             std::vector<Expr> args = {closure.context};
             std::vector<Stmt> seq(2);
@@ -177,6 +178,7 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
 } // namespace
 
 Program Parallelize::run(Program program) const {
+    /*
     for (auto &[name, func] : program.funcs) {
         // TODO: get loop_idx and func from schedule.
         if (name == "_traverse_array0") {
@@ -184,6 +186,7 @@ Program Parallelize::run(Program program) const {
                                             program.types);
         }
     }
+    */
     return program;
 }
 

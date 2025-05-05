@@ -1,7 +1,9 @@
 #include "IR/Type.h"
 
 #include <algorithm>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "IR/Equality.h"
@@ -514,6 +516,17 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         return as_vec->etype;
     } else if (const Array_t *as_array = struct_type.as<Array_t>()) {
         return as_array->etype;
+    } else if (const Tuple_t *as_tuple = struct_type.as<Tuple_t>()) {
+        internal_assert(!field.empty());
+        internal_assert(field.starts_with("_field")) << field;
+        int64_t p = field.find_first_of("0123456789");
+        std::string number = field.substr(p);
+        internal_assert(!number.empty()) << field;
+        std::stringstream ss(number);
+        int64_t position;
+        internal_assert(ss >> position) << field;
+        internal_assert(position < as_tuple->etypes.size());
+        return as_tuple->etypes[position];
     } else {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;
