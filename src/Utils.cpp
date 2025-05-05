@@ -174,14 +174,45 @@ Expr constant_cast(const Type &t, const Expr &e) {
     } else if (e.is<Build>() && e.as<Build>()->values.empty()) {
         static const std::vector<Expr> empty = {};
         return Build::make(t, empty);
+    } else if (const Build *build = e.as<Build>()) {
+        if (const Tuple_t *tuple_t = t.as<Tuple_t>()) {
+            // Propagate etypes.
+            internal_assert(build->values.size() == tuple_t->etypes.size())
+                << "Mismatched counts in constant_cast(" << t << ", " << e
+                << ")";
+            std::vector<Expr> args(build->values.size());
+            for (size_t i = 0; i < build->values.size(); i++) {
+                args[i] = constant_cast(tuple_t->etypes[i], build->values[i]);
+            }
+            return Build::make(std::move(t), std::move(args));
+        } else if (const Vector_t *vector_t = t.as<Vector_t>()) {
+            // Propagate etype.
+            internal_assert(build->values.size() == vector_t->lanes)
+                << "Mismatched counts in constant_cast(" << t << ", " << e
+                << ")";
+            std::vector<Expr> args(build->values.size());
+            for (size_t i = 0; i < build->values.size(); i++) {
+                args[i] = constant_cast(vector_t->etype, build->values[i]);
+            }
+            return Build::make(std::move(t), std::move(args));
+        } else if (const Struct_t *struct_t = t.as<Struct_t>()) {
+            internal_assert(build->values.size() == struct_t->fields.size())
+                << "Mismatched counts in constant_cast(" << t << ", " << e
+                << ")";
+            std::vector<Expr> args(build->values.size());
+            for (size_t i = 0; i < build->values.size(); i++) {
+                args[i] =
+                    constant_cast(struct_t->fields[i].type, build->values[i]);
+            }
+            return Build::make(std::move(t), std::move(args));
+        }
     } else if (e.is<Broadcast>()) {
         return constant_cast(t, e.as<Broadcast>()->value);
     } else if (e.is<Infinity>()) {
         return Infinity::make(t);
-    } else {
-        internal_error << "Unsure how to convert constant to type: " << t
-                       << " expr: " << e;
     }
+    internal_error << "Unsure how to convert constant to type: " << t
+                   << " expr: " << e;
 }
 
 Expr cast_to(const Type &t, const Expr &e) {
