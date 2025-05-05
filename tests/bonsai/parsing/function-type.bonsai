@@ -1,0 +1,13 @@
+//! flags: -p core
+
+func apply(input: i32, f: Fn(i32) -> i32) -> i32 {
+  return f(input);
+}
+
+func id(x: i32) -> i32 { return x; }
+
+func main() -> i32 {
+  o1: i32 = apply(42, |x: i32| { x + 1 });
+  o2: i32 = apply(42, id);
+  return 0;
+}

@@ -1,0 +1,16 @@
+//! flags: -b llvm -e
+
+func apply(input: i32, f: Fn(i32) -> i32) -> i32 {
+  return f(input);
+}
+
+func plus_one(x: i32) -> i32 { return x + 1; }
+
+func main() -> i32 {
+  // TODO(cgyurgyik): Support lambdas.
+  // o1: i32 = apply(41, |x: i32| { x + 1 });
+  // print(o1);
+  o2: i32 = apply(41, plus_one);
+  print(o2);
+  return 0;
+}

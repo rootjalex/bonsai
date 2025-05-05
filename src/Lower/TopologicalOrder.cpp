@@ -118,6 +118,12 @@ std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
             return;
         }
         visiting.insert(fname);
+        if (!call_graph.contains(fname)) {
+            // This is a function argument.
+            seen.insert(fname);
+            visiting.erase(fname);
+            return;
+        }
         for (const auto &gname : call_graph.at(fname)) {
             visit(gname);
         }

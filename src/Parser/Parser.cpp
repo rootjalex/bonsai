@@ -1821,6 +1821,21 @@ struct Parser {
             return ir::Bool_t::make();
         } else if (name == "void") {
             return ir::Void_t::make();
+        } else if (name == "Fn") {
+            expect(Token::Type::LPAREN);
+            std::vector<ir::Type> inputs =
+                parse_type_list_until(Token::Type::RPAREN);
+            std::vector<ir::Function_t::ArgSig> signature;
+            std::transform(inputs.begin(), inputs.end(),
+                           std::back_inserter(signature),
+                           [](const ir::Type &type) {
+                               return ir::Function_t::ArgSig{
+                                   .type = type, .is_mutable = false};
+                           });
+            expect(Token::Type::RARROW);
+            ir::Type return_type = parse_type();
+            return ir::Function_t::make(std::move(return_type),
+                                        std::move(signature));
         }
         // Now look for built-ins
         else if (name == "vector") {

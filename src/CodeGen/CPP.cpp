@@ -1,11 +1,14 @@
 #include "CodeGen/CPP.h"
 
 #include "CodeGen/CodeGen_LLVM.h"
-#include "CompilerOptions.h"
-#include "Error.h"
+
+#include "IR/Analysis.h"
 #include "IR/Program.h"
 #include "IR/Type.h"
 #include "IR/Visitor.h"
+
+#include "CompilerOptions.h"
+#include "Error.h"
 #include "Utils.h"
 
 #include "llvm/IR/LegacyPassManager.h"
@@ -30,122 +33,125 @@ namespace codegen {
 
 namespace {
 
-class TypeEmitter : public ir::Visitor {
-  public:
-    TypeEmitter(std::stringstream &ss, int64_t indent_level)
-        : ss(ss), indent_level(indent_level) {}
-    void visit(const ir::Struct_t *type) override {
-        ss << "struct" << ' ' << type->name << ' ' << '{' << '\n';
-        for (const auto &[name, child] : type->fields) {
-            increment_indent();
-            ss << indent();
-            if (handle_constant_sized_container(name, child)) {
-            } else if (const auto *inner = child.as<ir::Struct_t>()) {
-                ss << inner->name << ' ' << name;
+using namespace ir;
+
+void emit_type(std::stringstream &ss, Type type) {
+    struct Emit : public Visitor {
+        std::stringstream &ss;
+
+        Emit(std::stringstream &ss) : ss(ss) {}
+
+        void visit(const Void_t *node) override { ss << "void"; }
+
+        void visit(const Int_t *node) override {
+            ss << "int" << node->bits << "_t";
+        }
+
+        void visit(const UInt_t *node) override {
+            ss << "uint" << node->bits << "_t";
+        }
+
+        // TODO: Index_t
+        RESTRICT_VISITOR(Index_t);
+
+        // TODO(cgyurgyik): use std::float when it is supported:
+        // https://en.cppreference.com/w/cpp/types/floating-point
+        void visit(const Float_t *type) override {
+            switch (type->bits()) {
+            case 64:
+                internal_assert(type->is_ieee754());
+                ss << "double";
+                break;
+            case 32:
+                internal_assert(type->is_ieee754());
+                ss << "float";
+                break;
+            default:
+                internal_error << "unimplemented: e" << type->exponent << "m"
+                               << type->mantissa;
+            }
+        }
+
+        void visit(const Bool_t *node) override { ss << "bool"; }
+
+        void visit(const Ptr_t *node) override {
+            node->etype.accept(this);
+            ss << " *";
+        }
+
+        RESTRICT_VISITOR(Ref_t);
+
+        void visit(const Vector_t *node) override {
+            ss << "vec" << node->lanes << "_";
+            // TODO: this breaks on vectors of ptrs.
+            internal_assert(!contains<Ptr_t>(node->etype));
+            node->etype.accept(this);
+        }
+
+        void visit(const Struct_t *node) override { ss << node->name; }
+
+        RESTRICT_VISITOR(Tuple_t);
+
+        void visit(const Array_t *node) override {
+            internal_assert(!is_const(node->size));
+            node->etype.accept(this);
+            ss << " *";
+        }
+
+        RESTRICT_VISITOR(Option_t);
+        RESTRICT_VISITOR(Set_t);
+        RESTRICT_VISITOR(Function_t);
+        RESTRICT_VISITOR(Generic_t);
+        RESTRICT_VISITOR(BVH_t);
+    };
+
+    Emit emitter(ss);
+    type.accept(&emitter);
+}
+
+void emit_type_declaration(std::stringstream &ss, Type type) {
+    auto indent = std::string(4, ' ');
+
+    if (const Struct_t *struct_t = type.as<Struct_t>()) {
+        ss << "struct" << ' ' << struct_t->name << ' ' << '{' << '\n';
+        for (const auto &[name, child] : struct_t->fields) {
+            ss << indent;
+            if (const Array_t *array_t = child.as<Array_t>();
+                array_t && is_const(array_t->size)) {
+                emit_type(ss, array_t->etype);
+                std::optional<uint64_t> size =
+                    get_constant_value(array_t->size);
+                internal_assert(size.has_value());
+                ss << " " << name << "[" << *size << "]";
             } else {
-                child.accept(this);
-                ss << ' ' << name;
+                emit_type(ss, child);
+                ss << " " << name;
             }
-
-            ss << ';' << '\n';
-            decrement_indent();
+            ss << ";\n";
         }
-        ss << indent() << '}';
-        if (type->is_packed()) {
-            constexpr std::string_view P = "__attribute__((packed))";
-            ss << ' ' << P;
+        ss << '}';
+        if (struct_t->is_packed()) {
+            ss << " __attribute__((packed))";
         }
-        ss << ';' << '\n';
+        ss << ";\n";
+        return;
+    } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
+        ss << "typedef ";
+        emit_type(ss, vector_t->etype);
+        ss << " ";
+        emit_type(ss, type); // get the name
+        ss << " __attribute__((vector_size(";
+        ss << vector_t->lanes * vector_t->etype.bytes() << ")));\n";
+        return;
     }
-    void visit(const ir::Array_t *type) override {
-        // This case should have already been handled.
-        internal_assert(!is_const(type->size));
-        if (const auto *element = type->etype.as<ir::Struct_t>()) {
-            ss << element->name;
-        } else {
-            type->etype.accept(this);
-        }
-        ss << "*";
-    }
-    void visit(const ir::Int_t *type) override {
-        ss << "int" << type->bits << '_' << 't';
-    }
-
-    void visit(const ir::Void_t *type) override { ss << "void"; }
-
-    void visit(const ir::UInt_t *type) override {
-        ss << "uint" << type->bits << '_' << 't';
-    }
-
-    // TODO(cgyurgyik): use std::float when it is supported:
-    // https://en.cppreference.com/w/cpp/types/floating-point
-    void visit(const ir::Float_t *type) override {
-        switch (type->bits()) {
-        case 64:
-            internal_assert(type->is_ieee754());
-            ss << "double";
-            break;
-        case 32:
-            internal_assert(type->is_ieee754());
-            ss << "float";
-            break;
-        default:
-            internal_error << "unimplemented: e" << type->exponent << "m"
-                           << type->mantissa;
-        }
-    }
-
-    void visit(const ir::Vector_t *type) override {
-        internal_error
-            << "Vector_t needs to be handled early since we emit "
-               "before and after the argument name, i.e., `T name[N]`";
-    }
-
-    void visit(const ir::Ptr_t *type) override {
-        if (const ir::Struct_t *struct_t = type->etype.as<ir::Struct_t>()) {
-            ss << struct_t->name << "&";
-        } else {
-            type->etype.accept(this);
-            ss << "&";
-        }
-    }
-
-  private:
-    // Prints the type for a constant sized array or vector, and returns true.
-    // If this fails, returns false.
-    bool handle_constant_sized_container(const std::string &name,
-                                         ir::Type type) {
-        if (const auto *t = type.as<ir::Vector_t>()) {
-            t->etype.accept(this);
-            ss << ' ' << name;
-            ss << '[' << t->lanes << ']';
-            return true;
-        }
-        if (const auto *t = type.as<ir::Array_t>()) {
-            std::optional<uint64_t> size = get_constant_value(t->size);
-            if (!size.has_value()) {
-                return false;
-            }
-            t->etype.accept(this);
-            ss << ' ' << name;
-            ss << '[' << *size << ']';
-            return true;
-        }
-        return false;
-    }
-
-    std::string indent() { return std::string(indent_level, ' '); }
-    void increment_indent() { indent_level += 4; }
-    void decrement_indent() { indent_level -= 4; }
-    std::stringstream &ss;
-    int64_t indent_level;
-};
+    internal_error << "Can't emit type declaration for: " << type;
+}
 
 class BonsaiToCpp {
   public:
     // Creates the bonsai header with external functions and their respective
     // struct definitions.
-    std::string create_header(const ir::Program &program) {
+    std::string create_header(const Program &program) {
         emit_prologue();
         emit_program(program);
         emit_epilogue();
@@ -157,48 +163,29 @@ class BonsaiToCpp {
     int64_t indent_level = 0;
     std::stringstream ss;
 
-    // TODO(cgyurgyik): How are non-standard types handled? Depends whether
-    // they are custom types or encoded / decoded w.r.t. standard types.
-    void emit_type(const ir::Type &type) {
-        TypeEmitter emit(ss, indent_level);
-        type.accept(&emit);
-    }
-
-    void emit_signature_type(const ir::Type &type, bool is_mutating = false,
+    void emit_signature_type(const Type &type, bool is_mutating = false,
                              bool is_return_type = false) {
-        const auto *struct_type = type.as<ir::Struct_t>();
-        if (struct_type == nullptr) {
-            if (!is_mutating && !is_return_type) {
-                ss << "const ";
-            }
-            emit_type(type);
-            return;
+        internal_assert(!type.is<Struct_t>());
+        if (!is_mutating && !is_return_type) {
+            ss << "const ";
         }
-        // Mutable structs must be passed in as pointers.
-        internal_assert(!is_mutating);
-        if (is_return_type) {
-            ss << struct_type->name;
-            return;
+        if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
+            emit_type(ss, ptr_t->etype);
+            ss << "&";
+        } else {
+            emit_type(ss, type);
         }
-        ss << "const " << struct_type->name << "&";
     }
 
-    void emit_func(const ir::Function &func) {
+    void emit_func(const Function &func) {
         emit_signature_type(func.ret_type, /*is_mutating=*/false,
                             /*is_return_type=*/true);
         ss << ' ' << func.name;
         ss << '(';
         for (int i = 0, e = func.args.size(); i < e; ++i) {
-            const ir::Function::Argument &arg = func.args[i];
-            if (const auto *vector_type = arg.type.as<ir::Vector_t>()) {
-                emit_signature_type(vector_type->etype,
-                                    /*is_mutating=*/arg.mutating);
-                ss << ' ' << arg.name;
-                ss << '[' << vector_type->lanes << ']';
-            } else {
-                emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
-                ss << ' ' << arg.name;
-            }
+            const Function::Argument &arg = func.args[i];
+            emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
+            ss << ' ' << arg.name;
             if (i + 1 == e) {
                 continue;
             }
@@ -208,45 +195,45 @@ class BonsaiToCpp {
     }
 
     // Recursively acquire all *unique* types and inserted them into `types`.
-    void get_struct_types(const ir::Type &type, std::set<ir::Type> &deduplicate,
-                          std::vector<ir::Type> &types) {
-        if (type.is<ir::Vector_t, ir::Array_t>()) {
-            get_struct_types(type.element_of(), deduplicate, types);
+    void get_declared_types(const Type &type, std::set<Type> &deduplicate,
+                            std::vector<Type> &types) {
+        if (const Vector_t *vector_t = type.as<Vector_t>()) {
+            get_declared_types(vector_t->etype, deduplicate, types);
+            if (auto [_, inserted] = deduplicate.insert(type); inserted) {
+                types.push_back(type);
+            }
             return;
-        }
-        if (const ir::Ptr_t *ptr_t = type.as<ir::Ptr_t>()) {
-            get_struct_types(ptr_t->etype, deduplicate, types);
+        } else if (const Array_t *array_t = type.as<Array_t>()) {
+            get_declared_types(array_t->etype, deduplicate, types);
             return;
-        }
-        const auto *struct_type = type.as<ir::Struct_t>();
-        if (struct_type == nullptr) {
+        } else if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
+            get_declared_types(ptr_t->etype, deduplicate, types);
             return;
-        }
-        for (const auto &[_, field_type] : struct_type->fields) {
-            get_struct_types(field_type, deduplicate, types);
-        }
-        if (auto [_, inserted] = deduplicate.insert(type); inserted) {
-            types.push_back(type);
+        } else if (const Struct_t *struct_t = type.as<Struct_t>()) {
+            for (const auto &[_, field_type] : struct_t->fields) {
+                get_declared_types(field_type, deduplicate, types);
+            }
+            if (auto [_, inserted] = deduplicate.insert(type); inserted) {
+                types.push_back(type);
+            }
         }
     }
 
-    void emit_program(const ir::Program &program) {
-        std::set<ir::Type> deduplicate;
-        std::vector<ir::Type> exported_types;
+    void emit_program(const Program &program) {
+        std::set<Type> deduplicate;
+        std::vector<Type> exported_types;
         for (const auto &[_, func] : program.funcs) {
             if (!func->is_exported()) {
                 continue;
             }
+            get_declared_types(func->ret_type, deduplicate, exported_types);
             for (const auto &arg_sig : func->argument_types()) {
-                get_struct_types(arg_sig.type, deduplicate, exported_types);
-            }
-            if (ir::Type type = func->ret_type; type.is<ir::Struct_t>()) {
-                get_struct_types(type, deduplicate, exported_types);
+                get_declared_types(arg_sig.type, deduplicate, exported_types);
             }
         }
-        for (const ir::Type &type : exported_types) {
+        for (const Type &type : exported_types) {
             ss << indent();
-            emit_type(type);
+            emit_type_declaration(ss, type);
         }
         ss << '\n';
         for (const auto &[_, func] : program.funcs) {
