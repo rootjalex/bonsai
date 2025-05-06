@@ -70,6 +70,10 @@ std::string vector_prefix(Type element_type) {
 
 } // namespace
 
+void CodeGen_CUDA::visit(const Int_t *node) { codegen::emit_type(os, node); }
+
+void CodeGen_CUDA::visit(const UInt_t *node) { codegen::emit_type(os, node); }
+
 void CodeGen_CUDA::visit(const Float_t *node) {
     if (node->is_ieee754()) {
         switch (node->bits()) {
@@ -108,7 +112,11 @@ void CodeGen_CUDA::visit(const Infinity *node) {
 }
 
 void CodeGen_CUDA::visit(const Cast *node) {
-    internal_error << "[unimplemented] Cast CUDA codegen: " << Expr(node);
+    // TODO(cgyurgyik): Is this what cast really means in Bonsai?
+    os << '(';
+    node->type.accept(this);
+    os << ')';
+    node->value.accept(this);
 }
 
 void CodeGen_CUDA::visit(const Broadcast *node) {
@@ -158,7 +166,7 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent() << "const" << ' ';
-    codegen::emit_type(os, node->loc.type);
+    node->loc.type.accept(this);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
     node->value.accept(this);
     os << ';' << '\n';
@@ -197,7 +205,6 @@ void CodeGen_CUDA::visit(const IfElse *node) {
     os << get_indent() << '}';
     if (node->else_body.defined()) {
         os << ' ' << "else" << ' ' << '{' << '\n';
-        os << " else {\n";
         increment();
         node->else_body.accept(this);
         decrement();
@@ -257,11 +264,11 @@ void CodeGen_CUDA::print(const Program &program) {
 }
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
-    codegen::emit_type(os, function.ret_type);
+    function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
         const Function::Argument &arg = function.args[i];
-        codegen::emit_type(os, arg.type);
+        arg.type.accept(this);
         os << ' ' << arg.name;
         if (ir::Expr value = arg.default_value; value.defined()) {
             os << '=';

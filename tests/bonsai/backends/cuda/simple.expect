@@ -1,0 +1,18 @@
+int32_t add_s(int32_t x, int32_t y) {
+  const int32_t v = (x + y);
+  return v;
+}
+
+int4 add_v(int4 x, int4 y) {
+  const int4 v = (x + y);
+  return v;
+}
+
+int32_t if_else(float x, float y) {
+  const float3 v = float3{x, y, 1f};
+  if ((x + v[1]) < v[0]) {
+    return 0;
+  } else {
+    return ((0f < (v[0u] + v[1u])) ? 1 : 2);
+  }
+}

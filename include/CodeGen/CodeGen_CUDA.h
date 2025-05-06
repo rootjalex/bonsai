@@ -30,6 +30,8 @@ class CodeGen_CUDA : public ir::Printer {
     // Types
     void visit(const ir::Float_t *) override;
     void visit(const ir::Vector_t *) override;
+    void visit(const ir::Int_t *) override;
+    void visit(const ir::UInt_t *) override;
     RESTRICT_VISITOR(ir::Tuple_t);
     RESTRICT_VISITOR(ir::Function_t);
     RESTRICT_VISITOR(ir::Option_t);
