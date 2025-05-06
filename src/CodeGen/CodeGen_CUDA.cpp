@@ -242,7 +242,7 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
-        // TODO(cgyurgyik): Add `const` arithmetic operation overloads.
+        // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
         os << "const" << ' ';
     }
     node->loc.type.accept(this);
