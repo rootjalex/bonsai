@@ -131,6 +131,7 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
 }
 
 void CodeGen_CUDA::visit(const Ptr_t *node) {
+    os << "const" << ' ';
     // Unlike the Bonsai printer, we cannot print () in argument parameters.
     node->etype.accept(this);
     os << "*";
