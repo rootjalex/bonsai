@@ -28,7 +28,9 @@ struct RewriteOptions : public ir::Mutator {
         ir::Struct_t::Map fields;
         fields.emplace_back("value", etype);
         fields.emplace_back("set", Bool);
-        return ir::Struct_t::make(struct_name, fields);
+        // Assumption: the compiler will check the `set` field first.
+        ir::Struct_t::DefMap defaults = {{"set", ir::BoolImm::make(false)}};
+        return ir::Struct_t::make(struct_name, fields, defaults);
     }
 
     ir::Type mutate(const ir::Type &type) override {
