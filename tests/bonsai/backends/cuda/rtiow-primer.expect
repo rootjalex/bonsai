@@ -1,3 +1,7 @@
+#include <cuda_fp16.h>
+#include <math.h>
+#include "include/CodeGen/CUDA/math.h"
+
 struct FInterval {
   float low;
   float high;
@@ -37,11 +41,25 @@ struct hit_record {
   bool front_face;
 };
 
-float3 at((Ray*) r, float t) {
-  return ((*r).o + (make_float3(t,t,t) * (*r).d));
+float3 at(Ray* r, float t) {
+  return ((*r).o + (make_float3(t) * (*r).d));
 }
 
-float distmin_Ray_Sphere((Ray*) r, (Sphere*) s) {
+_option0 intersectsp_ray_sphere(Ray* r, Sphere* s) {
+  float3 oc = ((*s).center - (*r).o);
+  const float h = dot((*r).d, oc);
+  const float disc = ((h * h) - 1);
+  if (disc < 0) {
+    return _option0{};
+  }
+  const float sqrtd = sqrt(disc);
+  const float root0 = (h - sqrtd);
+  const float root1 = (h + sqrtd);
+  const FInterval interval = FInterval{min(root0, root1), max(root0, root1)};
+  return _option0{interval, true};
+}
+
+float distmin_Ray_Sphere(Ray* r, Sphere* s) {
   const _option0 interval = intersectsp_ray_sphere(r, s);
   if (interval.set) {
     const FInterval extract = interval.value;
@@ -50,26 +68,12 @@ float distmin_Ray_Sphere((Ray*) r, (Sphere*) s) {
   return -INFINITY;
 }
 
-hit_record get_hit_record((Ray*) r, (Sphere*) s) {
+hit_record get_hit_record(Ray* r, Sphere* s) {
   const float t = distmin_Ray_Sphere(r, s);
-  const float3 p = ((*r).o + (make_float3(t,t,t) * (*r).d));
-  const float3 outward_normal = ((p - (*s).center) / make_float3((*s).radius,(*s).radius,(*s).radius));
-  const bool front_face = (dot((*r).d, outward_normal) < 0f);
-  const float3 normal = (front_face ? outward_normal : -outward_normal);
+  float3 p = ((*r).o + (make_float3(t) * (*r).d));
+  float3 outward_normal = ((p - (*s).center) / make_float3((*s).radius));
+  const bool front_face = (dot((*r).d, outward_normal) < 0);
+  float3 normal = (front_face ? outward_normal : -outward_normal);
   const hit_record record = hit_record{p, normal, t, front_face};
   return record;
-}
-
-_option0 intersectsp_ray_sphere((Ray*) r, (Sphere*) s) {
-  const float3 oc = ((*s).center - (*r).o);
-  const float h = dot((*r).d, oc);
-  const float disc = ((h * h) - 1f);
-  if (disc < 0f) {
-    return _option0{};
-  }
-  const float sqrtd = sqrt(disc);
-  const float root0 = (h - sqrtd);
-  const float root1 = (h + sqrtd);
-  const FInterval interval = FInterval{min(root0, root1), max(root0, root1)};
-  return _option0{interval, true};
 }

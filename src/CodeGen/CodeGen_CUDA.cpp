@@ -7,8 +7,8 @@
 #include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
-
 #include "Lower/Intrinsics.h"
+#include "Lower/TopologicalOrder.h"
 
 #include "Utils.h"
 
@@ -130,6 +130,18 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
     os << vector_prefix(node->etype) << node->lanes;
 }
 
+void CodeGen_CUDA::visit(const Ptr_t *node) {
+    // Unlike the Bonsai printer, we cannot print () in argument parameters.
+    node->etype.accept(this);
+    os << "*";
+}
+
+void CodeGen_CUDA::visit(const FloatImm *node) {
+    // TODO(cgyurgyik): Do we want *everything* to be printed as a double?
+    // The `f` suffix does not compile in CUDA.
+    os << node->value;
+}
+
 void CodeGen_CUDA::visit(const VecImm *node) {
     internal_error << "[unimplemented] VecImm CUDA codegen: " << Expr(node);
 }
@@ -229,7 +241,11 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
-    os << get_indent() << "const" << ' ';
+    os << get_indent();
+    if (!node->loc.type.is<ir::Vector_t>()) {
+        // TODO(cgyurgyik): Add `const` arithmetic operation overloads.
+        os << "const" << ' ';
+    }
     node->loc.type.accept(this);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
     node->value.accept(this);
@@ -312,22 +328,18 @@ void CodeGen_CUDA::visit(const Launch *node) {
 void CodeGen_CUDA::emit_prologue() {
     // Half (16-bit, IEEE-754) floating point.
     os << '#' << "include" << ' ' << "<cuda_fp16.h>" << '\n';
-    // `INFINITY` literal.
-    os << '#' << "include" << ' ' << "<cmath>" << '\n';
+    // CUDA intrinsics
+    os << '#' << "include" << ' ' << "<math.h>" << '\n';
     // Overload arithmetic operators and intrinsics for vectorized math.
-    //
-    // TODO(cgyurgyik): The easy thing is to copy and paste this into the
-    // emitted code, but it would be nice to have this in its own include since
-    // its so dense. The down side is this requires compiling from bonsai/
-    // directory right...?
-    os << '#' << "include" << ' ' << "include/CodeGen/CUDA/helpers.h" << '\n';
+    // TODO(cgyurgyik): assumes the compiler is run from the root directory.
+    // There is some way to make this work with <>, `-I` passed to the
+    // compiler.
+    os << '#' << "include" << ' ' << "\"include/CodeGen/CUDA/math.h\"" << '\n';
     os << '\n';
 }
 
 void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
-
-    int i = 0, e = program.types.size();
     is_declaration = true;
     std::set<Type> visited;
     for (const auto &[_, type] : program.types) {
@@ -347,8 +359,14 @@ void CodeGen_CUDA::print(const Program &program) {
     }
     is_declaration = false;
 
-    i = 0, e = program.funcs.size();
-    for (const auto &[_, func] : program.funcs) {
+    // CUDA requires functions to be declared before uses.
+    const std::vector<std::string> topological_order =
+        lower::func_topological_order(program.funcs, /*undef_calls=*/false);
+    for (int i = 0, e = topological_order.size(); i < e; ++i) {
+        const std::string &name = topological_order[i];
+        const auto &it = program.funcs.find(name);
+        internal_assert(it != program.funcs.end());
+        const auto &func = it->second;
         if (func == nullptr) {
             // Minimize aborts when printing, since we use printing to debug.
             os << get_indent() << "[NULL FUNCTION]" << '\n';
@@ -356,12 +374,13 @@ void CodeGen_CUDA::print(const Program &program) {
         }
         print(*func);
         os << '\n';
-        if (i++ + 1 == e) {
+        if (i + 1 == e) {
             continue;
         }
         os << '\n';
     }
 }
+
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
     function.ret_type.accept(this);
