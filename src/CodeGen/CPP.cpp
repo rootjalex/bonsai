@@ -110,6 +110,7 @@ void emit_type(std::ostream &ss, Type type) {
 namespace {
 
 void emit_type_declaration(std::stringstream &ss, Type type) {
+    ir::Printer printer(ss);
     auto indent = std::string(4, ' ');
 
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
@@ -126,6 +127,11 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             } else {
                 emit_type(ss, child);
                 ss << " " << name;
+            }
+            if (const auto &it = struct_t->defaults.find(name);
+                it != struct_t->defaults.cend()) {
+                ss << " = ";
+                printer.print(it->second);
             }
             ss << ";\n";
         }

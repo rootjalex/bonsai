@@ -1,6 +1,6 @@
 //! flags: -b cpp
 
-element Position { x: i32; y: i32; }
+element Position { x: i32; y: i32 = 42; }
 
 func [[export]] add(i: Position, j: Position) -> Position {
     return Position {i.x + j.x, i.y + j.y };

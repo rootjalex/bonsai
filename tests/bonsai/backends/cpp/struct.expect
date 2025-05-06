@@ -6,7 +6,7 @@
 extern "C" {
 struct Position {
     int32_t x;
-    int32_t y;
+    int32_t y = 42;
 };
 
 void add(Position& _ret0, const Position& i, const Position& j);
