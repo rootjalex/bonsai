@@ -1,5 +1,9 @@
 //! flags: -b cuda
 
+element Foo {
+    x: i32 = 42;
+}
+
 func add_s(x: i32, y: i32) {
     v: i32 = x + y;
     return v;
