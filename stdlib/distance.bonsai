@@ -35,6 +35,7 @@ func distmin(ray : Ray, tri : Triangle) -> Float {
 }
 
 // TODO: is this right?
+// func distmax(ray : Ray, tri : Triangle) -> Float = inf;
 func distmax(ray : Ray, tri : Triangle) -> Float {
     isect = intersectsp_ray_tri(ray, tri);
     if isect {

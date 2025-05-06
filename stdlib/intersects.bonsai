@@ -13,8 +13,8 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     dirIsNeg = invDir < 0;
 
     // Check for ray intersection against slabs.
-    low_parts = select(dirIsNeg, b.low, b.high);
-    high_parts = select(dirIsNeg, b.high, b.low);
+    low_parts = select(dirIsNeg, b.high, b.low);
+    high_parts = select(dirIsNeg, b.low, b.high);
     tMin : mut = (low_parts - r.o) * invDir;
     tMax : mut = (high_parts - r.o) * invDir;
 
@@ -142,8 +142,45 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
     return TriangleIntersection{b0, b1, b2, t};   
 }
 
+// Möller–Trumbore intersection algorithm
+func ray_intersects_triangle(ray : Ray, tri : Triangle) -> option[Float] {
+    epsilon = eps[[Float]]();
+
+    edge1 = tri.p1 - tri.p0;
+    edge2 = tri.p2 - tri.p0;
+    ray_cross_e2 = cross_(ray.d, edge2);
+    det = dot(edge1, ray_cross_e2);
+
+    if (det > -epsilon && det < epsilon)
+        return {};    // This ray is parallel to this triangle.
+
+    inv_det = 1.0 / det;
+    s = ray.o - tri.p0;
+    u = inv_det * dot(s, ray_cross_e2);
+
+    if ((u < 0) && (abs(u) > epsilon)) || ((u > 1) && (abs(u - 1) > epsilon)) {
+        return {};
+    }
+
+    s_cross_e1 = cross_(s, edge1);
+    v = inv_det * dot(ray.d, s_cross_e1);
+
+    if ((v < 0 && abs(v) > epsilon) || (u + v > 1 && abs(u + v - 1) > epsilon))
+        return {};
+
+    // At this stage we can compute t to find out where the intersection point is on the line.
+    t = inv_det * dot(edge2, s_cross_e1);
+
+    if (t > epsilon) {
+        return t;
+    } else {
+        return {}; // This means that there is a line intersection but not a ray intersection.
+    }
+}
+
 func intersects(ray : Ray, tri : Triangle) -> bool {
     return cast[[bool]](intersectsp_ray_tri(ray, tri));
+    // return cast[[bool]](ray_intersects_triangle(ray, tri));
 }
 
 // https://raytracing.github.io/books/RayTracingInOneWeekend.html
