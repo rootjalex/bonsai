@@ -252,6 +252,16 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Assign *node) {
+    // TODO(ajr): if this is a launched kernel, this cannot be an array
+    // allocation. Otherwise, this should probably cuda malloc for arrays.
+    internal_error << "[unimplemented] Assign CUDA codegen: " << Stmt(node);
+}
+
+void CodeGen_CUDA::visit(const Accumulate *node) {
+    internal_error << "[unimplemented] Accumulate CUDA codegen: " << Stmt(node);
+}
+
 void CodeGen_CUDA::visit(const ir::Return *node) {
     os << get_indent() << "return";
     if (ir::Expr value = node->value; value.defined()) {
@@ -298,15 +308,6 @@ void CodeGen_CUDA::visit(const DoWhile *node) {
     os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
     print_no_parens(node->cond);
     os << ')' << '\n';
-}
-
-void CodeGen_CUDA::visit(const Assign *node) {
-    // TODO(ajr): if this is a launched kernel, this cannot be an array
-    // allocation. Otherwise, this should probably cuda malloc for arrays.
-}
-
-void CodeGen_CUDA::visit(const Accumulate *node) {
-    internal_error << "[unimplemented] Accumulate CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Label *node) {
