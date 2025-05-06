@@ -153,8 +153,13 @@ struct Printer : public Visitor {
     void visit(const Group *) override;
     void visit(const Materialize *) override;
 
+  protected:
     void set_indent(int _indent) { indent = _indent; }
     Indentation get_indent() const { return Indentation{indent}; }
+    /** Either emits "(" or "", depending on the value of implicit_parens */
+    void open();
+    /** Either emits ")" or "", depending on the value of implicit_parens */
+    void close();
 
   private:
     /** The stream on which we're outputting */
@@ -168,12 +173,6 @@ struct Printer : public Visitor {
      * args to a call are already separated by commas and a
      * surrounding set of parens. */
     bool implicit_parens = false;
-
-    /** Either emits "(" or "", depending on the value of implicit_parens */
-    void open();
-
-    /** Either emits ")" or "", depending on the value of implicit_parens */
-    void close();
 
     /** The symbols whose types can be inferred from values printed
      * already. */

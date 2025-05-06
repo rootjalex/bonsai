@@ -1,6 +1,13 @@
 //! flags: -b cuda
 
-func add(x: i32, y: i32) {
+func add_s(x: i32, y: i32) {
     v: i32 = x + y;
     return v;
+}
+
+
+func add_v(x: vector[i32, 4], y: vector[i32, 4]) {
+    v: mut vector[i32, 4] = {0,0,0,0};
+    v = x + y;
+    return;
 }

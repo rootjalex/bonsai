@@ -27,13 +27,137 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options) {
     internal_assert(os.is_open()) << "failed to open: " << options.output_file;
     CodeGen_CUDA codegen(os);
     codegen.print(program);
+    os.close();
 }
 } // namespace codegen
 
 using namespace ir;
 
+namespace {
+
+std::string vector_prefix(Type element_type) {
+    if (element_type.is<Int_t, UInt_t>()) {
+        const bool is_unsigned = element_type.is<UInt_t>();
+        switch (element_type.bits()) {
+        case 64:
+            return std::string(is_unsigned ? "u" : "") + "longlong";
+        case 32:
+            return std::string(is_unsigned ? "u" : "") + "int";
+        case 16:
+            return std::string(is_unsigned ? "u" : "") + "short";
+        case 8:
+            return std::string(is_unsigned ? "u" : "") + "char";
+        default:
+            break;
+        }
+    }
+    if (const auto *float_t = element_type.as<Float_t>();
+        float_t && float_t->is_ieee754()) {
+        switch (float_t->bits()) {
+        case 64:
+            return "double";
+        case 32:
+            return "float";
+        case 16:
+            return "half";
+        default:
+            break;
+        }
+    }
+    internal_error << "[unimplemented] vector prefix for element type: "
+                   << element_type;
+}
+
+} // namespace
+
+void CodeGen_CUDA::visit(const Float_t *node) {
+    if (node->is_ieee754()) {
+        switch (node->bits()) {
+        case 16:
+            // Assumes <cuda_fp16.h> is included somewhere
+            os << "__half";
+            return;
+        case 32:
+            os << "float";
+            return;
+        case 64:
+            os << "double";
+            return;
+        default:
+            break;
+        }
+    }
+    internal_error << "[unimplemented] float type codegen on CUDA: "
+                   << Type(node);
+}
+
+void CodeGen_CUDA::visit(const Vector_t *node) {
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
+    internal_assert(1 <= node->lanes && node->lanes <= 4)
+        << "[unimplemented] vector size: " << node->lanes
+        << " in CUDA codegen, " << Type(node);
+    os << vector_prefix(node->etype) << node->lanes;
+}
+
+void CodeGen_CUDA::visit(const VecImm *node) {
+    internal_error << "[unimplemented] VecImm CUDA codegen: " << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const Infinity *node) {
+    internal_error << "[unimplemented] Infinity CUDA codegen: " << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const Cast *node) {
+    internal_error << "[unimplemented] Cast CUDA codegen: " << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const Broadcast *node) {
+    internal_error << "[unimplemented] Broadcast CUDA codegen: " << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const VectorReduce *node) {
+    internal_error << "[unimplemented] VectorReduce CUDA codegen: "
+                   << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const VectorShuffle *node) {
+    internal_error << "[unimplemented] VectorShuffle CUDA codegen: "
+                   << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const Ramp *node) {
+    internal_error << "[unimplemented] Ramp CUDA codegen: " << Expr(node);
+}
+
+void CodeGen_CUDA::visit(const Build *node) {
+    node->type.accept(this);
+    os << "{";
+    for (size_t i = 0, n = node->values.size(); i < n; i++) {
+        if (i != 0) {
+            os << ", ";
+        }
+        // TODO(cgyurgyik): Fix this.
+        print_no_parens(node->values[i]);
+    }
+    os << "}";
+}
+
+void CodeGen_CUDA::visit(const Select *node) {
+    open();
+    node->cond.accept(this);
+    os << " ? ";
+    node->tvalue.accept(this);
+    os << " : ";
+    node->fvalue.accept(this);
+    close();
+}
+
+void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
+    internal_error << "[unimplemented] Intrinsic CUDA codegen: " << Expr(node);
+}
+
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
-    os << get_indent();
+    os << get_indent() << "const" << ' ';
     codegen::emit_type(os, node->loc.type);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
     node->value.accept(this);
@@ -47,6 +171,73 @@ void CodeGen_CUDA::visit(const ir::Return *node) {
         value.accept(this);
     }
     os << ';' << '\n';
+}
+
+void CodeGen_CUDA::visit(const ir::CallStmt *node) {
+    internal_error << "[unimplemented] CallStmt CUDA codegen: " << Stmt(node);
+    os << ';' << '\n';
+}
+
+void CodeGen_CUDA::visit(const Print *node) {
+    // TODO(cgyurgyik): CUDA enables printing through `printf`. I imagine
+    // (though have not verified) this is going to use the same format
+    // specifiers as C printf, so we can just refactor the LLVM version and use
+    // it here.
+    internal_error << "[unimplemented] Print CUDA codegen: " << Stmt(node);
+}
+
+void CodeGen_CUDA::visit(const IfElse *node) {
+    os << get_indent() << "if" << ' ' << '(';
+    // TODO(cgyurgyik): Fix this.
+    print_no_parens(node->cond);
+    os << ')' << ' ' << '{' << '\n';
+    increment();
+    node->then_body.accept(this);
+    decrement();
+    os << get_indent() << '}';
+    if (node->else_body.defined()) {
+        os << ' ' << "else" << ' ' << '{' << '\n';
+        os << " else {\n";
+        increment();
+        node->else_body.accept(this);
+        decrement();
+        os << get_indent() << "}";
+    }
+    os << "\n";
+}
+
+void CodeGen_CUDA::visit(const DoWhile *node) {
+    os << get_indent() << "do" << ' ' << '{';
+    node->body.accept(this);
+    os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
+    os << get_indent() << "} while (";
+    print_no_parens(node->cond); // TODO(cgyurgyik): Fix this.
+    os << ')' << '\n';
+}
+
+void CodeGen_CUDA::visit(const Assign *node) {
+    // TODO(ajr): if this is a launched kernel, this cannot be an array
+    // allocation. Otherwise, this should probably cuda malloc for arrays.
+}
+
+void CodeGen_CUDA::visit(const Accumulate *node) {
+    internal_error << "[unimplemented] Accumulate CUDA codegen: " << Stmt(node);
+}
+
+void CodeGen_CUDA::visit(const Label *node) {
+    internal_error << "[unimplemented] Label CUDA codegen: " << Stmt(node);
+}
+
+void CodeGen_CUDA::visit(const ForAll *node) {
+    internal_error << "[unimplemented] ForAll CUDA codegen: " << Stmt(node);
+}
+
+void CodeGen_CUDA::visit(const Continue *node) {
+    internal_error << "[unimplemented] Continue CUDA codegen: " << Stmt(node);
+}
+
+void CodeGen_CUDA::visit(const Launch *node) {
+    internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::print(const Program &program) {
@@ -82,9 +273,9 @@ void CodeGen_CUDA::print(const Function &function) {
         os << ',' << ' ';
     }
     os << ')' << ' ' << '{' << '\n';
-    increment_indent();
+    increment();
     function.body.accept(this);
-    decrement_indent();
+    decrement();
     os << get_indent() << '}';
 }
 

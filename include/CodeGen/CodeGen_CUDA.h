@@ -24,15 +24,64 @@ class CodeGen_CUDA : public ir::Printer {
   public:
     explicit CodeGen_CUDA(std::ostream &os) : ir::Printer(os), os(os) {}
 
-    virtual void visit(const ir::LetStmt *) override;
-    virtual void visit(const ir::Return *) override;
-
     void print(const ir::Program &program);
     void print(const ir::Function &function);
 
+    // Types
+    void visit(const ir::Float_t *) override;
+    void visit(const ir::Vector_t *) override;
+    RESTRICT_VISITOR(ir::Tuple_t);
+    RESTRICT_VISITOR(ir::Function_t);
+    RESTRICT_VISITOR(ir::Option_t);
+    RESTRICT_VISITOR(ir::Set_t);
+    RESTRICT_VISITOR(ir::Generic_t);
+    RESTRICT_VISITOR(ir::BVH_t);
+    // Interfaces
+    RESTRICT_VISITOR(ir::IEmpty);
+    RESTRICT_VISITOR(ir::IFloat);
+    RESTRICT_VISITOR(ir::IVector);
+    // Expressions
+    void visit(const ir::VecImm *) override;
+    void visit(const ir::Infinity *) override;
+    void visit(const ir::Select *) override;
+    void visit(const ir::Cast *) override;
+    void visit(const ir::Broadcast *) override;
+    void visit(const ir::VectorReduce *) override;
+    void visit(const ir::VectorShuffle *) override;
+    void visit(const ir::Ramp *) override;
+    void visit(const ir::Build *) override;
+    void visit(const ir::Intrinsic *) override;
+    RESTRICT_VISITOR(ir::Unwrap);
+    RESTRICT_VISITOR(ir::Generator);
+    RESTRICT_VISITOR(ir::Lambda);
+    RESTRICT_VISITOR(ir::GeomOp);
+    RESTRICT_VISITOR(ir::SetOp);
+    RESTRICT_VISITOR(ir::Instantiate);
+    // Statements
+    void visit(const ir::CallStmt *) override;
+    void visit(const ir::Print *) override;
+    void visit(const ir::Return *) override;
+    void visit(const ir::LetStmt *) override;
+    void visit(const ir::IfElse *) override;
+    void visit(const ir::DoWhile *) override;
+    void visit(const ir::Assign *) override;
+    void visit(const ir::Accumulate *) override;
+    void visit(const ir::Label *) override;
+    void visit(const ir::ForAll *) override;
+    void visit(const ir::Continue *) override;
+    void visit(const ir::Launch *) override;
+    RESTRICT_VISITOR(ir::ForEach);
+    RESTRICT_VISITOR(ir::RecLoop);
+    RESTRICT_VISITOR(ir::YieldFrom);
+    RESTRICT_VISITOR(ir::Match);
+    RESTRICT_VISITOR(ir::Yield);
+    RESTRICT_VISITOR(ir::Scan);
+
   private:
-    void increment_indent() { set_indent(get_indent().indent + 1); }
-    void decrement_indent() { set_indent(get_indent().indent - 1); }
+    // Increments the indentdation.
+    void increment() { set_indent(get_indent().indent + 1); }
+    // Decrements the indentation.
+    void decrement() { set_indent(get_indent().indent - 1); }
     std::ostream &os;
 };
 
