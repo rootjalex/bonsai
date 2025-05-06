@@ -80,7 +80,6 @@ void CodeGen_CUDA::visit(const Float_t *node) {
     if (node->is_ieee754()) {
         switch (node->bits()) {
         case 16:
-            // Assumes <cuda_fp16.h> is included somewhere
             os << "__half";
             return;
         case 32:
@@ -137,7 +136,6 @@ void CodeGen_CUDA::visit(const VecImm *node) {
 
 void CodeGen_CUDA::visit(const Infinity *node) {
     // TODO(cgyurgyik): Assumes implementation-defined version of infinity.
-    // Requires #include <cmath>
     os << "INFINITY";
 }
 
@@ -152,13 +150,7 @@ void CodeGen_CUDA::visit(const Cast *node) {
 void CodeGen_CUDA::visit(const Broadcast *node) {
     os << "make" << '_' << vector_prefix(node->value.type()) << node->lanes;
     os << '(';
-    for (int i = 0, e = node->lanes; i < e; ++i) {
-        node->value.accept(this);
-        if (i + 1 == e) {
-            continue;
-        }
-        os << ',';
-    }
+    node->value.accept(this);
     os << ')';
 }
 
@@ -317,7 +309,24 @@ void CodeGen_CUDA::visit(const Launch *node) {
     internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);
 }
 
+void CodeGen_CUDA::emit_prologue() {
+    // Half (16-bit, IEEE-754) floating point.
+    os << '#' << "include" << ' ' << "<cuda_fp16.h>" << '\n';
+    // `INFINITY` literal.
+    os << '#' << "include" << ' ' << "<cmath>" << '\n';
+    // Overload arithmetic operators and intrinsics for vectorized math.
+    //
+    // TODO(cgyurgyik): The easy thing is to copy and paste this into the
+    // emitted code, but it would be nice to have this in its own include since
+    // its so dense. The down side is this requires compiling from bonsai/
+    // directory right...?
+    os << '#' << "include" << ' ' << "include/CodeGen/CUDA/helpers.h" << '\n';
+    os << '\n';
+}
+
 void CodeGen_CUDA::print(const Program &program) {
+    emit_prologue();
+
     int i = 0, e = program.types.size();
     is_declaration = true;
     std::set<Type> visited;

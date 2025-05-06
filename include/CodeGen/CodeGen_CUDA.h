@@ -84,12 +84,15 @@ class CodeGen_CUDA : public ir::Printer {
     // Whether we are printing type declarations, e.g.,
     // `struct P { int x; int y; int z; }` versus `P`
     bool is_declaration = false;
+    // The stream that is printed to.
+    std::ostream &os;
+
     // Increments the indentation.
     void increment() { set_indent(get_indent().indent + 1); }
     // Decrements the indentation.
     void decrement() { set_indent(get_indent().indent - 1); }
-    // The stream that is printed to.
-    std::ostream &os;
+    // Necessary prologue code.
+    void emit_prologue();
 };
 
 } //  namespace bonsai
