@@ -14,9 +14,9 @@ int4 add_v(int4 x, int4 y) {
 
 int32_t if_else(float x, float y) {
   float3 v = float3{x, y, 1};
-  if ((x + v[1]) < v[0]) {
+  if ((v.z + v.y) < v.x) {
     return 0;
   } else {
-    return ((0 < (v[0u] + v[1u])) ? 1 : 2);
+    return ((0 < (v.x + v.y)) ? 1 : 2);
   }
 }

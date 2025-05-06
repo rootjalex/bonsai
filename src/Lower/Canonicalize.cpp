@@ -107,8 +107,11 @@ struct RewriteVectorFields : public ir::Mutator {
     }
 };
 
-ir::Stmt canonicalize(ir::Stmt stmt) {
-    stmt = RewriteVectorFields().mutate(std::move(stmt));
+ir::Stmt canonicalize(ir::Stmt stmt, const CompilerOptions &options) {
+    if (options.target != BackendTarget::CUDA) {
+        // CUDA does not support operator[] for their builtin vector types.
+        stmt = RewriteVectorFields().mutate(std::move(stmt));
+    }
     stmt = RewriteVectorImmediates().mutate(std::move(stmt));
     // TODO: more canonicalizations.
     return stmt;
@@ -119,7 +122,7 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 ir::FuncMap Canonicalize::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
     for (const auto &[name, func] : funcs) {
-        func->body = canonicalize(std::move(func->body));
+        func->body = canonicalize(std::move(func->body), options);
     }
     return funcs;
 }
