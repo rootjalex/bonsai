@@ -76,7 +76,8 @@ ir::Stmt lower_yields_impl(const ir::Stmt &stmt) {
 
 } // namespace
 
-ir::FuncMap LowerYields::run(ir::FuncMap funcs) const {
+ir::FuncMap LowerYields::run(ir::FuncMap funcs,
+                             const CompilerOptions &options) const {
     for (auto &[_, f] : funcs) {
         f->body = lower_yields_impl(f->body);
     }

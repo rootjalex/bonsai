@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
@@ -12,7 +13,8 @@ class VerifyLayouts : public Pass {
   public:
     constexpr std::string name() const override { return "verify-layouts"; }
 
-    ir::ScheduleMap run(ir::ScheduleMap schedule) const override;
+    ir::ScheduleMap run(ir::ScheduleMap schedule,
+                        const CompilerOptions &options) const override;
 };
 
 } // namespace lower

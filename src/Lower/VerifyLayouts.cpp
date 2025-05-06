@@ -5,7 +5,8 @@
 namespace bonsai {
 namespace lower {
 
-ir::ScheduleMap VerifyLayouts::run(ir::ScheduleMap schedules) const {
+ir::ScheduleMap VerifyLayouts::run(ir::ScheduleMap schedules,
+                                   const CompilerOptions &options) const {
     for (const auto &[target, schedule] : schedules) {
         for (const auto &[name, bvh_t] : schedule.tree_types) {
             const auto &iter = schedule.tree_layouts.find(name);

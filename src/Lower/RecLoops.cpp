@@ -78,7 +78,8 @@ struct LowerRecLoopsImpl : public Mutator {
 
 } // namespace
 
-ir::FuncMap LowerRecLoops::run(ir::FuncMap funcs) const {
+ir::FuncMap LowerRecLoops::run(ir::FuncMap funcs,
+                               const CompilerOptions &options) const {
     LowerRecLoopsImpl lowerer;
     for (const auto &[name, func] : funcs) {
         func->body = lowerer.mutate(func->body);

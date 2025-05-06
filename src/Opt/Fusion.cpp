@@ -83,7 +83,8 @@ struct FuseWithinStmt : public Mutator {
 
 } // namespace
 
-ir::FuncMap Fusion::run(ir::FuncMap funcs) const {
+ir::FuncMap Fusion::run(ir::FuncMap funcs,
+                        const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
         func->body = fuse_within_stmt(func->body, funcs);
     }

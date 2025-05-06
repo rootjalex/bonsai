@@ -190,7 +190,7 @@ struct UnswitchImpl : public Mutator {
 Stmt unswitch_stmt(Stmt stmt) { return UnswitchImpl().mutate(std::move(stmt)); }
 } // namespace
 
-FuncMap Unswitch::run(FuncMap funcs) const {
+FuncMap Unswitch::run(FuncMap funcs, const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
         func->body = unswitch_stmt(std::move(func->body));
     }

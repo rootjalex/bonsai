@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 #include "Utils.h"
@@ -30,7 +31,8 @@ class LowerLambdas : public Pass {
     constexpr std::string name() const override { return "lower-lambda"; }
 
     // Requires full-program analysis (updates function list).
-    ir::Program run(ir::Program program) const override;
+    ir::Program run(ir::Program program,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace lower

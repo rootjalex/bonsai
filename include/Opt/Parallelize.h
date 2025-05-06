@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
@@ -24,7 +25,8 @@ class Parallelize : public lower::Pass {
     constexpr std::string name() const override { return "parallelize"; }
 
     // TODO: needs access to schedule, should be full-program lowering.
-    ir::Program run(ir::Program program) const override;
+    ir::Program run(ir::Program program,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace opt

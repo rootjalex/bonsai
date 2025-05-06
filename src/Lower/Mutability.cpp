@@ -186,7 +186,8 @@ struct RewriteMutables : public ir::Mutator {
 
 } // namespace
 
-ir::FuncMap Mutability::run(ir::FuncMap funcs) const {
+ir::FuncMap Mutability::run(ir::FuncMap funcs,
+                            const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
         // First rewrite calls and derefs.
         RewriteMutables rewriter(func->mutable_args(), func->immutable_args());

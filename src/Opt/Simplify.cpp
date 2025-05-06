@@ -526,7 +526,8 @@ struct Simplifier : ir::Mutator {
     return Simplifier().mutate(std::move(s));
 }
 
-ir::FuncMap Simplify::run(ir::FuncMap funcs) const {
+ir::FuncMap Simplify::run(ir::FuncMap funcs,
+                          const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
         func->body = Simplify::simplify(std::move(func->body));
     }

@@ -428,7 +428,7 @@ ir::Stmt dce(ir::Stmt stmt, const std::set<std::string> &mutable_func_args,
     return UnnameHygiene().mutate(stmt);
 }
 
-ir::FuncMap DCE::run(ir::FuncMap funcs) const {
+ir::FuncMap DCE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     // TODO(ajr): We should also erase unused arguments to Lambdas and
     // Functions. This requires mutating the definitions and all calls,
     // which can get tricky.
