@@ -109,8 +109,83 @@ void emit_type(std::ostream &ss, Type type) {
 
 namespace {
 
+void emit_const_var(std::stringstream &ss, const Expr &expr) {
+    internal_assert(is_const(expr));
+
+    // This *must* support printing any Expr considered is_const.
+    struct EmitConstVar : public Visitor {
+        std::stringstream &ss;
+
+        EmitConstVar(std::stringstream &ss) : ss(ss) {}
+
+        void visit(const Broadcast *node) override {
+            ss << "{";
+            for (size_t i = 0; i < node->lanes; i++) {
+                if (i != 0) {
+                    ss << ", ";
+                }
+                node->value.accept(this);
+            }
+            ss << "}";
+        }
+
+        void visit(const Build *node) override {
+            emit_type(ss, node->type);
+            ss << "{";
+            for (size_t i = 0; i < node->values.size(); i++) {
+                if (i != 0) {
+                    ss << ", ";
+                }
+                node->values[i].accept(this);
+            }
+            ss << "}";
+        }
+
+        void visit(const IntImm *node) override { ss << node->value; }
+
+        void visit(const UIntImm *node) override { ss << node->value; }
+
+        void visit(const FloatImm *node) override {
+            // Save current formatting flags and precision
+            std::ios::fmtflags f = ss.flags();
+            std::streamsize p = ss.precision();
+
+            // Set full precision for float output
+            ss << std::setprecision(std::numeric_limits<double>::digits10 + 1)
+               << node->value;
+
+            // Restore previous formatting
+            ss.flags(f);
+            ss.precision(p);
+        }
+
+        void visit(const BoolImm *node) override {
+            ss << (node->value ? "true" : "false");
+        }
+
+        void visit(const Infinity *node) override {
+            ss << "std::numeric_limits<";
+            emit_type(ss, node->type);
+            ss << ">::infinity()";
+        }
+
+        void visit(const VecImm *node) override {
+            ss << "{";
+            for (size_t i = 0; i < node->values.size(); i++) {
+                if (i != 0) {
+                    ss << ", ";
+                }
+                node->values[i].accept(this);
+            }
+            ss << "}";
+        }
+    };
+
+    EmitConstVar emitter(ss);
+    expr.accept(&emitter);
+}
+
 void emit_type_declaration(std::stringstream &ss, Type type) {
-    ir::Printer printer(ss);
     auto indent = std::string(4, ' ');
 
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
@@ -131,7 +206,7 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             if (const auto &it = struct_t->defaults.find(name);
                 it != struct_t->defaults.cend()) {
                 ss << " = ";
-                printer.print(it->second);
+                emit_const_var(ss, it->second);
             }
             ss << ";\n";
         }
