@@ -352,6 +352,7 @@ void CodeGen_CUDA::print(const Program &program) {
         if (!inserted) {
             // This is just an alias to another declared struct, e.g.,
             // element E { x: i32; }
+            // element F = E; // <--
             continue;
         }
         type.accept(this);
