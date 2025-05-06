@@ -97,6 +97,32 @@ void CodeGen_CUDA::visit(const Float_t *node) {
                    << Type(node);
 }
 
+void CodeGen_CUDA::visit(const Struct_t *node) {
+    if (!is_declaration) {
+        os << node->name;
+        return;
+    }
+    os << get_indent();
+    os << "struct" << ' ' << node->name << ' ' << '{' << '\n';
+    // TODO: alignment or packing?
+    ScopedValue<bool> _(is_declaration, false);
+    increment();
+    for (const auto &field : node->fields) {
+        // TODO: handle constant-sized arrays?
+        os << get_indent();
+        field.type.accept(this);
+        os << " " << field.name;
+        if (const auto &it = node->defaults.find(field.name);
+            it != node->defaults.cend()) {
+            os << " = ";
+            print_no_parens(it->second);
+        }
+        os << ';' << '\n';
+    }
+    decrement();
+    os << get_indent() << '}' << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Vector_t *node) {
     // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
     internal_assert(1 <= node->lanes && node->lanes <= 4)
@@ -173,7 +199,41 @@ void CodeGen_CUDA::visit(const Select *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
-    internal_error << "[unimplemented] Intrinsic CUDA codegen: " << Expr(node);
+    switch (node->op) {
+    // https://developer.download.nvidia.com/cg/dot.html#:~:text=Reference%20Implementation,b.z%20%2B%20a.w*b.w%3B%20%7D
+    case ir::Intrinsic::OpType::dot: {
+        os << "dot" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INTRINSIC__SINGLE.html
+    case ir::Intrinsic::OpType::sqrt: {
+        ir::Type element_type = node->args.front().type();
+        // //TODO(cgyurgyik): I'm unsure what will happen on CUDA if we pass an
+        // integral value, e.g., sqrt(int).
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << "sqrt" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::min: {
+        os << "min" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::max: {
+        os << "max" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    default:
+        internal_error << "[unimplemented] Intrinsic CUDA codegen: "
+                       << Expr(node);
+    }
 }
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
@@ -228,7 +288,6 @@ void CodeGen_CUDA::visit(const DoWhile *node) {
     os << get_indent() << "do" << ' ' << '{';
     node->body.accept(this);
     os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
-    os << get_indent() << "} while (";
     print_no_parens(node->cond);
     os << ')' << '\n';
 }
@@ -259,10 +318,31 @@ void CodeGen_CUDA::visit(const Launch *node) {
 }
 
 void CodeGen_CUDA::print(const Program &program) {
-    int i = 0, e = program.funcs.size();
+    int i = 0, e = program.types.size();
+    is_declaration = true;
+    std::set<Type> visited;
+    for (const auto &[_, type] : program.types) {
+        if (!type.is<Struct_t>()) {
+            // This is just an alias of an non-aggregate type, e.g.,
+            // element Float = f32;
+            continue;
+        }
+        const auto &[it, inserted] = visited.insert(type);
+        if (!inserted) {
+            // This is just an alias to another declared struct, e.g.,
+            // element E { x: i32; }
+            continue;
+        }
+        type.accept(this);
+        os << '\n';
+    }
+    is_declaration = false;
+
+    i = 0, e = program.funcs.size();
     for (const auto &[_, func] : program.funcs) {
         if (func == nullptr) {
-            os << get_indent() << "[BONSAI NULL FUNCTION]" << '\n' << '\n';
+            // Minimize aborts when printing, since we use printing to debug.
+            os << get_indent() << "[NULL FUNCTION]" << '\n';
             continue;
         }
         print(*func);

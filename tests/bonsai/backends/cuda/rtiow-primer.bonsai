@@ -8,6 +8,12 @@ element Sphere {
     radius : Float;
 }
 
+// Confirm this is not printed.
+element Sphere2 = Sphere;
+
+element Inner { x: i32; y: i32; z: i32; }
+element Outer { f: vec3f; position: Inner; }
+
 element Ray {
     o : vec3f;
     // tmin : Float = 0;
@@ -31,11 +37,15 @@ element FInterval {
 
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
-func intersectsp_ray_sphere(r : Ray, s : Sphere) -> option[FInterval] {
+func intersectsp_ray_sphere(r : Ray, s : Sphere2) -> option[FInterval] {
     oc = s.center - r.o;
-    a = sum(r.d * r.d);
+    // TODO(cgyurgyik): Implement vector reduce
+    // a = sum(r.d * r.d);
+    a: f32 = 1.0;
     h = dot(r.d, oc);
-    c = sum(oc * oc) - s.radius * s.radius;
+    // TODO(cgyurgyik): Implement vector reduce
+    // c = sum(oc * oc) - s.radius * s.radius;
+    c: f32 = 1.0;
 
     disc = h * h - a * c;
 

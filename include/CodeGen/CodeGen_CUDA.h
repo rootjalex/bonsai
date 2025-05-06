@@ -32,6 +32,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Vector_t *) override;
     void visit(const ir::Int_t *) override;
     void visit(const ir::UInt_t *) override;
+    void visit(const ir::Struct_t *) override;
     RESTRICT_VISITOR(ir::Tuple_t);
     RESTRICT_VISITOR(ir::Function_t);
     RESTRICT_VISITOR(ir::Option_t);
@@ -80,10 +81,13 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Scan);
 
   private:
-    // Increments the indentdation.
+    // Whether this is a type declaration.
+    bool is_declaration = false;
+    // Increments the indentation.
     void increment() { set_indent(get_indent().indent + 1); }
     // Decrements the indentation.
     void decrement() { set_indent(get_indent().indent - 1); }
+    // The stream that is printed to.
     std::ostream &os;
 };
 
