@@ -2035,6 +2035,13 @@ struct Parser {
                 schedule.func_transforms[func].emplace_back(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
+            } else if (rewrite == "loopify") {
+                std::optional<ir::Expr> queue_size;
+                if (peek().type != Token::Type::RPAREN) {
+                    queue_size = parse_expr();
+                }
+                schedule.func_transforms[func].emplace_back(
+                    ir::Loopify{std::move(queue_size)});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

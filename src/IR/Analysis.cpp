@@ -147,9 +147,12 @@ struct AlwaysReturns : public Visitor {
     void visit(const Accumulate *node) override { returns = false; }
     void visit(const Print *node) override { returns = false; }
 
+    // Assume these don't always-return, otherwise
+    // it should simplify.
+    void visit(const ForAll *node) override { returns = false; }
+    void visit(const DoWhile *node) override { returns = false; }
+
     RESTRICT_VISITOR(RecLoop);
-    RESTRICT_VISITOR(DoWhile);
-    RESTRICT_VISITOR(ForAll);
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);

@@ -20,28 +20,8 @@ type vec3h = f16x3
 
 extern triangles : struct _triangles_layout1{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : struct _triangles_layout0{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
 
-func _recloop_func0(triangles__index : u32, triangles : (_triangles_layout1*), ray : (Ray*), _best0 : mut (tuple.0*)) -> void {
-  if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high)))) {
-    if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
-      if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
-        _recloop_func0(triangles__index + 1u, triangles, ray, _best0)
-        _recloop_func0(triangles__index + cast<__layout6>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset, triangles, ray, _best0)
-      } else {
-        forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
-          if (intersectsp_ray_tri(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {
-            if (distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-              _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
-            }
-          }
-        }
-      }
-    }
-  }
-  return
-}
-
 func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[n] {
-  _alloc0 := build<option<Triangle>[n]>()
+  _alloc0 := build<_option0[n]>()
   forall _i0 in [0u:n:1u] {
     _alloc0[_i0] = _traverse_tree0((&rays[_i0]), triangles)
   }
@@ -50,7 +30,31 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout1*))
 
 func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout1*)) -> _option0 {
   _best0 := build<tuple.0>((f32)inf, build<Triangle>())
-  _recloop_func0(0u, triangles, ray, _best0)
+  _queue_count0 := 1
+  _queue0 := build<u32[64]>()
+  _queue0[0] = 0u
+  do {
+    _queue_count0 -= 1
+    let triangles__index = (*_queue0)[(*_queue_count0)] in
+    if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high)))) {
+      if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
+        if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
+          _queue0[(*_queue_count0)] = triangles__index + 1u
+          _queue_count0 += 1
+          _queue0[(*_queue_count0)] = triangles__index + cast<__layout6>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset
+          _queue_count0 += 1
+        } else {
+          forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
+            if (intersectsp_ray_tri(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {
+              if (distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
+                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[cast<__layout9>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
+              }
+            }
+          }
+        }
+      }
+    }
+  } while ((*_queue_count0) != 0)
   return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
 }
 
