@@ -1,0 +1,52 @@
+import stdlib/numerics;
+
+func random_float(low : Float, high : Float) -> Float {
+    return low + (high - low) * cast[[Float]](rand());
+}
+
+func sample_square() -> vec3f {
+    return {rand() - 0.5, rand() - 0.5, 0.0};
+}
+
+func random_vec3f() {
+    return vec3f{rand(), rand(), rand()};
+}
+
+func random_vec3f_in(low : Float, high : Float) -> vec3f {
+    return {random_float(low, high), random_float(low, high), random_float(low, high)};
+}
+
+func random_unit_vector() -> vec3f {
+    x1 = random_float(-1.0, 1.0);
+    x2 = random_float(-1.0, 1.0);
+    s = x1 * x1 + x2 * x2 + 1e-8; // Add epsilon to avoid division by zero
+
+    factor = sqrt(2.0 / s);
+    x = factor * x1;
+    y = factor * x2;
+    z = 1.0 - 2.0 * s;
+
+    // Normalize (slight numerical drift?)
+    len = sqrt(x * x + y * y + z * z);
+    return {x / len, y / len, z / len};
+}
+
+func random_on_hemisphere(normal : vec3f) -> vec3f {
+    on_unit_sphere = random_unit_vector();
+    if (dot(on_unit_sphere, normal) > 0) {
+        return on_unit_sphere;
+    } else {
+        return -on_unit_sphere;
+    }
+}
+
+func random_in_unit_disk() -> vec3f {
+    r = sqrt(rand());
+    theta = 2 * 3.1415926535897932385 * rand();
+    return vec3f{r * cos(theta), r * sin(theta), 0.0};
+}
+
+func defocus_disk_sample(center : vec3f, defocus_disk_u : vec3f, defocus_disk_v : vec3f) -> vec3f {
+    p = random_in_unit_disk();
+    return center + (p[0] * defocus_disk_u) + (p[1] * defocus_disk_v);
+}

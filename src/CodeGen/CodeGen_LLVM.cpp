@@ -1359,6 +1359,36 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_expr(expr);
         return;
     }
+    case Intrinsic::pow: {
+        intrin = llvm::Intrinsic::pow;
+        break;
+    }
+    case Intrinsic::rand: {
+        // TODO(ajr): use Halide vectorizable rand!
+        internal_assert(node->args.size() == 0)
+            << "Unimplemented: seeded random number generation\n";
+        // Declare or get the rand() function: int rand(void);
+        llvm::Function *rand_function = module->getFunction("rand");
+        if (!rand_function) {
+            llvm::FunctionType *rand_func_type =
+                llvm::FunctionType::get(i32_t, {}, false);
+            rand_function = llvm::Function::Create(
+                rand_func_type, llvm::GlobalValue::ExternalLinkage, "rand",
+                module.get());
+        }
+
+        // Call rand()
+        llvm::Value *rand_int = builder->CreateCall(rand_function);
+
+        // Convert result to float in [0.0, 1.0)
+        llvm::Value *as_float = builder->CreateUIToFP(rand_int, f32_t);
+        llvm::Value *scaled = builder->CreateFMul(
+            as_float,
+            llvm::ConstantFP::get(f32_t, 1.0f / static_cast<float>(RAND_MAX)));
+
+        value = scaled;
+        return;
+    }
     case Intrinsic::sin: {
         intrin = llvm::Intrinsic::sin;
         break;
@@ -1366,6 +1396,13 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     case Intrinsic::sqrt: {
         intrin = llvm::Intrinsic::sqrt;
         break;
+    }
+    case Intrinsic::tan: {
+        intrin = llvm::Intrinsic::tan;
+        break;
+    }
+    default: {
+        internal_error << "TODO: codegen intrinsic: " << Expr(node);
     }
     }
     std::vector<llvm::Value *> args(node->args.size());
@@ -1380,7 +1417,6 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
 
     llvm::Type *ret_type = codegen_type(node->type);
 
-    // std::cout << "calling intrinsic for: " << ir::Expr(node) << std::endl;
     value = builder->CreateIntrinsic(ret_type, intrin, args);
 
     internal_assert(value) << "Intrinsic codegen failure: " << Expr(node);

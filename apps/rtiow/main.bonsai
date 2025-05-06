@@ -2,42 +2,85 @@
 // clang++ -std=c++20 -O3 main_hook.cpp main.o -o bonsai.out
 
 import stdlib/numerics;
+import stdlib/random;
 import stdlib/ray;
 import stdlib/sphere;
 import stdlib/distance;
 
-func build_ray(i : i32, j : i32, width : i32) {
-    aspect_ratio : Float = 16.0 / 9.0;
-    height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
+element MaterialSphere {
+    s : Sphere;
+    material : u32; // 0 = Lambertian, 1 = Metal
+    albedo : vec3f;
+    fuzz : Float; // Metal's fuzz, Dialectric's refraction_index
+}
+
+func distmin(r : Ray, ms : MaterialSphere) = distmin(r, ms.s);
+func distmax(r : Ray, ms : MaterialSphere) = distmax(r, ms.s);
+func intersects(r : Ray, ms : MaterialSphere) = intersects(r, ms.s);
+
+element Camera {
+    aspect_ratio : Float;
+    width : i32;
+    samples_per_pixel : u32 = 100;
+    max_depth : i32 = 10;
+    vfov : Float = 90;
+    lookfrom : vec3f = vec3f{0.0, 0.0, 0.0};
+    lookat : vec3f = vec3f{0.0, 0.0, -1.0};
+    vup : vec3f = vec3f{0.0, 1.0, 0.0};
+    defocus_angle : Float  = 0.0;
+    focus_dist : Float = 10.0;
+}
+
+func build_ray(i : i32, j : i32, cam : Camera) {
+    width = cam.width;
+    height : mut = cast[[i32]](cast[[Float]](width) / cam.aspect_ratio);
     height = select(height < 1, 1, height);
 
     // Camera
-    focal_length : Float = 1.0;
-    viewport_height : Float = 2.0;
+    // focal_length = norm(cam.lookfrom - cam.lookat);
+    theta = degrees_to_radians(cam.vfov);
+    h = tan(theta / 2);
+    viewport_height : Float = 2 * h * cam.focus_dist;
     viewport_width = viewport_height * (cast[[Float]](width) / cast[[Float]](height));
-    camera_center = vec3f{0.0, 0.0, 0.0};
+    camera_center = cam.lookfrom;
+
+    // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+    w = unit_vector(cam.lookfrom - cam.lookat);
+    u = unit_vector(cross(cam.vup, w));
+    v = cross(w, u);
 
     // Calculate vectors across the horizontal dnd down the vertical viewport edges.
-    viewport_u = vec3f{viewport_width, 0.0, 0.0};
-    viewport_v = vec3f{0.0, -viewport_height, 0.0};
+    viewport_u = viewport_width * u;    // Vector across viewport horizontal edge
+    viewport_v = viewport_height * -v;  // Vector down viewport vertical edge
 
     // Calculate the horizontal and vertical delta vectors from pixel to pixel.
     pixel_delta_u = viewport_u / cast[[Float]](width);
     pixel_delta_v = viewport_v / cast[[Float]](height);
 
     // Calculate the location of the upper left pixel.
-    viewport_upper_left = camera_center - vec3f{0.0, 0.0, focal_length} - viewport_u / 2 - viewport_v / 2;
+    viewport_upper_left = camera_center - (cam.focus_dist * w) - viewport_u/2 - viewport_v/2;
     pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
 
-    pixel_center = pixel00_loc + (cast[[Float]](i) * pixel_delta_u) + (cast[[Float]](j) * pixel_delta_v);
-    ray_direction = pixel_center - camera_center;
-    return Ray{camera_center, ray_direction};
+    // Calculate the camera defocus disk basis vectors.
+    defocus_radius = cam.focus_dist * tan(degrees_to_radians(cam.defocus_angle / 2));
+    defocus_disk_u = u * defocus_radius;
+    defocus_disk_v = v * defocus_radius;
+
+    // Construct a camera ray originating from the origin and directed at randomly sampled
+    // point around the pixel location i, j.
+    offset = sample_square();
+    pixel_sample = pixel00_loc + ((cast[[Float]](i) + offset.x) * pixel_delta_u)
+                               + ((cast[[Float]](j) + offset.y) * pixel_delta_v);
+
+    ray_origin : mut = camera_center;
+    if cam.defocus_angle > 0 {
+        ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
+    }
+    ray_direction = pixel_sample - ray_origin;
+    return Ray{ray_origin, ray_direction};
 }
 
-func unit_vector(v : vec3f) = v / norm(v);
-
 func at(r : Ray, t : Float) = r.o + t * r.d;
-
 
 element hit_record {
     p, normal : vec3f;
@@ -55,44 +98,99 @@ func get_hit_record(r : Ray, s : Sphere) -> hit_record {
     return record;
 }
 
-extern spheres : set[Sphere];
+element scatter_record {
+    attenuation : vec3f;
+    ray : Ray;
+    hit : bool;
+}
 
-// TODO: this should return an option[Sphere]...
-func trace(r : Ray) = argmin(|s : Sphere| distmin(r, s), filter(|s : Sphere| intersects(r, s), spheres));
+// TODO: investigate whether this generates a lookup table.
+func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
+    hit = get_hit_record(ray, ms.s);
+    if ms.material == 0 {
+        // Lambertian
+        scatter_dir : mut = hit.normal + random_unit_vector();
 
-func pixel(r : Ray) -> vec3f {
-    isect = trace(r);
+        if near_zero(scatter_dir) {
+            scatter_dir = hit.normal;
+        }
+
+        l_scattered = Ray{hit.p, scatter_dir};
+
+        return {ms.albedo, l_scattered, true};
+    } else if ms.material == 1 {
+        // Metal
+        ref = reflect(ray.d, hit.normal);
+        reflected = unit_vector(ref) + (ms.fuzz * random_unit_vector());
+        m_scattered = Ray{hit.p, reflected};
+        return {ms.albedo, m_scattered, true};
+    } else {
+        // Dialectric (== 2)
+        ri = select(hit.front_face, 1.0 / ms.fuzz, ms.fuzz);
+        unit_dir = unit_vector(ray.d);
+
+        cos_theta = min(dot(-unit_dir, hit.normal), 1.0);
+        sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+        cannot_refract = (ri * sin_theta > 1.0) | reflectance(cos_theta, ri) > rand();
+
+        direction = select(cannot_refract, reflect(unit_dir, hit.normal), refract(unit_dir, hit.normal, ri));
+
+        d_scattered = Ray{hit.p, direction};
+        return {vec3f{1.0, 1.0, 1.0}, d_scattered, true};
+    }
+}
+
+
+extern spheres : set[MaterialSphere];
+
+// TODO: need to inspect llvm/asm to make sure calls only happen once.
+func trace(r : Ray) = argmin(|s : MaterialSphere| distmin(r, s), filter(|s : MaterialSphere| intersects(r, s) && distmin(r, s) > 0.001, spheres));
+
+func sample(r : Ray, depth : i32) -> vec3f {
+    if (depth <= 0) {
+        return vec3f{0.0, 0.0, 0.0};
+    }
+    isect : option[MaterialSphere] = trace(r);
     if isect {
-        hit = get_hit_record(r, *isect);
-        return 0.5 * (hit.normal + 1);
+        data = scatter(r, *isect);
+        if (data.hit) {
+            return data.attenuation * sample(data.ray, depth - 1);
+        } else {
+            return vec3f{0.0, 0.0, 0.0};
+        }
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
     return (1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0};
 }
 
+func pixel(i : i32, j : i32, c : Camera) {
+    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
+} 
+
 func to_rgb(v : vec3f) {
-    return cast[[vector[i32, 3]]](255.999 * v);
+    corrected = linear_to_gamma_v(v);
+    return cast[[vector[i32, 3]]](256.0 * clamp(corrected, 0.0, 0.999));
 }
 
-func [[export]] image(width : i32) {
-    aspect_ratio : Float = 16.0 / 9.0;
-    height : mut = cast[[i32]](cast[[Float]](width) / aspect_ratio);
+func [[export]] image(c : Camera) {
+    height : mut = cast[[i32]](cast[[Float]](c.width) / c.aspect_ratio);
     height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| to_rgb(pixel(build_ray(i, j, width))), iter(width)), iter(height));
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(c.width)), iter(height));
 }
 
 schedule {
     // TODO: generic over primitive types!
     tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
     | Interior(left : SphereBVH, right : SphereBVH)
-    | Leaf(data : array[Sphere]);
+    | Leaf(data : array[MaterialSphere]);
 
     spheres : SphereBVH;
 
     layout spheres {
         pCount : u32;
-        prims : array[Sphere, pCount];
+        prims : array[MaterialSphere, pCount];
         count : u32;
         group[count] index : u16 {
             center : vec3f;
@@ -104,4 +202,25 @@ schedule {
             };
         };
     };
+}
+
+func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
+    d = b.center - a.center;
+    dist_sq = sum(d * d);
+    dist = sqrt(dist_sq);
+
+    // Check if one sphere fully contains the other.
+    if (a.radius >= dist + b.radius) {
+        return a;
+    } else if (b.radius >= dist + a.radius) {
+        return b;
+    }
+
+    new_radius = 0.5 * (dist + a.radius + b.radius);
+    // check for degnerate case of the same center
+    direction = select(dist > 0, d / dist, vec3f{1.0, 0.0, 0.0});
+
+    new_center = a.center + direction * (new_radius - a.radius);
+
+    return {new_center, new_radius};
 }

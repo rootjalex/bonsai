@@ -459,7 +459,7 @@ Expr VectorReduce::make(VectorReduce::OpType op, Expr value) {
     const bool infer_types =
         type_enforcement_enabled() || value.type().defined();
     if (infer_types) {
-        internal_assert(value.type().is_vector())
+        internal_assert(value.type().is_vector() || value.type().is<Array_t>())
             << "VectorReduce of non-vector: " << value;
         if (op == VectorReduce::Idxmin || op == VectorReduce::Idxmax) {
             internal_assert(value.type().element_of().is_scalar())
@@ -810,9 +810,11 @@ Expr Unwrap::make(size_t index, Expr value) {
 }
 
 Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
-    internal_assert(!args.empty() &&
-                    std::all_of(args.cbegin(), args.cend(),
-                                [](const auto &arg) { return arg.defined(); }))
+    internal_assert(op == OpType::rand ||
+                    (!args.empty() && std::all_of(args.cbegin(), args.cend(),
+                                                  [](const auto &arg) {
+                                                      return arg.defined();
+                                                  })))
         << "Intrinsic received undefined argument";
 
     Intrinsic *node = new Intrinsic;
@@ -846,7 +848,23 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type().element_of();
             break;
         }
+        case Intrinsic::rand: {
+            internal_assert(args.size() == 0);
+            if (args.size() == 0) {
+                node->type = Float_t::make_f32();
+            } else {
+                internal_assert(args[0].type().is_numeric());
+                node->type = args[0].type();
+            }
+            break;
+        }
+        case Intrinsic::min:
+        case Intrinsic::max: {
+            internal_assert(args.size() == 2);
+            try_match_types(args[0], args[1]);
+        }
         default: {
+            internal_assert(args.size() > 0);
             node->type = args[0].type();
             break;
         }

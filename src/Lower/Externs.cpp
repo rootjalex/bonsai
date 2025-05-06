@@ -115,7 +115,14 @@ ir::Program LowerExterns::run(ir::Program program) const {
                           std::make_move_iterator(new_args.begin()),
                           std::make_move_iterator(new_args.end()));
 
-        funcs_with_externs[f] = std::move(free_vars);
+        funcs_with_externs[f] = free_vars;
+
+        // Handle recursive case.
+        std::map<std::string, VarList> singleton;
+        singleton[f] = std::move(free_vars);
+
+        func->body =
+            InsertExternsIntoCalls(singleton, program.funcs).mutate(func->body);
     }
 
     // TODO(ajr): would be ideal to clear here, but this breaks layout lowering.

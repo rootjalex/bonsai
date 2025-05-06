@@ -131,7 +131,7 @@ Type Mutator::visit(const Array_t *node) {
     if (etype.same_as(node->etype)) {
         return node;
     }
-    return Array_t::make(std::move(etype), ir::Expr());
+    return Array_t::make(std::move(etype), node->size);
 }
 
 Type Mutator::visit(const Option_t *node) {

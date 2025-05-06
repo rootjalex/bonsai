@@ -143,6 +143,57 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
         {std::move(alloc), std::move(body), std::move(return_var)});
 }
 
+Stmt build_traversal(const VectorReduce *reduce_expr, FuncMap &funcs) {
+    Type alloc_type = reduce_expr->type;
+
+    // TODO(ajr): set `args` by schedule.
+    BuildMapArgs args;
+    std::string alloc_name = unique_alloc_name();
+    args.result = alloc_name;
+    args.base_type = alloc_type;
+
+    WriteLoc accumulator(alloc_name, alloc_type);
+    Stmt alloc =
+        Assign::make(accumulator, Build::make(alloc_type), /*mutating=*/false);
+
+    const Array_t *array_t = reduce_expr->value.type().as<Array_t>();
+    internal_assert(array_t);
+
+    // TODO(ajr): apply scheduling to the for loop.
+    Expr end = array_t->size;
+    internal_assert(end.defined() && end.type().defined());
+    Expr begin = make_zero(end.type());
+    Expr stride = make_one(end.type());
+
+    std::string loop_idx = unique_loop_name(0); // TODO: always?
+    Expr index = Var::make(end.type(), loop_idx);
+    Expr load = Extract::make(reduce_expr->value, index);
+    load = opt::Simplify::simplify(load);
+
+    Stmt acc;
+    switch (reduce_expr->op) {
+    case VectorReduce::Add: {
+        acc = Accumulate::make(accumulator, Accumulate::Add, std::move(load));
+        break;
+    }
+    default: {
+        internal_error << "TODO: array lowering of reduction: "
+                       << Expr(reduce_expr);
+    }
+    }
+
+    Stmt body = ForAll::make(
+        loop_idx,
+        ForAll::Slice{std::move(begin), std::move(end), std::move(stride)},
+        std::move(acc));
+
+    Stmt return_var = Return::make(Var::make(alloc_type, alloc_name));
+
+    // TODO: flatten sequence?
+    return Sequence::make(
+        {std::move(alloc), std::move(body), std::move(return_var)});
+}
+
 struct LowerMapsImpl : public Mutator {
     FuncMap &funcs;
 
@@ -162,10 +213,18 @@ struct LowerMapsImpl : public Mutator {
         return Mutator::visit(node);
     }
 
+    Expr visit(const VectorReduce *node) override {
+        if (node->value.type().is<Array_t>()) {
+            return build_func(node);
+        }
+        return Mutator::visit(node);
+    }
+
     // Returns a call to the func.
     // Inserts the built func into new_funcs
     // TODO(ajr): this is stolen from Lower/Trees.cpp, merge duplicate code.
-    Expr build_func(const SetOp *node) {
+    template <typename T>
+    Expr build_func(const T *node) {
         const std::string func = new_func_name();
         const auto free_vars = gather_free_vars(node);
 
@@ -179,7 +238,7 @@ struct LowerMapsImpl : public Mutator {
                        });
 
         Type ret_type = node->type;
-        ;
+
         auto f = std::make_shared<Function>(
             func, std::move(func_args), std::move(ret_type), std::move(body),
             Function::InterfaceList{},

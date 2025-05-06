@@ -16,6 +16,8 @@
 namespace bonsai {
 namespace ir {
 
+std::ostream &operator<<(std::ostream &os, const Program &program);
+
 std::string to_string(const Expr &expr);
 std::ostream &operator<<(std::ostream &os, const Expr &expr);
 

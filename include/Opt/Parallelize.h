@@ -24,7 +24,7 @@ class Parallelize : public lower::Pass {
     constexpr std::string name() const override { return "parallelize"; }
 
     // TODO: needs access to schedule, should be full-program lowering.
-    ir::FuncMap run(ir::FuncMap funcs) const override;
+    ir::Program run(ir::Program program) const override;
 };
 
 } // namespace opt

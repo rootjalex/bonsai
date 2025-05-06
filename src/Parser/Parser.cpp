@@ -102,8 +102,11 @@ struct Parser {
             "max",
             "min",
             "norm",
+            "pow",
+            "rand",
             "sin",
             "sqrt",
+            "tan",
             // Set operations
             "argmin",
             "filter",
@@ -1260,8 +1263,13 @@ struct Parser {
             {"max", 2, ir::Intrinsic::max, .skippable = true},
             {"min", 2, ir::Intrinsic::min, .skippable = true},
             {"norm", 1, ir::Intrinsic::norm},
+            {"pow", 2, ir::Intrinsic::pow},
+            // rand() can have 0 or 1 args (a seed).
+            {"rand", 0, ir::Intrinsic::rand, .skippable = true},
+            {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
+            {"tan", 1, ir::Intrinsic::tan},
         });
 
         if (auto op = try_match_pattern<ir::Intrinsic::OpType>(

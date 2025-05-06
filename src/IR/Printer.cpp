@@ -20,6 +20,12 @@ void print_annotation(const IRNode &node, std::ostream &os) {
 }
 } // namespace
 
+std::ostream &operator<<(std::ostream &os, const Program &program) {
+    Printer printer(os);
+    printer.print(program);
+    return os;
+}
+
 std::string to_string(const Expr &expr) {
     std::ostringstream oss;
     oss << expr;
@@ -766,10 +772,16 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "min";
     case Intrinsic::norm:
         return "norm";
+    case Intrinsic::pow:
+        return "pow";
+    case Intrinsic::rand:
+        return "rand";
     case Intrinsic::sin:
         return "sin";
     case Intrinsic::sqrt:
         return "sqrt";
+    case Intrinsic::tan:
+        return "tan";
     }
 }
 

@@ -40,7 +40,7 @@ func _recloop_func0(triangles__index : u32, triangles : (_triangles_layout1*), r
   return
 }
 
-func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[] {
+func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[n] {
   _alloc0 := build<option<Triangle>[n]>()
   forall _i0 in [0u:n:1u] {
     _alloc0[_i0] = _traverse_tree0((&rays[_i0]), triangles)
@@ -140,7 +140,7 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_trian
   return
 }
 
-func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[] {
+func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_triangles_layout1*)) -> _option0[n] {
   return _traverse_array0(n, rays, triangles)
 }
 

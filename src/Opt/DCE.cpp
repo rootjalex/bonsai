@@ -81,10 +81,9 @@ struct NameHygiene : ir::Mutator {
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Expr cond = mutate(node->cond);
         // Rename where control flow diverges.
-        rename = true;
+        ScopedValue<bool> _(rename, true);
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
-        rename = false;
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
@@ -255,39 +254,6 @@ struct ComputeUseCounts : ir::Visitor {
         node->value.accept(this);
         curr_var.clear();
     }
-
-    // void visit(const ir::Match *node) override {
-    //     internal_error << "TODO: implement ComputeUseCounts for Match";
-    // }
-};
-
-struct HasSideEffects : ir::Visitor {
-    bool found = false;
-    const std::set<std::string> &function_has_side_effects;
-
-    HasSideEffects(const std::set<std::string> &side_effects_functions)
-        : function_has_side_effects(side_effects_functions) {}
-
-    void visit(const ir::Print *node) override {
-        if (found) {
-            return;
-        }
-        found = true;
-    }
-
-    void visit(const ir::Call *node) override {
-        if (found) {
-            return;
-        }
-        const auto *var = node->func.as<ir::Var>();
-        if (var == nullptr) {
-            return;
-        }
-        if (var->type.is<ir::Function_t>() &&
-            function_has_side_effects.contains(var->name)) {
-            found = true;
-        }
-    }
 };
 
 struct FindSideEffects : ir::Visitor {
@@ -323,12 +289,6 @@ struct DeadCodeElimination : ir::Mutator {
         : use_counts(std::move(use_counts)),
           dependent_use_counts(std::move(dependent_use_counts)),
           side_effects_functions(side_effects_functions) {}
-
-    bool has_side_effects(const ir::Expr &expr) {
-        HasSideEffects checker(side_effects_functions);
-        expr.accept(&checker);
-        return checker.found;
-    }
 
     // Returns a sequence of statements with side effects within this
     // expression.
@@ -379,7 +339,8 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts[node->loc.base] == 0 && !has_side_effects(node->value)) {
+        if (use_counts[node->loc.base] == 0 &&
+            !has_side_effects(node->value, side_effects_functions)) {
             erase_dependents(node->loc);
             return ir::Stmt();
         }

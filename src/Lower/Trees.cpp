@@ -462,6 +462,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
             }
 
             arms[i].first = bvh->nodes[i];
+            internal_assert(!stmts.empty());
             if (stmts.size() == 1) {
                 // Special case.
                 arms[i].second = stmts[0];

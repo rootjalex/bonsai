@@ -581,6 +581,72 @@ struct LowerMatches : public ir::Mutator {
         }
         return body;
     }
+
+    ir::Expr visit(const ir::Var *node) override {
+        if (structs.contains(node->name)) {
+            return ir::Var::make(structs.at(node->name), node->name);
+        }
+        return node;
+    }
+
+    struct MutatedArgSig {
+        std::vector<ir::Expr> args;
+        ir::Type new_type;
+        bool changed;
+    };
+
+    MutatedArgSig mutate_call(const ir::Function_t *func_t,
+                              const std::vector<ir::Expr> &args) {
+        const size_t n = args.size();
+        internal_assert(n == func_t->arg_types.size());
+
+        bool changed = false;
+        std::vector<ir::Expr> ret_args(n);
+        std::vector<ir::Function_t::ArgSig> arg_types(n);
+
+        for (size_t i = 0; i < n; i++) {
+            ir::Expr arg = mutate(args[i]);
+            changed = changed || !arg.same_as(args[i]);
+            arg_types[i].type = arg.type();
+            arg_types[i].is_mutable = func_t->arg_types[i].is_mutable;
+            ret_args[i] = std::move(arg);
+        }
+        if (changed) {
+            return {
+                std::move(ret_args),
+                ir::Function_t::make(func_t->ret_type, std::move(arg_types)),
+                changed};
+        } else {
+            return {{}, {}, false};
+        }
+    }
+
+    template <typename I, typename T>
+    I handle(const T *node) {
+        // TODO(ajr): do we ever mutate node->func?
+        const ir::Function_t *func_t =
+            node->func.type().template as<ir::Function_t>();
+        internal_assert(func_t);
+        auto check = mutate_call(func_t, node->args);
+        if (!check.changed) {
+            return node;
+        }
+        // Need to change function signature of node->func
+        const ir::Var *var = node->func.template as<ir::Var>();
+        internal_assert(var);
+
+        ir::Type new_type = std::move(check.new_type);
+        ir::Expr func = ir::Var::make(std::move(new_type), var->name);
+        return T::make(std::move(func), std::move(check.args));
+    }
+
+    ir::Expr visit(const ir::Call *node) override {
+        return handle<ir::Expr>(node);
+    }
+
+    ir::Stmt visit(const ir::CallStmt *node) override {
+        return handle<ir::Stmt>(node);
+    }
 };
 
 } // namespace
@@ -631,7 +697,6 @@ ir::Program LowerLayouts::run(ir::Program program) const {
                 arg.type = types.at(arg.name);
             }
         }
-        // std::cout << "Lowering: " << func->body << "\n";
         func->body = lowerer.mutate(func->body);
     }
 

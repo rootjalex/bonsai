@@ -19,3 +19,52 @@ func cross_(v0 : vec3f, v1 : vec3f) -> vec3f {
 
 // TODO(ajr): need generics eps for generic here.
 func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
+
+func linear_to_gamma_f(l : Float) -> Float {
+    if (l > 0) {
+        return sqrt(l);
+    }
+    return 0;
+}
+
+func linear_to_gamma_v(l : vec3f) -> vec3f {
+    return {linear_to_gamma_f(l.x), linear_to_gamma_f(l.y), linear_to_gamma_f(l.z)};
+}
+
+func near_zero(v : vec3f) -> bool {
+    // Return true if the vector is close to zero in all dimensions.
+    s = 1e-8;
+    return (abs(v[0]) < s) & (abs(v[1]) < s) & (abs(v[2]) < s);
+}
+
+func reflect(v : vec3f, n : vec3f) {
+    return v  - 2.0 * dot(v, n) * n;
+}
+
+func len_squared(v : vec3f) -> Float {
+    return sum(v * v);
+}
+
+func refract(uv : vec3f, n : vec3f, etai_over_etat : Float) {
+    cos_theta = min(dot(-uv, n), 1.0);
+    r_out_perp = etai_over_etat * (uv + cos_theta * n);
+    r_out_parallel = -sqrt(abs(1.0 - len_squared(r_out_perp))) * n;
+    return r_out_perp + r_out_parallel;
+}
+
+func unit_vector(v : vec3f) = v / norm(v);
+
+// Schlick's approximation for reflectance
+func reflectance(cos_theta : Float, refract_idx : Float) -> Float {
+    r0 = (1 - refract_idx) / (1 + refract_idx);
+    r1 = r0 * r0;
+    return r1 + (1 - r1) * pow(1 - cos_theta, 5.0);
+}
+
+func degrees_to_radians(degrees : Float) {
+    return (degrees * 3.1415926535897932385) / 180.0;
+}
+
+func clamp(x : vec3f, low : Float, high : Float) -> vec3f {
+    return min(max(x, low), high);
+}
