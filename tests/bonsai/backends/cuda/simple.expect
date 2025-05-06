@@ -1,6 +1,6 @@
 #include <cuda_fp16.h>
 #include <math.h>
-#include "include/CodeGen/CUDA/math.h"
+#include "runtime/CUDA/math.h"
 
 struct Foo {
   int32_t x = 42;

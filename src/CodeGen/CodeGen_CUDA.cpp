@@ -215,8 +215,6 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INTRINSIC__SINGLE.html
     case ir::Intrinsic::OpType::sqrt: {
         ir::Type element_type = node->args.front().type();
-        // //TODO(cgyurgyik): I'm unsure what will happen on CUDA if we pass an
-        // integral value, e.g., sqrt(int).
         internal_assert(element_type.is<ir::Float_t>()) << element_type;
         os << "sqrt" << '(';
         print_expr_list(node->args);
@@ -336,7 +334,7 @@ void CodeGen_CUDA::emit_prologue() {
     // TODO(cgyurgyik): assumes the compiler is run from the root directory.
     // There is some way to make this work with <>, `-I` passed to the
     // compiler.
-    os << '#' << "include" << ' ' << "\"include/CodeGen/CUDA/math.h\"" << '\n';
+    os << '#' << "include" << ' ' << "\"runtime/CUDA/math.h\"" << '\n';
     os << '\n';
 }
 
