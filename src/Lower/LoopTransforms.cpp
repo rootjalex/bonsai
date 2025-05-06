@@ -43,7 +43,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
             if (node->index != loop_idx) {
                 return Mutator::visit(node);
             }
-            internal_assert(generate_tail)
+            internal_assert(!generate_tail)
                 << "[unimplemented] split with tail strategy\n";
             internal_assert(is_const_one(node->slice.stride));
 
