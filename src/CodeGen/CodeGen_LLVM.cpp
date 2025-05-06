@@ -1584,14 +1584,12 @@ void CodeGen_LLVM::visit(const Build *node) {
 
         llvm::Value *alloc = nullptr;
 
-        if (is_const(array_t->size)) {
-            // TODO(ajr): This is only valid if this value can't escape the
-            // current function!
-            alloc = create_alloca_at_entry(etype, "constant_array_build", size);
-        } else {
-            // Heap allocation for dynamic-sized array (or returned array).
-            alloc = create_malloc(etype, size, /*zero_initialize=*/false, "");
-        }
+        // TODO(ajr): constant sized arrays should be on the stack.
+        // if (is_const(array_t->size))
+        // alloc = create_alloca_at_entry(etype, "constant_array_build", size);
+
+        // Heap allocation for dynamic-sized array (or returned array).
+        alloc = create_malloc(etype, size, /*zero_initialize=*/false, "");
 
         for (size_t i = 0; i < values.size(); i++) {
             llvm::Value *index = llvm::ConstantInt::get(size->getType(), i);
