@@ -14,4 +14,6 @@ func main() -> i32 {
     return 0;
 }
 
-// TODO: schedule parallel loop for apply_function.
+schedule {
+    apply_function.cpu_thread(i0);
+}

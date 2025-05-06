@@ -24,26 +24,26 @@ using namespace ir;
 
 Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 const std::string &outer, const std::string &inner,
-                const Expr &factor, const bool exact, FuncMap &funcs) {
+                const Expr &factor, const bool generate_tail, FuncMap &funcs) {
     struct SplitLoop : public Mutator {
         const std::string &loop_idx;
         const std::string &outer;
         const std::string &inner;
         const Expr &factor;
-        const bool exact;
+        const bool generate_tail;
         FuncMap &funcs;
 
         SplitLoop(const std::string &loop_idx, const std::string &outer,
                   const std::string &inner, const Expr &factor,
-                  const bool exact, FuncMap &funcs)
+                  const bool generate_tail, FuncMap &funcs)
             : loop_idx(loop_idx), outer(outer), inner(inner), factor(factor),
-              exact(exact), funcs(funcs) {}
+              generate_tail(generate_tail), funcs(funcs) {}
 
         Stmt visit(const ForAll *node) override {
             if (node->index != loop_idx) {
                 return Mutator::visit(node);
             }
-            internal_assert(exact)
+            internal_assert(generate_tail)
                 << "[unimplemented] split with tail strategy\n";
             internal_assert(is_const_one(node->slice.stride));
 
@@ -74,7 +74,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 if (var->name.starts_with("_traverse_array")) {
                     funcs[var->name]->body =
                         split_loop(std::move(funcs[var->name]->body), loop_idx,
-                                   outer, inner, factor, exact, funcs);
+                                   outer, inner, factor, generate_tail, funcs);
                     return node;
                 }
             }
@@ -82,7 +82,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
         }
     };
 
-    SplitLoop splitter(loop_idx, outer, inner, factor, exact, funcs);
+    SplitLoop splitter(loop_idx, outer, inner, factor, generate_tail, funcs);
     return splitter.mutate(std::move(stmt));
 }
 
@@ -120,14 +120,14 @@ ir::Program LoopTransforms::run(ir::Program program) const {
 
         Stmt body = std::move(func->body);
         for (const auto &t : ts) {
-            std::visit(overloaded{[&](const Split &split) {
+            std::visit(Overloaded{[&](const Split &split) {
                                       std::string i = get_name(split.i);
                                       std::string io = get_name(split.io);
                                       std::string ii = get_name(split.ii);
-                                      body =
-                                          split_loop(std::move(body), i, io, ii,
-                                                     split.factor, split.exact,
-                                                     program.funcs);
+                                      body = split_loop(std::move(body), i, io,
+                                                        ii, split.factor,
+                                                        split.generate_tail,
+                                                        program.funcs);
                                   },
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);

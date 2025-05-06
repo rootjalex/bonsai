@@ -2028,13 +2028,13 @@ struct Parser {
                 expect(Token::Type::COMMA);
                 ir::Expr factor = parse_expr();
                 expect(Token::Type::COMMA);
-                bool exact = consume(Token::Type::TRUE).has_value();
-                if (!exact) {
+                bool generate_tail = consume(Token::Type::TRUE).has_value();
+                if (!generate_tail) {
                     expect(Token::Type::FALSE);
                 }
                 schedule.func_transforms[func].emplace_back(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), exact});
+                              std::move(factor), generate_tail});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;
