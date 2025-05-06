@@ -81,7 +81,8 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Scan);
 
   private:
-    // Whether this is a type declaration.
+    // Whether we are printing type declarations, e.g.,
+    // `struct P { int x; int y; int z; }` versus `P`
     bool is_declaration = false;
     // Increments the indentation.
     void increment() { set_indent(get_indent().indent + 1); }
