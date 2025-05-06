@@ -120,24 +120,17 @@ struct AlwaysReturns : public Visitor {
     bool returns = false;
     void visit(const Return *) override { returns = true; }
 
-    void visit(const LetStmt *node) override {
-        // TODO: fix this!!
-        returns = false;
-        // node->body.accept(this);
-    }
-
     void visit(const IfElse *node) override {
         if (node->else_body.defined()) {
             node->then_body.accept(this);
             if (returns) {
+                returns = false;
                 node->else_body.accept(this);
             }
         } else {
             returns = false;
         }
     }
-
-    RESTRICT_VISITOR(DoWhile);
 
     void visit(const Sequence *node) override {
         for (size_t i = 0; i < node->stmts.size() - 1; i++) {
@@ -150,22 +143,21 @@ struct AlwaysReturns : public Visitor {
         node->stmts.back().accept(this);
     }
 
-    void visit(const Assign *node) override {
-        // TODO: fix this!!
-        returns = false;
-        // node->body.accept(this);
-    }
+    void visit(const CallStmt *node) override { returns = false; }
+    void visit(const LetStmt *node) override { returns = false; }
+    void visit(const Assign *node) override { returns = false; }
+    void visit(const Accumulate *node) override { returns = false; }
+    void visit(const Print *node) override { returns = false; }
 
-    void visit(const Accumulate *node) override {
-        // TODO: fix this!!
-        returns = false;
-        // node->body.accept(this);
-    }
-
+    RESTRICT_VISITOR(RecLoop);
+    RESTRICT_VISITOR(DoWhile);
+    RESTRICT_VISITOR(ForAll);
+    RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
+    RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
 };
 
