@@ -55,8 +55,8 @@ IndexTList get_index_type(const std::string &base_name,
                 index_ts.push_back({iter_name, node->index_t});
                 break;
             }
-            case ir::IRLayoutEnum::Split: {
-                const ir::Split *node = l.as<ir::Split>();
+            case ir::IRLayoutEnum::Switch: {
+                const ir::Switch *node = l.as<ir::Switch>();
                 for (const auto &arm : node->arms) {
                     auto rec = get_index_type(base_name, arm.layout);
                     internal_assert(rec.empty())
@@ -160,13 +160,13 @@ std::vector<ir::Type> layout_to_structs(std::string base,
                 fields.emplace_back(std::move(field_name), std::move(group_t));
                 break;
             }
-            case ir::IRLayoutEnum::Split: {
-                const ir::Split *node = l.as<ir::Split>();
+            case ir::IRLayoutEnum::Switch: {
+                const ir::Switch *node = l.as<ir::Switch>();
                 // Store as vector of bytes, load and reinterpret to proper
                 // type.
                 const uint64_t bits = l.bits();
                 internal_assert(bits % 8 == 0)
-                    << "Split is not byte-aligned: " << l;
+                    << "Switch is not byte-aligned: " << l;
                 static const ir::Type u8 = ir::UInt_t::make(8);
                 ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
                 std::string split_name =
@@ -223,7 +223,7 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
 
         // No overload for Pad
 
-        void visit(const ir::Split *node) override {
+        void visit(const ir::Switch *node) override {
             // TODO(ajr): this is not equivalent w.r.t. naming.
             // Can save by caching this call.
 
@@ -289,7 +289,7 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
         Path current;
         std::map<std::string, Path> paths;
 
-        void visit(const ir::Split *node) override {
+        void visit(const ir::Switch *node) override {
             for (const auto &arm : node->arms) {
                 current.emplace_back(node->field, arm.value);
                 if (arm.name.has_value()) {

@@ -133,6 +133,8 @@ Closure build_closure(const ForAll *forall, TypeMap &types) {
     return closure;
 }
 
+} // namespace
+
 Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
                         TypeMap &types) {
     struct ParallelizeForAll : public Mutator {
@@ -169,26 +171,25 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
                 {Var::make(Ptr_t::make(closure.context.type()), "ctx")});
             return Sequence::make(std::move(seq));
         }
+
+        // TODO: this is hacky, need a better way.
+        Expr visit(const Call *node) override {
+            if (const Var *var = node->func.as<Var>()) {
+                // TODO(ajr): hope to God it's impossible to have self-recursion
+                // in these.
+                if (var->name.starts_with("_traverse_array")) {
+                    funcs[var->name]->body = parallelize_forall(
+                        loop_idx, std::move(funcs[var->name]->body), funcs,
+                        types);
+                    return node;
+                }
+            }
+            return Mutator::visit(node);
+        }
     };
 
     ParallelizeForAll par(loop_idx, funcs, types);
     return par.mutate(std::move(body));
-}
-
-} // namespace
-
-Program Parallelize::run(Program program,
-                         const CompilerOptions &options) const {
-    /*
-    for (auto &[name, func] : program.funcs) {
-        // TODO: get loop_idx and func from schedule.
-        if (name == "_traverse_array0") {
-            func->body = parallelize_forall("_i0", func->body, program.funcs,
-                                            program.types);
-        }
-    }
-    */
-    return program;
 }
 
 } // namespace opt

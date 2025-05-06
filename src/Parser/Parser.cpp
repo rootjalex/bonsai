@@ -1923,9 +1923,14 @@ struct Parser {
             }
             case Token::Type::IDENTIFIER: {
                 const std::string name = get_id();
-                // TODO: if func, is schedule.
-                // TODO: if type, is ????
-                // if extern, is tree-assignment
+
+                // If it's a func, must be scheduling.
+                if (program.funcs.contains(name)) {
+                    parse_rewrites(schedule, name);
+                    break;
+                }
+
+                // Otherwise, must be tree label on set extern.
                 const auto extern_iter = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
                     [&name](const auto &p) { return p.name == name; });
@@ -1989,6 +1994,54 @@ struct Parser {
         internal_assert(program.schedules.empty());
 
         program.schedules[ir::Target::Host] = schedule;
+    }
+
+    ir::Location parse_location() {
+        ir::Location loc;
+        do {
+            std::string name = get_id();
+            loc.names.emplace_back(std::move(name));
+        } while (consume(Token::Type::PERIOD));
+        return loc;
+    }
+
+    void parse_rewrites(ir::Schedule &schedule, std::string func) {
+        do {
+            expect(Token::Type::PERIOD);
+            std::string rewrite = get_id();
+            expect(Token::Type::LPAREN);
+
+            // Wish we could switch() on a string...
+            // Should we make all rewrite names tokens?
+            // Seems annoying tbh...
+
+            if (rewrite == "cpu_thread") {
+                ir::Location i = parse_location();
+                schedule.func_transforms[func].emplace_back(
+                    ir::Parallelize{std::move(i), ir::Parallelize::CPUThread});
+            } else if (rewrite == "split") {
+                ir::Location i = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location io = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location ii = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Expr factor = parse_expr();
+                expect(Token::Type::COMMA);
+                bool generate_tail = consume(Token::Type::TRUE).has_value();
+                if (!generate_tail) {
+                    expect(Token::Type::FALSE);
+                }
+                schedule.func_transforms[func].emplace_back(
+                    ir::Split{std::move(i), std::move(io), std::move(ii),
+                              std::move(factor), generate_tail});
+            } else {
+                report_error()
+                    << "Unknown rewrite: " << rewrite << " on func: " << func;
+            }
+
+            expect(Token::Type::RPAREN);
+        } while (!consume(Token::Type::SEMICOL));
     }
 
     // tree := `tree` name = (`|` adt_node (`with` volume)?)+
@@ -2197,7 +2250,7 @@ struct Parser {
             std::string name = get_id();
             expect(Token::Type::LSQUIGGLE);
 
-            std::vector<ir::Split::Arm> arms;
+            std::vector<ir::Switch::Arm> arms;
             do {
                 std::optional<int64_t> value;
                 switch (peek().type) {
@@ -2238,7 +2291,7 @@ struct Parser {
                 arms.push_back(
                     {std::move(value), std::move(node_name), std::move(inner)});
             } while (!consume(Token::Type::RSQUIGGLE));
-            return ir::Split::make(std::move(name), std::move(arms));
+            return ir::Switch::make(std::move(name), std::move(arms));
         }
         default: {
             internal_error << "TODO: " << tokens();

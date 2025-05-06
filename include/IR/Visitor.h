@@ -80,7 +80,7 @@ struct Visitor {
     // Layouts
     virtual void visit(const Name *);
     virtual void visit(const Pad *);
-    virtual void visit(const Split *);
+    virtual void visit(const Switch *);
     virtual void visit(const Chain *);
     virtual void visit(const Group *);
     virtual void visit(const Materialize *);

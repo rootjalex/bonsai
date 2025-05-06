@@ -112,8 +112,6 @@ struct GatherFreeVars : public Visitor {
             seen_vars.erase(arg.name);
         }
     }
-
-    RESTRICT_VISITOR(Launch);
 };
 
 struct AlwaysReturns : public Visitor {

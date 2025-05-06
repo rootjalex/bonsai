@@ -1,0 +1,7 @@
+func process(n : i32, a : array[f32, n]) -> array[f32, n] {
+    return map(|x : f32| sqrt(x), a);
+}
+
+schedule {
+    process.split(i0, io, ii, 16, false);
+}

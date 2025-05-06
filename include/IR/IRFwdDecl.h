@@ -87,7 +87,7 @@ struct Launch;
 // Layouts
 struct Name;
 struct Pad;
-struct Split;
+struct Switch;
 struct Chain;
 struct Group;
 struct Materialize;

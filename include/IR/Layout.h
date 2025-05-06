@@ -19,7 +19,7 @@ struct Layout;
 enum class IRLayoutEnum {
     Name,
     Pad,
-    Split,
+    Switch,
     Chain,
     Group,
     Materialize,
@@ -84,7 +84,7 @@ struct Pad : LayoutNode<Pad> {
 };
 
 // split from https://dl.acm.org/doi/pdf/10.1145/3607858
-struct Split : LayoutNode<Split> {
+struct Switch : LayoutNode<Switch> {
     // TODO: allow switching on unnamed bits?
     std::string field; // switch param
     // TODO: support non-constant or field ranges?
@@ -97,7 +97,7 @@ struct Split : LayoutNode<Split> {
 
     static Layout make(std::string field, std::vector<Arm> arms);
 
-    static const IRLayoutEnum node_type = IRLayoutEnum::Split;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Switch;
 };
 
 struct Chain : LayoutNode<Chain> {

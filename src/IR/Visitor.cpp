@@ -271,7 +271,7 @@ void Visitor::visit(const Name *node) {}
 
 void Visitor::visit(const Pad *node) {}
 
-void Visitor::visit(const Split *node) {
+void Visitor::visit(const Switch *node) {
     for (const auto &[_, __, layout] : node->arms) {
         layout.accept(this);
     }

@@ -20,14 +20,7 @@ namespace opt {
 //   body
 // }
 // CallStmt("launch", closure, (end - start + (stride - 1)) / stride)
-class Parallelize : public lower::Pass {
-  public:
-    constexpr std::string name() const override { return "parallelize"; }
-
-    // TODO: needs access to schedule, should be full-program lowering.
-    ir::Program run(ir::Program program,
-                    const CompilerOptions &options) const override;
-};
-
+ir::Stmt parallelize_forall(const std::string &loop_idx, ir::Stmt body,
+                            ir::FuncMap &funcs, ir::TypeMap &types);
 } // namespace opt
 } // namespace bonsai
