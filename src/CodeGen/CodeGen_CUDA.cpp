@@ -110,7 +110,9 @@ void CodeGen_CUDA::visit(const VecImm *node) {
 }
 
 void CodeGen_CUDA::visit(const Infinity *node) {
-    internal_error << "[unimplemented] Infinity CUDA codegen: " << Expr(node);
+    // TODO(cgyurgyik): Assumes implementation-defined version of infinity.
+    // Requires #include <cmath>
+    os << "INFINITY";
 }
 
 void CodeGen_CUDA::visit(const Cast *node) {
@@ -122,7 +124,16 @@ void CodeGen_CUDA::visit(const Cast *node) {
 }
 
 void CodeGen_CUDA::visit(const Broadcast *node) {
-    internal_error << "[unimplemented] Broadcast CUDA codegen: " << Expr(node);
+    os << "make" << '_' << vector_prefix(node->value.type()) << node->lanes;
+    os << '(';
+    for (int i = 0, e = node->lanes; i < e; ++i) {
+        node->value.accept(this);
+        if (i + 1 == e) {
+            continue;
+        }
+        os << ',';
+    }
+    os << ')';
 }
 
 void CodeGen_CUDA::visit(const VectorReduce *node) {

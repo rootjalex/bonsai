@@ -1,0 +1,71 @@
+//! flags: -b cuda
+
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element Sphere {
+    center : vec3f;
+    radius : Float;
+}
+
+element Ray {
+    o : vec3f;
+    // tmin : Float = 0;
+    d : vec3f;
+    tmax : Float = inf;
+    // tmax_ : Float = inf;
+    // tmax__ : Float = inf;
+    // TODO: medium
+    // TODO: differential?
+}
+
+element hit_record {
+    p, normal : vec3f;
+    t : Float;
+    front_face : bool;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+func at(r : Ray, t : Float) = r.o + t * r.d;
+
+func intersectsp_ray_sphere(r : Ray, s : Sphere) -> option[FInterval] {
+    oc = s.center - r.o;
+    a = sum(r.d * r.d);
+    h = dot(r.d, oc);
+    c = sum(oc * oc) - s.radius * s.radius;
+
+    disc = h * h - a * c;
+
+    if (disc < 0) {
+        return {};
+    }
+
+    sqrtd = sqrt(disc);
+
+    root0 = (h - sqrtd) / a;
+    root1 = (h + sqrtd) / a;
+    interval : FInterval = {min(root0, root1), max(root0, root1)};
+    return interval;
+}
+
+func distmin(r : Ray, s : Sphere) -> Float {
+    interval = intersectsp_ray_sphere(r, s);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return -inf;
+}
+
+func get_hit_record(r : Ray, s : Sphere) -> hit_record {
+    t = distmin(r, s);
+    p = at(r, t);
+    outward_normal = (p - s.center) / s.radius;
+    front_face = dot(r.d, outward_normal) < 0;
+    normal = select(front_face, outward_normal, -outward_normal);
+    record : hit_record = {p, normal, t, front_face};
+    return record;
+}
