@@ -130,6 +130,7 @@ struct AlwaysReturns : public Visitor {
         if (node->else_body.defined()) {
             node->then_body.accept(this);
             if (returns) {
+                returns = false;
                 node->else_body.accept(this);
             }
         } else {
@@ -150,17 +151,11 @@ struct AlwaysReturns : public Visitor {
         node->stmts.back().accept(this);
     }
 
-    void visit(const Assign *node) override {
-        // TODO: fix this!!
-        returns = false;
-        // node->body.accept(this);
-    }
+    void visit(const Assign *node) override { returns = false; }
 
-    void visit(const Accumulate *node) override {
-        // TODO: fix this!!
-        returns = false;
-        // node->body.accept(this);
-    }
+    void visit(const Accumulate *node) override { returns = false; }
+
+    void visit(const Print *node) override { returns = false; }
 
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
