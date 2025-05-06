@@ -1,0 +1,11 @@
+func foo(a : f32) -> f32 {
+    if (a < 100 && a > 100) {
+        b : mut f32 = a;
+        if (b < 0.0) {
+            b = -b;
+        }
+        b = sqrt(b);
+        return b;
+    }
+    return abs(a);
+}

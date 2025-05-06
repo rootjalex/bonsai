@@ -81,10 +81,9 @@ struct NameHygiene : ir::Mutator {
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Expr cond = mutate(node->cond);
         // Rename where control flow diverges.
-        rename = true;
+        ScopedValue<bool> _(rename, true);
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
-        rename = false;
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 

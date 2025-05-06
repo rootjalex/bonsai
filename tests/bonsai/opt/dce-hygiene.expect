@@ -1,0 +1,15 @@
+func foo(a : f32) -> f32 {
+  if (a < 100f) {
+    if (100f < a) {
+      b := a
+      if ((*b) < 0f) {
+        b = -(*b)
+      }
+      b = sqrt((*b))
+      return (*b)
+    }
+  }
+  return abs(a)
+}
+
+
