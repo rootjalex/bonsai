@@ -30,7 +30,7 @@ std::vector<Path> get_paths(const Layout &layout) {
 
         void visit(const Pad *node) override {}
 
-        void visit(const Split *node) override {
+        void visit(const Switch *node) override {
             // All paths are split.
             std::vector<Path> old_paths = std::move(paths);
             // can't prealloc old_paths.size() * node->arms.size()
@@ -115,12 +115,12 @@ bool valid_path(const Path &path, const BVH_t::Node &node) {
     return true;
 }
 
-struct ValidateSplits : public Visitor {
+struct ValidateSwitchs : public Visitor {
     // void visit(const Name *node) override {}
     // void visit(const Pad *node) override {}
     TypeMap defined;
 
-    void visit(const Split *node) override {
+    void visit(const Switch *node) override {
         const auto &iter = defined.find(node->field);
         internal_assert(iter != defined.cend())
             << "Switch does not have access to field: " << node->field;
@@ -161,7 +161,7 @@ struct ValidateSplits : public Visitor {
 };
 
 void validate_splits(const Layout &layout) {
-    ValidateSplits validator;
+    ValidateSwitchs validator;
     layout.accept(&validator);
 }
 
@@ -176,7 +176,7 @@ std::map<std::string, Path> validate_layout(const Layout &layout,
     internal_assert(bvh_node)
         << "Cannot validate layout of non-BVH_t: " << bvh_t;
 
-    // Assert all Split fields are accessible at Split level.
+    // Assert all Switch fields are accessible at Switch level.
     validate_splits(layout);
 
     std::vector<Path> paths = get_paths(layout);
@@ -206,7 +206,7 @@ std::map<std::string, Path> validate_layout(const Layout &layout,
         }
     }
 
-    // TODO(ajr): use Split::Arm::name.
+    // TODO(ajr): use Switch::Arm::name.
 
     std::map<std::string, Path> pathmap;
     // Check each node has one equivalent path!

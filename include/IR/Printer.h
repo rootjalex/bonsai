@@ -150,7 +150,7 @@ struct Printer : public Visitor {
     // Layouts
     void visit(const Name *) override;
     void visit(const Pad *) override;
-    void visit(const Split *) override;
+    void visit(const Switch *) override;
     void visit(const Chain *) override;
     void visit(const Group *) override;
     void visit(const Materialize *) override;

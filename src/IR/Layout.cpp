@@ -16,9 +16,9 @@ uint64_t Layout::bits() const {
     case IRLayoutEnum::Pad: {
         return as<Pad>()->bits;
     }
-    case IRLayoutEnum::Split: {
+    case IRLayoutEnum::Switch: {
         uint64_t bits = 0;
-        for (const auto &arm : as<Split>()->arms) {
+        for (const auto &arm : as<Switch>()->arms) {
             bits = std::max(bits, arm.layout.bits());
         }
         return bits;
@@ -87,12 +87,12 @@ Layout Name::make(std::string name, Type type) {
 //     return node;
 // }
 
-Layout Split::make(std::string field, std::vector<Split::Arm> arms) {
-    internal_assert(!field.empty()) << "empty field in Split::make";
+Layout Switch::make(std::string field, std::vector<Switch::Arm> arms) {
+    internal_assert(!field.empty()) << "empty field in Switch::make";
     internal_assert(!arms.empty())
-        << "empty arms in Split::make for field: " << field;
+        << "empty arms in Switch::make for field: " << field;
 
-    Split *node = new Split;
+    Switch *node = new Switch;
     node->field = std::move(field);
     node->arms = std::move(arms);
     return node;

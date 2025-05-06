@@ -1145,7 +1145,7 @@ void Printer::visit(const Pad *node) {
     os << ";\n";
 }
 
-void Printer::visit(const Split *node) {
+void Printer::visit(const Switch *node) {
     os << get_indent();
     os << "switch " << node->field << " {\n";
     for (const auto &[value, name, layout] : node->arms) {

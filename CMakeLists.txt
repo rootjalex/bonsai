@@ -103,6 +103,7 @@ target_sources(
     src/Lower/Lambdas.cpp
     src/Lower/Layouts.cpp
     src/Lower/LogicalOperations.cpp
+    src/Lower/LoopTransforms.cpp
     src/Lower/Lower.cpp
     src/Lower/Maps.cpp
     src/Lower/Mutability.cpp
@@ -179,6 +180,7 @@ target_sources(
     include/Lower/Lambdas.h
     include/Lower/Layouts.h
     include/Lower/LogicalOperations.h
+    include/Lower/LoopTransforms.h
     include/Lower/Lower.h
     include/Lower/Maps.h
     include/Lower/Mutability.h
@@ -218,8 +220,8 @@ if (bonsai_ENABLE_WARNINGS)
     )
 endif ()
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
-set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address,undefined -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=undefined -fno-omit-frame-pointer")
+set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=undefined -fno-omit-frame-pointer")
 
 ##
 # Bonsai compiler
