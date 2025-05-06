@@ -35,6 +35,8 @@ using namespace ir;
 
 namespace {
 
+// Returns the appropriate prefix for builtin CUDA vector types.
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 std::string vector_prefix(Type element_type) {
     if (element_type.is<Int_t, UInt_t>()) {
         const bool is_unsigned = element_type.is<UInt_t>();
@@ -139,15 +141,14 @@ void CodeGen_CUDA::visit(const Ramp *node) {
 
 void CodeGen_CUDA::visit(const Build *node) {
     node->type.accept(this);
-    os << "{";
+    os << '{';
     for (size_t i = 0, n = node->values.size(); i < n; i++) {
         if (i != 0) {
-            os << ", ";
+            os << ',' << ' ';
         }
-        // TODO(cgyurgyik): Fix this.
         print_no_parens(node->values[i]);
     }
-    os << "}";
+    os << '}';
 }
 
 void CodeGen_CUDA::visit(const Select *node) {
@@ -196,7 +197,6 @@ void CodeGen_CUDA::visit(const Print *node) {
 
 void CodeGen_CUDA::visit(const IfElse *node) {
     os << get_indent() << "if" << ' ' << '(';
-    // TODO(cgyurgyik): Fix this.
     print_no_parens(node->cond);
     os << ')' << ' ' << '{' << '\n';
     increment();
@@ -218,7 +218,7 @@ void CodeGen_CUDA::visit(const DoWhile *node) {
     node->body.accept(this);
     os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
     os << get_indent() << "} while (";
-    print_no_parens(node->cond); // TODO(cgyurgyik): Fix this.
+    print_no_parens(node->cond);
     os << ')' << '\n';
 }
 
