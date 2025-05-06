@@ -56,7 +56,8 @@ cmake --build build-dbg --config Debug -j<N PARALLELISM>
 
 You may need to point `cmake` to the `deps` install, e.g. via:
 ```bash
-cmake -S . -B build -DLLVM_DIR=/Users/ajroot/projects/bonsai/deps/llvm-install/lib/cmake/llvm
+cmake -S . -B build -DLLVM_DIR=/Users/ajroot/projects/_bonsai/deps/llvm-install/lib/cmake/llvm -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --config Debug -j
 ```
 
 # Testing

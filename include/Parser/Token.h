@@ -41,6 +41,7 @@ class Token {
         // Data structure specification related keywords
         TREE,   // tree
         WITH,   // with
+        ON,     // on
         LAYOUT, // layout
         GROUP,  // group
         SWITCH, // switch

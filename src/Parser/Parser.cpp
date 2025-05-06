@@ -1969,7 +1969,7 @@ struct Parser {
         ir::Type primitive = parse_type();
         expect(Token::Type::RBRACKET);
         expect(Token::Type::RBRACKET);
-        auto [name, params, volume] = parse_node();
+        auto [name, params, volume, cdrn] = parse_node();
 
         if (program.types.contains(name)) {
             report_error() << "Tree named: " << name
@@ -1982,6 +1982,11 @@ struct Parser {
                            << " has incompatible volume and params";
         }
 
+        if (cdrn.has_value() && !volume.has_value()) {
+            report_error() << "Parsing of tree " << name
+                           << " has children bound to an empty volume type";
+        }
+
         expect(Token::Type::ASSIGN);
         expect(Token::Type::BAR);
 
@@ -1990,8 +1995,10 @@ struct Parser {
 
         std::vector<ir::BVH_t::Node> nodes;
 
+        static_assert(false); // TODO: handle children bound.
+
         do {
-            auto [nname, nparams, nvolume] = parse_node();
+            auto [nname, nparams, nvolume, cdrn] = parse_node();
             ir::Type struct_type =
                 ir::Struct_t::make(std::move(nname), std::move(nparams));
             ir::BVH_t::Node node{std::move(struct_type), std::move(nvolume)};
@@ -2036,12 +2043,13 @@ struct Parser {
         return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
     }
 
-    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>>
+    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>, std::optional<std::string>>
     parse_node() {
         std::string name = get_id();
 
         std::vector<ir::TypedVar> params;
         std::optional<ir::BVH_t::Volume> volume;
+        std::optional<std::string> cdrn;
 
         if (consume(Token::Type::LPAREN)) {
             params = parse_tree_params();
@@ -2050,9 +2058,12 @@ struct Parser {
 
         if (consume(Token::Type::WITH)) {
             volume = parse_volume();
+            if (consume(Token::Type::ON)) {
+                cdrn = get_id();
+            }
         }
 
-        return {name, params, volume};
+        return {name, params, volume, cdrn};
     }
 
     std::vector<ir::TypedVar> parse_tree_params() {
