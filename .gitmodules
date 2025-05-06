@@ -2,3 +2,6 @@
 	path = deps/llvm-project
 	url = https://github.com/llvm/llvm-project.git
 	branch = release/19.x
+[submodule "deps/tinyply"]
+	path = deps/tinyply
+	url = https://github.com/ddiakopoulos/tinyply.git

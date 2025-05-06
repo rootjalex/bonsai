@@ -1,0 +1,286 @@
+//! flags: -b cpp -o apps/rtiow/main
+// clang++ -std=c++20 -O3 main_hook.cpp main.o -o bonsai.out
+
+import stdlib/numerics;
+import stdlib/random;
+import stdlib/ray;
+import stdlib/triangle;
+import stdlib/distance;
+
+element MaterialTriangle {
+    t : Triangle;
+    material : u32; // 0 = Lambertian, 1 = Metal
+    albedo : vec3f;
+    fuzz : Float; // Metal's fuzz, Dialectric's refraction_index
+}
+
+func distmin(r : Ray, ms : MaterialTriangle) = distmin(r, ms.t);
+func distmax(r : Ray, ms : MaterialTriangle) = distmax(r, ms.t);
+func intersects(r : Ray, ms : MaterialTriangle) = intersects(r, ms.t);
+
+element Camera {
+    aspect_ratio : Float;
+    width : i32;
+    samples_per_pixel : u32 = 100;
+    max_depth : i32 = 10;
+    vfov : Float = 90;
+    lookfrom : vec3f = vec3f{0.0, 0.0, 0.0};
+    lookat : vec3f = vec3f{0.0, 0.0, -1.0};
+    vup : vec3f = vec3f{0.0, 1.0, 0.0};
+    defocus_angle : Float  = 0.0;
+    focus_dist : Float = 10.0;
+}
+
+func build_ray(i : i32, j : i32, cam : Camera) {
+    width = cam.width;
+    height : mut = cast[[i32]](cast[[Float]](width) / cam.aspect_ratio);
+    height = select(height < 1, 1, height);
+
+    // Camera
+    // focal_length = norm(cam.lookfrom - cam.lookat);
+    theta = degrees_to_radians(cam.vfov);
+    h = tan(theta / 2);
+    viewport_height : Float = 2 * h * cam.focus_dist;
+    viewport_width = viewport_height * (cast[[Float]](width) / cast[[Float]](height));
+    camera_center = cam.lookfrom;
+
+    // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+    w = unit_vector(cam.lookfrom - cam.lookat);
+    u = unit_vector(cross(cam.vup, w));
+    v = cross(w, u);
+
+    // Calculate vectors across the horizontal dnd down the vertical viewport edges.
+    viewport_u = viewport_width * u;    // Vector across viewport horizontal edge
+    viewport_v = viewport_height * -v;  // Vector down viewport vertical edge
+
+    // Calculate the horizontal and vertical delta vectors from pixel to pixel.
+    pixel_delta_u = viewport_u / cast[[Float]](width);
+    pixel_delta_v = viewport_v / cast[[Float]](height);
+
+    // Calculate the location of the upper left pixel.
+    viewport_upper_left = camera_center - (cam.focus_dist * w) - viewport_u/2 - viewport_v/2;
+    pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
+
+    // Calculate the camera defocus disk basis vectors.
+    defocus_radius = cam.focus_dist * tan(degrees_to_radians(cam.defocus_angle / 2));
+    defocus_disk_u = u * defocus_radius;
+    defocus_disk_v = v * defocus_radius;
+
+    // Construct a camera ray originating from the origin and directed at randomly sampled
+    // point around the pixel location i, j.
+    offset = sample_square();
+    pixel_sample = pixel00_loc + ((cast[[Float]](i) + offset.x) * pixel_delta_u)
+                               + ((cast[[Float]](j) + offset.y) * pixel_delta_v);
+
+    ray_origin : mut = camera_center;
+    if cam.defocus_angle > 0 {
+        ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
+    }
+    ray_direction = pixel_sample - ray_origin;
+    return Ray{ray_origin, ray_direction};
+}
+
+func at(r : Ray, t : Float) = r.o + t * r.d;
+
+element hit_record {
+    p, normal : vec3f;
+    t : Float;
+    front_face : bool;
+}
+
+func get_hit_record(r : Ray, t : Triangle) -> hit_record {
+    isect_ = intersectsp_ray_tri(r, t);
+
+    if isect_ {
+        wo = -r.d;
+        isect = *isect_;
+        // Compute triangle partial derivatives
+        // Compute deltas and matrix determinant for triangle partial derivatives
+        // Get triangle texture coordinates in _uv_ array
+        uv0 : vec2f = {0, 0};
+        uv1 : vec2f = {1, 0};
+        uv2 : vec2f = {1, 1};
+
+        duv02 = uv0 - uv2;
+        duv12 = uv1 - uv2;
+        dp02 = t.p0 - t.p2;
+        dp12 = t.p1 - t.p2;
+        det = prod_diff[[Float]](duv02[0], duv12[1], duv02[1], duv12[0]);
+
+        degenerateUV = abs(det) < 1e-9f;
+
+        dpdu : mut vec3f = {0, 0, 0};
+        dpdv : mut vec3f = {0, 0, 0};
+
+        if !degenerateUV {
+            // Compute triangle $\dpdu$ and $\dpdv$ via matrix inversion
+            invdet = 1 / det;
+            dpdu = prod_diff[[Float]](duv12[1], dp02, duv02[1], dp12) * invdet;
+            dpdv = prod_diff[[Float]](duv02[0], dp12, duv12[0], dp02) * invdet;
+        }
+
+        // TODO: Handle degenerate triangle $(u,v)$ parameterization or partial derivatives
+        if (degenerateUV || len_squared(cross_(dpdu, dpdv)) == 0) {
+            ng : mut = cross_(p2 - p0, p1 - p0);
+            if (len_squared(ng) == 0) {
+                ng = cast[[vec3f]](crossd(cast[[vec3d]](p2 - p0), Vector3<double>(p1 - p0)));
+                // CHECK_NE(LengthSquared(ng), 0);
+            }
+            // CoordinateSystem(Normalize(ng), &dpdu, &dpdv);
+            ng = ng / norm(ng);
+            sign = select(ng.z > 0, 1.0, -1.0);
+            a = -1.0 / (sign + dpdv.z);
+            b = ng.x * ng.z * a;
+            dpdu = vec3f{1 + sign * ng.x * ng.x * a, sign * b, -sign * ng.x};
+        }
+
+        // Interpolate $(u,v)$ parametric coordinates and hit point
+        pHit = isect.b0 * p0 + isect.b1 * p1 + isect.b2 * p2;
+        uvHit = isect.b0 * uv0 + isect.b1 * uv1 + isect.b2 * uv2;
+
+        // Return _SurfaceInteraction_ for triangle hit
+        flipNormal = false; // mesh->reverseOrientation ^ mesh->transformSwapsHandedness;
+        // Compute error bounds _pError_ for triangle intersection
+        pAbsSum = abs(isect.b0 * p0) + abs(isect.b1 * p1) + abs(isect.b2 * p2);
+        pError = gamma(7) * pAbsSum;
+
+        n = unit_vector(cross_(dp02, dp12));
+
+        return hit_record{pHit, n, isect.t, true};
+    } else {
+        // unreachable
+        return hit_record{vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}, 0.0, false};
+    }
+}
+
+element Triangle {
+    p0, p1, p2 : vec3f;
+}
+
+
+element scatter_record {
+    attenuation : vec3f;
+    ray : Ray;
+    hit : bool;
+}
+
+// TODO: investigate whether this generates a lookup table.
+func scatter(ray : Ray, ms : MaterialTriangle) -> scatter_record {
+    hit = get_hit_record(ray, ms.t);
+    if ms.material == 0 {
+        // Lambertian
+        scatter_dir : mut = hit.normal + random_unit_vector();
+
+        if near_zero(scatter_dir) {
+            scatter_dir = hit.normal;
+        }
+
+        l_scattered = Ray{hit.p, scatter_dir};
+
+        return {ms.albedo, l_scattered, true};
+    } else if ms.material == 1 {
+        // Metal
+        ref = reflect(ray.d, hit.normal);
+        reflected = unit_vector(ref) + (ms.fuzz * random_unit_vector());
+        m_scattered = Ray{hit.p, reflected};
+        return {ms.albedo, m_scattered, true};
+    } else {
+        // Dialectric (== 2)
+        ri = select(hit.front_face, 1.0 / ms.fuzz, ms.fuzz);
+        unit_dir = unit_vector(ray.d);
+
+        cos_theta = min(dot(-unit_dir, hit.normal), 1.0);
+        sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+        cannot_refract = (ri * sin_theta > 1.0) | reflectance(cos_theta, ri) > rand();
+
+        direction = select(cannot_refract, reflect(unit_dir, hit.normal), refract(unit_dir, hit.normal, ri));
+
+        d_scattered = Ray{hit.p, direction};
+        return {vec3f{1.0, 1.0, 1.0}, d_scattered, true};
+    }
+}
+
+
+extern Triangles : set[MaterialTriangle];
+
+// TODO: need to inspect llvm/asm to make sure calls only happen once.
+func trace(r : Ray) = argmin(|s : MaterialTriangle| distmin(r, s), filter(|s : MaterialTriangle| intersects(r, s) && distmin(r, s) > 0.001, Triangles));
+
+func sample(r : Ray, depth : i32) -> vec3f {
+    if (depth <= 0) {
+        return vec3f{0.0, 0.0, 0.0};
+    }
+    isect : option[MaterialTriangle] = trace(r);
+    if isect {
+        data = scatter(r, *isect);
+        if (data.hit) {
+            return data.attenuation * sample(data.ray, depth - 1);
+        } else {
+            return vec3f{0.0, 0.0, 0.0};
+        }
+    }
+    unit_direction = r.d / norm(r.d);
+    a = 0.5 * (unit_direction.y + 1.0);
+    return (1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0};
+}
+
+func pixel(i : i32, j : i32, c : Camera) {
+    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
+} 
+
+func to_rgb(v : vec3f) {
+    corrected = linear_to_gamma_v(v);
+    return cast[[vector[i32, 3]]](256.0 * clamp(corrected, 0.0, 0.999));
+}
+
+func [[export]] image(c : Camera) {
+    height : mut = cast[[i32]](cast[[Float]](c.width) / c.aspect_ratio);
+    height = select(height < 1, 1, height);
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(c.width)), iter(height));
+}
+
+schedule {
+    // TODO: generic over primitive types!
+    tree[[Triangle]] TriangleBVH(center : vec3f, radius : Float) with Triangle(center, radius) =
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : array[MaterialTriangle]);
+
+    Triangles : TriangleBVH;
+
+    layout Triangles {
+        pCount : u32;
+        prims : array[MaterialTriangle, pCount];
+        count : u32;
+        group[count] index : u16 {
+            center : vec3f;
+            radius : Float;
+            nPrims : u16;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, nPrims); };
+            };
+        };
+    };
+}
+
+func [[export]] bounding_Triangle(a : Triangle, b : Triangle) -> Triangle {
+    d = b.center - a.center;
+    dist_sq = sum(d * d);
+    dist = sqrt(dist_sq);
+
+    // Check if one Triangle fully contains the other.
+    if (a.radius >= dist + b.radius) {
+        return a;
+    } else if (b.radius >= dist + a.radius) {
+        return b;
+    }
+
+    new_radius = 0.5 * (dist + a.radius + b.radius);
+    // check for degnerate case of the same center
+    direction = select(dist > 0, d / dist, vec3f{1.0, 0.0, 0.0});
+
+    new_center = a.center + direction * (new_radius - a.radius);
+
+    return {new_center, new_radius};
+}
