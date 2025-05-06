@@ -1,5 +1,8 @@
 //! flags: -b cuda
 
+element Inner { x: i32; y: i32; z: i32; }
+element Outer { f: f32; position: Inner; }
+
 element Foo {
     x: i32 = 42;
 }

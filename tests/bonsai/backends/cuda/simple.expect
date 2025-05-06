@@ -6,6 +6,17 @@ struct Foo {
   int32_t x = 42;
 };
 
+struct Inner {
+  int32_t x;
+  int32_t y;
+  int32_t z;
+};
+
+struct Outer {
+  float f;
+  Inner position;
+};
+
 int32_t add_s(int32_t x, int32_t y) {
   const int32_t v = (x + y);
   return v;

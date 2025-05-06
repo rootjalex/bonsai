@@ -7,17 +7,6 @@ struct FInterval {
   float high;
 };
 
-struct Inner {
-  int32_t x;
-  int32_t y;
-  int32_t z;
-};
-
-struct Outer {
-  float3 f;
-  Inner position;
-};
-
 struct Ray {
   float3 o;
   float3 d;

@@ -8,21 +8,10 @@ element Sphere {
     radius : Float;
 }
 
-// Confirm this is not printed.
-element Sphere2 = Sphere;
-
-element Inner { x: i32; y: i32; z: i32; }
-element Outer { f: vec3f; position: Inner; }
-
 element Ray {
     o : vec3f;
-    // tmin : Float = 0;
     d : vec3f;
     tmax : Float = inf;
-    // tmax_ : Float = inf;
-    // tmax__ : Float = inf;
-    // TODO: medium
-    // TODO: differential?
 }
 
 element hit_record {
@@ -37,7 +26,7 @@ element FInterval {
 
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
-func intersectsp_ray_sphere(r : Ray, s : Sphere2) -> option[FInterval] {
+func intersectsp_ray_sphere(r : Ray, s : Sphere) -> option[FInterval] {
     oc = s.center - r.o;
     // TODO(cgyurgyik): Implement vector reduce
     // a = sum(r.d * r.d);
