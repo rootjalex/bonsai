@@ -177,7 +177,8 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
 
 } // namespace
 
-Program Parallelize::run(Program program) const {
+Program Parallelize::run(Program program,
+                         const CompilerOptions &options) const {
     /*
     for (auto &[name, func] : program.funcs) {
         // TODO: get loop_idx and func from schedule.

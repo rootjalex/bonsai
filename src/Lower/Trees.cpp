@@ -578,7 +578,8 @@ struct LowerBVH : public ir::Mutator {
 
 } // namespace
 
-ir::Program LowerTrees::run(ir::Program program) const {
+ir::Program LowerTrees::run(ir::Program program,
+                            const CompilerOptions &options) const {
     if (program.schedules.empty()) {
         return program;
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
@@ -14,7 +15,8 @@ class DCE : public lower::Pass {
   public:
     constexpr std::string name() const override { return "dce"; }
 
-    ir::FuncMap run(ir::FuncMap funcs) const override;
+    ir::FuncMap run(ir::FuncMap funcs,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace opt

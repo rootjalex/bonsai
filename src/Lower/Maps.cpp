@@ -260,7 +260,7 @@ struct LowerMapsImpl : public Mutator {
 
 } // namespace
 
-Program LowerMaps::run(Program program) const {
+Program LowerMaps::run(Program program, const CompilerOptions &options) const {
     // TODO(ajr): get info from the schedule.
 
     LowerMapsImpl lower(program.funcs);

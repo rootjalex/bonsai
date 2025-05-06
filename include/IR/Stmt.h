@@ -19,14 +19,12 @@ enum class IRStmtEnum {
     CallStmt,
     Print,
     Return,
-    Store,
     LetStmt,
     IfElse,
     DoWhile,
     Sequence,
     Assign,
     Accumulate,
-    Allocate,
     Label,
 
     RecLoop,
@@ -103,17 +101,6 @@ struct Return : StmtNode<Return> {
     static const IRStmtEnum node_type = IRStmtEnum::Return;
 };
 
-struct Store : StmtNode<Store> {
-    // TODO: predicate
-    std::string name;
-    Expr index;
-    Expr value;
-
-    static Stmt make(std::string name, Expr index, Expr value);
-
-    static const IRStmtEnum node_type = IRStmtEnum::Store;
-};
-
 // Non-mutable assignment.
 struct LetStmt : StmtNode<LetStmt> {
     WriteLoc loc;
@@ -185,15 +172,6 @@ struct Accumulate : StmtNode<Accumulate> {
     static Stmt make(WriteLoc loc, OpType op, Expr value);
 
     static const IRStmtEnum node_type = IRStmtEnum::Accumulate;
-};
-
-struct Allocate : StmtNode<Allocate> {
-    std::string name;
-    Type type;
-
-    static Stmt make(std::string name, Type type);
-
-    static const IRStmtEnum node_type = IRStmtEnum::Allocate;
 };
 
 // A labelled body of code.

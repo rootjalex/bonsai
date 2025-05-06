@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
@@ -25,7 +26,8 @@ class ReturnToOutParameter : public Pass {
   public:
     constexpr std::string name() const override { return "rtop"; }
 
-    ir::FuncMap run(ir::FuncMap functions) const override;
+    ir::FuncMap run(ir::FuncMap functions,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace lower

@@ -61,7 +61,8 @@ struct InsertExternsIntoCalls : public ir::Mutator {
 
 } // namespace
 
-ir::Program LowerExterns::run(ir::Program program) const {
+ir::Program LowerExterns::run(ir::Program program,
+                              const CompilerOptions &options) const {
     if (program.externs.empty()) {
         return program;
     }

@@ -55,7 +55,8 @@ class Inliner : public ir::Mutator {
 
 } // namespace
 
-ir::FuncMap Inline::run(ir::FuncMap funcs) const {
+ir::FuncMap Inline::run(ir::FuncMap funcs,
+                        const CompilerOptions &options) const {
     // If a function simply returns a value, replace the call with said value.
     // We refrain from performing more complex inlining for now to avoid code
     // size blowup.

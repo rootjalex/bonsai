@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
@@ -19,7 +20,8 @@ class LowerLogicalOperations : public Pass {
         return "lower-logical-operation";
     }
 
-    ir::FuncMap run(ir::FuncMap funcs) const override;
+    ir::FuncMap run(ir::FuncMap funcs,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace lower

@@ -116,7 +116,8 @@ ir::Stmt canonicalize(ir::Stmt stmt) {
 
 } // namespace
 
-ir::FuncMap Canonicalize::run(ir::FuncMap funcs) const {
+ir::FuncMap Canonicalize::run(ir::FuncMap funcs,
+                              const CompilerOptions &options) const {
     for (const auto &[name, func] : funcs) {
         func->body = canonicalize(std::move(func->body));
     }

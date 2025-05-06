@@ -108,7 +108,8 @@ struct LowerToForAll : public ir::Mutator {
 
 } // namespace
 
-ir::FuncMap LowerForEachs::run(ir::FuncMap funcs) const {
+ir::FuncMap LowerForEachs::run(ir::FuncMap funcs,
+                               const CompilerOptions &options) const {
     LowerToForAll convert_fa;
     for (auto &[_, f] : funcs) {
         f->body = convert_fa.mutate(f->body);
