@@ -2,11 +2,19 @@ element Float = f32;
 element Half = f16;
 element vec3d = vector[f64, 3];
 element vec3f = vector[Float, 3];
+element vec2f = vector[Float, 2];
 element vec3h = vector[Half, 3];
 
 func sqlen<F : IFloat>(v : vector[F, 3]) -> F = sum(v * v);
 
 func prod_diff<F : IFloat>(a : F, b : F, c : F, d : F) -> F {
+    cd = c * d;
+    diff = fma(a, b, -cd);
+    err = fma(-c, d, cd);
+    return diff + err;
+}
+
+func prod_diff_sv(a : Float, b : vec3f, c : Float, d : vec3f) -> vec3f {
     cd = c * d;
     diff = fma(a, b, -cd);
     err = fma(-c, d, cd);

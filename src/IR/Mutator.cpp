@@ -395,11 +395,15 @@ Expr Mutator::visit(const SetOp *node) {
 }
 
 Expr Mutator::visit(const Call *node) {
+    // std::cout << "Mutating call: " << Expr(node) << std::endl;
     Expr func = mutate(node->func);
     auto [args, not_changed] = visit_list(this, node->args);
     if (func.same_as(node->func) && not_changed) {
         return node;
     }
+    // for (size_t i = 0; i < args.size(); i++) {
+    //     std::cout << node->args[i] << " -> " << args[i] << std::endl;
+    // }
     return Call::make(std::move(func), std::move(args));
 }
 

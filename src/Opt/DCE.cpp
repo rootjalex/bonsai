@@ -81,10 +81,9 @@ struct NameHygiene : ir::Mutator {
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Expr cond = mutate(node->cond);
         // Rename where control flow diverges.
-        rename = true;
+        ScopedValue<bool> _(rename, true);
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
-        rename = false;
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
@@ -227,7 +226,9 @@ struct ComputeUseCounts : ir::Visitor {
             << " when traversing for: " << curr_var;
         internal_assert(!node->mutating || use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var: " << node->loc
-            << " in stmt: " << ir::Stmt(node);
+            << " in stmt: " << ir::Stmt(node)
+            << "\nallocating: " << !node->mutating
+            << " and in use_counts: " << use_counts.contains(node->loc.base);
         internal_assert(!node->mutating ||
                         dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "

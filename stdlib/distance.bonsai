@@ -34,6 +34,18 @@ func distmin(ray : Ray, tri : Triangle) -> Float {
     }
 }
 
+// TODO: is this right?
+func distmax(ray : Ray, tri : Triangle) -> Float {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        // TODO(ajr): this is annoying syntax. Fix.
+        isect_ = *isect;
+        return isect_.t;
+    } else {
+        return -inf;
+    }
+}
+
 // Source: RTCD 5.1.5 pg. 141
 func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     p = pt.vec;

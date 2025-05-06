@@ -97,9 +97,9 @@ func get_hit_record(r : Ray, t : Triangle) -> hit_record {
         // Compute triangle partial derivatives
         // Compute deltas and matrix determinant for triangle partial derivatives
         // Get triangle texture coordinates in _uv_ array
-        uv0 : vec2f = {0, 0};
-        uv1 : vec2f = {1, 0};
-        uv2 : vec2f = {1, 1};
+        uv0 : vec2f = {0.0, 0.0};
+        uv1 : vec2f = {1.0, 0.0};
+        uv2 : vec2f = {1.0, 1.0};
 
         duv02 = uv0 - uv2;
         duv12 = uv1 - uv2;
@@ -107,7 +107,7 @@ func get_hit_record(r : Ray, t : Triangle) -> hit_record {
         dp12 = t.p1 - t.p2;
         det = prod_diff[[Float]](duv02[0], duv12[1], duv02[1], duv12[0]);
 
-        degenerateUV = abs(det) < 1e-9f;
+        degenerateUV = abs(det) < 1e-9;
 
         dpdu : mut vec3f = {0, 0, 0};
         dpdv : mut vec3f = {0, 0, 0};
@@ -115,33 +115,33 @@ func get_hit_record(r : Ray, t : Triangle) -> hit_record {
         if !degenerateUV {
             // Compute triangle $\dpdu$ and $\dpdv$ via matrix inversion
             invdet = 1 / det;
-            dpdu = prod_diff[[Float]](duv12[1], dp02, duv02[1], dp12) * invdet;
-            dpdv = prod_diff[[Float]](duv02[0], dp12, duv12[0], dp02) * invdet;
+            dpdu = prod_diff_sv(duv12[1], dp02, duv02[1], dp12) * invdet;
+            dpdv = prod_diff_sv(duv02[0], dp12, duv12[0], dp02) * invdet;
         }
 
         // TODO: Handle degenerate triangle $(u,v)$ parameterization or partial derivatives
         if (degenerateUV || len_squared(cross_(dpdu, dpdv)) == 0) {
-            ng : mut = cross_(p2 - p0, p1 - p0);
+            ng : mut = cross_(t.p2 - t.p0, t.p1 - t.p0);
             if (len_squared(ng) == 0) {
-                ng = cast[[vec3f]](crossd(cast[[vec3d]](p2 - p0), Vector3<double>(p1 - p0)));
+                ng = cast[[vec3f]](crossd(cast[[vec3d]](t.p2 - t.p0), cast[[vec3d]](t.p1 - t.p0)));
                 // CHECK_NE(LengthSquared(ng), 0);
             }
             // CoordinateSystem(Normalize(ng), &dpdu, &dpdv);
-            ng = ng / norm(ng);
-            sign = select(ng.z > 0, 1.0, -1.0);
+            nng = ng / norm(ng);
+            sign = select(nng.z > 0, 1.0, -1.0);
             a = -1.0 / (sign + dpdv.z);
-            b = ng.x * ng.z * a;
-            dpdu = vec3f{1 + sign * ng.x * ng.x * a, sign * b, -sign * ng.x};
+            b = nng.x * nng.z * a;
+            dpdu = vec3f{1 + sign * nng.x * nng.x * a, sign * b, -sign * nng.x};
         }
 
         // Interpolate $(u,v)$ parametric coordinates and hit point
-        pHit = isect.b0 * p0 + isect.b1 * p1 + isect.b2 * p2;
+        pHit = isect.b0 * t.p0 + isect.b1 * t.p1 + isect.b2 * t.p2;
         uvHit = isect.b0 * uv0 + isect.b1 * uv1 + isect.b2 * uv2;
 
         // Return _SurfaceInteraction_ for triangle hit
         flipNormal = false; // mesh->reverseOrientation ^ mesh->transformSwapsHandedness;
         // Compute error bounds _pError_ for triangle intersection
-        pAbsSum = abs(isect.b0 * p0) + abs(isect.b1 * p1) + abs(isect.b2 * p2);
+        pAbsSum = abs(isect.b0 * t.p0) + abs(isect.b1 * t.p1) + abs(isect.b2 * t.p2);
         pError = gamma(7) * pAbsSum;
 
         n = unit_vector(cross_(dp02, dp12));
@@ -152,11 +152,6 @@ func get_hit_record(r : Ray, t : Triangle) -> hit_record {
         return hit_record{vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}, 0.0, false};
     }
 }
-
-element Triangle {
-    p0, p1, p2 : vec3f;
-}
-
 
 element scatter_record {
     attenuation : vec3f;
@@ -242,7 +237,7 @@ func [[export]] image(c : Camera) {
 
 schedule {
     // TODO: generic over primitive types!
-    tree[[Triangle]] TriangleBVH(center : vec3f, radius : Float) with Triangle(center, radius) =
+    tree[[Triangle]] TriangleBVH(low : vec3f, high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH)
     | Leaf(data : array[MaterialTriangle]);
 
@@ -253,8 +248,9 @@ schedule {
         prims : array[MaterialTriangle, pCount];
         count : u32;
         group[count] index : u16 {
-            center : vec3f;
+            low : vec3f;
             radius : Float;
+            high : vec3f;
             nPrims : u16;
             switch nPrims {
                 0 => Interior { offset : u16; left = index + 1; right = index + offset; };
@@ -264,23 +260,20 @@ schedule {
     };
 }
 
-func [[export]] bounding_Triangle(a : Triangle, b : Triangle) -> Triangle {
-    d = b.center - a.center;
-    dist_sq = sum(d * d);
-    dist = sqrt(dist_sq);
+func [[export]] bounding_box(a : Triangle, b : Triangle) -> AABB {
+    low_a = min(a.p0, min(a.p1, a.p2));
+    high_a = max(a.p0, max(a.p1, a.p2));
+    low_b = min(b.p0, min(b.p1, b.p2));
+    high_b = max(b.p0, max(b.p1, b.p2));
 
-    // Check if one Triangle fully contains the other.
-    if (a.radius >= dist + b.radius) {
-        return a;
-    } else if (b.radius >= dist + a.radius) {
-        return b;
-    }
+    low = min(low_a, low_b);
+    high = max(high_a, high_b);
 
-    new_radius = 0.5 * (dist + a.radius + b.radius);
-    // check for degnerate case of the same center
-    direction = select(dist > 0, d / dist, vec3f{1.0, 0.0, 0.0});
+    return AABB{low, high};
+}
 
-    new_center = a.center + direction * (new_radius - a.radius);
-
-    return {new_center, new_radius};
+func [[export]] AABB_union(a : AABB, b : AABB) -> AABB {
+    low = min(a.low, b.low);
+    high = max(a.high, b.high);
+    return AABB{low, high};
 }

@@ -438,6 +438,7 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
+        // std::cout << "Mutating: " << ir::Stmt(node) << std::endl;
         ir::Expr value = mutate(node->value);
         if (is_const(value)) {
             name_to_immediate[node->loc.base] = value;
