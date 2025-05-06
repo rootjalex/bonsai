@@ -13,8 +13,8 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     dirIsNeg = invDir < 0;
 
     // Check for ray intersection against slabs.
-    low_parts = select(dirIsNeg, b.low, b.high);
-    high_parts = select(dirIsNeg, b.high, b.low);
+    low_parts = select(dirIsNeg, b.high, b.low);
+    high_parts = select(dirIsNeg, b.low, b.high);
     tMin : mut = (low_parts - r.o) * invDir;
     tMax : mut = (high_parts - r.o) * invDir;
 

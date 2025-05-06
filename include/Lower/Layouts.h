@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Layout.h"
 #include "Lower/Pass.h"
 
@@ -12,7 +13,8 @@ class LowerLayouts : public Pass {
     constexpr std::string name() const override { return "lower-layouts"; }
 
     // Requires full-program analysis (updates type list).
-    ir::Program run(ir::Program program) const override;
+    ir::Program run(ir::Program program,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace lower

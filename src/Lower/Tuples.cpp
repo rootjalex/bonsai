@@ -122,7 +122,8 @@ struct TuplesToStructs : public ir::Mutator {
 
 } // namespace
 
-ir::Program LowerTuples::run(ir::Program program) const {
+ir::Program LowerTuples::run(ir::Program program,
+                             const CompilerOptions &options) const {
     TuplesToStructs converter;
 
     // Externs should not contain tuples.

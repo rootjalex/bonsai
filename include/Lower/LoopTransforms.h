@@ -16,7 +16,8 @@ class LoopTransforms : public Pass {
     constexpr std::string name() const override { return "loop-transforms"; }
 
     // Requires full-program (needs access to schedule).
-    ir::Program run(ir::Program program) const override;
+    ir::Program run(ir::Program program,
+                    const CompilerOptions &options) const override;
 };
 
 } // namespace lower

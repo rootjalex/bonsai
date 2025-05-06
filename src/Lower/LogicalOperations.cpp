@@ -45,7 +45,8 @@ class LowerImpl : public ir::Mutator {
 
 } // namespace
 
-ir::FuncMap LowerLogicalOperations::run(ir::FuncMap funcs) const {
+ir::FuncMap LowerLogicalOperations::run(ir::FuncMap funcs,
+                                        const CompilerOptions &options) const {
     for (auto &[_, func] : funcs) {
         LowerImpl lower;
         func->body = lower.mutate(std::move(func->body));

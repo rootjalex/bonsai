@@ -842,6 +842,15 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type().element_of();
             break;
         }
+        case Intrinsic::fma: {
+            internal_assert(args.size() == 3);
+            // Some parts can be broadcasted.
+            try_match_types(args[0], args[1]);
+            try_match_types(args[0], args[2]);
+            try_match_types(args[1], args[2]);
+            node->type = args[0].type();
+            break;
+        }
         case Intrinsic::norm: {
             internal_assert(args.size() == 1);
             internal_assert(args[0].type().is<Vector_t>());
@@ -862,9 +871,11 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
         case Intrinsic::max: {
             internal_assert(args.size() == 2);
             try_match_types(args[0], args[1]);
+            node->type = args[0].type();
+            break;
         }
         default: {
-            internal_assert(args.size() > 0);
+            internal_assert(!args.empty());
             node->type = args[0].type();
             break;
         }

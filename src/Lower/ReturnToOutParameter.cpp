@@ -64,7 +64,8 @@ struct ReplaceExportedCalls : public ir::Mutator {
 
 } // namespace
 
-ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions) const {
+ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
+                                      const CompilerOptions &options) const {
     ir::FuncMap new_functions;
 
     std::set<std::string> exported_funcs;

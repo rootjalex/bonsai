@@ -189,7 +189,8 @@ bool contains_option(const ir::Type &type) {
 
 } // namespace
 
-ir::Program LowerOptions::run(ir::Program program) const {
+ir::Program LowerOptions::run(ir::Program program,
+                              const CompilerOptions &options) const {
     RewriteOptions rewriter;
     for (auto &[t, type] : program.types) {
         type = rewriter.mutate(std::move(type));

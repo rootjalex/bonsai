@@ -88,7 +88,8 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
 
 } // namespace
 
-ir::Program LoopTransforms::run(ir::Program program) const {
+ir::Program LoopTransforms::run(ir::Program program,
+                                const CompilerOptions &options) const {
     if (program.schedules.empty()) {
         return program;
     }

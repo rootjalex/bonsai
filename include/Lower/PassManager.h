@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 

@@ -651,7 +651,8 @@ struct LowerMatches : public ir::Mutator {
 
 } // namespace
 
-ir::Program LowerLayouts::run(ir::Program program) const {
+ir::Program LowerLayouts::run(ir::Program program,
+                              const CompilerOptions &options) const {
     if (program.schedules.empty()) {
         return program;
     }

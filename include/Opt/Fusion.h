@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CompilerOptions.h"
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
@@ -16,7 +17,8 @@ class Fusion : public lower::Pass {
   public:
     constexpr std::string name() const override { return "fusion"; }
 
-    ir::FuncMap run(ir::FuncMap funcs) const override;
+    ir::FuncMap run(ir::FuncMap funcs,
+                    const CompilerOptions &options) const override;
 
     static ir::Stmt fuse_within_stmt(const ir::Stmt &stmt,
                                      const ir::FuncMap &funcs);

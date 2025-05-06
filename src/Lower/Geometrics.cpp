@@ -71,7 +71,8 @@ struct LowerGeomOps : public Mutator {
 
 } // namespace
 
-FuncMap LowerGeometrics::run(FuncMap funcs) const {
+FuncMap LowerGeometrics::run(FuncMap funcs,
+                             const CompilerOptions &options) const {
     LowerGeomOps lower(funcs);
     // TODO: what happens with nested geometric ops...?
     for (const auto &[f, func] : funcs) {
