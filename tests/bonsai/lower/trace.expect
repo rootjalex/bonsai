@@ -76,6 +76,16 @@ func distmax_Ray_Sphere(r : (Ray*), s : (Sphere*)) -> f32 {
   return (f32)inf
 }
 
+func distmax_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (isect.set) {
+    let isect_ = isect.value in
+    return isect_.t
+  } else {
+    return -(f32)inf
+  }
+}
+
 func distmin_Point_AABB(pt : (Point*), a : (AABB*)) -> f32 {
   return sqrt(SqDistPointAABB(pt, a))
 }
