@@ -209,7 +209,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
                                      const std::string &name);
     llvm::Value *create_alloca_at_entry(llvm::Type *etype,
-                                        const std::string &name);
+                                        const std::string &name,
+                                        llvm::Value *size = nullptr);
     llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
                                bool zero_initialize, const std::string &name);
 

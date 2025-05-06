@@ -1577,13 +1577,21 @@ void CodeGen_LLVM::visit(const Build *node) {
         const Array_t *array_t = node->type.as<Array_t>();
 
         // Do allocation.
-        // TODO(ajr): constant sized should be on stack, right?
+
         llvm::Type *etype = codegen_type(array_t->etype);
         internal_assert(array_t->size.defined());
         llvm::Value *size = codegen_expr(array_t->size);
-        // TODO(ajr): zero_initialize is broken, it should be set true here.
-        llvm::Value *alloc =
-            create_malloc(etype, size, /*zero_initialize=*/false, "");
+
+        llvm::Value *alloc = nullptr;
+
+        if (is_const(array_t->size)) {
+            // TODO(ajr): This is only valid if this value can't escape the
+            // current function!
+            alloc = create_alloca_at_entry(etype, "constant_array_build", size);
+        } else {
+            // Heap allocation for dynamic-sized array (or returned array).
+            alloc = create_malloc(etype, size, /*zero_initialize=*/false, "");
+        }
 
         for (size_t i = 0; i < values.size(); i++) {
             llvm::Value *index = llvm::ConstantInt::get(size->getType(), i);
@@ -1915,7 +1923,8 @@ llvm::Value *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
 }
 
 llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
-                                                  const std::string &name) {
+                                                  const std::string &name,
+                                                  llvm::Value *size) {
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     llvm::BasicBlock *entry =
         &builder->GetInsertBlock()->getParent()->getEntryBlock();
@@ -1924,8 +1933,7 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
     } else {
         builder->SetInsertPoint(entry, entry->getFirstInsertionPt());
     }
-    llvm::AllocaInst *ptr =
-        builder->CreateAlloca(t, /* arraysize=*/nullptr, name);
+    llvm::AllocaInst *ptr = builder->CreateAlloca(t, size, name);
 
     const llvm::DataLayout &dl = module->getDataLayout();
     unsigned align = dl.getABITypeAlign(t).value();
