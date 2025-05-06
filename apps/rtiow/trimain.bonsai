@@ -14,9 +14,9 @@ element MaterialTriangle {
     fuzz : Float; // Metal's fuzz, Dialectric's refraction_index
 }
 
-func distmin(r : Ray, ms : MaterialTriangle) = distmin(r, ms.t);
-func distmax(r : Ray, ms : MaterialTriangle) = distmax(r, ms.t);
-func intersects(r : Ray, ms : MaterialTriangle) = intersects(r, ms.t);
+func distmin(r : Ray, mt : MaterialTriangle) = distmin(r, mt.t);
+func distmax(r : Ray, mt : MaterialTriangle) = distmax(r, mt.t);
+func intersects(r : Ray, mt : MaterialTriangle) = intersects(r, mt.t);
 
 element Camera {
     aspect_ratio : Float;
@@ -160,9 +160,9 @@ element scatter_record {
 }
 
 // TODO: investigate whether this generates a lookup table.
-func scatter(ray : Ray, ms : MaterialTriangle) -> scatter_record {
-    hit = get_hit_record(ray, ms.t);
-    if ms.material == 0 {
+func scatter(ray : Ray, mt : MaterialTriangle) -> scatter_record {
+    hit = get_hit_record(ray, mt.t);
+    if mt.material == 0 {
         // Lambertian
         scatter_dir : mut = hit.normal + random_unit_vector();
 
@@ -172,16 +172,16 @@ func scatter(ray : Ray, ms : MaterialTriangle) -> scatter_record {
 
         l_scattered = Ray{hit.p, scatter_dir};
 
-        return {ms.albedo, l_scattered, true};
-    } else if ms.material == 1 {
+        return {mt.albedo, l_scattered, true};
+    } else if mt.material == 1 {
         // Metal
         ref = reflect(ray.d, hit.normal);
-        reflected = unit_vector(ref) + (ms.fuzz * random_unit_vector());
+        reflected = unit_vector(ref) + (mt.fuzz * random_unit_vector());
         m_scattered = Ray{hit.p, reflected};
-        return {ms.albedo, m_scattered, true};
+        return {mt.albedo, m_scattered, true};
     } else {
         // Dialectric (== 2)
-        ri = select(hit.front_face, 1.0 / ms.fuzz, ms.fuzz);
+        ri = select(hit.front_face, 1.0 / mt.fuzz, mt.fuzz);
         unit_dir = unit_vector(ray.d);
 
         cos_theta = min(dot(-unit_dir, hit.normal), 1.0);
@@ -197,10 +197,10 @@ func scatter(ray : Ray, ms : MaterialTriangle) -> scatter_record {
 }
 
 
-extern Triangles : set[MaterialTriangle];
+extern triangles : set[MaterialTriangle];
 
 // TODO: need to inspect llvm/asm to make sure calls only happen once.
-func trace(r : Ray) = argmin(|s : MaterialTriangle| distmin(r, s), filter(|s : MaterialTriangle| intersects(r, s) && distmin(r, s) > 0.001, Triangles));
+func trace(r : Ray) = argmin(|t : MaterialTriangle| distmin(r, t), filter(|t : MaterialTriangle| intersects(r, t) && distmin(r, t) > 0.001, triangles));
 
 func sample(r : Ray, depth : i32) -> vec3f {
     if (depth <= 0) {
@@ -241,33 +241,27 @@ schedule {
     | Interior(left : TriangleBVH, right : TriangleBVH)
     | Leaf(data : array[MaterialTriangle]);
 
-    Triangles : TriangleBVH;
+    triangles : TriangleBVH;
 
-    layout Triangles {
+    layout triangles {
         pCount : u32;
         prims : array[MaterialTriangle, pCount];
         count : u32;
         group[count] index : u16 {
             low : vec3f;
-            radius : Float;
-            high : vec3f;
             nPrims : u16;
             switch nPrims {
                 0 => Interior { offset : u16; left = index + 1; right = index + offset; };
                 _ => Leaf { pOffset : u16; data = range(prims, pOffset, nPrims); };
             };
+            high : vec3f;
         };
     };
 }
 
-func [[export]] bounding_box(a : Triangle, b : Triangle) -> AABB {
-    low_a = min(a.p0, min(a.p1, a.p2));
-    high_a = max(a.p0, max(a.p1, a.p2));
-    low_b = min(b.p0, min(b.p1, b.p2));
-    high_b = max(b.p0, max(b.p1, b.p2));
-
-    low = min(low_a, low_b);
-    high = max(high_a, high_b);
+func [[export]] bounding_box(a : Triangle) -> AABB {
+    low = min(a.p0, min(a.p1, a.p2));
+    high = max(a.p0, max(a.p1, a.p2));
 
     return AABB{low, high};
 }

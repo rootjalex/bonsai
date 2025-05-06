@@ -1,11 +1,91 @@
 // clang++ -std=c++20 -O3 trimain.cpp ../../deps/tinyply/source/tinyply.cpp -o
 // trimain.out
-#include "../../deps/tinyply/source/tinyply.h"
+// #include "../../deps/tinyply/source/tinyply.h"
+
+#include "trimain.h"
+
 #include <array>
 #include <fstream>
 #include <iostream>
 #include <vector>
 
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <outfile>\n";
+        return 1;
+    }
+
+    // Define one triangle
+    MaterialTriangle tri;
+    tri.t.p0 = {0.0f, 0.0f, 0.0f};
+    tri.t.p1 = {1.0f, 0.0f, 0.0f};
+    tri.t.p2 = {0.0f, 1.0f, 0.0f};
+    tri.material = 0; // Lambertian
+    tri.albedo = {0.5, 0.5, 0.5};
+    tri.fuzz = 0.0;
+
+    AABB aabb;
+    bounding_box(aabb, tri.t);
+
+    _triangles_layout1 tree;
+    tree.pCount = 1;
+    tree.prims = &tri;
+
+    tree.count = 0;
+    tree.triangles_index =
+        (_triangles_layout0 *)malloc(sizeof(_triangles_layout0) * tree.count);
+    tree.triangles_index[0].low = aabb.low;
+    tree.triangles_index[0].high = aabb.high;
+    tree.triangles_index[0].nPrims = 1;
+    *reinterpret_cast<uint16_t *>(
+        &tree.triangles_index[0].triangles_spliton_nPrims) = 0;
+
+    Camera cam;
+    cam.aspect_ratio = 16.0 / 9.0;
+    cam.width = 400;
+    cam.samples_per_pixel = 10;
+    cam.max_depth = 10;
+
+    cam.vfov = 20;
+    cam.lookfrom = {0.5, 0.5, 10};
+    cam.lookat = {0.5, 0.5, 0};
+    cam.vup = {0, 1, 0};
+
+    cam.defocus_angle = 0.6;
+    cam.focus_dist = 10.0;
+
+    int image_width = cam.width;
+    float image_height = (int)(cam.width / cam.aspect_ratio);
+    image_height = (image_height < 1) ? 1 : image_height;
+
+    // Render
+    int *im = (int *)image(cam, tree);
+
+    const char *output_filename = argv[1];
+    std::ofstream out(output_filename);
+
+    if (!out) {
+        std::cerr << "Error: Cannot open file " << output_filename
+                  << " for writing\n";
+        free(im);
+        return 1;
+    }
+
+    out << "P3\n" << image_width << ' ' << image_height << "\n255\n";
+
+    for (int j = 0; j < image_height; j++) {
+        for (int i = 0; i < image_width; i++) {
+            int ir = im[(j * image_width + i) * 3 + 0];
+            int ig = im[(j * image_width + i) * 3 + 1];
+            int ib = im[(j * image_width + i) * 3 + 2];
+            out << ir << ' ' << ig << ' ' << ib << '\n';
+        }
+    }
+
+    return 0;
+}
+
+/*
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <infile>\n";
@@ -67,3 +147,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+*/
