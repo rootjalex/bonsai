@@ -111,7 +111,7 @@ struct scatter_record {
 };
 
 Point ClosestPtPointAABB(Point* pt, AABB* a) {
-  return (Point)min(max((*pt).vec, (*a).low), (*a).high);
+  return Point{min(max((*pt).vec, (*a).low), (*a).high)};
 }
 
 float SqDistPointAABB(Point* pt, AABB* a) {
