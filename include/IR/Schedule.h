@@ -25,6 +25,7 @@ struct Location {
 // For branching recursion, generates a DoWhile loop over a queue with
 // a maximum size of `queue_size`.
 struct Loopify {
+    // This is only used in the branching recursion case, hence the optionality.
     std::optional<Expr> queue_size;
 };
 
