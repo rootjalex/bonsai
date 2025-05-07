@@ -11,28 +11,30 @@ type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }
-type _ts_layout0 = struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }
-type _ts_layout1 = struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }
-type _ts_layout2 = struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
+type _ts_layout0 = struct _ts_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
+type _ts_layout1 = struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }
+type _ts_layout2 = struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }
+type _ts_split_layout3 = struct _ts_split_layout3{ offset : u32 }
+type _ts_split_layout4 = struct _ts_split_layout4{ pOffset : u32 }
 type tuple.0 = struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
 type tuple.1 = struct tuple.1{ _field0 : u32; _field1 : u1 }
 type tuple.2 = struct tuple.2{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern ts : struct _ts_layout2{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
+extern ts : struct _ts_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
 
-func _recloop_func0(ts__index : u32, ts__bit : u1, ts : (_ts_layout2*), ray : (Ray*), _best0 : mut (tuple.0*)) -> void {
+func _recloop_func0(ts__index : u32, ts__bit : u1, ts : (_ts_layout0*), ray : (Ray*), _best0 : mut (tuple.0*)) -> void {
   if (intersects_Ray_AABB(ray, (&build<AABB>((*ts).ts_index[ts__index].low_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].low_16), (*ts).ts_index[ts__index].high_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].high_16))))) {
     if (distmin_Ray_AABB(ray, (&build<AABB>((*ts).ts_index[ts__index].low_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].low_16), (*ts).ts_index[ts__index].high_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].high_16)))) < (*_best0)._field0) {
       if ((*ts).ts_index[ts__index].ts_bit[ts__bit].nPrims == 0u) {
-        _recloop_func0(cast<__layout6>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 0u, ts, ray, _best0)
-        _recloop_func0(cast<__layout7>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 1u, ts, ray, _best0)
+        _recloop_func0(cast<_ts_split_layout3>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 0u, ts, ray, _best0)
+        _recloop_func0(cast<_ts_split_layout3>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).offset, 1u, ts, ray, _best0)
       } else {
         forall _idx0 in [0u:cast<u32>((*ts).ts_index[ts__index].ts_bit[ts__bit].nPrims):1u] {
-          if (intersectsp_ray_tri(ray, (&(*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])).set) {
-            if (distmin_Ray_Triangle(ray, (&(*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-              _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])), (*ts).prims[cast<__layout10>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])
+          if (intersectsp_ray_tri(ray, (&(*ts).prims[cast<_ts_split_layout4>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])).set) {
+            if (distmin_Ray_Triangle(ray, (&(*ts).prims[cast<_ts_split_layout4>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
+              _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*ts).prims[cast<_ts_split_layout4>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])), (*ts).prims[cast<_ts_split_layout4>((*ts).ts_index[ts__index].ts_bit[ts__bit].ts_spliton_nPrims).pOffset + _idx0])
             }
           }
         }
@@ -42,13 +44,13 @@ func _recloop_func0(ts__index : u32, ts__bit : u1, ts : (_ts_layout2*), ray : (R
   return
 }
 
-func _traverse_tree0(ray : (Ray*), ts : (_ts_layout2*)) -> _option0 {
+func _traverse_tree0(ray : (Ray*), ts : (_ts_layout0*)) -> _option0 {
   _best0 : mut tuple.0 := build<tuple.0>((f32)inf, build<Triangle>())
   _recloop_func0(0u, 0u, ts, ray, _best0)
   return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
 }
 
-func _unexported_trace(ray : (Ray*), ts : (_ts_layout2*)) -> _option0 {
+func _unexported_trace(ray : (Ray*), ts : (_ts_layout0*)) -> _option0 {
   return _traverse_tree0(ray, ts)
 }
 
@@ -139,7 +141,7 @@ func intersects_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), ts : (_ts_layout2*)) -> void {
+func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), ts : (_ts_layout0*)) -> void {
   _ret0 = _traverse_tree0(ray, ts)
   return
 }
