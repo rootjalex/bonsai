@@ -1,6 +1,7 @@
 #pragma once
 
-// #include "Expr.h"
+#include "Expr.h"
+#include "Layout.h"
 // #include "Stmt.h"
 #include "Type.h"
 #include "WriteLoc.h"
@@ -18,6 +19,12 @@ bool equals(const Expr &e0, const Expr &e1);
 
 struct ExprLessThan {
     bool operator()(const Expr &e0, const Expr &e1) const;
+};
+
+bool equals(const Layout &l0, const Layout &l1);
+
+struct LayoutLessThan {
+    bool operator()(const Layout &l0, const Layout &l1) const;
 };
 
 struct WriteLocLessThan {
