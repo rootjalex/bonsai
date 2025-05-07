@@ -129,7 +129,8 @@ Closure build_closure(const ForAll *forall, TypeMap &types) {
     closure.context = ctx;
     closure.func = std::make_shared<Function>(
         std::move(func), std::move(f_args), Void_t::make(), std::move(body),
-        Function::InterfaceList{}, std::vector<Function::Attribute>{});
+        Function::InterfaceList{},
+        std::vector<Function::Attribute>{Function::Attribute::kernel});
     return closure;
 }
 

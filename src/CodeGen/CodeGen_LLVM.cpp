@@ -271,6 +271,123 @@ void CodeGen_LLVM::init_module() {
     // module = get_initial_module_for_target(target, context);
     // TODO: handle all the module set-up that Halide does.
     module = std::make_unique<llvm::Module>("bonsai_module", *context);
+
+    init_rng_state();
+}
+
+void CodeGen_LLVM::init_rng_state() {
+    // Set up a thread_local vector of u32s based on target vector width.
+    int vector_width = native_vector_bits() / 32;
+    llvm::VectorType *rng_vec_t =
+        llvm::VectorType::get(i32_t, vector_width, /*Scalable=*/false);
+
+    rng_tls = new llvm::GlobalVariable(
+        *module, rng_vec_t,
+        /*isConstant=*/false, llvm::GlobalValue::ExternalLinkage,
+        llvm::Constant::getNullValue(rng_vec_t), "rng_tls");
+    rng_tls->setThreadLocalMode(llvm::GlobalVariable::GeneralDynamicTLSModel);
+
+    // Thanks Halide: https://github.com/halide/Halide/blob/main/src/Random.cpp
+    // Add a function called gen_rand() that does:
+    // rng_tls += 1 (vector addition with broadcast)
+    // return (((C2 * rng_tls) + C1) * rng_tls) + C0
+    static constexpr uint64_t C0 = 576942909;
+    static constexpr uint64_t C1 = 1121052041;
+    static constexpr uint64_t C2 = 1040796640;
+
+    // Define `void @init_rngs()`
+    // sets thread local vector to:
+    // rand() << log(vlanes + 64) + vector_id + (thread_id << log(vlanes))
+    llvm::FunctionType *init_t = llvm::FunctionType::get(void_t, false);
+    llvm::Function *init_rngs = llvm::Function::Create(
+        init_t, llvm::Function::ExternalLinkage, "init_rngs", module.get());
+    llvm::BasicBlock *entry =
+        llvm::BasicBlock::Create(*context, "entry", init_rngs);
+    builder->SetInsertPoint(entry);
+
+    llvm::Value *thread_id = get_thread_id();
+
+    llvm::Value *vec = llvm::UndefValue::get(rng_vec_t);
+    for (int i = 0; i < vector_width; ++i) {
+        llvm::Value *lane = llvm::ConstantInt::get(i32_t, i);
+        llvm::Value *lanes = llvm::ConstantInt::get(i32_t, vector_width);
+
+        // x = thread_id * lanes + lane
+        llvm::Value *tid_mul_lanes = builder->CreateMul(thread_id, lanes);
+        llvm::Value *x = builder->CreateAdd(tid_mul_lanes, lane);
+
+        // hash: ((C2 * x + C1) * x + C0)
+        llvm::Value *c2 = llvm::ConstantInt::get(i32_t, C2);
+        llvm::Value *c1 = llvm::ConstantInt::get(i32_t, C1);
+        llvm::Value *c0 = llvm::ConstantInt::get(i32_t, C0);
+
+        llvm::Value *hx = builder->CreateAdd(builder->CreateMul(c2, x), c1);
+        hx = builder->CreateMul(hx, x);
+        hx = builder->CreateAdd(hx, c0);
+
+        vec = builder->CreateInsertElement(vec, hx, lane);
+    }
+
+    // Store to thread-local global
+    builder->CreateStore(vec, rng_tls);
+
+    builder->CreateRetVoid();
+
+    llvm::FunctionType *gen_rand_ty = llvm::FunctionType::get(rng_vec_t, false);
+    llvm::Function *gen_rand = llvm::Function::Create(
+        gen_rand_ty, llvm::Function::ExternalLinkage, "gen_rand", module.get());
+
+    entry = llvm::BasicBlock::Create(*context, "entry", gen_rand);
+    builder->SetInsertPoint(entry);
+
+    llvm::Value *rng_ptr = rng_tls;
+    llvm::Value *is_null = builder->CreateICmpEQ(
+        rng_ptr, llvm::Constant::getNullValue(rng_ptr->getType()),
+        "rng_tls_is_null");
+
+    // Create basic blocks for the check
+    llvm::BasicBlock *fail_block =
+        llvm::BasicBlock::Create(*context, "fail", gen_rand);
+    llvm::BasicBlock *cont_block =
+        llvm::BasicBlock::Create(*context, "cont", gen_rand);
+
+    // Branch based on null check
+    builder->CreateCondBr(is_null, fail_block, cont_block);
+
+    // Fail block: trap or return poison/undef
+    builder->SetInsertPoint(fail_block);
+    llvm::Function *trap_fn =
+        llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::trap);
+    builder->CreateCall(trap_fn, {});
+    builder->CreateUnreachable();
+
+    // Continue block: proceed as usual
+    builder->SetInsertPoint(cont_block);
+    // Load current state
+    llvm::Value *rng = builder->CreateLoad(rng_vec_t, rng_tls, "rng");
+    // Increment by 1
+    llvm::Value *one = llvm::ConstantVector::getSplat(
+        llvm::ElementCount::getFixed(vector_width),
+        llvm::ConstantInt::get(i32_t, 1));
+    llvm::Value *next_rng = builder->CreateAdd(rng, one, "next_rng");
+    builder->CreateStore(next_rng, rng_tls);
+
+    // ((C2 * rng) + C1) * rng + C0
+    llvm::Value *c2 = llvm::ConstantVector::getSplat(
+        llvm::ElementCount::getFixed(vector_width),
+        llvm::ConstantInt::get(i32_t, C2));
+    llvm::Value *c1 = llvm::ConstantVector::getSplat(
+        llvm::ElementCount::getFixed(vector_width),
+        llvm::ConstantInt::get(i32_t, C1));
+    llvm::Value *c0 = llvm::ConstantVector::getSplat(
+        llvm::ElementCount::getFixed(vector_width),
+        llvm::ConstantInt::get(i32_t, C0));
+
+    llvm::Value *res = builder->CreateAdd(
+        builder->CreateMul(builder->CreateAdd(builder->CreateMul(c2, rng), c1),
+                           rng),
+        c0);
+    builder->CreateRet(res);
 }
 
 llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
@@ -317,7 +434,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
                                     llvm::Function *function) {
     frames.push_frame();
 
-    // TODO: allow nested functions? Can LLVM even do that?
+    // Can LLVM support nested functions?
     internal_assert(current_function == nullptr);
     internal_assert(function);
     current_function = function;
@@ -343,6 +460,13 @@ void CodeGen_LLVM::compile_function(const Function &func,
         arg_idx++;
     }
 
+    if (func.is_kernel() || func.is_exported()) {
+        // Set up
+        llvm::Function *init_rng_fn = module->getFunction("init_rngs");
+        internal_assert(init_rng_fn);
+        builder->CreateCall(init_rng_fn);
+    }
+
     codegen_stmt(func.body);
     frames.pop_frame();
 
@@ -356,8 +480,6 @@ void CodeGen_LLVM::compile_function(const Function &func,
     }
 
     current_function = nullptr;
-
-    // function->dump();
 }
 
 std::unique_ptr<llvm::Module>
@@ -382,11 +504,23 @@ CodeGen_LLVM::compile_program(const Program &program,
     std::unique_ptr<llvm::TargetMachine> tm =
         make_target_machine(*module, options);
 
+    /*
+    llvm::outs() << "Before:\n";
+    llvm::outs().flush();
+    module->dump();
+    */
+
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] compilation resulted in an invalid module";
     optimize_module(*tm, options);
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[post-optimization] compilation resulted in an invalid module";
+
+    /*
+    llvm::outs() << "After:\n";
+    llvm::outs().flush();
+    module->dump();
+    */
 
     return std::move(module);
 }
@@ -1389,6 +1523,29 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = scaled;
         return;
     }
+    case Intrinsic::vrand: {
+        internal_assert(node->args.size() == 1 &&
+                        get_constant_value(node->args[0]) ==
+                            native_vector_width(32));
+
+        llvm::Function *rand_fn = module->getFunction("gen_rand");
+        llvm::Value *rand_int = builder->CreateCall(rand_fn);
+
+        llvm::VectorType *vec_ty =
+            llvm::cast<llvm::VectorType>(rand_int->getType());
+        internal_assert(vec_ty);
+        llvm::Type *vec_f32_t =
+            llvm::VectorType::get(f32_t, vec_ty->getElementCount());
+
+        // Convert result to float in [0.0, 1.0)
+        llvm::Value *as_float = builder->CreateUIToFP(rand_int, vec_f32_t);
+        llvm::Value *scaled = builder->CreateFMul(
+            as_float, llvm::ConstantFP::get(
+                          vec_f32_t, 1.0f / static_cast<float>(RAND_MAX)));
+
+        value = scaled;
+        return;
+    }
     case Intrinsic::sin: {
         intrin = llvm::Intrinsic::sin;
         break;
@@ -2000,6 +2157,29 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
         }
     }
     return ptr;
+}
+
+llvm::Value *CodeGen_LLVM::get_thread_id() {
+    // On MacOS:
+    // uint64_t dispatch_thread_id =
+    // (uint64_t)pthread_mach_thread_np(pthread_self());
+    llvm::FunctionType *pthread_self_ty =
+        llvm::FunctionType::get(llvm::PointerType::getUnqual(i8_t), {}, false);
+    llvm::Function *pthread_self =
+        llvm::Function::Create(pthread_self_ty, llvm::Function::ExternalLinkage,
+                               "pthread_self", module.get());
+
+    llvm::PointerType *pthread_t_ty = llvm::PointerType::getUnqual(i8_t);
+    llvm::FunctionType *mach_thread_ty =
+        llvm::FunctionType::get(i32_t, {pthread_t_ty}, false);
+    llvm::Function *mach_thread_func =
+        llvm::Function::Create(mach_thread_ty, llvm::Function::ExternalLinkage,
+                               "pthread_mach_thread_np", module.get());
+
+    llvm::Value *self = builder->CreateCall(pthread_self, {}, "self");
+    llvm::Value *tid =
+        builder->CreateCall(mach_thread_func, {self}, "thread_id");
+    return tid;
 }
 
 void CodeGen_LLVM::visit(const Label *node) {

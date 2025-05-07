@@ -107,6 +107,7 @@ struct Parser {
             "sin",
             "sqrt",
             "tan",
+            "vrand",
             // Set operations
             "argmin",
             "filter",
@@ -1273,6 +1274,7 @@ struct Parser {
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
             {"tan", 1, ir::Intrinsic::tan},
+            {"vrand", 1, ir::Intrinsic::vrand},
         });
 
         if (auto op = try_match_pattern<ir::Intrinsic::OpType>(

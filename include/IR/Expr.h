@@ -326,6 +326,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
         sin,
         sqrt,
         tan,
+        vrand,
         // TODO: more
     };
 

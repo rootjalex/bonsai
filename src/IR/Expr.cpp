@@ -811,7 +811,7 @@ Expr Unwrap::make(size_t index, Expr value) {
 }
 
 Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
-    internal_assert(op == OpType::rand ||
+    internal_assert((op == OpType::rand || op == OpType::vrand) ||
                     (!args.empty() && std::all_of(args.cbegin(), args.cend(),
                                                   [](const auto &arg) {
                                                       return arg.defined();
@@ -866,6 +866,13 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                 internal_assert(args[0].type().is_numeric());
                 node->type = args[0].type();
             }
+            break;
+        }
+        case Intrinsic::vrand: {
+            internal_assert(args.size() == 1);
+            auto elanes = get_constant_value(args[0]);
+            internal_assert(elanes.has_value());
+            node->type = Vector_t::make(Float_t::make_f32(), *elanes);
             break;
         }
         case Intrinsic::min:

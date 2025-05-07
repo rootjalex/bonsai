@@ -287,7 +287,8 @@ struct HasSideEffects : ir::Visitor {
         if (found) {
             return;
         }
-        found = node->op == ir::Intrinsic::rand;
+        found =
+            node->op == ir::Intrinsic::rand || node->op == ir::Intrinsic::vrand;
     }
 
     void visit(const ir::Call *node) override {

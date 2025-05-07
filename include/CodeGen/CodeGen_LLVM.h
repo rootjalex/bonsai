@@ -57,6 +57,9 @@ struct CodeGen_LLVM : public ir::Visitor {
      * multiple related modules (e.g. multiple device kernels). */
     virtual void init_module();
 
+    // Sets up (thread-local) state for fast vectorized rngs.
+    virtual void init_rng_state();
+
     virtual void optimize_module(llvm::TargetMachine &tm,
                                  const CompilerOptions &options);
 
@@ -190,6 +193,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     // Scope<llvm::Value *> scope;
     ir::MapStack<std::string, llvm::Value *> frames;
     std::map<std::string, llvm::StructType *> struct_types;
+    llvm::GlobalVariable *rng_tls = nullptr;
 
     /** Some useful llvm types */
     // @{
@@ -219,6 +223,15 @@ struct CodeGen_LLVM : public ir::Visitor {
         // TODO(ajr): override for other targets.
         return 128; // ARM Neon
     }
+
+    virtual int native_vector_width(size_t bits) const {
+        // TODO(ajr): override for other targets.
+        return native_vector_bits() / bits;
+    }
+
+    // This will be implemented for MacOS only for now
+    // TODO(ajr): override for other targets.
+    virtual llvm::Value *get_thread_id();
 
     bool is_llvm_const_one(llvm::Value *value) const {
         if (auto *constInt = llvm::dyn_cast<llvm::ConstantInt>(value)) {
