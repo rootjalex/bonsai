@@ -850,7 +850,7 @@ struct Parser {
             ir::WriteLoc loc = parse_write_loc(std::move(id));
             if (loc.accesses.empty() && !name_in_scope(loc.base)) {
                 // Just a regular variable write
-                // might be an Assign (if labelled `mut`)
+                // might be an Assign/Store (if labelled `mut`)
                 return parse_name_decl(std::move(loc));
             } else if (consume(Token::Type::ASSIGN)) {
                 return parse_assign(std::move(loc));
@@ -915,8 +915,7 @@ struct Parser {
         if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
-            return ir::Assign::make(std::move(loc), std::move(value),
-                                    /*mutating*/ false);
+            return ir::Allocate::make(std::move(loc), std::move(value));
         }
     }
 
@@ -949,7 +948,11 @@ struct Parser {
             // type.
         }
 
-        return ir::Assign::make(std::move(loc), std::move(value), mutating);
+        if (mutating) {
+            return ir::Store::make(std::move(loc), std::move(value));
+        } else {
+            return ir::Allocate::make(std::move(loc), std::move(value));
+        }
     }
 
     ir::Stmt parse_accumulate(ir::WriteLoc loc) {
@@ -2035,6 +2038,13 @@ struct Parser {
                 schedule.func_transforms[func].emplace_back(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
+            } else if (rewrite == "loopify") {
+                std::optional<ir::Expr> queue_size;
+                if (peek().type != Token::Type::RPAREN) {
+                    queue_size = parse_expr();
+                }
+                schedule.func_transforms[func].emplace_back(
+                    ir::Loopify{std::move(queue_size)});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

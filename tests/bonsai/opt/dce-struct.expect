@@ -5,7 +5,7 @@ func bar(i : i32, f : f32) -> f32 {
 }
 
 func bazz(i : i32, f : f32) -> f32 {
-  j := abs(i)
+  j : mut u32 := abs(i)
   if (0f < f) {
     j += cast<u32>(f)
   } else {
@@ -15,7 +15,7 @@ func bazz(i : i32, f : f32) -> f32 {
 }
 
 func fizz(i : i32, f : f32) -> f32 {
-  j := abs(i)
+  j : mut u32 := abs(i)
   if (0f < f) {
     j += cast<u32>(f)
   } else {

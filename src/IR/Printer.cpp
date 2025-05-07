@@ -975,18 +975,27 @@ void Printer::visit(const Sequence *node) {
     }
 }
 
-void Printer::visit(const Assign *node) {
+void Printer::visit(const Allocate *node) {
+    os << get_indent();
+    if (node->memory != Allocate::Memory::Stack) {
+        os << "alloc ";
+    }
+    print(node->loc);
+    os << " : mut ";
+    print(node->loc.base_type);
+    if (node->value.defined()) {
+        os << " := ";
+        print_no_parens(node->value);
+    }
+    os << "\n";
+}
+
+void Printer::visit(const Store *node) {
     os << get_indent();
     print(node->loc);
-    if (node->mutating) {
-        os << " = ";
-    } else {
-        os << " := ";
-    }
+    os << " = ";
     print_no_parens(node->value);
     os << "\n";
-    // TODO: fix this!! bring back SSA
-    // print(node->body);
 }
 
 void Printer::visit(const Accumulate *node) {

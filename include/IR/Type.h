@@ -75,7 +75,8 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_scalar() const;
     bool is_vector() const;
     bool is_numeric() const;
-    bool is_primitive() const; // basically: is LLVM-representable?
+    bool is_primitive() const;         // basically: is LLVM-representable?
+    bool is_stack_allocatable() const; // primitives but not arrays
     bool is_iterable() const;
     bool is_func() const;
 

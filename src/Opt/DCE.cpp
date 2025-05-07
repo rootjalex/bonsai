@@ -36,25 +36,36 @@ struct NameHygiene : ir::Mutator {
         return ir::Var::make(node->type, it->second);
     }
 
-    ir::Stmt visit(const ir::Assign *node) override {
+    ir::Stmt visit(const ir::Allocate *node) override {
         if (!rename) {
             return node;
         }
 
-        if (bool is_assignment = !node->mutating; is_assignment) {
-            // TODO(cgyurgyik): The opposite of mutating is not assigning; this
-            // should be an enum or something: Action { Assign, Mutate };
-            ir::WriteLoc location = do_rename(node->loc);
-            return ir::Assign::make(std::move(location), node->value,
-                                    node->mutating);
+        ir::WriteLoc location = do_rename(node->loc);
+        return ir::Allocate::make(std::move(location), mutate(node->value),
+                                  node->memory);
+    }
+
+    ir::Stmt visit(const ir::Store *node) override {
+        if (!rename) {
+            return node;
         }
+
         auto it = old_to_new.find(node->loc.base);
         if (it == old_to_new.end()) {
             return node;
         }
-        ir::WriteLoc location(it->second, node->loc.type);
-        return ir::Assign::make(std::move(location), mutate(node->value),
-                                node->mutating);
+        ir::WriteLoc new_loc(it->second, node->loc.base_type);
+        for (const auto &value : node->loc.accesses) {
+            if (std::holds_alternative<ir::Expr>(value)) {
+                ir::Expr new_value = mutate(std::get<ir::Expr>(value));
+                new_loc.add_index_access(std::move(new_value));
+            } else {
+                new_loc.add_struct_access(std::get<std::string>(value));
+            }
+        }
+        ir::Expr value = mutate(node->value);
+        return ir::Store::make(std::move(new_loc), std::move(value));
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
@@ -109,13 +120,30 @@ struct UnnameHygiene : ir::Mutator {
         return ir::Var::make(node->type, extract(node->name));
     }
 
-    ir::Stmt visit(const ir::Assign *node) override {
+    ir::Stmt visit(const ir::Allocate *node) override {
         if (!node->loc.base.starts_with(DELIMITER)) {
             return ir::Mutator::visit(node);
         }
         ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
-        return ir::Assign::make(std::move(loc), mutate(node->value),
-                                node->mutating);
+        return ir::Allocate::make(std::move(loc), mutate(node->value),
+                                  node->memory);
+    }
+
+    ir::Stmt visit(const ir::Store *node) override {
+        if (!node->loc.base.starts_with(DELIMITER)) {
+            return ir::Mutator::visit(node);
+        }
+        ir::WriteLoc new_loc(extract(node->loc.base), node->loc.base_type);
+        for (const auto &value : node->loc.accesses) {
+            if (std::holds_alternative<ir::Expr>(value)) {
+                ir::Expr new_value = mutate(std::get<ir::Expr>(value));
+                new_loc.add_index_access(std::move(new_value));
+            } else {
+                new_loc.add_struct_access(std::get<std::string>(value));
+            }
+        }
+        ir::Expr value = mutate(node->value);
+        return ir::Store::make(std::move(new_loc), std::move(value));
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
@@ -167,7 +195,7 @@ struct ComputeUseCounts : ir::Visitor {
 
     ComputeUseCounts(const std::set<std::string> &mutable_func_args) {
         for (const auto &arg : mutable_func_args) {
-            // Conservatively set to 1, so Assign statements are not removed.
+            // Conservatively set to 1, so Store statements are not removed.
             use_counts[arg] = 1;
             dependent_use_counts[arg] = {};
         }
@@ -176,7 +204,7 @@ struct ComputeUseCounts : ir::Visitor {
     void visit(const ir::Var *node) override {
         ++use_counts[node->name];
         if (!curr_var.empty()) {
-            // Inside a LetStmt/Assign
+            // Inside a LetStmt/Store
             ++dependent_use_counts[curr_var][node->name];
         }
     }
@@ -220,21 +248,42 @@ struct ComputeUseCounts : ir::Visitor {
         curr_var.clear();
     }
 
-    void visit(const ir::Assign *node) override {
+    void visit(const ir::Allocate *node) override {
         internal_assert(curr_var.empty())
-            << "Unexpected nested Assign: " << ir::Stmt(node)
+            << "Unexpected nested Allocate: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(!node->mutating || use_counts.contains(node->loc.base))
+        internal_assert(!use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var: " << node->loc
-            << " in stmt: " << ir::Stmt(node);
-        internal_assert(!node->mutating ||
-                        dependent_use_counts.contains(node->loc.base))
+            << " in Allocate: " << ir::Stmt(node);
+        internal_assert(!dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
-        if (!node->mutating) {
-            use_counts[node->loc.base] = 0;
-            dependent_use_counts[node->loc.base] = {};
+        use_counts[node->loc.base] = 0;
+        dependent_use_counts[node->loc.base] = {};
+
+        if (node->value.defined()) {
+            curr_var = node->loc.base;
+            node->value.accept(this);
+            curr_var.clear();
+        }
+    }
+
+    void visit(const ir::Store *node) override {
+        internal_assert(curr_var.empty())
+            << "Unexpected nested Store: " << ir::Stmt(node)
+            << " when traversing for: " << curr_var;
+        internal_assert(use_counts.contains(node->loc.base))
+            << "ComputeUseCounts not active for var: " << node->loc
+            << " in Store: " << ir::Stmt(node);
+        internal_assert(dependent_use_counts.contains(node->loc.base))
+            << "ComputeUseCounts not active for var (dependent): " << node->loc;
+
+        // Need to increment use counts of indices.
+        for (const auto &value : node->loc.accesses) {
+            if (std::holds_alternative<ir::Expr>(value)) {
+                std::get<ir::Expr>(value).accept(this);
+            }
         }
 
         curr_var = node->loc.base;
@@ -250,6 +299,12 @@ struct ComputeUseCounts : ir::Visitor {
             << "ComputeUseCounts not active for var: " << node->loc;
         internal_assert(dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
+        // Need to increment use counts of indices.
+        for (const auto &value : node->loc.accesses) {
+            if (std::holds_alternative<ir::Expr>(value)) {
+                std::get<ir::Expr>(value).accept(this);
+            }
+        }
         curr_var = node->loc.base;
         node->value.accept(this);
         curr_var.clear();
@@ -347,22 +402,65 @@ struct DeadCodeElimination : ir::Mutator {
         return node;
     }
 
-    ir::Stmt visit(const ir::Assign *node) override {
+    ir::Stmt visit(const ir::Allocate *node) override {
         if (use_counts[node->loc.base] != 0) {
             return node;
         }
-        if (!node->mutating) {
-            // Definition of this write loc.
-            erase_dependents(node->loc);
+        erase_dependents(node->loc);
+        if (node->value.defined()) {
+            return find_with_side_effects(node->value);
         }
-        return find_with_side_effects(node->value);
+        return ir::Stmt();
+    }
+
+    ir::Stmt merge_undef_seqs(ir::Stmt a, ir::Stmt b) {
+        if (!a.defined()) {
+            return b;
+        } else if (!b.defined()) {
+            return a;
+        }
+        std::vector<ir::Stmt> stmts;
+        if (const ir::Sequence *a_seq = a.as<ir::Sequence>()) {
+            stmts = a_seq->stmts;
+        } else {
+            stmts = {std::move(a)};
+        }
+
+        if (const ir::Sequence *b_seq = b.as<ir::Sequence>()) {
+            stmts.insert(stmts.end(), b_seq->stmts.begin(), b_seq->stmts.end());
+        } else {
+            stmts.push_back(std::move(b));
+        }
+        return ir::Sequence::make(std::move(stmts));
+    }
+
+    ir::Stmt handle_side_effects(const ir::WriteLoc &loc,
+                                 const ir::Expr &expr) {
+        // Handle if there are side effects in the index expressions?
+        // TODO(ajr): we should decrement use counts of the idxs as well.
+        ir::Stmt side_effects = find_with_side_effects(expr);
+        for (const auto &value : loc.accesses) {
+            if (std::holds_alternative<ir::Expr>(value)) {
+                side_effects = merge_undef_seqs(
+                    std::move(side_effects),
+                    find_with_side_effects(std::get<ir::Expr>(value)));
+            }
+        }
+        return side_effects;
+    }
+
+    ir::Stmt visit(const ir::Store *node) override {
+        if (use_counts[node->loc.base] != 0) {
+            return node;
+        }
+        return handle_side_effects(node->loc, node->value);
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
         if (use_counts[node->loc.base] != 0) {
             return node;
         }
-        return find_with_side_effects(node->value);
+        return handle_side_effects(node->loc, node->value);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {

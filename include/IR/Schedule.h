@@ -19,6 +19,16 @@ struct Location {
     std::vector<std::string> names;
 };
 
+// Turn recursion into iteration.
+// For tail-call recursion, generates a DoWhile loop over the recursion
+// condition.
+// For branching recursion, generates a DoWhile loop over a queue with
+// a maximum size of `queue_size`.
+struct Loopify {
+    // This is only used in the branching recursion case, hence the optionality.
+    std::optional<Expr> queue_size;
+};
+
 // Parallelize `i` via some strategy.
 struct Parallelize {
     enum Strategy { CPUVector, CPUThread, GPUThread, GPUBlock };
@@ -42,7 +52,7 @@ struct Split {
     bool generate_tail;
 };
 
-using Transform = std::variant<Parallelize, Split>;
+using Transform = std::variant<Loopify, Parallelize, Split>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

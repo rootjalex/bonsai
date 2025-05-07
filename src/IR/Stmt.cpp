@@ -97,15 +97,52 @@ Stmt Sequence::make(std::vector<Stmt> stmts) {
     return node;
 }
 
-Stmt Assign::make(WriteLoc loc, Expr value, bool mutating) {
+Stmt Allocate::make(WriteLoc loc, Memory memory) {
     internal_assert(loc.defined())
-        << "Undefined write location in Assign::make";
-    internal_assert(value.defined()) << "Undefined value in Assign::make";
-    Assign *node = new Assign;
+        << "Undefined write location in Allocate::make";
+    internal_assert(loc.accesses.empty())
+        << "Allocate::make must be a base write location: " << loc;
+
+    if (memory == Memory::Heap) {
+        // Try to put small things on the stack.
+        memory = (loc.type.defined() && loc.type.is_stack_allocatable())
+                     ? Memory::Stack
+                     : Memory::Heap;
+    }
+
+    Allocate *node = new Allocate;
+    node->loc = std::move(loc);
+    node->value = Expr();
+    node->memory = memory;
+    return node;
+}
+
+Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
+    internal_assert(loc.defined())
+        << "Undefined write location in Allocate::make";
+    internal_assert(loc.accesses.empty())
+        << "Allocate::make must be a base write location: " << loc;
+
+    if (memory == Memory::Heap) {
+        // Try to put small things on the stack.
+        memory = (loc.type.defined() && loc.type.is_stack_allocatable())
+                     ? Memory::Stack
+                     : Memory::Heap;
+    }
+
+    Allocate *node = new Allocate;
     node->loc = std::move(loc);
     node->value = std::move(value);
-    node->mutating = mutating;
-    // node->body = std::move(body);
+    node->memory = memory;
+    return node;
+}
+
+Stmt Store::make(WriteLoc loc, Expr value) {
+    internal_assert(loc.defined()) << "Undefined write location in Store::make";
+    internal_assert(value.defined()) << "Undefined value in Store::make";
+    Store *node = new Store;
+    node->loc = std::move(loc);
+    node->value = std::move(value);
     return node;
 }
 

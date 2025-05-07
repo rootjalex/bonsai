@@ -118,7 +118,7 @@ Closure build_closure(const ForAll *forall, TypeMap &types) {
         WriteLoc(forall->index, itype),
         cast(itype, cast(idx_t, forall->slice.begin) +
                         cast(idx_t, forall->slice.stride) * loop_i));
-    // TODO(ajr): this also needs to replace Stores/Assigns/Accumulates!
+    // TODO(ajr): this also needs to replace Stores/Allocates/Accumulates!
     stmts[1] = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
                                         forall->body);
     stmts[2] = Return::make();
@@ -164,8 +164,8 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
             n = Simplify::simplify(n);
             std::vector<Expr> args = {closure.context};
             std::vector<Stmt> seq(2);
-            seq[0] = Assign::make(WriteLoc("ctx", closure.context.type()),
-                                  closure.context, /*mutating=*/false);
+            seq[0] = Allocate::make(WriteLoc("ctx", closure.context.type()),
+                                    closure.context, Allocate::Memory::Stack);
             seq[1] = Launch::make(
                 closure.func->name, n,
                 {Var::make(Ptr_t::make(closure.context.type()), "ctx")});

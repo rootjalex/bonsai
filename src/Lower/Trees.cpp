@@ -300,9 +300,9 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     std::vector<ir::Expr> values = {inf, std::move(empty)};
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
-    // Alocate
+    // TODO(ajr): is stack memory ok here? it's not an array.
     ir::Stmt header =
-        ir::Assign::make(loc, std::move(init), /*mutating=*/false);
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
 
     // Make return
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));

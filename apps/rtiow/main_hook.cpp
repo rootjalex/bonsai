@@ -9,10 +9,13 @@
 #include <vector>
 
 #include "main.h"
+#include <cassert>
 
 constexpr uint32_t LAMBERTIAN = 0;
 constexpr uint32_t METAL = 1;
 constexpr uint32_t DIALECTRIC = 2;
+
+constexpr uint32_t MAX_TREE_DEPTH = 64;
 
 constexpr double pi = 3.1415926535897932385;
 
@@ -54,8 +57,9 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
 
     uint32_t next_node = 0;
 
-    std::function<uint32_t(uint32_t, uint32_t)> handle_range =
-        [&](uint32_t low, uint32_t high) -> uint32_t {
+    std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
+        [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
+        assert(depth < MAX_TREE_DEPTH);
         uint32_t count = high - low;
         uint32_t this_index = next_node++;
 
@@ -103,8 +107,8 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
 
             uint32_t mid = low + count / 2;
 
-            uint32_t left = handle_range(low, mid);
-            uint32_t right = handle_range(mid, high);
+            uint32_t left = handle_range(low, mid, depth + 1);
+            uint32_t right = handle_range(mid, high, depth + 1);
 
             // Set split offset (offset from this node to right child)
             uint32_t offset = right - this_index;
@@ -127,7 +131,7 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
         return this_index;
     };
 
-    handle_range(0, tree.pCount);
+    handle_range(/*low=*/0, /*high=*/tree.pCount, /*depth=*/0);
     return tree;
 }
 

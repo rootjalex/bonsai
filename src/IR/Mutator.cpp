@@ -496,13 +496,22 @@ Stmt Mutator::visit(const Sequence *node) {
     return Sequence::make(std::move(stmts));
 }
 
-Stmt Mutator::visit(const Assign *node) {
+Stmt Mutator::visit(const Allocate *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
     if (not_changed && value.same_as(node->value)) {
         return node;
     }
-    return Assign::make(std::move(loc), std::move(value), node->mutating);
+    return Allocate::make(std::move(loc), std::move(value), node->memory);
+}
+
+Stmt Mutator::visit(const Store *node) {
+    auto [loc, not_changed] = mutate_writeloc(node->loc);
+    Expr value = mutate(node->value);
+    if (not_changed && value.same_as(node->value)) {
+        return node;
+    }
+    return Store::make(std::move(loc), std::move(value));
 }
 
 Stmt Mutator::visit(const Accumulate *node) {

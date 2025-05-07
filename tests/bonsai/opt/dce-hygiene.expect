@@ -1,7 +1,7 @@
 func foo(a : f32) -> f32 {
   if (a < 100f) {
     if (100f < a) {
-      b := a
+      b : mut f32 := a
       if ((*b) < 0f) {
         b = -(*b)
       }

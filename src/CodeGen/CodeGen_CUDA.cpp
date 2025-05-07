@@ -448,7 +448,7 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
-void CodeGen_CUDA::visit(const Assign *node) {
+void CodeGen_CUDA::visit(const Allocate *node) {
     // TODO(ajr): if this is a launched kernel, this cannot be an array
     // allocation. Otherwise, this should probably cuda malloc for arrays.
     ir::Type type = node->loc.type;
@@ -480,8 +480,12 @@ void CodeGen_CUDA::visit(const Assign *node) {
             return;
         }
     }
+    internal_error << "[unimplemented] Allocate CUDA codegen: " << Stmt(node);
+}
 
-    internal_error << "[unimplemented] Assign CUDA codegen: " << Stmt(node);
+void CodeGen_CUDA::visit(const Store *node) {
+    // TODO(ajr): write to output location.
+    internal_error << "[unimplemented] Store CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Accumulate *node) {

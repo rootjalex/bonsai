@@ -35,6 +35,8 @@ schedule {
             };
         };
     };
+
+    trace.loopify(64);
 }
 
 

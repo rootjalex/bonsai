@@ -1,5 +1,6 @@
 #include "Lower/Options.h"
 
+#include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 
@@ -12,6 +13,19 @@ namespace bonsai {
 namespace lower {
 
 namespace {
+
+template <typename T>
+std::pair<std::vector<T>, bool> visit_list(ir::Mutator *v,
+                                           const std::vector<T> &l) {
+    bool not_changed = true;
+    const size_t n = l.size();
+    std::vector<T> new_l(n);
+    for (size_t i = 0; i < n; i++) {
+        new_l[i] = v->mutate(l[i]);
+        not_changed = not_changed && new_l[i].same_as(l[i]);
+    }
+    return {std::move(new_l), not_changed};
+}
 
 struct RewriteOptions : public ir::Mutator {
     ir::Type Bool = ir::Bool_t::make();
@@ -52,28 +66,32 @@ struct RewriteOptions : public ir::Mutator {
     using ir::Mutator::mutate;
 
     ir::Expr visit(const ir::Build *node) override {
-        ir::Expr expr = ir::Mutator::visit(node);
-        node = expr.as<ir::Build>();
-        internal_assert(node);
+        auto [values, not_changed] = visit_list(this, node->values);
         if (node->type.is<ir::Option_t>()) {
             ir::Type new_type = mutate(node->type);
-            if (node->values.empty()) {
+            if (values.empty()) {
                 // Build an "empty" struct - this sets the bool `set` to false
                 // by default.
                 static const std::vector<ir::Expr> empty = {};
                 return ir::Build::make(std::move(new_type), empty);
             } else {
-                internal_assert(node->values.size() == 1)
+                internal_assert(values.size() == 1)
                     << "Error in lowering build of Option_t, expected one "
                        "argument by "
                        "received: "
-                    << node->values.size();
-                std::vector<ir::Expr> args = {node->values[0],
+                    << values.size();
+                std::vector<ir::Expr> args = {values[0],
                                               ir::BoolImm::make(true)};
                 return ir::Build::make(std::move(new_type), std::move(args));
             }
+        } else if (ir::contains<ir::Option_t>(node->type)) {
+            ir::Type type = mutate(node->type);
+            return ir::Build::make(std::move(type), std::move(values));
         } else {
-            return expr;
+            internal_assert(not_changed)
+                << "Lowering options rewrote a Build value but not the type: "
+                << ir::Expr(node);
+            return node;
         }
     }
 
@@ -144,35 +162,6 @@ struct RewriteOptions : public ir::Mutator {
             }
         }
         return {std::move(new_loc), not_changed};
-    }
-
-    // These three need to mutate the types of the writelocs.
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::LetStmt::make(std::move(loc), std::move(value));
-    }
-
-    ir::Stmt visit(const ir::Assign *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::Assign::make(std::move(loc), std::move(value),
-                                node->mutating);
-    }
-
-    ir::Stmt visit(const ir::Accumulate *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
     }
 
     // TODO: which other relevant nodes are there?

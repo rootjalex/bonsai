@@ -79,7 +79,7 @@ func _traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree
 }
 
 func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> option<Triangle> {
-  _best0 := build<(f32, Triangle)>((f32)inf, build<Triangle>())
+  _best0 : mut (f32, Triangle) := build<(f32, Triangle)>((f32)inf, build<Triangle>())
   match triangles {
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) && (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0])) {
