@@ -133,18 +133,19 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
     return rewriter.mutate(std::move(body));
 }
 
-size_t queue_counter = 0;
-std::string unique_struct_name() {
-    return "_queue_struct" + std::to_string(queue_counter);
+size_t unique_counter = 0;
+size_t get_unique_counter() { return unique_counter++; }
+std::string unique_struct_name(size_t counter) {
+    return "_queue_struct" + std::to_string(counter);
 }
-std::string unique_count_name() {
-    return "_queue_count" + std::to_string(queue_counter);
+std::string unique_count_name(size_t counter) {
+    return "_queue_count" + std::to_string(counter);
 }
-std::string unique_top_name() {
-    return "_queue_top" + std::to_string(queue_counter);
+std::string unique_top_name(size_t counter) {
+    return "_queue_top" + std::to_string(counter);
 }
-std::string unique_queue_name() {
-    return "_queue" + std::to_string(queue_counter++);
+std::string unique_queue_name(size_t counter) {
+    return "_queue" + std::to_string(counter++);
 }
 
 Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
@@ -158,7 +159,7 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
             : queue_size(std::move(queue_size)), funcs(funcs) {}
 
         Stmt visit(const RecLoop *node) override {
-            std::vector<Stmt> stmts;
+            const size_t unique_id = get_unique_counter();
 
             Type queue_etype;
             if (node->args.size() == 1) {
@@ -167,27 +168,27 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
                 // TODO: pack?
                 constexpr auto P = Struct_t::Attribute::packed;
                 // TODO: need to add this to program.types
-                queue_etype =
-                    ir::Struct_t::make(unique_struct_name(), node->args, {P});
+                queue_etype = ir::Struct_t::make(unique_struct_name(unique_id),
+                                                 node->args, {P});
                 internal_error
                     << "Need to add packed queue_etype to program.types"
                     << queue_etype;
             }
 
+            std::vector<Stmt> stmts;
+
             // TODO(ajr): stack-top optimization?
             // TODO(ajr): confirm that LLVM always turns this into phi
             // node
-            std::string count_name = unique_count_name();
+            std::string count_name = unique_count_name(unique_id);
             Type count_type = queue_size->type();
             WriteLoc count_loc(count_name, count_type);
             Expr count_var = Var::make(count_type, count_name);
             stmts.push_back(Allocate::make(count_loc, make_one(count_type),
                                            Allocate::Memory::Stack));
 
-            // TODO(ajr): this should be a stack allocation for constant-sized
-            // Exprs! For now, we don't free. that's really bad.
-            std::string top_name = unique_top_name();
-            std::string queue_name = unique_queue_name();
+            std::string top_name = unique_top_name(unique_id);
+            std::string queue_name = unique_queue_name(unique_id);
             Type queue_type = Array_t::make(queue_etype, *queue_size);
             WriteLoc queue_loc(queue_name, queue_type);
             stmts.push_back(Allocate::make(queue_loc, Allocate::Memory::Stack));
