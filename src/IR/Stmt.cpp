@@ -103,6 +103,13 @@ Stmt Allocate::make(WriteLoc loc, Memory memory) {
     internal_assert(loc.accesses.empty())
         << "Allocate::make must be a base write location: " << loc;
 
+    if (memory == Memory::Heap) {
+        // Try to put small things on the stack.
+        memory = (loc.type.defined() && loc.type.is_stack_allocatable())
+                     ? Memory::Stack
+                     : Memory::Heap;
+    }
+
     Allocate *node = new Allocate;
     node->loc = std::move(loc);
     node->value = Expr();
@@ -115,6 +122,14 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
         << "Undefined write location in Allocate::make";
     internal_assert(loc.accesses.empty())
         << "Allocate::make must be a base write location: " << loc;
+
+    if (memory == Memory::Heap) {
+        // Try to put small things on the stack.
+        memory = (loc.type.defined() && loc.type.is_stack_allocatable())
+                     ? Memory::Stack
+                     : Memory::Heap;
+    }
+
     Allocate *node = new Allocate;
     node->loc = std::move(loc);
     node->value = std::move(value);
