@@ -262,10 +262,23 @@ void CodeGen_CUDA::visit(const Cast *node) {
         os << ')';
         return;
     }
-    os << '(';
-    node->type.accept(this);
-    os << ')';
-    value.accept(this);
+
+    switch (node->mode) {
+    case Cast::Mode::Convert:
+        os << '(';
+        node->type.accept(this);
+        os << ')';
+        value.accept(this);
+        return;
+    case Cast::Mode::Reinterpret:
+        // Uh
+        os << "bonsai_reinterpret" << '<';
+        node->type.accept(this);
+        os << '>' << '(';
+        value.accept(this);
+        os << ')';
+        return;
+    }
 }
 
 void CodeGen_CUDA::visit(const Broadcast *node) {
@@ -473,9 +486,8 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     // TODO(cgyurgyik): I don't think this will work on device, need to use
     // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
     case ir::Intrinsic::OpType::rand: {
-        // TODO(cgyurgyik): rand() produces a double.
-        os << "static_cast" << '<' << "float" << '>' << '(';
-        os << "rand" << '(' << ')' << ')';
+        // [0, 1] - inclusive
+        os << '(' << "rand" << '(' << ')' << '/' << "(RAND_MAX)" << ')';
         return;
     }
     case ir::Intrinsic::OpType::fma: {
@@ -629,7 +641,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         os << ')' << '.' << F << ' ';
         os << (node->op == Accumulate::OpType::Argmax ? '>' : '<') << ' ';
         update.accept(this);
-        os << '.' << F << ' ' << '?' << ' ';
+        os << '.' << F << ' ' << '?' << ' ' << '*';
         cv.accept(this);
         os << ' ' << ':' << ' ';
         update.accept(this);

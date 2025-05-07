@@ -188,7 +188,8 @@ struct Rename : public ir::Mutator {
     ir::Expr visit(const ir::Cast *node) override {
         const bool rename = should_rename(node);
         ir::Expr value = mutate(node->value);
-        ir::Expr cast = ir::Cast::make(node->type, std::move(value));
+        ir::Expr cast =
+            ir::Cast::make(node->type, std::move(value), node->mode);
         if (!rename) {
             return cast;
         }

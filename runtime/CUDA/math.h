@@ -10,6 +10,7 @@
 #include <cuda_fp16.h>
 #include <initializer_list>
 #include <math.h>
+#include <type_traits>
 
 typedef unsigned int uint;
 typedef unsigned short ushort;
@@ -1317,7 +1318,7 @@ shuffle(int2 v, std::initializer_list<uint32_t> indices) {
         r.x = v.y;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1327,7 +1328,7 @@ shuffle(int2 v, std::initializer_list<uint32_t> indices) {
         r.y = v.y;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1346,7 +1347,7 @@ shuffle(int3 v, std::initializer_list<uint32_t> indices) {
         r.x = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1359,7 +1360,7 @@ shuffle(int3 v, std::initializer_list<uint32_t> indices) {
         r.y = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1372,7 +1373,7 @@ shuffle(int3 v, std::initializer_list<uint32_t> indices) {
         r.z = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1394,7 +1395,7 @@ shuffle(int4 v, std::initializer_list<uint32_t> indices) {
         r.x = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1410,7 +1411,7 @@ shuffle(int4 v, std::initializer_list<uint32_t> indices) {
         r.y = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1426,7 +1427,7 @@ shuffle(int4 v, std::initializer_list<uint32_t> indices) {
         r.z = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1442,7 +1443,7 @@ shuffle(int4 v, std::initializer_list<uint32_t> indices) {
         r.w = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1459,7 +1460,7 @@ shuffle(uint2 v, std::initializer_list<uint32_t> indices) {
         r.x = v.y;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1469,7 +1470,7 @@ shuffle(uint2 v, std::initializer_list<uint32_t> indices) {
         r.y = v.y;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1488,7 +1489,7 @@ shuffle(uint3 v, std::initializer_list<uint32_t> indices) {
         r.x = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1501,7 +1502,7 @@ shuffle(uint3 v, std::initializer_list<uint32_t> indices) {
         r.y = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1514,7 +1515,7 @@ shuffle(uint3 v, std::initializer_list<uint32_t> indices) {
         r.z = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1536,7 +1537,7 @@ shuffle(uint4 v, std::initializer_list<uint32_t> indices) {
         r.x = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1552,7 +1553,7 @@ shuffle(uint4 v, std::initializer_list<uint32_t> indices) {
         r.y = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1568,7 +1569,7 @@ shuffle(uint4 v, std::initializer_list<uint32_t> indices) {
         r.z = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1584,7 +1585,7 @@ shuffle(uint4 v, std::initializer_list<uint32_t> indices) {
         r.w = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1601,7 +1602,7 @@ shuffle(float2 v, std::initializer_list<uint32_t> indices) {
         r.x = v.y;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1611,7 +1612,7 @@ shuffle(float2 v, std::initializer_list<uint32_t> indices) {
         r.y = v.y;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1630,7 +1631,7 @@ shuffle(float3 v, std::initializer_list<uint32_t> indices) {
         r.x = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1643,7 +1644,7 @@ shuffle(float3 v, std::initializer_list<uint32_t> indices) {
         r.y = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1656,7 +1657,7 @@ shuffle(float3 v, std::initializer_list<uint32_t> indices) {
         r.z = v.z;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
 }
@@ -1678,7 +1679,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
         r.x = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1694,7 +1695,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
         r.y = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1710,7 +1711,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
         r.z = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     switch (*it++) {
     case 0:
@@ -1726,7 +1727,19 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
         r.w = v.w;
         break;
     default:
-        abort();
+        __builtin_unreachable();
     }
     return r;
+}
+
+// Jesus christ
+template <typename O, typename I>
+O bonsai_reinterpret(I input) {
+    static_assert(sizeof(O) == sizeof(I));
+    static_assert(std::is_trivially_copyable<O>::value);
+    static_assert(std::is_trivially_copyable<I>::value);
+    I *i = &input;
+    O *output;
+    output = reinterpret_cast<O *>(i);
+    return *output;
 }
