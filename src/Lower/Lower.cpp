@@ -14,6 +14,7 @@
 #include "Lower/Mutability.h"
 #include "Lower/Options.h"
 #include "Lower/RecLoops.h"
+#include "Lower/RenamePointerToExpr.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
@@ -39,7 +40,7 @@ namespace lower {
 
 void lower(ir::Program &program, const CompilerOptions &options) {
     // Register passes.
-    PassManager pm = register_passes();
+    PassManager pm = register_passes(options);
 
     std::vector<Pass *> passes;
     for (const std::string &name : options.passes) {
@@ -64,7 +65,7 @@ void lower(ir::Program &program, const CompilerOptions &options) {
 //  Lower data structures.
 //  Perform second round of scheduling + bit data lowering.
 //  Perform final code generation
-PassManager register_passes() {
+PassManager register_passes(const CompilerOptions &options) {
     PassManager manager;
     // Lowering pass registration.
     manager.register_pass<Canonicalize>();
@@ -84,6 +85,7 @@ PassManager register_passes() {
     manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<LowerRecLoops>();
     manager.register_pass<ReturnToOutParameter>();
+    manager.register_pass<RenamePointerToExpr>();
     manager.register_pass<Mutability>();
     // Optimizing pass registration.
     manager.register_pass<opt::DCE>();
@@ -115,6 +117,9 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
+    if (options.target == BackendTarget::CUDA) {
+        core.push_back(std::make_unique<RenamePointerToExpr>());
+    }
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
     core.push_back(std::make_unique<Mutability>());
@@ -146,6 +151,9 @@ PassManager register_passes() {
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Inline>());
+    if (options.target == BackendTarget::CUDA) {
+        core.push_back(std::make_unique<RenamePointerToExpr>());
+    }
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<Mutability>());

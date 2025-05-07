@@ -10,7 +10,7 @@ namespace lower {
 // Lowers a Bonsai program with the provided compiler options.
 void lower(ir::Program &program, const CompilerOptions &options);
 
-PassManager register_passes();
+PassManager register_passes(const CompilerOptions &options);
 
 } // namespace lower
 } // namespace bonsai
