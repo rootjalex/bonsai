@@ -41,7 +41,8 @@ Stmt packetize_impl(Expr idx, Stmt body, FuncMap &funcs, TypeMap &types) {
         RESTRICT_MUTATOR(Stmt, IfElse);
         RESTRICT_MUTATOR(Stmt, DoWhile);
         // RESTRICT_MUTATOR(Stmt, Sequence);
-        RESTRICT_MUTATOR(Stmt, Assign);
+        RESTRICT_MUTATOR(Stmt, Allocate);
+        RESTRICT_MUTATOR(Stmt, Store);
         RESTRICT_MUTATOR(Stmt, Accumulate);
         // RESTRICT_MUTATOR(Stmt, Label);
         RESTRICT_MUTATOR(Stmt, RecLoop);
