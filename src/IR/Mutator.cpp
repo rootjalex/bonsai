@@ -280,7 +280,7 @@ Expr Mutator::visit(const Cast *node) {
     if (value.same_as(node->value)) {
         return node;
     }
-    return Cast::make(node->type, std::move(value));
+    return Cast::make(node->type, std::move(value), node->mode);
 }
 
 Expr Mutator::visit(const Broadcast *node) {

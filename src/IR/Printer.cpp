@@ -664,6 +664,9 @@ void Printer::visit(const Select *node) {
 }
 
 void Printer::visit(const Cast *node) {
+    if (node->mode == Cast::Mode::Reinterpret) {
+        os << "reinterpret" << '_';
+    }
     os << "cast<";
     print(node->type);
     os << ">(";
