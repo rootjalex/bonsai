@@ -372,7 +372,7 @@ struct Simplifier : ir::Mutator {
         if (value.same_as(node->value)) {
             return node;
         }
-        return ir::Cast::make(node->type, std::move(value));
+        return ir::Cast::make(node->type, std::move(value), node->mode);
     }
 
     ir::Expr visit(const ir::Build *node) override {

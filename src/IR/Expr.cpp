@@ -408,7 +408,7 @@ Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
     return node;
 }
 
-Expr Cast::make(Type type, Expr value) {
+Expr Cast::make(Type type, Expr value, Mode mode) {
     internal_assert(type.defined())
         << "Cannot cast to undefined type: " << value;
     internal_assert(value.defined()) << "Cast of undefined value: " << type;
@@ -429,6 +429,7 @@ Expr Cast::make(Type type, Expr value) {
 
     node->type = std::move(type);
     node->value = std::move(value);
+    node->mode = mode;
     return node;
 }
 

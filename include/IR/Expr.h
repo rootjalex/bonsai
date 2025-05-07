@@ -211,10 +211,17 @@ struct Select : ExprNode<Select> {
 };
 
 struct Cast : ExprNode<Cast> {
+    // Different modes of casting.
+    enum class Mode {
+        // e.g., reinterpret_cast<T*> in C++
+        Reinterpret = 0,
+        // e.g., (T) in C++
+        Convert = 1,
+    };
     Expr value;
+    Mode mode;
 
-    static Expr make(Type type, Expr value);
-
+    static Expr make(Type type, Expr value, Mode mode = Mode::Convert);
     static const IRExprEnum node_type = IRExprEnum::Cast;
 };
 
