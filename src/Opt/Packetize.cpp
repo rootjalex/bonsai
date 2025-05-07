@@ -23,15 +23,20 @@ namespace {
 
 using namespace ir;
 
-Stmt packetize_impl(Expr idx, Stmt body, FuncMap &funcs, TypeMap &types) {
+static const std::string mask_name = "__mask";
+
+Stmt packetize_impl(std::string idx, Expr repl, Stmt body, FuncMap &funcs,
+                    TypeMap &types) {
     struct PacketizeImpl : public Mutator {
         FuncMap &funcs;
         TypeMap &types;
-        std::set<Expr, ExprLessThan> varying;
+        std::map<Expr, Expr, ExprLessThan> varying;
 
-        PacketizeImpl(FuncMap &funcs, TypeMap &types, Expr idx)
+        PacketizeImpl(FuncMap &funcs, TypeMap &types, std::string idx,
+                      Expr repl)
             : funcs(funcs), types(types) {
-            varying.insert(std::move(idx));
+            Expr idx_expr = Var::make(repl.type().element_of(), idx);
+            varying[std::move(idx_expr)] = std::move(repl);
         }
 
         RESTRICT_MUTATOR(Stmt, CallStmt);
@@ -56,7 +61,7 @@ Stmt packetize_impl(Expr idx, Stmt body, FuncMap &funcs, TypeMap &types) {
         RESTRICT_MUTATOR(Stmt, Launch);
     };
 
-    PacketizeImpl rewriter(funcs, types, std::move(idx));
+    PacketizeImpl rewriter(funcs, types, std::move(idx), std::move(repl));
     return rewriter.mutate(std::move(body));
 }
 
@@ -78,8 +83,21 @@ Stmt packetize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
                 return Mutator::visit(node);
             }
 
-            Expr idx = Var::make(node->slice.end.type(), node->index);
-            return packetize_impl(std::move(idx), node->body, funcs, types);
+            Expr lanes = opt::Simplify::simplify(
+                ((node->slice.end - node->slice.begin) +
+                 (node->slice.stride - make_one(node->slice.stride.type()))) /
+                node->slice.stride);
+
+            auto lane_count = get_constant_value(lanes);
+            internal_assert(lane_count.has_value())
+                << "[unimplemented] packetize with non-constant size: " << lanes
+                << " of loop " << loop_idx;
+
+            Expr repl =
+                Ramp::make(node->slice.begin, node->slice.stride, *lane_count);
+
+            return packetize_impl(node->index, std::move(repl), node->body,
+                                  funcs, types);
         }
 
         // TODO: this is hacky, need a better way.
