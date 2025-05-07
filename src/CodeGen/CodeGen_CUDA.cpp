@@ -482,6 +482,23 @@ void CodeGen_CUDA::visit(const ir::Access *node) {
     os << node->field;
 }
 
+void CodeGen_CUDA::visit(const ir::Extract *node) {
+    // TODO(cgyurgyik): CUDA builtin vector types cannot extract by index, and
+    // we cannot overload this. The best solution probably is to create our own
+    // vector types that match the alignment but enable us to overwrite things
+    // like index access.
+    std::optional<uint32_t> index = get_constant_value(node->idx);
+    if (node->vec.type().is<Vector_t>() && index.has_value()) {
+        Access::make(vector_lane_to_field(*index), node->vec).accept(this);
+        return;
+    }
+
+    node->vec.accept(this);
+    os << "[";
+    print_no_parens(node->idx);
+    os << "]";
+}
+
 void CodeGen_CUDA::visit(const Deref *node) {
     os << '(' << '*';
     node->expr.accept(this);
@@ -549,7 +566,17 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
-    os << get_indent() << '*' << node->loc.base << ' ' << '=' << ' ';
+    os << get_indent() << '*' << node->loc.base;
+    for (const auto &access : node->loc.accesses) {
+        if (std::holds_alternative<std::string>(access)) {
+            os << "." << std::get<std::string>(access);
+        } else {
+            os << "[";
+            print_no_parens(std::get<Expr>(access));
+            os << "]";
+        }
+    }
+    os << ' ' << '=' << ' ';
     node->value.accept(this);
     os << ';' << '\n';
 }

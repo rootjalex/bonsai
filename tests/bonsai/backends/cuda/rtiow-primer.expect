@@ -365,9 +365,9 @@ int3** _traverse_array0(Camera* c, int32_t height, _spheres_layout1* spheres) {
   for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
     for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
       int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));
-      *_alloc0 = __temp[0];
-      *_alloc0 = __temp[1];
-      *_alloc0 = __temp[2];
+      *_alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
+      *_alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
+      *_alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
     }
   }
   return (int3**)(*_alloc0);
