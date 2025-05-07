@@ -398,9 +398,8 @@ void CodeGen_CUDA::visit(const ir::Access *node) {
     value.accept(this);
     // TODO(cgyurgyik): This is wrong... we still pass structs by address. We
     // need to distinguish stack allocated structs and those passed by argument.
-    // We can do this by tracking stack allocated names, but I think that means
-    // we run into similar issues as DCE name hygiene. (Similar solution/case
-    // for Visitor::Deref).
+    // I think the right answer is to keep track of function parameters.
+    // (Similar solution/case for Visitor::Deref).
     os << (requires_allocation(value.type()) ? "->" : ".");
     os << node->field;
 }
