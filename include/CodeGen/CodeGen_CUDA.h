@@ -69,7 +69,8 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::LetStmt *) override;
     void visit(const ir::IfElse *) override;
     void visit(const ir::DoWhile *) override;
-    void visit(const ir::Assign *) override;
+    void visit(const ir::Allocate *) override;
+    void visit(const ir::Store *) override;
     void visit(const ir::Accumulate *) override;
     void visit(const ir::Label *) override;
     void visit(const ir::ForAll *) override;

@@ -23,7 +23,8 @@ enum class IRStmtEnum {
     IfElse,
     DoWhile,
     Sequence,
-    Assign,
+    Allocate,
+    Store,
     Accumulate,
     Label,
 
@@ -105,8 +106,6 @@ struct Return : StmtNode<Return> {
 struct LetStmt : StmtNode<LetStmt> {
     WriteLoc loc;
     Expr value;
-    // TODO: this is now just an Assign, because parsing into SSA is hard.
-    // Stmt body;
 
     // static Stmt make(std::string name, Expr value, Stmt body);
     static Stmt make(WriteLoc loc, Expr value);
@@ -141,15 +140,29 @@ struct Sequence : StmtNode<Sequence> {
     static const IRStmtEnum node_type = IRStmtEnum::Sequence;
 };
 
+struct Allocate : StmtNode<Allocate> {
+    WriteLoc loc;
+    Expr value; // initial value. possibly undefined.
+    enum Memory {
+        Heap,
+        Stack,
+    };
+    Memory memory;
+
+    static Stmt make(WriteLoc loc, Memory memory = Heap);
+    static Stmt make(WriteLoc loc, Expr value, Memory memory = Heap);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Allocate;
+};
+
 // Assignment to mutable value.
-struct Assign : StmtNode<Assign> {
+struct Store : StmtNode<Store> {
     WriteLoc loc;
     Expr value;
-    bool mutating;
 
-    static Stmt make(WriteLoc loc, Expr value, bool mutating);
+    static Stmt make(WriteLoc loc, Expr value);
 
-    static const IRStmtEnum node_type = IRStmtEnum::Assign;
+    static const IRStmtEnum node_type = IRStmtEnum::Store;
 };
 
 struct Accumulate : StmtNode<Accumulate> {

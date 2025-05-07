@@ -205,6 +205,7 @@ schedule {
 
     image.split(i0, io, ii, 50, false) // make 16 threads
          .cpu_thread(io);
+    trace.loopify(64);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {

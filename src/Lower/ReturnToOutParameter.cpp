@@ -42,7 +42,7 @@ class RtOP : public ir::Mutator {
         internal_assert(ir::equals(arguments.front().type, value.type()));
         ir::WriteLoc location(identifier, value.type());
         return ir::Sequence::make({
-            ir::Assign::make(location, std::move(value), /*mutating=*/true),
+            ir::Store::make(location, std::move(value)),
             ir::Return::make(),
         });
     }

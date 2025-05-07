@@ -147,10 +147,8 @@ struct RewriteMutables : public ir::Mutator {
         return node;
     }
 
-    ir::Stmt visit(const ir::Assign *node) override {
-        if (!node->mutating) {
-            mut_locals.insert(node->loc.base);
-        }
+    ir::Stmt visit(const ir::Allocate *node) override {
+        mut_locals.insert(node->loc.base);
         return ir::Mutator::visit(node);
     }
 

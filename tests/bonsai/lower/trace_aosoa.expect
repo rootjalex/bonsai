@@ -43,7 +43,7 @@ func _recloop_func0(ts__index : u32, ts__bit : u1, ts : (_ts_layout2*), ray : (R
 }
 
 func _traverse_tree0(ray : (Ray*), ts : (_ts_layout2*)) -> _option0 {
-  _best0 := build<tuple.0>((f32)inf, build<Triangle>())
+  _best0 : mut tuple.0 := build<tuple.0>((f32)inf, build<Triangle>())
   _recloop_func0(0u, 0u, ts, ray, _best0)
   return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
 }

@@ -38,6 +38,7 @@ schedule {
 
     trace_all.split(i0, io, ii, 8, false)
              .packetize(ii);
+    // trace.loopify(64);
 }
 
 

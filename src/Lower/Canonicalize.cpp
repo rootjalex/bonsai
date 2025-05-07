@@ -73,14 +73,23 @@ struct RewriteVectorFields : public ir::Mutator {
         return {new_loc, changed};
     }
 
-    ir::Stmt visit(const ir::Assign *node) override {
+    ir::Stmt visit(const ir::Allocate *node) override {
+        ir::Expr value = mutate(node->value);
+        if (value.same_as(node->value)) {
+            return node;
+        } else {
+            return ir::Allocate::make(node->loc, std::move(value),
+                                      node->memory);
+        }
+    }
+
+    ir::Stmt visit(const ir::Store *node) override {
         auto [loc, changed] = canonicalize_loc(node->loc);
         ir::Expr value = mutate(node->value);
         if (!changed && value.same_as(node->value)) {
             return node;
         } else {
-            return ir::Assign::make(std::move(loc), std::move(value),
-                                    node->mutating);
+            return ir::Store::make(std::move(loc), std::move(value));
         }
     }
 

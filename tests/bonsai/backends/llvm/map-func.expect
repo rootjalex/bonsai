@@ -6,7 +6,7 @@ define noalias noundef ptr @_traverse_array0(i32 noundef %n, ptr nocapture nound
 _traverse_array0_entry:
   %size64 = zext i32 %n to i64
   %mallocsize = shl nuw nsw i64 %size64, 2
-  %_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %_alloc0_untyped = tail call ptr @malloc(i64 %mallocsize)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i00_for.preheader, label %_i00_for_end, !prof !0
 
@@ -27,7 +27,7 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %wide.load2 = load <4 x i32>, ptr %3, align 4
   %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
   %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load2, i1 false)
-  %6 = getelementptr inbounds i32, ptr %_untyped, i64 %1
+  %6 = getelementptr inbounds i32, ptr %_alloc0_untyped, i64 %1
   %7 = getelementptr inbounds i8, ptr %6, i64 16
   store <4 x i32> %4, ptr %6, align 4
   store <4 x i32> %5, ptr %7, align 4
@@ -49,14 +49,14 @@ _i00_for:                                         ; preds = %_i00_for.preheader3
   %extract_ptr = getelementptr inbounds i32, ptr %a, i64 %10
   %extract = load i32, ptr %extract_ptr, align 4
   %common.ret.op.i = tail call noundef i32 @llvm.abs.i32(i32 %extract, i1 false)
-  %_alloc0_ld1 = getelementptr inbounds i32, ptr %_untyped, i64 %10
+  %_alloc0_ld1 = getelementptr inbounds i32, ptr %_alloc0_untyped, i64 %10
   store i32 %common.ret.op.i, ptr %_alloc0_ld1, align 4
   %11 = add nuw nsw i32 %9, 1
   %.not = icmp slt i32 %11, %n
   br i1 %.not, label %_i00_for, label %_i00_for_end, !llvm.loop !4
 
 _i00_for_end:                                     ; preds = %_i00_for, %middle.block, %_traverse_array0_entry
-  ret ptr %_untyped
+  ret ptr %_alloc0_untyped
 }
 
 ; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
@@ -64,7 +64,7 @@ define noalias noundef ptr @_traverse_array1(i32 noundef %n, ptr nocapture nound
 _traverse_array1_entry:
   %size64 = zext i32 %n to i64
   %mallocsize = shl nuw nsw i64 %size64, 2
-  %_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %_alloc1_untyped = tail call ptr @malloc(i64 %mallocsize)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i01_for.preheader, label %_i01_for_end, !prof !0
 
@@ -85,7 +85,7 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %wide.load2 = load <4 x i32>, ptr %3, align 4
   %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
   %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load2, i1 false)
-  %6 = getelementptr inbounds i32, ptr %_untyped, i64 %1
+  %6 = getelementptr inbounds i32, ptr %_alloc1_untyped, i64 %1
   %7 = getelementptr inbounds i8, ptr %6, i64 16
   store <4 x i32> %4, ptr %6, align 4
   store <4 x i32> %5, ptr %7, align 4
@@ -107,14 +107,14 @@ _i01_for:                                         ; preds = %_i01_for.preheader3
   %extract_ptr = getelementptr inbounds i32, ptr %a, i64 %10
   %extract = load i32, ptr %extract_ptr, align 4
   %common.ret.op.i = tail call noundef i32 @llvm.abs.i32(i32 %extract, i1 false)
-  %_alloc1_ld1 = getelementptr inbounds i32, ptr %_untyped, i64 %10
+  %_alloc1_ld1 = getelementptr inbounds i32, ptr %_alloc1_untyped, i64 %10
   store i32 %common.ret.op.i, ptr %_alloc1_ld1, align 4
   %11 = add nuw nsw i32 %9, 1
   %.not = icmp slt i32 %11, %n
   br i1 %.not, label %_i01_for, label %_i01_for_end, !llvm.loop !6
 
 _i01_for_end:                                     ; preds = %_i01_for, %middle.block, %_traverse_array1_entry
-  ret ptr %_untyped
+  ret ptr %_alloc1_untyped
 }
 
 ; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
@@ -122,7 +122,7 @@ define noalias noundef ptr @array_abs(i32 noundef %n, ptr nocapture noundef read
 array_abs_entry:
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
-  %_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
+  %_alloc0_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i00_for.i.preheader, label %_traverse_array0.exit, !prof !0
 
@@ -143,7 +143,7 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %wide.load1 = load <4 x i32>, ptr %3, align 4
   %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
   %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
-  %6 = getelementptr inbounds i32, ptr %_untyped.i, i64 %1
+  %6 = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %1
   %7 = getelementptr inbounds i8, ptr %6, i64 16
   store <4 x i32> %4, ptr %6, align 4
   store <4 x i32> %5, ptr %7, align 4
@@ -165,14 +165,14 @@ _i00_for.i:                                       ; preds = %_i00_for.i.preheade
   %extract_ptr.i = getelementptr inbounds i32, ptr %a, i64 %10
   %extract.i = load i32, ptr %extract_ptr.i, align 4
   %common.ret.op.i.i = tail call noundef i32 @llvm.abs.i32(i32 %extract.i, i1 false)
-  %_alloc0_ld1.i = getelementptr inbounds i32, ptr %_untyped.i, i64 %10
+  %_alloc0_ld1.i = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %10
   store i32 %common.ret.op.i.i, ptr %_alloc0_ld1.i, align 4
   %11 = add nuw nsw i32 %9, 1
   %.not.i = icmp slt i32 %11, %n
   br i1 %.not.i, label %_i00_for.i, label %_traverse_array0.exit, !llvm.loop !8
 
 _traverse_array0.exit:                            ; preds = %_i00_for.i, %middle.block, %array_abs_entry
-  ret ptr %_untyped.i
+  ret ptr %_alloc0_untyped.i
 }
 
 ; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
@@ -180,7 +180,7 @@ define noalias noundef ptr @array_abs2(i32 noundef %n, ptr nocapture noundef rea
 array_abs2_entry:
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
-  %_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
+  %_alloc1_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %_i01_for.i.preheader, label %_traverse_array1.exit, !prof !0
 
@@ -201,7 +201,7 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %wide.load1 = load <4 x i32>, ptr %3, align 4
   %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
   %5 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
-  %6 = getelementptr inbounds i32, ptr %_untyped.i, i64 %1
+  %6 = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %1
   %7 = getelementptr inbounds i8, ptr %6, i64 16
   store <4 x i32> %4, ptr %6, align 4
   store <4 x i32> %5, ptr %7, align 4
@@ -223,14 +223,14 @@ _i01_for.i:                                       ; preds = %_i01_for.i.preheade
   %extract_ptr.i = getelementptr inbounds i32, ptr %a, i64 %10
   %extract.i = load i32, ptr %extract_ptr.i, align 4
   %common.ret.op.i.i = tail call noundef i32 @llvm.abs.i32(i32 %extract.i, i1 false)
-  %_alloc1_ld1.i = getelementptr inbounds i32, ptr %_untyped.i, i64 %10
+  %_alloc1_ld1.i = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %10
   store i32 %common.ret.op.i.i, ptr %_alloc1_ld1.i, align 4
   %11 = add nuw nsw i32 %9, 1
   %.not.i = icmp slt i32 %11, %n
   br i1 %.not.i, label %_i01_for.i, label %_traverse_array1.exit, !llvm.loop !10
 
 _traverse_array1.exit:                            ; preds = %_i01_for.i, %middle.block, %array_abs2_entry
-  ret ptr %_untyped.i
+  ret ptr %_alloc1_untyped.i
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)

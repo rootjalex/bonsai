@@ -72,7 +72,7 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
             }
             return mut;
         }
-        // TODO(ajr): replace Assign/Accumulate if undef as well!
+        // TODO(ajr): replace Allocate/Store/Accumulate if undef as well!
     };
 
     ReplaceUndefCalls replacer(func_types);
@@ -97,15 +97,31 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
             return node;
         }
 
-        ir::Stmt visit(const ir::Assign *node) override {
+        ir::Stmt visit(const ir::Allocate *node) override {
             ir::Type expected_type = node->loc.type;
             if (!expected_type.defined()) {
                 return node;
             }
-            if (std::optional<ir::Expr> value =
-                    infer_type(node->value, expected_type)) {
-                return ir::Assign::make(node->loc, mutate(*value),
-                                        node->mutating);
+            if (node->value.defined()) {
+                if (std::optional<ir::Expr> value =
+                        infer_type(node->value, expected_type)) {
+                    return ir::Allocate::make(node->loc, mutate(*value),
+                                              node->memory);
+                }
+            }
+            return node;
+        }
+
+        ir::Stmt visit(const ir::Store *node) override {
+            ir::Type expected_type = node->loc.type;
+            if (!expected_type.defined()) {
+                return node;
+            }
+            if (node->value.defined()) {
+                if (std::optional<ir::Expr> value =
+                        infer_type(node->value, expected_type)) {
+                    return ir::Store::make(node->loc, mutate(*value));
+                }
             }
             return node;
         }
@@ -126,8 +142,8 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
             if (!node->type.defined()) {
                 return node;
             }
-            // Case 1: all these members are well defined, work through their
-            // children (if any).
+            // Case 1: all these members are well defined, work through
+            // their children (if any).
             if (std::all_of(
                     node->values.begin(), node->values.end(),
                     [](const ir::Expr &e) { return e.type().defined(); })) {
@@ -137,8 +153,8 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 }
                 return ir::Build::make(node->type, std::move(values));
             }
-            // Case 2: all these members are not well defined. Define them, and
-            // then work through their children (if any).
+            // Case 2: all these members are not well defined. Define them,
+            // and then work through their children (if any).
             if (std::optional<ir::Expr> inferred_value =
                     infer_type(node, node->type)) {
                 return mutate(*inferred_value);
@@ -158,8 +174,8 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
         }
 
         // Infers the type of `value` from `expected_type`. This returns an
-        // optional type so we don't accidentally return the value found through
-        // casts.
+        // optional type so we don't accidentally return the value found
+        // through casts.
         std::optional<ir::Expr> infer_type(ir::Expr value,
                                            ir::Type expected_type) {
             value = through_cast(value);
@@ -225,9 +241,10 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
         // The return type of this function.
         const ir::Type &return_type;
     };
-    // Temporarily invalid types may be created during this pass, so we disable
-    // type enforcement. This occurs because we may have to infer the parent
-    // struct type and thus pass in its potentially ill-typed children.
+    // Temporarily invalid types may be created during this pass, so we
+    // disable type enforcement. This occurs because we may have to infer
+    // the parent struct type and thus pass in its potentially ill-typed
+    // children.
     ir::global_disable_type_enforcement();
     InferBuildTypes infer(return_type);
     ir::Stmt with_inferred_build_types = infer.mutate(stmt);
@@ -240,8 +257,8 @@ ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
         ir::Expr visit(const ir::SetOp *node) override {
             ir::Expr a = mutate(node->a);
             ir::Expr b = mutate(node->b);
-            // TODO: could also do the reverse, of the func is labeled but the
-            // set type is unknown?
+            // TODO: could also do the reverse, of the func is labeled but
+            // the set type is unknown?
             if (node->op != ir::SetOp::product && !a.type().defined()) {
                 // Perform lambda type setting
                 internal_assert(b.type().defined() &&
@@ -324,8 +341,8 @@ ir::Stmt coerce_return_types(const ir::Stmt &stmt, const ir::Type &ret_type) {
                     return ir::Return::make(std::move(new_value));
                 }
             } else if (!ir::equals(node->value.type(), ret_type)) {
-                // TODO: check is_castable? The below might fail horrendously or
-                // silently...
+                // TODO: check is_castable? The below might fail
+                // horrendously or silently...
                 ir::Expr new_value = ir::Cast::make(ret_type, node->value);
                 return ir::Return::make(std::move(new_value));
             } else {
@@ -384,7 +401,25 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
             }
         }
 
-        ir::Stmt visit(const ir::Assign *node) override {
+        ir::Stmt visit(const ir::Allocate *node) override {
+            bool before = undef_types;
+            undef_types = undef_types || (node->value.defined() &&
+                                          !node->value.type().defined());
+            undef_types = undef_types || !node->loc.type.defined();
+            if (undef_types) {
+                if (!before) {
+                    std::cerr << "undefined types detected: " << ir::Stmt(node)
+                              << std::endl;
+                }
+                return node;
+            } else {
+                return Mutator::visit(node);
+            }
+        }
+
+        // Duplicate of Accumulate visitor below because
+        // can't make a template here.
+        ir::Stmt visit(const ir::Store *node) override {
             bool before = undef_types;
             undef_types = undef_types || !node->value.type().defined();
             undef_types = undef_types || !node->loc.type.defined();
@@ -451,8 +486,8 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
     ftypes->attributes = fnotypes->attributes;
 
     // If we know the return type (due to annotations), try to coerce all
-    // returns to it. If we don't know from annotations, try to infer from some
-    // return type, then coerce.
+    // returns to it. If we don't know from annotations, try to infer from
+    // some return type, then coerce.
     ftypes->ret_type = fnotypes->ret_type.defined()
                            ? fnotypes->ret_type
                            : ir::get_return_type(ftypes->body);
