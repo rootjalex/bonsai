@@ -1164,15 +1164,85 @@ inline __device__ __host__ float4 smoothstep(float4 a, float4 b, float4 x) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// element wise compare
+////////////////////////////////////////////////////////////////////////////////
+
+__forceinline__ __host__ __device__ int2 vlt(int2 a, int2 b) {
+    int2 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    return r;
+}
+__forceinline__ __host__ __device__ int3 vlt(int3 a, int3 b) {
+    int3 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    r.z = (a.z < b.z) ? a.z : b.z;
+    return r;
+}
+__forceinline__ __host__ __device__ int4 vlt(int4 a, int4 b) {
+    int4 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    r.z = (a.z < b.z) ? a.z : b.z;
+    r.w = (a.w < b.w) ? a.w : b.w;
+    return r;
+}
+
+__forceinline__ __host__ __device__ uint2 vlt(uint2 a, uint2 b) {
+    uint2 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    return r;
+}
+__forceinline__ __host__ __device__ uint3 vlt(uint3 a, uint3 b) {
+    uint3 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    r.z = (a.z < b.z) ? a.z : b.z;
+    return r;
+}
+__forceinline__ __host__ __device__ uint4 vlt(uint4 a, uint4 b) {
+    uint4 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    r.z = (a.z < b.z) ? a.z : b.z;
+    r.w = (a.w < b.w) ? a.w : b.w;
+    return r;
+}
+
+__forceinline__ __host__ __device__ float2 vlt(float2 a, float2 b) {
+    float2 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    return r;
+}
+__forceinline__ __host__ __device__ float3 vlt(float3 a, float3 b) {
+    float3 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    r.z = (a.z < b.z) ? a.z : b.z;
+    return r;
+}
+__forceinline__ __host__ __device__ float4 vlt(float4 a, float4 b) {
+    float4 r;
+    r.x = (a.x < b.x) ? a.x : b.x;
+    r.y = (a.y < b.y) ? a.y : b.y;
+    r.z = (a.z < b.z) ? a.z : b.z;
+    r.w = (a.w < b.w) ? a.w : b.w;
+    return r;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // idxmax, idxmin
 ////////////////////////////////////////////////////////////////////////////////
 
-inline __host__ __device__ uint32_t idxmax(int2 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(int2 v) {
     uint32_t idx = 0u;
     idx = (v.y > v.x) ? 1u : 0u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(int3 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(int3 v) {
     uint32_t idx = 0u;
     if (v.y > v.x)
         idx = 1u;
@@ -1180,7 +1250,7 @@ inline __host__ __device__ uint32_t idxmax(int3 v) {
         idx = 2u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(int4 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(int4 v) {
     uint32_t idx = 0u;
     if (v.y > v.x)
         idx = 1u;
@@ -1190,12 +1260,13 @@ inline __host__ __device__ uint32_t idxmax(int4 v) {
         idx = 3u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(uint2 v) {
+
+__forceinline__ __host__ __device__ uint32_t idxmax(uint2 v) {
     uint32_t idx = 0u;
     idx = (v.y > v.x) ? 1u : 0u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(uint3 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(uint3 v) {
     uint32_t idx = 0u;
     if (v.y > v.x)
         idx = 1u;
@@ -1203,7 +1274,7 @@ inline __host__ __device__ uint32_t idxmax(uint3 v) {
         idx = 2u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(uint4 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(uint4 v) {
     uint32_t idx = 0u;
     if (v.y > v.x)
         idx = 1u;
@@ -1213,12 +1284,13 @@ inline __host__ __device__ uint32_t idxmax(uint4 v) {
         idx = 3u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(float2 v) {
+
+__forceinline__ __host__ __device__ uint32_t idxmax(float2 v) {
     uint32_t idx = 0u;
     idx = (v.y > v.x) ? 1u : 0u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(float3 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(float3 v) {
     uint32_t idx = 0u;
     if (v.y > v.x)
         idx = 1u;
@@ -1226,7 +1298,7 @@ inline __host__ __device__ uint32_t idxmax(float3 v) {
         idx = 2u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmax(float4 v) {
+__forceinline__ __host__ __device__ uint32_t idxmax(float4 v) {
     uint32_t idx = 0u;
     if (v.y > v.x)
         idx = 1u;
@@ -1236,12 +1308,13 @@ inline __host__ __device__ uint32_t idxmax(float4 v) {
         idx = 3u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(int2 v) {
+
+__forceinline__ __host__ __device__ uint32_t idxmin(int2 v) {
     uint32_t idx = 0u;
     idx = (v.y < v.x) ? 1u : 0u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(int3 v) {
+__forceinline__ __host__ __device__ uint32_t idxmin(int3 v) {
     uint32_t idx = 0u;
     if (v.y < v.x)
         idx = 1u;
@@ -1249,7 +1322,7 @@ inline __host__ __device__ uint32_t idxmin(int3 v) {
         idx = 2u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(int4 v) {
+__forceinline__ __host__ __device__ uint32_t idxmin(int4 v) {
     uint32_t idx = 0u;
     if (v.y < v.x)
         idx = 1u;
@@ -1259,12 +1332,13 @@ inline __host__ __device__ uint32_t idxmin(int4 v) {
         idx = 3u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(uint2 v) {
+
+__forceinline__ __host__ __device__ uint32_t idxmin(uint2 v) {
     uint32_t idx = 0u;
     idx = (v.y < v.x) ? 1u : 0u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(uint3 v) {
+__forceinline__ __host__ __device__ uint32_t idxmin(uint3 v) {
     uint32_t idx = 0u;
     if (v.y < v.x)
         idx = 1u;
@@ -1272,7 +1346,7 @@ inline __host__ __device__ uint32_t idxmin(uint3 v) {
         idx = 2u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(uint4 v) {
+__forceinline__ __host__ __device__ uint32_t idxmin(uint4 v) {
     uint32_t idx = 0u;
     if (v.y < v.x)
         idx = 1u;
@@ -1282,12 +1356,13 @@ inline __host__ __device__ uint32_t idxmin(uint4 v) {
         idx = 3u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(float2 v) {
+
+__forceinline__ __host__ __device__ uint32_t idxmin(float2 v) {
     uint32_t idx = 0u;
     idx = (v.y < v.x) ? 1u : 0u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(float3 v) {
+__forceinline__ __host__ __device__ uint32_t idxmin(float3 v) {
     uint32_t idx = 0u;
     if (v.y < v.x)
         idx = 1u;
@@ -1295,7 +1370,7 @@ inline __host__ __device__ uint32_t idxmin(float3 v) {
         idx = 2u;
     return idx;
 }
-inline __host__ __device__ uint32_t idxmin(float4 v) {
+__forceinline__ __host__ __device__ uint32_t idxmin(float4 v) {
     uint32_t idx = 0u;
     if (v.y < v.x)
         idx = 1u;
@@ -1310,7 +1385,59 @@ inline __host__ __device__ uint32_t idxmin(float4 v) {
 // sum
 ////////////////////////////////////////////////////////////////////////////////
 
-__forceinline__ __host__ __device__ int 2(int2 v, uint32_t indices[2]) {
+__forceinline__ __host__ __device__ int32_t sum(int2 v) { return v.x + v.y; }
+__forceinline__ __host__ __device__ int32_t sum(int3 v) {
+    return v.x + v.y + v.z;
+}
+__forceinline__ __host__ __device__ int32_t sum(int4 v) {
+    return v.x + v.y + v.z + v.w;
+}
+
+__forceinline__ __host__ __device__ uint32_t sum(uint2 v) { return v.x + v.y; }
+__forceinline__ __host__ __device__ uint32_t sum(uint3 v) {
+    return v.x + v.y + v.z;
+}
+__forceinline__ __host__ __device__ uint32_t sum(uint4 v) {
+    return v.x + v.y + v.z + v.w;
+}
+
+__forceinline__ __host__ __device__ float sum(float2 v) { return v.x + v.y; }
+__forceinline__ __host__ __device__ float sum(float3 v) {
+    return v.x + v.y + v.z;
+}
+__forceinline__ __host__ __device__ float sum(float4 v) {
+    return v.x + v.y + v.z + v.w;
+}
+
+__forceinline__ __host__ __device__ int32_t mul(int2 v) { return v.x * v.y; }
+__forceinline__ __host__ __device__ int32_t mul(int3 v) {
+    return v.x * v.y * v.z;
+}
+__forceinline__ __host__ __device__ int32_t mul(int4 v) {
+    return v.x * v.y * v.z * v.w;
+}
+
+__forceinline__ __host__ __device__ uint32_t mul(uint2 v) { return v.x * v.y; }
+__forceinline__ __host__ __device__ uint32_t mul(uint3 v) {
+    return v.x * v.y * v.z;
+}
+__forceinline__ __host__ __device__ uint32_t mul(uint4 v) {
+    return v.x * v.y * v.z * v.w;
+}
+
+__forceinline__ __host__ __device__ float mul(float2 v) { return v.x * v.y; }
+__forceinline__ __host__ __device__ float mul(float3 v) {
+    return v.x * v.y * v.z;
+}
+__forceinline__ __host__ __device__ float mul(float4 v) {
+    return v.x * v.y * v.z * v.w;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// shuffle
+////////////////////////////////////////////////////////////////////////////////
+
+__forceinline__ __host__ __device__ int2 shuffle(int2 v, uint32_t indices[2]) {
     int2 r;
     switch (indices[0]) {
     case 0:
@@ -1334,7 +1461,7 @@ __forceinline__ __host__ __device__ int 2(int2 v, uint32_t indices[2]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ int 3(int3 v, uint32_t indices[3]) {
+__forceinline__ __host__ __device__ int3 shuffle(int3 v, uint32_t indices[3]) {
     int3 r;
     switch (indices[0]) {
     case 0:
@@ -1377,7 +1504,7 @@ __forceinline__ __host__ __device__ int 3(int3 v, uint32_t indices[3]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ int 4(int4 v, uint32_t indices[4]) {
+__forceinline__ __host__ __device__ int4 shuffle(int4 v, uint32_t indices[4]) {
     int4 r;
     switch (indices[0]) {
     case 0:
@@ -1446,7 +1573,8 @@ __forceinline__ __host__ __device__ int 4(int4 v, uint32_t indices[4]) {
     return r;
 }
 
-__forceinline__ __host__ __device__ uint 2(uint2 v, uint32_t indices[2]) {
+__forceinline__ __host__ __device__ uint2 shuffle(uint2 v,
+                                                  uint32_t indices[2]) {
     uint2 r;
     switch (indices[0]) {
     case 0:
@@ -1470,7 +1598,8 @@ __forceinline__ __host__ __device__ uint 2(uint2 v, uint32_t indices[2]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ uint 3(uint3 v, uint32_t indices[3]) {
+__forceinline__ __host__ __device__ uint3 shuffle(uint3 v,
+                                                  uint32_t indices[3]) {
     uint3 r;
     switch (indices[0]) {
     case 0:
@@ -1513,7 +1642,8 @@ __forceinline__ __host__ __device__ uint 3(uint3 v, uint32_t indices[3]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ uint 4(uint4 v, uint32_t indices[4]) {
+__forceinline__ __host__ __device__ uint4 shuffle(uint4 v,
+                                                  uint32_t indices[4]) {
     uint4 r;
     switch (indices[0]) {
     case 0:
@@ -1582,7 +1712,8 @@ __forceinline__ __host__ __device__ uint 4(uint4 v, uint32_t indices[4]) {
     return r;
 }
 
-__forceinline__ __host__ __device__ float 2(float2 v, uint32_t indices[2]) {
+__forceinline__ __host__ __device__ float2 shuffle(float2 v,
+                                                   uint32_t indices[2]) {
     float2 r;
     switch (indices[0]) {
     case 0:
@@ -1606,7 +1737,8 @@ __forceinline__ __host__ __device__ float 2(float2 v, uint32_t indices[2]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ float 3(float3 v, uint32_t indices[3]) {
+__forceinline__ __host__ __device__ float3 shuffle(float3 v,
+                                                   uint32_t indices[3]) {
     float3 r;
     switch (indices[0]) {
     case 0:
@@ -1649,7 +1781,8 @@ __forceinline__ __host__ __device__ float 3(float3 v, uint32_t indices[3]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ float 4(float4 v, uint32_t indices[4]) {
+__forceinline__ __host__ __device__ float4 shuffle(float4 v,
+                                                   uint32_t indices[4]) {
     float4 r;
     switch (indices[0]) {
     case 0:
@@ -1717,4 +1850,5 @@ __forceinline__ __host__ __device__ float 4(float4 v, uint32_t indices[4]) {
     }
     return r;
 }
+
 #endif
