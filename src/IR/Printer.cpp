@@ -172,9 +172,9 @@ void Printer::print(const Program &program) {
     }
 
     for (const auto &[name, func] : program.funcs) {
-        if (!verbose && func->is_imported()) {
-            continue;
-        }
+        // if (!verbose && func->is_imported()) {
+        //     continue;
+        // }
         print(*func);
         os << '\n' << '\n';
     }

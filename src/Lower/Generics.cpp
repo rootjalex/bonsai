@@ -95,7 +95,7 @@ std::string unique_generic_name(const std::string &name, const TypeMap &types) {
     // TypeMap is a std::map, so sorted on key.
     // This gives a unique ordering, and therefore,
     // a unique name.
-    std::string generic_name = name + "$";
+    std::string generic_name = "__" + name + "_";
     bool first = true;
     for (const auto &[_, type] : types) {
         if (!first) {
@@ -153,6 +153,35 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
                 return node;
             } else {
                 return Var::make(std::move(type), node->name);
+            }
+        }
+
+        Stmt visit(const LetStmt *node) override {
+            if (!type_repls) {
+                return Mutator::visit(node);
+            }
+
+            Type type = replace(*type_repls, node->loc.type);
+            if (type.same_as(node->loc.type)) {
+                return node;
+            } else {
+                ir::WriteLoc loc(node->loc.base, std::move(type));
+                return LetStmt::make(std::move(loc), mutate(node->value));
+            }
+        }
+
+        Stmt visit(const Assign *node) override {
+            if (!type_repls || node->mutating) {
+                return Mutator::visit(node);
+            }
+
+            Type type = replace(*type_repls, node->loc.type);
+            if (type.same_as(node->loc.type)) {
+                return node;
+            } else {
+                ir::WriteLoc loc(node->loc.base, std::move(type));
+                return Assign::make(std::move(loc), mutate(node->value),
+                                    node->mutating);
             }
         }
     };

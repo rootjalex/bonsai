@@ -34,7 +34,7 @@ func linear_to_gamma_v(l : vec3f) -> vec3f {
 func near_zero(v : vec3f) -> bool {
     // Return true if the vector is close to zero in all dimensions.
     s = 1e-8;
-    return (abs(v[0]) < s) & (abs(v[1]) < s) & (abs(v[2]) < s);
+    return (abs(v.x) < s) & (abs(v.y) < s) & (abs(v.z) < s);
 }
 
 func reflect(v : vec3f, n : vec3f) {

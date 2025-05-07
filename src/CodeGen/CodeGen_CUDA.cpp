@@ -35,9 +35,25 @@ using namespace ir;
 
 namespace {
 
+// Returns whether this requires an allocation.
+// TODO(cgyurgyik): What about structs? Right now, I'm assuming these are stack
+// allocated...
+// TODO(cgyurgyik): constant sized arrays of a "small size" probably can be
+// stack allocated.
+bool requires_allocation(ir::Type type) { return type.is<Array_t, Set_t>(); }
+
 // Returns the appropriate prefix for builtin CUDA vector types.
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 std::string vector_prefix(Type element_type) {
+    if (element_type.is<Bool_t>()) {
+        // TODO(cgyurgyik): There is no builtin boolean vector on GPUs.
+        // This would need to be hand-crafted. And this produces wrong code for,
+        // e.g.,
+        //
+        // dirIsNeg = invDir < 0;
+        // low_parts = select(dirIsNeg, b.high, b.low);
+        element_type = UInt_t::make(CHAR_BIT);
+    }
     if (element_type.is<Int_t, UInt_t>()) {
         const bool is_unsigned = element_type.is<UInt_t>();
         switch (element_type.bits()) {
@@ -96,6 +112,11 @@ void CodeGen_CUDA::visit(const Float_t *node) {
                    << Type(node);
 }
 
+void CodeGen_CUDA::visit(const Array_t *node) {
+    node->etype.accept(this);
+    os << '*';
+}
+
 void CodeGen_CUDA::visit(const Struct_t *node) {
     if (!is_declaration) {
         os << node->name;
@@ -106,17 +127,26 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     // TODO: alignment or packing?
     ScopedValue<bool> _(is_declaration, false);
     increment();
-    for (const auto &field : node->fields) {
+    for (const auto &[name, type] : node->fields) {
         // TODO: handle constant-sized arrays?
         os << get_indent();
-        field.type.accept(this);
-        os << " " << field.name;
-        if (const auto &it = node->defaults.find(field.name);
+        const auto *array_t = type.as<Array_t>();
+        (array_t == nullptr ? type : array_t->etype).accept(this);
+        if (array_t) {
+            os << '*';
+        }
+        os << ' ' << name;
+        if (const auto &it = node->defaults.find(name);
             it != node->defaults.cend()) {
             os << " = ";
             print_no_parens(it->second);
         }
-        os << ';' << '\n';
+        os << ';';
+        if (array_t) {
+            os << ' ' << '/' << '/' << ' ' << "of size" << ' ';
+            array_t->size.accept(this);
+        }
+        os << '\n';
     }
     decrement();
     os << get_indent() << '}' << ';' << '\n';
@@ -144,7 +174,16 @@ void CodeGen_CUDA::visit(const FloatImm *node) {
 }
 
 void CodeGen_CUDA::visit(const VecImm *node) {
-    internal_error << "[unimplemented] VecImm CUDA codegen: " << Expr(node);
+    const std::vector<Expr> &vs = node->values;
+    if (vs.empty()) {
+        os << '{' << '}';
+    }
+    size_t lanes = vs.size();
+    Type etype = vs.front().type();
+    os << "make" << '_' << vector_prefix(std::move(etype)) << lanes << '(';
+    // TODO(cgyurgyik): Use the constant codegen from AJ's C++ fix.
+    print_expr_list(vs);
+    os << ')';
 }
 
 void CodeGen_CUDA::visit(const Infinity *node) {
@@ -168,13 +207,57 @@ void CodeGen_CUDA::visit(const Broadcast *node) {
 }
 
 void CodeGen_CUDA::visit(const VectorReduce *node) {
-    internal_error << "[unimplemented] VectorReduce CUDA codegen: "
-                   << Expr(node);
+    switch (node->op) {
+    case VectorReduce::OpType::Add: {
+        os << "sum" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Mul: {
+        os << "mul" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Idxmax: {
+        os << "idxmax" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Idxmin: {
+        os << "idxmin" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Min: {
+        os << "min" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Max: {
+        os << "max" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    default:
+        internal_error << "[unimplemented] VectorReduce CUDA codegen: "
+                       << Expr(node);
+    }
 }
 
 void CodeGen_CUDA::visit(const VectorShuffle *node) {
-    internal_error << "[unimplemented] VectorShuffle CUDA codegen: "
-                   << Expr(node);
+    // This assumes shuffling within a single thread, and defaults to a naive
+    // implementation in Bonsai's runtime/CUDA/math.h
+    os << "shuffle" << '(';
+    node->value.accept(this);
+    os << ',' << ' ';
+    print_expr_list(node->idxs);
+    os << ')';
 }
 
 void CodeGen_CUDA::visit(const Ramp *node) {
@@ -194,6 +277,19 @@ void CodeGen_CUDA::visit(const Build *node) {
 }
 
 void CodeGen_CUDA::visit(const Select *node) {
+    if (node->type.is<ir::Vector_t>()) {
+        // The ternary operator does not handle element wise vector operations.
+        // TODO(cgyurgyik): Support other vector element wise comparisons.
+        if (const auto *binop = node->cond.as<BinOp>()) {
+            internal_assert(binop->op == BinOp::OpType::Lt) << node->cond;
+            os << "vlt" << '(';
+            node->tvalue.accept(this);
+            os << ',' << ' ';
+            node->fvalue.accept(this);
+            os << ')';
+            return;
+        }
+    }
     open();
     node->cond.accept(this);
     os << " ? ";
@@ -233,10 +329,90 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ')';
         return;
     }
+    case ir::Intrinsic::OpType::cos: {
+        os << "cos" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::sin: {
+        os << "sin" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::tan: {
+        os << "tan" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::pow: {
+        os << "pow" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::norm: {
+        os << "length" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::abs: {
+        os << "abs" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::cross: {
+        os << "cross" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::rand: {
+        // TODO(cgyurgyik): I don't think this will work on device, need to use
+        // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
+        os << "rand" << '(' << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::fma: {
+        // TODO(cgyurgyik): This intrinsic (and perhaps others) has different
+        // names for different types, e.g.,
+        // {fmaf : f32, fma : f64, __nv_fp128_fma: f128}
+        // We need to check the type and choose the right variant.
+        os << "fma" << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
     default:
         internal_error << "[unimplemented] Intrinsic CUDA codegen: "
                        << Expr(node);
     }
+}
+
+void CodeGen_CUDA::visit(const ir::Access *node) {
+    ir::Expr value = node->value;
+    value.accept(this);
+    // TODO(cgyurgyik): This is wrong... we still pass structs by address. We
+    // need to distinguish stack allocated structs and those passed by argument.
+    // We can do this by tracking stack allocated names, but I think that means
+    // we run into similar issues as DCE name hygiene. (Similar solution/case
+    // for Visitor::Deref).
+    os << (requires_allocation(value.type()) ? "->" : ".");
+    os << node->field;
+}
+
+void CodeGen_CUDA::visit(const Deref *node) {
+    if (node->type.is<Struct_t>() || requires_allocation(node->type)) {
+        os << '(' << '*';
+        node->expr.accept(this);
+        os << ')';
+        return;
+    }
+    node->expr.accept(this);
 }
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
@@ -254,11 +430,73 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 void CodeGen_CUDA::visit(const Assign *node) {
     // TODO(ajr): if this is a launched kernel, this cannot be an array
     // allocation. Otherwise, this should probably cuda malloc for arrays.
+    ir::Type type = node->loc.type;
+    const std::string &base = node->loc.base;
+    os << get_indent();
+    if (!requires_allocation(type)) {
+        if (!node->mutating) {
+            type.accept(this);
+            os << ' ';
+        }
+        // Simple types do not need allocations.
+        os << base << ' ' << '=' << ' ';
+        node->value.accept(this);
+        os << ';' << '\n';
+        return;
+    }
+
+    if (!node->mutating) {
+        if (const auto *array_t = type.as<Array_t>()) {
+            type.accept(this);
+            os << '*' << ' ' << base << ';' << '\n';
+            // TODO(cgyurgyik): Check status of the CUDA malloc.
+            os << get_indent() << "(void)" << "cudaMalloc" << '(';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',';
+            array_t->size.accept(this);
+            os << ' ' << '*' << ' ' << "sizeof" << '(';
+            array_t->etype.accept(this);
+            os << ')' << ')' << ';' << '\n';
+            return;
+        }
+    }
+
     internal_error << "[unimplemented] Assign CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Accumulate *node) {
-    internal_error << "[unimplemented] Accumulate CUDA codegen: " << Stmt(node);
+    const WriteLoc &current = node->loc;
+    ir::Expr update = node->value;
+    os << get_indent() << current.base << ' ';
+    switch (node->op) {
+    case Accumulate::OpType::Add:
+        os << '+';
+        break;
+    case Accumulate::OpType::Sub:
+        os << '-';
+        break;
+    case Accumulate::OpType::Mul:
+        os << '*';
+        break;
+    case Accumulate::OpType::Argmax: {
+    case Accumulate::OpType::Argmin:
+        // acc = select(curr.first <=> update.first, curr, update)
+        os << '=' << ' ';
+        Expr cv = Var::make(current.type, current.base);
+        // TODO(cgyurgyik): Gross...
+        Expr cfirst = Access::make("_field0", cv);
+        Expr ufirst = Access::make("_field0", update);
+        ir::Expr cond = node->op == Accumulate::OpType::Argmax
+                            ? cfirst > ufirst
+                            : cfirst < ufirst;
+        ir::Select::make(std::move(cond), std::move(cv), std::move(update))
+            .accept(this);
+        os << ';' << '\n';
+        return;
+    }
+    }
+    os << '=' << ' ';
+    update.accept(this);
+    os << ';' << '\n';
 }
 
 void CodeGen_CUDA::visit(const ir::Return *node) {
@@ -271,15 +509,18 @@ void CodeGen_CUDA::visit(const ir::Return *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::CallStmt *node) {
-    internal_error << "[unimplemented] CallStmt CUDA codegen: " << Stmt(node);
+    node->func.accept(this);
+    os << '(';
+    print_expr_list(node->args);
+    os << ')';
     os << ';' << '\n';
 }
 
 void CodeGen_CUDA::visit(const Print *node) {
-    // TODO(cgyurgyik): CUDA enables printing through `printf`. I imagine
-    // (though have not verified) this is going to use the same format
-    // specifiers as C printf, so we can just refactor the LLVM version and use
-    // it here.
+    // TODO(cgyurgyik): CUDA enables printing through `printf`. I
+    // imagine (though have not verified) this is going to use the same
+    // format specifiers as C printf, so we can just refactor the LLVM
+    // version and use it here.
     internal_error << "[unimplemented] Print CUDA codegen: " << Stmt(node);
 }
 
@@ -310,16 +551,29 @@ void CodeGen_CUDA::visit(const DoWhile *node) {
 }
 
 void CodeGen_CUDA::visit(const Label *node) {
-    internal_error << "[unimplemented] Label CUDA codegen: " << Stmt(node);
+    os << '/' << '/' << node->name << '\n';
+    node->body.accept(this);
 }
 
 void CodeGen_CUDA::visit(const ForAll *node) {
-    internal_error << "[unimplemented] ForAll CUDA codegen: " << Stmt(node);
+    const ForAll::Slice &slice = node->slice;
+    os << get_indent() << "for" << ' ' << '(';
+    Type iterator_type = slice.begin.type();
+    iterator_type.accept(this);
+    os << ' ' << node->index << ' ' << '=' << ' ';
+    slice.begin.accept(this);
+    os << ';' << ' ' << node->index << ' ' << '<' << ' ';
+    slice.end.accept(this);
+    os << ';' << ' ' << node->index << ' ' << '+' << '=' << ' ';
+    slice.stride.accept(this);
+    os << ')' << ' ' << '{' << '\n';
+    increment();
+    node->body.accept(this);
+    decrement();
+    os << get_indent() << '}' << '\n';
 }
 
-void CodeGen_CUDA::visit(const Continue *node) {
-    internal_error << "[unimplemented] Continue CUDA codegen: " << Stmt(node);
-}
+void CodeGen_CUDA::visit(const Continue *node) { os << "continue" << ';'; }
 
 void CodeGen_CUDA::visit(const Launch *node) {
     internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);
@@ -330,10 +584,12 @@ void CodeGen_CUDA::emit_prologue() {
     os << '#' << "include" << ' ' << "<cuda_fp16.h>" << '\n';
     // CUDA intrinsics
     os << '#' << "include" << ' ' << "<math.h>" << '\n';
+    // C++ fixed width integral types
+    os << '#' << "include" << ' ' << "<cstdint>" << '\n';
     // Overload arithmetic operators and intrinsics for vectorized math.
-    // TODO(cgyurgyik): assumes the compiler is run from the root directory.
-    // There is some way to make this work with <>, `-I` passed to the
-    // compiler.
+    // TODO(cgyurgyik): assumes the compiler is run from the root
+    // directory. There is some way to make this work with <>, `-I`
+    // passed to the compiler.
     os << '#' << "include" << ' ' << "\"runtime/CUDA/math.h\"" << '\n';
     os << '\n';
 }
@@ -342,6 +598,8 @@ void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
     std::set<Type> visited;
+    // TODO(cgyurgyik): Program types should be defined before their use; CUDA
+    // mandates it.
     for (const auto &[_, type] : program.types) {
         if (!type.is<Struct_t>()) {
             // This is just an alias of an non-aggregate type, e.g.,
@@ -362,14 +620,16 @@ void CodeGen_CUDA::print(const Program &program) {
 
     // CUDA requires functions to be declared before uses.
     const std::vector<std::string> topological_order =
-        lower::func_topological_order(program.funcs, /*undef_calls=*/false);
+        lower::func_topological_order(program.funcs,
+                                      /*undef_calls=*/false);
     for (int i = 0, e = topological_order.size(); i < e; ++i) {
         const std::string &name = topological_order[i];
         const auto &it = program.funcs.find(name);
         internal_assert(it != program.funcs.end());
         const auto &func = it->second;
         if (func == nullptr) {
-            // Minimize aborts when printing, since we use printing to debug.
+            // Minimize aborts when printing, since we use printing to
+            // debug.
             os << get_indent() << "[NULL FUNCTION]" << '\n';
             continue;
         }

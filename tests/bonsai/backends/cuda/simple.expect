@@ -1,9 +1,11 @@
 #include <cuda_fp16.h>
 #include <math.h>
+#include <cstdint>
 #include "runtime/CUDA/math.h"
 
 struct Foo {
   int32_t x = 42;
+  int32_t* a; // of size 2
 };
 
 struct Inner {
@@ -19,12 +21,15 @@ struct Outer {
 
 int32_t add_s(int32_t x, int32_t y) {
   const int32_t v = (x + y);
-  return v;
+  int32_t w = 1;
+  w = 2;
+  return (v + w);
 }
 
 int4 add_v(int4 x, int4 y) {
   int4 v = (x + y);
-  return v;
+  int4 w = vlt(x, y);
+  return (v + w);
 }
 
 int32_t if_else(float x, float y) {

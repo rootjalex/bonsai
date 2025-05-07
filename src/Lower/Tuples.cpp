@@ -21,7 +21,7 @@ namespace {
 static size_t counter = 0;
 
 std::string unique_struct_name() {
-    return "tuple." + std::to_string(counter++);
+    return "__tuple_" + std::to_string(counter++);
 }
 
 struct TuplesToStructs : public ir::Mutator {

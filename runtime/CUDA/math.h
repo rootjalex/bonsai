@@ -1,4 +1,8 @@
-// https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
+#pragma once
+
+// Pulled from [1], with our own addendums for Bonsai.
+// [1] https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
+
 /* Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,9 +40,6 @@
  *
  *    Thanks to Linh Hah for additions and fixes.
  */
-
-#ifndef HELPER_MATH_H
-#define HELPER_MATH_H
 
 #include "cuda_runtime.h"
 
@@ -1162,4 +1163,558 @@ inline __device__ __host__ float4 smoothstep(float4 a, float4 b, float4 x) {
     return (y * y * (make_float4(3.0f) - (make_float4(2.0f) * y)));
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// idxmax, idxmin
+////////////////////////////////////////////////////////////////////////////////
+
+inline __host__ __device__ uint32_t idxmax(int2 v) {
+    uint32_t idx = 0u;
+    idx = (v.y > v.x) ? 1u : 0u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(int3 v) {
+    uint32_t idx = 0u;
+    if (v.y > v.x)
+        idx = 1u;
+    if (v.z > (idx == 0u ? v.x : (idx == 1u ? v.y : v.x)))
+        idx = 2u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(int4 v) {
+    uint32_t idx = 0u;
+    if (v.y > v.x)
+        idx = 1u;
+    if (v.z > (idx == 0u ? v.x : v.y))
+        idx = 2u;
+    if (v.w > (idx == 0u ? v.x : (idx == 1u ? v.y : v.z)))
+        idx = 3u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(uint2 v) {
+    uint32_t idx = 0u;
+    idx = (v.y > v.x) ? 1u : 0u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(uint3 v) {
+    uint32_t idx = 0u;
+    if (v.y > v.x)
+        idx = 1u;
+    if (v.z > (idx == 0u ? v.x : (idx == 1u ? v.y : v.x)))
+        idx = 2u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(uint4 v) {
+    uint32_t idx = 0u;
+    if (v.y > v.x)
+        idx = 1u;
+    if (v.z > (idx == 0u ? v.x : v.y))
+        idx = 2u;
+    if (v.w > (idx == 0u ? v.x : (idx == 1u ? v.y : v.z)))
+        idx = 3u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(float2 v) {
+    uint32_t idx = 0u;
+    idx = (v.y > v.x) ? 1u : 0u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(float3 v) {
+    uint32_t idx = 0u;
+    if (v.y > v.x)
+        idx = 1u;
+    if (v.z > (idx == 0u ? v.x : (idx == 1u ? v.y : v.x)))
+        idx = 2u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmax(float4 v) {
+    uint32_t idx = 0u;
+    if (v.y > v.x)
+        idx = 1u;
+    if (v.z > (idx == 0u ? v.x : v.y))
+        idx = 2u;
+    if (v.w > (idx == 0u ? v.x : (idx == 1u ? v.y : v.z)))
+        idx = 3u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(int2 v) {
+    uint32_t idx = 0u;
+    idx = (v.y < v.x) ? 1u : 0u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(int3 v) {
+    uint32_t idx = 0u;
+    if (v.y < v.x)
+        idx = 1u;
+    if (v.z < (idx == 0u ? v.x : (idx == 1u ? v.y : v.x)))
+        idx = 2u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(int4 v) {
+    uint32_t idx = 0u;
+    if (v.y < v.x)
+        idx = 1u;
+    if (v.z < (idx == 0u ? v.x : v.y))
+        idx = 2u;
+    if (v.w < (idx == 0u ? v.x : (idx == 1u ? v.y : v.z)))
+        idx = 3u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(uint2 v) {
+    uint32_t idx = 0u;
+    idx = (v.y < v.x) ? 1u : 0u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(uint3 v) {
+    uint32_t idx = 0u;
+    if (v.y < v.x)
+        idx = 1u;
+    if (v.z < (idx == 0u ? v.x : (idx == 1u ? v.y : v.x)))
+        idx = 2u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(uint4 v) {
+    uint32_t idx = 0u;
+    if (v.y < v.x)
+        idx = 1u;
+    if (v.z < (idx == 0u ? v.x : v.y))
+        idx = 2u;
+    if (v.w < (idx == 0u ? v.x : (idx == 1u ? v.y : v.z)))
+        idx = 3u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(float2 v) {
+    uint32_t idx = 0u;
+    idx = (v.y < v.x) ? 1u : 0u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(float3 v) {
+    uint32_t idx = 0u;
+    if (v.y < v.x)
+        idx = 1u;
+    if (v.z < (idx == 0u ? v.x : (idx == 1u ? v.y : v.x)))
+        idx = 2u;
+    return idx;
+}
+inline __host__ __device__ uint32_t idxmin(float4 v) {
+    uint32_t idx = 0u;
+    if (v.y < v.x)
+        idx = 1u;
+    if (v.z < (idx == 0u ? v.x : v.y))
+        idx = 2u;
+    if (v.w < (idx == 0u ? v.x : (idx == 1u ? v.y : v.z)))
+        idx = 3u;
+    return idx;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// sum
+////////////////////////////////////////////////////////////////////////////////
+
+__forceinline__ __host__ __device__ int 2(int2 v, uint32_t indices[2]) {
+    int2 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+__forceinline__ __host__ __device__ int 3(int3 v, uint32_t indices[3]) {
+    int3 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    case 2:
+        r.x = v.z;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    case 2:
+        r.y = v.z;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[2]) {
+    case 0:
+        r.z = v.x;
+        break;
+    case 1:
+        r.z = v.y;
+        break;
+    case 2:
+        r.z = v.z;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+__forceinline__ __host__ __device__ int 4(int4 v, uint32_t indices[4]) {
+    int4 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    case 2:
+        r.x = v.z;
+        break;
+    case 3:
+        r.x = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    case 2:
+        r.y = v.z;
+        break;
+    case 3:
+        r.y = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[2]) {
+    case 0:
+        r.z = v.x;
+        break;
+    case 1:
+        r.z = v.y;
+        break;
+    case 2:
+        r.z = v.z;
+        break;
+    case 3:
+        r.z = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[3]) {
+    case 0:
+        r.w = v.x;
+        break;
+    case 1:
+        r.w = v.y;
+        break;
+    case 2:
+        r.w = v.z;
+        break;
+    case 3:
+        r.w = v.w;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+
+__forceinline__ __host__ __device__ uint 2(uint2 v, uint32_t indices[2]) {
+    uint2 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+__forceinline__ __host__ __device__ uint 3(uint3 v, uint32_t indices[3]) {
+    uint3 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    case 2:
+        r.x = v.z;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    case 2:
+        r.y = v.z;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[2]) {
+    case 0:
+        r.z = v.x;
+        break;
+    case 1:
+        r.z = v.y;
+        break;
+    case 2:
+        r.z = v.z;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+__forceinline__ __host__ __device__ uint 4(uint4 v, uint32_t indices[4]) {
+    uint4 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    case 2:
+        r.x = v.z;
+        break;
+    case 3:
+        r.x = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    case 2:
+        r.y = v.z;
+        break;
+    case 3:
+        r.y = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[2]) {
+    case 0:
+        r.z = v.x;
+        break;
+    case 1:
+        r.z = v.y;
+        break;
+    case 2:
+        r.z = v.z;
+        break;
+    case 3:
+        r.z = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[3]) {
+    case 0:
+        r.w = v.x;
+        break;
+    case 1:
+        r.w = v.y;
+        break;
+    case 2:
+        r.w = v.z;
+        break;
+    case 3:
+        r.w = v.w;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+
+__forceinline__ __host__ __device__ float 2(float2 v, uint32_t indices[2]) {
+    float2 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+__forceinline__ __host__ __device__ float 3(float3 v, uint32_t indices[3]) {
+    float3 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    case 2:
+        r.x = v.z;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    case 2:
+        r.y = v.z;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[2]) {
+    case 0:
+        r.z = v.x;
+        break;
+    case 1:
+        r.z = v.y;
+        break;
+    case 2:
+        r.z = v.z;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
+__forceinline__ __host__ __device__ float 4(float4 v, uint32_t indices[4]) {
+    float4 r;
+    switch (indices[0]) {
+    case 0:
+        r.x = v.x;
+        break;
+    case 1:
+        r.x = v.y;
+        break;
+    case 2:
+        r.x = v.z;
+        break;
+    case 3:
+        r.x = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[1]) {
+    case 0:
+        r.y = v.x;
+        break;
+    case 1:
+        r.y = v.y;
+        break;
+    case 2:
+        r.y = v.z;
+        break;
+    case 3:
+        r.y = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[2]) {
+    case 0:
+        r.z = v.x;
+        break;
+    case 1:
+        r.z = v.y;
+        break;
+    case 2:
+        r.z = v.z;
+        break;
+    case 3:
+        r.z = v.w;
+        break;
+    default:
+        abort();
+    }
+    switch (indices[3]) {
+    case 0:
+        r.w = v.x;
+        break;
+    case 1:
+        r.w = v.y;
+        break;
+    case 2:
+        r.w = v.z;
+        break;
+    case 3:
+        r.w = v.w;
+        break;
+    default:
+        abort();
+    }
+    return r;
+}
 #endif
