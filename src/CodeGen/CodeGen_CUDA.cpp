@@ -243,10 +243,29 @@ void CodeGen_CUDA::visit(const Infinity *node) {
 
 void CodeGen_CUDA::visit(const Cast *node) {
     // TODO(cgyurgyik): Is this what cast really means in Bonsai?
+    ir::Expr value = node->value;
+    ir::Type type = node->type;
+    if (value.type().is<Vector_t>() && type.is<Vector_t>()) {
+        const auto *v = value.type().as<Vector_t>();
+        const auto *t = type.as<Vector_t>();
+        internal_assert(v->lanes == t->lanes);
+        os << "make" << '_' << vector_prefix(t->etype) << v->lanes << '(';
+        for (int i = 0, e = v->lanes; i < e; ++i) {
+            // TODO(cgyurgyik): We are duplicating an expression... uh oh.
+            value.accept(this);
+            os << '.' << vector_lane_to_field(i);
+            if (i + 1 == e) {
+                continue;
+            }
+            os << ',' << ' ';
+        }
+        os << ')';
+        return;
+    }
     os << '(';
     node->type.accept(this);
     os << ')';
-    node->value.accept(this);
+    value.accept(this);
 }
 
 void CodeGen_CUDA::visit(const Broadcast *node) {
@@ -515,7 +534,8 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
         // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
-        os << "const" << ' ';
+        // TODO(cgyurgyik): Need to fix const qualifier issues.
+        // os << "const" << ' ';
     }
     node->loc.type.accept(this);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
