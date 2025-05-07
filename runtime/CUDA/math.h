@@ -3,56 +3,16 @@
 // Pulled from [1], with our own addendums for Bonsai.
 // [1] https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
 
-/* Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *  * Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *  * Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *  * Neither the name of NVIDIA CORPORATION nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-/*
- *  This file implements common mathematical operations on vector types
- *  (float3, float4 etc.) since these are not provided as standard by CUDA.
- *
- *  The syntax is modeled on the Cg standard library.
- *
- *  This is part of the Helper library includes
- *
- *    Thanks to Linh Hah for additions and fixes.
- */
-
 #include "cuda_runtime.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <cuda_fp16.h>
+#include <initializer_list>
+#include <math.h>
 
 typedef unsigned int uint;
 typedef unsigned short ushort;
-
-#ifndef EXIT_WAIVED
-#define EXIT_WAIVED 2
-#endif
-
-#ifndef __CUDACC__
-#include <cstdint>
-#include <math.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // bool
@@ -897,13 +857,13 @@ inline __host__ __device__ float4 operator/(float b, float4 a) {
 // min
 ////////////////////////////////////////////////////////////////////////////////
 
-inline __host__ __device__ float2 fminf(float2 a, float2 b) {
+inline __host__ __device__ float2 min(float2 a, float2 b) {
     return make_float2(fminf(a.x, b.x), fminf(a.y, b.y));
 }
-inline __host__ __device__ float3 fminf(float3 a, float3 b) {
+inline __host__ __device__ float3 min(float3 a, float3 b) {
     return make_float3(fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z));
 }
-inline __host__ __device__ float4 fminf(float4 a, float4 b) {
+inline __host__ __device__ float4 min(float4 a, float4 b) {
     return make_float4(fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z),
                        fminf(a.w, b.w));
 }
@@ -934,13 +894,13 @@ inline __host__ __device__ uint4 min(uint4 a, uint4 b) {
 // max
 ////////////////////////////////////////////////////////////////////////////////
 
-inline __host__ __device__ float2 fmaxf(float2 a, float2 b) {
+inline __host__ __device__ float2 max(float2 a, float2 b) {
     return make_float2(fmaxf(a.x, b.x), fmaxf(a.y, b.y));
 }
-inline __host__ __device__ float3 fmaxf(float3 a, float3 b) {
+inline __host__ __device__ float3 max(float3 a, float3 b) {
     return make_float3(fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z));
 }
-inline __host__ __device__ float4 fmaxf(float4 a, float4 b) {
+inline __host__ __device__ float4 max(float4 a, float4 b) {
     return make_float4(fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z),
                        fmaxf(a.w, b.w));
 }
@@ -967,6 +927,26 @@ inline __host__ __device__ uint4 max(uint4 a, uint4 b) {
                       max(a.w, b.w));
 }
 
+inline __host__ __device__ uint max(uint2 a) { return max(a.x, a.y); }
+inline __host__ __device__ uint max(uint3 a) { return max(max(a.x, a.y), a.z); }
+inline __host__ __device__ uint max(uint4 a) {
+    return max(max(max(a.x, a.y), a.z), a.w);
+}
+
+inline __host__ __device__ int max(int2 a) { return max(a.x, a.y); }
+inline __host__ __device__ int max(int3 a) { return max(max(a.x, a.y), a.z); }
+inline __host__ __device__ int max(int4 a) {
+    return max(max(max(a.x, a.y), a.z), a.w);
+}
+
+inline __host__ __device__ float max(float2 a) { return fmaxf(a.x, a.y); }
+inline __host__ __device__ float max(float3 a) {
+    return fmaxf(fmaxf(a.x, a.y), a.z);
+}
+inline __host__ __device__ float max(float4 a) {
+    return fmaxf(fmaxf(fmaxf(a.x, a.y), a.z), a.w);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // lerp
 // - linear interpolation between a and b, based on value t in [0, 1] range
@@ -983,87 +963,6 @@ inline __device__ __host__ float3 lerp(float3 a, float3 b, float t) {
 }
 inline __device__ __host__ float4 lerp(float4 a, float4 b, float t) {
     return a + t * (b - a);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// clamp
-// - clamp the value v to be in the range [a, b]
-////////////////////////////////////////////////////////////////////////////////
-
-inline __device__ __host__ float clamp(float f, float a, float b) {
-    return fmaxf(a, fminf(f, b));
-}
-inline __device__ __host__ int clamp(int f, int a, int b) {
-    return max(a, min(f, b));
-}
-inline __device__ __host__ uint clamp(uint f, uint a, uint b) {
-    return max(a, min(f, b));
-}
-
-inline __device__ __host__ float2 clamp(float2 v, float a, float b) {
-    return make_float2(clamp(v.x, a, b), clamp(v.y, a, b));
-}
-inline __device__ __host__ float2 clamp(float2 v, float2 a, float2 b) {
-    return make_float2(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y));
-}
-inline __device__ __host__ float3 clamp(float3 v, float a, float b) {
-    return make_float3(clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b));
-}
-inline __device__ __host__ float3 clamp(float3 v, float3 a, float3 b) {
-    return make_float3(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y),
-                       clamp(v.z, a.z, b.z));
-}
-inline __device__ __host__ float4 clamp(float4 v, float a, float b) {
-    return make_float4(clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b),
-                       clamp(v.w, a, b));
-}
-inline __device__ __host__ float4 clamp(float4 v, float4 a, float4 b) {
-    return make_float4(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y),
-                       clamp(v.z, a.z, b.z), clamp(v.w, a.w, b.w));
-}
-
-inline __device__ __host__ int2 clamp(int2 v, int a, int b) {
-    return make_int2(clamp(v.x, a, b), clamp(v.y, a, b));
-}
-inline __device__ __host__ int2 clamp(int2 v, int2 a, int2 b) {
-    return make_int2(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y));
-}
-inline __device__ __host__ int3 clamp(int3 v, int a, int b) {
-    return make_int3(clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b));
-}
-inline __device__ __host__ int3 clamp(int3 v, int3 a, int3 b) {
-    return make_int3(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y),
-                     clamp(v.z, a.z, b.z));
-}
-inline __device__ __host__ int4 clamp(int4 v, int a, int b) {
-    return make_int4(clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b),
-                     clamp(v.w, a, b));
-}
-inline __device__ __host__ int4 clamp(int4 v, int4 a, int4 b) {
-    return make_int4(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y),
-                     clamp(v.z, a.z, b.z), clamp(v.w, a.w, b.w));
-}
-
-inline __device__ __host__ uint2 clamp(uint2 v, uint a, uint b) {
-    return make_uint2(clamp(v.x, a, b), clamp(v.y, a, b));
-}
-inline __device__ __host__ uint2 clamp(uint2 v, uint2 a, uint2 b) {
-    return make_uint2(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y));
-}
-inline __device__ __host__ uint3 clamp(uint3 v, uint a, uint b) {
-    return make_uint3(clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b));
-}
-inline __device__ __host__ uint3 clamp(uint3 v, uint3 a, uint3 b) {
-    return make_uint3(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y),
-                      clamp(v.z, a.z, b.z));
-}
-inline __device__ __host__ uint4 clamp(uint4 v, uint a, uint b) {
-    return make_uint4(clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b),
-                      clamp(v.w, a, b));
-}
-inline __device__ __host__ uint4 clamp(uint4 v, uint4 a, uint4 b) {
-    return make_uint4(clamp(v.x, a.x, b.x), clamp(v.y, a.y, b.y),
-                      clamp(v.z, a.z, b.z), clamp(v.w, a.w, b.w));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1173,13 +1072,13 @@ inline __host__ __device__ float4 fmodf(float4 a, float4 b) {
 // absolute value
 ////////////////////////////////////////////////////////////////////////////////
 
-inline __host__ __device__ float2 fabs(float2 v) {
+inline __host__ __device__ float2 abs(float2 v) {
     return make_float2(fabs(v.x), fabs(v.y));
 }
-inline __host__ __device__ float3 fabs(float3 v) {
+inline __host__ __device__ float3 abs(float3 v) {
     return make_float3(fabs(v.x), fabs(v.y), fabs(v.z));
 }
-inline __host__ __device__ float4 fabs(float4 v) {
+inline __host__ __device__ float4 abs(float4 v) {
     return make_float4(fabs(v.x), fabs(v.y), fabs(v.z), fabs(v.w));
 }
 
@@ -1194,46 +1093,12 @@ inline __host__ __device__ int4 abs(int4 v) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// reflect
-// - returns reflection of incident ray I around surface normal N
-// - N should be normalized, reflected vector's length is equal to length of I
-////////////////////////////////////////////////////////////////////////////////
-
-inline __host__ __device__ float3 reflect(float3 i, float3 n) {
-    return i - 2.0f * n * dot(n, i);
-}
-
-////////////////////////////////////////////////////////////////////////////////
 // cross product
 ////////////////////////////////////////////////////////////////////////////////
 
 inline __host__ __device__ float3 cross(float3 a, float3 b) {
     return make_float3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
                        a.x * b.y - a.y * b.x);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// smoothstep
-// - returns 0 if x < a
-// - returns 1 if x > b
-// - otherwise returns smooth interpolation between 0 and 1 based on x
-////////////////////////////////////////////////////////////////////////////////
-
-inline __device__ __host__ float smoothstep(float a, float b, float x) {
-    float y = clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return (y * y * (3.0f - (2.0f * y)));
-}
-inline __device__ __host__ float2 smoothstep(float2 a, float2 b, float2 x) {
-    float2 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return (y * y * (make_float2(3.0f) - (make_float2(2.0f) * y)));
-}
-inline __device__ __host__ float3 smoothstep(float3 a, float3 b, float3 x) {
-    float3 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return (y * y * (make_float3(3.0f) - (make_float3(2.0f) * y)));
-}
-inline __device__ __host__ float4 smoothstep(float4 a, float4 b, float4 x) {
-    float4 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return (y * y * (make_float4(3.0f) - (make_float4(2.0f) * y)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1440,9 +1305,11 @@ __forceinline__ __host__ __device__ float mul(float4 v) {
 // shuffle
 ////////////////////////////////////////////////////////////////////////////////
 
-__forceinline__ __host__ __device__ int2 shuffle(int2 v, uint32_t indices[2]) {
+__forceinline__ __host__ __device__ int2
+shuffle(int2 v, std::initializer_list<uint32_t> indices) {
     int2 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1452,7 +1319,7 @@ __forceinline__ __host__ __device__ int2 shuffle(int2 v, uint32_t indices[2]) {
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1464,9 +1331,11 @@ __forceinline__ __host__ __device__ int2 shuffle(int2 v, uint32_t indices[2]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ int3 shuffle(int3 v, uint32_t indices[3]) {
+__forceinline__ __host__ __device__ int3
+shuffle(int3 v, std::initializer_list<uint32_t> indices) {
     int3 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1479,7 +1348,7 @@ __forceinline__ __host__ __device__ int3 shuffle(int3 v, uint32_t indices[3]) {
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1492,7 +1361,7 @@ __forceinline__ __host__ __device__ int3 shuffle(int3 v, uint32_t indices[3]) {
     default:
         abort();
     }
-    switch (indices[2]) {
+    switch (*it++) {
     case 0:
         r.z = v.x;
         break;
@@ -1507,9 +1376,11 @@ __forceinline__ __host__ __device__ int3 shuffle(int3 v, uint32_t indices[3]) {
     }
     return r;
 }
-__forceinline__ __host__ __device__ int4 shuffle(int4 v, uint32_t indices[4]) {
+__forceinline__ __host__ __device__ int4
+shuffle(int4 v, std::initializer_list<uint32_t> indices) {
     int4 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1525,7 +1396,7 @@ __forceinline__ __host__ __device__ int4 shuffle(int4 v, uint32_t indices[4]) {
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1541,7 +1412,7 @@ __forceinline__ __host__ __device__ int4 shuffle(int4 v, uint32_t indices[4]) {
     default:
         abort();
     }
-    switch (indices[2]) {
+    switch (*it++) {
     case 0:
         r.z = v.x;
         break;
@@ -1557,7 +1428,7 @@ __forceinline__ __host__ __device__ int4 shuffle(int4 v, uint32_t indices[4]) {
     default:
         abort();
     }
-    switch (indices[3]) {
+    switch (*it++) {
     case 0:
         r.w = v.x;
         break;
@@ -1576,10 +1447,11 @@ __forceinline__ __host__ __device__ int4 shuffle(int4 v, uint32_t indices[4]) {
     return r;
 }
 
-__forceinline__ __host__ __device__ uint2 shuffle(uint2 v,
-                                                  uint32_t indices[2]) {
+__forceinline__ __host__ __device__ uint2
+shuffle(uint2 v, std::initializer_list<uint32_t> indices) {
     uint2 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1589,7 +1461,7 @@ __forceinline__ __host__ __device__ uint2 shuffle(uint2 v,
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1601,10 +1473,11 @@ __forceinline__ __host__ __device__ uint2 shuffle(uint2 v,
     }
     return r;
 }
-__forceinline__ __host__ __device__ uint3 shuffle(uint3 v,
-                                                  uint32_t indices[3]) {
+__forceinline__ __host__ __device__ uint3
+shuffle(uint3 v, std::initializer_list<uint32_t> indices) {
     uint3 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1617,7 +1490,7 @@ __forceinline__ __host__ __device__ uint3 shuffle(uint3 v,
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1630,7 +1503,7 @@ __forceinline__ __host__ __device__ uint3 shuffle(uint3 v,
     default:
         abort();
     }
-    switch (indices[2]) {
+    switch (*it++) {
     case 0:
         r.z = v.x;
         break;
@@ -1645,10 +1518,11 @@ __forceinline__ __host__ __device__ uint3 shuffle(uint3 v,
     }
     return r;
 }
-__forceinline__ __host__ __device__ uint4 shuffle(uint4 v,
-                                                  uint32_t indices[4]) {
+__forceinline__ __host__ __device__ uint4
+shuffle(uint4 v, std::initializer_list<uint32_t> indices) {
     uint4 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1664,7 +1538,7 @@ __forceinline__ __host__ __device__ uint4 shuffle(uint4 v,
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1680,7 +1554,7 @@ __forceinline__ __host__ __device__ uint4 shuffle(uint4 v,
     default:
         abort();
     }
-    switch (indices[2]) {
+    switch (*it++) {
     case 0:
         r.z = v.x;
         break;
@@ -1696,7 +1570,7 @@ __forceinline__ __host__ __device__ uint4 shuffle(uint4 v,
     default:
         abort();
     }
-    switch (indices[3]) {
+    switch (*it++) {
     case 0:
         r.w = v.x;
         break;
@@ -1715,10 +1589,11 @@ __forceinline__ __host__ __device__ uint4 shuffle(uint4 v,
     return r;
 }
 
-__forceinline__ __host__ __device__ float2 shuffle(float2 v,
-                                                   uint32_t indices[2]) {
+__forceinline__ __host__ __device__ float2
+shuffle(float2 v, std::initializer_list<uint32_t> indices) {
     float2 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1728,7 +1603,7 @@ __forceinline__ __host__ __device__ float2 shuffle(float2 v,
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1740,10 +1615,11 @@ __forceinline__ __host__ __device__ float2 shuffle(float2 v,
     }
     return r;
 }
-__forceinline__ __host__ __device__ float3 shuffle(float3 v,
-                                                   uint32_t indices[3]) {
+__forceinline__ __host__ __device__ float3
+shuffle(float3 v, std::initializer_list<uint32_t> indices) {
     float3 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1756,7 +1632,7 @@ __forceinline__ __host__ __device__ float3 shuffle(float3 v,
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1769,7 +1645,7 @@ __forceinline__ __host__ __device__ float3 shuffle(float3 v,
     default:
         abort();
     }
-    switch (indices[2]) {
+    switch (*it++) {
     case 0:
         r.z = v.x;
         break;
@@ -1784,10 +1660,11 @@ __forceinline__ __host__ __device__ float3 shuffle(float3 v,
     }
     return r;
 }
-__forceinline__ __host__ __device__ float4 shuffle(float4 v,
-                                                   uint32_t indices[4]) {
+__forceinline__ __host__ __device__ float4
+shuffle(float4 v, std::initializer_list<uint32_t> indices) {
     float4 r;
-    switch (indices[0]) {
+    auto it = indices.begin();
+    switch (*it++) {
     case 0:
         r.x = v.x;
         break;
@@ -1803,7 +1680,7 @@ __forceinline__ __host__ __device__ float4 shuffle(float4 v,
     default:
         abort();
     }
-    switch (indices[1]) {
+    switch (*it++) {
     case 0:
         r.y = v.x;
         break;
@@ -1819,7 +1696,7 @@ __forceinline__ __host__ __device__ float4 shuffle(float4 v,
     default:
         abort();
     }
-    switch (indices[2]) {
+    switch (*it++) {
     case 0:
         r.z = v.x;
         break;
@@ -1835,7 +1712,7 @@ __forceinline__ __host__ __device__ float4 shuffle(float4 v,
     default:
         abort();
     }
-    switch (indices[3]) {
+    switch (*it++) {
     case 0:
         r.w = v.x;
         break;
@@ -1853,5 +1730,3 @@ __forceinline__ __host__ __device__ float4 shuffle(float4 v,
     }
     return r;
 }
-
-#endif

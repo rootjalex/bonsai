@@ -73,11 +73,12 @@ def generate_vector_shuffle():
     for type in TYPES:
         for n in LANES:
             vector_type = f"{type}{n}"
-            func_name = f" shuffle({vector_type} v, {INDEX_TYPE} indices[{n}])"
-            body = f"""{{ {vector_type} r; """
+            func_name = f" shuffle({vector_type} v, std::initializer_list<{INDEX_TYPE}> indices)"
+            body = f"""{{ {vector_type} r; auto it = indices.begin();"""
+            #
+            # return { (&v.x)[*it++], (&v.x)[*it++], (&v.x)[*it++] };
             for i in range(n):
-                index_var = f"indices[{i}]"
-                body += f"""switch ({index_var}) {{ case 0: r.{FIELDS[i]} = v.x; break; case 1: r.{FIELDS[i]} = v.y; break;"""
+                body += f"""switch (*it++) {{ case 0: r.{FIELDS[i]} = v.x; break; case 1: r.{FIELDS[i]} = v.y; break;"""
                 if n > 2:
                     body += f""" case 2: r.{FIELDS[i]} = v.z; break;"""
                 if n > 3:
@@ -88,27 +89,7 @@ def generate_vector_shuffle():
         print()
 
 
-def generate_vector_less_than_elementwise_operator():
-    """Generates elementwise compare vector instructions."""
-    print("////////////////////////////////////////////////////////////////////////////////")
-    print("// element wise compare")
-    print("////////////////////////////////////////////////////////////////////////////////")
-    print()
-
-    for type in TYPES:
-        for n in LANES:
-            vector_type = f"{type}{n}"
-            func_name = f"{vector_type} vlt({vector_type} a, {vector_type} b)"
-            body = f"""{{{vector_type} r; """
-            for i in range(n):
-                body += f"""r.{FIELDS[i]} = (a.{FIELDS[i]} < b.{FIELDS[i]}) ? a.{FIELDS[i]} : b.{FIELDS[i]}; """
-            body += f"""return r; }}"""
-            print(f"{PROLOGUE} {func_name} {body}")
-        print()
-
-
 if __name__ == "__main__":
-    generate_vector_less_than_elementwise_operator()
     generate_vector_idxmax()
     generate_vector_reduce()
     generate_vector_shuffle()

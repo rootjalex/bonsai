@@ -35,6 +35,51 @@ using namespace ir;
 
 namespace {
 
+std::string bonsai_scalar_type_to_cpp(Type type) {
+    if (const auto *float_t = type.as<Float_t>()) {
+        internal_assert(float_t->is_ieee754());
+        switch (float_t->bits()) {
+        case 64:
+            return "double";
+        case 32:
+            return "float";
+        case 16:
+            return "__half";
+        default:
+            break;
+        }
+    }
+    if (const auto *int_t = type.as<Int_t>()) {
+        switch (int_t->bits) {
+        case 64:
+            return "int64_t";
+        case 32:
+            return "int32_t";
+        case 16:
+            return "int16_t";
+        case 8:
+            return "int8_t";
+        default:
+            break;
+        }
+    }
+    if (const auto *uint_t = type.as<UInt_t>()) {
+        switch (uint_t->bits) {
+        case 64:
+            return "uint64_t";
+        case 32:
+            return "uint32_t";
+        case 16:
+            return "uint16_t";
+        case 8:
+            return "uint8_t";
+        default:
+            break;
+        }
+    }
+    internal_error << "[unimplemented]: " << type;
+}
+
 std::string vector_lane_to_field(uint32_t lane) {
     switch (lane) {
     case 0:
@@ -165,7 +210,8 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
 }
 
 void CodeGen_CUDA::visit(const Ptr_t *node) {
-    os << "const" << ' ';
+    // TODO(cgyurgyik): This isn't constant for an argument return type.
+    // os << "const" << ' ';
     // Unlike the Bonsai printer, we cannot print () in argument parameters.
     node->etype.accept(this);
     os << "*";
@@ -259,9 +305,12 @@ void CodeGen_CUDA::visit(const VectorShuffle *node) {
     // implementation in Bonsai's runtime/CUDA/math.h
     os << "shuffle" << '(';
     node->value.accept(this);
-    os << ',' << ' ';
+    // TODO(cgyurgyik): this requires using a std::initializer_list argument,
+    // but I'm not sure how else to do this without creating a temporary
+    // variable...
+    os << ',' << ' ' << '{';
     print_expr_list(node->idxs);
-    os << ')';
+    os << '}' << ')';
 }
 
 void CodeGen_CUDA::visit(const Ramp *node) {
@@ -333,13 +382,29 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         return;
     }
     case ir::Intrinsic::OpType::min: {
-        os << "min" << '(';
+        ir::Type element_type = node->args.front().type();
+        if (!element_type.is<Vector_t>()) {
+            // Required to avoid ambiguity errors.
+            os << "std::min";
+            os << '<' << bonsai_scalar_type_to_cpp(element_type) << '>';
+        } else {
+            os << "min";
+        }
+        os << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::max: {
-        os << "max" << '(';
+        ir::Type element_type = node->args.front().type();
+        if (!element_type.is<Vector_t>()) {
+            // Required to avoid ambiguity errors.
+            os << "std::max";
+            os << '<' << bonsai_scalar_type_to_cpp(element_type) << '>';
+        } else {
+            os << "max";
+        }
+        os << '(';
         print_expr_list(node->args);
         os << ')';
         return;
@@ -386,10 +451,12 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ')';
         return;
     }
+    // TODO(cgyurgyik): I don't think this will work on device, need to use
+    // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
     case ir::Intrinsic::OpType::rand: {
-        // TODO(cgyurgyik): I don't think this will work on device, need to use
-        // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
-        os << "rand" << '(' << ')';
+        // TODO(cgyurgyik): rand() produces a double.
+        os << "static_cast" << '<' << "float" << '>' << '(';
+        os << "rand" << '(' << ')' << ')';
         return;
     }
     case ir::Intrinsic::OpType::fma: {
@@ -411,24 +478,16 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 void CodeGen_CUDA::visit(const ir::Access *node) {
     ir::Expr value = node->value;
     value.accept(this);
-    os << (value.is<Deref>() ? "->" : ".");
+    os << ".";
     os << node->field;
 }
 
 void CodeGen_CUDA::visit(const Deref *node) {
-    if (node->expr.type().is_stack_allocatable()) {
-        node->expr.accept(this);
-        return;
-    }
     os << '(' << '*';
     node->expr.accept(this);
     os << ')';
 }
 void CodeGen_CUDA::visit(const PtrTo *node) {
-    if (node->expr.type().is_stack_allocatable()) {
-        node->expr.accept(this);
-        return;
-    }
     os << '(' << '&';
     node->expr.accept(this);
     os << ')';
@@ -451,23 +510,31 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     // TODO(ajr): if this is a launched kernel, this cannot be an array
     // allocation. Otherwise, this should probably cuda malloc for arrays.
     ir::Type type = node->loc.type;
-    const std::string &base = node->loc.base;
+    const std::string &b = node->loc.base;
     os << get_indent();
     switch (node->memory) {
     case Allocate::Memory::Stack: {
         type.accept(this);
-        os << ' ' << base << ' ' << '=' << ' ';
+        // Bonsai assumes *everything*, including stack allocated objects,
+        // are passed by a pointer. So first we "stack" allocate,
+        constexpr std::string_view P = "_";
+        os << ' ' << P << b << ' ' << '=' << ' ';
         node->value.accept(this);
         os << ';' << '\n';
+        // ...and then we take its address.
+        os << get_indent();
+        type.accept(this);
+        os << '*' << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';'
+           << '\n';
         return;
     }
     case Allocate::Memory::Heap: {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
-            os << '*' << ' ' << base << ';' << '\n';
+            os << '*' << ' ' << b << ';' << '\n';
             // TODO(cgyurgyik): Check status of the CUDA malloc.
             os << get_indent() << "(void)" << "cudaMalloc" << '(';
-            os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',';
             array_t->size.accept(this);
             os << ' ' << '*' << ' ' << "sizeof" << '(';
             array_t->etype.accept(this);
@@ -482,7 +549,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
-    os << get_indent() << node->loc.base << ' ' << '=' << ' ';
+    os << get_indent() << '*' << node->loc.base << ' ' << '=' << ' ';
     node->value.accept(this);
     os << ';' << '\n';
 }
@@ -490,7 +557,7 @@ void CodeGen_CUDA::visit(const Store *node) {
 void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
-    os << get_indent() << current.base << ' ';
+    os << get_indent() << '*' << current.base << ' ';
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
@@ -503,17 +570,22 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         break;
     case Accumulate::OpType::Argmax: {
     case Accumulate::OpType::Argmin:
-        // acc = select(curr.first <=> update.first, curr, update)
+        // curr = arg{min|max}(curr, update);
+        // ->
+        // curr = (*curr).first (`<` | `>`) update.first ? curr : update;
         os << '=' << ' ';
-        Expr cv = Var::make(current.type, current.base);
         // TODO(cgyurgyik): Gross...
-        Expr cfirst = Access::make("_field0", cv);
-        Expr ufirst = Access::make("_field0", update);
-        ir::Expr cond = node->op == Accumulate::OpType::Argmax
-                            ? cfirst > ufirst
-                            : cfirst < ufirst;
-        ir::Select::make(std::move(cond), std::move(cv), std::move(update))
-            .accept(this);
+        Expr cv = Var::make(current.type, current.base);
+        os << '(' << '*';
+        cv.accept(this);
+        constexpr std::string_view F = "_field0";
+        os << ')' << '.' << F << ' ';
+        os << (node->op == Accumulate::OpType::Argmax ? '>' : '<') << ' ';
+        update.accept(this);
+        os << '.' << F << ' ' << '?' << ' ';
+        cv.accept(this);
+        os << ' ' << ':' << ' ';
+        update.accept(this);
         os << ';' << '\n';
         return;
     }
@@ -605,12 +677,6 @@ void CodeGen_CUDA::visit(const Launch *node) {
 }
 
 void CodeGen_CUDA::emit_prologue() {
-    // Half (16-bit, IEEE-754) floating point.
-    os << '#' << "include" << ' ' << "<cuda_fp16.h>" << '\n';
-    // CUDA intrinsics
-    os << '#' << "include" << ' ' << "<math.h>" << '\n';
-    // C++ fixed width integral types
-    os << '#' << "include" << ' ' << "<cstdint>" << '\n';
     // Overload arithmetic operators and intrinsics for vectorized math.
     // TODO(cgyurgyik): assumes the compiler is run from the root
     // directory. There is some way to make this work with <>, `-I`
