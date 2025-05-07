@@ -21,6 +21,25 @@ Cmp compare_primitives(const T &t0, const T &t1) {
 }
 
 template <typename T>
+Cmp compare_optionals(const std::optional<T> &o0, const std::optional<T> &o1) {
+    if (o0.has_value()) {
+        if (o1.has_value()) {
+            // some ?= some
+            return compare_primitives(*o0, *o1);
+        }
+        // some > none
+        return Cmp::Greater;
+    } else {
+        if (o1.has_value()) {
+            // none < some
+            return Cmp::Less;
+        }
+        // none == none
+        return Cmp::Equals;
+    }
+}
+
+template <typename T>
 std::optional<Cmp> compare_node_types(const T &a, const T &b) {
     if (!a.defined()) {
         if (!b.defined()) {
@@ -569,6 +588,99 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     }
 }
 
+Cmp compare_layouts(const Layout &l0, const Layout &l1) {
+    if (std::optional<Cmp> nodes_cmp = compare_node_types(l0, l1)) {
+        return *nodes_cmp;
+    }
+
+    switch (l0.node_type()) {
+    case IRLayoutEnum::Name: {
+        const Name *n0 = l0.as<Name>();
+        const Name *n1 = l1.as<Name>();
+        if (const Cmp cmp = compare_primitives(n0->name, n1->name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_types(n0->type, n1->type);
+    }
+    case IRLayoutEnum::Pad: {
+        const Pad *p0 = l0.as<Pad>();
+        const Pad *p1 = l1.as<Pad>();
+        return compare_primitives(p0->bits, p1->bits);
+    }
+    case IRLayoutEnum::Switch: {
+        const Switch *s0 = l0.as<Switch>();
+        const Switch *s1 = l1.as<Switch>();
+        if (Cmp cmp = compare_primitives(s0->field, s1->field);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (Cmp cmp = compare_primitives(s0->arms.size(), s1->arms.size());
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        for (size_t i = 0; i < s0->arms.size(); ++i) {
+            const auto &a0 = s0->arms[i];
+            const auto &a1 = s1->arms[i];
+            if (Cmp cmp = compare_optionals(a0.value, a1.value);
+                cmp != Cmp::Equals) {
+                return cmp;
+            }
+            if (Cmp cmp = compare_optionals(a0.name, a1.name);
+                cmp != Cmp::Equals) {
+                return cmp;
+            }
+            if (Cmp cmp = compare_layouts(a0.layout, a1.layout);
+                cmp != Cmp::Equals) {
+                return cmp;
+            }
+        }
+        return Cmp::Equals;
+    }
+    case IRLayoutEnum::Chain: {
+        const Chain *c0 = l0.as<Chain>();
+        const Chain *c1 = l1.as<Chain>();
+        if (Cmp cmp =
+                compare_primitives(c0->layouts.size(), c1->layouts.size());
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        for (size_t i = 0; i < c0->layouts.size(); ++i) {
+            if (Cmp cmp = compare_layouts(c0->layouts[i], c1->layouts[i]);
+                cmp != Cmp::Equals) {
+                return cmp;
+            }
+        }
+        return Cmp::Equals;
+    }
+    case IRLayoutEnum::Group: {
+        const Group *g0 = l0.as<Group>();
+        const Group *g1 = l1.as<Group>();
+        if (Cmp cmp = compare_exprs(g0->size, g1->size); cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (Cmp cmp = compare_primitives(g0->name, g1->name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (Cmp cmp = compare_types(g0->index_t, g1->index_t);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_layouts(g0->inner, g1->inner);
+    }
+    case IRLayoutEnum::Materialize: {
+        const Materialize *m0 = l0.as<Materialize>();
+        const Materialize *m1 = l1.as<Materialize>();
+        if (Cmp cmp = compare_primitives(m0->name, m1->name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_exprs(m0->value, m1->value);
+    }
+    }
+}
+
 } // namespace
 
 bool equals(const Type &t0, const Type &t1) {
@@ -585,6 +697,14 @@ bool equals(const Expr &e0, const Expr &e1) {
 
 bool ExprLessThan::operator()(const Expr &e0, const Expr &e1) const {
     return compare_exprs(e0, e1) == Cmp::Less;
+}
+
+bool equals(const Layout &l0, const Layout &l1) {
+    return compare_layouts(l0, l1) == Cmp::Equals;
+}
+
+bool LayoutLessThan::operator()(const Layout &l0, const Layout &l1) const {
+    return compare_layouts(l0, l1) == Cmp::Less;
 }
 
 bool WriteLocLessThan::operator()(const WriteLoc &w0,

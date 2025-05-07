@@ -118,6 +118,16 @@ bool Type::is_primitive() const {
            (is<Array_t>() && as<Array_t>()->etype.is_primitive());
 }
 
+bool Type::is_stack_allocatable() const {
+    // TODO(ajr): some (small) structs?
+    return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t>() ||
+           (is<Vector_t>() && element_of().is_stack_allocatable()) ||
+           (is<Tuple_t>() &&
+            std::all_of(
+                as<Tuple_t>()->etypes.cbegin(), as<Tuple_t>()->etypes.cend(),
+                [](const auto &p) { return p.is_stack_allocatable(); }));
+}
+
 bool Type::is_iterable() const { return is<Vector_t, Array_t>(); }
 
 bool Type::is_func() const { return is<Function_t>(); }

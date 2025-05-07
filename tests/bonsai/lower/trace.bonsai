@@ -36,8 +36,7 @@ schedule {
         };
     };
 
-    trace_all.split(i0, io, ii, 8, false)
-             .packetize(ii);
+    trace_all.split(i0, io, ii, 8, false);
     // trace.loopify(64);
 }
 
