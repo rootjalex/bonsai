@@ -2379,21 +2379,32 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             );
             bonsai_type = struct_t->fields[idx].type;
         } else {
-            Expr idx = std::get<Expr>(value);
-            llvm::Value *llvm_idx = codegen_expr(idx);
-
             // First do a load, then index.
             loc = create_aligned_load(codegen_type(bonsai_type), loc,
                                       name + "_ld");
 
-            // Get lvalue to loc[`idx`]
-            name += "_ld";
-            bonsai_type = bonsai_type.element_of();
-            loc = builder->CreateInBoundsGEP(
-                codegen_type(bonsai_type), // The LLVM element type
-                loc,                       // The pointer to the container
-                llvm_idx,                  // GEP indices
-                name);
+            Expr idx = std::get<Expr>(value);
+            Type elt_type = bonsai_type.element_of();
+            bonsai_type = elt_type;
+
+            // Detect ramp index like Ramp(base, stride, lanes)
+            if (const Ramp *ramp = idx.as<Ramp>()) {
+                internal_assert(is_const_one(ramp->stride))
+                    << "Non-unit stride in ramp: " << wloc;
+                llvm::Value *base = codegen_expr(ramp->base);
+                loc = builder->CreateInBoundsGEP(codegen_type(elt_type), loc,
+                                                 base, name + "_ramp");
+            } else {
+                llvm::Value *llvm_idx = codegen_expr(idx);
+
+                // Get lvalue to loc[`idx`]
+                name += "_ld";
+                loc = builder->CreateInBoundsGEP(
+                    codegen_type(bonsai_type), // The LLVM element type
+                    loc,                       // The pointer to the container
+                    llvm_idx,                  // GEP indices
+                    name);
+            }
         }
     }
     return loc;

@@ -38,6 +38,9 @@ void WriteLoc::add_index_access(const Expr &index) {
             << "Write location of non-vector received index: " << index
             << " but has type: " << type;
         ir::Type _type = type.element_of();
+        if (index.type().is_vector()) {
+            _type = Vector_t::make(std::move(_type), index.type().lanes());
+        }
         internal_assert(_type.defined())
             << "Write location type inference produced undefined type: "
             << _type << " from index " << index << " of type " << type;
