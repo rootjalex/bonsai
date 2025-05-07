@@ -54,6 +54,78 @@ typedef unsigned short ushort;
 #include <math.h>
 
 ////////////////////////////////////////////////////////////////////////////////
+// bool
+////////////////////////////////////////////////////////////////////////////////
+struct bool2 {
+    bool x;
+    bool y;
+};
+inline bool2 operator<(float2 a, float2 b) {
+    return make_bool2(a.x < b.x, a.y < b.y);
+}
+inline bool2 operator<(int2 a, int2 b) {
+    return make_bool2(a.x < b.x, a.y < b.y);
+}
+inline bool2 operator<(uint2 a, uint2 b) {
+    return make_bool2(a.x < b.x, a.y < b.y);
+}
+
+struct bool3 {
+    bool x;
+    bool y;
+    bool z;
+};
+inline bool3 operator<(float3 a, float3 b) {
+    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
+}
+inline bool3 operator<(int3 a, int3 b) {
+    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
+}
+inline bool3 operator<(uint3 a, uint3 b) {
+    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
+}
+
+struct bool4 {
+    bool x;
+    bool y;
+    bool z;
+    bool w;
+};
+inline bool4 operator<(float4 a, float4 b) {
+    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
+}
+inline bool4 operator<(int4 a, int4 b) {
+    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
+}
+inline bool4 operator<(uint4 a, uint4 b) {
+    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
+}
+
+inline __host__ __device__ bool2 make_bool2(bool x, bool y) {
+    return bool2{.x = x, .y = y};
+}
+
+inline __host__ __device__ bool3 make_bool3(bool x, bool y, bool z) {
+    return bool3{.x = x, .y = y, .z = z};
+}
+
+inline __host__ __device__ bool4 make_bool4(bool x, bool y, bool z, bool w) {
+    return bool4{.x = x, .y = y, .z = z, .w = w};
+}
+
+inline __host__ __device__ bool2 make_bool2(bool s) {
+    return bool2{.x = s, .y = s};
+}
+
+inline __host__ __device__ bool3 make_bool3(bool s) {
+    return bool3{.x = s, .y = s, .z = s};
+}
+
+inline __host__ __device__ bool4 make_bool4(bool s) {
+    return bool4{.x = s, .y = s, .z = s, .w = s};
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // constructors
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1161,76 +1233,6 @@ inline __device__ __host__ float3 smoothstep(float3 a, float3 b, float3 x) {
 inline __device__ __host__ float4 smoothstep(float4 a, float4 b, float4 x) {
     float4 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
     return (y * y * (make_float4(3.0f) - (make_float4(2.0f) * y)));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// element wise compare
-////////////////////////////////////////////////////////////////////////////////
-
-__forceinline__ __host__ __device__ int2 vlt(int2 a, int2 b) {
-    int2 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    return r;
-}
-__forceinline__ __host__ __device__ int3 vlt(int3 a, int3 b) {
-    int3 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    r.z = (a.z < b.z) ? a.z : b.z;
-    return r;
-}
-__forceinline__ __host__ __device__ int4 vlt(int4 a, int4 b) {
-    int4 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    r.z = (a.z < b.z) ? a.z : b.z;
-    r.w = (a.w < b.w) ? a.w : b.w;
-    return r;
-}
-
-__forceinline__ __host__ __device__ uint2 vlt(uint2 a, uint2 b) {
-    uint2 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    return r;
-}
-__forceinline__ __host__ __device__ uint3 vlt(uint3 a, uint3 b) {
-    uint3 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    r.z = (a.z < b.z) ? a.z : b.z;
-    return r;
-}
-__forceinline__ __host__ __device__ uint4 vlt(uint4 a, uint4 b) {
-    uint4 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    r.z = (a.z < b.z) ? a.z : b.z;
-    r.w = (a.w < b.w) ? a.w : b.w;
-    return r;
-}
-
-__forceinline__ __host__ __device__ float2 vlt(float2 a, float2 b) {
-    float2 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    return r;
-}
-__forceinline__ __host__ __device__ float3 vlt(float3 a, float3 b) {
-    float3 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    r.z = (a.z < b.z) ? a.z : b.z;
-    return r;
-}
-__forceinline__ __host__ __device__ float4 vlt(float4 a, float4 b) {
-    float4 r;
-    r.x = (a.x < b.x) ? a.x : b.x;
-    r.y = (a.y < b.y) ? a.y : b.y;
-    r.z = (a.z < b.z) ? a.z : b.z;
-    r.w = (a.w < b.w) ? a.w : b.w;
-    return r;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -120,9 +120,9 @@ Point ClosestPtPointAABB(const Point* pt, const AABB* a) {
 float SqDistPointAABB(const Point* pt, const AABB* a) {
   float3 v = (*pt).vec;
   float3 sqLow = (((*a).low - v) * ((*a).low - v));
-  float3 low = vlt(sqLow, make_float3(0));
+  float3 low = make_float3(((v < (*a).low).x ? sqLow.x : make_float3(0).x),((v < (*a).low).y ? sqLow.y : make_float3(0).y),((v < (*a).low).z ? sqLow.z : make_float3(0).z));
   float3 sqHigh = ((v - (*a).high) * (v - (*a).high));
-  float3 high = vlt(sqHigh, make_float3(0));
+  float3 high = make_float3((((*a).high < v).x ? sqHigh.x : make_float3(0).x),(((*a).high < v).y ? sqHigh.y : make_float3(0).y),(((*a).high < v).z ? sqHigh.z : make_float3(0).z));
   return sum((low + high));
 }
 
@@ -383,7 +383,7 @@ Sphere _unexported_bounding_sphere(const Sphere* a, const Sphere* b) {
     }
   }
   const float new_radius = (0.5 * ((dist + (*a).radius) + (*b).radius));
-  float3 direction = vlt((d / make_float3(dist)), make_float3(1, 0, 0));
+  float3 direction = ((0 < dist) ? (d / make_float3(dist)) : make_float3(1, 0, 0));
   float3 new_center = ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
   return Sphere{new_center, new_radius};
 }
@@ -406,7 +406,7 @@ void bounding_sphere(const Sphere* _ret0, const Sphere* a, const Sphere* b) {
     }
   }
   const float new_radius = (0.5 * ((dist + (*a).radius) + (*b).radius));
-  float3 direction = vlt((d / make_float3(dist)), make_float3(1, 0, 0));
+  float3 direction = ((0 < dist) ? (d / make_float3(dist)) : make_float3(1, 0, 0));
   float3 new_center = ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
   _ret0 = Sphere{new_center, new_radius};
   return;
@@ -491,9 +491,9 @@ float degrees_to_radians(float degrees) {
 
 _option1 intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   float3 invDir = (make_float3(1) / (*r).d);
-  uchar3 dirIsNeg = (invDir < make_float3(0));
-  float3 low_parts = (dirIsNeg ? (*b).high : (*b).low);
-  float3 high_parts = (dirIsNeg ? (*b).low : (*b).high);
+  bool3 dirIsNeg = (invDir < make_float3(0));
+  float3 low_parts = make_float3((dirIsNeg.x ? (*b).high.x : (*b).low.x),(dirIsNeg.y ? (*b).high.y : (*b).low.y),(dirIsNeg.z ? (*b).high.z : (*b).low.z));
+  float3 high_parts = make_float3((dirIsNeg.x ? (*b).low.x : (*b).high.x),(dirIsNeg.y ? (*b).low.y : (*b).high.y),(dirIsNeg.z ? (*b).low.z : (*b).high.z));
   float3 tMin = ((low_parts - (*r).o) * invDir);
   float3 tMax = ((high_parts - (*r).o) * invDir);
   tMax *= (1 + (2 * (((float)3 * 5.96046e-08) / (1 - ((float)3 * 5.96046e-08)))));

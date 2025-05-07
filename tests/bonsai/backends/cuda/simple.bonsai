@@ -22,6 +22,17 @@ func add_v(x: vector[i32, 4], y: vector[i32, 4]) -> vector[i32, 4] {
     return v + w;
 }
 
+// Expected:
+// 1. bool3 InvDir = make_bool(dirIsNeg.x < 0, dirIsNeg.y < 0, dirIsNeg.z < 0);
+// 2. select on bool types.
+func select_v(x: vector[i32, 3], y: vector[i32, 3]) -> vector[i32, 3] {
+    invDir = 1 / x;
+    dirIsNeg: vector[bool, 3] = invDir < 0;
+
+    s: vector[i32, 3] = select(dirIsNeg, x, y);
+    return s;
+}
+
 func if_else(x: f32, y: f32) -> i32 {
     v: vector[f32, 3] = {x, y, 1.0};
     if (v.x > v.z + v.y) {

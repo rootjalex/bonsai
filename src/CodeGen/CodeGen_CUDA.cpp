@@ -42,17 +42,28 @@ namespace {
 // stack allocated.
 bool requires_allocation(ir::Type type) { return type.is<Array_t, Set_t>(); }
 
+std::string vector_lane_to_field(uint32_t lane) {
+    switch (lane) {
+    case 0:
+        return "x";
+    case 1:
+        return "y";
+    case 2:
+        return "z";
+    case 3:
+        return "w";
+    default:
+        internal_error << "unexpected vector lane: " << lane;
+    }
+}
+
 // Returns the appropriate prefix for builtin CUDA vector types.
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 std::string vector_prefix(Type element_type) {
     if (element_type.is<Bool_t>()) {
-        // TODO(cgyurgyik): There is no builtin boolean vector on GPUs.
-        // This would need to be hand-crafted. And this produces wrong code for,
-        // e.g.,
-        //
-        // dirIsNeg = invDir < 0;
-        // low_parts = select(dirIsNeg, b.high, b.low);
-        element_type = UInt_t::make(CHAR_BIT);
+        // TODO(cgyurgyik): this is a home-grown bool vector for now. There are
+        // likely better alternatives.
+        return "bool";
     }
     if (element_type.is<Int_t, UInt_t>()) {
         const bool is_unsigned = element_type.is<UInt_t>();
@@ -277,18 +288,29 @@ void CodeGen_CUDA::visit(const Build *node) {
 }
 
 void CodeGen_CUDA::visit(const Select *node) {
-    if (node->type.is<ir::Vector_t>()) {
-        // The ternary operator does not handle element wise vector operations.
-        // TODO(cgyurgyik): Support other vector element wise comparisons.
-        if (const auto *binop = node->cond.as<BinOp>()) {
-            internal_assert(binop->op == BinOp::OpType::Lt) << node->cond;
-            os << "vlt" << '(';
-            node->tvalue.accept(this);
-            os << ',' << ' ';
-            node->fvalue.accept(this);
-            os << ')';
-            return;
+    const auto *vector_t = node->type.as<ir::Vector_t>();
+    if (node->cond.type().is<Vector_t>()) {
+        // Perform element wise select.
+        internal_assert(vector_t) << Type(node->type);
+        ir::Type element_type = vector_t->etype;
+        // b: vector[bool, 2] = ...;
+        // s: vector[i32, 2] = select(b, v0, v1);
+        // ->
+        // int2 s = make_int2(b.x ? v0.x : v1.x, b.y ? v0.y : v1.y)
+        int64_t lanes = vector_t->lanes;
+        os << "make" << '_' << vector_prefix(element_type) << lanes << '(';
+        for (int i = 0; i < lanes; ++i) {
+            Expr c = Access::make(vector_lane_to_field(i), node->cond);
+            Expr t = Access::make(vector_lane_to_field(i), node->tvalue);
+            Expr f = Access::make(vector_lane_to_field(i), node->fvalue);
+            Select::make(c, t, f).accept(this);
+            if (i + 1 == lanes) {
+                continue;
+            }
+            os << ',';
         }
+        os << ')';
+        return;
     }
     open();
     node->cond.accept(this);
