@@ -83,13 +83,12 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
             for (size_t i = 0; i < lanes; i++) {
                 WriteLoc lane = loc;
                 lane.add_index_access(idx * lanes + i);
-                stores[i + 1] = Assign::make(lane, Extract::make(read, i),
-                                             /*mutating=*/true);
+                stores[i + 1] = Store::make(lane, Extract::make(read, i));
             }
             return Sequence::make(std::move(stores));
         } else {
             loc.add_index_access(idx);
-            return Assign::make(loc, expr, /*mutating=*/true);
+            return Store::make(loc, expr);
         }
     };
 
@@ -129,8 +128,9 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     args.result = alloc_name;
     args.base_type = alloc_type;
 
-    Stmt alloc = Assign::make(WriteLoc(alloc_name, alloc_type),
-                              Build::make(alloc_type), /*mutating=*/false);
+    Stmt alloc = Allocate::make(WriteLoc(alloc_name, alloc_type),
+                                // On the heap because it is returned.
+                                Allocate::Memory::Heap);
     static const Expr zero = make_zero(index_t);
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);
@@ -153,8 +153,9 @@ Stmt build_traversal(const VectorReduce *reduce_expr, FuncMap &funcs) {
     args.base_type = alloc_type;
 
     WriteLoc accumulator(alloc_name, alloc_type);
-    Stmt alloc =
-        Assign::make(accumulator, Build::make(alloc_type), /*mutating=*/false);
+    Stmt alloc = Allocate::make(accumulator, make_zero(alloc_type),
+                                // Heap because returned.
+                                Allocate::Memory::Heap);
 
     const Array_t *array_t = reduce_expr->value.type().as<Array_t>();
     internal_assert(array_t);

@@ -76,8 +76,6 @@ std::set<std::string> mutated_variables(Stmt stmt);
 bool reads(Expr expr, const std::set<std::string> &vars);
 bool reads(Stmt stmt, const std::set<std::string> &vars);
 
-std::set<std::string> assigned_variables(Stmt stmt);
-
 // Returns the set of function names that have side effects.
 std::set<std::string> find_side_effects(const ir::FuncMap &functions);
 

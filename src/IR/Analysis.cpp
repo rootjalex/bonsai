@@ -40,11 +40,19 @@ struct GatherFreeVars : public Visitor {
         node->value.accept(this);
     }
 
-    void visit(const Assign *node) override {
-        if (node->mutating && !seen_vars.contains(node->loc.base)) {
-            free_vars.push_back({node->loc.base, node->loc.base_type});
-        }
+    void visit(const Allocate *node) override {
         seen_vars.insert(node->loc.base);
+        internal_assert(node->loc.accesses.empty());
+        if (node->value.defined()) {
+            node->value.accept(this);
+        }
+    }
+
+    void visit(const Store *node) override {
+        if (!seen_vars.contains(node->loc.base)) {
+            free_vars.push_back({node->loc.base, node->loc.base_type});
+            seen_vars.insert(node->loc.base);
+        }
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
                 std::get<Expr>(value).accept(this);
@@ -143,7 +151,8 @@ struct AlwaysReturns : public Visitor {
 
     void visit(const CallStmt *node) override { returns = false; }
     void visit(const LetStmt *node) override { returns = false; }
-    void visit(const Assign *node) override { returns = false; }
+    void visit(const Allocate *node) override { returns = false; }
+    void visit(const Store *node) override { returns = false; }
     void visit(const Accumulate *node) override { returns = false; }
     void visit(const Print *node) override { returns = false; }
 
@@ -170,20 +179,10 @@ struct ReturnType : public Visitor {
         type = value.defined() ? value.type() : ir::Void_t::make();
     }
 
-    void visit(const LetStmt *node) override {
-        // TODO: fix this!! bring back SSA
-        // node->body.accept(this);
-    }
-
-    void visit(const Assign *node) override {
-        // TODO: fix this!! bring back SSA
-        // node->body.accept(this);
-    }
-
-    void visit(const Accumulate *node) override {
-        // TODO: fix this!! bring back SSA
-        // node->body.accept(this);
-    }
+    void visit(const LetStmt *node) override {}
+    void visit(const Allocate *node) override {}
+    void visit(const Store *node) override {}
+    void visit(const Accumulate *node) override {}
 
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
@@ -449,10 +448,8 @@ std::set<std::string> mutated_variables(Stmt stmt) {
     struct Gather : Visitor {
         std::set<std::string> mutated;
 
-        void visit(const Assign *node) override {
-            if (node->mutating) {
-                mutated.insert(node->loc.base);
-            }
+        void visit(const Store *node) override {
+            mutated.insert(node->loc.base);
         }
 
         void visit(const Accumulate *node) override {
@@ -475,24 +472,6 @@ bool reads(Stmt stmt, const std::set<std::string> &vars) {
     FindReads f(vars);
     stmt.accept(&f);
     return f.found;
-}
-
-std::set<std::string> assigned_variables(Stmt stmt) {
-    struct Gather : Visitor {
-        std::set<std::string> mutated;
-
-        void visit(const Assign *node) override {
-            mutated.insert(node->loc.base);
-        }
-
-        void visit(const LetStmt *node) override {
-            mutated.insert(node->loc.base);
-        }
-    };
-
-    Gather g;
-    stmt.accept(&g);
-    return std::move(g.mutated);
 }
 
 bool has_side_effects(const ir::Expr &expr,

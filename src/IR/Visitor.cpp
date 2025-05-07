@@ -213,18 +213,20 @@ void Visitor::visit(const DoWhile *node) {
 
 void Visitor::visit(const Sequence *node) { visit_list(this, node->stmts); }
 
-void Visitor::visit(const Assign *node) {
+void Visitor::visit(const Allocate *node) {
+    if (node->value.defined()) {
+        node->value.accept(this);
+    }
+}
+
+void Visitor::visit(const Store *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
-    // TODO: fix this!! bring back SSA
-    // node->body.accept(this);
 }
 
 void Visitor::visit(const Accumulate *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
-    // TODO: fix this!! bring back SSA
-    // node->body.accept(this);
 }
 
 void Visitor::visit(const Label *node) {

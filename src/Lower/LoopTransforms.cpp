@@ -119,8 +119,7 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
             // Write to queue at current count.
             WriteLoc current_queue_loc = queue_loc;
             current_queue_loc.add_index_access(count_var);
-            Stmt write_queue = Assign::make(current_queue_loc, std::move(value),
-                                            /*mutating=*/true);
+            Stmt write_queue = Store::make(current_queue_loc, std::move(value));
             // Increment counter.
             Stmt inc_counter = Accumulate::make(count_loc, Accumulate::Add,
                                                 make_one(count_var.type()));
@@ -182,8 +181,8 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
             Type count_type = queue_size->type();
             WriteLoc count_loc(count_name, count_type);
             Expr count_var = Var::make(count_type, count_name);
-            stmts.push_back(Assign::make(count_loc, make_one(count_type),
-                                         /*mutating=*/false));
+            stmts.push_back(Allocate::make(count_loc, make_one(count_type),
+                                           Allocate::Memory::Stack));
 
             // TODO(ajr): this should be a stack allocation for constant-sized
             // Exprs! For now, we don't free. that's really bad.
@@ -191,13 +190,11 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
             std::string queue_name = unique_queue_name();
             Type queue_type = Array_t::make(queue_etype, *queue_size);
             WriteLoc queue_loc(queue_name, queue_type);
-            stmts.push_back(Assign::make(queue_loc, Build::make(queue_type),
-                                         /*mutating=*/false));
+            stmts.push_back(Allocate::make(queue_loc, Allocate::Memory::Stack));
             Expr queue_var = Var::make(queue_type, queue_name);
             WriteLoc queue_top = queue_loc;
             queue_top.add_index_access(make_zero(count_type));
-            stmts.push_back(Assign::make(queue_top, make_zero(queue_etype),
-                                         /*mutating=*/true));
+            stmts.push_back(Store::make(queue_top, make_zero(queue_etype)));
 
             std::vector<Stmt> loop_body;
             loop_body.reserve(node->args.size() + 3);

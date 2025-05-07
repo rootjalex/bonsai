@@ -707,20 +707,21 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 }
             }
         } else if (const Array_t *as_array = type.as<Array_t>()) {
-            if (!values.empty()) {
-                const int64_t *const_size = as_const_int(as_array->size);
-                internal_assert(const_size && values.size() == *const_size)
-                    << "Incorrect number of arguments to array construction: "
-                    << type << " takes " << *const_size << " elements"
-                    << " but received " << values.size();
+            internal_assert(!values.empty())
+                << "Cannot Build Array_t from nothing, use Allocate instead.";
 
-                for (size_t i = 0; i < values.size(); i++) {
-                    internal_assert(equals(as_array->etype, values[i].type()))
-                        << "Build<Array_t> requires matching field types, "
-                        << "expected: " << as_array->etype << " but received "
-                        << values[i] << " of type " << values[i].type()
-                        << " for index: " << i;
-                }
+            const int64_t *const_size = as_const_int(as_array->size);
+            internal_assert(const_size && values.size() == *const_size)
+                << "Incorrect number of arguments to array construction: "
+                << type << " takes " << *const_size << " elements"
+                << " but received " << values.size();
+
+            for (size_t i = 0; i < values.size(); i++) {
+                internal_assert(equals(as_array->etype, values[i].type()))
+                    << "Build<Array_t> requires matching field types, "
+                    << "expected: " << as_array->etype << " but received "
+                    << values[i] << " of type " << values[i].type()
+                    << " for index: " << i;
             }
         } else {
             internal_error << "Build::make with non-(vector, array, struct, "

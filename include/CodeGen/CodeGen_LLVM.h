@@ -151,7 +151,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::DoWhile *) override;
     // default behavior is fine.
     // virtual void visit(const ir::Sequence *) override;
-    virtual void visit(const ir::Assign *) override;
+    virtual void visit(const ir::Allocate *) override;
+    virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
     RESTRICT_VISITOR(ir::RecLoop);
@@ -228,6 +229,8 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // Used to uniquely label forall loop codegen.
     uint64_t forall_loop_id = 0;
+    // Memory type to perform Build<Array_t>s in.
+    ir::Allocate::Memory allocate_memory = ir::Allocate::Memory::Heap;
 };
 
 std::unique_ptr<llvm::raw_fd_ostream>

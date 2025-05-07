@@ -1571,25 +1571,18 @@ void CodeGen_LLVM::visit(const Build *node) {
             return;
         }
     } else if (build_type->isPointerTy()) {
-        // TODO(ajr): builds of Array_t should probably be turned into Allocates
-        // and constant-sized insertion loops.
         internal_assert(node->type.is<Array_t>());
         const Array_t *array_t = node->type.as<Array_t>();
-
-        // Do allocation.
 
         llvm::Type *etype = codegen_type(array_t->etype);
         internal_assert(array_t->size.defined());
         llvm::Value *size = codegen_expr(array_t->size);
 
-        llvm::Value *alloc = nullptr;
-
-        // TODO(ajr): constant sized arrays should be on the stack.
-        // if (is_const(array_t->size))
-        // alloc = create_alloca_at_entry(etype, "constant_array_build", size);
-
-        // Heap allocation for dynamic-sized array (or returned array).
-        alloc = create_malloc(etype, size, /*zero_initialize=*/false, "");
+        // Heap allocation for dynamic-sized or returned array.
+        llvm::Value *alloc =
+            (allocate_memory == ir::Allocate::Memory::Heap)
+                ? create_malloc(etype, size, /*zero_initialize=*/false, "")
+                : create_alloca_at_entry(etype, "local_array_build", size);
 
         for (size_t i = 0; i < values.size(); i++) {
             llvm::Value *index = llvm::ConstantInt::get(size->getType(), i);
@@ -1784,28 +1777,46 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 
 // TODO(ajr): Figure out which parts of Halide's Store
 // codegen we can steal. They do better with __restrict
-void CodeGen_LLVM::visit(const Assign *node) {
-    llvm::Value *rhs = codegen_expr(node->value);
+void CodeGen_LLVM::visit(const Allocate *node) {
+    llvm::Value *rhs = nullptr;
+
+    if (node->value.defined()) {
+        ScopedValue<Allocate::Memory> _(allocate_memory, node->memory);
+        rhs = codegen_expr(node->value);
+    } else if (const Array_t *array_t = node->loc.base_type.as<Array_t>()) {
+        // Do allocation
+        llvm::Type *etype = codegen_type(array_t->etype);
+        internal_assert(array_t->size.defined());
+        llvm::Value *size = codegen_expr(array_t->size);
+
+        rhs = (node->memory == Allocate::Memory::Stack)
+                  ? create_alloca_at_entry(etype, node->loc.base, size)
+                  : create_malloc(etype, size, /*zero_initialize=*/false,
+                                  node->loc.base);
+    } else {
+        internal_error << "Allocation of non-array without initial value: "
+                       << Stmt(node);
+    }
 
     std::string name = node->loc.base;
 
-    if (!node->mutating) {
-        // This must alloca the ptr and store
-        internal_assert(node->loc.accesses.empty())
-            << "Allocating Assign to non-local value: " << Stmt(node);
-        internal_assert(!frames.from_frames(name).has_value()) << name;
+    // This must alloca the ptr and store
+    internal_assert(node->loc.accesses.empty())
+        << "Allocating Allocate to non-local value: " << Stmt(node);
+    internal_assert(!frames.from_frames(name).has_value()) << name;
 
-        llvm::Type *value_type = codegen_type(node->loc.base_type);
+    llvm::Type *value_type = codegen_type(node->loc.base_type);
 
-        llvm::Value *loc = create_alloca_at_entry(value_type, name);
+    llvm::Value *loc = create_alloca_at_entry(value_type, name);
 
-        frames.add_to_frame(node->loc.base, loc);
-        // TODO: when is isVolatile true?
-        builder->CreateStore(rhs, loc, /*isVolatile=*/false);
-        return;
-    }
+    frames.add_to_frame(node->loc.base, loc);
+    // TODO: when is isVolatile true?
+    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+}
+
+void CodeGen_LLVM::visit(const Store *node) {
+    llvm::Value *rhs = codegen_expr(node->value);
     llvm::Value *loc = codegen_write_loc(node->loc);
-
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
@@ -1847,8 +1858,7 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         }
         }
         WriteLoc base(node->loc.base, node->loc.base_type);
-        Stmt equiv_stmt =
-            Assign::make(std::move(base), std::move(equiv), /*mutating=*/true);
+        Stmt equiv_stmt = Store::make(std::move(base), std::move(equiv));
         codegen_stmt(equiv_stmt);
         return;
     }

@@ -164,35 +164,6 @@ struct RewriteOptions : public ir::Mutator {
         return {std::move(new_loc), not_changed};
     }
 
-    // These three need to mutate the types of the writelocs.
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::LetStmt::make(std::move(loc), std::move(value));
-    }
-
-    ir::Stmt visit(const ir::Assign *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::Assign::make(std::move(loc), std::move(value),
-                                node->mutating);
-    }
-
-    ir::Stmt visit(const ir::Accumulate *node) override {
-        auto [loc, not_changed] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate(node->value);
-        if (not_changed && value.same_as(node->value)) {
-            return node;
-        }
-        return ir::Accumulate::make(std::move(loc), node->op, std::move(value));
-    }
-
     // TODO: which other relevant nodes are there?
 };
 

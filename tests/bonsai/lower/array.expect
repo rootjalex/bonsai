@@ -1,5 +1,5 @@
 func _traverse_array0(fs : i32[8]) -> i32[8] {
-  _alloc0 := build<i32[8]>()
+  alloc _alloc0 : mut i32[8]
   forall _i0 in [0:8:1] {
     _alloc0[_i0] = f(fs[_i0]) + 1
   }
@@ -7,7 +7,7 @@ func _traverse_array0(fs : i32[8]) -> i32[8] {
 }
 
 func _traverse_array1(xs : i32[3]) -> i32[3] {
-  _alloc1 := build<i32[3]>()
+  alloc _alloc1 : mut i32[3]
   forall _i0 in [0:3:1] {
     _alloc1[_i0] = xs[_i0] + 1
   }
@@ -15,7 +15,7 @@ func _traverse_array1(xs : i32[3]) -> i32[3] {
 }
 
 func _traverse_array2(ij : i32[4][8]) -> i32[4][8] {
-  _alloc2 := build<i32[8 * 4]>()
+  alloc _alloc2 : mut i32[8 * 4]
   forall _i0 in [0:8:1] {
     forall _i1 in [0:4:1] {
       _alloc2[(_i0 << 2) + _i1] = ij[_i0][_i1] + 1
@@ -25,7 +25,7 @@ func _traverse_array2(ij : i32[4][8]) -> i32[4][8] {
 }
 
 func _traverse_array3(ijk : i32[32][16][8]) -> i32[32][16][8] {
-  _alloc3 := build<i32[(8 * 16) * 32]>()
+  alloc _alloc3 : mut i32[(8 * 16) * 32]
   forall _i0 in [0:8:1] {
     forall _i1 in [0:16:1] {
       forall _i2 in [0:32:1] {
@@ -37,7 +37,7 @@ func _traverse_array3(ijk : i32[32][16][8]) -> i32[32][16][8] {
 }
 
 func _traverse_array4(ij : i32[8][8]) -> i32[8][8] {
-  _alloc4 := build<i32[8 * 8]>()
+  alloc _alloc4 : mut i32[8 * 8]
   forall _i0 in [0:8:1] {
     forall _i1 in [0:8:1] {
       _alloc4[(_i0 << 3) + _i1] = (ij[_i0][_i1] + 1) - 1
@@ -47,7 +47,7 @@ func _traverse_array4(ij : i32[8][8]) -> i32[8][8] {
 }
 
 func _traverse_array5(xs : i32[8]) -> i32[8] {
-  _alloc5 := build<i32[8]>()
+  alloc _alloc5 : mut i32[8]
   forall _i0 in [0:8:1] {
     _alloc5[_i0] = ((xs[_i0] << 1) - 1) + 1
   }
