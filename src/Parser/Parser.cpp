@@ -2035,6 +2035,10 @@ struct Parser {
                 schedule.func_transforms[func].emplace_back(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
+            } else if (rewrite == "packetize") {
+                ir::Location i = parse_location();
+                schedule.func_transforms[func].emplace_back(
+                    ir::Packetize{std::move(i)});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

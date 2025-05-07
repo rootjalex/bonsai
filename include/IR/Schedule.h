@@ -19,6 +19,11 @@ struct Location {
     std::vector<std::string> names;
 };
 
+// Packetize the loop body of `i`.
+struct Packetize {
+    Location i;
+};
+
 // Parallelize `i` via some strategy.
 struct Parallelize {
     enum Strategy { CPUVector, CPUThread, GPUThread, GPUBlock };
@@ -42,7 +47,7 @@ struct Split {
     bool generate_tail;
 };
 
-using Transform = std::variant<Parallelize, Split>;
+using Transform = std::variant<Packetize, Parallelize, Split>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

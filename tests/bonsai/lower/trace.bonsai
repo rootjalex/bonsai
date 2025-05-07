@@ -6,7 +6,7 @@ extern triangles : set[Triangle];
 
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
-func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r), rays);
+func [[export]] trace_all(n : i32, rays : array[Ray, n]) = map(|r : Ray| trace(r), rays);
 
 // func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
@@ -35,6 +35,9 @@ schedule {
             };
         };
     };
+
+    trace_all.split(i0, io, ii, 8, false)
+             .packetize(ii);
 }
 
 

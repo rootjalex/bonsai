@@ -1,5 +1,6 @@
 #include "Lower/LoopTransforms.h"
 
+#include "Opt/Packetize.h"
 #include "Opt/Parallelize.h"
 
 #include "IR/Analysis.h"
@@ -121,7 +122,19 @@ ir::Program LoopTransforms::run(ir::Program program,
 
         Stmt body = std::move(func->body);
         for (const auto &t : ts) {
-            std::visit(Overloaded{[&](const Split &split) {
+            std::visit(Overloaded{[&](const Packetize &pac) {
+                                      std::string i = get_name(pac.i);
+                                      body = opt::packetize_forall(
+                                          i, std::move(body), program.funcs,
+                                          program.types);
+                                  },
+                                  [&](const Parallelize &par) {
+                                      std::string i = get_name(par.i);
+                                      body = opt::parallelize_forall(
+                                          i, std::move(body), program.funcs,
+                                          program.types);
+                                  },
+                                  [&](const Split &split) {
                                       std::string i = get_name(split.i);
                                       std::string io = get_name(split.io);
                                       std::string ii = get_name(split.ii);
@@ -129,20 +142,14 @@ ir::Program LoopTransforms::run(ir::Program program,
                                                         ii, split.factor,
                                                         split.generate_tail,
                                                         program.funcs);
-                                  },
-                                  [&](const Parallelize &par) {
-                                      std::string i = get_name(par.i);
-                                      body = opt::parallelize_forall(
-                                          i, std::move(body), program.funcs,
-                                          program.types);
                                   }},
                        t);
         }
         func->body = std::move(body);
-    }
+    } // namespace lower
 
     return program;
-}
+} // namespace bonsai
 
 } // namespace lower
 } // namespace bonsai
