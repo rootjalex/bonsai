@@ -40,9 +40,9 @@ inline vec3_float max(const vec3_float &a, const vec3_float &b) {
                       std::fmaxf(a[2], b[2])};
 }
 
-_spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
+_spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
-    _spheres_layout1 tree;
+    _spheres_layout0 tree;
     tree.pCount = spheres.size();
     tree.prims = spheres.data();
     // Just do a simple split, don't even sort for now.
@@ -53,7 +53,7 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
     size_t internal_count = leaf_count - 1;
     tree.count = leaf_count + internal_count;
     tree.spheres_index =
-        (_spheres_layout0 *)malloc(sizeof(_spheres_layout0) * tree.count);
+        (_spheres_layout1 *)malloc(sizeof(_spheres_layout1) * tree.count);
 
     uint32_t next_node = 0;
 
@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    _spheres_layout1 tree = build_tree_simple(spheres, 1);
+    _spheres_layout0 tree = build_tree_simple(spheres, 1);
 
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
