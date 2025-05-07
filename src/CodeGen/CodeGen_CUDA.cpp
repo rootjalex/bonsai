@@ -35,13 +35,6 @@ using namespace ir;
 
 namespace {
 
-// Returns whether this requires an allocation.
-// TODO(cgyurgyik): What about structs? Right now, I'm assuming these are stack
-// allocated...
-// TODO(cgyurgyik): constant sized arrays of a "small size" probably can be
-// stack allocated.
-bool requires_allocation(ir::Type type) { return type.is<Array_t, Set_t>(); }
-
 std::string vector_lane_to_field(uint32_t lane) {
     switch (lane) {
     case 0:
@@ -418,22 +411,28 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 void CodeGen_CUDA::visit(const ir::Access *node) {
     ir::Expr value = node->value;
     value.accept(this);
-    // TODO(cgyurgyik): This is wrong... we still pass structs by address. We
-    // need to distinguish stack allocated structs and those passed by argument.
-    // I think the right answer is to keep track of function parameters.
-    // (Similar solution/case for Visitor::Deref).
-    os << (requires_allocation(value.type()) ? "->" : ".");
+    os << (value.is<Deref>() ? "->" : ".");
     os << node->field;
 }
 
 void CodeGen_CUDA::visit(const Deref *node) {
-    if (node->type.is<Struct_t>() || requires_allocation(node->type)) {
-        os << '(' << '*';
+    if (node->expr.type().is_stack_allocatable()) {
         node->expr.accept(this);
-        os << ')';
         return;
     }
+    os << '(' << '*';
     node->expr.accept(this);
+    os << ')';
+}
+void CodeGen_CUDA::visit(const PtrTo *node) {
+    if (node->expr.type().is_stack_allocatable()) {
+        node->expr.accept(this);
+        return;
+    }
+    os << '(' << '&';
+    node->expr.accept(this);
+    os << ')';
+    return;
 }
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
@@ -454,19 +453,15 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     ir::Type type = node->loc.type;
     const std::string &base = node->loc.base;
     os << get_indent();
-    if (!requires_allocation(type)) {
-        if (!node->mutating) {
-            type.accept(this);
-            os << ' ';
-        }
-        // Simple types do not need allocations.
-        os << base << ' ' << '=' << ' ';
+    switch (node->memory) {
+    case Allocate::Memory::Stack: {
+        type.accept(this);
+        os << ' ' << base << ' ' << '=' << ' ';
         node->value.accept(this);
         os << ';' << '\n';
         return;
     }
-
-    if (!node->mutating) {
+    case Allocate::Memory::Heap: {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << '*' << ' ' << base << ';' << '\n';
@@ -479,13 +474,17 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ')' << ')' << ';' << '\n';
             return;
         }
+        // TODO(cgyurgyik): ...is there anything else?
+        break;
+    }
     }
     internal_error << "[unimplemented] Allocate CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
-    // TODO(ajr): write to output location.
-    internal_error << "[unimplemented] Store CUDA codegen: " << Stmt(node);
+    os << get_indent() << node->loc.base << ' ' << '=' << ' ';
+    node->value.accept(this);
+    os << ';' << '\n';
 }
 
 void CodeGen_CUDA::visit(const Accumulate *node) {
@@ -534,6 +533,7 @@ void CodeGen_CUDA::visit(const ir::Return *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::CallStmt *node) {
+    os << get_indent();
     node->func.accept(this);
     os << '(';
     print_expr_list(node->args);

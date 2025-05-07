@@ -51,6 +51,7 @@ typedef unsigned short ushort;
 #endif
 
 #ifndef __CUDACC__
+#include <cstdint>
 #include <math.h>
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -60,46 +61,17 @@ struct bool2 {
     bool x;
     bool y;
 };
-inline bool2 operator<(float2 a, float2 b) {
-    return make_bool2(a.x < b.x, a.y < b.y);
-}
-inline bool2 operator<(int2 a, int2 b) {
-    return make_bool2(a.x < b.x, a.y < b.y);
-}
-inline bool2 operator<(uint2 a, uint2 b) {
-    return make_bool2(a.x < b.x, a.y < b.y);
-}
-
 struct bool3 {
     bool x;
     bool y;
     bool z;
 };
-inline bool3 operator<(float3 a, float3 b) {
-    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
-}
-inline bool3 operator<(int3 a, int3 b) {
-    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
-}
-inline bool3 operator<(uint3 a, uint3 b) {
-    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
-}
-
 struct bool4 {
     bool x;
     bool y;
     bool z;
     bool w;
 };
-inline bool4 operator<(float4 a, float4 b) {
-    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
-}
-inline bool4 operator<(int4 a, int4 b) {
-    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
-}
-inline bool4 operator<(uint4 a, uint4 b) {
-    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
-}
 
 inline __host__ __device__ bool2 make_bool2(bool x, bool y) {
     return bool2{.x = x, .y = y};
@@ -123,6 +95,35 @@ inline __host__ __device__ bool3 make_bool3(bool s) {
 
 inline __host__ __device__ bool4 make_bool4(bool s) {
     return bool4{.x = s, .y = s, .z = s, .w = s};
+}
+
+inline bool4 operator<(float4 a, float4 b) {
+    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
+}
+inline bool4 operator<(int4 a, int4 b) {
+    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
+}
+inline bool4 operator<(uint4 a, uint4 b) {
+    return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
+}
+
+inline bool2 operator<(float2 a, float2 b) {
+    return make_bool2(a.x < b.x, a.y < b.y);
+}
+inline bool2 operator<(int2 a, int2 b) {
+    return make_bool2(a.x < b.x, a.y < b.y);
+}
+inline bool2 operator<(uint2 a, uint2 b) {
+    return make_bool2(a.x < b.x, a.y < b.y);
+}
+inline bool3 operator<(float3 a, float3 b) {
+    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
+}
+inline bool3 operator<(int3 a, int3 b) {
+    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
+}
+inline bool3 operator<(uint3 a, uint3 b) {
+    return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

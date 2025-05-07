@@ -56,6 +56,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::VectorShuffle *) override;
     void visit(const ir::Ramp *) override;
     void visit(const ir::Deref *) override;
+    void visit(const ir::PtrTo *) override;
     void visit(const ir::Build *) override;
     void visit(const ir::Intrinsic *) override;
     void visit(const ir::Access *) override;

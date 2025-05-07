@@ -169,21 +169,6 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
                 return LetStmt::make(std::move(loc), mutate(node->value));
             }
         }
-
-        Stmt visit(const Assign *node) override {
-            if (!type_repls || node->mutating) {
-                return Mutator::visit(node);
-            }
-
-            Type type = replace(*type_repls, node->loc.type);
-            if (type.same_as(node->loc.type)) {
-                return node;
-            } else {
-                ir::WriteLoc loc(node->loc.base, std::move(type));
-                return Assign::make(std::move(loc), mutate(node->value),
-                                    node->mutating);
-            }
-        }
     };
 
     // TODO: does visit order matter?
