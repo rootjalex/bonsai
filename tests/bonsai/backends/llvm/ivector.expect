@@ -2,16 +2,16 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef <2 x half> @"fma_$f16_f16x2"(<2 x half> noundef %a, <2 x half> noundef %b, <2 x half> noundef %c) local_unnamed_addr #0 {
-"fma_$f16_f16x2_entry":
+define noundef <2 x half> @__fma__f16_f16x2(<2 x half> noundef %a, <2 x half> noundef %b, <2 x half> noundef %c) local_unnamed_addr #0 {
+__fma__f16_f16x2_entry:
   %0 = fmul <2 x half> %a, %b
   %1 = fadd <2 x half> %0, %c
   ret <2 x half> %1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef <4 x float> @"fma_$f32_f32x4"(<4 x float> noundef %a, <4 x float> noundef %b, <4 x float> noundef %c) local_unnamed_addr #0 {
-"fma_$f32_f32x4_entry":
+define noundef <4 x float> @__fma__f32_f32x4(<4 x float> noundef %a, <4 x float> noundef %b, <4 x float> noundef %c) local_unnamed_addr #0 {
+__fma__f32_f32x4_entry:
   %0 = fmul <4 x float> %a, %b
   %1 = fadd <4 x float> %0, %c
   ret <4 x float> %1

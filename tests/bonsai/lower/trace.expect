@@ -8,6 +8,8 @@ type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type __tuple_1 = struct __tuple_1{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }
@@ -15,8 +17,6 @@ type _triangles_layout0 = struct _triangles_layout0{ pCount : u32; prims : struc
 type _triangles_layout1 = struct _triangles_layout1{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }
 type _triangles_split_layout2 = struct _triangles_split_layout2{ offset : u32 }
 type _triangles_split_layout3 = struct _triangles_split_layout3{ pOffset : u32 }
-type tuple.0 = struct tuple.0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
-type tuple.1 = struct tuple.1{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type vec3f = f32x3
 type vec3h = f16x3
 
@@ -31,7 +31,7 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout0*))
 }
 
 func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option0 {
-  _best0 : mut tuple.0 := build<tuple.0>((f32)inf, build<Triangle>())
+  _best0 : mut __tuple_0 := build<__tuple_0>((f32)inf, build<Triangle>())
   _queue_count0 : mut i32 := 1
   _queue0 : mut u32[64]
   _queue0[0] = 0u
@@ -49,7 +49,7 @@ func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option
           forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
             if (intersectsp_ray_tri(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {
               if (distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-                _best0 argmin= build<tuple.0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
+                _best0 argmin= build<__tuple_0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
               }
             }
           }
