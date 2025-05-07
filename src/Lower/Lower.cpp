@@ -117,12 +117,13 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
-    if (options.target == BackendTarget::CUDA) {
-        core.push_back(std::make_unique<RenamePointerToExpr>());
-    }
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
     core.push_back(std::make_unique<Mutability>());
+    // This must go after Mutability, since it requires PtrTo to be inserted.
+    if (options.target == BackendTarget::CUDA) {
+        core.push_back(std::make_unique<RenamePointerToExpr>());
+    }
     manager.register_alias("core", core);
 
     // Default: the default work flow (with optimizations).
@@ -151,12 +152,13 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<opt::Simplify>());
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Inline>());
-    if (options.target == BackendTarget::CUDA) {
-        core.push_back(std::make_unique<RenamePointerToExpr>());
-    }
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<Mutability>());
+    // This must go after Mutability, since it requires PtrTo to be inserted.
+    if (options.target == BackendTarget::CUDA) {
+        d.push_back(std::make_unique<RenamePointerToExpr>());
+    }
 
     manager.register_alias("default", d);
 

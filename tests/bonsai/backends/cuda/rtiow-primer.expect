@@ -178,9 +178,12 @@ bool intersects_Ray_Sphere(Ray* ray, Sphere* s) {
 }
 
 void _recloop_func0(uint16_t spheres__index, _spheres_layout1* spheres, Ray* r, __tuple_0* _best0) {
-  if (intersects_Ray_Sphere(r, (&Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius}))) {
-    if (0.001 < distmax_Ray_Sphere(r, (&Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius}))) {
-      if (distmin_Ray_Sphere(r, (&Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius})) < (*_best0)._field0) {
+  Sphere _lv2 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
+  if (intersects_Ray_Sphere(r, (&_lv2))) {
+    Sphere _lv1 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
+    if (0.001 < distmax_Ray_Sphere(r, (&_lv1))) {
+      Sphere _lv0 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
+      if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
         if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
           _recloop_func0(spheres__index + 1u, spheres, r, _best0);
           _recloop_func0(spheres__index + (__layout6)(*spheres).spheres_index[spheres__index].spheres_spliton_nPrims.offset, spheres, r, _best0);
@@ -338,7 +341,8 @@ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout1* spher
   float3 __alloc1 = make_float3(0);
   float3* _alloc1 = &__alloc1;
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
-    *_alloc1 += sample((&build_ray(i, j, c)), (*c).max_depth, spheres);
+    Ray _lv0 = build_ray(i, j, c);
+    *_alloc1 += sample((&_lv0), (*c).max_depth, spheres);
   }
   return (*_alloc1);
 }
