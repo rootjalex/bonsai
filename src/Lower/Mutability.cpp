@@ -56,7 +56,7 @@ struct RewriteMutables : public ir::Mutator {
         if (value.same_as(node->value) && type.same_as(node->type)) {
             return node;
         }
-        return ir::Cast::make(std::move(type), std::move(value));
+        return ir::Cast::make(std::move(type), std::move(value), node->mode);
     }
 
     ir::Expr visit(const ir::Build *node) override {

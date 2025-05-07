@@ -248,8 +248,8 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
                         << "Unseen Switch arm layout: " << ir::Layout(node)
                         << " at " << arm.layout;
                     ir::Type reinterpret_type = iter->second;
-                    // TODO(cgyurgyik): this should be a reinterpret cast.
-                    path = ir::Cast::make(reinterpret_type, path);
+                    path = ir::Cast::make(reinterpret_type, path,
+                                          ir::Cast::Mode::Reinterpret);
                     frames.push_frame();
                     arm.layout.accept(this);
                     frames.pop_frame();
