@@ -215,7 +215,7 @@ struct Cast : ExprNode<Cast> {
     enum class Mode {
         // e.g., reinterpret_cast<T*> in C++
         Reinterpret = 0,
-        // e.g., static_cast<T> in C++
+        // e.g., (T) in C++
         Convert = 1,
     };
     Expr value;
