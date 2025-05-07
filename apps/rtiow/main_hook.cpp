@@ -131,7 +131,7 @@ _spheres_layout1 build_tree_simple(std::vector<MaterialSphere> &spheres,
         return this_index;
     };
 
-    handle_range(0, tree.pCount, 0);
+    handle_range(/*low=*/0, /*high=*/tree.pCount, /*depth=*/0);
     return tree;
 }
 
