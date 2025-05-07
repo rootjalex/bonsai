@@ -31,6 +31,20 @@ bool is_single_element_struct_with_type(const Type &type,
     }
     return false;
 }
+
+bool is_bitwise_op(BinOp::OpType op) {
+    switch (op) {
+    case BinOp::OpType::BwAnd:
+    case BinOp::OpType::BwOr:
+    case BinOp::OpType::Xor:
+    case BinOp::OpType::Shl:
+    case BinOp::OpType::Shr:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 Expr::Expr(int8_t x) : IRHandle(IntImm::make(Int_t::make(8), x)) {}
@@ -264,8 +278,8 @@ void try_match_types(Expr &a, Expr &b) {
         }
 
         internal_assert(is_const(a) || is_const(b))
-            << "Implicit casting of types: " << a << " is not the same type as "
-            << b << ": " << a.type() << " versus " << b.type();
+            << "Implicit casting of types: " << a << ": " << a.type()
+            << " is not the same as " << b << ": " << b.type();
         if (is_const(a)) {
             a = constant_cast(b.type(), a);
         } else {
@@ -302,11 +316,26 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
 
     BinOp *node = new BinOp;
 
-    try_match_types(a, b);
+    if (is_bitwise_op(op)) {
+        if (equals(a.type(), b.type())) {
+            node->type = a.type();
+        } else {
+            uint32_t a_bits = a.type().is<Vector_t>()
+                                  ? a.type().element_of().bits()
+                                  : a.type().bits();
+            uint32_t b_bits = b.type().is<Vector_t>()
+                                  ? b.type().element_of().bits()
+                                  : b.type().bits();
+            internal_assert(a_bits == b_bits);
+            node->type = UInt_t::make(a_bits);
+        }
+    } else {
+        try_match_types(a, b);
+    }
 
     const bool infer_types = type_enforcement_enabled() ||
                              (a.type().defined() && b.type().defined());
-    if (infer_types) {
+    if (!is_bitwise_op(op) && infer_types) {
         internal_assert(equals(a.type(), b.type()))
             << "BinOp of mismatched types: " << a << " : " << a.type() << " "
             << to_string(op) << " " << b << " : " << b.type();
@@ -382,8 +411,12 @@ Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
     internal_assert(cond.defined()) << "Select with undefined condition";
     // TODO: if we allow Select in the frontend then we need to be able to not
     // perform this check?
-    internal_assert(cond.type().defined() && cond.type().is_bool())
-        << "Select with non-bool condition: " << cond;
+
+    internal_assert(cond.type().defined())
+        << "Select with undefined condition type: " << cond;
+    // TODO(cgyurgyik): We are creating masked selects in CUDA backend.
+    // internal_assert(cond.type().defined(); && cond.type().is_bool())
+    //     << "Select with non-bool condition: " << cond;
     internal_assert(tvalue.defined() && fvalue.defined())
         << "Select with undefined operands: " << cond << " " << tvalue << " "
         << fvalue;

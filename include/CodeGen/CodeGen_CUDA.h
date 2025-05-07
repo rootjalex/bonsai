@@ -46,6 +46,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::IFloat);
     RESTRICT_VISITOR(ir::IVector);
     // Expressions
+    void visit(const ir::BinOp *) override;
     void visit(const ir::FloatImm *) override;
     void visit(const ir::VecImm *) override;
     void visit(const ir::Infinity *) override;

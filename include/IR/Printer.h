@@ -162,6 +162,10 @@ struct Printer : public Visitor {
     void open();
     /** Either emits ")" or "", depending on the value of implicit_parens */
     void close();
+    /** Certain expressions do not need parens around them, e.g. the
+     * args to a call are already separated by commas and a
+     * surrounding set of parens. */
+    bool implicit_parens = false;
 
   private:
     /** The stream on which we're outputting */
@@ -170,11 +174,6 @@ struct Printer : public Visitor {
     /** The current indentation level, useful for pretty-printing
      * statements */
     int indent = 0;
-
-    /** Certain expressions do not need parens around them, e.g. the
-     * args to a call are already separated by commas and a
-     * surrounding set of parens. */
-    bool implicit_parens = false;
 
     /** The symbols whose types can be inferred from values printed
      * already. */

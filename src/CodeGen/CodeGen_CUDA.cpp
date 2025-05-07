@@ -35,6 +35,62 @@ using namespace ir;
 
 namespace {
 
+std::string integer_to_lane_field(int32_t x) {
+    switch (x) {
+    case 0:
+        return "x";
+    case 1:
+        return "y";
+    case 2:
+        return "z";
+    case 3:
+        return "w";
+    default:
+        internal_error << x;
+    }
+}
+
+Expr convert_to_mask(Expr e) {
+    const auto *node = e.as<BinOp>();
+    internal_assert(node) << e;
+    const auto *vector_t = node->type.as<Vector_t>();
+    internal_assert(vector_t) << e.type();
+    Expr a = node->a, b = node->b;
+    uint32_t bit_width = a.type().element_of().bits();
+    internal_assert(bit_width == b.type().element_of().bits());
+    Type type = UInt_t::make(bit_width);
+    Expr ones = make_all_ones(type), zeroes = make_zero(type);
+
+    internal_assert(a.type().is<Vector_t>()) << a << " : " << a.type();
+    internal_assert(b.type().is<Vector_t>()) << b << " : " << b.type();
+    std::vector<Expr> values;
+    for (int i = 0, e = vector_t->lanes; i < e; ++i) {
+        ir::Expr cond;
+        ir::Expr lhs = Access::make(integer_to_lane_field(i), a);
+        ir::Expr rhs = Access::make(integer_to_lane_field(i), b);
+        switch (node->op) {
+        case BinOp::OpType::Le:
+            cond = lhs <= rhs;
+            break;
+        case BinOp::OpType::Lt:
+            cond = lhs < rhs;
+            break;
+        case BinOp::OpType::Neq:
+            cond = lhs != rhs;
+            break;
+        case BinOp::OpType::Eq:
+            cond = lhs == rhs;
+            break;
+        default:
+            internal_error << "unreachable";
+        }
+        internal_assert(cond.defined());
+        values.push_back(ir::Select::make(std::move(cond), ones, zeroes));
+    }
+    return ir::Build::make(Vector_t::make(type, vector_t->lanes),
+                           std::move(values));
+}
+
 // Returns whether this requires an allocation.
 // TODO(cgyurgyik): What about structs? Right now, I'm assuming these are stack
 // allocated...
@@ -46,13 +102,8 @@ bool requires_allocation(ir::Type type) { return type.is<Array_t, Set_t>(); }
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 std::string vector_prefix(Type element_type) {
     if (element_type.is<Bool_t>()) {
-        // TODO(cgyurgyik): There is no builtin boolean vector on GPUs.
-        // This would need to be hand-crafted. And this produces wrong code for,
-        // e.g.,
-        //
-        // dirIsNeg = invDir < 0;
-        // low_parts = select(dirIsNeg, b.high, b.low);
-        element_type = UInt_t::make(CHAR_BIT);
+        // We will use this as a mask.
+        element_type = UInt_t::make(64);
     }
     if (element_type.is<Int_t, UInt_t>()) {
         const bool is_unsigned = element_type.is<UInt_t>();
@@ -167,6 +218,23 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
     os << "*";
 }
 
+void CodeGen_CUDA::visit(const BinOp *node) {
+    if (const auto *vector_t = node->type.as<Vector_t>()) {
+        if (BinOp::is_boolean_op(node->op)) {
+            convert_to_mask(node).accept(this);
+            return;
+        }
+    }
+    open();
+    {
+        ScopedValue<bool> _(implicit_parens, false);
+        node->a.accept(this);
+        os << ' ' << to_string(node->op) << ' ';
+        node->b.accept(this);
+    }
+    close();
+}
+
 void CodeGen_CUDA::visit(const FloatImm *node) {
     // TODO(cgyurgyik): Do we want *everything* to be printed as a double?
     // The `f` suffix does not compile in CUDA.
@@ -193,6 +261,16 @@ void CodeGen_CUDA::visit(const Infinity *node) {
 
 void CodeGen_CUDA::visit(const Cast *node) {
     // TODO(cgyurgyik): Is this what cast really means in Bonsai?
+    if (node->type.is_scalar()) {
+        os << "static_cast";
+        os << '<';
+        node->type.accept(this);
+        os << '>';
+        os << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
     os << '(';
     node->type.accept(this);
     os << ')';
@@ -255,9 +333,9 @@ void CodeGen_CUDA::visit(const VectorShuffle *node) {
     // implementation in Bonsai's runtime/CUDA/math.h
     os << "shuffle" << '(';
     node->value.accept(this);
-    os << ',' << ' ';
+    os << ',' << ' ' << '{';
     print_expr_list(node->idxs);
-    os << ')';
+    os << '}' << ')';
 }
 
 void CodeGen_CUDA::visit(const Ramp *node) {
@@ -277,18 +355,11 @@ void CodeGen_CUDA::visit(const Build *node) {
 }
 
 void CodeGen_CUDA::visit(const Select *node) {
-    if (node->type.is<ir::Vector_t>()) {
-        // The ternary operator does not handle element wise vector operations.
-        // TODO(cgyurgyik): Support other vector element wise comparisons.
-        if (const auto *binop = node->cond.as<BinOp>()) {
-            internal_assert(binop->op == BinOp::OpType::Lt) << node->cond;
-            os << "vlt" << '(';
-            node->tvalue.accept(this);
-            os << ',' << ' ';
-            node->fvalue.accept(this);
-            os << ')';
-            return;
-        }
+    if (node->type.is<Vector_t>()) {
+        ir::Expr cond = convert_to_mask(node->cond);
+        // select(mask, a, b) -> (mask & a) | (~mask & b)
+        ((cond & node->tvalue) | (~cond & node->fvalue)).accept(this);
+        return;
     }
     open();
     node->cond.accept(this);

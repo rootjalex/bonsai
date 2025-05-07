@@ -217,27 +217,27 @@ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, float3 defocus_
 
 Ray build_ray(int32_t i, int32_t j, const Camera* cam) {
   const int32_t width = (*cam).width;
-  int32_t height = (int32_t)((float)width / (*cam).aspect_ratio);
+  int32_t height = static_cast<int32_t>((static_cast<float>(width) / (*cam).aspect_ratio));
   height = ((height < 1) ? 1 : height);
   const float theta = (((*cam).vfov * 3.14159) / 180);
   const float h = tan(theta / 2);
   const float viewport_height = ((2 * h) * (*cam).focus_dist);
-  const float viewport_width = (viewport_height * ((float)width / (float)height));
+  const float viewport_width = (viewport_height * (static_cast<float>(width) / static_cast<float>(height)));
   float3 camera_center = (*cam).lookfrom;
   float3 w = (((*cam).lookfrom - (*cam).lookat) / make_float3(length((*cam).lookfrom - (*cam).lookat)));
   float3 u = (cross((*cam).vup, w) / make_float3(length(cross((*cam).vup, w))));
   float3 v = cross(w, u);
   float3 viewport_u = (make_float3(viewport_width) * u);
   float3 viewport_v = (make_float3(viewport_height) * -v);
-  float3 pixel_delta_u = (viewport_u / make_float3((float)width));
-  float3 pixel_delta_v = (viewport_v / make_float3((float)height));
+  float3 pixel_delta_u = (viewport_u / make_float3(static_cast<float>(width)));
+  float3 pixel_delta_v = (viewport_v / make_float3(static_cast<float>(height)));
   float3 viewport_upper_left = (((camera_center - (make_float3((*cam).focus_dist) * w)) - (viewport_u / make_float3(2))) - (viewport_v / make_float3(2)));
   float3 pixel00_loc = (viewport_upper_left + (make_float3(0.5) * (pixel_delta_u + pixel_delta_v)));
   const float defocus_radius = ((*cam).focus_dist * tan((((*cam).defocus_angle / 2) * 3.14159) / 180));
   float3 defocus_disk_u = (u * make_float3(defocus_radius));
   float3 defocus_disk_v = (v * make_float3(defocus_radius));
   float3 offset = float3{rand() - 0.5, rand() - 0.5, 0};
-  float3 pixel_sample = ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) + (make_float3(((float)j + offset.y)) * pixel_delta_v));
+  float3 pixel_sample = ((pixel00_loc + (make_float3((static_cast<float>(i) + offset.x)) * pixel_delta_u)) + (make_float3((static_cast<float>(j) + offset.y)) * pixel_delta_v));
   float3 ray_origin = camera_center;
   if (0 < (*cam).defocus_angle) {
     ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
@@ -342,7 +342,7 @@ float3 _traverse_array1(int32_t i, int32_t j, const Camera* c, const _spheres_la
 }
 
 float3 pixel(int32_t i, int32_t j, const Camera* c, const _spheres_layout1* spheres) {
-  return (_traverse_array1(i, j, c, spheres) / make_float3((float)(*c).samples_per_pixel));
+  return (_traverse_array1(i, j, c, spheres) / make_float3(static_cast<float>((*c).samples_per_pixel)));
 }
 
 float linear_to_gamma_f(float l) {
@@ -496,7 +496,7 @@ _option1 intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   float3 high_parts = (dirIsNeg ? (*b).low : (*b).high);
   float3 tMin = ((low_parts - (*r).o) * invDir);
   float3 tMax = ((high_parts - (*r).o) * invDir);
-  tMax *= (1 + (2 * (((float)3 * 5.96046e-08) / (1 - ((float)3 * 5.96046e-08)))));
+  tMax *= (1 + (2 * ((static_cast<float>(3) * 5.96046e-08) / (1 - (static_cast<float>(3) * 5.96046e-08)))));
   if ((tMax.y < tMin.x) || (tMax.x < tMin.y)) {
     return _option1{};
   }
@@ -533,10 +533,10 @@ _option2 intersectsp_ray_tri(const Ray* ray, const Triangle* tri) {
   const uint32_t kz = idxmax(abs((*ray).d));
   const uint32_t kx = ((kz + 1u) % 3u);
   const uint32_t ky = ((kx + 1u) % 3u);
-  float3 d = shuffle((*ray).d, kx, ky, kz);
-  p0t = shuffle(p0t, kx, ky, kz);
-  p1t = shuffle(p1t, kx, ky, kz);
-  p2t = shuffle(p2t, kx, ky, kz);
+  float3 d = shuffle((*ray).d, {kx, ky, kz});
+  p0t = shuffle(p0t, {kx, ky, kz});
+  p1t = shuffle(p1t, {kx, ky, kz});
+  p2t = shuffle(p2t, {kx, ky, kz});
   const float Sx = (-d.x / d.z);
   const float Sy = (-d.y / d.z);
   const float Sz = (1 / d.z);
@@ -575,14 +575,14 @@ _option2 intersectsp_ray_tri(const Ray* ray, const Triangle* tri) {
   const float b2 = (e2 * invDet);
   const float t = (tScaled * invDet);
   const float maxZt = max(abs(float3{p0t.z, p1t.z, p2t.z}));
-  const float deltaZ = ((((float)3 * 5.96046e-08) / (1 - ((float)3 * 5.96046e-08))) * maxZt);
+  const float deltaZ = (((static_cast<float>(3) * 5.96046e-08) / (1 - (static_cast<float>(3) * 5.96046e-08))) * maxZt);
   const float maxXt = max(abs(float3{p0t.x, p1t.x, p2t.x}));
   const float maxYt = max(abs(float3{p0t.y, p1t.y, p2t.y}));
-  const float deltaX = ((((float)5 * 5.96046e-08) / (1 - ((float)5 * 5.96046e-08))) * (maxXt + maxZt));
-  const float deltaY = ((((float)5 * 5.96046e-08) / (1 - ((float)5 * 5.96046e-08))) * (maxYt + maxZt));
-  const float deltaE = (2 * (((((((float)2 * 5.96046e-08) / (1 - ((float)2 * 5.96046e-08))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  const float deltaX = (((static_cast<float>(5) * 5.96046e-08) / (1 - (static_cast<float>(5) * 5.96046e-08))) * (maxXt + maxZt));
+  const float deltaY = (((static_cast<float>(5) * 5.96046e-08) / (1 - (static_cast<float>(5) * 5.96046e-08))) * (maxYt + maxZt));
+  const float deltaE = (2 * ((((((static_cast<float>(2) * 5.96046e-08) / (1 - (static_cast<float>(2) * 5.96046e-08))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
   const float maxE = max(abs(float3{e0, e1, e2}));
-  const float deltaT = ((3 * (((((((float)3 * 5.96046e-08) / (1 - ((float)3 * 5.96046e-08))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
+  const float deltaT = ((3 * ((((((static_cast<float>(3) * 5.96046e-08) / (1 - (static_cast<float>(3) * 5.96046e-08))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
   if (t <= deltaT) {
     return _option2{};
   }
@@ -632,11 +632,11 @@ float distmin_Ray_Triangle(const Ray* ray, const Triangle* tri) {
 }
 
 float gamma(int32_t n) {
-  return (((float)n * 5.96046e-08) / (1 - ((float)n * 5.96046e-08)));
+  return ((static_cast<float>(n) * 5.96046e-08) / (1 - (static_cast<float>(n) * 5.96046e-08)));
 }
 
 int3** image(const Camera* c, const _spheres_layout1* spheres) {
-  int32_t height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
+  int32_t height = static_cast<int32_t>((static_cast<float>((*c).width) / (*c).aspect_ratio));
   height = ((height < 1) ? 1 : height);
   return _traverse_array0(c, height, spheres);
 }
