@@ -580,6 +580,9 @@ Expr Extract::make(Expr vec, Expr idx) {
             return Extract::make(std::move(vec), *as_const_int(idx));
         }
         type = vec.type().element_of();
+        if (idx.type().is_vector()) {
+            type = Vector_t::make(std::move(type), idx.type().lanes());
+        }
     }
 
     Extract *node = new Extract;

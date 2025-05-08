@@ -1274,19 +1274,56 @@ void CodeGen_LLVM::visit(const Ramp *node) {
     internal_error << "TODO: implement Ramp code generation: " << Expr(node);
 }
 
-void CodeGen_LLVM::visit(const Extract *node) {
-    llvm::Value *vec = codegen_expr(node->vec);
-    llvm::Value *idx = codegen_expr(node->idx);
-    if (node->vec.type().is<Vector_t>()) {
-        value = builder->CreateExtractElement(vec, idx);
-    } else if (node->vec.type().is<Array_t>()) {
-        llvm::Type *etype = codegen_type(node->vec.type().element_of());
+llvm::Value *CodeGen_LLVM::create_scalar_load(const Expr &v, const Expr &i) {
+    llvm::Value *vec = codegen_expr(v);
+    llvm::Value *idx = codegen_expr(i);
+    if (v.type().is<Vector_t>()) {
+        return builder->CreateExtractElement(vec, idx);
+    } else if (v.type().is<Array_t>()) {
+        llvm::Type *etype = codegen_type(v.type().element_of());
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
-        value = create_aligned_load(etype, ptr, "extract");
+        return create_aligned_load(etype, ptr, "extract");
     } else {
-        internal_error << "[unimplemented] codegen of Extract on type: "
-                       << node->vec.type();
+        internal_error << "[unimplemented] codegen of load on type: "
+                       << v.type();
+    }
+}
+
+llvm::Value *CodeGen_LLVM::create_vector_load(const Type &slice_type,
+                                              const Expr &v, const Expr &i) {
+    const Ramp *ramp = i.as<Ramp>();
+    internal_assert(ramp)
+        << "[unimplemented] codegen of vector load with index: " << i;
+    internal_assert(is_const_one(ramp->stride))
+        << "[unimplemented] codegen of vector load with non-(stride 1) index: "
+        << i;
+    internal_assert(v.type().is<Array_t>())
+        << "[unimplemented] codegen of vector load on type: " << v.type()
+        << " from value: " << v;
+    // TODO: figure out Halide's alignment stuff from codegen_vector_load
+    const int align_bytes =
+        v.type().element_of().bytes(); // The size of a single element
+    internal_assert(slice_type.lanes() ==
+                    native_vector_lanes(slice_type.element_of().bits()))
+        << "[unimplemented] codegen of wide vector load on type: " << v.type()
+        << " from value: " << v << " with index: " << i;
+    // TODO: support masked loads.
+    llvm::Value *idx = codegen_expr(ramp->base);
+    llvm::Value *vec = codegen_expr(v);
+    llvm::Type *etype = codegen_type(v.type().element_of());
+    llvm::Value *ptr =
+        builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
+    return create_aligned_load(codegen_type(slice_type), ptr, "extract");
+}
+
+void CodeGen_LLVM::visit(const Extract *node) {
+    if (node->idx.type().is_scalar()) {
+        value = create_scalar_load(node->vec, node->idx);
+        return;
+    } else {
+        value = create_vector_load(node->type, node->vec, node->idx);
+        return;
     }
 }
 

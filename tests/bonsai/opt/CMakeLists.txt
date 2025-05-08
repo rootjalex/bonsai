@@ -9,6 +9,7 @@ add_bonsai_tests(
     dce-struct.bonsai
     dce.bonsai
     inline.bonsai
+    packetize.bonsai
     parallel.bonsai
     split.bonsai
 )

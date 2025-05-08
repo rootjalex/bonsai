@@ -171,6 +171,22 @@ struct Simplifier : ir::Mutator {
                 // a + 0 = a
                 return a;
             }
+            if (const auto *bc_a = a.as<ir::Broadcast>()) {
+                if (const auto *ramp_b = b.as<ir::Ramp>()) {
+                    // bc(x) + ramp(y, s, l) = ramp(x + y, s, l)
+                    ir::Expr base = mutate(bc_a->value + ramp_b->base);
+                    return ir::Ramp::make(std::move(base), ramp_b->stride,
+                                          ramp_b->lanes);
+                }
+            }
+            if (const auto *ramp_a = a.as<ir::Ramp>()) {
+                if (const auto *bc_b = b.as<ir::Broadcast>()) {
+                    // ramp(x, s, l) + bc(y) +  = ramp(x + y, s, l)
+                    ir::Expr base = mutate(ramp_a->base + bc_b->value);
+                    return ir::Ramp::make(std::move(base), ramp_a->stride,
+                                          ramp_a->lanes);
+                }
+            }
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mul: {

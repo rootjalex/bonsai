@@ -1,0 +1,15 @@
+func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
+  alloc _alloc0 : mut f32[n]
+  forall _io in [0:n:4] {
+    _alloc0[ramp(_io, 1, 4)] = sqrt(a[ramp(_io, 1, 4)])
+  }
+  return (*_alloc0)
+}
+
+func foo(n : i32, a : f32[n]) -> f32[n] {
+  return _traverse_array0(n, a)
+}
+
+
+schedule host{
+}

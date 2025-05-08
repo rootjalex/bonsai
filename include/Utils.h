@@ -153,6 +153,8 @@ static constexpr auto BFLOAT16 = FloatLayout<8, 7>{};
 ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
 // Whether we can convert an expression into a WriteLoc.
 bool is_writeloc(const ir::Expr &expr);
+// Convert a writeloc to a read of that value.
+ir::Expr writeloc_to_read(const ir::WriteLoc &loc);
 
 inline bool is_geometric_intrinsic(const std::string &name) {
     return (name == "contains") || (name == "distmin") || (name == "distmax") ||

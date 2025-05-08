@@ -207,17 +207,28 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // @}
 
-    llvm::Value *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
-                                     const std::string &name);
-    llvm::Value *create_alloca_at_entry(llvm::Type *etype,
-                                        const std::string &name,
-                                        llvm::Value *size = nullptr);
-    llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
-                               bool zero_initialize, const std::string &name);
+    virtual llvm::Value *create_aligned_load(llvm::Type *etype,
+                                             llvm::Value *ptr,
+                                             const std::string &name);
+    virtual llvm::Value *create_alloca_at_entry(llvm::Type *etype,
+                                                const std::string &name,
+                                                llvm::Value *size = nullptr);
+    virtual llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
+                                       bool zero_initialize,
+                                       const std::string &name);
+    virtual llvm::Value *create_scalar_load(const ir::Expr &v,
+                                            const ir::Expr &i);
+    virtual llvm::Value *
+    create_vector_load(const ir::Type &t, const ir::Expr &v, const ir::Expr &i);
 
     virtual int native_vector_bits() const {
         // TODO(ajr): override for other targets.
         return 128; // ARM Neon
+    }
+
+    virtual int native_vector_lanes(const uint32_t bits) const {
+        // TODO(ajr): override for other targets.
+        return native_vector_bits() / bits; // ARM Neon
     }
 
     bool is_llvm_const_one(llvm::Value *value) const {

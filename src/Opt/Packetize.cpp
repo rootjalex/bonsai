@@ -25,20 +25,90 @@ using namespace ir;
 
 static const std::string mask_name = "__mask";
 
+Type broadcast_type(const Type &base, const size_t lanes) {
+    if (base.is<Int_t, Float_t, UInt_t, Bool_t>()) {
+        return Vector_t::make(base, lanes);
+    }
+    internal_error << "[unimplemented] broadcast_type: " << base;
+}
+
 Stmt packetize_impl(std::string idx, Expr repl, Stmt body, FuncMap &funcs,
                     TypeMap &types) {
     struct PacketizeImpl : public Mutator {
         FuncMap &funcs;
         TypeMap &types;
         std::map<Expr, Expr, ExprLessThan> varying;
+        std::set<std::string> broadcasted;
+        size_t lanes;
 
         PacketizeImpl(FuncMap &funcs, TypeMap &types, std::string idx,
                       Expr repl)
             : funcs(funcs), types(types) {
             Expr idx_expr = Var::make(repl.type().element_of(), idx);
-            varying[std::move(idx_expr)] = std::move(repl);
+            varying[std::move(idx_expr)] = repl;
+            broadcasted.insert(idx);
+            lanes = repl.type().lanes();
         }
 
+        bool is_varying(const Expr &expr) const {
+            struct Finder : public Mutator {
+                const std::map<Expr, Expr, ExprLessThan> &varying;
+                bool found = false;
+
+                Finder(const std::map<Expr, Expr, ExprLessThan> &varying)
+                    : varying(varying) {}
+
+                Expr mutate(const Expr &expr) override {
+                    if (found || varying.contains(expr)) {
+                        found = true;
+                        return expr;
+                    }
+                    return Mutator::mutate(expr);
+                }
+            };
+            Finder finder(varying);
+            finder.mutate(expr);
+            return finder.found;
+        }
+
+        Expr mutate(const Expr &expr) override {
+            if (const auto iter = varying.find(expr); iter != varying.cend()) {
+                return iter->second;
+            }
+            return Mutator::mutate(expr);
+        }
+        using Mutator::mutate; // for mutate(Stmt)
+
+        // Relevant Exprs
+        Expr visit(const Var *node) override {
+            if (broadcasted.contains(node->name)) {
+                Type type = broadcast_type(node->type, lanes);
+                return Var::make(std::move(type), node->name);
+            }
+            return node;
+        }
+
+        RESTRICT_MUTATOR(Expr, Cast);
+        RESTRICT_MUTATOR(Expr, Broadcast);
+        RESTRICT_MUTATOR(Expr, VectorReduce);
+        RESTRICT_MUTATOR(Expr, VectorShuffle);
+        RESTRICT_MUTATOR(Expr, Ramp);
+        // RESTRICT_MUTATOR(Expr, Extract);
+        RESTRICT_MUTATOR(Expr, Build);
+        RESTRICT_MUTATOR(Expr, Access);
+        RESTRICT_MUTATOR(Expr, Call);
+
+        // not relevant; not supported
+        RESTRICT_MUTATOR(Expr, Unwrap);
+        RESTRICT_MUTATOR(Expr, Generator);
+        RESTRICT_MUTATOR(Expr, Lambda);
+        RESTRICT_MUTATOR(Expr, GeomOp);
+        RESTRICT_MUTATOR(Expr, SetOp);
+        RESTRICT_MUTATOR(Expr, Instantiate);
+        RESTRICT_MUTATOR(Expr, PtrTo);
+        RESTRICT_MUTATOR(Expr, Deref);
+
+        // Stmts.
         RESTRICT_MUTATOR(Stmt, CallStmt);
         RESTRICT_MUTATOR(Stmt, Print);
         RESTRICT_MUTATOR(Stmt, Return);
@@ -47,7 +117,39 @@ Stmt packetize_impl(std::string idx, Expr repl, Stmt body, FuncMap &funcs,
         RESTRICT_MUTATOR(Stmt, DoWhile);
         // RESTRICT_MUTATOR(Stmt, Sequence);
         RESTRICT_MUTATOR(Stmt, Allocate);
-        RESTRICT_MUTATOR(Stmt, Store);
+
+        Stmt visit(const Store *node) override {
+            Expr value = mutate(node->value);
+            if (value.same_as(node->value)) {
+                // This is a uniform value, no need to mutate anything.
+                // Just to be safe, will check that the store location is not
+                // varying.
+                Expr read = writeloc_to_read(node->loc);
+                internal_assert(is_varying(read))
+                    << "[unimplemented] packetized uniform store to varying "
+                       "location: "
+                    << Stmt(node);
+                return node;
+            }
+            bool varies = false;
+
+            // TODO: can the base type ever change?
+            WriteLoc loc(node->loc.base, node->loc.base_type);
+            for (const auto &access : node->loc.accesses) {
+                internal_assert(std::holds_alternative<Expr>(access))
+                    << "[unimplemented] fields in packetized store "
+                    << Stmt(node);
+                Expr expr = mutate(std::get<Expr>(access));
+                // only care about the last access.
+                varies = !expr.same_as(std::get<Expr>(access));
+                loc.add_index_access(expr);
+            }
+            internal_assert(varies)
+                << "[unimplemented] packetized store to uniform location: "
+                << Stmt(node);
+            return Store::make(std::move(loc), std::move(value));
+        }
+
         RESTRICT_MUTATOR(Stmt, Accumulate);
         // RESTRICT_MUTATOR(Stmt, Label);
         RESTRICT_MUTATOR(Stmt, RecLoop);
@@ -116,6 +218,7 @@ Stmt packetize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
         }
     };
 
+    body = opt::Simplify::simplify(body);
     PacketizeForAll pac(loop_idx, funcs, types);
     return pac.mutate(std::move(body));
 }

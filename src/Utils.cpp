@@ -386,6 +386,19 @@ WriteLoc read_to_writeloc(const Expr &expr) {
     return WriteLoc();
 }
 
+ir::Expr writeloc_to_read(const ir::WriteLoc &loc) {
+    Expr expr = Var::make(loc.base_type, loc.base);
+    for (const auto &access : loc.accesses) {
+        if (std::holds_alternative<Expr>(access)) {
+            expr = Extract::make(std::move(expr), std::get<Expr>(access));
+        } else {
+            internal_assert(std::holds_alternative<std::string>(access));
+            expr = Access::make(std::get<std::string>(access), std::move(expr));
+        }
+    }
+    return expr;
+}
+
 bool is_writeloc(const Expr &expr) {
     if (expr.as<Var>()) {
         return true;
