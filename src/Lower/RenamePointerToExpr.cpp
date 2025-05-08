@@ -30,7 +30,6 @@ ExprSet retrieve_variables(const ir::Stmt &body) {
             }
         }
 
-        ExprSet post_process() { return set; }
         ExprSet set;
     };
     RenameAnalysis analysis;
