@@ -117,6 +117,7 @@ struct RewriteVectorFields : public ir::Mutator {
 };
 
 ir::Stmt canonicalize(ir::Stmt stmt, const CompilerOptions &options) {
+    stmt = RewriteVectorFields().mutate(std::move(stmt));
     stmt = RewriteVectorImmediates().mutate(std::move(stmt));
     // TODO: more canonicalizations.
     return stmt;
