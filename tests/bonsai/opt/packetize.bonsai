@@ -7,6 +7,8 @@ func sabs(y : f32) -> f32 {
     return y;
 }
 
+// This codegen is still not quite as good (via LLVM) as ispc,
+// but they generate intel intrinsics...
 func bar(n : i32, a : array[f32, n]) = map(|x : f32| sabs(x), a);
 
 schedule {
