@@ -1,5 +1,5 @@
 func bar(i : i32x8) -> u32x8 {
-  if (0 < reduce<+>(i)) {
+  if (0 < sum(i)) {
     let j = foo(i) in
   } else {
     print(i)
@@ -25,7 +25,7 @@ func fizz(i : i32) -> i32 {
 }
 
 func foo(i : i32x8) -> u32x8 {
-  if (!(0 < reduce<+>(i))) {
+  if (!(0 < sum(i))) {
     print(i)
   }
   return abs(i)
@@ -34,7 +34,7 @@ func foo(i : i32x8) -> u32x8 {
 func main() -> i32 {
   let j = fizz(-1) in
   let k = fizz(12) in
-  return cast<i32>(reduce<+>(bar(i32x8(-1))))
+  return cast<i32>(sum(bar(i32x8(-1))))
 }
 
 func print_and_return(i : i32) -> i32 {
