@@ -21,7 +21,6 @@ namespace lower {
 namespace {
 
 using CallGraph = std::map<std::string, std::set<std::string>>;
-using TypeGraph = std::map<std::string, std::set<std::string>>;
 
 struct CallGraphBuilder : public ir::Visitor {
     // TODO: this does NOT work for interfaces!
