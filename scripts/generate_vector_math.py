@@ -31,7 +31,7 @@ def generate_vector_reduce():
             print()
 
 
-def generate_vector_idxmax():
+def generate_vector_idx_minmax():
     """
     Generates vector reduce (index) functions.
     """
@@ -88,6 +88,6 @@ def generate_vector_shuffle():
 
 
 if __name__ == "__main__":
-    generate_vector_idxmax()
+    generate_vector_idx_minmax()
     generate_vector_reduce()
     generate_vector_shuffle()
