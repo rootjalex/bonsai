@@ -159,7 +159,7 @@ std::vector<std::string> type_topological_order(const ir::TypeMap &types) {
 
         ir::Type type = types.at(name);
         if (const auto *element = type.as<ir::Struct_t>()) {
-            // This Element is a struct; visit it's members first.
+            // This element is a struct; visit its members first.
             for (auto [_, inner] : element->fields) {
                 // TODO(cgyurgyik): I don't think this is correct for any
                 // arbitrary nesting of elements, but there is an additional
