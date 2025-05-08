@@ -21,5 +21,7 @@ namespace lower {
 std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
                                                 const bool undef_calls);
 
+std::vector<std::string> type_topological_order(const ir::TypeMap &types);
+
 } // namespace lower
 } // namespace bonsai

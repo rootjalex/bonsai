@@ -83,18 +83,18 @@ struct _option2 {
   bool set = false;
 };
 
-struct _spheres_layout0 {
-  uint32_t pCount;
-  TMaterialSphere* prims; // of size pCount
-  uint32_t count;
-  _spheres_layout1* spheres_index; // of size count
-};
-
 struct _spheres_layout1 {
   float3 center;
   float radius;
   uint16_t nPrims;
   uchar2 spheres_spliton_nPrims;
+};
+
+struct _spheres_layout0 {
+  uint32_t pCount;
+  TMaterialSphere* prims; // of size pCount
+  uint32_t count;
+  _spheres_layout1* spheres_index; // of size count
 };
 
 struct _spheres_split_layout2 {

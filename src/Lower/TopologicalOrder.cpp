@@ -21,6 +21,7 @@ namespace lower {
 namespace {
 
 using CallGraph = std::map<std::string, std::set<std::string>>;
+using TypeGraph = std::map<std::string, std::set<std::string>>;
 
 struct CallGraphBuilder : public ir::Visitor {
     // TODO: this does NOT work for interfaces!
@@ -136,6 +137,57 @@ std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
         visit(f.first);
     }
 
+    return order;
+}
+
+std::vector<std::string> type_topological_order(const ir::TypeMap &types) {
+    std::vector<std::string> order;
+    std::set<std::string> seen, visiting;
+
+    std::set<ir::Type> all_types;
+    for (const auto &[_, type] : types) {
+        all_types.insert(type);
+    }
+
+    std::function<void(const std::string &)> visit =
+        [&](const std::string &name) -> void {
+        if (seen.contains(name)) {
+            return;
+        }
+        internal_assert(!visiting.contains(name))
+            << "cycle found in types, with type: " << name;
+        visiting.insert(name);
+
+        ir::Type type = types.at(name);
+        if (const auto *struct_t = type.as<ir::Struct_t>()) {
+            // This is a struct; visit its' members first.
+            for (auto [_, inner] : struct_t->fields) {
+                // TODO(cgyurgyik): I don't think this properly handles all
+                // nesting cases.
+                while (inner.is<ir::Array_t, ir::Vector_t, ir::Set_t>()) {
+                    inner = inner.element_of();
+                }
+                while (inner.is<ir::Ptr_t>()) {
+                    inner = inner.as<ir::Ptr_t>()->etype;
+                }
+                if (const auto *s = inner.as<ir::Struct_t>()) {
+                    if (types.contains(s->name)) {
+                        visit(s->name);
+                    }
+                }
+            }
+        }
+
+        visiting.erase(name);
+        seen.insert(name);
+        order.push_back(name);
+    };
+
+    for (const auto &[name, _] : types) {
+        visit(name);
+    }
+
+    internal_assert(order.size() == types.size());
     return order;
 }
 

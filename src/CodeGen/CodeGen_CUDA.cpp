@@ -729,9 +729,12 @@ void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
     std::set<Type> visited;
-    // TODO(cgyurgyik): Program types should be defined before their use; CUDA
-    // mandates it.
-    for (const auto &[_, type] : program.types) {
+    std::vector<std::string> types_topological =
+        lower::type_topological_order(program.types);
+    for (const std::string &name : types_topological) {
+        auto tit = program.types.find(name);
+        internal_assert(tit != program.types.end());
+        const Type &type = tit->second;
         if (!type.is<Struct_t>()) {
             // This is just an alias of an non-aggregate type, e.g.,
             // element Float = f32;
