@@ -222,6 +222,9 @@ void Visitor::visit(const Allocate *node) {
 void Visitor::visit(const Store *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
+    if (node->mask.defined()) {
+        node->mask.accept(this);
+    }
 }
 
 void Visitor::visit(const Accumulate *node) {

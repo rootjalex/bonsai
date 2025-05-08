@@ -86,10 +86,13 @@ struct RewriteVectorFields : public ir::Mutator {
     ir::Stmt visit(const ir::Store *node) override {
         auto [loc, changed] = canonicalize_loc(node->loc);
         ir::Expr value = mutate(node->value);
-        if (!changed && value.same_as(node->value)) {
+        ir::Expr mask = mutate(node->mask);
+        if (!changed && value.same_as(node->value) &&
+            mask.same_as(node->mask)) {
             return node;
         } else {
-            return ir::Store::make(std::move(loc), std::move(value));
+            return ir::Store::make(std::move(loc), std::move(value),
+                                   std::move(mask));
         }
     }
 

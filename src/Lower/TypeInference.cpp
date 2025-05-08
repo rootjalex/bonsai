@@ -79,6 +79,101 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
     return replacer.mutate(stmt);
 }
 
+ir::Stmt push_array_sizes(const ir::Stmt &stmt, const ir::FuncMap &funcs) {
+    struct PushArraySizes : public ir::Mutator {
+        const ir::FuncMap &funcs;
+        std::map<std::string, ir::Type> new_types;
+
+        PushArraySizes(const ir::FuncMap &funcs) : funcs(funcs) {}
+
+        // TODO(ajr): this type info can propagate poorly. investigate.
+        ir::Expr visit(const ir::Var *node) override {
+            if (const auto iter = new_types.find(node->name);
+                iter != new_types.cend()) {
+                return ir::Var::make(iter->second, node->name);
+            }
+            return node;
+        }
+
+        ir::Expr visit(const ir::Call *node) override {
+            // Mutate args first.
+            ir::Expr rec = ir::Mutator::visit(node);
+            node = rec.as<ir::Call>();
+            internal_assert(node);
+
+            const ir::Array_t *array_t = node->type.as<ir::Array_t>();
+            const ir::Var *var = node->func.as<ir::Var>();
+
+            if (!array_t || is_const(array_t->size) || !var) {
+                return rec;
+            }
+
+            const auto fiter = funcs.find(var->name);
+            if (fiter == funcs.cend()) {
+                return rec;
+            }
+
+            const size_t n = fiter->second->args.size();
+            internal_assert(n == node->args.size());
+
+            std::map<std::string, ir::Expr> repls;
+
+            for (size_t i = 0; i < n; i++) {
+                repls[fiter->second->args[i].name] = node->args[i];
+            }
+            ir::Expr size = replace(repls, array_t->size);
+            ir::Type ret_type =
+                ir::Array_t::make(array_t->etype, std::move(size));
+
+            // Only way to change Call type is via Function_t.
+            ir::Type call_type = ir::Function_t::make(
+                std::move(ret_type), fiter->second->argument_types());
+            ir::Expr func = ir::Var::make(std::move(call_type), var->name);
+            return ir::Call::make(std::move(func), node->args);
+        }
+
+        ir::Stmt visit(const ir::LetStmt *node) override {
+            ir::Expr value = mutate(node->value);
+            if (value.same_as(node->value)) {
+                return node;
+            }
+            internal_assert(value.type().defined());
+            ir::WriteLoc new_loc(node->loc.base, value.type());
+            auto [_, inserted] =
+                new_types.try_emplace(node->loc.base, value.type());
+            internal_assert(inserted);
+            return ir::LetStmt::make(std::move(new_loc), std::move(value));
+        }
+
+        ir::Stmt visit(const ir::Allocate *node) override {
+            ir::Expr value = mutate(node->value);
+            if (value.same_as(node->value)) {
+                return node;
+            }
+            if (node->loc.accesses.empty()) {
+                ir::WriteLoc new_loc(node->loc.base, value.type());
+                auto [_, inserted] =
+                    new_types.try_emplace(node->loc.base, value.type());
+                internal_assert(inserted);
+                return ir::Allocate::make(std::move(new_loc), std::move(value),
+                                          node->memory);
+            }
+            // Otherwise, can't mutate a field type, so just give up with
+            // special type inference.
+            return node;
+        }
+
+        ir::Stmt visit(const ir::Store *node) override {
+            ir::Expr value = mutate(node->value);
+            internal_assert(value.same_as(node->value));
+            return node;
+        }
+    };
+
+    PushArraySizes pusher(funcs);
+    return pusher.mutate(stmt);
+}
+
 ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
     struct InferBuildTypes : public ir::Mutator {
         InferBuildTypes(const ir::Type &return_type)
@@ -120,7 +215,8 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
             if (node->value.defined()) {
                 if (std::optional<ir::Expr> value =
                         infer_type(node->value, expected_type)) {
-                    return ir::Store::make(node->loc, mutate(*value));
+                    return ir::Store::make(node->loc, mutate(*value),
+                                           node->mask);
                 }
             }
             return node;
@@ -368,6 +464,9 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
     struct FindUndefTypes : public ir::Mutator {
         bool undef_types = false;
         ir::Expr mutate(const ir::Expr &expr) override {
+            if (!expr.defined()) {
+                return expr;
+            }
             undef_types = undef_types || !expr.type().defined();
             if (!expr.type().defined()) {
                 std::cerr << "Undefined type on expr: " << expr << std::endl;
@@ -423,6 +522,8 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
             bool before = undef_types;
             undef_types = undef_types || !node->value.type().defined();
             undef_types = undef_types || !node->loc.type.defined();
+            undef_types = undef_types || (node->mask.defined() &&
+                                          !node->mask.type().defined());
             for (const auto &value : node->loc.accesses) {
                 if (std::holds_alternative<ir::Expr>(value)) {
                     undef_types = undef_types ||
@@ -467,12 +568,15 @@ bool has_undef_expr_types(const ir::Stmt &stmt) {
     return finder.undef_types;
 }
 
-ir::Stmt infer_types(ir::Stmt stmt, const ir::TypeMap &func_types) {
+ir::Stmt infer_types(ir::Stmt stmt, const ir::TypeMap &func_types,
+                     const ir::FuncMap &funcs) {
     // First, try to use function types inferred so far to replace undefined
     // call sites.
     stmt = replace_undef_calls(stmt, func_types);
     // Use known semantics of set operations to set lambda argument types.
     stmt = set_setop_lambda_types(stmt);
+    // Push array size inference through calls.
+    stmt = push_array_sizes(stmt, funcs);
     return stmt;
 }
 
@@ -482,7 +586,7 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
     auto ftypes = std::make_shared<ir::Function>();
     ftypes->name = fnotypes->name;
     ftypes->args = fnotypes->args;
-    ftypes->body = infer_types(fnotypes->body, func_types);
+    ftypes->body = infer_types(fnotypes->body, func_types, program.funcs);
     ftypes->attributes = fnotypes->attributes;
 
     // If we know the return type (due to annotations), try to coerce all

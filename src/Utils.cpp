@@ -128,7 +128,12 @@ const SetOp *as_filter(const Expr &expr) {
     return nullptr;
 }
 
-Expr make_zero(const Type &t) { return make_const(t, 0); }
+Expr make_zero(const Type &t) {
+    if (t.is<Struct_t>()) {
+        return Build::make(t);
+    }
+    return make_const(t, 0);
+}
 
 Expr make_one(const Type &t) { return make_const(t, 1); }
 

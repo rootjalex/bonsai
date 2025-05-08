@@ -120,7 +120,8 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
             // Write to queue at current count.
             WriteLoc current_queue_loc = queue_loc;
             current_queue_loc.add_index_access(count_var);
-            Stmt write_queue = Store::make(current_queue_loc, std::move(value));
+            Stmt write_queue = Store::make(current_queue_loc, std::move(value),
+                                           /*mask*/ Expr());
             // Increment counter.
             Stmt inc_counter = Accumulate::make(count_loc, Accumulate::Add,
                                                 make_one(count_var.type()));
@@ -196,7 +197,8 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
             Expr queue_var = Var::make(queue_type, queue_name);
             WriteLoc queue_top = queue_loc;
             queue_top.add_index_access(make_zero(count_type));
-            stmts.push_back(Store::make(queue_top, make_zero(queue_etype)));
+            stmts.push_back(Store::make(queue_top, make_zero(queue_etype),
+                                        /*mask*/ Expr()));
 
             std::vector<Stmt> loop_body;
             loop_body.reserve(node->args.size() + 3);

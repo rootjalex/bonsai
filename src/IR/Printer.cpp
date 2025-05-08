@@ -682,13 +682,13 @@ void Printer::visit(const Broadcast *node) {
 std::string to_string(const VectorReduce::OpType &op) {
     switch (op) {
     case VectorReduce::Add:
-        return "+";
+        return "sum";
     case VectorReduce::Idxmin:
         return "idxmin";
     case VectorReduce::Idxmax:
         return "idxmax";
     case VectorReduce::Mul:
-        return "*";
+        return "prod";
     case VectorReduce::Min:
         return "min";
     case VectorReduce::Max:
@@ -702,7 +702,7 @@ std::string to_string(const VectorReduce::OpType &op) {
 
 void Printer::visit(const VectorReduce *node) {
     // TODO: print type?
-    os << "reduce<" << to_string(node->op) << ">(";
+    os << to_string(node->op) << "(";
     print_no_parens(node->value);
     os << ")";
 }
@@ -995,6 +995,10 @@ void Printer::visit(const Store *node) {
     print(node->loc);
     os << " = ";
     print_no_parens(node->value);
+    if (node->mask.defined()) {
+        os << "  mask=";
+        print_no_parens(node->mask);
+    }
     os << "\n";
 }
 

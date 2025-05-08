@@ -83,12 +83,13 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
             for (size_t i = 0; i < lanes; i++) {
                 WriteLoc lane = loc;
                 lane.add_index_access(idx * lanes + i);
-                stores[i + 1] = Store::make(lane, Extract::make(read, i));
+                stores[i + 1] =
+                    Store::make(lane, Extract::make(read, i), /*mask*/ Expr());
             }
             return Sequence::make(std::move(stores));
         } else {
             loc.add_index_access(idx);
-            return Store::make(loc, expr);
+            return Store::make(loc, expr, /*mask*/ Expr());
         }
     };
 

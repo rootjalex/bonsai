@@ -106,13 +106,13 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerForEachs>());
+    core.push_back(std::make_unique<LowerOptions>());
+    core.push_back(std::make_unique<LowerTuples>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
-    core.push_back(std::make_unique<LowerOptions>());
-    core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
@@ -133,13 +133,13 @@ PassManager register_passes() {
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
+    d.push_back(std::make_unique<LowerOptions>());
+    d.push_back(std::make_unique<LowerTuples>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
-    d.push_back(std::make_unique<LowerOptions>());
-    d.push_back(std::make_unique<LowerTuples>());
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());

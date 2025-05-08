@@ -355,7 +355,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
         llvm::errs().flush();
         internal_error << "Function verification failed for " << func.name
                        << "\n";
-        }
+    }
 
     current_function = nullptr;
 
@@ -1860,7 +1860,18 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 void CodeGen_LLVM::visit(const Store *node) {
     llvm::Value *rhs = codegen_expr(node->value);
     llvm::Value *loc = codegen_write_loc(node->loc);
-    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+
+    // TODO(ajr): tbaa metadata
+    if (node->mask.defined()) {
+        llvm::Value *mask = codegen_expr(node->mask);
+        // TODO(ajr): llvm.vp.store ?
+        // TODO: Is this legal / valid? Need all Allocates to be aligned.
+        int native_bytes = native_vector_bits() / 8;
+        builder->CreateMaskedStore(rhs, loc, llvm::Align(native_bytes), mask);
+    } else {
+        // TODO: when is isVolatile true?
+        builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+    }
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
@@ -1901,7 +1912,9 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         }
         }
         WriteLoc base(node->loc.base, node->loc.base_type);
-        Stmt equiv_stmt = Store::make(std::move(base), std::move(equiv));
+        // TODO(ajr): do Accumulates have store masks?
+        Stmt equiv_stmt =
+            Store::make(std::move(base), std::move(equiv) /*mask=*/Expr());
         codegen_stmt(equiv_stmt);
         return;
     }

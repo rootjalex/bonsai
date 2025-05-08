@@ -65,7 +65,9 @@ struct NameHygiene : ir::Mutator {
             }
         }
         ir::Expr value = mutate(node->value);
-        return ir::Store::make(std::move(new_loc), std::move(value));
+        ir::Expr mask = mutate(node->mask);
+        return ir::Store::make(std::move(new_loc), std::move(value),
+                               std::move(mask));
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
@@ -143,7 +145,9 @@ struct UnnameHygiene : ir::Mutator {
             }
         }
         ir::Expr value = mutate(node->value);
-        return ir::Store::make(std::move(new_loc), std::move(value));
+        ir::Expr mask = mutate(node->mask);
+        return ir::Store::make(std::move(new_loc), std::move(value),
+                               std::move(mask));
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
@@ -279,11 +283,14 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
 
-        // Need to increment use counts of indices.
+        // Need to increment use counts of indices and the mask.
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<ir::Expr>(value)) {
                 std::get<ir::Expr>(value).accept(this);
             }
+        }
+        if (node->mask.defined()) {
+            node->mask.accept(this);
         }
 
         curr_var = node->loc.base;
@@ -453,6 +460,7 @@ struct DeadCodeElimination : ir::Mutator {
         if (use_counts[node->loc.base] != 0) {
             return node;
         }
+        // TODO: should decrease use counts of vars in mask and accesses.
         return handle_side_effects(node->loc, node->value);
     }
 

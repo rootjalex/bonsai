@@ -949,7 +949,8 @@ struct Parser {
         }
 
         if (mutating) {
-            return ir::Store::make(std::move(loc), std::move(value));
+            return ir::Store::make(std::move(loc), std::move(value),
+                                   /*mask=*/ir::Expr());
         } else {
             return ir::Allocate::make(std::move(loc), std::move(value));
         }

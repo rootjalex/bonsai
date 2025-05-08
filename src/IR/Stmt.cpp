@@ -137,12 +137,14 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
     return node;
 }
 
-Stmt Store::make(WriteLoc loc, Expr value) {
+Stmt Store::make(WriteLoc loc, Expr value, Expr mask) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
+    // TODO(ajr): mask and value should have same number of lanes.
     Store *node = new Store;
     node->loc = std::move(loc);
     node->value = std::move(value);
+    node->mask = std::move(mask);
     return node;
 }
 

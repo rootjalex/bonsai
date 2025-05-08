@@ -53,6 +53,9 @@ struct GatherFreeVars : public Visitor {
             free_vars.push_back({node->loc.base, node->loc.base_type});
             seen_vars.insert(node->loc.base);
         }
+        if (node->mask.defined()) {
+            node->mask.accept(this);
+        }
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
                 std::get<Expr>(value).accept(this);

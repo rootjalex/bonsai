@@ -159,8 +159,9 @@ struct Allocate : StmtNode<Allocate> {
 struct Store : StmtNode<Store> {
     WriteLoc loc;
     Expr value;
+    Expr mask;
 
-    static Stmt make(WriteLoc loc, Expr value);
+    static Stmt make(WriteLoc loc, Expr value, Expr mask);
 
     static const IRStmtEnum node_type = IRStmtEnum::Store;
 };
