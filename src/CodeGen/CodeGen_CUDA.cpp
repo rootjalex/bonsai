@@ -530,18 +530,6 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
     os << "]";
 }
 
-void CodeGen_CUDA::visit(const Deref *node) {
-    os << '(' << '*';
-    node->expr.accept(this);
-    os << ')';
-}
-void CodeGen_CUDA::visit(const PtrTo *node) {
-    os << '(' << '&';
-    node->expr.accept(this);
-    os << ')';
-    return;
-}
-
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
@@ -590,11 +578,10 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ')' << ')' << ';' << '\n';
             return;
         }
-        // TODO(cgyurgyik): ...is there anything else?
-        break;
+        internal_error << "[unimplemented] Allocate CUDA codegen: "
+                       << Stmt(node);
     }
     }
-    internal_error << "[unimplemented] Allocate CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
@@ -631,20 +618,14 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     case Accumulate::OpType::Argmin:
         // curr = arg{min|max}(curr, update);
         // ->
-        // curr = (*curr).first (`<` | `>`) update.first ? curr : update;
+        // curr = arg{min|max}(curr, update);
         os << '=' << ' ';
-        // TODO(cgyurgyik): Gross...
-        Expr cv = Var::make(current.type, current.base);
-        os << '(' << '*';
-        cv.accept(this);
-        constexpr std::string_view F = "_field0";
-        os << ')' << '.' << F << ' ';
-        os << (node->op == Accumulate::OpType::Argmax ? '>' : '<') << ' ';
+        os << "arg" << (node->op == Accumulate::OpType::Argmax ? "max" : "min")
+           << '(';
+        Var::make(current.type, current.base).accept(this);
+        os << ',' << ' ';
         update.accept(this);
-        os << '.' << F << ' ' << '?' << ' ' << '*';
-        cv.accept(this);
-        os << ' ' << ':' << ' ';
-        update.accept(this);
+        os << ')';
         os << ';' << '\n';
         return;
     }

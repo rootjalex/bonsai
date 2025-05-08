@@ -1732,6 +1732,22 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
     return r;
 }
 
+template <typename T>
+T argmin(T *current, T update) {
+    if (current->_field0 < update._field0) {
+        return *current;
+    }
+    return update;
+}
+
+template <typename T>
+T *argmax(T *current, T update) {
+    if (current->_field0 > update._field0) {
+        return current;
+    }
+    return &update;
+}
+
 // Jesus christ
 template <typename O, typename I>
 O bonsai_reinterpret(I input) {
