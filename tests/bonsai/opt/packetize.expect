@@ -1,34 +1,35 @@
-func _packetized_sabs(y : f32x4, __mask : boolx4) -> f32x4 {
+func __packetized_sabs(y : f32x4, __callmask : boolx4) -> f32x4 {
   __result : mut f32x4 := f32x4(0f)
-  __result_mask : mut boolx4 := boolx4(false)
-  if (reduce<all>((__mask & (y < f32x4(-1f))) == __mask)) {
-    if (reduce<all>((__mask | (*__result_mask)) == __mask)) {
-      return select(__mask, -y, (*__result))
+  __deadmask : mut boolx4 := !__callmask
+  if (all(!(*__deadmask) == (__callmask & (y < f32x4(-1f))))) {
+    return select(__callmask, -y, (*__result))
+  } else if (any(!(*__deadmask) == (__callmask & (y < f32x4(-1f))))) {
+    if (all(((*__deadmask) | (__callmask & (y < f32x4(-1f)))) == __callmask)) {
+      return select(__callmask & (y < f32x4(-1f)), -y, (*__result))
     } else {
-      __result = select(__mask, -y, (*__result))
-      __result_mask = __mask | (*__result_mask)
-    }
-  } else if (reduce<any>((__mask & (y < f32x4(-1f))) == __mask)) {
-    if (reduce<all>(((__mask & (y < f32x4(-1f))) | (*__result_mask)) == __mask)) {
-      return select(__mask & (y < f32x4(-1f)), -y, (*__result))
-    } else {
-      __result = select(__mask & (y < f32x4(-1f)), -y, (*__result))
-      __result_mask = (__mask & (y < f32x4(-1f))) | (*__result_mask)
+      __result = select(__callmask & (y < f32x4(-1f)), -y, (*__result))
+      __deadmask = (*__deadmask) | (__callmask & (y < f32x4(-1f)))
     }
   }
-  if (reduce<all>((__mask | (*__result_mask)) == __mask)) {
-    return select(__mask, y, (*__result))
-  } else {
-    __result = select(__mask, y, (*__result))
-    __result_mask = __mask | (*__result_mask)
+  return select(__callmask, y, (*__result))
+}
+
+func __packetized_weird_cast(y : f32x4, __callmask : boolx4) -> i32x4 {
+  __result : mut i32x4 := i32x4(0)
+  __deadmask : mut boolx4 := !__callmask
+  i : mut i32x4 := cast<i32x4>(y)
+  if (all(!(*__deadmask) == (__callmask & (f32x4(0f) < y)))) {
+    i = cast<i32x4>(sqrt(y)) - i32x4(2)  mask=__callmask
+  } else if (any(!(*__deadmask) == (__callmask & (f32x4(0f) < y)))) {
+    i = cast<i32x4>(sqrt(y)) - i32x4(2)  mask=__callmask & (f32x4(0f) < y)
   }
-  return (*__result)
+  return select(__callmask, (*i), (*__result))
 }
 
 func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
   alloc _alloc0 : mut f32[n]
   forall _io in [0:n:4] {
-    _alloc0[ramp(_io, 1, 4)] = _packetized_sabs(a[ramp(_io, 1, 4)], boolx4(true))
+    _alloc0[ramp(_io, 1, 4)] = __packetized_sabs(a[ramp(_io, 1, 4)], boolx4(true))  mask=boolx4(true)
   }
   return (*_alloc0)
 }
@@ -36,9 +37,17 @@ func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
 func _traverse_array1(n : i32, a : f32[n]) -> f32[n] {
   alloc _alloc1 : mut f32[n]
   forall _io in [0:n:4] {
-    _alloc1[ramp(_io, 1, 4)] = sqrt(a[ramp(_io, 1, 4)])
+    _alloc1[ramp(_io, 1, 4)] = sqrt(a[ramp(_io, 1, 4)])  mask=boolx4(true)
   }
   return (*_alloc1)
+}
+
+func _traverse_array2(n : i32, a : f32[n]) -> i32[n] {
+  alloc _alloc2 : mut i32[n]
+  forall _io in [0:n:4] {
+    _alloc2[ramp(_io, 1, 4)] = __packetized_weird_cast(a[ramp(_io, 1, 4)], boolx4(true))  mask=boolx4(true)
+  }
+  return (*_alloc2)
 }
 
 func bar(n : i32, a : f32[n]) -> f32[n] {
@@ -49,11 +58,23 @@ func foo(n : i32, a : f32[n]) -> f32[n] {
   return _traverse_array1(n, a)
 }
 
+func fuzz(n : i32, a : f32[n]) -> i32[n] {
+  return _traverse_array2(n, a)
+}
+
 func sabs(y : f32) -> f32 {
   if (y < -1f) {
     return -y
   }
   return y
+}
+
+func weird_cast(y : f32) -> i32 {
+  i : mut i32 := cast<i32>(y)
+  if (0f < y) {
+    i = cast<i32>(sqrt(y)) - 2
+  }
+  return (*i)
 }
 
 

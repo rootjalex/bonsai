@@ -7,14 +7,27 @@ func sabs(y : f32) -> f32 {
     return y;
 }
 
+func weird_cast(y : f32) -> i32 {
+    i : mut = cast[[i32]](y);
+    if (y > 0) {
+        i = cast[[i32]](sqrt(y)) - 2;
+    }
+    return i;
+}
+
 // This codegen is still not quite as good (via LLVM) as ispc,
 // but they generate intel intrinsics...
 func bar(n : i32, a : array[f32, n]) = map(|x : f32| sabs(x), a);
+
+func fuzz(n : i32, a : array[f32, n]) = map(|x : f32| weird_cast(x), a);
 
 schedule {
     foo.split(i0, io, ii, 4, false)
        .packetize(ii);
 
     bar.split(i0, io, ii, 4, false)
+       .packetize(ii);
+
+    fuzz.split(i0, io, ii, 4, false)
        .packetize(ii);
 }
