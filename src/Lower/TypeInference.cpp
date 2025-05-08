@@ -343,6 +343,14 @@ ir::Stmt coerce_return_types(const ir::Stmt &stmt, const ir::Type &ret_type) {
             } else if (!ir::equals(node->value.type(), ret_type)) {
                 // TODO: check is_castable? The below might fail
                 // horrendously or silently...
+                if (const auto *struct_t = ret_type.as<ir::Struct_t>()) {
+                    if (struct_t->fields.size() == 1 &&
+                        ir::equals(node->value.type(),
+                                   struct_t->fields.front().type)) {
+                        return ir::Return::make(
+                            ir::Build::make(ret_type, {node->value}));
+                    }
+                }
                 ir::Expr new_value = ir::Cast::make(ret_type, node->value);
                 return ir::Return::make(std::move(new_value));
             } else {

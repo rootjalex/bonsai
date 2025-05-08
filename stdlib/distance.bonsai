@@ -119,7 +119,7 @@ func distmin(p : Point, tri : Triangle) -> Float {
 func ClosestPtPointAABB(pt : Point, a : AABB) -> Point {
     // For each coordinate axis, if the point coordinate value is
     // outside box, clamp it to the box, else keep it as is
-    return {min(max(pt.vec, a.low), a.high)};
+    return min(max(pt.vec, a.low), a.high);
 }
 
 // Source: RTCD 5.1.3.1 pg. 131
