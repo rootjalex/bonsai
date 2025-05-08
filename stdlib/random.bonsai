@@ -48,5 +48,5 @@ func random_in_unit_disk() -> vec3f {
 
 func defocus_disk_sample(center : vec3f, defocus_disk_u : vec3f, defocus_disk_v : vec3f) -> vec3f {
     p = random_in_unit_disk();
-    return center + (p.x * defocus_disk_u) + (p.y * defocus_disk_v);
+    return center + (p[0] * defocus_disk_u) + (p[1] * defocus_disk_v);
 }
