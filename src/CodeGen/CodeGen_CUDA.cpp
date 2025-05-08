@@ -198,7 +198,11 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
         os << '\n';
     }
     decrement();
-    os << get_indent() << '}' << ';' << '\n';
+    os << get_indent() << '}';
+    if (node->is_packed()) {
+        os << ' ' << "__attribute__((packed))";
+    }
+    os << ';' << '\n';
 }
 
 void CodeGen_CUDA::visit(const Vector_t *node) {

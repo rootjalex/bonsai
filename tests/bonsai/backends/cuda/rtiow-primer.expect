@@ -88,22 +88,22 @@ struct _spheres_layout1 {
   float radius;
   uint16_t nPrims;
   uchar2 spheres_spliton_nPrims;
-};
+} __attribute__((packed));
 
 struct _spheres_layout0 {
   uint32_t pCount;
   MaterialSphere* prims; // of size pCount
   uint32_t count;
   _spheres_layout1* spheres_index; // of size count
-};
+} __attribute__((packed));
 
 struct _spheres_split_layout2 {
   uint16_t offset;
-};
+} __attribute__((packed));
 
 struct _spheres_split_layout3 {
   uint16_t pOffset;
-};
+} __attribute__((packed));
 
 struct hit_record {
   float3 p;
