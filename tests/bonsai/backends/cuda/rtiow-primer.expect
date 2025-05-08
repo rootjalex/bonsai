@@ -371,18 +371,18 @@ int3 to_rgb(float3 v) {
   return make_int3((make_float3(static_cast<float>(256)) * min(max(corrected, make_float3(static_cast<float>(0))), make_float3(static_cast<float>(0.999)))).x, (make_float3(static_cast<float>(256)) * min(max(corrected, make_float3(static_cast<float>(0))), make_float3(static_cast<float>(0.999)))).y, (make_float3(static_cast<float>(256)) * min(max(corrected, make_float3(static_cast<float>(0))), make_float3(static_cast<float>(0.999)))).z);
 }
 
-int3** _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres) {
-  int32_t** _alloc0;
+int3* _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres) {
+  int32_t* _alloc0;
   (void)cudaMalloc((void**)&_alloc0,((height * (*c).width) * 3) * sizeof(int32_t));
   for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
     for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
       int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));
-      *_alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
-      *_alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
-      *_alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
+      _alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
+      _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
+      _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
     }
   }
-  return (int3**)(*_alloc0);
+  return reinterpret_cast<int3*>(_alloc0);
 }
 
 Sphere _unexported_bounding_sphere(Sphere* a, Sphere* b) {
@@ -656,7 +656,7 @@ float gamma(int32_t n) {
   return (((float)n * static_cast<float>(5.96046e-08)) / (static_cast<float>(1) - ((float)n * static_cast<float>(5.96046e-08))));
 }
 
-int3** image(Camera* c, _spheres_layout0* spheres) {
+int3* image(Camera* c, _spheres_layout0* spheres) {
   int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
   int32_t* height = &_height;
   *height = (((*height) < 1) ? 1 : (*height));

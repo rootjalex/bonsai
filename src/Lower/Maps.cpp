@@ -135,7 +135,8 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);
 
-    Expr ret_var = cast(map_expr->type, Var::make(alloc_type, alloc_name));
+    Expr ret_var = Cast::make(map_expr->type, Var::make(alloc_type, alloc_name),
+                              Cast::Mode::Reinterpret);
     Stmt return_var = Return::make(ret_var);
 
     // TODO: flatten sequence?

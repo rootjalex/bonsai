@@ -162,7 +162,12 @@ void CodeGen_CUDA::visit(const Float_t *node) {
 }
 
 void CodeGen_CUDA::visit(const Array_t *node) {
-    node->etype.accept(this);
+    // Treat arrays as 1-dimensional...
+    ir::Type etype = node->etype;
+    while (etype.is<Array_t>()) {
+        etype = etype.as<Array_t>()->etype;
+    }
+    etype.accept(this);
     os << '*';
 }
 
@@ -280,8 +285,13 @@ void CodeGen_CUDA::visit(const Cast *node) {
         value.accept(this);
         return;
     case Cast::Mode::Reinterpret:
-        // See "runtime/CUDA/math.h" for what this function is doing.
-        os << "bonsai_reinterpret" << '<';
+        if (node->type.is<Ptr_t, Array_t>()) {
+            os << "reinterpret_cast";
+        } else {
+            // See "runtime/CUDA/math.h" for what this function is doing.
+            os << "bonsai_reinterpret";
+        }
+        os << '<';
         node->type.accept(this);
         os << '>' << '(';
         value.accept(this);
@@ -368,6 +378,19 @@ void CodeGen_CUDA::visit(const Build *node) {
         print_no_parens(node->values[i]);
     }
     os << '}';
+}
+
+void CodeGen_CUDA::visit(const Deref *node) {
+    Expr pointee = node->expr;
+    if (const auto *p = pointee.type().as<Ptr_t>()) {
+        if (p->etype.is<Array_t>()) {
+            pointee.accept(this);
+            return;
+        }
+    }
+    os << '(' << '*';
+    pointee.accept(this);
+    os << ')';
 }
 
 void CodeGen_CUDA::visit(const Select *node) {
@@ -570,14 +593,14 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         // ...and then we take its address.
         os << get_indent();
         type.accept(this);
-        os << '*' << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';'
-           << '\n';
+        os << '*';
+        os << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';' << '\n';
         return;
     }
     case Allocate::Memory::Heap: {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
-            os << '*' << ' ' << b << ';' << '\n';
+            os << ' ' << b << ';' << '\n';
             // TODO(cgyurgyik): check the status of the CUDA malloc.
             os << get_indent() << "(void)" << "cudaMalloc" << '(';
             os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',';
@@ -595,7 +618,9 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
-    os << '*';
+    if (!node->loc.base_type.is<Array_t>()) {
+        os << '*';
+    }
     os << node->loc.base;
     for (const auto &access : node->loc.accesses) {
         if (std::holds_alternative<std::string>(access)) {
@@ -615,7 +640,9 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
-    os << '*';
+    if (!node->loc.base_type.is<Array_t>()) {
+        os << '*';
+    }
     os << current.base << ' ';
     switch (node->op) {
     case Accumulate::OpType::Add:
