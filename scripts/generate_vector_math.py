@@ -75,8 +75,6 @@ def generate_vector_shuffle():
             vector_type = f"{type}{n}"
             func_name = f" shuffle({vector_type} v, std::initializer_list<{INDEX_TYPE}> indices)"
             body = f"""{{ {vector_type} r; auto it = indices.begin();"""
-            #
-            # return { (&v.x)[*it++], (&v.x)[*it++], (&v.x)[*it++] };
             for i in range(n):
                 body += f"""switch (*it++) {{ case 0: r.{FIELDS[i]} = v.x; break; case 1: r.{FIELDS[i]} = v.y; break;"""
                 if n > 2:
