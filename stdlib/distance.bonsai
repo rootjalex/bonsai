@@ -120,8 +120,7 @@ func ClosestPtPointAABB(pt : Point, a : AABB) -> Point {
     // For each coordinate axis, if the point coordinate value is
     // outside box, clamp it to the box, else keep it as is
     
-    // TODO(cgyurgyik): Why is this creating a cast if Point isn't explicitly
-    // written?
+    // TODO(cgyurgyik): This shouldn't create a caste if Point{} is wrapping it.
     return Point{min(max(pt.vec, a.low), a.high)};
 }
 

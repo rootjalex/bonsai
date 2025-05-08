@@ -6,18 +6,16 @@ import stdlib/ray;
 import stdlib/sphere;
 import stdlib/distance;
 
-// TODO(cgyurgyik): hack, prefixed with `T` since CUDA
-// needs children types to be declared before parent.
-element TMaterialSphere {
+element MaterialSphere {
     s : Sphere;
     material : u32; // 0 = Lambertian, 1 = Metal
     albedo : vec3f;
     fuzz : Float; // Metal's fuzz, Dialectric's refraction_index
 }
 
-func distmin(r : Ray, ms : TMaterialSphere) = distmin(r, ms.s);
-func distmax(r : Ray, ms : TMaterialSphere) = distmax(r, ms.s);
-func intersects(r : Ray, ms : TMaterialSphere) = intersects(r, ms.s);
+func distmin(r : Ray, ms : MaterialSphere) = distmin(r, ms.s);
+func distmax(r : Ray, ms : MaterialSphere) = distmax(r, ms.s);
+func intersects(r : Ray, ms : MaterialSphere) = intersects(r, ms.s);
 
 element Camera {
     aspect_ratio : Float;
@@ -105,8 +103,7 @@ element scatter_record {
     hit : bool;
 }
 
-// TODO: investigate whether this generates a lookup table.
-func scatter(ray : Ray, ms : TMaterialSphere) -> scatter_record {
+func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
     hit = get_hit_record(ray, ms.s);
     if ms.material == 0 {
         // Lambertian
@@ -143,16 +140,15 @@ func scatter(ray : Ray, ms : TMaterialSphere) -> scatter_record {
 }
 
 
-extern spheres : set[TMaterialSphere];
+extern spheres : set[MaterialSphere];
 
-// TODO: need to inspect llvm/asm to make sure calls only happen once.
-func trace(r : Ray) = argmin(|s : TMaterialSphere| distmin(r, s), filter(|s : TMaterialSphere| intersects(r, s) && distmin(r, s) > 0.001, spheres));
+func trace(r : Ray) = argmin(|s : MaterialSphere| distmin(r, s), filter(|s : MaterialSphere| intersects(r, s) && distmin(r, s) > 0.001, spheres));
 
 func sample(r : Ray, depth : i32) -> vec3f {
     if (depth <= 0) {
         return vec3f{0.0, 0.0, 0.0};
     }
-    isect : option[TMaterialSphere] = trace(r);
+    isect : option[MaterialSphere] = trace(r);
     if isect {
         data = scatter(r, *isect);
         if (data.hit) {
@@ -182,16 +178,15 @@ func [[export]] image(c : Camera) {
 }
 
 schedule {
-    // TODO: generic over primitive types!
     tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
     | Interior(left : SphereBVH, right : SphereBVH)
-    | Leaf(data : array[TMaterialSphere]);
+    | Leaf(data : array[MaterialSphere]);
 
     spheres : SphereBVH;
 
     layout spheres {
         pCount : u32;
-        prims : array[TMaterialSphere, pCount];
+        prims : array[MaterialSphere, pCount];
         count : u32;
         group[count] index : u16 {
             center : vec3f;

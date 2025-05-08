@@ -23,6 +23,18 @@ struct FInterval {
   float high;
 };
 
+struct Sphere {
+  float3 center;
+  float radius;
+};
+
+struct MaterialSphere {
+  Sphere s;
+  uint32_t material;
+  float3 albedo;
+  float fuzz;
+};
+
 struct Point {
   float3 vec;
 };
@@ -31,18 +43,6 @@ struct Ray {
   float3 o;
   float3 d;
   float tmax = INFINITY;
-};
-
-struct Sphere {
-  float3 center;
-  float radius;
-};
-
-struct TMaterialSphere {
-  Sphere s;
-  uint32_t material;
-  float3 albedo;
-  float fuzz;
 };
 
 struct Triangle {
@@ -60,7 +60,7 @@ struct TriangleIntersection {
 
 struct __tuple_0 {
   float _field0;
-  TMaterialSphere _field1;
+  MaterialSphere _field1;
 };
 
 struct __tuple_1 {
@@ -69,7 +69,7 @@ struct __tuple_1 {
 };
 
 struct _option0 {
-  TMaterialSphere value;
+  MaterialSphere value;
   bool set = false;
 };
 
@@ -92,7 +92,7 @@ struct _spheres_layout1 {
 
 struct _spheres_layout0 {
   uint32_t pCount;
-  TMaterialSphere* prims; // of size pCount
+  MaterialSphere* prims; // of size pCount
   uint32_t count;
   _spheres_layout1* spheres_index; // of size count
 };
@@ -257,7 +257,7 @@ Ray build_ray(int32_t i, int32_t j, Camera* cam) {
 }
 
 _option0 _traverse_tree0(Ray* r, _spheres_layout0* spheres) {
-  __tuple_0 __best0 = __tuple_0{INFINITY, TMaterialSphere{}};
+  __tuple_0 __best0 = __tuple_0{INFINITY, MaterialSphere{}};
   __tuple_0* _best0 = &__best0;
   _recloop_func0(0u, spheres, r, _best0);
   return (((*_best0)._field0 != INFINITY) ? _option0{(*_best0)._field1, true} : _option0{});
@@ -298,7 +298,7 @@ float3 refract(float3 uv, float3 n, float etai_over_etat) {
   return (r_out_perp + r_out_parallel);
 }
 
-scatter_record scatter(Ray* ray, TMaterialSphere* ms) {
+scatter_record scatter(Ray* ray, MaterialSphere* ms) {
   hit_record hit = get_hit_record(ray, (&(*ms).s));
   if ((*ms).material == 0u) {
     float3 _scatter_dir = (hit.normal + random_unit_vector());
@@ -537,7 +537,7 @@ float distmax_Ray_AABB(Ray* r, AABB* b) {
   return INFINITY;
 }
 
-float distmax_Ray_TMaterialSphere(Ray* r, TMaterialSphere* ms) {
+float distmax_Ray_MaterialSphere(Ray* r, MaterialSphere* ms) {
   return distmax_Ray_Sphere(r, (&(*ms).s));
 }
 
@@ -638,7 +638,7 @@ float distmin_Ray_AABB(Ray* r, AABB* b) {
   return -INFINITY;
 }
 
-float distmin_Ray_TMaterialSphere(Ray* r, TMaterialSphere* ms) {
+float distmin_Ray_MaterialSphere(Ray* r, MaterialSphere* ms) {
   return distmin_Ray_Sphere(r, (&(*ms).s));
 }
 
@@ -672,7 +672,7 @@ bool intersects_Ray_AABB(Ray* r, AABB* b) {
   return false;
 }
 
-bool intersects_Ray_TMaterialSphere(Ray* r, TMaterialSphere* ms) {
+bool intersects_Ray_MaterialSphere(Ray* r, MaterialSphere* ms) {
   return intersects_Ray_Sphere(r, (&(*ms).s));
 }
 

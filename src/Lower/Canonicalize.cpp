@@ -117,11 +117,6 @@ struct RewriteVectorFields : public ir::Mutator {
 };
 
 ir::Stmt canonicalize(ir::Stmt stmt, const CompilerOptions &options) {
-    if (options.target != BackendTarget::CUDA) {
-        // CUDA does not support operator[] for their builtin vector types.
-        // TODO(cgyurgyik): Can we just add it to ".../CUDA/math.h"?
-        stmt = RewriteVectorFields().mutate(std::move(stmt));
-    }
     stmt = RewriteVectorImmediates().mutate(std::move(stmt));
     // TODO: more canonicalizations.
     return stmt;

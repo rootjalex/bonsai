@@ -159,20 +159,21 @@ std::vector<std::string> type_topological_order(const ir::TypeMap &types) {
         visiting.insert(name);
 
         ir::Type type = types.at(name);
-        if (const auto *struct_t = type.as<ir::Struct_t>()) {
-            // This is a struct; visit its' members first.
-            for (auto [_, inner] : struct_t->fields) {
-                // TODO(cgyurgyik): I don't think this properly handles all
-                // nesting cases.
+        if (const auto *element = type.as<ir::Struct_t>()) {
+            // This Element is a struct; visit it's members first.
+            for (auto [_, inner] : element->fields) {
+                // TODO(cgyurgyik): I don't think this is correct for any
+                // arbitrary nesting of elements, but there is an additional
+                // assertion below to ensure we've visited all the types.
                 while (inner.is<ir::Array_t, ir::Vector_t, ir::Set_t>()) {
                     inner = inner.element_of();
                 }
                 while (inner.is<ir::Ptr_t>()) {
                     inner = inner.as<ir::Ptr_t>()->etype;
                 }
-                if (const auto *s = inner.as<ir::Struct_t>()) {
-                    if (types.contains(s->name)) {
-                        visit(s->name);
+                if (const auto *struct_t = inner.as<ir::Struct_t>()) {
+                    if (types.contains(struct_t->name)) {
+                        visit(struct_t->name);
                     }
                 }
             }
@@ -186,7 +187,6 @@ std::vector<std::string> type_topological_order(const ir::TypeMap &types) {
     for (const auto &[name, _] : types) {
         visit(name);
     }
-
     internal_assert(order.size() == types.size());
     return order;
 }

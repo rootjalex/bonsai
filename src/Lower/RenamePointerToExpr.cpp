@@ -38,13 +38,13 @@ ExprSet retrieve_variables(const ir::Stmt &body) {
     return analysis.set;
 }
 
-// Gives an expression its own variable name if it fits certain criteria. For
-// example,
-//   g(foo(i), bar(j));
+// Gives an expression its own variable name if it is found in `to_rename`.
+// For example,
+//   to_rename = { Sphere(j) };
+//   f(&Sphere(j));
 //   ->
-//   let _t0 = foo(i) in
-//   let _t1 = bar(j) in
-//   g(_t0, _t1);
+//   let _lv0 = Sphere(j) in
+//   f(&_lv0);
 struct Rename : public ir::Mutator {
     Rename(const ExprSet &to_rename) : to_rename(to_rename) {}
 

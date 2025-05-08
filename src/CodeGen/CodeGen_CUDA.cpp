@@ -227,11 +227,11 @@ void CodeGen_CUDA::visit(const VecImm *node) {
     const std::vector<Expr> &vs = node->values;
     if (vs.empty()) {
         os << '{' << '}';
+        return;
     }
     size_t lanes = vs.size();
     Type etype = vs.front().type();
     os << "make" << '_' << vector_prefix(std::move(etype)) << lanes << '(';
-    // TODO(cgyurgyik): Use the constant codegen from AJ's C++ fix.
     print_expr_list(vs);
     os << ')';
 }
@@ -246,12 +246,12 @@ void CodeGen_CUDA::visit(const Cast *node) {
     ir::Expr value = node->value;
     ir::Type type = node->type;
     if (value.type().is<Vector_t>() && type.is<Vector_t>()) {
+        // A special-cased vec[T] -> vec[U] cast.
         const auto *v = value.type().as<Vector_t>();
         const auto *t = type.as<Vector_t>();
         internal_assert(v->lanes == t->lanes);
         os << "make" << '_' << vector_prefix(t->etype) << v->lanes << '(';
         for (int i = 0, e = v->lanes; i < e; ++i) {
-            // TODO(cgyurgyik): We are duplicating an expression... uh oh.
             value.accept(this);
             os << '.' << vector_lane_to_field(i);
             if (i + 1 == e) {
@@ -271,7 +271,7 @@ void CodeGen_CUDA::visit(const Cast *node) {
         value.accept(this);
         return;
     case Cast::Mode::Reinterpret:
-        // Uh
+        // See "runtime/CUDA/math.h" for what this function is doing.
         os << "bonsai_reinterpret" << '<';
         node->type.accept(this);
         os << '>' << '(';
@@ -339,7 +339,7 @@ void CodeGen_CUDA::visit(const VectorShuffle *node) {
     node->value.accept(this);
     // TODO(cgyurgyik): this requires using a std::initializer_list argument,
     // but I'm not sure how else to do this without creating a temporary
-    // variable...
+    // variable first.
     os << ',' << ' ' << '{';
     print_expr_list(node->idxs);
     os << '}' << ')';
@@ -516,8 +516,8 @@ void CodeGen_CUDA::visit(const ir::Access *node) {
 void CodeGen_CUDA::visit(const ir::Extract *node) {
     // TODO(cgyurgyik): CUDA builtin vector types cannot extract by index, and
     // we cannot overload this. The best solution probably is to create our own
-    // vector types that match the alignment but enable us to overwrite things
-    // like index access.
+    // vector types that match the alignment of CUDA builtin vector types, but
+    // enable us to overload operators.
     std::optional<uint32_t> index = get_constant_value(node->idx);
     if (node->vec.type().is<Vector_t>() && index.has_value()) {
         Access::make(vector_lane_to_field(*index), node->vec).accept(this);
@@ -534,8 +534,8 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
         // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
-        // TODO(cgyurgyik): Need to fix const qualifier issues.
-        // os << "const" << ' ';
+        // TODO(cgyurgyik): Need to revisit this and fix const qualifier issues.
+        //  os << "const" << ' ';
     }
     node->loc.type.accept(this);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
@@ -552,8 +552,8 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     switch (node->memory) {
     case Allocate::Memory::Stack: {
         type.accept(this);
-        // Bonsai assumes *everything*, including stack allocated objects,
-        // are passed by a pointer. So first we "stack" allocate,
+        // Bonsai assumes *everything*, including stack allocated elements,
+        // are pointers. So first we "stack" allocate,
         constexpr std::string_view P = "_";
         os << ' ' << P << b << ' ' << '=' << ' ';
         node->value.accept(this);
@@ -569,7 +569,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << '*' << ' ' << b << ';' << '\n';
-            // TODO(cgyurgyik): Check status of the CUDA malloc.
+            // TODO(cgyurgyik): check the status of the CUDA malloc.
             os << get_indent() << "(void)" << "cudaMalloc" << '(';
             os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',';
             array_t->size.accept(this);
@@ -616,7 +616,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         break;
     case Accumulate::OpType::Argmax: {
     case Accumulate::OpType::Argmin:
-        // curr = arg{min|max}(curr, update);
+        // curr arg{min|max}= update;
         // ->
         // curr = arg{min|max}(curr, update);
         os << '=' << ' ';
@@ -654,10 +654,10 @@ void CodeGen_CUDA::visit(const ir::CallStmt *node) {
 }
 
 void CodeGen_CUDA::visit(const Print *node) {
-    // TODO(cgyurgyik): CUDA enables printing through `printf`. I
-    // imagine (though have not verified) this is going to use the same
-    // format specifiers as C printf, so we can just refactor the LLVM
-    // version and use it here.
+    // TODO(cgyurgyik): CUDA enables printing through `printf`. I imagine
+    // (though have not verified) this is going to use the same format
+    // specifiers as C printf, so we can just refactor the LLVM version and use
+    // it here.
     internal_error << "[unimplemented] Print CUDA codegen: " << Stmt(node);
 }
 
