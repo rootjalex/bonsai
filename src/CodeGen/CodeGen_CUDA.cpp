@@ -224,7 +224,12 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
 void CodeGen_CUDA::visit(const FloatImm *node) {
     // TODO(cgyurgyik): Do we want *everything* to be printed as a double?
     // The `f` suffix does not compile in CUDA.
+
+    os << "static_cast" << '<';
+    os << bonsai_scalar_type_to_cpp(node->type);
+    os << '>' << '(';
     os << node->value;
+    os << ")";
 }
 
 void CodeGen_CUDA::visit(const VecImm *node) {
@@ -491,7 +496,7 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
     case ir::Intrinsic::OpType::rand: {
         // [0, 1] - inclusive
-        os << '(' << "rand" << '(' << ')' << '/' << "(RAND_MAX)" << ')';
+        os << "static_cast<float>(rand()) / static_cast<float>(RAND_MAX)";
         return;
     }
     case ir::Intrinsic::OpType::fma: {
@@ -589,7 +594,9 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
-    os << get_indent() << '*' << node->loc.base;
+    os << get_indent();
+    os << '*';
+    os << node->loc.base;
     for (const auto &access : node->loc.accesses) {
         if (std::holds_alternative<std::string>(access)) {
             os << "." << std::get<std::string>(access);
@@ -607,7 +614,9 @@ void CodeGen_CUDA::visit(const Store *node) {
 void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
-    os << get_indent() << '*' << current.base << ' ';
+    os << get_indent();
+    os << '*';
+    os << current.base << ' ';
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
