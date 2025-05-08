@@ -1,6 +1,18 @@
 func foo(n : i32, a : array[f32, n]) = map(|x : f32| sqrt(x), a);
 
+func sabs(y : f32) -> f32 {
+    if (y < -1) {
+        return -y;
+    }
+    return y;
+}
+
+func bar(n : i32, a : array[f32, n]) = map(|x : f32| sabs(x), a);
+
 schedule {
     foo.split(i0, io, ii, 4, false)
+       .packetize(ii);
+
+    bar.split(i0, io, ii, 4, false)
        .packetize(ii);
 }

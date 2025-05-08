@@ -1,13 +1,59 @@
+func _packetized_sabs(y : f32x4, __mask : boolx4) -> f32x4 {
+  __result : mut f32x4 := f32x4(0f)
+  __result_mask : mut boolx4 := boolx4(false)
+  if (reduce<all>((__mask & (y < f32x4(-1f))) == __mask)) {
+    if (reduce<all>((__mask | (*__result_mask)) == __mask)) {
+      return select(__mask, -y, (*__result))
+    } else {
+      __result = select(__mask, -y, (*__result))
+      __result_mask = __mask | (*__result_mask)
+    }
+  } else if (reduce<any>((__mask & (y < f32x4(-1f))) == __mask)) {
+    if (reduce<all>(((__mask & (y < f32x4(-1f))) | (*__result_mask)) == __mask)) {
+      return select(__mask & (y < f32x4(-1f)), -y, (*__result))
+    } else {
+      __result = select(__mask & (y < f32x4(-1f)), -y, (*__result))
+      __result_mask = (__mask & (y < f32x4(-1f))) | (*__result_mask)
+    }
+  }
+  if (reduce<all>((__mask | (*__result_mask)) == __mask)) {
+    return select(__mask, y, (*__result))
+  } else {
+    __result = select(__mask, y, (*__result))
+    __result_mask = __mask | (*__result_mask)
+  }
+  return (*__result)
+}
+
 func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
   alloc _alloc0 : mut f32[n]
   forall _io in [0:n:4] {
-    _alloc0[ramp(_io, 1, 4)] = sqrt(a[ramp(_io, 1, 4)])
+    _alloc0[ramp(_io, 1, 4)] = _packetized_sabs(a[ramp(_io, 1, 4)], boolx4(true))
   }
   return (*_alloc0)
 }
 
-func foo(n : i32, a : f32[n]) -> f32[n] {
+func _traverse_array1(n : i32, a : f32[n]) -> f32[n] {
+  alloc _alloc1 : mut f32[n]
+  forall _io in [0:n:4] {
+    _alloc1[ramp(_io, 1, 4)] = sqrt(a[ramp(_io, 1, 4)])
+  }
+  return (*_alloc1)
+}
+
+func bar(n : i32, a : f32[n]) -> f32[n] {
   return _traverse_array0(n, a)
+}
+
+func foo(n : i32, a : f32[n]) -> f32[n] {
+  return _traverse_array1(n, a)
+}
+
+func sabs(y : f32) -> f32 {
+  if (y < -1f) {
+    return -y
+  }
+  return y
 }
 
 

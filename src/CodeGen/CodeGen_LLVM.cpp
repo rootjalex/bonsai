@@ -351,9 +351,11 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
     // Validate the generated code, checking for consistency.
     if (llvm::verifyFunction(*function, &llvm::errs())) {
+        llvm::errs() << *function << "\n\n";
+        llvm::errs().flush();
         internal_error << "Function verification failed for " << func.name
                        << "\n";
-    }
+        }
 
     current_function = nullptr;
 
@@ -906,6 +908,10 @@ void CodeGen_LLVM::visit(const BinOp *node) {
         }
         case BinOp::Xor: {
             value = builder->CreateXor(a, b);
+            return;
+        }
+        case BinOp::Eq: {
+            value = builder->CreateICmpEQ(a, b);
             return;
         }
         case BinOp::LOr:
