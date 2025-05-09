@@ -1859,6 +1859,27 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 
 void CodeGen_LLVM::visit(const Store *node) {
     llvm::Value *rhs = codegen_expr(node->value);
+
+    // Check for a store to a vector lane.
+    if (node->loc.accesses.size() > 0) {
+        WriteLoc parent = node->loc.parent();
+        if (parent.type.is<Vector_t>()) {
+            // Attempting to write to a lane of a vector type.
+            // Instead, load the full vector and insert rhs as an element.
+            internal_assert(!node->mask.defined())
+                << "Nested vector storage not allowed: " << Stmt(node);
+            llvm::Value *loc = codegen_write_loc(parent);
+            llvm::Value *load = create_aligned_load(codegen_type(parent.type),
+                                                    loc, "v_idx_update");
+            llvm::Value *idx =
+                codegen_expr(std::get<Expr>(node->loc.accesses.back()));
+            rhs = builder->CreateInsertElement(load, rhs, idx);
+            // Now store the whole vector back into memory.
+            // TODO: when is isVolatile true?
+            builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+            return;
+        }
+    }
     llvm::Value *loc = codegen_write_loc(node->loc);
 
     // TODO(ajr): tbaa metadata
@@ -1874,83 +1895,30 @@ void CodeGen_LLVM::visit(const Store *node) {
     }
 }
 
-void CodeGen_LLVM::visit(const Accumulate *node) {
-    if (node->loc.base_type.is<Vector_t>() && node->loc.accesses.size() == 1) {
-        // Update a single element of a vector.
-        // For now, we rewrite this into an equivalent expr.
-        // This is an unfortunate hack.
-        // TODO(ajr): fix.
-        Type vtype = node->loc.base_type;
-        Expr load = Deref::make(Var::make(Ptr_t::make(vtype), node->loc.base));
-        Expr lane = std::get<Expr>(node->loc.accesses[0]);
-        const size_t lanes = vtype.lanes();
-        Type etype = vtype.element_of();
-
-        Expr equiv;
-
-        switch (node->op) {
-        case Accumulate::Add: {
-            Expr one_hot = make_one_hot(etype, lane, lanes);
-            equiv = load + (node->value * one_hot);
-            break;
-        }
-        case Accumulate::Sub: {
-            Expr one_hot = make_one_hot(etype, lane, lanes);
-            equiv = load - (node->value * one_hot);
-            break;
-        }
-        case Accumulate::Mul: {
-            Expr one_hot = make_one_hot(etype, lane, lanes);
-            Expr ones = make_one(vtype);
-            equiv = load * ((ones - one_hot) + node->value * one_hot);
-            break;
-        }
-        case Accumulate::Argmin:
-        default: {
-            internal_error << "TODO: implement codegen for accumulate: "
-                           << Stmt(node);
-        }
-        }
-        WriteLoc base(node->loc.base, node->loc.base_type);
-        // TODO(ajr): do Accumulates have store masks?
-        Stmt equiv_stmt =
-            Store::make(std::move(base), std::move(equiv), /*mask=*/Expr());
-        codegen_stmt(equiv_stmt);
-        return;
-    }
-
-    llvm::Value *loc = codegen_write_loc(node->loc);
-    llvm::Value *update = codegen_expr(node->value);
-
-    llvm::Value *current =
-        create_aligned_load(update->getType(), loc, "acc_base");
-
-    llvm::Value *acc = nullptr;
-
-    switch (node->op) {
+llvm::Value *CodeGen_LLVM::do_accumulate(Accumulate::OpType op,
+                                         Type bonsai_type, llvm::Value *current,
+                                         llvm::Value *update) {
+    switch (op) {
     case Accumulate::Add: {
-        if (node->value.type().is_float()) {
-            acc = builder->CreateFAdd(current, update);
+        if (bonsai_type.is_float()) {
+            return builder->CreateFAdd(current, update);
         } else {
-            acc = builder->CreateAdd(current, update);
+            return builder->CreateAdd(current, update);
         }
-        break;
     }
     case Accumulate::Sub: {
-        if (node->value.type().is_float()) {
-            acc = builder->CreateFSub(current, update);
+        if (bonsai_type.is_float()) {
+            return builder->CreateFSub(current, update);
         } else {
-            acc = builder->CreateSub(current, update);
+            return builder->CreateSub(current, update);
         }
-        break;
     }
     case Accumulate::Mul: {
-        if (node->value.type().is_float()) {
-            acc = builder->CreateFMul(current, update);
+        if (bonsai_type.is_float()) {
+            return builder->CreateFMul(current, update);
         } else {
-            acc = builder->CreateMul(current, update);
+            return builder->CreateMul(current, update);
         }
-        break;
     }
     case Accumulate::Argmin: {
         // acc = select(curr.first < update.first, curr, update)
@@ -1964,15 +1932,45 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             builder->CreateFCmpOLT(curr_key, new_key); // curr_key < new_key
 
         // Select the full struct based on which key is smaller
-        acc = builder->CreateSelect(cmp, current, update);
-        break;
+        return builder->CreateSelect(cmp, current, update);
     }
     default: {
-        internal_error << "TODO: implement codegen for accumulate: "
-                       << Stmt(node);
+        internal_error << "TODO: implement codegen for accumulate.";
     }
+    }
+}
+
+void CodeGen_LLVM::visit(const Accumulate *node) {
+    // Check for an accumulate to a vector lane.
+    if (node->loc.accesses.size() > 0) {
+        WriteLoc parent = node->loc.parent();
+        if (parent.type.is<Vector_t>()) {
+            // Attempting to accumulate to a lane of a vector type.
+            // Instead, load the full vector and insert old + rhs as an element.
+            llvm::Value *loc = codegen_write_loc(parent);
+            llvm::Value *load = create_aligned_load(codegen_type(parent.type),
+                                                    loc, "v_idx_accumulate");
+            llvm::Value *idx =
+                codegen_expr(std::get<Expr>(node->loc.accesses.back()));
+            llvm::Value *current = builder->CreateExtractElement(load, idx);
+            llvm::Value *update = codegen_expr(node->value);
+            llvm::Value *rhs =
+                do_accumulate(node->op, node->value.type(), current, update);
+            rhs = builder->CreateInsertElement(load, rhs, idx);
+            // Now store the whole vector back into memory.
+            // TODO: when is isVolatile true?
+            builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+            return;
+        }
     }
 
+    llvm::Value *loc = codegen_write_loc(node->loc);
+    llvm::Value *update = codegen_expr(node->value);
+
+    llvm::Value *current =
+        create_aligned_load(update->getType(), loc, "acc_base");
+    llvm::Value *acc =
+        do_accumulate(node->op, node->value.type(), current, update);
     builder->CreateStore(acc, loc);
 }
 
@@ -2440,6 +2438,8 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
                                       name + "_ld");
 
             Expr idx = std::get<Expr>(value);
+            internal_assert(!bonsai_type.is<Vector_t>())
+                << "Failure to codegen write location for: " << wloc;
             Type elt_type = bonsai_type.element_of();
             bonsai_type = elt_type;
 

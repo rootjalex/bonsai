@@ -153,6 +153,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Allocate *) override;
     virtual void visit(const ir::Store *) override;
+    virtual llvm::Value *do_accumulate(ir::Accumulate::OpType op,
+                                       ir::Type bonsai_type,
+                                       llvm::Value *current,
+                                       llvm::Value *update);
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
     RESTRICT_VISITOR(ir::RecLoop);

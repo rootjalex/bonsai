@@ -13,4 +13,5 @@ add_bonsai_tests(
     map.bonsai
     mutability.bonsai
     struct.bonsai
+    vector-writes.bonsai
 )

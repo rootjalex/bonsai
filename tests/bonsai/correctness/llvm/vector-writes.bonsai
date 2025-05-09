@@ -1,0 +1,29 @@
+//! flags: -b llvm -e
+
+element vec3f = vector[f32, 3];
+
+element Example {
+    v : vec3f;
+    id : i32;
+}
+
+func build_struct(y : f32) -> Example {
+    r : mut Example = {vec3f{abs(y), 0.0, 0.0}, cast[[i32]](y)};
+    if (y >= 0) {
+        r.v[1] = sqrt(y);
+    } else {
+        r.v[2] = sqrt(-y);
+    }
+    return r;
+}
+
+func foo(n : i32, a : array[f32, n]) = map(|x : f32| build_struct(x), a);
+
+
+func main() {
+    a : array[f32, 8] = {0.0, 1.0, -2.0, 4.0, -4.0, 9.0, 16.0, -16.0};
+    print(a);
+    b = foo(8, a);
+    print(b);
+    return 0;
+}
