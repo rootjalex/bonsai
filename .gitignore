@@ -48,7 +48,10 @@ venv
 deps/llvm-build
 deps/llvm-install
 
+# Images produced from RTIOW
 *.ppm
 
 # MacOS debug symbol files
 *.dSYM/
+
+.DS_Store
