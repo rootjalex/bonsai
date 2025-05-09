@@ -25,7 +25,7 @@ std::string field_concat(const std::string &f0, const std::string &f1) {
 }
 
 std::string get_split_func_name(const std::string &fname) {
-    return "__split_" + fname;
+    return "_split_" + fname;
 }
 
 void flatten_struct_type_helper(std::string field, Type type,

@@ -17,6 +17,7 @@
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/SplitStructOps.h"
 #include "Lower/SplitVectorOps.h"
+#include "Lower/ToSSA.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
 #include "Lower/VerifyLayouts.h"
@@ -68,6 +69,8 @@ class SplitOps : public Pass {
                     const CompilerOptions &options) const override {
         for (auto &[name, func] : funcs) {
             std::cout << "Before: " << *func;
+            func = to_ssa(*func);
+            std::cout << "After SSA form: " << *func;
             func = split_struct_ops(*func);
             std::cout << "After struct splitting: " << *func;
             func = split_vector_ops(*func);

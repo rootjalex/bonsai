@@ -116,6 +116,7 @@ target_sources(
     src/Lower/ReturnToOutParameter.cpp
     src/Lower/SplitStructOps.cpp
     src/Lower/SplitVectorOps.cpp
+    src/Lower/ToSSA.cpp
     src/Lower/Trees.cpp
     src/Lower/Tuples.cpp
     src/Lower/TopologicalOrder.cpp
@@ -197,6 +198,7 @@ target_sources(
     include/Lower/ReturnToOutParameter.h
     include/Lower/SplitStructOps.h
     include/Lower/SplitVectorOps.h
+    include/Lower/ToSSA.h
     include/Lower/Trees.h
     include/Lower/Tuples.h
     include/Lower/TopologicalOrder.h
