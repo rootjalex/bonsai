@@ -1914,7 +1914,7 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         WriteLoc base(node->loc.base, node->loc.base_type);
         // TODO(ajr): do Accumulates have store masks?
         Stmt equiv_stmt =
-            Store::make(std::move(base), std::move(equiv) /*mask=*/Expr());
+            Store::make(std::move(base), std::move(equiv), /*mask=*/Expr());
         codegen_stmt(equiv_stmt);
         return;
     }

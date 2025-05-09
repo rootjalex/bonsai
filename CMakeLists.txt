@@ -114,6 +114,7 @@ target_sources(
     src/Lower/PredicateAnalysis.cpp
     src/Lower/RecLoops.cpp
     src/Lower/ReturnToOutParameter.cpp
+    src/Lower/SplitStructOps.cpp
     src/Lower/SplitVectorOps.cpp
     src/Lower/Trees.cpp
     src/Lower/Tuples.cpp
@@ -194,6 +195,7 @@ target_sources(
     include/Lower/PredicateAnalysis.h
     include/Lower/RecLoops.h
     include/Lower/ReturnToOutParameter.h
+    include/Lower/SplitStructOps.h
     include/Lower/SplitVectorOps.h
     include/Lower/Trees.h
     include/Lower/Tuples.h

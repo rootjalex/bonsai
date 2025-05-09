@@ -15,6 +15,8 @@
 #include "Lower/Options.h"
 #include "Lower/RecLoops.h"
 #include "Lower/ReturnToOutParameter.h"
+#include "Lower/SplitStructOps.h"
+#include "Lower/SplitVectorOps.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
 #include "Lower/VerifyLayouts.h"
@@ -58,6 +60,24 @@ void lower(ir::Program &program, const CompilerOptions &options) {
     }
 }
 
+class SplitOps : public Pass {
+  public:
+    constexpr std::string name() const override { return "lsplit-ops"; }
+
+    ir::FuncMap run(ir::FuncMap funcs,
+                    const CompilerOptions &options) const override {
+        for (auto &[name, func] : funcs) {
+            std::cout << "Before: " << *func;
+            func = split_struct_ops(*func);
+            std::cout << "After struct splitting: " << *func;
+            func = split_vector_ops(*func);
+            std::cout << "After vector splitting: " << *func;
+        }
+        // internal_error << "Done";
+        return funcs;
+    }
+};
+
 // TODO(s):
 //  Lower spatial queries
 //  Perform first round of scheduling.
@@ -83,6 +103,7 @@ PassManager register_passes() {
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<LowerRecLoops>();
+    manager.register_pass<SplitOps>();
     manager.register_pass<ReturnToOutParameter>();
     manager.register_pass<Mutability>();
     // Optimizing pass registration.
@@ -109,6 +130,8 @@ PassManager register_passes() {
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
     // TODO(ajr): figure out the right placement of transforms.
+    // TODO(ajr): remove this
+    core.push_back(std::make_unique<SplitOps>());
     core.push_back(std::make_unique<LoopTransforms>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());

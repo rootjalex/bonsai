@@ -17,17 +17,25 @@ namespace {
 using namespace ir;
 
 std::string get_split_name(const std::string &name, size_t lane) {
-    return "__extract" + std::to_string(lane) + "_" + name;
+    return "_" + name + "_e" + std::to_string(lane);
 }
 
 std::string get_split_func_name(const std::string &fname) {
-    return "__split_" + fname;
+    return "__extract_" + fname;
+}
+
+std::vector<std::string> get_vector_list(const std::string &name,
+                                         const Vector_t *vector_t) {
+    std::vector<std::string> fields(vector_t->lanes);
+    for (size_t i = 0; i < vector_t->lanes; i++) {
+        fields[i] = get_split_name(name, i);
+    }
+    return fields;
 }
 
 struct SplitVectorOpsImpl : public Mutator {
     std::vector<Expr> exprs;
 
-    std::set<std::string> split_vars;
     // Allocations in this function, that have been rewritten.
     std::set<std::string> safe_write_locs;
 
@@ -57,7 +65,7 @@ struct SplitVectorOpsImpl : public Mutator {
         if (!node->type.is<Vector_t>()) {
             return node;
         }
-        internal_assert(split_vars.contains(node->name)) << node->name;
+
         exprs.resize(node->type.lanes());
         Type etype = node->type.element_of();
         for (size_t i = 0; i < node->type.lanes(); i++) {
@@ -442,7 +450,8 @@ struct SplitVectorOpsImpl : public Mutator {
             internal_assert(!node->args[i].type().is_vector())
                 << "TODO(ajr): support vector arguments: " << Expr(node);
             args[i] = mutate(node->args[i]);
-            internal_assert(args[i].defined());
+            internal_assert(args[i].defined())
+                << node->args[i] << " got destroyed";
             any_changed = any_changed || !args[i].same_as(node->args[i]);
         }
         if (!any_changed) {
@@ -500,7 +509,7 @@ struct SplitVectorOpsImpl : public Mutator {
                 WriteLoc(get_split_name(node->loc.base, i), etype),
                 std::move(v_exprs[i]));
         }
-        split_vars.insert(node->loc.base);
+
         return Sequence::make(std::move(lets));
     }
 
@@ -561,7 +570,7 @@ struct SplitVectorOpsImpl : public Mutator {
                 WriteLoc(get_split_name(node->loc.base, i), etype),
                 std::move(v_exprs[i]), node->memory);
         }
-        split_vars.insert(node->loc.base);
+
         safe_write_locs.insert(node->loc.base);
         return Sequence::make(std::move(allocs));
     }
@@ -595,7 +604,7 @@ struct SplitVectorOpsImpl : public Mutator {
                 Store::make(WriteLoc(get_split_name(node->loc.base, i), etype),
                             std::move(v_exprs[i]), /*mask=*/Expr());
         }
-        split_vars.insert(node->loc.base);
+
         safe_write_locs.insert(node->loc.base);
         return Sequence::make(std::move(stores));
     }
@@ -609,11 +618,27 @@ struct SplitVectorOpsImpl : public Mutator {
             << "TODO: split with accesses: " << Stmt(node);
 
         Expr value = mutate(node->value);
-        if (value.same_as(node->value)) {
-            internal_assert(!value.type().is_vector());
-            return node;
-        } else if (value.defined() && !value.type().is_vector()) {
+
+        if (!node->loc.base_type.is_vector()) {
+            if (value.same_as(node->value)) {
+                return node;
+            }
+            internal_assert(!value.type().is_vector()) << value;
             return Accumulate::make(node->loc, node->op, std::move(value));
+        }
+
+        if (value.defined()) {
+            // Broadcast accumulate
+            internal_assert(!value.type().is_vector()) << value;
+            const size_t lanes = node->loc.base_type.lanes();
+            std::vector<Stmt> accs(lanes);
+            Type etype = node->loc.base_type.element_of();
+            for (size_t i = 0; i < lanes; i++) {
+                accs[i] = Accumulate::make(
+                    WriteLoc(get_split_name(node->loc.base, i), etype),
+                    node->op, value);
+            }
+            return Sequence::make(std::move(accs));
         }
 
         internal_assert(!value.defined())
@@ -631,7 +656,6 @@ struct SplitVectorOpsImpl : public Mutator {
                 WriteLoc(get_split_name(node->loc.base, i), etype), node->op,
                 std::move(v_exprs[i]));
         }
-        split_vars.insert(node->loc.base);
         return Sequence::make(std::move(accs));
     }
 
@@ -649,17 +673,34 @@ struct SplitVectorOpsImpl : public Mutator {
 
 } // namespace
 
-ir::FuncMap SplitVectorOps::run(ir::FuncMap funcs,
-                                const CompilerOptions &options) const {
-    // TODO: what should this do for function calls? split arguments of calls?
+std::shared_ptr<Function> split_vector_ops(const Function &func) {
     SplitVectorOpsImpl lowerer;
+    std::vector<Function::Argument> args;
 
-    for (const auto &[name, func] : funcs) {
-        std::cout << "Before: " << func->body;
-        func->body = lowerer.mutate(func->body);
-        std::cout << "After: " << func->body;
+    for (const auto &arg : func.args) {
+        const Vector_t *vector_t = arg.type.as<Vector_t>();
+        if (!vector_t) {
+            internal_assert(!contains<Vector_t>(arg.type))
+                << arg.name << " : " << arg.type;
+            args.push_back(arg);
+            continue;
+        }
+        internal_assert(!arg.default_value.defined());
+        auto vlist = get_vector_list(arg.name, vector_t);
+        for (auto &field : vlist) {
+            args.emplace_back(std::move(field), vector_t->etype,
+                              /*default_value=*/Expr(), arg.mutating);
+        }
     }
-    return funcs;
+
+    Stmt body = lowerer.mutate(func.body);
+
+    // TODO(ajr): could get rid of structs entirely with RtoP!!
+    Type ret_type = func.ret_type;
+
+    return std::make_shared<Function>(
+        get_split_func_name(func.name), std::move(args), std::move(ret_type),
+        std::move(body), func.interfaces, func.attributes);
 }
 
 } // namespace lower

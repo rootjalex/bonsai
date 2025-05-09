@@ -12,13 +12,10 @@ namespace lower {
 // Split actions on vectors into actions on scalars.
 // Only really useful for the Packetization pass,
 // this is required before packetizing.
-class SplitVectorOps : public Pass {
-  public:
-    constexpr std::string name() const override { return "split-vector-ops"; }
-
-    ir::FuncMap run(ir::FuncMap funcs,
-                    const CompilerOptions &options) const override;
-};
+// All vector arguments are split into scalars.
+// This pass does not work on struct and accesses.
+// Run split_struct_ops() before running this.
+std::shared_ptr<ir::Function> split_vector_ops(const ir::Function &func);
 
 } // namespace lower
 } // namespace bonsai

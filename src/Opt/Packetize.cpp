@@ -572,6 +572,10 @@ Stmt packetize_impl(Type scalar_ret_type,
                 // Broadcast the value to match expected return type.
                 value = Broadcast::make(lanes, std::move(value));
             }
+
+            internal_assert(equals(value.type(), loc.type))
+                << "[unimplemented] transposed store required for:"
+                << Stmt(node) << " => " << value << " in " << loc;
             return Store::make(loc, std::move(value), active_mask);
         }
 
@@ -589,6 +593,8 @@ Stmt packetize_impl(Type scalar_ret_type,
     };
 
     body = opt::Simplify::simplify(std::move(body));
+
+    std::cout << "Calling packetize on: " << body << "\n";
 
     PacketizeImpl rewriter(funcs, types, std::move(varying), std::move(uniform),
                            std::move(broadcasted), call_mask);
