@@ -11,12 +11,22 @@
 
 #include "cuda_runtime.h"
 
+// For math.h
 #include <algorithm>
 #include <cstdint>
 #include <cuda_fp16.h>
 #include <initializer_list>
 #include <math.h>
 #include <type_traits>
+
+// For the main hook
+#include <cassert>
+#include <chrono>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <random>
+#include <vector>
 
 typedef unsigned int uint;
 typedef unsigned short ushort;
@@ -1787,14 +1797,6 @@ O bonsai_reinterpret(I input) {
     return *output;
 }
 
-#include <cassert>
-#include <chrono>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <random>
-#include <vector>
-
 struct AABB {
     float3 low;
     float3 high;
@@ -2176,20 +2178,13 @@ hit_record get_hit_record(Ray *r, Sphere *s) {
     return record;
 }
 
-bool near_zero(float3 v) {
-    float s = static_cast<float>(1e-08);
-    return (((abs(v.x) < s) & (abs(v.y) < s)) & (abs(v.z) < s));
-}
-
 float3 random_unit_vector() {
-    float x1 =
-        (static_cast<float>(-1) +
-         ((static_cast<float>(1) - static_cast<float>(-1)) *
-          (float)static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
-    float x2 =
-        (static_cast<float>(-1) +
-         ((static_cast<float>(1) - static_cast<float>(-1)) *
-          (float)static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
+    float x1 = (static_cast<float>(-1) +
+                ((static_cast<float>(1) - static_cast<float>(-1)) *
+                 static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
+    float x2 = (static_cast<float>(-1) +
+                ((static_cast<float>(1) - static_cast<float>(-1)) *
+                 static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
     float s = (((x1 * x1) + (x2 * x2)) + static_cast<float>(1e-08));
     float factor = sqrt(static_cast<float>(2) / s);
     float x = (factor * x1);
@@ -2224,7 +2219,9 @@ scatter_record scatter(Ray *ray, MaterialSphere *ms) {
     if ((*ms).material == 0u) {
         float3 _scatter_dir = (hit.normal + random_unit_vector());
         float3 *scatter_dir = &_scatter_dir;
-        if (near_zero((*scatter_dir))) {
+        if (((abs((*scatter_dir).x) < static_cast<float>(1e-08)) &
+             (abs((*scatter_dir).y) < static_cast<float>(1e-08))) &
+            (abs((*scatter_dir).z) < static_cast<float>(1e-08))) {
             *scatter_dir = hit.normal;
         }
         Ray l_scattered = Ray{hit.p, (*scatter_dir), INFINITY};
@@ -2243,7 +2240,7 @@ scatter_record scatter(Ray *ray, MaterialSphere *ms) {
             float ri = (hit.front_face ? (static_cast<float>(1) / (*ms).fuzz)
                                        : (*ms).fuzz);
             float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
-            float cos_theta = std::min<float>((float)dot(-unit_dir, hit.normal),
+            float cos_theta = std::min<float>(dot(-unit_dir, hit.normal),
                                               static_cast<float>(1));
             float sin_theta =
                 sqrt(static_cast<float>(1) - (cos_theta * cos_theta));
@@ -2258,9 +2255,9 @@ scatter_record scatter(Ray *ray, MaterialSphere *ms) {
                                     hit.normal))
                      : refract(unit_dir, hit.normal, ri));
             Ray d_scattered = Ray{hit.p, direction, INFINITY};
-            return scatter_record{float3{static_cast<float>(1),
-                                         static_cast<float>(1),
-                                         static_cast<float>(1)},
+            return scatter_record{make_float3(static_cast<float>(1),
+                                              static_cast<float>(1),
+                                              static_cast<float>(1)),
                                   d_scattered, true};
         }
     }
@@ -2268,8 +2265,8 @@ scatter_record scatter(Ray *ray, MaterialSphere *ms) {
 
 float3 sample(Ray *r, int32_t depth, _spheres_layout0 *spheres) {
     if (depth <= 0) {
-        return float3{static_cast<float>(0), static_cast<float>(0),
-                      static_cast<float>(0)};
+        return make_float3(static_cast<float>(0), static_cast<float>(0),
+                           static_cast<float>(0));
     }
     _option0 isect = _traverse_tree0(r, spheres);
     if (isect.set) {
@@ -2277,19 +2274,19 @@ float3 sample(Ray *r, int32_t depth, _spheres_layout0 *spheres) {
         if (data.hit) {
             return (data.attenuation * sample((&data.ray), depth - 1, spheres));
         } else {
-            return float3{static_cast<float>(0), static_cast<float>(0),
-                          static_cast<float>(0)};
+            return make_float3(static_cast<float>(0), static_cast<float>(0),
+                               static_cast<float>(0));
         }
     }
     float3 unit_direction = ((*r).d / make_float3(length((*r).d)));
     float a =
         (static_cast<float>(0.5) * (unit_direction.y + static_cast<float>(1)));
     return ((make_float3((static_cast<float>(1) - a)) *
-             float3{static_cast<float>(1), static_cast<float>(1),
-                    static_cast<float>(1)}) +
-            (make_float3(a) * float3{static_cast<float>(0.5),
-                                     static_cast<float>(0.7),
-                                     static_cast<float>(1)}));
+             make_float3(static_cast<float>(1), static_cast<float>(1),
+                         static_cast<float>(1))) +
+            (make_float3(a) * make_float3(static_cast<float>(0.5),
+                                          static_cast<float>(0.7),
+                                          static_cast<float>(1))));
 }
 
 float3 _traverse_array1(int32_t i, int32_t j, Camera *c,
@@ -2312,7 +2309,7 @@ float linear_to_gamma_f(float l) {
     if (static_cast<float>(0) < l) {
         return sqrt(l);
     }
-    return (float)0;
+    return static_cast<float>(0);
 }
 
 int3 to_rgb(float3 v) {
@@ -2332,9 +2329,9 @@ int3 to_rgb(float3 v) {
                          .z);
 }
 
-int *_traverse_array0(Camera *c, int32_t height, _spheres_layout0 *spheres) {
+int3 *_traverse_array0(Camera *c, int32_t height, _spheres_layout0 *spheres) {
     int32_t *_alloc0;
-    // TODO(cgyurgyik): Use cudaMalloc.
+    // TODO(cgyurgyik): Fix this.
     // (void)cudaMalloc((void **)&_alloc0,
     //                  ((height * (*c).width) * 3) * sizeof(int32_t));
     (void)cudaHostAlloc((void **)&_alloc0,
@@ -2342,15 +2339,12 @@ int *_traverse_array0(Camera *c, int32_t height, _spheres_layout0 *spheres) {
     for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
         for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
             int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));
-            _alloc0[(((((0 * height) + _i0) * (*c).width) + _i1) * 3) + 0] =
-                __temp.x;
-            _alloc0[(((((0 * height) + _i0) * (*c).width) + _i1) * 3) + 1] =
-                __temp.y;
-            _alloc0[(((((0 * height) + _i0) * (*c).width) + _i1) * 3) + 2] =
-                __temp.z;
+            _alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
+            _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
+            _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
         }
     }
-    return _alloc0;
+    return reinterpret_cast<int3 *>(_alloc0);
 }
 
 Sphere _unexported_bounding_sphere(Sphere *a, Sphere *b) {
@@ -2369,8 +2363,8 @@ Sphere _unexported_bounding_sphere(Sphere *a, Sphere *b) {
     float3 direction =
         ((static_cast<float>(0) < dist)
              ? (d / make_float3(dist))
-             : float3{static_cast<float>(1), static_cast<float>(0),
-                      static_cast<float>(0)});
+             : make_float3(static_cast<float>(1), static_cast<float>(0),
+                           static_cast<float>(0)));
     float3 new_center =
         ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
     return Sphere{new_center, new_radius};
@@ -2396,8 +2390,8 @@ void bounding_sphere(Sphere *_ret0, Sphere *a, Sphere *b) {
     float3 direction =
         ((static_cast<float>(0) < dist)
              ? (d / make_float3(dist))
-             : float3{static_cast<float>(1), static_cast<float>(0),
-                      static_cast<float>(0)});
+             : make_float3(static_cast<float>(1), static_cast<float>(0),
+                           static_cast<float>(0)));
     float3 new_center =
         ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
     *_ret0 = Sphere{new_center, new_radius};
@@ -2690,7 +2684,7 @@ float gamma(int32_t n) {
         (static_cast<float>(1) - ((float)n * static_cast<float>(5.96046e-08))));
 }
 
-int *image(Camera *c, _spheres_layout0 *spheres) {
+int3 *image(Camera *c, _spheres_layout0 *spheres) {
     int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
     int32_t *height = &_height;
     *height = (((*height) < 1) ? 1 : (*height));
@@ -2722,8 +2716,14 @@ float3 linear_to_gamma_v(float3 l) {
                   linear_to_gamma_f(l.z)};
 }
 
+bool near_zero(float3 v) {
+    return (((abs(v.x) < static_cast<float>(1e-08)) &
+             (abs(v.y) < static_cast<float>(1e-08))) &
+            (abs(v.z) < static_cast<float>(1e-08)));
+}
+
 float random_float(float low, float high) {
-    return (low + ((high - low) * (float)static_cast<float>(rand()) /
+    return (low + ((high - low) * static_cast<float>(rand()) /
                    static_cast<float>(RAND_MAX)));
 }
 
@@ -2743,11 +2743,11 @@ float3 random_vec3f() {
 }
 
 float3 random_vec3f_in(float low, float high) {
-    return float3{low + ((high - low) * (float)static_cast<float>(rand()) /
+    return float3{low + ((high - low) * static_cast<float>(rand()) /
                          static_cast<float>(RAND_MAX)),
-                  low + ((high - low) * (float)static_cast<float>(rand()) /
+                  low + ((high - low) * static_cast<float>(rand()) /
                          static_cast<float>(RAND_MAX)),
-                  low + ((high - low) * (float)static_cast<float>(rand()) /
+                  low + ((high - low) * static_cast<float>(rand()) /
                          static_cast<float>(RAND_MAX))};
 }
 
