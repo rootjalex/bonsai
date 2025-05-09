@@ -2334,6 +2334,7 @@ int3 to_rgb(float3 v) {
 
 int *_traverse_array0(Camera *c, int32_t height, _spheres_layout0 *spheres) {
     int32_t *_alloc0;
+    // TODO(cgyurgyik): Use cudaMalloc.
     // (void)cudaMalloc((void **)&_alloc0,
     //                  ((height * (*c).width) * 3) * sizeof(int32_t));
     (void)cudaHostAlloc((void **)&_alloc0,
