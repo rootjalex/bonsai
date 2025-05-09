@@ -21,7 +21,7 @@ func _traverse_array2(ij : i32[4][8]) -> i32[4][8] {
       _alloc2[(_i0 << 2) + _i1] = ij[_i0][_i1] + 1
     }
   }
-  return cast<i32[4][8]>(_alloc2)
+  return reinterpret_cast<i32[4][8]>(_alloc2)
 }
 
 func _traverse_array3(ijk : i32[32][16][8]) -> i32[32][16][8] {
@@ -33,7 +33,7 @@ func _traverse_array3(ijk : i32[32][16][8]) -> i32[32][16][8] {
       }
     }
   }
-  return cast<i32[32][16][8]>(_alloc3)
+  return reinterpret_cast<i32[32][16][8]>(_alloc3)
 }
 
 func _traverse_array4(ij : i32[8][8]) -> i32[8][8] {
@@ -43,7 +43,7 @@ func _traverse_array4(ij : i32[8][8]) -> i32[8][8] {
       _alloc4[(_i0 << 3) + _i1] = (ij[_i0][_i1] + 1) - 1
     }
   }
-  return cast<i32[8][8]>(_alloc4)
+  return reinterpret_cast<i32[8][8]>(_alloc4)
 }
 
 func _traverse_array5(xs : i32[8]) -> i32[8] {
