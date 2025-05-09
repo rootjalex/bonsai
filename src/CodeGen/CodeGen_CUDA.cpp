@@ -583,12 +583,21 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     os << get_indent();
     switch (node->memory) {
     case Allocate::Memory::Stack: {
+        if (const auto *array_type = type.as<Array_t>()) {
+            // <type> <name>[<size>];
+            array_type->etype.accept(this);
+            os << ' ' << b << '[';
+            array_type->size.accept(this);
+            os << ']' << ';' << '\n';
+            return;
+        }
         type.accept(this);
         // Bonsai assumes *everything*, including stack allocated elements,
         // are pointers. So first we "stack" allocate,
         constexpr std::string_view P = "_";
         os << ' ' << P << b << ' ' << '=' << ' ';
         node->value.accept(this);
+
         os << ';' << '\n';
         // ...and then we take its address.
         os << get_indent();
@@ -724,7 +733,7 @@ void CodeGen_CUDA::visit(const DoWhile *node) {
     node->body.accept(this);
     os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
     print_no_parens(node->cond);
-    os << ')' << '\n';
+    os << ')' << ';' << '\n';
 }
 
 void CodeGen_CUDA::visit(const Label *node) {
