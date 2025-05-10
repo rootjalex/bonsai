@@ -54,7 +54,11 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
         return intrinsic;
     case 32:
         // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html
+        if (intrinsic == "max" || intrinsic == "min" || intrinsic == "abs") {
+            return "f" + intrinsic + "f";
+        }
         return intrinsic + "f";
+
     case 16:
         // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH____HALF2__FUNCTIONS.html
         return "h2" + intrinsic;

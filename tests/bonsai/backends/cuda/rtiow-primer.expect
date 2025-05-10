@@ -154,7 +154,7 @@ _option1 intersectsp_ray_sphere(Ray* r, Sphere* s) {
   float sqrtd = sqrtf(disc);
   float root0 = ((h - sqrtd) / a);
   float root1 = ((h + sqrtd) / a);
-  FInterval interval = FInterval{minf(root0, root1), maxf(root0, root1)};
+  FInterval interval = FInterval{fminf(root0, root1), fmaxf(root0, root1)};
   return _option1{interval, true};
 }
 
@@ -292,9 +292,9 @@ float reflectance(float cos_theta, float refract_idx) {
 }
 
 float3 refract(float3 uv, float3 n, float etai_over_etat) {
-  float cos_theta = minf(dot(-uv, n), 1);
+  float cos_theta = fminf(dot(-uv, n), 1);
   float3 r_out_perp = (make_float3(etai_over_etat) * (uv + (make_float3(cos_theta) * n)));
-  float3 r_out_parallel = (make_float3(-sqrtf(absf(1 - sum((r_out_perp * r_out_perp))))) * n);
+  float3 r_out_parallel = (make_float3(-sqrtf(fabsf(1 - sum((r_out_perp * r_out_perp))))) * n);
   return (r_out_perp + r_out_parallel);
 }
 
@@ -303,7 +303,7 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
   if ((*ms).material == 0u) {
     float3 _scatter_dir = (hit.normal + random_unit_vector());
     float3* scatter_dir = &_scatter_dir;
-    if (((absf((*scatter_dir).x) < (float)1e-08) & (absf((*scatter_dir).y) < (float)1e-08)) & (absf((*scatter_dir).z) < (float)1e-08)) {
+    if (((fabsf((*scatter_dir).x) < (float)1e-08) & (fabsf((*scatter_dir).y) < (float)1e-08)) & (fabsf((*scatter_dir).z) < (float)1e-08)) {
       *scatter_dir = hit.normal;
     }
     Ray l_scattered = Ray{hit.p, (*scatter_dir), INFINITY};
@@ -317,7 +317,7 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
     } else {
       float ri = (hit.front_face ? (1 / (*ms).fuzz) : (*ms).fuzz);
       float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
-      float cos_theta = minf(dot(-unit_dir, hit.normal), 1);
+      float cos_theta = fminf(dot(-unit_dir, hit.normal), 1);
       float sin_theta = sqrtf(1 - (cos_theta * cos_theta));
       bool cannot_refract = ((1 < (ri * sin_theta)) | (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) < reflectance(cos_theta, ri)));
       float3 direction = (cannot_refract ? (unit_dir - (make_float3(((float)2 * dot(unit_dir, hit.normal))) * hit.normal)) : refract(unit_dir, hit.normal, ri));
@@ -516,15 +516,15 @@ _option1 intersectsp_ray_aabb(Ray* r, AABB* b) {
   if (((*tMax).y < (*tMin).x) || ((*tMax).x < (*tMin).y)) {
     return _option1{};
   }
-  float _tmin = maxf((*tMin).x, (*tMin).y);
+  float _tmin = fmaxf((*tMin).x, (*tMin).y);
   float* tmin = &_tmin;
-  float _tmax = minf((*tMax).x, (*tMax).y);
+  float _tmax = fminf((*tMax).x, (*tMax).y);
   float* tmax = &_tmax;
   if (((*tMax).z < (*tmin)) || ((*tmax) < (*tMin).z)) {
     return _option1{};
   }
-  *tmin = maxf((*tmin), (*tMin).z);
-  *tmax = minf((*tmax), (*tMax).z);
+  *tmin = fmaxf((*tmin), (*tMin).z);
+  *tmax = fminf((*tmax), (*tMax).z);
   return _option1{FInterval{(*tmin), (*tmax)}, true};
 }
 
@@ -603,7 +603,7 @@ _option2 intersectsp_ray_tri(Ray* ray, Triangle* tri) {
   float deltaY = ((((float)5 * (float)5.96046e-08) / (1 - ((float)5 * (float)5.96046e-08))) * (maxYt + maxZt));
   float deltaE = ((float)2 * (((((((float)2 * (float)5.96046e-08) / (1 - ((float)2 * (float)5.96046e-08))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
   float maxE = max(abs(float3{e0, e1, e2}));
-  float deltaT = (((float)3 * (((((((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * absf(invDet));
+  float deltaT = (((float)3 * (((((((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * fabsf(invDet));
   if (t <= deltaT) {
     return _option2{};
   }
@@ -689,7 +689,7 @@ float3 linear_to_gamma_v(float3 l) {
 }
 
 bool near_zero(float3 v) {
-  return (((absf(v.x) < (float)1e-08) & (absf(v.y) < (float)1e-08)) & (absf(v.z) < (float)1e-08));
+  return (((fabsf(v.x) < (float)1e-08) & (fabsf(v.y) < (float)1e-08)) & (fabsf(v.z) < (float)1e-08));
 }
 
 float random_float(float low, float high) {
