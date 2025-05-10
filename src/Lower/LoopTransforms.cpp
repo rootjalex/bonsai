@@ -148,6 +148,26 @@ std::string unique_queue_name(size_t counter) {
     return "_queue" + std::to_string(counter++);
 }
 
+// Rewrites tail recursion to a do-while loop to avoid stack overflow. This is
+// done by saving each variable to the stack and using these during iteration.
+// For example,
+// func acc(n: i32) {
+//   if (n <= 0) { return 1; }
+//   foo(n);
+//   return acc(n - 1);
+// }
+//
+// ->
+//
+// func acc(n: i32) {
+//   S_n = n;
+//   do {
+//     if (S_n <= 0) { return 1; }
+//     foo(S_n);
+//     S_n = S_n - 1;
+//     continue;
+//   } while (true);
+// }
 Stmt handle_tail_recursion(Stmt body, const Function &function) {
     struct TailRecursionToImperative : public Mutator {
         TailRecursionToImperative(const Function &function)
@@ -197,7 +217,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
                 // just requires making statements inside visits to expressions,
                 // which is additional complexity (similar to renaming in DCE).
                 internal_error << "Loopify of tail-recursion requires all "
-                                  "calls to be returned, "
+                                  "calls to be returned, received: "
                                << Expr(node);
             }
             return Mutator::visit(node);
@@ -343,6 +363,8 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
     };
 
     if (!queue_size.has_value()) {
+        // TODO(cgyurgyik): Add some `is_tail_recursive` check so this always
+        // fails gracefully.
         return handle_tail_recursion(std::move(stmt), *funcs[name]);
     }
 
