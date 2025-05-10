@@ -447,13 +447,9 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     }
     case ir::Intrinsic::OpType::min: {
         ir::Type element_type = node->args.front().type();
-        if (!element_type.is<Vector_t>()) {
-            // Required to avoid ambiguity errors.
-            os << "std::min";
-            os << '<' << bonsai_scalar_type_to_cpp(element_type) << '>';
-        } else {
-            os << "min";
-        }
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html#_CPPv43minKfKf
+        // min is equivalent to fminf.
+        os << "min";
         os << '(';
         print_expr_list(node->args);
         os << ')';
@@ -461,13 +457,9 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     }
     case ir::Intrinsic::OpType::max: {
         ir::Type element_type = node->args.front().type();
-        if (!element_type.is<Vector_t>()) {
-            // Required to avoid ambiguity errors.
-            os << "std::max";
-            os << '<' << bonsai_scalar_type_to_cpp(element_type) << '>';
-        } else {
-            os << "max";
-        }
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html#_CPPv43maxKfKf
+        // max is equivalent to fmaxf.
+        os << "max";
         os << '(';
         print_expr_list(node->args);
         os << ')';

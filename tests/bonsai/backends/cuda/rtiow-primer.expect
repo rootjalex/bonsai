@@ -154,7 +154,7 @@ _option1 intersectsp_ray_sphere(Ray* r, Sphere* s) {
   float sqrtd = sqrt(disc);
   float root0 = ((h - sqrtd) / a);
   float root1 = ((h + sqrtd) / a);
-  FInterval interval = FInterval{std::min<float>(root0, root1), std::max<float>(root0, root1)};
+  FInterval interval = FInterval{min(root0, root1), max(root0, root1)};
   return _option1{interval, true};
 }
 
@@ -292,7 +292,7 @@ float reflectance(float cos_theta, float refract_idx) {
 }
 
 float3 refract(float3 uv, float3 n, float etai_over_etat) {
-  float cos_theta = std::min<float>(dot(-uv, n), static_cast<float>(1));
+  float cos_theta = min(dot(-uv, n), static_cast<float>(1));
   float3 r_out_perp = (make_float3(etai_over_etat) * (uv + (make_float3(cos_theta) * n)));
   float3 r_out_parallel = (make_float3(-sqrt(abs(static_cast<float>(1) - sum((r_out_perp * r_out_perp))))) * n);
   return (r_out_perp + r_out_parallel);
@@ -317,7 +317,7 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
     } else {
       float ri = (hit.front_face ? (static_cast<float>(1) / (*ms).fuzz) : (*ms).fuzz);
       float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
-      float cos_theta = std::min<float>(dot(-unit_dir, hit.normal), static_cast<float>(1));
+      float cos_theta = min(dot(-unit_dir, hit.normal), static_cast<float>(1));
       float sin_theta = sqrt(static_cast<float>(1) - (cos_theta * cos_theta));
       bool cannot_refract = ((static_cast<float>(1) < (ri * sin_theta)) | (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) < reflectance(cos_theta, ri)));
       float3 direction = (cannot_refract ? (unit_dir - (make_float3((static_cast<float>(2) * dot(unit_dir, hit.normal))) * hit.normal)) : refract(unit_dir, hit.normal, ri));
@@ -516,15 +516,15 @@ _option1 intersectsp_ray_aabb(Ray* r, AABB* b) {
   if (((*tMax).y < (*tMin).x) || ((*tMax).x < (*tMin).y)) {
     return _option1{};
   }
-  float _tmin = std::max<float>((*tMin).x, (*tMin).y);
+  float _tmin = max((*tMin).x, (*tMin).y);
   float* tmin = &_tmin;
-  float _tmax = std::min<float>((*tMax).x, (*tMax).y);
+  float _tmax = min((*tMax).x, (*tMax).y);
   float* tmax = &_tmax;
   if (((*tMax).z < (*tmin)) || ((*tmax) < (*tMin).z)) {
     return _option1{};
   }
-  *tmin = std::max<float>((*tmin), (*tMin).z);
-  *tmax = std::min<float>((*tmax), (*tMax).z);
+  *tmin = max((*tmin), (*tMin).z);
+  *tmax = min((*tmax), (*tMax).z);
   return _option1{FInterval{(*tmin), (*tmax)}, true};
 }
 
