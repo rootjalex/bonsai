@@ -169,9 +169,45 @@ std::string unique_queue_name(size_t counter) {
 //   } while (true);
 // }
 Stmt handle_tail_recursion(Stmt body, const Function &function) {
-    struct TailRecursionToImperative : public Mutator {
-        TailRecursionToImperative(const Function &function)
+    struct RequiresStackAllocation : public Visitor {
+        RequiresStackAllocation(const Function &function)
             : function(function) {}
+
+        void visit(const ir::Call *node) override {
+            std::vector<Expr> args = node->args;
+            for (int i = 0, e = args.size(); i < e; i++) {
+                const Function::Argument &farg = function.args[i];
+                internal_assert(!farg.mutating)
+                    << "unexpected mutable argument in tail recursion: "
+                    << function;
+                const auto *v = args[i].as<Var>();
+                if (v == nullptr || v->name != farg.name) {
+                    arguments.insert(farg.name);
+                }
+            }
+        }
+
+        void visit(const ir::CallStmt *node) override {
+            std::vector<Expr> args = node->args;
+            for (int i = 0, e = args.size(); i < e; i++) {
+                const Function::Argument &farg = function.args[i];
+                internal_assert(!farg.mutating)
+                    << "unexpected mutable argument in tail recursion: "
+                    << function;
+                const auto *v = args[i].as<Var>();
+                if (v == nullptr || v->name != farg.name) {
+                    arguments.insert(farg.name);
+                }
+            }
+        }
+
+        const Function &function;
+        std::set<std::string> arguments;
+    };
+    struct TailRecursionToImperative : public Mutator {
+        TailRecursionToImperative(const Function &function,
+                                  const std::set<std::string> &requires_stack)
+            : function(function), requires_stack(requires_stack) {}
         Stmt visit(const Sequence *node) override {
             // This should only be performed on the top-level sequence.
             if (!entry) {
@@ -181,6 +217,9 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             std::vector<Stmt> stmts;
             // Save state variables locally on the stack.
             for (const ir::Function::Argument &arg : function.args) {
+                if (!requires_stack.contains(arg.name)) {
+                    continue;
+                }
                 std::string old_name = arg.name;
                 std::string new_name = "S_" + old_name;
                 WriteLoc location(new_name, arg.type);
@@ -192,11 +231,14 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             }
             // Place the rest of the body in a DoWhile.
             std::vector<Stmt> loop;
-            for (const Stmt &stmt : node->stmts) {
-                loop.push_back(mutate(stmt));
-            }
-            stmts.push_back(
-                DoWhile::make(Sequence::make(loop), ir::BoolImm::make(true)));
+            std::transform(node->stmts.begin(), node->stmts.end(),
+                           std::back_inserter(loop),
+                           [&](const Stmt &stmt) { return mutate(stmt); });
+            Stmt do_while =
+                DoWhile::make(Sequence::make(loop), ir::BoolImm::make(true));
+
+            // Then add the loop.
+            stmts.push_back(std::move(do_while));
             return Sequence::make(std::move(stmts));
         }
 
@@ -231,6 +273,9 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
                 std::vector<Stmt> statements;
                 std::vector<Expr> args = call->args;
                 for (int i = 0, e = args.size(); i < e; ++i) {
+                    if (!requires_stack.contains(function.args[i].name)) {
+                        continue;
+                    }
                     WriteLoc loc(state_variables[i], args[i].type());
                     statements.push_back(Store::make(loc, mutate(args[i])));
                 }
@@ -248,13 +293,16 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
         bool entry = true;
         // The function being transformed.
         const Function &function;
+        const std::set<std::string> &requires_stack;
         // A mapping from the old argument name to the new state variable.
         std::unordered_map<std::string, std::string> old_to_new;
         // An ordered list of state variables.
         std::vector<std::string> state_variables;
     };
 
-    TailRecursionToImperative lower(function);
+    RequiresStackAllocation visit(function);
+    body.accept(&visit);
+    TailRecursionToImperative lower(function, visit.arguments);
     return lower.mutate(std::move(body));
 }
 
