@@ -212,18 +212,18 @@ void _recloop_func0(uint16_t spheres__index, _spheres_layout0* spheres, Ray* r, 
   return;
 }
 
-float3 random_in_unit_disk() {
-  float r = sqrt(static_cast<float>(rand()) / static_cast<float>(RAND_MAX));
-  float theta = ((static_cast<float>(2) * static_cast<float>(3.14159)) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX));
+float3 random_in_unit_disk(curandState* _rng_state) {
+  float r = sqrt(curand_uniform(_rng_state));
+  float theta = ((static_cast<float>(2) * static_cast<float>(3.14159)) * curand_uniform(_rng_state));
   return float3{r * cos(theta), r * sin(theta), static_cast<float>(0)};
 }
 
-float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, float3 defocus_disk_v) {
-  float3 p = random_in_unit_disk();
+float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, float3 defocus_disk_v, curandState* _rng_state) {
+  float3 p = random_in_unit_disk(_rng_state);
   return ((center + (make_float3(p.x) * defocus_disk_u)) + (make_float3(p.y) * defocus_disk_v));
 }
 
-Ray build_ray(int32_t i, int32_t j, Camera* cam) {
+Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_state) {
   int32_t width = (*cam).width;
   int32_t _height = (int32_t)((float)width / (*cam).aspect_ratio);
   int32_t* height = &_height;
@@ -245,12 +245,12 @@ Ray build_ray(int32_t i, int32_t j, Camera* cam) {
   float defocus_radius = ((*cam).focus_dist * tan((((*cam).defocus_angle / static_cast<float>(2)) * static_cast<float>(3.14159)) / static_cast<float>(180)));
   float3 defocus_disk_u = (u * make_float3(defocus_radius));
   float3 defocus_disk_v = (v * make_float3(defocus_radius));
-  float3 offset = float3{static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - static_cast<float>(0.5), static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - static_cast<float>(0.5), static_cast<float>(0)};
+  float3 offset = float3{curand_uniform(_rng_state) - static_cast<float>(0.5), curand_uniform(_rng_state) - static_cast<float>(0.5), static_cast<float>(0)};
   float3 pixel_sample = ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) + (make_float3(((float)j + offset.y)) * pixel_delta_v));
   float3 _ray_origin = camera_center;
   float3* ray_origin = &_ray_origin;
   if (static_cast<float>(0) < (*cam).defocus_angle) {
-    *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
+    *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v, _rng_state);
   }
   float3 ray_direction = (pixel_sample - (*ray_origin));
   return Ray{(*ray_origin), ray_direction, INFINITY};
@@ -273,9 +273,9 @@ hit_record get_hit_record(Ray* r, Sphere* s) {
   return record;
 }
 
-float3 random_unit_vector() {
-  float x1 = (static_cast<float>(-1) + ((static_cast<float>(1) - static_cast<float>(-1)) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
-  float x2 = (static_cast<float>(-1) + ((static_cast<float>(1) - static_cast<float>(-1)) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
+float3 random_unit_vector(curandState* _rng_state) {
+  float x1 = (static_cast<float>(-1) + ((static_cast<float>(1) - static_cast<float>(-1)) * curand_uniform(_rng_state)));
+  float x2 = (static_cast<float>(-1) + ((static_cast<float>(1) - static_cast<float>(-1)) * curand_uniform(_rng_state)));
   float s = (((x1 * x1) + (x2 * x2)) + static_cast<float>(1e-08));
   float factor = sqrt(static_cast<float>(2) / s);
   float x = (factor * x1);
@@ -298,10 +298,10 @@ float3 refract(float3 uv, float3 n, float etai_over_etat) {
   return (r_out_perp + r_out_parallel);
 }
 
-scatter_record scatter(Ray* ray, MaterialSphere* ms) {
+scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_state) {
   hit_record hit = get_hit_record(ray, (&(*ms).s));
   if ((*ms).material == 0u) {
-    float3 _scatter_dir = (hit.normal + random_unit_vector());
+    float3 _scatter_dir = (hit.normal + random_unit_vector(_rng_state));
     float3* scatter_dir = &_scatter_dir;
     if (((abs((*scatter_dir).x) < static_cast<float>(1e-08)) & (abs((*scatter_dir).y) < static_cast<float>(1e-08))) & (abs((*scatter_dir).z) < static_cast<float>(1e-08))) {
       *scatter_dir = hit.normal;
@@ -311,7 +311,7 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
   } else {
     if ((*ms).material == 1u) {
       float3 ref = ((*ray).d - (make_float3((static_cast<float>(2) * dot((*ray).d, hit.normal))) * hit.normal));
-      float3 reflected = ((ref / make_float3(length(ref))) + (make_float3((*ms).fuzz) * random_unit_vector()));
+      float3 reflected = ((ref / make_float3(length(ref))) + (make_float3((*ms).fuzz) * random_unit_vector(_rng_state)));
       Ray m_scattered = Ray{hit.p, reflected, INFINITY};
       return scatter_record{(*ms).albedo, m_scattered, true};
     } else {
@@ -319,7 +319,7 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
       float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
       float cos_theta = std::min<float>(dot(-unit_dir, hit.normal), static_cast<float>(1));
       float sin_theta = sqrt(static_cast<float>(1) - (cos_theta * cos_theta));
-      bool cannot_refract = ((static_cast<float>(1) < (ri * sin_theta)) | (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) < reflectance(cos_theta, ri)));
+      bool cannot_refract = ((static_cast<float>(1) < (ri * sin_theta)) | (curand_uniform(_rng_state) < reflectance(cos_theta, ri)));
       float3 direction = (cannot_refract ? (unit_dir - (make_float3((static_cast<float>(2) * dot(unit_dir, hit.normal))) * hit.normal)) : refract(unit_dir, hit.normal, ri));
       Ray d_scattered = Ray{hit.p, direction, INFINITY};
       return scatter_record{make_float3(static_cast<float>(1), static_cast<float>(1), static_cast<float>(1)), d_scattered, true};
@@ -327,15 +327,15 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
   }
 }
 
-float3 sample(Ray* r, int32_t depth, _spheres_layout0* spheres) {
+float3 sample(Ray* r, int32_t depth, _spheres_layout0* spheres, curandState* _rng_state) {
   if (depth <= 0) {
     return make_float3(static_cast<float>(0), static_cast<float>(0), static_cast<float>(0));
   }
   _option0 isect = _traverse_tree0(r, spheres);
   if (isect.set) {
-    scatter_record data = scatter(r, (&isect.value));
+    scatter_record data = scatter(r, (&isect.value), _rng_state);
     if (data.hit) {
-      return (data.attenuation * sample((&data.ray), depth - 1, spheres));
+      return (data.attenuation * sample((&data.ray), depth - 1, spheres, _rng_state));
     } else {
       return make_float3(static_cast<float>(0), static_cast<float>(0), static_cast<float>(0));
     }
@@ -345,18 +345,18 @@ float3 sample(Ray* r, int32_t depth, _spheres_layout0* spheres) {
   return ((make_float3((static_cast<float>(1) - a)) * make_float3(static_cast<float>(1), static_cast<float>(1), static_cast<float>(1))) + (make_float3(a) * make_float3(static_cast<float>(0.5), static_cast<float>(0.7), static_cast<float>(1))));
 }
 
-float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres) {
+float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres, curandState* _rng_state) {
   float3 __alloc1 = make_float3(static_cast<float>(0));
   float3* _alloc1 = &__alloc1;
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
-    Ray _lv0 = build_ray(i, j, c);
-    *_alloc1 += sample((&_lv0), (*c).max_depth, spheres);
+    Ray _lv0 = build_ray(i, j, c, _rng_state);
+    *_alloc1 += sample((&_lv0), (*c).max_depth, spheres, _rng_state);
   }
   return (*_alloc1);
 }
 
-float3 pixel(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres) {
-  return (_traverse_array1(i, j, c, spheres) / make_float3((float)(*c).samples_per_pixel));
+float3 pixel(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres, curandState* _rng_state) {
+  return (_traverse_array1(i, j, c, spheres, _rng_state) / make_float3((float)(*c).samples_per_pixel));
 }
 
 float linear_to_gamma_f(float l) {
@@ -371,12 +371,12 @@ int3 to_rgb(float3 v) {
   return make_int3((make_float3(static_cast<float>(256)) * min(max(corrected, make_float3(static_cast<float>(0))), make_float3(static_cast<float>(0.999)))).x, (make_float3(static_cast<float>(256)) * min(max(corrected, make_float3(static_cast<float>(0))), make_float3(static_cast<float>(0.999)))).y, (make_float3(static_cast<float>(256)) * min(max(corrected, make_float3(static_cast<float>(0))), make_float3(static_cast<float>(0.999)))).z);
 }
 
-int3* _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres) {
+int3* _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres, curandState* _rng_state) {
   int32_t* _alloc0;
   (void)cudaMalloc((void**)&_alloc0,((height * (*c).width) * 3) * sizeof(int32_t));
   for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
     for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
-      int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));
+      int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres, _rng_state));
       _alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
       _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
       _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
@@ -657,74 +657,15 @@ float gamma(int32_t n) {
 }
 
 int3* image(Camera* c, _spheres_layout0* spheres) {
-  int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
-  int32_t* height = &_height;
-  *height = (((*height) < 1) ? 1 : (*height));
-  return _traverse_array0(c, (*height), spheres);
-}
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_CUDA.cpp:855
 
-bool intersects_Ray_AABB(Ray* r, AABB* b) {
-  _option1 interval = intersectsp_ray_aabb(r, b);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return ((extract.low < (*r).tmax) & (static_cast<float>(0) < extract.high));
-  }
-  return false;
-}
-
-bool intersects_Ray_MaterialSphere(Ray* r, MaterialSphere* ms) {
-  return intersects_Ray_Sphere(r, (&(*ms).s));
-}
-
-bool intersects_Ray_Triangle(Ray* ray, Triangle* tri) {
-  return intersectsp_ray_tri(ray, tri).set;
-}
-
-float len_squared(float3 v) {
-  return sum((v * v));
-}
-
-float3 linear_to_gamma_v(float3 l) {
-  return float3{linear_to_gamma_f(l.x), linear_to_gamma_f(l.y), linear_to_gamma_f(l.z)};
-}
-
-bool near_zero(float3 v) {
-  return (((abs(v.x) < static_cast<float>(1e-08)) & (abs(v.y) < static_cast<float>(1e-08))) & (abs(v.z) < static_cast<float>(1e-08)));
-}
-
-float random_float(float low, float high) {
-  return (low + ((high - low) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
-}
-
-float3 random_on_hemisphere(float3 normal) {
-  float3 on_unit_sphere = random_unit_vector();
-  if (static_cast<float>(0) < dot(on_unit_sphere, normal)) {
-    return on_unit_sphere;
-  } else {
-    return -on_unit_sphere;
-  }
-}
-
-float3 random_vec3f() {
-  return float3{static_cast<float>(rand()) / static_cast<float>(RAND_MAX), static_cast<float>(rand()) / static_cast<float>(RAND_MAX), static_cast<float>(rand()) / static_cast<float>(RAND_MAX)};
-}
-
-float3 random_vec3f_in(float low, float high) {
-  return float3{low + ((high - low) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX)), low + ((high - low) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX)), low + ((high - low) * static_cast<float>(rand()) / static_cast<float>(RAND_MAX))};
-}
-
-float3 reflect(float3 v, float3 n) {
-  return (v - (make_float3((static_cast<float>(2) * dot(v, n))) * n));
-}
-
-float3 sample_square() {
-  return float3{static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - static_cast<float>(0.5), static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - static_cast<float>(0.5), static_cast<float>(0)};
-}
-
-_option0 trace(Ray* r, _spheres_layout0* spheres) {
-  return _traverse_tree0(r, spheres);
-}
-
-float3 unit_vector(float3 v) {
-  return (v / make_float3(length(v)));
+--> function.is_kernel()
+CUDA rng can only run on __device__:
+func [[export]] image(c : (Camera*), spheres : (_spheres_layout0*)) -> i32x3[(*c).width][(*height)] {
+  height : mut i32 := cast<i32>(cast<f32>((*c).width) / (*c).aspect_ratio)
+  height = select((*height) < 1, 1, (*height))
+  return _traverse_array0(c, (*height), spheres, (&_rng_state))
 }
