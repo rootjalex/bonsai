@@ -1028,13 +1028,25 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         // TODO(cgyurgyik): print non-constant sized arrays.
         std::optional<uint64_t> constant_size = get_constant_value(atype->size);
         internal_assert(constant_size.has_value()) << atype->size;
+        const std::string name = "__array_print" + std::to_string(indent_level);
+        Expr to_print_expr = node;
+        if (!node.is<Var>()) {
+            // Evaluate node once, then perform extracts.
+            frames.push_frame();
+            frames.add_to_frame(name, codegen_expr(node));
+            to_print_expr = Var::make(node.type(), name);
+        }
         for (uint64_t i = 0, e = *constant_size; i < e; ++i) {
             static const ir::Type u32 = ir::UInt_t::make(32);
-            ir::Expr extract = ir::Extract::make(node, make_const(u32, i));
+            ir::Expr extract =
+                ir::Extract::make(to_print_expr, make_const(u32, i));
             print_helper(extract, args, to_print, indent_level);
             if (i + 1 == e)
                 continue;
             to_print += ", ";
+        }
+        if (!node.is<Var>()) {
+            frames.pop_frame();
         }
         to_print += "}";
         return;
