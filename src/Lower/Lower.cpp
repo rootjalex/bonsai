@@ -13,6 +13,7 @@
 #include "Lower/Maps.h"
 #include "Lower/Mutability.h"
 #include "Lower/Options.h"
+#include "Lower/Random.h"
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
 #include "Lower/ReturnToOutParameter.h"
@@ -83,6 +84,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
+    manager.register_pass<LowerRandom>();
     manager.register_pass<LowerRecLoops>();
     manager.register_pass<ReturnToOutParameter>();
     manager.register_pass<RenamePointerToExpr>();
@@ -110,6 +112,9 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
+    // This must *always* go after parallelization,
+    // and before Mutability
+    core.push_back(std::make_unique<LowerRandom>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
@@ -141,6 +146,9 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());
+    // This must *always* go after parallelization,
+    // and before Mutability
+    d.push_back(std::make_unique<LowerRandom>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());

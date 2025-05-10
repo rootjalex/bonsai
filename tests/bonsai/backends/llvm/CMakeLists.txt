@@ -12,8 +12,11 @@ add_bonsai_tests(
     nested-exported-function.bonsai
     option.bonsai
     packed-struct.bonsai
+    rand-par.bonsai
+    rand.bonsai
     short-circuit.bonsai
     simple.bonsai
     struct_defaults.bonsai
+    tail-call.bonsai
     type_coercion_primitive.bonsai
 )

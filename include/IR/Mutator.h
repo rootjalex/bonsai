@@ -33,6 +33,7 @@ struct Mutator {
     virtual Type visit(const Function_t *);
     virtual Type visit(const Generic_t *);
     virtual Type visit(const BVH_t *);
+    virtual Type visit(const Rand_State_t *);
     // Interfaces
     virtual Interface visit(const IEmpty *);
     virtual Interface visit(const IFloat *);

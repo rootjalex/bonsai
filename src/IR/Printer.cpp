@@ -495,6 +495,8 @@ void Printer::visit(const BVH_t *node) {
     }
 }
 
+void Printer::visit(const Rand_State_t *node) { os << "rng_state_t"; }
+
 void Printer::visit(const IEmpty *node) { os << "IEmpty"; }
 
 void Printer::visit(const IFloat *node) { os << "IFloat"; }
@@ -909,7 +911,7 @@ void Printer::visit(const CallStmt *node) {
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";
-    print_no_parens(node->value);
+    print_expr_list(node->args);
     os << ")\n";
 }
 

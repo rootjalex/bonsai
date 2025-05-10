@@ -8,6 +8,7 @@
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 #include "Lower/Intrinsics.h"
+#include "Lower/Random.h"
 #include "Lower/TopologicalOrder.h"
 
 #include "Utils.h"
@@ -266,6 +267,8 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
     node->etype.accept(this);
     os << "*";
 }
+
+void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
 
 void CodeGen_CUDA::visit(const FloatImm *node) {
     if (node->type.bits() == 64) {
@@ -553,8 +556,9 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     // TODO(cgyurgyik): I don't think this will work on device, need to use
     // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
     case ir::Intrinsic::OpType::rand: {
-        // [0, 1] - inclusive
-        os << "static_cast<float>(rand()) / static_cast<float>(RAND_MAX)";
+        internal_assert(node->args.empty())
+            << "TODO: support vector rand generation on CUDA: " << Expr(node);
+        os << "curand_uniform(" << lower::rng_state_name << ")";
         return;
     }
     case ir::Intrinsic::OpType::fma: {
@@ -886,6 +890,19 @@ void CodeGen_CUDA::print(const Function &function) {
     }
     os << ')' << ' ' << '{' << '\n';
     increment();
+    /*
+    // TODO(cgyurgyik): set up for kernel launch.
+    if (function.must_setup_rng()) {
+        internal_assert(function.is_kernel())
+            << "CUDA rng can only run on __device__:\n"
+            << function;
+        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
+        // TODO: need `idx` to be set!!
+        os << get_indent() << "curand_init(idx, 0, 0, &"
+           << lower::rng_state_name << ");\n";
+    }
+    */
+
     function.body.accept(this);
     decrement();
     os << get_indent() << '}';

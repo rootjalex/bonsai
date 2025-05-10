@@ -1,0 +1,16 @@
+//! flags: -b llvm
+
+func test_rand(i : i32) -> f32 {
+    a = rand(4);
+    print(i, a);
+    return sum(a);
+}
+
+// TODO(ajr): fix type inference or printing of dynamic-sized arrays.
+// func test_rand_all(i : i32) = map(test_rand, iter(i));
+func test_rand_all(i : i32) = map(test_rand, iter(16));
+
+func main() -> i32 {
+    print(test_rand_all(16));
+    return 0;
+}

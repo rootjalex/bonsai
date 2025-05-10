@@ -59,8 +59,10 @@ struct Function {
     InterfaceList interfaces;
 
     enum class Attribute {
-        exported, // Whether this will be exported to C++.
-        imported, // Whether this function was imported from another file.
+        exported,  // Whether this will be exported to C++.
+        imported,  // Whether this function was imported from another file.
+        kernel,    // Whether this function is a parallel kernel.
+        setup_rng, // Whether this function must set up rng state.
     };
 
     std::vector<Attribute> attributes;
@@ -132,6 +134,16 @@ struct Function {
     bool is_imported() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::imported) != attributes.cend();
+    }
+
+    bool is_kernel() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::kernel) != attributes.cend();
+    }
+
+    bool must_setup_rng() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::setup_rng) != attributes.cend();
     }
 };
 

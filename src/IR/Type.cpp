@@ -506,6 +506,11 @@ Type BVH_t::make(ir::Type primitive, std::string name,
     return node;
 }
 
+Type Rand_State_t::make() {
+    static Type global_rng = new Rand_State_t;
+    return global_rng;
+}
+
 Type get_field_type(const Type &struct_type, const std::string &field) {
     if (const Struct_t *as_struct = struct_type.as<Struct_t>()) {
         Type etype;

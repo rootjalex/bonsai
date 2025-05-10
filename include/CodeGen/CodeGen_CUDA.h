@@ -41,6 +41,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
+    void visit(const ir::Rand_State_t *) override;
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
     RESTRICT_VISITOR(ir::IFloat);

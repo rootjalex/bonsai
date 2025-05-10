@@ -1,0 +1,154 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct._ctx0 = type { ptr }
+
+@0 = private unnamed_addr constant [66 x i8] c"{%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f}\0A\00", align 1
+@1 = private unnamed_addr constant [22 x i8] c"%d, [%f, %f, %f, %f]\0A\00", align 1
+
+define void @_parfunc0(ptr nocapture noundef nonnull readonly %_ctx0, i64 noundef %_parfor_idx) {
+_parfunc0_entry:
+  %0 = tail call i32 @rand()
+  %1 = insertelement <4 x i32> poison, i32 %0, i64 0
+  %2 = tail call i32 @rand()
+  %3 = insertelement <4 x i32> %1, i32 %2, i64 1
+  %4 = tail call i32 @rand()
+  %5 = insertelement <4 x i32> %3, i32 %4, i64 2
+  %6 = tail call i32 @rand()
+  %7 = insertelement <4 x i32> %5, i32 %6, i64 3
+  %8 = trunc i64 %_parfor_idx to i32
+  %9 = mul <4 x i32> %7, <i32 609248, i32 609248, i32 609248, i32 609248>
+  %10 = add <4 x i32> %9, <i32 5367177, i32 5367177, i32 5367177, i32 5367177>
+  %11 = mul <4 x i32> %10, %7
+  %12 = add <4 x i32> %11, <i32 6517565, i32 6517565, i32 6517565, i32 6517565>
+  %13 = and <4 x i32> %12, <i32 8388607, i32 8388607, i32 8388607, i32 8388607>
+  %14 = or disjoint <4 x i32> %13, <i32 1065353216, i32 1065353216, i32 1065353216, i32 1065353216>
+  %15 = bitcast <4 x i32> %14 to <4 x float>
+  %16 = fadd <4 x float> %15, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
+  %17 = extractelement <4 x float> %16, i64 0
+  %18 = extractelement <4 x float> %16, i64 1
+  %19 = extractelement <4 x float> %16, i64 2
+  %20 = extractelement <4 x float> %16, i64 3
+  %21 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %8, float %17, float %18, float %19, float %20)
+  %22 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %16)
+  %_ctx0__alloc0_ld = load ptr, ptr %_ctx0, align 8
+  %23 = sext i32 %8 to i64
+  %_ctx0__alloc0_ld1 = getelementptr inbounds float, ptr %_ctx0__alloc0_ld, i64 %23
+  store float %22, ptr %_ctx0__alloc0_ld1, align 4
+  ret void
+}
+
+define noundef ptr @_traverse_array0() local_unnamed_addr {
+_traverse_array0_entry:
+  %ctx = alloca %struct._ctx0, align 8
+  %_alloc0_untyped = tail call dereferenceable_or_null(64) ptr @malloc(i64 64)
+  store ptr %_alloc0_untyped, ptr %ctx, align 8
+  %0 = tail call ptr @dispatch_get_global_queue(i64 0, i64 0)
+  call void @dispatch_apply_f(i64 16, ptr %0, ptr nonnull %ctx, ptr nonnull @_parfunc0)
+  ret ptr %_alloc0_untyped
+}
+
+define noundef i32 @main() local_unnamed_addr {
+main_entry:
+  %ctx.i = alloca %struct._ctx0, align 8
+  call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %ctx.i)
+  %_alloc0_untyped.i = tail call dereferenceable_or_null(64) ptr @malloc(i64 64)
+  store ptr %_alloc0_untyped.i, ptr %ctx.i, align 8
+  %0 = tail call ptr @dispatch_get_global_queue(i64 0, i64 0)
+  call void @dispatch_apply_f(i64 16, ptr %0, ptr nonnull %ctx.i, ptr nonnull @_parfunc0)
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %ctx.i)
+  %extract = load float, ptr %_alloc0_untyped.i, align 4
+  %extract_ptr1 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 4
+  %extract2 = load float, ptr %extract_ptr1, align 4
+  %extract_ptr3 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 8
+  %extract4 = load float, ptr %extract_ptr3, align 4
+  %extract_ptr5 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 12
+  %extract6 = load float, ptr %extract_ptr5, align 4
+  %extract_ptr7 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 16
+  %extract8 = load float, ptr %extract_ptr7, align 4
+  %extract_ptr9 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 20
+  %extract10 = load float, ptr %extract_ptr9, align 4
+  %extract_ptr11 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 24
+  %extract12 = load float, ptr %extract_ptr11, align 4
+  %extract_ptr13 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 28
+  %extract14 = load float, ptr %extract_ptr13, align 4
+  %extract_ptr15 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 32
+  %extract16 = load float, ptr %extract_ptr15, align 4
+  %extract_ptr17 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 36
+  %extract18 = load float, ptr %extract_ptr17, align 4
+  %extract_ptr19 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 40
+  %extract20 = load float, ptr %extract_ptr19, align 4
+  %extract_ptr21 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 44
+  %extract22 = load float, ptr %extract_ptr21, align 4
+  %extract_ptr23 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 48
+  %extract24 = load float, ptr %extract_ptr23, align 4
+  %extract_ptr25 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 52
+  %extract26 = load float, ptr %extract_ptr25, align 4
+  %extract_ptr27 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 56
+  %extract28 = load float, ptr %extract_ptr27, align 4
+  %extract_ptr29 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 60
+  %extract30 = load float, ptr %extract_ptr29, align 4
+  %1 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, float %extract, float %extract2, float %extract4, float %extract6, float %extract8, float %extract10, float %extract12, float %extract14, float %extract16, float %extract18, float %extract20, float %extract22, float %extract24, float %extract26, float %extract28, float %extract30)
+  ret i32 0
+}
+
+; Function Attrs: nofree nounwind
+define float @test_rand(i32 noundef %i, ptr nocapture noundef nonnull %_rng_state) local_unnamed_addr #0 {
+test_rand_entry:
+  %rng_seed = load <4 x i32>, ptr %_rng_state, align 16
+  %0 = mul <4 x i32> %rng_seed, <i32 609248, i32 609248, i32 609248, i32 609248>
+  %1 = add <4 x i32> %0, <i32 5367177, i32 5367177, i32 5367177, i32 5367177>
+  %2 = mul <4 x i32> %1, %rng_seed
+  %3 = add <4 x i32> %2, <i32 6517565, i32 6517565, i32 6517565, i32 6517565>
+  %4 = add <4 x i32> %rng_seed, <i32 4, i32 8, i32 12, i32 16>
+  store <4 x i32> %4, ptr %_rng_state, align 16
+  %5 = and <4 x i32> %3, <i32 8388607, i32 8388607, i32 8388607, i32 8388607>
+  %6 = or disjoint <4 x i32> %5, <i32 1065353216, i32 1065353216, i32 1065353216, i32 1065353216>
+  %7 = bitcast <4 x i32> %6 to <4 x float>
+  %8 = fadd <4 x float> %7, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
+  %9 = extractelement <4 x float> %8, i64 0
+  %10 = extractelement <4 x float> %8, i64 1
+  %11 = extractelement <4 x float> %8, i64 2
+  %12 = extractelement <4 x float> %8, i64 3
+  %13 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %i, float %9, float %10, float %11, float %12)
+  %14 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %8)
+  ret float %14
+}
+
+define noundef ptr @test_rand_all(i32 noundef %i) local_unnamed_addr {
+test_rand_all_entry:
+  %ctx.i = alloca %struct._ctx0, align 8
+  call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %ctx.i)
+  %_alloc0_untyped.i = tail call dereferenceable_or_null(64) ptr @malloc(i64 64)
+  store ptr %_alloc0_untyped.i, ptr %ctx.i, align 8
+  %0 = tail call ptr @dispatch_get_global_queue(i64 0, i64 0)
+  call void @dispatch_apply_f(i64 16, ptr %0, ptr nonnull %ctx.i, ptr nonnull @_parfunc0)
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %ctx.i)
+  ret ptr %_alloc0_untyped.i
+}
+
+declare i32 @rand() local_unnamed_addr
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
+
+declare ptr @dispatch_get_global_queue(i64, i64) local_unnamed_addr
+
+declare void @dispatch_apply_f(i64, ptr, ptr, ptr) local_unnamed_addr
+
+; Function Attrs: nofree nounwind
+declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #0
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) #2
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.start.p0(i64 immarg, ptr nocapture) #3
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.end.p0(i64 immarg, ptr nocapture) #3
+
+attributes #0 = { nofree nounwind }
+attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }

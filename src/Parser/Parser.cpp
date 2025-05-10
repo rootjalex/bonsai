@@ -833,10 +833,10 @@ struct Parser {
             return ir::Return::make(std::move(ret));
         } else if (consume(Token::Type::PRINT)) {
             expect(Token::Type::LPAREN);
-            ir::Expr value = parse_expr();
-            expect(Token::Type::RPAREN);
+            std::vector<ir::Expr> args =
+                parse_expr_list_until(Token::Type::RPAREN);
             expect(Token::Type::SEMICOL);
-            return ir::Print::make(value);
+            return ir::Print::make(std::move(args));
         } else if (peek().type == Token::Type::IDENTIFIER) {
             std::string id = get_id();
             // TODO(cgyurgyik): This assumes that functions are declared before
@@ -1222,7 +1222,7 @@ struct Parser {
             if (name == p.name) {
                 if constexpr (requires { p.skippable; }) {
                     if (p.skippable && arg_count != p.n_args) {
-                        return {};
+                        continue;
                     }
                 }
                 if constexpr (requires { p.n_args; }) {

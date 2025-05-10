@@ -40,6 +40,7 @@
 #include "IR/Type.h"
 
 #include "Lower/Intrinsics.h"
+#include "Lower/Random.h"
 
 #include "Utils.h"
 
@@ -343,6 +344,34 @@ void CodeGen_LLVM::compile_function(const Function &func,
         arg_idx++;
     }
 
+    if (func.must_setup_rng()) {
+        const uint32_t lanes = native_vector_bits() / 32;
+        llvm::Function *rand_function = module->getFunction("rand");
+        if (!rand_function) {
+            llvm::FunctionType *rand_func_type =
+                llvm::FunctionType::get(i32_t, {}, false);
+            rand_function = llvm::Function::Create(
+                rand_func_type, llvm::GlobalValue::ExternalLinkage, "rand",
+                module.get());
+        }
+
+        // Generate i32 x lanes vector using repeated scalar rand() calls
+        llvm::Value *rand_vec =
+            llvm::UndefValue::get(llvm::FixedVectorType::get(i32_t, lanes));
+        for (uint32_t i = 0; i < lanes; ++i) {
+            llvm::Value *r = builder->CreateCall(rand_function);
+            rand_vec = builder->CreateInsertElement(rand_vec, r, i);
+        }
+
+        // Allocate space on stack for vector (aligned to vector width)
+        llvm::AllocaInst *rng_state_ptr = builder->CreateAlloca(
+            rand_vec->getType(), nullptr, lower::rng_state_name);
+        rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
+        builder->CreateStore(rand_vec, rng_state_ptr);
+
+        frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
+    }
+
     codegen_stmt(func.body);
     frames.pop_frame();
 
@@ -618,6 +647,13 @@ void CodeGen_LLVM::visit(const Tuple_t *node) {
     // TODO: struct_types should include tuples, probably? but they're
     // unnamed... maybe use to_string() to map from node to built Struct_t
     internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
+}
+
+void CodeGen_LLVM::visit(const Rand_State_t *node) {
+    // This is device-specific. For now, we default to a vector the size of the
+    // vector width.
+    type = llvm::VectorType::get(i32_t, native_vector_bits() / 32,
+                                 /* Scalable */ false);
 }
 
 llvm::FunctionType *CodeGen_LLVM::get_function_type(const ir::Type &type) {
@@ -992,13 +1028,25 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         // TODO(cgyurgyik): print non-constant sized arrays.
         std::optional<uint64_t> constant_size = get_constant_value(atype->size);
         internal_assert(constant_size.has_value()) << atype->size;
+        const std::string name = "__array_print" + std::to_string(indent_level);
+        Expr to_print_expr = node;
+        if (!node.is<Var>()) {
+            // Evaluate node once, then perform extracts.
+            frames.push_frame();
+            frames.add_to_frame(name, codegen_expr(node));
+            to_print_expr = Var::make(node.type(), name);
+        }
         for (uint64_t i = 0, e = *constant_size; i < e; ++i) {
             static const ir::Type u32 = ir::UInt_t::make(32);
-            ir::Expr extract = ir::Extract::make(node, make_const(u32, i));
+            ir::Expr extract =
+                ir::Extract::make(to_print_expr, make_const(u32, i));
             print_helper(extract, args, to_print, indent_level);
             if (i + 1 == e)
                 continue;
             to_print += ", ";
+        }
+        if (!node.is<Var>()) {
+            frames.pop_frame();
         }
         to_print += "}";
         return;
@@ -1082,7 +1130,13 @@ void CodeGen_LLVM::visit(const Print *node) {
     // Placeholder for the string - this is always the 1st argument.
     args.push_back(nullptr);
 
-    print_helper(node->value, args, to_print);
+    for (size_t i = 0; i < node->args.size(); i++) {
+        if (i != 0) {
+            to_print += ", ";
+        }
+        print_helper(node->args[i], args, to_print);
+    }
+
     args.front() = builder->CreateGlobalStringPtr(to_print + "\n");
 
     value = builder->CreateCall(retrieve_printf(*module), args);
@@ -1364,29 +1418,141 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         break;
     }
     case Intrinsic::rand: {
-        // TODO(ajr): use Halide vectorizable rand!
-        internal_assert(node->args.size() == 0)
-            << "Unimplemented: seeded random number generation\n";
-        // Declare or get the rand() function: int rand(void);
-        llvm::Function *rand_function = module->getFunction("rand");
-        if (!rand_function) {
-            llvm::FunctionType *rand_func_type =
-                llvm::FunctionType::get(i32_t, {}, false);
-            rand_function = llvm::Function::Create(
-                rand_func_type, llvm::GlobalValue::ExternalLinkage, "rand",
-                module.get());
+        // Applies Halide's pseudorandom number generator.
+        // https://github.com/halide/Halide/blob/bf9c55dd1392b87cfc82371ee40157786eb4ec78/src/Random.cpp#L19
+        const uint64_t req_vals =
+            node->args.size() == 1 ? *get_constant_value(node->args[0]) : 1;
+        auto frame_value = frames.from_frames(lower::rng_state_name);
+        internal_assert(frame_value.has_value()) << "_rng_state missing";
+        llvm::Value *rng_state_ptr = *frame_value;
+
+        // Assuming we know the native vector width
+        const int lanes = native_vector_bits() / 32;
+        internal_assert(req_vals == 1 || req_vals % lanes == 0)
+            << "TODO: codegen rand(count) where count is not a multiple of the "
+               "vector width: "
+            << req_vals << " with " << lanes;
+        llvm::Type *vec_ty =
+            llvm::VectorType::get(i32_t, lanes, /*Scalable=*/false);
+
+        const uint64_t c0 = 576942909;
+        const uint64_t c1 = 1121052041;
+        const uint64_t c2 = 1040796640;
+
+        auto broadcast_const = [&](uint64_t val) {
+            return llvm::ConstantVector::getSplat(
+                llvm::ElementCount::getFixed(lanes),
+                llvm::ConstantInt::get(i32_t, val));
+        };
+
+        llvm::Value *seed =
+            create_aligned_load(vec_ty, rng_state_ptr, "rng_seed");
+        std::vector<llvm::Value *> pieces;
+
+        int generated = 0;
+        while (generated < req_vals) {
+            llvm::Value *s = seed;
+
+            // Apply the formula: (((c2 * s) + c1) * s) + c0
+            s = builder->CreateMul(broadcast_const(c2), s);
+            s = builder->CreateAdd(s, broadcast_const(c1));
+            s = builder->CreateMul(s, seed); // use original seed
+            s = builder->CreateAdd(s, broadcast_const(c0));
+
+            pieces.push_back(s);
+            generated += lanes;
+
+            // Update seed vector: add constant increment {lanes, 2 * lanes, ...
+            // lanes * lanes}
+            std::vector<llvm::Constant *> incrs;
+            for (int i = 0; i < lanes; ++i) {
+                incrs.push_back(llvm::ConstantInt::get(i32_t, lanes * (i + 1)));
+            }
+            llvm::Value *incr = llvm::ConstantVector::get(incrs);
+            seed = builder->CreateAdd(seed, incr);
         }
 
-        // Call rand()
-        llvm::Value *rand_int = builder->CreateCall(rand_function);
+        // Store updated seed back into RNG state
+        builder->CreateStore(seed, rng_state_ptr);
 
-        // Convert result to float in [0.0, 1.0)
-        llvm::Value *as_float = builder->CreateUIToFP(rand_int, f32_t);
-        llvm::Value *scaled = builder->CreateFMul(
-            as_float,
-            llvm::ConstantFP::get(f32_t, 1.0f / static_cast<float>(RAND_MAX)));
+        if (req_vals == 1) {
+            llvm::Value *result =
+                builder->CreateExtractElement(pieces[0], (uint64_t)0);
 
-        value = scaled;
+            // Now apply classic formula to produce [0.0, 1.0)
+            // Use random 23 mantissa bits, which gives [1.0, 2.0)
+            // Then subtract by 1.0
+            // Mask for mantissa bits (23 bits): 0x007FFFFF
+            llvm::Value *mantissa_mask =
+                llvm::ConstantInt::get(i32_t, 0x007FFFFF);
+
+            // Bias to make exponent = 127 (1.0): 0x3F800000
+            llvm::Value *one_bits = llvm::ConstantInt::get(i32_t, 0x3F800000);
+
+            // Apply bit manipulation: ((rand & mask) | one_bits)
+            llvm::Value *rand_mantissa =
+                builder->CreateAnd(result, mantissa_mask);
+            llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
+
+            // Bitcast i32 -> float
+            llvm::Value *as_float = builder->CreateBitCast(rand_bits, f32_t);
+
+            // Subtract 1.0 to get range [0.0, 1.0)
+            llvm::Value *float_ones = llvm::ConstantFP::get(f32_t, 1.0f);
+            value = builder->CreateFSub(as_float, float_ones);
+            return;
+        }
+
+        // Concatenate pieces
+        // TODO: is there an easy way to concat?
+        std::vector<llvm::Value *> elements;
+        for (llvm::Value *vec : pieces) {
+            for (int i = 0; i < lanes; ++i) {
+                elements.push_back(builder->CreateExtractElement(vec, i));
+            }
+        }
+
+        // Truncate if needed
+        if (elements.size() > req_vals) {
+            elements.resize(req_vals);
+        }
+
+        // Repack into result vector
+        llvm::FixedVectorType *out_ty =
+            llvm::FixedVectorType::get(i32_t, req_vals);
+        llvm::Value *result = llvm::UndefValue::get(out_ty);
+        for (size_t i = 0; i < req_vals; ++i) {
+            result = builder->CreateInsertElement(result, elements[i], i);
+        }
+
+        // Now apply classic formula to produce [0.0, 1.0)
+        // Use random 23 mantissa bits, which gives [1.0, 2.0)
+        // Then subtract by 1.0
+        llvm::FixedVectorType *fvec_ty =
+            llvm::FixedVectorType::get(f32_t, req_vals);
+
+        // Mask for mantissa bits (23 bits): 0x007FFFFF
+        llvm::Value *mantissa_mask = llvm::ConstantVector::getSplat(
+            llvm::ElementCount::getFixed(req_vals),
+            llvm::ConstantInt::get(i32_t, 0x007FFFFF));
+
+        // Bias to make exponent = 127 (1.0): 0x3F800000
+        llvm::Value *one_bits = llvm::ConstantVector::getSplat(
+            llvm::ElementCount::getFixed(req_vals),
+            llvm::ConstantInt::get(i32_t, 0x3F800000));
+
+        // Apply bit manipulation: ((rand & mask) | one_bits)
+        llvm::Value *rand_mantissa = builder->CreateAnd(result, mantissa_mask);
+        llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
+
+        // Bitcast i32 -> float
+        llvm::Value *as_float = builder->CreateBitCast(rand_bits, fvec_ty);
+
+        // Subtract 1.0 to get range [0.0, 1.0)
+        llvm::Value *float_ones = llvm::ConstantVector::getSplat(
+            llvm::ElementCount::getFixed(req_vals),
+            llvm::ConstantFP::get(f32_t, 1.0f));
+        value = builder->CreateFSub(as_float, float_ones);
         return;
     }
     case Intrinsic::sin: {
@@ -1478,6 +1644,13 @@ void CodeGen_LLVM::visit(const Instantiate *node) {
 }
 
 void CodeGen_LLVM::visit(const PtrTo *node) {
+    if (const Var *var = node->expr.as<Var>()) {
+        if (var->name == lower::rng_state_name) {
+            // This is always a ptr already
+            visit(var);
+            return;
+        }
+    }
     llvm::Value *pointee = codegen_expr(node->expr);
 
     if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
@@ -1619,12 +1792,38 @@ void CodeGen_LLVM::visit(const Unwrap *node) {
 }
 
 void CodeGen_LLVM::visit(const Return *node) {
-    ir::Expr value = node->value;
+    Expr value = node->value;
     if (!value.defined()) {
         builder->CreateRetVoid();
         return;
     }
-    builder->CreateRet(codegen_expr(value));
+
+    if (const Call *call = node->value.as<Call>()) {
+        if (const Var *var = call->func.as<Var>()) {
+            internal_assert(current_function);
+            if (var->name == current_function->getName()) {
+                llvm::Function *func = codegen_func_ptr(call->func);
+                internal_assert(func);
+                std::vector<llvm::Value *> args;
+                for (const Expr &arg : call->args) {
+                    args.push_back(codegen_expr(arg));
+                }
+
+                llvm::CallInst *tail = builder->CreateCall(func, args);
+                // Make this a tailcall.
+                tail->setTailCallKind(llvm::CallInst::TCK_Tail);
+                tail->setCallingConv(
+                    current_function
+                        ->getCallingConv()); // Ensure same convention
+
+                builder->CreateRet(tail);
+                return;
+            }
+        }
+    }
+
+    llvm::Value *val = codegen_expr(value);
+    builder->CreateRet(val);
 }
 
 void CodeGen_LLVM::visit(const LetStmt *node) {

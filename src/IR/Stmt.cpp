@@ -23,10 +23,12 @@ Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
     return node;
 }
 
-Stmt Print::make(Expr value) {
-    internal_assert(value.defined()) << "Undefined value in Print::make";
+Stmt Print::make(std::vector<Expr> args) {
+    internal_assert(std::all_of(args.cbegin(), args.cend(), [](const Expr &e) {
+        return e.defined();
+    })) << "Print::make received undefined arg.";
     Print *node = new Print;
-    node->value = std::move(value);
+    node->args = std::move(args);
     return node;
 }
 

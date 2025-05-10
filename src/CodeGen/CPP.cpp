@@ -101,6 +101,7 @@ void emit_type(std::ostream &ss, Type type) {
         RESTRICT_VISITOR(Function_t);
         RESTRICT_VISITOR(Generic_t);
         RESTRICT_VISITOR(BVH_t);
+        RESTRICT_VISITOR(Rand_State_t);
     };
 
     Emit emitter(ss);

@@ -85,6 +85,8 @@ void Visitor::visit(const BVH_t *node) {
     }
 }
 
+void Visitor::visit(const Rand_State_t *) {}
+
 void Visitor::visit(const IEmpty *) {}
 
 void Visitor::visit(const IFloat *) {}
@@ -183,7 +185,7 @@ void Visitor::visit(const CallStmt *node) {
     visit_list(this, node->args);
 }
 
-void Visitor::visit(const Print *node) { node->value.accept(this); }
+void Visitor::visit(const Print *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Return *node) {
     if (!node->value.defined()) {

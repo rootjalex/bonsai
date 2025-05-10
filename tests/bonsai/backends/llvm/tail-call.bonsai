@@ -1,0 +1,33 @@
+//! flags: -b llvm
+
+element vec3f = vector[f32, 3];
+
+// LLVM should definitely TCO this.
+func sample(a : vec3f, depth : i32) -> vec3f {
+    if depth < 0 {
+        return a;
+    }
+    return sample(rand() * a, depth - 1);
+}
+
+element Example {
+    value : vec3f;
+    depth : i32;
+}
+
+// LLVM does not TCO this
+func sample1(e : Example) -> vec3f {
+    if e.depth <= 0 {
+        return e.value;
+    }
+    b = rand();
+    if b < sum(e.value) {
+        c = rand();
+        if c > sum(e.value) {
+            return sample1(Example{rand() * e.value, e.depth - 1});
+        } else {
+            return vec3f{0.0, 0.0, 0.0};
+        }
+    }
+    return b * e.value;
+}

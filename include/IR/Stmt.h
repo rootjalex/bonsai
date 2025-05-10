@@ -85,9 +85,9 @@ struct CallStmt : StmtNode<CallStmt> {
 };
 
 struct Print : StmtNode<Print> {
-    Expr value;
+    std::vector<Expr> args;
 
-    static Stmt make(Expr value);
+    static Stmt make(std::vector<Expr> args);
 
     static const IRStmtEnum node_type = IRStmtEnum::Print;
 };
