@@ -133,8 +133,8 @@ float SqDistPointAABB(Point* pt, AABB* a) {
 
 float __prod_diff_f32(float a, float b, float c, float d) {
   float cd = (c * d);
-  float diff = fma(a, b, -cd);
-  float err = fma(-c, d, cd);
+  float diff = fmaf(a, b, -cd);
+  float err = fmaf(-c, d, cd);
   return (diff + err);
 }
 

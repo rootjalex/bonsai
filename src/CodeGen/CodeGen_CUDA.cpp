@@ -515,11 +515,26 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         return;
     }
     case ir::Intrinsic::OpType::fma: {
-        // TODO(cgyurgyik): This intrinsic (and perhaps others) has different
-        // names for different types, e.g.,
-        // {fmaf : f32, fma : f64, __nv_fp128_fma: f128}
-        // We need to check the type and choose the right variant.
-        os << "fma" << '(';
+        ir::Type etype = node->args.front().type();
+        internal_assert(etype.is_float() && etype.as<Float_t>()->is_ieee754())
+            << etype;
+        switch (etype.bits()) {
+        case 128:
+            // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__QUAD.html#_CPPv414__nv_fp128_fmaggg
+            os << "__nv_fp128_fma";
+            break;
+        case 64:
+            // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__DOUBLE.html#_CPPv43fmaddd
+            os << "fma";
+            break;
+        case 32:
+            // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html
+            os << "fmaf";
+            break;
+        default:
+            internal_error << "unexpected type for intrinsic fma: " << etype;
+        }
+        os << '(';
         print_expr_list(node->args);
         os << ')';
         return;
