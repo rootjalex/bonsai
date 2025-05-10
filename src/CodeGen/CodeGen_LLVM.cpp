@@ -1619,12 +1619,38 @@ void CodeGen_LLVM::visit(const Unwrap *node) {
 }
 
 void CodeGen_LLVM::visit(const Return *node) {
-    ir::Expr value = node->value;
+    Expr value = node->value;
     if (!value.defined()) {
         builder->CreateRetVoid();
         return;
     }
-    builder->CreateRet(codegen_expr(value));
+
+    if (const Call *call = node->value.as<Call>()) {
+        if (const Var *var = call->func.as<Var>()) {
+            internal_assert(current_function);
+            if (var->name == current_function->getName()) {
+                llvm::Function *func = codegen_func_ptr(call->func);
+                internal_assert(func);
+                std::vector<llvm::Value *> args;
+                for (const Expr &arg : call->args) {
+                    args.push_back(codegen_expr(arg));
+                }
+
+                llvm::CallInst *tail = builder->CreateCall(func, args);
+                // Make this a tailcall.
+                tail->setTailCallKind(llvm::CallInst::TCK_Tail);
+                tail->setCallingConv(
+                    current_function
+                        ->getCallingConv()); // Ensure same convention
+
+                builder->CreateRet(tail);
+                return;
+            }
+        }
+    }
+
+    llvm::Value *val = codegen_expr(value);
+    builder->CreateRet(val);
 }
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
