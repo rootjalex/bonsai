@@ -1476,7 +1476,30 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         builder->CreateStore(seed, rng_state_ptr);
 
         if (req_vals == 1) {
-            value = builder->CreateExtractElement(pieces[0], (uint64_t)0);
+            llvm::Value *result =
+                builder->CreateExtractElement(pieces[0], (uint64_t)0);
+
+            // Now apply classic formula to produce [0.0, 1.0)
+            // Use random 23 mantissa bits, which gives [1.0, 2.0)
+            // Then subtract by 1.0
+            // Mask for mantissa bits (23 bits): 0x007FFFFF
+            llvm::Value *mantissa_mask =
+                llvm::ConstantInt::get(i32_t, 0x007FFFFF);
+
+            // Bias to make exponent = 127 (1.0): 0x3F800000
+            llvm::Value *one_bits = llvm::ConstantInt::get(i32_t, 0x3F800000);
+
+            // Apply bit manipulation: ((rand & mask) | one_bits)
+            llvm::Value *rand_mantissa =
+                builder->CreateAnd(result, mantissa_mask);
+            llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
+
+            // Bitcast i32 -> float
+            llvm::Value *as_float = builder->CreateBitCast(rand_bits, f32_t);
+
+            // Subtract 1.0 to get range [0.0, 1.0)
+            llvm::Value *float_ones = llvm::ConstantFP::get(f32_t, 1.0f);
+            value = builder->CreateFSub(as_float, float_ones);
             return;
         }
 
