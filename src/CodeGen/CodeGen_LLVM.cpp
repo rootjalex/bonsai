@@ -1082,7 +1082,13 @@ void CodeGen_LLVM::visit(const Print *node) {
     // Placeholder for the string - this is always the 1st argument.
     args.push_back(nullptr);
 
-    print_helper(node->value, args, to_print);
+    for (size_t i = 0; i < node->args.size(); i++) {
+        if (i != 0) {
+            to_print += ", ";
+        }
+        print_helper(node->args[i], args, to_print);
+    }
+
     args.front() = builder->CreateGlobalStringPtr(to_print + "\n");
 
     value = builder->CreateCall(retrieve_printf(*module), args);

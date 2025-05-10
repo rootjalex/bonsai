@@ -183,7 +183,7 @@ void Visitor::visit(const CallStmt *node) {
     visit_list(this, node->args);
 }
 
-void Visitor::visit(const Print *node) { node->value.accept(this); }
+void Visitor::visit(const Print *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Return *node) {
     if (!node->value.defined()) {

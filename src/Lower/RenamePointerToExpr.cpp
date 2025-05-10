@@ -68,8 +68,11 @@ struct Rename : public ir::Mutator {
         return make(ir::Return::make(mutate(node->value)));
     }
     ir::Stmt visit(const ir::Print *node) override {
-        ir::Expr value = mutate(node->value);
-        return make(ir::Print::make(std::move(value)));
+        std::vector<ir::Expr> args;
+        for (const ir::Expr &arg : node->args) {
+            args.push_back(mutate(arg));
+        }
+        return make(ir::Print::make(std::move(args)));
     }
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Expr> args;

@@ -909,7 +909,7 @@ void Printer::visit(const CallStmt *node) {
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";
-    print_no_parens(node->value);
+    print_expr_list(node->args);
     os << ")\n";
 }
 

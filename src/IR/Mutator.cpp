@@ -440,11 +440,11 @@ Stmt Mutator::visit(const CallStmt *node) {
 }
 
 Stmt Mutator::visit(const Print *node) {
-    Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
+    auto [args, not_changed] = visit_list(this, node->args);
+    if (not_changed) {
         return node;
     }
-    return Print::make(std::move(value));
+    return Print::make(std::move(args));
 }
 
 Stmt Mutator::visit(const Return *node) {
