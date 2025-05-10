@@ -169,6 +169,9 @@ std::string unique_queue_name(size_t counter) {
 //   } while (true);
 // }
 Stmt handle_tail_recursion(Stmt body, const Function &function) {
+    // Not all arguments of a function need to be stack allocated when
+    // transforming tail recursion, e.g., if we are just passing back the same
+    // unmodified argument. This pass determines which ones do.
     struct RequiresStackAllocation : public Visitor {
         RequiresStackAllocation(const Function &function)
             : function(function) {}
@@ -204,6 +207,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
         const Function &function;
         std::set<std::string> arguments;
     };
+
     struct TailRecursionToImperative : public Mutator {
         TailRecursionToImperative(const Function &function,
                                   const std::set<std::string> &requires_stack)
