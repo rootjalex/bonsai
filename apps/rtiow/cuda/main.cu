@@ -3058,7 +3058,6 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
 }
 
 int main(int argc, char **argv) {
-    std::cout << "[RTIOW] cuda\n";
     using clock = std::chrono::high_resolution_clock;
 
     auto t0 = clock::now();
