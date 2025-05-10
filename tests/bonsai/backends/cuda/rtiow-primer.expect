@@ -657,15 +657,74 @@ float gamma(int32_t n) {
 }
 
 int3* image(Camera* c, _spheres_layout0* spheres) {
----CODE---
-1
----STDERR---
-[internal] Error: src/CodeGen/CodeGen_CUDA.cpp:855
+  int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
+  int32_t* height = &_height;
+  *height = (((*height) < 1) ? 1 : (*height));
+  return _traverse_array0(c, (*height), spheres, (&_rng_state));
+}
 
---> function.is_kernel()
-CUDA rng can only run on __device__:
-func [[export]] image(c : (Camera*), spheres : (_spheres_layout0*)) -> i32x3[(*c).width][(*height)] {
-  height : mut i32 := cast<i32>(cast<f32>((*c).width) / (*c).aspect_ratio)
-  height = select((*height) < 1, 1, (*height))
-  return _traverse_array0(c, (*height), spheres, (&_rng_state))
+bool intersects_Ray_AABB(Ray* r, AABB* b) {
+  _option1 interval = intersectsp_ray_aabb(r, b);
+  if (interval.set) {
+    FInterval extract = interval.value;
+    return ((extract.low < (*r).tmax) & (static_cast<float>(0) < extract.high));
+  }
+  return false;
+}
+
+bool intersects_Ray_MaterialSphere(Ray* r, MaterialSphere* ms) {
+  return intersects_Ray_Sphere(r, (&(*ms).s));
+}
+
+bool intersects_Ray_Triangle(Ray* ray, Triangle* tri) {
+  return intersectsp_ray_tri(ray, tri).set;
+}
+
+float len_squared(float3 v) {
+  return sum((v * v));
+}
+
+float3 linear_to_gamma_v(float3 l) {
+  return float3{linear_to_gamma_f(l.x), linear_to_gamma_f(l.y), linear_to_gamma_f(l.z)};
+}
+
+bool near_zero(float3 v) {
+  return (((abs(v.x) < static_cast<float>(1e-08)) & (abs(v.y) < static_cast<float>(1e-08))) & (abs(v.z) < static_cast<float>(1e-08)));
+}
+
+float random_float(float low, float high, curandState* _rng_state) {
+  return (low + ((high - low) * curand_uniform(_rng_state)));
+}
+
+float3 random_on_hemisphere(float3 normal, curandState* _rng_state) {
+  float3 on_unit_sphere = random_unit_vector(_rng_state);
+  if (static_cast<float>(0) < dot(on_unit_sphere, normal)) {
+    return on_unit_sphere;
+  } else {
+    return -on_unit_sphere;
+  }
+}
+
+float3 random_vec3f(curandState* _rng_state) {
+  return float3{curand_uniform(_rng_state), curand_uniform(_rng_state), curand_uniform(_rng_state)};
+}
+
+float3 random_vec3f_in(float low, float high, curandState* _rng_state) {
+  return float3{low + ((high - low) * curand_uniform(_rng_state)), low + ((high - low) * curand_uniform(_rng_state)), low + ((high - low) * curand_uniform(_rng_state))};
+}
+
+float3 reflect(float3 v, float3 n) {
+  return (v - (make_float3((static_cast<float>(2) * dot(v, n))) * n));
+}
+
+float3 sample_square(curandState* _rng_state) {
+  return float3{curand_uniform(_rng_state) - static_cast<float>(0.5), curand_uniform(_rng_state) - static_cast<float>(0.5), static_cast<float>(0)};
+}
+
+_option0 trace(Ray* r, _spheres_layout0* spheres) {
+  return _traverse_tree0(r, spheres);
+}
+
+float3 unit_vector(float3 v) {
+  return (v / make_float3(length(v)));
 }

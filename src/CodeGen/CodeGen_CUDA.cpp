@@ -521,6 +521,8 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     // TODO(cgyurgyik): I don't think this will work on device, need to use
     // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
     case ir::Intrinsic::OpType::rand: {
+        internal_assert(node->args.empty())
+            << "TODO: support vector rand generation on CUDA: " << Expr(node);
         os << "curand_uniform(" << lower::rng_state_name << ")";
         return;
     }
@@ -851,6 +853,8 @@ void CodeGen_CUDA::print(const Function &function) {
     }
     os << ')' << ' ' << '{' << '\n';
     increment();
+    /*
+    // TODO(cgyurgyik): set up for kernel launch.
     if (function.must_setup_rng()) {
         internal_assert(function.is_kernel())
             << "CUDA rng can only run on __device__:\n"
@@ -860,6 +864,7 @@ void CodeGen_CUDA::print(const Function &function) {
         os << get_indent() << "curand_init(idx, 0, 0, &"
            << lower::rng_state_name << ");\n";
     }
+    */
 
     function.body.accept(this);
     decrement();
