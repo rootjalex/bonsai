@@ -9,6 +9,8 @@ func sample_square() -> vec3f {
 }
 
 func random_vec3f() {
+    // TODO(ajr): this should be rand(3),
+    // but CUDA doesn't support that yet.
     return vec3f{rand(), rand(), rand()};
 }
 
@@ -41,6 +43,7 @@ func random_on_hemisphere(normal : vec3f) -> vec3f {
 }
 
 func random_in_unit_disk() -> vec3f {
+    // TODO(ajr): use rand(2) when CUDA supports variadic rand
     r = sqrt(rand());
     theta = 2 * 3.1415926535897932385 * rand();
     return vec3f{r * cos(theta), r * sin(theta), 0.0};
