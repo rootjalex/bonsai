@@ -142,76 +142,6 @@ float __sqlen_f32(float3 v) {
   return sum((v * v));
 }
 
-_option1 intersectsp_ray_sphere(Ray* r, Sphere* s) {
-  float3 oc = ((*s).center - (*r).o);
-  float a = sum(((*r).d * (*r).d));
-  float h = dot((*r).d, oc);
-  float c = (sum((oc * oc)) - ((*s).radius * (*s).radius));
-  float disc = ((h * h) - (a * c));
-  if (disc < 0) {
-    return _option1{};
-  }
-  float sqrtd = sqrtf(disc);
-  float root0 = ((h - sqrtd) / a);
-  float root1 = ((h + sqrtd) / a);
-  FInterval interval = FInterval{fminf(root0, root1), fmaxf(root0, root1)};
-  return _option1{interval, true};
-}
-
-float distmax_Ray_Sphere(Ray* r, Sphere* s) {
-  _option1 interval = intersectsp_ray_sphere(r, s);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return extract.high;
-  }
-  return INFINITY;
-}
-
-float distmin_Ray_Sphere(Ray* r, Sphere* s) {
-  _option1 interval = intersectsp_ray_sphere(r, s);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return extract.low;
-  }
-  return -INFINITY;
-}
-
-bool intersects_Ray_Sphere(Ray* ray, Sphere* s) {
-  _option1 interval = intersectsp_ray_sphere(ray, s);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return ((extract.low < (*ray).tmax) & (0 < extract.high));
-  }
-  return false;
-}
-
-void _recloop_func0(uint16_t spheres__index, _spheres_layout0* spheres, Ray* r, __tuple_0* _best0) {
-  Sphere _lv2 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
-  if (intersects_Ray_Sphere(r, (&_lv2))) {
-    Sphere _lv1 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
-    if ((float)0.001 < distmax_Ray_Sphere(r, (&_lv1))) {
-      Sphere _lv0 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
-      if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
-        if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
-          _recloop_func0(spheres__index + 1u, spheres, r, _best0);
-          _recloop_func0(spheres__index + bonsai_reinterpret<_spheres_split_layout2>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).offset, spheres, r, _best0);
-        } else {
-          for (uint16_t _idx0 = 0u; _idx0 < (*spheres).spheres_index[spheres__index].nPrims; _idx0 += 1u) {
-            if (intersects_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s))) {
-              if ((float)0.001 < distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s))) {
-                if (distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s)) < (*_best0)._field0) {
-                  *_best0 = argmin(_best0, __tuple_0{distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s)), (*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0]});
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  return;
-}
-
 float3 random_in_unit_disk(curandState* _rng_state) {
   float r = sqrtf(curand_uniform(_rng_state));
   float theta = (((float)2 * (float)3.14159) * curand_uniform(_rng_state));
@@ -256,10 +186,85 @@ Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_state) {
   return Ray{(*ray_origin), ray_direction, INFINITY};
 }
 
+_option1 intersectsp_ray_sphere(Ray* r, Sphere* s) {
+  float3 oc = ((*s).center - (*r).o);
+  float a = sum(((*r).d * (*r).d));
+  float h = dot((*r).d, oc);
+  float c = (sum((oc * oc)) - ((*s).radius * (*s).radius));
+  float disc = ((h * h) - (a * c));
+  if (disc < 0) {
+    return _option1{};
+  }
+  float sqrtd = sqrtf(disc);
+  float root0 = ((h - sqrtd) / a);
+  float root1 = ((h + sqrtd) / a);
+  FInterval interval = FInterval{fminf(root0, root1), fmaxf(root0, root1)};
+  return _option1{interval, true};
+}
+
+float distmax_Ray_Sphere(Ray* r, Sphere* s) {
+  _option1 interval = intersectsp_ray_sphere(r, s);
+  if (interval.set) {
+    FInterval extract = interval.value;
+    return extract.high;
+  }
+  return INFINITY;
+}
+
+float distmin_Ray_Sphere(Ray* r, Sphere* s) {
+  _option1 interval = intersectsp_ray_sphere(r, s);
+  if (interval.set) {
+    FInterval extract = interval.value;
+    return extract.low;
+  }
+  return -INFINITY;
+}
+
+bool intersects_Ray_Sphere(Ray* ray, Sphere* s) {
+  _option1 interval = intersectsp_ray_sphere(ray, s);
+  if (interval.set) {
+    FInterval extract = interval.value;
+    return ((extract.low < (*ray).tmax) & (0 < extract.high));
+  }
+  return false;
+}
+
 _option0 _traverse_tree0(Ray* r, _spheres_layout0* spheres) {
   __tuple_0 __best0 = __tuple_0{INFINITY, MaterialSphere{}};
   __tuple_0* _best0 = &__best0;
-  _recloop_func0(0u, spheres, r, _best0);
+  int32_t __queue_count0 = 1;
+  int32_t* _queue_count0 = &__queue_count0;
+  uint16_t _queue0[64];
+  _queue0[0] = 0u;
+  do {
+    *_queue_count0 -= 1;
+    uint16_t spheres__index = _queue0[(*_queue_count0)];
+    Sphere _lv2 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
+    if (intersects_Ray_Sphere(r, (&_lv2))) {
+      Sphere _lv1 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
+      if ((float)0.001 < distmax_Ray_Sphere(r, (&_lv1))) {
+        Sphere _lv0 = Sphere{(*spheres).spheres_index[spheres__index].center, (*spheres).spheres_index[spheres__index].radius};
+        if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
+          if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
+            _queue0[(*_queue_count0)] = (spheres__index + 1u);
+            *_queue_count0 += 1;
+            _queue0[(*_queue_count0)] = (spheres__index + bonsai_reinterpret<_spheres_split_layout2>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).offset);
+            *_queue_count0 += 1;
+          } else {
+            for (uint16_t _idx0 = 0u; _idx0 < (*spheres).spheres_index[spheres__index].nPrims; _idx0 += 1u) {
+              if (intersects_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s))) {
+                if ((float)0.001 < distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s))) {
+                  if (distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s)) < (*_best0)._field0) {
+                    *_best0 = argmin(_best0, __tuple_0{distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s)), (*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0]});
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } while ((*_queue_count0) != 0);
   return (((*_best0)._field0 != INFINITY) ? _option0{(*_best0)._field1, true} : _option0{});
 }
 

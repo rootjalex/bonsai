@@ -200,6 +200,7 @@ schedule {
     };
 
     sample.loopify();
+    trace.loopify(64);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
