@@ -327,22 +327,36 @@ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
   }
 }
 
-float3 sample(Ray* r, int32_t depth, _spheres_layout0* spheres) {
-  if (depth <= 0) {
-    return make_float3(0, 0, 0);
-  }
-  _option0 isect = _traverse_tree0(r, spheres);
-  if (isect.set) {
-    scatter_record data = scatter(r, (&isect.value));
-    if (data.hit) {
-      return (data.attenuation * sample((&data.ray), depth - 1, spheres));
-    } else {
+float3 sample(Ray* r, int32_t depth, float3 mult, _spheres_layout0* spheres) {
+  Ray _S_r = (*r);
+  Ray* S_r = &_S_r;
+  int32_t _S_depth = depth;
+  int32_t* S_depth = &_S_depth;
+  float3 _S_mult = mult;
+  float3* S_mult = &_S_mult;
+  _spheres_layout0 _S_spheres = (*spheres);
+  _spheres_layout0* S_spheres = &_S_spheres;
+  do {
+    if ((*S_depth) <= 0) {
       return make_float3(0, 0, 0);
     }
-  }
-  float3 unit_direction = ((*r).d / make_float3(length((*r).d)));
-  float a = ((float)0.5 * (unit_direction.y + 1));
-  return ((make_float3((1 - a)) * make_float3(1, 1, 1)) + (make_float3(a) * make_float3((float)0.5, (float)0.7, 1)));
+    _option0 isect = _traverse_tree0(S_r, S_spheres);
+    if (isect.set) {
+      scatter_record data = scatter(S_r, (&isect.value));
+      if (data.hit) {
+        *S_r = data.ray;
+        *S_depth = ((*S_depth) - 1);
+        *S_mult = ((*S_mult) * data.attenuation);
+        *S_spheres = (*S_spheres);
+        continue;
+      } else {
+        return make_float3(0, 0, 0);
+      }
+    }
+    float3 unit_direction = ((*S_r).d / make_float3(length((*S_r).d)));
+    float a = ((float)0.5 * (unit_direction.y + 1));
+    return ((*S_mult) * ((make_float3((1 - a)) * make_float3(1, 1, 1)) + (make_float3(a) * make_float3((float)0.5, (float)0.7, 1))));
+  } while (true);
 }
 
 float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres) {
@@ -350,7 +364,7 @@ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout0* spher
   float3* _alloc1 = &__alloc1;
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
     Ray _lv0 = build_ray(i, j, c);
-    *_alloc1 += sample((&_lv0), (*c).max_depth, spheres);
+    *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1, 1, 1), spheres);
   }
   return (*_alloc1);
 }

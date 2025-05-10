@@ -767,8 +767,10 @@ void CodeGen_CUDA::visit(const IfElse *node) {
 }
 
 void CodeGen_CUDA::visit(const DoWhile *node) {
-    os << get_indent() << "do" << ' ' << '{';
+    os << get_indent() << "do" << ' ' << '{' << '\n';
+    increment();
     node->body.accept(this);
+    decrement();
     os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
     print_no_parens(node->cond);
     os << ')' << ';' << '\n';
@@ -797,7 +799,9 @@ void CodeGen_CUDA::visit(const ForAll *node) {
     os << get_indent() << '}' << '\n';
 }
 
-void CodeGen_CUDA::visit(const Continue *node) { os << "continue" << ';'; }
+void CodeGen_CUDA::visit(const Continue *node) {
+    os << get_indent() << "continue" << ';' << '\n';
+}
 
 void CodeGen_CUDA::visit(const Launch *node) {
     internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);

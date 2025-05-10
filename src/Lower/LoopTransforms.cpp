@@ -148,7 +148,98 @@ std::string unique_queue_name(size_t counter) {
     return "_queue" + std::to_string(counter++);
 }
 
-Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
+Stmt handle_tail_recursion(Stmt body, const Function &function) {
+    struct TailRecursionToImperative : public Mutator {
+        TailRecursionToImperative(const Function &function)
+            : function(function) {}
+        Stmt visit(const Sequence *node) override {
+            // This should only be performed on the top-level sequence.
+            if (!entry) {
+                return Mutator::visit(node);
+            }
+            entry = false;
+            std::vector<Stmt> stmts;
+            // Save state variables locally on the stack.
+            for (const ir::Function::Argument &arg : function.args) {
+                std::string old_name = arg.name;
+                std::string new_name = "S_" + old_name;
+                WriteLoc location(new_name, arg.type);
+                old_to_new[old_name] = new_name;
+                state_variables.push_back(new_name);
+                Expr value = Var::make(arg.type, old_name);
+                stmts.push_back(Allocate::make(location, std::move(value),
+                                               Allocate::Memory::Stack));
+            }
+            // Place the rest of the body in a DoWhile.
+            std::vector<Stmt> loop;
+            for (const Stmt &stmt : node->stmts) {
+                loop.push_back(mutate(stmt));
+            }
+            stmts.push_back(
+                DoWhile::make(Sequence::make(loop), ir::BoolImm::make(true)));
+            return Sequence::make(std::move(stmts));
+        }
+
+        Expr visit(const Var *node) override {
+            // Replace variable references with the new state variables.
+            auto it = old_to_new.find(node->name);
+            if (it == old_to_new.end()) {
+                return Mutator::visit(node);
+            }
+            return Var::make(node->type, it->second);
+        }
+
+        Expr visit(const Call *node) override {
+            const auto *var = node->func.as<Var>();
+            if (var && var->name == function.name) {
+                return Mutator::visit(node);
+                // TODO(cgyurgyik): Overly restrictive, we can relax this. It
+                // just requires making statements inside visits to expressions,
+                // which is additional complexity (similar to renaming in DCE).
+                internal_error << "Loopify of tail-recursion requires all "
+                                  "calls to be returned, "
+                               << Expr(node);
+            }
+            return Mutator::visit(node);
+        }
+
+        Stmt visit(const Return *node) override {
+            if (!node->value.defined()) {
+                return node;
+            }
+            if (const auto *call = node->value.as<Call>()) {
+                std::vector<Stmt> statements;
+                std::vector<Expr> args = call->args;
+                for (int i = 0, e = args.size(); i < e; ++i) {
+                    WriteLoc loc(state_variables[i], args[i].type());
+                    statements.push_back(Store::make(loc, mutate(args[i])));
+                }
+                statements.push_back(Continue::make());
+                return Sequence::make(std::move(statements));
+            }
+            Expr value = mutate(node->value);
+            if (value.same_as(node->value)) {
+                return node;
+            }
+            return Return::make(std::move(value));
+        }
+
+      private:
+        bool entry = true;
+        // The function being transformed.
+        const Function &function;
+        // A mapping from the old argument name to the new state variable.
+        std::unordered_map<std::string, std::string> old_to_new;
+        // An ordered list of state variables.
+        std::vector<std::string> state_variables;
+    };
+
+    TailRecursionToImperative lower(function);
+    return lower.mutate(std::move(body));
+}
+
+Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
+             FuncMap &funcs) {
     struct LoopifyImpl : public Mutator {
         std::optional<Expr> queue_size;
         FuncMap &funcs;
@@ -238,11 +329,12 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
         // TODO: this is hacky, need a better way.
         Expr visit(const Call *node) override {
             if (const Var *var = node->func.as<Var>()) {
+                std::string name = var->name;
                 // TODO(ajr): hope to God it's impossible to have self-recursion
                 // in these.
-                if (var->name.starts_with("_traverse_tree")) {
-                    funcs[var->name]->body = loopify(
-                        std::move(funcs[var->name]->body), queue_size, funcs);
+                if (name.starts_with("_traverse_tree")) {
+                    funcs[name]->body = loopify(
+                        name, std::move(funcs[name]->body), queue_size, funcs);
                     return node;
                 }
             }
@@ -250,9 +342,9 @@ Stmt loopify(Stmt stmt, std::optional<Expr> queue_size, FuncMap &funcs) {
         }
     };
 
-    internal_assert(queue_size.has_value())
-        << "[unimplemented] recursion to iteration for tail-recursion: "
-        << stmt;
+    if (!queue_size.has_value()) {
+        return handle_tail_recursion(std::move(stmt), *funcs[name]);
+    }
 
     LoopifyImpl rewriter(std::move(queue_size), funcs);
     return rewriter.mutate(std::move(stmt));
@@ -295,8 +387,8 @@ ir::Program LoopTransforms::run(ir::Program program,
         for (const auto &t : ts) {
             std::visit(Overloaded{[&](const Loopify &l) {
                                       body =
-                                          loopify(std::move(body), l.queue_size,
-                                                  program.funcs);
+                                          loopify(name, std::move(body),
+                                                  l.queue_size, program.funcs);
                                   },
                                   [&](const Split &split) {
                                       std::string i = get_name(split.i);
