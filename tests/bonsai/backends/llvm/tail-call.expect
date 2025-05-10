@@ -1,0 +1,129 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Example = type { <3 x float>, i32 }
+
+define <3 x float> @sample(<3 x float> noundef %a, i32 noundef %depth) local_unnamed_addr {
+sample_entry:
+  %0 = icmp slt i32 %depth, 0
+  br i1 %0, label %common.ret, label %next_bb
+
+common.ret:                                       ; preds = %next_bb, %sample_entry
+  %a.tr.lcssa = phi <3 x float> [ %a, %sample_entry ], [ %4, %next_bb ]
+  ret <3 x float> %a.tr.lcssa
+
+next_bb:                                          ; preds = %sample_entry, %next_bb
+  %depth.tr2 = phi i32 [ %5, %next_bb ], [ %depth, %sample_entry ]
+  %a.tr1 = phi <3 x float> [ %4, %next_bb ], [ %a, %sample_entry ]
+  %1 = tail call i32 @rand()
+  %2 = uitofp i32 %1 to float
+  %3 = fmul float %2, 0x3E00000000000000
+  %.splatinsert = insertelement <3 x float> poison, float %3, i64 0
+  %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
+  %4 = fmul <3 x float> %a.tr1, %.splat
+  %5 = add nsw i32 %depth.tr2, -1
+  %6 = icmp eq i32 %depth.tr2, 0
+  br i1 %6, label %common.ret, label %next_bb
+}
+
+define <3 x float> @sample1(ptr nocapture noundef nonnull readonly %e) local_unnamed_addr {
+sample1_entry:
+  %deref_temp18 = load %struct.Example, ptr %e, align 16
+  %0 = extractvalue %struct.Example %deref_temp18, 1
+  %1 = icmp slt i32 %0, 1
+  br i1 %1, label %then_bb, label %next_bb.lr.ph
+
+next_bb.lr.ph:                                    ; preds = %sample1_entry
+  %2 = tail call i32 @rand()
+  %3 = uitofp i32 %2 to float
+  %4 = fmul float %3, 0x3E00000000000000
+  %5 = load <3 x float>, ptr %e, align 16
+  %6 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %5)
+  %7 = fcmp olt float %4, %6
+  br i1 %7, label %then_bb2.peel, label %next_bb3
+
+then_bb2.peel:                                    ; preds = %next_bb.lr.ph
+  %8 = tail call i32 @rand()
+  %9 = uitofp i32 %8 to float
+  %10 = fmul float %9, 0x3E00000000000000
+  %11 = load <3 x float>, ptr %e, align 16
+  %12 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %11)
+  %13 = fcmp olt float %12, %10
+  br i1 %13, label %then_bb5.peel, label %common.ret
+
+then_bb5.peel:                                    ; preds = %then_bb2.peel
+  %14 = tail call i32 @rand()
+  %15 = uitofp i32 %14 to float
+  %16 = fmul float %15, 0x3E00000000000000
+  %.splatinsert.peel = insertelement <3 x float> poison, float %16, i64 0
+  %.splat.peel = shufflevector <3 x float> %.splatinsert.peel, <3 x float> poison, <3 x i32> zeroinitializer
+  %deref_temp8.peel = load %struct.Example, ptr %e, align 16
+  %17 = extractvalue %struct.Example %deref_temp8.peel, 0
+  %18 = fmul <3 x float> %17, %.splat.peel
+  %19 = extractvalue %struct.Example %deref_temp8.peel, 1
+  %20 = add i32 %19, -1
+  %21 = icmp slt i32 %20, 1
+  br i1 %21, label %then_bb.loopexit, label %next_bb
+
+common.ret:                                       ; preds = %then_bb2, %then_bb2.peel, %next_bb3, %then_bb
+  %common.ret.op = phi <3 x float> [ %22, %then_bb ], [ %32, %next_bb3 ], [ zeroinitializer, %then_bb2.peel ], [ zeroinitializer, %then_bb2 ]
+  ret <3 x float> %common.ret.op
+
+then_bb.loopexit:                                 ; preds = %then_bb5, %then_bb5.peel
+  %.pn34 = phi <3 x float> [ %18, %then_bb5.peel ], [ %36, %then_bb5 ]
+  %.pn = phi i32 [ %20, %then_bb5.peel ], [ %37, %then_bb5 ]
+  %deref_temp.peel.fca.0.insert.pn = insertvalue %struct.Example poison, <3 x float> %.pn34, 0
+  %deref_temp.lcssa25 = insertvalue %struct.Example %deref_temp.peel.fca.0.insert.pn, i32 %.pn, 1
+  br label %then_bb
+
+then_bb:                                          ; preds = %then_bb.loopexit, %sample1_entry
+  %deref_temp.lcssa = phi %struct.Example [ %deref_temp18, %sample1_entry ], [ %deref_temp.lcssa25, %then_bb.loopexit ]
+  %22 = extractvalue %struct.Example %deref_temp.lcssa, 0
+  br label %common.ret
+
+next_bb:                                          ; preds = %then_bb5.peel, %then_bb5
+  %Example_ptrto.sroa.7.0 = phi i32 [ %37, %then_bb5 ], [ %20, %then_bb5.peel ]
+  %Example_ptrto.sroa.0.0 = phi <3 x float> [ %36, %then_bb5 ], [ %18, %then_bb5.peel ]
+  %23 = tail call i32 @rand()
+  %24 = uitofp i32 %23 to float
+  %25 = fmul float %24, 0x3E00000000000000
+  %26 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %Example_ptrto.sroa.0.0)
+  %27 = fcmp olt float %25, %26
+  br i1 %27, label %then_bb2, label %next_bb3
+
+then_bb2:                                         ; preds = %next_bb
+  %28 = tail call i32 @rand()
+  %29 = uitofp i32 %28 to float
+  %30 = fmul float %29, 0x3E00000000000000
+  %31 = fcmp olt float %26, %30
+  br i1 %31, label %then_bb5, label %common.ret
+
+next_bb3:                                         ; preds = %next_bb, %next_bb.lr.ph
+  %.lcssa22 = phi float [ %4, %next_bb.lr.ph ], [ %25, %next_bb ]
+  %.lcssa = phi <3 x float> [ %5, %next_bb.lr.ph ], [ %Example_ptrto.sroa.0.0, %next_bb ]
+  %.splatinsert10 = insertelement <3 x float> poison, float %.lcssa22, i64 0
+  %.splat11 = shufflevector <3 x float> %.splatinsert10, <3 x float> poison, <3 x i32> zeroinitializer
+  %32 = fmul <3 x float> %.lcssa, %.splat11
+  br label %common.ret
+
+then_bb5:                                         ; preds = %then_bb2
+  %33 = tail call i32 @rand()
+  %34 = uitofp i32 %33 to float
+  %35 = fmul float %34, 0x3E00000000000000
+  %.splatinsert = insertelement <3 x float> poison, float %35, i64 0
+  %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
+  %36 = fmul <3 x float> %Example_ptrto.sroa.0.0, %.splat
+  %37 = add i32 %Example_ptrto.sroa.7.0, -1
+  %38 = icmp slt i32 %37, 1
+  br i1 %38, label %then_bb.loopexit, label %next_bb, !llvm.loop !0
+}
+
+declare i32 @rand() local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #0
+
+attributes #0 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = distinct !{!0, !1}
+!1 = !{!"llvm.loop.peeled.count", i32 1}
