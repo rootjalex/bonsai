@@ -183,11 +183,14 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
     for (const auto &fname : call_rand) {
         funcs[fname]->body = insert_rand_state(funcs[fname]->body, call_rand);
         // Parallel functions must set up their own random state.
-        if (!funcs[fname]->is_kernel() && fname != "main") {
+        if (!(fname == "main" || funcs[fname]->is_kernel() ||
+              funcs[fname]->is_exported())) {
             funcs[fname]->args.emplace_back(rng_state_name,
                                             Rand_State_t::make(),
                                             /*default_value=*/Expr(),
                                             /*mutating=*/true);
+        } else {
+            funcs[fname]->attributes.push_back(Function::Attribute::setup_rng);
         }
     }
 

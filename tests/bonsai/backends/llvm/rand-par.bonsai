@@ -10,6 +10,10 @@ func test_rand(i : i32) -> f32 {
 // func test_rand_all(i : i32) = map(test_rand, iter(i));
 func test_rand_all(i : i32) = map(test_rand, iter(16));
 
+schedule {
+    test_rand_all.cpu_thread(i0);
+}
+
 func main() -> i32 {
     print(test_rand_all(16));
     return 0;

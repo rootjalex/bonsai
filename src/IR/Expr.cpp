@@ -865,7 +865,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                 node->type = Float_t::make_f32();
             } else {
                 auto as_const = get_constant_value(args[0]);
-                internal_assert(as_const.has_value() && as_const <= 32)
+                internal_assert(as_const.has_value() && as_const <= 1024)
                     << "Expected small constant value for rand(): " << args[0];
                 node->type = Vector_t::make(Float_t::make_f32(), *as_const);
             }

@@ -344,7 +344,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
         arg_idx++;
     }
 
-    if (func.is_kernel() || func.is_exported() || func.name == "main") {
+    if (func.must_setup_rng()) {
         const uint32_t lanes = native_vector_bits() / 32;
         llvm::Function *rand_function = module->getFunction("rand");
         if (!rand_function) {
