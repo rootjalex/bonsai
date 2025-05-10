@@ -587,7 +587,10 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             // <type> <name>[<size>];
             array_type->etype.accept(this);
             os << ' ' << b << '[';
-            array_type->size.accept(this);
+            Expr size = array_type->size;
+            internal_assert(is_const(size))
+                << "expected constant array size, received: " << size;
+            size.accept(this);
             os << ']' << ';' << '\n';
             return;
         }
@@ -596,6 +599,8 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         // are pointers. So first we "stack" allocate,
         constexpr std::string_view P = "_";
         os << ' ' << P << b << ' ' << '=' << ' ';
+        internal_assert(node->value.defined())
+            << "undefined value for CUDA stack allocation: " << Stmt(node);
         node->value.accept(this);
 
         os << ';' << '\n';
