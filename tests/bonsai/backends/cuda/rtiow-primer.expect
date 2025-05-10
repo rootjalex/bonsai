@@ -352,7 +352,6 @@ float3 sample(Ray* r, int32_t depth, float3 mult, _spheres_layout0* spheres, cur
         *S_r = data.ray;
         *S_depth = ((*S_depth) - 1);
         *S_mult = ((*S_mult) * data.attenuation);
-        *S_spheres = (*S_spheres);
         continue;
       } else {
         return make_float3(0, 0, 0);

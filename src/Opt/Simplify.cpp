@@ -509,6 +509,24 @@ struct Simplifier : ir::Mutator {
                                 std::move(else_body));
     }
 
+    ir::Stmt visit(const ir::Store *node) override {
+        ir::Expr value = node->value;
+        ir::WriteLoc loc = node->loc;
+        if (!value.defined() || !loc.accesses.empty()) {
+            return ir::Mutator::visit(node);
+        }
+        value = mutate(std::move(value));
+        ir::Expr v = ir::Var::make(loc.type, loc.base);
+        if (ir::equals(v, value)) {
+            // *a = *a;
+            return ir::Stmt();
+        }
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Store::make(loc, std::move(value));
+    }
+
   private:
     // Mapping from a variable name to its immediate value. This assumes
     // variable shadowing is illegal; if this were to change, we'd need to
