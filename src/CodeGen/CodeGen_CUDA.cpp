@@ -29,11 +29,39 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options) {
     codegen.print(program);
     os.close();
 }
+
 } // namespace codegen
 
 using namespace ir;
 
 namespace {
+
+// Returns the relevant CUDA version of each intrinsic, e.g.,
+// cuda_intrinsic("sin", f32) -> "sinf"
+std::string cuda_intrinsic(std::string intrinsic, Type type) {
+    const auto *float_t = type.as<ir::Float_t>();
+    if (float_t == nullptr) {
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INT.html
+        return intrinsic;
+    }
+    internal_assert(float_t->is_ieee754()) << type;
+    switch (float_t->bits()) {
+    case 128:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__QUAD.html
+        return "__nv_fp128_" + intrinsic;
+    case 64:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__DOUBLE.html
+        return intrinsic;
+    case 32:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html
+        return intrinsic + "f";
+    case 16:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH____HALF2__FUNCTIONS.html
+        return "h2" + intrinsic;
+    default:
+        internal_error << "unimplemented: " << type;
+    }
+}
 
 std::string bonsai_scalar_type_to_cpp(Type type) {
     if (const auto *float_t = type.as<Float_t>()) {
@@ -232,11 +260,14 @@ void CodeGen_CUDA::visit(const FloatImm *node) {
         os << node->value;
         return;
     }
-    os << "static_cast" << '<';
+    if (is_const_zero(node) || is_const_one(node)) {
+        // Avoid unnecessary noise.
+        os << node->value;
+        return;
+    }
+    os << '(';
     os << bonsai_scalar_type_to_cpp(node->type);
-    os << '>' << '(';
-    os << node->value;
-    os << ")";
+    os << ')' << node->value;
 }
 
 void CodeGen_CUDA::visit(const VecImm *node) {
@@ -426,74 +457,76 @@ void CodeGen_CUDA::visit(const Select *node) {
 
 void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     switch (node->op) {
-    // https://developer.download.nvidia.com/cg/dot.html#:~:text=Reference%20Implementation,b.z%20%2B%20a.w*b.w%3B%20%7D
     case ir::Intrinsic::OpType::dot: {
+        // https://developer.download.nvidia.com/cg/dot.html#:~:text=Reference%20Implementation,b.z%20%2B%20a.w*b.w%3B%20%7D
         os << "dot" << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
-    // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INTRINSIC__SINGLE.html
     case ir::Intrinsic::OpType::sqrt: {
         ir::Type element_type = node->args.front().type();
         internal_assert(element_type.is<ir::Float_t>()) << element_type;
-        os << "sqrt" << '(';
+        os << cuda_intrinsic("sqrt", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::min: {
         ir::Type element_type = node->args.front().type();
-        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html#_CPPv43minKfKf
-        // min is equivalent to fminf.
-        os << "min";
-        os << '(';
+        os << cuda_intrinsic("min", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::max: {
         ir::Type element_type = node->args.front().type();
-        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html#_CPPv43maxKfKf
-        // max is equivalent to fmaxf.
-        os << "max";
-        os << '(';
+        os << cuda_intrinsic("max", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::cos: {
-        os << "cos" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("cos", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::sin: {
-        os << "sin" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("sin", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::tan: {
-        os << "tan" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("tan", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::pow: {
-        os << "pow" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("pow", element_type) << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::abs: {
+        ir::Type element_type = node->args.front().type();
+        os << cuda_intrinsic("abs", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::norm: {
         os << "length" << '(';
-        print_expr_list(node->args);
-        os << ')';
-        return;
-    }
-    case ir::Intrinsic::OpType::abs: {
-        os << "abs" << '(';
         print_expr_list(node->args);
         os << ')';
         return;
@@ -512,26 +545,9 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         return;
     }
     case ir::Intrinsic::OpType::fma: {
-        ir::Type etype = node->args.front().type();
-        internal_assert(etype.is_float() && etype.as<Float_t>()->is_ieee754())
-            << etype;
-        switch (etype.bits()) {
-        case 128:
-            // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__QUAD.html#_CPPv414__nv_fp128_fmaggg
-            os << "__nv_fp128_fma";
-            break;
-        case 64:
-            // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__DOUBLE.html#_CPPv43fmaddd
-            os << "fma";
-            break;
-        case 32:
-            // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html
-            os << "fmaf";
-            break;
-        default:
-            internal_error << "unexpected type for intrinsic fma: " << etype;
-        }
-        os << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("fma", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;

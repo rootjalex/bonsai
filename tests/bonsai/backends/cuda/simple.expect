@@ -31,11 +31,11 @@ int4 add_v(int4 x, int4 y) {
 }
 
 int32_t if_else(float x, float y) {
-  float3 v = float3{x, y, static_cast<float>(1)};
+  float3 v = float3{x, y, 1};
   if ((v.z + v.y) < v.x) {
     return 0;
   } else {
-    return ((static_cast<float>(0) < (v.x + v.y)) ? 1 : 2);
+    return ((0 < (v.x + v.y)) ? 1 : 2);
   }
 }
 
