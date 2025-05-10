@@ -52,7 +52,7 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
     case 64:
         // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__DOUBLE.html
         return intrinsic;
-    case 32: {
+    case 32:
         // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html
         if (std::vector<std::string> is =
                 {
@@ -68,7 +68,6 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
             return "f" + intrinsic + "f";
         }
         return intrinsic + "f";
-    }
     case 16:
         // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH____HALF2__FUNCTIONS.html
         return "h2" + intrinsic;
