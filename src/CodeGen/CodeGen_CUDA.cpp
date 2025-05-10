@@ -227,9 +227,11 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
 }
 
 void CodeGen_CUDA::visit(const FloatImm *node) {
-    // TODO(cgyurgyik): Do we want *everything* to be printed as a double?
-    // The `f` suffix does not compile in CUDA.
-
+    if (node->type.bits() == 64) {
+        // The default type for floating point literals.
+        os << node->value;
+        return;
+    }
     os << "static_cast" << '<';
     os << bonsai_scalar_type_to_cpp(node->type);
     os << '>' << '(';
@@ -250,16 +252,14 @@ void CodeGen_CUDA::visit(const VecImm *node) {
     os << ')';
 }
 
-void CodeGen_CUDA::visit(const Infinity *node) {
-    // TODO(cgyurgyik): Assumes implementation-defined version of infinity.
-    os << "INFINITY";
-}
+void CodeGen_CUDA::visit(const Infinity *node) { os << "INFINITY"; }
 
 void CodeGen_CUDA::visit(const Cast *node) {
-    // TODO(cgyurgyik): Is this what cast really means in Bonsai?
     ir::Expr value = node->value;
     ir::Type type = node->type;
     if (value.type().is<Vector_t>() && type.is<Vector_t>()) {
+        internal_assert(node->mode == Cast::Mode::Convert)
+            << "unimplemented: vector reinterpret cast: " << Expr(node);
         // A special-cased vec[T] -> vec[U] cast.
         const auto *v = value.type().as<Vector_t>();
         const auto *t = type.as<Vector_t>();
@@ -356,9 +356,6 @@ void CodeGen_CUDA::visit(const VectorShuffle *node) {
     // implementation in Bonsai's runtime/CUDA/math.h
     os << "shuffle" << '(';
     node->value.accept(this);
-    // TODO(cgyurgyik): this requires using a std::initializer_list argument,
-    // but I'm not sure how else to do this without creating a temporary
-    // variable first.
     os << ',' << ' ' << '{';
     print_expr_list(node->idxs);
     os << '}' << ')';
