@@ -220,6 +220,8 @@ Type Mutator::visit(const BVH_t *node) {
     }
 }
 
+Type Mutator::visit(const Rand_State_t *node) { return node; }
+
 Interface Mutator::visit(const IEmpty *node) { return node; }
 
 Interface Mutator::visit(const IFloat *node) { return node; }

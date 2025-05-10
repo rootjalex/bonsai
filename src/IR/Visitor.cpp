@@ -85,6 +85,8 @@ void Visitor::visit(const BVH_t *node) {
     }
 }
 
+void Visitor::visit(const Rand_State_t *) {}
+
 void Visitor::visit(const IEmpty *) {}
 
 void Visitor::visit(const IFloat *) {}

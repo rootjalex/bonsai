@@ -61,6 +61,7 @@ struct Function {
     enum class Attribute {
         exported, // Whether this will be exported to C++.
         imported, // Whether this function was imported from another file.
+        kernel,   // Whether this function is a parallel kernel.
     };
 
     std::vector<Attribute> attributes;
@@ -132,6 +133,11 @@ struct Function {
     bool is_imported() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::imported) != attributes.cend();
+    }
+
+    bool is_kernel() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::kernel) != attributes.cend();
     }
 };
 

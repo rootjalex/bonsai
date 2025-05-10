@@ -34,6 +34,7 @@ enum class IRTypeEnum {
     Function_t,
     Generic_t,
     BVH_t,
+    Rand_State_t,
 };
 
 using IRTypeNode = IRNode<Type, IRTypeEnum>;
@@ -320,6 +321,12 @@ struct BVH_t : TypeNode<BVH_t> {
                      std::vector<Node> nodes, Volume volume);
 
     static const IRTypeEnum node_type = IRTypeEnum::BVH_t;
+};
+
+// Device-specific random (mutable!) state.
+struct Rand_State_t : TypeNode<Rand_State_t> {
+    static Type make();
+    static const IRTypeEnum node_type = IRTypeEnum::Rand_State_t;
 };
 
 // TODO: List_t, Tensor_t

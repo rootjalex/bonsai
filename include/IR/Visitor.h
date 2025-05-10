@@ -24,6 +24,7 @@ struct Visitor {
     virtual void visit(const Function_t *);
     virtual void visit(const Generic_t *);
     virtual void visit(const BVH_t *);
+    virtual void visit(const Rand_State_t *);
     // Interfaces
     virtual void visit(const IEmpty *);
     virtual void visit(const IFloat *);

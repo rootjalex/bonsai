@@ -112,6 +112,7 @@ target_sources(
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
+    src/Lower/Random.cpp
     src/Lower/RecLoops.cpp
     src/Lower/RenamePointerToExpr.cpp
     src/Lower/ReturnToOutParameter.cpp
@@ -191,6 +192,7 @@ target_sources(
     include/Lower/Pass.h
     include/Lower/PassManager.h
     include/Lower/PredicateAnalysis.h
+    include/Lower/Random.h
     include/Lower/RecLoops.h
     include/Lower/RenamePointerToExpr.h
     include/Lower/ReturnToOutParameter.h

@@ -305,6 +305,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         // return compare_volumes(b0->volume, b1->volume);
         return Cmp::Equals;
     }
+    case IRTypeEnum::Rand_State_t: {
+        return Cmp::Equals;
+    }
     }
 }
 
