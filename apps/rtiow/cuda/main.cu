@@ -2378,30 +2378,38 @@ __device__ scatter_record scatter(Ray *ray, MaterialSphere *ms,
 
 __device__ float3 sample(Ray *r, int32_t depth, _spheres_layout0 *spheres,
                          curandState *local_state) {
-    if (depth <= 0) {
-        return make_float3(static_cast<float>(0), static_cast<float>(0),
-                           static_cast<float>(0));
-    }
-    _option0 isect = _traverse_tree0(r, spheres);
-    if (isect.set) {
-        scatter_record data = scatter(r, (&isect.value), local_state);
-        if (data.hit) {
-            return (data.attenuation *
-                    sample((&data.ray), depth - 1, spheres, local_state));
+    float3 mult = make_float3(static_cast<float>(1.0), static_cast<float>(1.0),
+                              static_cast<float>(1.0));
+    Ray ray = *r;
+    while (depth > 0) {
+        _option0 isect = _traverse_tree0(&ray, spheres);
+        if (isect.set) {
+            scatter_record data = scatter(&ray, (&isect.value), local_state);
+            if (data.hit) {
+                mult = mult * data.attenuation;
+                ray = data.ray;
+                depth--;
+                continue;
+            } else {
+                return make_float3(static_cast<float>(0), static_cast<float>(0),
+                                   static_cast<float>(0));
+            }
         } else {
-            return make_float3(static_cast<float>(0), static_cast<float>(0),
-                               static_cast<float>(0));
+            float3 unit_direction = ((*r).d / make_float3(length((*r).d)));
+            float a = (static_cast<float>(0.5) *
+                       (unit_direction.y + static_cast<float>(1)));
+            float3 light =
+                ((make_float3((static_cast<float>(1) - a)) *
+                  make_float3(static_cast<float>(1), static_cast<float>(1),
+                              static_cast<float>(1))) +
+                 (make_float3(a) * make_float3(static_cast<float>(0.5),
+                                               static_cast<float>(0.7),
+                                               static_cast<float>(1))));
+            return mult * light;
         }
     }
-    float3 unit_direction = ((*r).d / make_float3(length((*r).d)));
-    float a =
-        (static_cast<float>(0.5) * (unit_direction.y + static_cast<float>(1)));
-    return ((make_float3((static_cast<float>(1) - a)) *
-             make_float3(static_cast<float>(1), static_cast<float>(1),
-                         static_cast<float>(1))) +
-            (make_float3(a) * make_float3(static_cast<float>(0.5),
-                                          static_cast<float>(0.7),
-                                          static_cast<float>(1))));
+    return make_float3(static_cast<float>(0.0), static_cast<float>(0.0),
+                       static_cast<float>(0.0));
 }
 
 __device__ float3 _traverse_array1(int32_t i, int32_t j, Camera *c,
@@ -3106,7 +3114,7 @@ int main(int argc, char **argv) {
     cam.aspect_ratio = 16.0 / 9.0;
     cam.width = 1423; // makes height = 800
     cam.samples_per_pixel = 50;
-    cam.max_depth = 5;
+    cam.max_depth = 10;
 
     cam.vfov = 20;
     cam.lookfrom = {13, 2, 3};
