@@ -144,7 +144,7 @@ extern spheres : set[MaterialSphere];
 
 func trace(r : Ray) = argmin(|s : MaterialSphere| distmin(r, s), filter(|s : MaterialSphere| intersects(r, s) && distmin(r, s) > 0.001, spheres));
 
-func sample(r : Ray, depth : i32) -> vec3f {
+func sample(r : Ray, depth : i32, mult : vec3f) -> vec3f {
     if (depth <= 0) {
         return vec3f{0.0, 0.0, 0.0};
     }
@@ -152,19 +152,19 @@ func sample(r : Ray, depth : i32) -> vec3f {
     if isect {
         data = scatter(r, *isect);
         if (data.hit) {
-            return data.attenuation * sample(data.ray, depth - 1);
+            return sample(data.ray, depth - 1, mult * data.attenuation);
         } else {
             return vec3f{0.0, 0.0, 0.0};
         }
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
-    return (1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0};
+    return mult * ((1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0});
 }
 
 func pixel(i : i32, j : i32, c : Camera) {
-    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
-} 
+    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth, vec3f{1.0, 1.0, 1.0}), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
+}
 
 func to_rgb(v : vec3f) {
     corrected = linear_to_gamma_v(v);
@@ -198,6 +198,9 @@ schedule {
             };
         };
     };
+
+    sample.loopify();
+    trace.loopify(64);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {

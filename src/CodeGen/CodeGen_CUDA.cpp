@@ -30,12 +30,55 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options) {
     codegen.print(program);
     os.close();
 }
+
 } // namespace codegen
 
 using namespace ir;
 
 namespace {
 
+// Returns the relevant CUDA version of each intrinsic, e.g.,
+// cuda_intrinsic("sin", f32) -> "sinf"
+std::string cuda_intrinsic(std::string intrinsic, Type type) {
+    const auto *float_t = type.as<ir::Float_t>();
+    if (float_t == nullptr) {
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INT.html
+        return intrinsic;
+    }
+    internal_assert(float_t->is_ieee754()) << type;
+    switch (float_t->bits()) {
+    case 128:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__QUAD.html
+        return "__nv_fp128_" + intrinsic;
+    case 64:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__DOUBLE.html
+        return intrinsic;
+    case 32:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__SINGLE.html
+        if (std::vector<std::string> is =
+                {
+                    "abs",
+                    "dim",
+                    "divide",
+                    "max",
+                    "min",
+                    "mod",
+                    "rexp",
+                };
+            std::find(is.cbegin(), is.cend(), intrinsic) != is.cend()) {
+            return "f" + intrinsic + "f";
+        }
+        return intrinsic + "f";
+    case 16:
+        // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH____HALF2__FUNCTIONS.html
+        return "h2" + intrinsic;
+    default:
+        internal_error << "unimplemented: " << type;
+    }
+}
+
+// Returns a list of functions that need the __device__ attribute. Kernels being
+// launched are not included since they will be annotated with __global__.
 std::set<std::string> find_device_functions(const FuncMap &funcs) {
     std::set<std::string> kernel_devices;
     // TODO(cgyurgyik): does this go beyond one level of nesting? Probably need
@@ -48,7 +91,6 @@ std::set<std::string> find_device_functions(const FuncMap &funcs) {
         if (!function.is_kernel()) {
             continue;
         }
-        kernel_devices.insert(function.name);
         // Propagate to respective function calls used by this kernel.
         kernel_devices.insert(graph.begin(), graph.end());
     }
@@ -250,14 +292,19 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
 void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
 
 void CodeGen_CUDA::visit(const FloatImm *node) {
-    // TODO(cgyurgyik): Do we want *everything* to be printed as a double?
-    // The `f` suffix does not compile in CUDA.
-
-    os << "static_cast" << '<';
+    if (node->type.bits() == 64) {
+        // The default type for floating point literals.
+        os << node->value;
+        return;
+    }
+    if (is_const_zero(node) || is_const_one(node)) {
+        // Avoid unnecessary noise.
+        os << node->value;
+        return;
+    }
+    os << '(';
     os << bonsai_scalar_type_to_cpp(node->type);
-    os << '>' << '(';
-    os << node->value;
-    os << ")";
+    os << ')' << node->value;
 }
 
 void CodeGen_CUDA::visit(const VecImm *node) {
@@ -273,16 +320,14 @@ void CodeGen_CUDA::visit(const VecImm *node) {
     os << ')';
 }
 
-void CodeGen_CUDA::visit(const Infinity *node) {
-    // TODO(cgyurgyik): Assumes implementation-defined version of infinity.
-    os << "INFINITY";
-}
+void CodeGen_CUDA::visit(const Infinity *node) { os << "INFINITY"; }
 
 void CodeGen_CUDA::visit(const Cast *node) {
-    // TODO(cgyurgyik): Is this what cast really means in Bonsai?
     ir::Expr value = node->value;
     ir::Type type = node->type;
     if (value.type().is<Vector_t>() && type.is<Vector_t>()) {
+        internal_assert(node->mode == Cast::Mode::Convert)
+            << "unimplemented: vector reinterpret cast: " << Expr(node);
         // A special-cased vec[T] -> vec[U] cast.
         const auto *v = value.type().as<Vector_t>();
         const auto *t = type.as<Vector_t>();
@@ -379,9 +424,6 @@ void CodeGen_CUDA::visit(const VectorShuffle *node) {
     // implementation in Bonsai's runtime/CUDA/math.h
     os << "shuffle" << '(';
     node->value.accept(this);
-    // TODO(cgyurgyik): this requires using a std::initializer_list argument,
-    // but I'm not sure how else to do this without creating a temporary
-    // variable first.
     os << ',' << ' ' << '{';
     print_expr_list(node->idxs);
     os << '}' << ')';
@@ -452,82 +494,76 @@ void CodeGen_CUDA::visit(const Select *node) {
 
 void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     switch (node->op) {
-    // https://developer.download.nvidia.com/cg/dot.html#:~:text=Reference%20Implementation,b.z%20%2B%20a.w*b.w%3B%20%7D
     case ir::Intrinsic::OpType::dot: {
+        // https://developer.download.nvidia.com/cg/dot.html#:~:text=Reference%20Implementation,b.z%20%2B%20a.w*b.w%3B%20%7D
         os << "dot" << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
-    // https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INTRINSIC__SINGLE.html
     case ir::Intrinsic::OpType::sqrt: {
         ir::Type element_type = node->args.front().type();
         internal_assert(element_type.is<ir::Float_t>()) << element_type;
-        os << "sqrt" << '(';
+        os << cuda_intrinsic("sqrt", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::min: {
         ir::Type element_type = node->args.front().type();
-        if (!element_type.is<Vector_t>()) {
-            // Required to avoid ambiguity errors.
-            os << "std::min";
-            os << '<' << bonsai_scalar_type_to_cpp(element_type) << '>';
-        } else {
-            os << "min";
-        }
-        os << '(';
+        os << cuda_intrinsic("min", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::max: {
         ir::Type element_type = node->args.front().type();
-        if (!element_type.is<Vector_t>()) {
-            // Required to avoid ambiguity errors.
-            os << "std::max";
-            os << '<' << bonsai_scalar_type_to_cpp(element_type) << '>';
-        } else {
-            os << "max";
-        }
-        os << '(';
+        os << cuda_intrinsic("max", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::cos: {
-        os << "cos" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("cos", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::sin: {
-        os << "sin" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("sin", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::tan: {
-        os << "tan" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("tan", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::pow: {
-        os << "pow" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("pow", element_type) << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
+    case ir::Intrinsic::OpType::abs: {
+        ir::Type element_type = node->args.front().type();
+        os << cuda_intrinsic("abs", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
     }
     case ir::Intrinsic::OpType::norm: {
         os << "length" << '(';
-        print_expr_list(node->args);
-        os << ')';
-        return;
-    }
-    case ir::Intrinsic::OpType::abs: {
-        os << "abs" << '(';
         print_expr_list(node->args);
         os << ')';
         return;
@@ -547,11 +583,9 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         return;
     }
     case ir::Intrinsic::OpType::fma: {
-        // TODO(cgyurgyik): This intrinsic (and perhaps others) has different
-        // names for different types, e.g.,
-        // {fmaf : f32, fma : f64, __nv_fp128_fma: f128}
-        // We need to check the type and choose the right variant.
-        os << "fma" << '(';
+        ir::Type element_type = node->args.front().type();
+        internal_assert(element_type.is<ir::Float_t>()) << element_type;
+        os << cuda_intrinsic("fma", element_type) << '(';
         print_expr_list(node->args);
         os << ')';
         return;
@@ -758,8 +792,10 @@ void CodeGen_CUDA::visit(const IfElse *node) {
 }
 
 void CodeGen_CUDA::visit(const DoWhile *node) {
-    os << get_indent() << "do" << ' ' << '{';
+    os << get_indent() << "do" << ' ' << '{' << '\n';
+    increment();
     node->body.accept(this);
+    decrement();
     os << get_indent() << '}' << ' ' << "while" << ' ' << '(';
     print_no_parens(node->cond);
     os << ')' << ';' << '\n';
@@ -788,7 +824,9 @@ void CodeGen_CUDA::visit(const ForAll *node) {
     os << get_indent() << '}' << '\n';
 }
 
-void CodeGen_CUDA::visit(const Continue *node) { os << "continue" << ';'; }
+void CodeGen_CUDA::visit(const Continue *node) {
+    os << get_indent() << "continue" << ';' << '\n';
+}
 
 void CodeGen_CUDA::visit(const Launch *node) {
     internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);

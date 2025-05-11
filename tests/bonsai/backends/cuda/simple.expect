@@ -16,7 +16,7 @@ struct Outer {
   Inner position;
 };
 
-int32_t add_s(int32_t x, int32_t y) {
+__host__ int32_t add_s(int32_t x, int32_t y) {
   int32_t v = (x + y);
   int32_t _w = 1;
   int32_t* w = &_w;
@@ -24,22 +24,22 @@ int32_t add_s(int32_t x, int32_t y) {
   return (v + (*w));
 }
 
-int4 add_v(int4 x, int4 y) {
+__host__ int4 add_v(int4 x, int4 y) {
   int4 v = (x + y);
   int4 w = make_int4(((x < y).x ? x.x : y.x),((x < y).y ? x.y : y.y),((x < y).z ? x.z : y.z),((x < y).w ? x.w : y.w));
   return (v + w);
 }
 
-int32_t if_else(float x, float y) {
-  float3 v = float3{x, y, static_cast<float>(1)};
+__host__ int32_t if_else(float x, float y) {
+  float3 v = float3{x, y, 1};
   if ((v.z + v.y) < v.x) {
     return 0;
   } else {
-    return ((static_cast<float>(0) < (v.x + v.y)) ? 1 : 2);
+    return ((0 < (v.x + v.y)) ? 1 : 2);
   }
 }
 
-int3 select_v(int3 x, int3 y) {
+__host__ int3 select_v(int3 x, int3 y) {
   int3 invDir = (make_int3(1) / x);
   bool3 dirIsNeg = (invDir < make_int3(0));
   int3 s = make_int3((dirIsNeg.x ? x.x : y.x),(dirIsNeg.y ? x.y : y.y),(dirIsNeg.z ? x.z : y.z));

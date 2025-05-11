@@ -10,6 +10,7 @@
 // [1] https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
 
 #include "cuda_runtime.h"
+#include "curand_kernel.h"
 
 // For math.h
 #include <algorithm>
@@ -1770,7 +1771,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
 }
 
 template <typename T>
-T argmin(T *current, T update) {
+__forceinline__ __host__ __device__ T argmin(T *current, T update) {
     if (current->_field0 < update._field0) {
         return *current;
     }
@@ -1778,7 +1779,7 @@ T argmin(T *current, T update) {
 }
 
 template <typename T>
-T *argmax(T *current, T update) {
+__forceinline__ __host__ __device__ T *argmax(T *current, T update) {
     if (current->_field0 > update._field0) {
         return current;
     }
@@ -1787,7 +1788,7 @@ T *argmax(T *current, T update) {
 
 // Jesus christ
 template <typename O, typename I>
-O bonsai_reinterpret(I input) {
+__forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
     static_assert(sizeof(O) == sizeof(I));
     static_assert(std::is_trivially_copyable<O>::value);
     static_assert(std::is_trivially_copyable<I>::value);
@@ -1946,7 +1947,7 @@ float __prod_diff_f32(float a, float b, float c, float d) {
 
 float __sqlen_f32(float3 v) { return sum((v * v)); }
 
-_option1 intersectsp_ray_sphere(Ray *r, Sphere *s) {
+__device__ _option1 intersectsp_ray_sphere(Ray *r, Sphere *s) {
     float3 oc = ((*s).center - (*r).o);
     float a = sum(((*r).d * (*r).d));
     float h = dot((*r).d, oc);
@@ -1958,12 +1959,11 @@ _option1 intersectsp_ray_sphere(Ray *r, Sphere *s) {
     float sqrtd = sqrt(disc);
     float root0 = ((h - sqrtd) / a);
     float root1 = ((h + sqrtd) / a);
-    FInterval interval =
-        FInterval{std::min<float>(root0, root1), std::max<float>(root0, root1)};
+    FInterval interval = FInterval{min(root0, root1), max(root0, root1)};
     return _option1{interval, true};
 }
 
-float distmax_Ray_Sphere(Ray *r, Sphere *s) {
+__device__ float distmax_Ray_Sphere(Ray *r, Sphere *s) {
     _option1 interval = intersectsp_ray_sphere(r, s);
     if (interval.set) {
         FInterval extract = interval.value;
@@ -1972,7 +1972,7 @@ float distmax_Ray_Sphere(Ray *r, Sphere *s) {
     return INFINITY;
 }
 
-float distmin_Ray_Sphere(Ray *r, Sphere *s) {
+__device__ float distmin_Ray_Sphere(Ray *r, Sphere *s) {
     _option1 interval = intersectsp_ray_sphere(r, s);
     if (interval.set) {
         FInterval extract = interval.value;
@@ -1981,7 +1981,7 @@ float distmin_Ray_Sphere(Ray *r, Sphere *s) {
     return -INFINITY;
 }
 
-bool intersects_Ray_Sphere(Ray *ray, Sphere *s) {
+__device__ bool intersects_Ray_Sphere(Ray *ray, Sphere *s) {
     _option1 interval = intersectsp_ray_sphere(ray, s);
     if (interval.set) {
         FInterval extract = interval.value;
@@ -1991,8 +1991,9 @@ bool intersects_Ray_Sphere(Ray *ray, Sphere *s) {
     return false;
 }
 
-void _recloop_func0(uint16_t spheres__index, _spheres_layout0 *spheres, Ray *r,
-                    __tuple_0 *_best0) {
+__device__ void _recloop_func0(uint16_t spheres__index,
+                               _spheres_layout0 *spheres, Ray *r,
+                               __tuple_0 *_best0) {
     Sphere _lv2 = Sphere{(*spheres).spheres_index[spheres__index].center,
                          (*spheres).spheres_index[spheres__index].radius};
     if (intersects_Ray_Sphere(r, (&_lv2))) {
@@ -2092,21 +2093,23 @@ void _recloop_func0(uint16_t spheres__index, _spheres_layout0 *spheres, Ray *r,
     return;
 }
 
-float3 random_in_unit_disk() {
-    float r = sqrt(static_cast<float>(rand()) / static_cast<float>(RAND_MAX));
+__device__ float3 random_in_unit_disk(curandState *local_state) {
+    float r = sqrt(curand_uniform(local_state));
     float theta = ((static_cast<float>(2) * static_cast<float>(3.14159)) *
-                   static_cast<float>(rand()) / static_cast<float>(RAND_MAX));
+                   curand_uniform(local_state));
     return float3{r * cos(theta), r * sin(theta), static_cast<float>(0)};
 }
 
-float3 defocus_disk_sample(float3 center, float3 defocus_disk_u,
-                           float3 defocus_disk_v) {
-    float3 p = random_in_unit_disk();
+__device__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u,
+                                      float3 defocus_disk_v,
+                                      curandState *local_state) {
+    float3 p = random_in_unit_disk(local_state);
     return ((center + (make_float3(p.x) * defocus_disk_u)) +
             (make_float3(p.y) * defocus_disk_v));
 }
 
-Ray build_ray(int32_t i, int32_t j, Camera *cam) {
+__device__ Ray build_ray(int32_t i, int32_t j, Camera *cam,
+                         curandState *local_state) {
     int32_t width = (*cam).width;
     int32_t _height = (int32_t)((float)width / (*cam).aspect_ratio);
     int32_t *height = &_height;
@@ -2142,10 +2145,8 @@ Ray build_ray(int32_t i, int32_t j, Camera *cam) {
     float3 defocus_disk_u = (u * make_float3(defocus_radius));
     float3 defocus_disk_v = (v * make_float3(defocus_radius));
     float3 offset =
-        float3{static_cast<float>(rand()) / static_cast<float>(RAND_MAX) -
-                   static_cast<float>(0.5),
-               static_cast<float>(rand()) / static_cast<float>(RAND_MAX) -
-                   static_cast<float>(0.5),
+        float3{curand_uniform(local_state) - static_cast<float>(0.5),
+               curand_uniform(local_state) - static_cast<float>(0.5),
                static_cast<float>(0)};
     float3 pixel_sample =
         ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) +
@@ -2153,22 +2154,129 @@ Ray build_ray(int32_t i, int32_t j, Camera *cam) {
     float3 _ray_origin = camera_center;
     float3 *ray_origin = &_ray_origin;
     if (static_cast<float>(0) < (*cam).defocus_angle) {
-        *ray_origin =
-            defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
+        *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u,
+                                          defocus_disk_v, local_state);
     }
     float3 ray_direction = (pixel_sample - (*ray_origin));
     return Ray{(*ray_origin), ray_direction, INFINITY};
 }
 
-_option0 _traverse_tree0(Ray *r, _spheres_layout0 *spheres) {
+__device__ _option0 _traverse_tree0(Ray *r, _spheres_layout0 *spheres) {
     __tuple_0 __best0 = __tuple_0{INFINITY, MaterialSphere{}};
     __tuple_0 *_best0 = &__best0;
-    _recloop_func0(0u, spheres, r, _best0);
+    int32_t __queue_count0 = 1;
+    int32_t *_queue_count0 = &__queue_count0;
+    uint16_t _queue0[64];
+    _queue0[0] = 0u;
+    do {
+        *_queue_count0 -= 1;
+        uint16_t spheres__index = _queue0[(*_queue_count0)];
+        Sphere _lv2 = Sphere{(*spheres).spheres_index[spheres__index].center,
+                             (*spheres).spheres_index[spheres__index].radius};
+        if (intersects_Ray_Sphere(r, (&_lv2))) {
+            Sphere _lv1 =
+                Sphere{(*spheres).spheres_index[spheres__index].center,
+                       (*spheres).spheres_index[spheres__index].radius};
+            if (static_cast<float>(0.001) < distmax_Ray_Sphere(r, (&_lv1))) {
+                Sphere _lv0 =
+                    Sphere{(*spheres).spheres_index[spheres__index].center,
+                           (*spheres).spheres_index[spheres__index].radius};
+                if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
+                    if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
+                        _queue0[(*_queue_count0)] = (spheres__index + 1u);
+                        *_queue_count0 += 1;
+                        _queue0[(*_queue_count0)] =
+                            (spheres__index +
+                             bonsai_reinterpret<_spheres_split_layout2>(
+                                 (*spheres)
+                                     .spheres_index[spheres__index]
+                                     .spheres_spliton_nPrims)
+                                 .offset);
+                        *_queue_count0 += 1;
+                    } else {
+                        for (uint16_t _idx0 = 0u;
+                             _idx0 <
+                             (*spheres).spheres_index[spheres__index].nPrims;
+                             _idx0 += 1u) {
+                            if (intersects_Ray_Sphere(
+                                    r,
+                                    (&(*spheres)
+                                          .prims
+                                              [bonsai_reinterpret<
+                                                   _spheres_split_layout3>(
+                                                   (*spheres)
+                                                       .spheres_index
+                                                           [spheres__index]
+                                                       .spheres_spliton_nPrims)
+                                                   .pOffset +
+                                               _idx0]
+                                          .s))) {
+                                if (static_cast<float>(0.001) <
+                                    distmin_Ray_Sphere(
+                                        r,
+                                        (&(*spheres)
+                                              .prims
+                                                  [bonsai_reinterpret<
+                                                       _spheres_split_layout3>(
+                                                       (*spheres)
+                                                           .spheres_index
+                                                               [spheres__index]
+                                                           .spheres_spliton_nPrims)
+                                                       .pOffset +
+                                                   _idx0]
+                                              .s))) {
+                                    if (distmin_Ray_Sphere(
+                                            r,
+                                            (&(*spheres)
+                                                  .prims
+                                                      [bonsai_reinterpret<
+                                                           _spheres_split_layout3>(
+                                                           (*spheres)
+                                                               .spheres_index
+                                                                   [spheres__index]
+                                                               .spheres_spliton_nPrims)
+                                                           .pOffset +
+                                                       _idx0]
+                                                  .s)) < (*_best0)._field0) {
+                                        *_best0 = argmin(
+                                            _best0,
+                                            __tuple_0{
+                                                distmin_Ray_Sphere(
+                                                    r,
+                                                    (&(*spheres)
+                                                          .prims
+                                                              [bonsai_reinterpret<
+                                                                   _spheres_split_layout3>(
+                                                                   (*spheres)
+                                                                       .spheres_index
+                                                                           [spheres__index]
+                                                                       .spheres_spliton_nPrims)
+                                                                   .pOffset +
+                                                               _idx0]
+                                                          .s)),
+                                                (*spheres).prims
+                                                    [bonsai_reinterpret<
+                                                         _spheres_split_layout3>(
+                                                         (*spheres)
+                                                             .spheres_index
+                                                                 [spheres__index]
+                                                             .spheres_spliton_nPrims)
+                                                         .pOffset +
+                                                     _idx0]});
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } while ((*_queue_count0) != 0);
     return (((*_best0)._field0 != INFINITY) ? _option0{(*_best0)._field1, true}
                                             : _option0{});
 }
 
-hit_record get_hit_record(Ray *r, Sphere *s) {
+__device__ hit_record get_hit_record(Ray *r, Sphere *s) {
     float t = distmin_Ray_Sphere(r, s);
     float3 p = ((*r).o + (make_float3(t) * (*r).d));
     float3 outward_normal = ((p - (*s).center) / make_float3((*s).radius));
@@ -2178,13 +2286,13 @@ hit_record get_hit_record(Ray *r, Sphere *s) {
     return record;
 }
 
-float3 random_unit_vector() {
+__device__ float3 random_unit_vector(curandState *local_state) {
     float x1 = (static_cast<float>(-1) +
                 ((static_cast<float>(1) - static_cast<float>(-1)) *
-                 static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
+                 curand_uniform(local_state)));
     float x2 = (static_cast<float>(-1) +
                 ((static_cast<float>(1) - static_cast<float>(-1)) *
-                 static_cast<float>(rand()) / static_cast<float>(RAND_MAX)));
+                 curand_uniform(local_state)));
     float s = (((x1 * x1) + (x2 * x2)) + static_cast<float>(1e-08));
     float factor = sqrt(static_cast<float>(2) / s);
     float x = (factor * x1);
@@ -2194,7 +2302,7 @@ float3 random_unit_vector() {
     return float3{x / len, y / len, z / len};
 }
 
-float reflectance(float cos_theta, float refract_idx) {
+__device__ float reflectance(float cos_theta, float refract_idx) {
     float r0 = ((static_cast<float>(1) - refract_idx) /
                 (static_cast<float>(1) + refract_idx));
     float r1 = (r0 * r0);
@@ -2203,8 +2311,13 @@ float reflectance(float cos_theta, float refract_idx) {
              pow(static_cast<float>(1) - cos_theta, static_cast<float>(5))));
 }
 
-float3 refract(float3 uv, float3 n, float etai_over_etat) {
-    float cos_theta = std::min<float>(dot(-uv, n), static_cast<float>(1));
+__device__ float3 refract(float3 uv, float3 n, float etai_over_etat) {
+    // TODO(cgyurgyik): the fuck is this?
+    //
+    // error: calling a constexpr __host__ function("min") from a __device__
+    // function("scatter") is not allowed. The experimental flag
+    // '--expt-relaxed-constexpr' can be used to allow this.
+    float cos_theta = min(dot(-uv, n), static_cast<float>(1));
     float3 r_out_perp =
         (make_float3(etai_over_etat) * (uv + (make_float3(cos_theta) * n)));
     float3 r_out_parallel =
@@ -2214,10 +2327,11 @@ float3 refract(float3 uv, float3 n, float etai_over_etat) {
     return (r_out_perp + r_out_parallel);
 }
 
-scatter_record scatter(Ray *ray, MaterialSphere *ms) {
+__device__ scatter_record scatter(Ray *ray, MaterialSphere *ms,
+                                  curandState *local_state) {
     hit_record hit = get_hit_record(ray, (&(*ms).s));
     if ((*ms).material == 0u) {
-        float3 _scatter_dir = (hit.normal + random_unit_vector());
+        float3 _scatter_dir = (hit.normal + random_unit_vector(local_state));
         float3 *scatter_dir = &_scatter_dir;
         if (((abs((*scatter_dir).x) < static_cast<float>(1e-08)) &
              (abs((*scatter_dir).y) < static_cast<float>(1e-08))) &
@@ -2233,21 +2347,20 @@ scatter_record scatter(Ray *ray, MaterialSphere *ms) {
                                       hit.normal));
             float3 reflected =
                 ((ref / make_float3(length(ref))) +
-                 (make_float3((*ms).fuzz) * random_unit_vector()));
+                 (make_float3((*ms).fuzz) * random_unit_vector(local_state)));
             Ray m_scattered = Ray{hit.p, reflected, INFINITY};
             return scatter_record{(*ms).albedo, m_scattered, true};
         } else {
             float ri = (hit.front_face ? (static_cast<float>(1) / (*ms).fuzz)
                                        : (*ms).fuzz);
             float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
-            float cos_theta = std::min<float>(dot(-unit_dir, hit.normal),
-                                              static_cast<float>(1));
+            float cos_theta =
+                min(dot(-unit_dir, hit.normal), static_cast<float>(1));
             float sin_theta =
                 sqrt(static_cast<float>(1) - (cos_theta * cos_theta));
             bool cannot_refract =
                 ((static_cast<float>(1) < (ri * sin_theta)) |
-                 (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) <
-                  reflectance(cos_theta, ri)));
+                 (curand_uniform(local_state) < reflectance(cos_theta, ri)));
             float3 direction =
                 (cannot_refract
                      ? (unit_dir - (make_float3((static_cast<float>(2) *
@@ -2263,56 +2376,68 @@ scatter_record scatter(Ray *ray, MaterialSphere *ms) {
     }
 }
 
-float3 sample(Ray *r, int32_t depth, _spheres_layout0 *spheres) {
-    if (depth <= 0) {
-        return make_float3(static_cast<float>(0), static_cast<float>(0),
-                           static_cast<float>(0));
-    }
-    _option0 isect = _traverse_tree0(r, spheres);
-    if (isect.set) {
-        scatter_record data = scatter(r, (&isect.value));
-        if (data.hit) {
-            return (data.attenuation * sample((&data.ray), depth - 1, spheres));
-        } else {
-            return make_float3(static_cast<float>(0), static_cast<float>(0),
-                               static_cast<float>(0));
+__device__ float3 sample(Ray *r, int32_t depth, float3 mult,
+                         _spheres_layout0 *spheres, curandState *local_state) {
+    Ray _S_r = (*r);
+    Ray *S_r = &_S_r;
+    int32_t _S_depth = depth;
+    int32_t *S_depth = &_S_depth;
+    float3 _S_mult = mult;
+    float3 *S_mult = &_S_mult;
+    _spheres_layout0 _S_spheres = (*spheres);
+    _spheres_layout0 *S_spheres = &_S_spheres;
+    do {
+        if ((*S_depth) <= 0) {
+            return make_float3(0, 0, 0);
         }
-    }
-    float3 unit_direction = ((*r).d / make_float3(length((*r).d)));
-    float a =
-        (static_cast<float>(0.5) * (unit_direction.y + static_cast<float>(1)));
-    return ((make_float3((static_cast<float>(1) - a)) *
-             make_float3(static_cast<float>(1), static_cast<float>(1),
-                         static_cast<float>(1))) +
-            (make_float3(a) * make_float3(static_cast<float>(0.5),
-                                          static_cast<float>(0.7),
-                                          static_cast<float>(1))));
+        _option0 isect = _traverse_tree0(S_r, S_spheres);
+        if (isect.set) {
+            scatter_record data = scatter(S_r, (&isect.value), local_state);
+            if (data.hit) {
+                *S_r = data.ray;
+                *S_depth = ((*S_depth) - 1);
+                *S_mult = ((*S_mult) * data.attenuation);
+                *S_spheres = (*S_spheres);
+                continue;
+            } else {
+                return make_float3(0, 0, 0);
+            }
+        }
+        float3 unit_direction = ((*S_r).d / make_float3(length((*S_r).d)));
+        float a = ((float)0.5 * (unit_direction.y + 1));
+        return ((*S_mult) *
+                ((make_float3((1 - a)) * make_float3(1, 1, 1)) +
+                 (make_float3(a) * make_float3((float)0.5, (float)0.7, 1))));
+    } while (true);
 }
 
-float3 _traverse_array1(int32_t i, int32_t j, Camera *c,
-                        _spheres_layout0 *spheres) {
+__device__ float3 _traverse_array1(int32_t i, int32_t j, Camera *c,
+                                   _spheres_layout0 *spheres,
+                                   curandState *local_state) {
     float3 __alloc1 = make_float3(static_cast<float>(0));
     float3 *_alloc1 = &__alloc1;
     for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
-        Ray _lv0 = build_ray(i, j, c);
-        *_alloc1 += sample((&_lv0), (*c).max_depth, spheres);
+        Ray _lv0 = build_ray(i, j, c, local_state);
+        *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1.0), spheres,
+                           local_state);
     }
     return (*_alloc1);
 }
 
-float3 pixel(int32_t i, int32_t j, Camera *c, _spheres_layout0 *spheres) {
-    return (_traverse_array1(i, j, c, spheres) /
+__device__ float3 pixel(int32_t i, int32_t j, Camera *c,
+                        _spheres_layout0 *spheres, curandState *local_state) {
+    return (_traverse_array1(i, j, c, spheres, local_state) /
             make_float3((float)(*c).samples_per_pixel));
 }
 
-float linear_to_gamma_f(float l) {
+__device__ float linear_to_gamma_f(float l) {
     if (static_cast<float>(0) < l) {
         return sqrt(l);
     }
     return static_cast<float>(0);
 }
 
-int3 to_rgb(float3 v) {
+__device__ int3 to_rgb(float3 v) {
     float3 corrected = float3{linear_to_gamma_f(v.x), linear_to_gamma_f(v.y),
                               linear_to_gamma_f(v.z)};
     return make_int3((make_float3(static_cast<float>(256)) *
@@ -2329,22 +2454,89 @@ int3 to_rgb(float3 v) {
                          .z);
 }
 
-int3 *_traverse_array0(Camera *c, int32_t height, _spheres_layout0 *spheres) {
-    int32_t *_alloc0;
-    // TODO(cgyurgyik): Fix this.
-    // (void)cudaMalloc((void **)&_alloc0,
-    //                  ((height * (*c).width) * 3) * sizeof(int32_t));
-    (void)cudaHostAlloc((void **)&_alloc0,
-                        ((height * (*c).width) * 3) * sizeof(int32_t), 0);
-    for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
-        for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
-            int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));
-            _alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
-            _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
-            _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
-        }
+__global__ void traverse_kernel(int *output, int width, int height, Camera *c,
+                                _spheres_layout0 *spheres) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height)
+        return;
+    int idx = (y * width + x) * 3;
+    curandState local_state;
+    // Use pixel id as seed.
+    curand_init(idx, 0, 0, &local_state);
+
+    int3 rgb = to_rgb(pixel(x, y, c, spheres, &local_state));
+    output[idx + 0] = rgb.x;
+    output[idx + 1] = rgb.y;
+    output[idx + 2] = rgb.z;
+}
+
+__host__ int *_parallel_traverse_array0(Camera *c, int32_t height,
+                                        _spheres_layout0 *spheres) {
+    int width = c->width;
+    int total_pixels = width * height;
+    int total_size = total_pixels * 3 * sizeof(int);
+
+    // Device memory
+    int *device_output;
+    Camera *d_camera;
+    _spheres_layout0 *d_spheres;
+
+    cudaMalloc(&device_output, total_size);
+    cudaMalloc(&d_camera, sizeof(Camera));
+
+    cudaMalloc(&d_spheres, sizeof(_spheres_layout0));
+
+    // Copy the primitives array
+    MaterialSphere *d_prims;
+    cudaMalloc(&d_prims, spheres->pCount * sizeof(MaterialSphere));
+    cudaMemcpy(d_prims, spheres->prims,
+               spheres->pCount * sizeof(MaterialSphere),
+               cudaMemcpyHostToDevice);
+
+    // Copy the spheres_index array
+    _spheres_layout1 *d_spheres_index;
+    cudaMalloc(&d_spheres_index, spheres->count * sizeof(_spheres_layout1));
+    cudaMemcpy(d_spheres_index, spheres->spheres_index,
+               spheres->count * sizeof(_spheres_layout1),
+               cudaMemcpyHostToDevice);
+
+    // Create a shallow copy of the struct, then patch the device pointers
+    _spheres_layout0 h_spheres_copy = *spheres;
+    h_spheres_copy.prims = d_prims;
+    h_spheres_copy.spheres_index = d_spheres_index;
+
+    // Now copy the patched struct
+    cudaMemcpy(d_spheres, &h_spheres_copy, sizeof(_spheres_layout0),
+               cudaMemcpyHostToDevice);
+
+    cudaMemcpy(d_camera, c, sizeof(Camera), cudaMemcpyHostToDevice);
+
+    dim3 blockDim(16, 16);
+    dim3 gridDim((width + 15) / 16, (height + 15) / 16);
+
+    // Kernel launch
+    traverse_kernel<<<gridDim, blockDim>>>(device_output, width, height,
+                                           d_camera, d_spheres);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error: %s\n", cudaGetErrorString(err));
     }
-    return reinterpret_cast<int3 *>(_alloc0);
+    cudaDeviceSynchronize();
+
+    // Host memory for result
+    int *host_output = (int *)malloc(total_size);
+    cudaMemcpy(host_output, device_output, total_size, cudaMemcpyDeviceToHost);
+
+    // Cleanup
+    cudaFree(device_output);
+    cudaFree(d_camera);
+    cudaFree(d_spheres);
+    cudaFree(d_prims);
+    cudaFree(d_spheres_index);
+    return host_output;
 }
 
 Sphere _unexported_bounding_sphere(Sphere *a, Sphere *b) {
@@ -2511,15 +2703,15 @@ _option1 intersectsp_ray_aabb(Ray *r, AABB *b) {
     if (((*tMax).y < (*tMin).x) || ((*tMax).x < (*tMin).y)) {
         return _option1{};
     }
-    float _tmin = std::max<float>((*tMin).x, (*tMin).y);
+    float _tmin = max((*tMin).x, (*tMin).y);
     float *tmin = &_tmin;
-    float _tmax = std::min<float>((*tMax).x, (*tMax).y);
+    float _tmax = min((*tMax).x, (*tMax).y);
     float *tmax = &_tmax;
     if (((*tMax).z < (*tmin)) || ((*tmax) < (*tMin).z)) {
         return _option1{};
     }
-    *tmin = std::max<float>((*tmin), (*tMin).z);
-    *tmax = std::min<float>((*tmax), (*tMax).z);
+    *tmin = max((*tmin), (*tMin).z);
+    *tmax = min((*tmax), (*tMax).z);
     return _option1{FInterval{(*tmin), (*tmax)}, true};
 }
 
@@ -2530,10 +2722,6 @@ float distmax_Ray_AABB(Ray *r, AABB *b) {
         return extract.high;
     }
     return INFINITY;
-}
-
-float distmax_Ray_MaterialSphere(Ray *r, MaterialSphere *ms) {
-    return distmax_Ray_Sphere(r, (&(*ms).s));
 }
 
 _option2 intersectsp_ray_tri(Ray *ray, Triangle *tri) {
@@ -2664,7 +2852,7 @@ float distmin_Ray_AABB(Ray *r, AABB *b) {
     return -INFINITY;
 }
 
-float distmin_Ray_MaterialSphere(Ray *r, MaterialSphere *ms) {
+__device__ float distmin_Ray_MaterialSphere(Ray *r, MaterialSphere *ms) {
     return distmin_Ray_Sphere(r, (&(*ms).s));
 }
 
@@ -2684,11 +2872,11 @@ float gamma(int32_t n) {
         (static_cast<float>(1) - ((float)n * static_cast<float>(5.96046e-08))));
 }
 
-int3 *image(Camera *c, _spheres_layout0 *spheres) {
+__host__ int *image(Camera *c, _spheres_layout0 *spheres) {
     int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
     int32_t *height = &_height;
     *height = (((*height) < 1) ? 1 : (*height));
-    return _traverse_array0(c, (*height), spheres);
+    return _parallel_traverse_array0(c, (*height), spheres);
 }
 
 bool intersects_Ray_AABB(Ray *r, AABB *b) {
@@ -2701,17 +2889,9 @@ bool intersects_Ray_AABB(Ray *r, AABB *b) {
     return false;
 }
 
-bool intersects_Ray_MaterialSphere(Ray *r, MaterialSphere *ms) {
-    return intersects_Ray_Sphere(r, (&(*ms).s));
-}
-
-bool intersects_Ray_Triangle(Ray *ray, Triangle *tri) {
-    return intersectsp_ray_tri(ray, tri).set;
-}
-
 float len_squared(float3 v) { return sum((v * v)); }
 
-float3 linear_to_gamma_v(float3 l) {
+__device__ float3 linear_to_gamma_v(float3 l) {
     return float3{linear_to_gamma_f(l.x), linear_to_gamma_f(l.y),
                   linear_to_gamma_f(l.z)};
 }
@@ -2725,15 +2905,6 @@ bool near_zero(float3 v) {
 float random_float(float low, float high) {
     return (low + ((high - low) * static_cast<float>(rand()) /
                    static_cast<float>(RAND_MAX)));
-}
-
-float3 random_on_hemisphere(float3 normal) {
-    float3 on_unit_sphere = random_unit_vector();
-    if (static_cast<float>(0) < dot(on_unit_sphere, normal)) {
-        return on_unit_sphere;
-    } else {
-        return -on_unit_sphere;
-    }
 }
 
 float3 random_vec3f() {
@@ -2761,10 +2932,6 @@ float3 sample_square() {
                   static_cast<float>(rand()) / static_cast<float>(RAND_MAX) -
                       static_cast<float>(0.5),
                   static_cast<float>(0)};
-}
-
-_option0 trace(Ray *r, _spheres_layout0 *spheres) {
-    return _traverse_tree0(r, spheres);
 }
 
 float3 unit_vector(float3 v) { return (v / make_float3(length(v))); }
@@ -2961,9 +3128,9 @@ int main(int argc, char **argv) {
     image_height = (image_height < 1) ? 1 : image_height;
     auto t1 = clock::now();
     // Render
-    int *im = (int *)image(&cam, &tree);
+    int *im = image(&cam, &tree);
     auto t2 = clock::now();
-    std::string output_filename = "image.ppm";
+    std::string output_filename = "rtiow-image-cuda.ppm";
     std::ofstream out(output_filename);
     if (!out) {
         std::cerr << "Error: Cannot open file " << output_filename
@@ -2997,6 +3164,6 @@ int main(int argc, char **argv) {
     std::cerr << "Render time: " << render_ms << " ms\n";
     std::cerr << "Write-to-output time: " << write_ms << " ms\n";
 
-    cudaFree(im);
+    free(im);
     return 0;
 }

@@ -1753,7 +1753,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
     return r;
 }
 
-template <typename T>
+__forceinline__ __host__ __device__ template <typename T>
 T argmin(T *current, T update) {
     if (current->_field0 < update._field0) {
         return *current;
@@ -1761,7 +1761,7 @@ T argmin(T *current, T update) {
     return update;
 }
 
-template <typename T>
+__forceinline__ __host__ __device__ template <typename T>
 T *argmax(T *current, T update) {
     if (current->_field0 > update._field0) {
         return current;
@@ -1770,7 +1770,7 @@ T *argmax(T *current, T update) {
 }
 
 // Jesus christ
-template <typename O, typename I>
+__forceinline__ __host__ __device__ template <typename O, typename I>
 O bonsai_reinterpret(I input) {
     static_assert(sizeof(O) == sizeof(I));
     static_assert(std::is_trivially_copyable<O>::value);
