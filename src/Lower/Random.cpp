@@ -195,7 +195,13 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
                 }
             }
         }
-
+        // Fix up the bodies of kernel functions.
+        for (const auto &[name, func] : funcs) {
+            if (!func->is_kernel()) {
+                continue;
+            }
+            func->body = insert_rand_state(std::move(func->body), call_rand);
+        }
         // Insert the random state.
         for (const std::string &name : call_rand) {
             auto &func = funcs[name];

@@ -27,7 +27,7 @@ __global__ float f1(float x) {
   if (x == 1) {
     return 1;
   }
-  return f2(x);
+  return f2(x, (&_rng_state));
 }
 
 __host__ int32_t main(float input) {
