@@ -1771,6 +1771,7 @@ T *argmax(T *current, T update) {
 }
 
 // Mimics curand_uniform by producing an output in (0, 1].
+// https://docs.nvidia.com/cuda/curand/group__DEVICE.html#group__DEVICE_1gf1ba3a7a4a53b2bee1d7c1c7b837c00d
 template <typename T>
 __forceinline__ __host__ T random() {
     T v = static_cast<T>(std::rand()) / static_cast<T>(RAND_MAX);

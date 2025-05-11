@@ -898,6 +898,7 @@ void CodeGen_CUDA::print(const Program &program) {
         const auto &it = program.funcs.find(name);
         internal_assert(it != program.funcs.end());
         const auto &func = it->second;
+        ScopedValue<bool> _(on_device, kernel_devices.contains(func->name));
         if (func == nullptr) {
             // Minimize aborts when printing, since we use printing to
             // debug.
@@ -910,20 +911,17 @@ void CodeGen_CUDA::print(const Program &program) {
             if (kernel_devices.contains(func->name)) {
                 os << "__device__" << ' ';
             }
-            // TODO(cgyurgyik): We also want the complement; any function
-            // that is *not* used by device functions should be marked as
-            // __host__. For now, we just assume everything may be used by
-            // the host device.
+            // cuRAND can only be used on device.
             if (std::none_of(func->args.begin(), func->args.end(),
                              [](const ir::Function::Argument &arg) {
                                  return arg.name == lower::rng_state_name;
                              })) {
-                // cuRAND can only be used on device.
+                // TODO(cgyurgyik): We also want the complement; any function
+                // that is *not* used by device functions should be marked as
+                // __host__.
                 os << "__host__" << ' ';
             }
         }
-        // Assumption: definitions cannot be nested.
-        on_device = kernel_devices.contains(func->name);
         print(*func);
         os << '\n';
         if (i + 1 == e) {
@@ -954,7 +952,7 @@ void CodeGen_CUDA::print(const Function &function) {
     increment();
     if (function.must_setup_rng()) {
         internal_assert(function.is_kernel())
-            << "CUDA rng can only run on __device__:\n"
+            << "CUDA rng can only run on device, received:\n"
             << function;
         os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
         // TODO: need `idx` to be set!!
