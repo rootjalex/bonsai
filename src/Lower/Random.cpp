@@ -160,11 +160,14 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
     size_t iter_count = 0, old_size = 0, new_size = 0;
 
     switch (options.target) {
+        // TODO(cgyurgyik): I believe we need to duplicate calls that contain
+        // rand(), and appear in both the host and device.
     case BackendTarget::CUDA: {
         // In CUDA, instances of rand() are lowered to cuRAND when running on
-        // the device. Since cuRAND is explicitly only available on device, so
-        // we assume RNG state will be set up in the top most kernel,
-        // and then propagated to nested functions from there.
+        // the device. Since cuRAND is only available on device, we assume RNG
+        // state will be set up in the kernel, and then propagated to nested
+        // functions from there. Any host functions will simply use a CPU
+        // built-in random function.
         lower::CallGraph call_graph = lower::build_call_graph(funcs);
         // TODO(cgyurgyik): Extend this to support propagation through mutual
         // recursion.
