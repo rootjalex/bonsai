@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cuda_fp16.h>
 #include <initializer_list>
+#include <limits>
 #include <math.h>
 #include <type_traits>
 
@@ -1767,6 +1768,15 @@ T *argmax(T *current, T update) {
         return current;
     }
     return &update;
+}
+
+// Mimics curand_uniform by producing an output in (0, 1].
+template <typename T>
+__forceinline__ __host__ T random() {
+    T v = static_cast<T>(std::rand()) / static_cast<T>(RAND_MAX);
+    // Scale to (0, 1].
+    return (static_cast<T>(1.0) - std::numeric_limits<T>::epsilon()) * v +
+           std::numeric_limits<T>::epsilon();
 }
 
 // Jesus christ

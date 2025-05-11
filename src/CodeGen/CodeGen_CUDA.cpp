@@ -81,20 +81,25 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
 // launched are not included since they will be annotated with __global__.
 std::set<std::string> find_device_functions(const FuncMap &funcs) {
     std::set<std::string> kernel_devices;
-    // TODO(cgyurgyik): does this go beyond one level of nesting? Probably need
-    // what the random pass is doing.
-    lower::CallGraph call_graph =
-        lower::build_call_graph(funcs, /*undef_calls=*/false);
-    for (const auto &[name, graph] : call_graph) {
+    lower::CallGraph call_graph = lower::build_call_graph(funcs);
+
+    std::vector<std::string> topological_order =
+        lower::func_topological_order(funcs);
+    std::reverse(topological_order.begin(), topological_order.end());
+    for (int i = 0, e = topological_order.size(); i < e; ++i) {
+        const std::string &name = topological_order[i];
         auto it = funcs.find(name);
-        const Function &function = *it->second;
-        if (!function.is_kernel()) {
+        internal_assert(it != funcs.end()) << name;
+        const auto &func = *it->second;
+        if (!func.is_kernel() && !kernel_devices.contains(name)) {
             continue;
         }
+        auto cit = call_graph.find(name);
+        internal_assert(cit != call_graph.end()) << name;
+        const auto &graph = cit->second;
         // Propagate to respective function calls used by this kernel.
         kernel_devices.insert(graph.begin(), graph.end());
     }
-
     return kernel_devices;
 }
 
@@ -574,12 +579,27 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ')';
         return;
     }
-    // TODO(cgyurgyik): I don't think this will work on device, need to use
-    // cuRAND (https://docs.nvidia.com/cuda/curand/index.html).
     case ir::Intrinsic::OpType::rand: {
+        // This always produces a random float in (0, 1].
         internal_assert(node->args.empty())
             << "TODO: support vector rand generation on CUDA: " << Expr(node);
-        os << "curand_uniform(" << lower::rng_state_name << ")";
+        const auto *float_t = node->type.as<Float_t>();
+        internal_assert(float_t && float_t->is_ieee754()) << node->type;
+        if (on_device) {
+            switch (float_t->bits()) {
+            case 64:
+                os << "curand_uniform_double(" << lower::rng_state_name << ")";
+                return;
+            case 32:
+                os << "curand_uniform(" << lower::rng_state_name << ")";
+                return;
+            default:
+                internal_error << "unsupported on-device random type: "
+                               << node->type;
+            }
+        }
+        os << "random" << '<' << bonsai_scalar_type_to_cpp(node->type) << '>'
+           << '(' << ')';
         return;
     }
     case ir::Intrinsic::OpType::fma: {
@@ -890,12 +910,20 @@ void CodeGen_CUDA::print(const Program &program) {
             if (kernel_devices.contains(func->name)) {
                 os << "__device__" << ' ';
             }
-            // TODO(cgyurgyik): We also want the complement; any function that
-            // is *not* used by device functions should be marked as __host__.
-            // For now, we just assume everything may be used by the host
-            // device.
-            os << "__host__" << ' ';
+            // TODO(cgyurgyik): We also want the complement; any function
+            // that is *not* used by device functions should be marked as
+            // __host__. For now, we just assume everything may be used by
+            // the host device.
+            if (std::none_of(func->args.begin(), func->args.end(),
+                             [](const ir::Function::Argument &arg) {
+                                 return arg.name == lower::rng_state_name;
+                             })) {
+                // cuRAND can only be used on device.
+                os << "__host__" << ' ';
+            }
         }
+        // Assumption: definitions cannot be nested.
+        on_device = kernel_devices.contains(func->name);
         print(*func);
         os << '\n';
         if (i + 1 == e) {

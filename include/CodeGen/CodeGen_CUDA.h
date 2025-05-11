@@ -92,6 +92,10 @@ class CodeGen_CUDA : public ir::Printer {
     // Whether we are printing type declarations, e.g.,
     // `struct P { int x; int y; int z; }` versus `P`
     bool is_declaration = false;
+    // Whether the next function definition exists on device. This is necessary
+    // for correct usage of rand, which is different for __host__ and
+    // __device__.
+    bool on_device = false;
     // The stream that is printed to.
     std::ostream &os;
 

@@ -142,18 +142,18 @@ __host__ float __sqlen_f32(float3 v) {
   return sum((v * v));
 }
 
-__host__ float3 random_in_unit_disk(curandState* _rng_state) {
-  float r = sqrtf(curand_uniform(_rng_state));
-  float theta = (((float)2 * (float)3.14159) * curand_uniform(_rng_state));
+__host__ float3 random_in_unit_disk() {
+  float r = sqrtf(random<float>());
+  float theta = (((float)2 * (float)3.14159) * random<float>());
   return float3{r * cosf(theta), r * sinf(theta), 0};
 }
 
-__host__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, float3 defocus_disk_v, curandState* _rng_state) {
-  float3 p = random_in_unit_disk(_rng_state);
+__host__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, float3 defocus_disk_v) {
+  float3 p = random_in_unit_disk();
   return ((center + (make_float3(p.x) * defocus_disk_u)) + (make_float3(p.y) * defocus_disk_v));
 }
 
-__host__ Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_state) {
+__host__ Ray build_ray(int32_t i, int32_t j, Camera* cam) {
   int32_t width = (*cam).width;
   int32_t _height = (int32_t)((float)width / (*cam).aspect_ratio);
   int32_t* height = &_height;
@@ -175,12 +175,12 @@ __host__ Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_stat
   float defocus_radius = ((*cam).focus_dist * tanf((((*cam).defocus_angle / (float)2) * (float)3.14159) / (float)180));
   float3 defocus_disk_u = (u * make_float3(defocus_radius));
   float3 defocus_disk_v = (v * make_float3(defocus_radius));
-  float3 offset = float3{curand_uniform(_rng_state) - (float)0.5, curand_uniform(_rng_state) - (float)0.5, 0};
+  float3 offset = float3{random<float>() - (float)0.5, random<float>() - (float)0.5, 0};
   float3 pixel_sample = ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) + (make_float3(((float)j + offset.y)) * pixel_delta_v));
   float3 _ray_origin = camera_center;
   float3* ray_origin = &_ray_origin;
   if (0 < (*cam).defocus_angle) {
-    *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v, _rng_state);
+    *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v);
   }
   float3 ray_direction = (pixel_sample - (*ray_origin));
   return Ray{(*ray_origin), ray_direction, INFINITY};
@@ -278,9 +278,9 @@ __host__ hit_record get_hit_record(Ray* r, Sphere* s) {
   return record;
 }
 
-__host__ float3 random_unit_vector(curandState* _rng_state) {
-  float x1 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
-  float x2 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
+__host__ float3 random_unit_vector() {
+  float x1 = ((float)-1 + ((1 - (float)-1) * random<float>()));
+  float x2 = ((float)-1 + ((1 - (float)-1) * random<float>()));
   float s = (((x1 * x1) + (x2 * x2)) + (float)1e-08);
   float factor = sqrtf((float)2 / s);
   float x = (factor * x1);
@@ -303,10 +303,10 @@ __host__ float3 refract(float3 uv, float3 n, float etai_over_etat) {
   return (r_out_perp + r_out_parallel);
 }
 
-__host__ scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_state) {
+__host__ scatter_record scatter(Ray* ray, MaterialSphere* ms) {
   hit_record hit = get_hit_record(ray, (&(*ms).s));
   if ((*ms).material == 0u) {
-    float3 _scatter_dir = (hit.normal + random_unit_vector(_rng_state));
+    float3 _scatter_dir = (hit.normal + random_unit_vector());
     float3* scatter_dir = &_scatter_dir;
     if (((fabsf((*scatter_dir).x) < (float)1e-08) & (fabsf((*scatter_dir).y) < (float)1e-08)) & (fabsf((*scatter_dir).z) < (float)1e-08)) {
       *scatter_dir = hit.normal;
@@ -316,7 +316,7 @@ __host__ scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_
   } else {
     if ((*ms).material == 1u) {
       float3 ref = ((*ray).d - (make_float3(((float)2 * dot((*ray).d, hit.normal))) * hit.normal));
-      float3 reflected = ((ref / make_float3(length(ref))) + (make_float3((*ms).fuzz) * random_unit_vector(_rng_state)));
+      float3 reflected = ((ref / make_float3(length(ref))) + (make_float3((*ms).fuzz) * random_unit_vector()));
       Ray m_scattered = Ray{hit.p, reflected, INFINITY};
       return scatter_record{(*ms).albedo, m_scattered, true};
     } else {
@@ -324,7 +324,7 @@ __host__ scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_
       float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
       float cos_theta = fminf(dot(-unit_dir, hit.normal), 1);
       float sin_theta = sqrtf(1 - (cos_theta * cos_theta));
-      bool cannot_refract = ((1 < (ri * sin_theta)) | (curand_uniform(_rng_state) < reflectance(cos_theta, ri)));
+      bool cannot_refract = ((1 < (ri * sin_theta)) | (random<float>() < reflectance(cos_theta, ri)));
       float3 direction = (cannot_refract ? (unit_dir - (make_float3(((float)2 * dot(unit_dir, hit.normal))) * hit.normal)) : refract(unit_dir, hit.normal, ri));
       Ray d_scattered = Ray{hit.p, direction, INFINITY};
       return scatter_record{make_float3(1, 1, 1), d_scattered, true};
@@ -332,7 +332,7 @@ __host__ scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_
   }
 }
 
-__host__ float3 sample(Ray* r, int32_t depth, float3 mult, _spheres_layout0* spheres, curandState* _rng_state) {
+__host__ float3 sample(Ray* r, int32_t depth, float3 mult, _spheres_layout0* spheres) {
   Ray _S_r = (*r);
   Ray* S_r = &_S_r;
   int32_t _S_depth = depth;
@@ -345,7 +345,7 @@ __host__ float3 sample(Ray* r, int32_t depth, float3 mult, _spheres_layout0* sph
     }
     _option0 isect = _traverse_tree0(S_r, spheres);
     if (isect.set) {
-      scatter_record data = scatter(S_r, (&isect.value), _rng_state);
+      scatter_record data = scatter(S_r, (&isect.value));
       if (data.hit) {
         *S_r = data.ray;
         *S_depth = ((*S_depth) - 1);
@@ -361,18 +361,18 @@ __host__ float3 sample(Ray* r, int32_t depth, float3 mult, _spheres_layout0* sph
   } while (true);
 }
 
-__host__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres, curandState* _rng_state) {
+__host__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres) {
   float3 __alloc1 = make_float3(0);
   float3* _alloc1 = &__alloc1;
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
-    Ray _lv0 = build_ray(i, j, c, _rng_state);
-    *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1, 1, 1), spheres, _rng_state);
+    Ray _lv0 = build_ray(i, j, c);
+    *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1, 1, 1), spheres);
   }
   return (*_alloc1);
 }
 
-__host__ float3 pixel(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres, curandState* _rng_state) {
-  return (_traverse_array1(i, j, c, spheres, _rng_state) / make_float3((float)(*c).samples_per_pixel));
+__host__ float3 pixel(int32_t i, int32_t j, Camera* c, _spheres_layout0* spheres) {
+  return (_traverse_array1(i, j, c, spheres) / make_float3((float)(*c).samples_per_pixel));
 }
 
 __host__ float linear_to_gamma_f(float l) {
@@ -387,12 +387,12 @@ __host__ int3 to_rgb(float3 v) {
   return make_int3((make_float3((float)256) * min(max(corrected, make_float3(0)), make_float3((float)0.999))).x, (make_float3((float)256) * min(max(corrected, make_float3(0)), make_float3((float)0.999))).y, (make_float3((float)256) * min(max(corrected, make_float3(0)), make_float3((float)0.999))).z);
 }
 
-__host__ int3* _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres, curandState* _rng_state) {
+__host__ int3* _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres) {
   int32_t* _alloc0;
   (void)cudaMalloc((void**)&_alloc0,((height * (*c).width) * 3) * sizeof(int32_t));
   for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
     for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
-      int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres, _rng_state));
+      int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));
       _alloc0[((_i0 * (*c).width) + _i1) * 3] = __temp.x;
       _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 1] = __temp.y;
       _alloc0[(((_i0 * (*c).width) + _i1) * 3) + 2] = __temp.z;
@@ -676,7 +676,7 @@ __host__ int3* image(Camera* c, _spheres_layout0* spheres) {
   int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
   int32_t* height = &_height;
   *height = (((*height) < 1) ? 1 : (*height));
-  return _traverse_array0(c, (*height), spheres, (&_rng_state));
+  return _traverse_array0(c, (*height), spheres);
 }
 
 __host__ bool intersects_Ray_AABB(Ray* r, AABB* b) {
@@ -708,12 +708,12 @@ __host__ bool near_zero(float3 v) {
   return (((fabsf(v.x) < (float)1e-08) & (fabsf(v.y) < (float)1e-08)) & (fabsf(v.z) < (float)1e-08));
 }
 
-__host__ float random_float(float low, float high, curandState* _rng_state) {
-  return (low + ((high - low) * curand_uniform(_rng_state)));
+__host__ float random_float(float low, float high) {
+  return (low + ((high - low) * random<float>()));
 }
 
-__host__ float3 random_on_hemisphere(float3 normal, curandState* _rng_state) {
-  float3 on_unit_sphere = random_unit_vector(_rng_state);
+__host__ float3 random_on_hemisphere(float3 normal) {
+  float3 on_unit_sphere = random_unit_vector();
   if (0 < dot(on_unit_sphere, normal)) {
     return on_unit_sphere;
   } else {
@@ -721,20 +721,20 @@ __host__ float3 random_on_hemisphere(float3 normal, curandState* _rng_state) {
   }
 }
 
-__host__ float3 random_vec3f(curandState* _rng_state) {
-  return float3{curand_uniform(_rng_state), curand_uniform(_rng_state), curand_uniform(_rng_state)};
+__host__ float3 random_vec3f() {
+  return float3{random<float>(), random<float>(), random<float>()};
 }
 
-__host__ float3 random_vec3f_in(float low, float high, curandState* _rng_state) {
-  return float3{low + ((high - low) * curand_uniform(_rng_state)), low + ((high - low) * curand_uniform(_rng_state)), low + ((high - low) * curand_uniform(_rng_state))};
+__host__ float3 random_vec3f_in(float low, float high) {
+  return float3{low + ((high - low) * random<float>()), low + ((high - low) * random<float>()), low + ((high - low) * random<float>())};
 }
 
 __host__ float3 reflect(float3 v, float3 n) {
   return (v - (make_float3(((float)2 * dot(v, n))) * n));
 }
 
-__host__ float3 sample_square(curandState* _rng_state) {
-  return float3{curand_uniform(_rng_state) - (float)0.5, curand_uniform(_rng_state) - (float)0.5, 0};
+__host__ float3 sample_square() {
+  return float3{random<float>() - (float)0.5, random<float>() - (float)0.5, 0};
 }
 
 __host__ _option0 trace(Ray* r, _spheres_layout0* spheres) {

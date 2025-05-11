@@ -1,8 +1,13 @@
 //! flags: -b cuda
 
+func f4(x: f32) -> f32 {
+    if (x > 42) { return -1; }
+    return 1;
+}
+
 func f3(x: f32) -> f32 {
     if (x > rand() + 1) { return 42; }
-    return 0;
+    return f4(x);
 }
 
 func f2(x: f32) -> f32 {
@@ -16,6 +21,6 @@ func [[kernel]] f1(x: f32) -> f32  {
 }
 
 func main(input: f32) -> i32 {
-    if (f3(input) == 0) { return 0; }
+    if (f1(input) == rand()) { return 0; }
     return 1;
 }
