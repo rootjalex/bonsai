@@ -77,6 +77,8 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
     }
 }
 
+// Returns a list of functions that need the __device__ attribute. Kernels being
+// launched are not included since they will be annotated with __global__.
 std::set<std::string> find_device_functions(const FuncMap &funcs) {
     std::set<std::string> kernel_devices;
     // TODO(cgyurgyik): does this go beyond one level of nesting? Probably need
@@ -89,7 +91,6 @@ std::set<std::string> find_device_functions(const FuncMap &funcs) {
         if (!function.is_kernel()) {
             continue;
         }
-        kernel_devices.insert(function.name);
         // Propagate to respective function calls used by this kernel.
         kernel_devices.insert(graph.begin(), graph.end());
     }
