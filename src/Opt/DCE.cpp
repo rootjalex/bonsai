@@ -354,8 +354,9 @@ struct DeadCodeElimination : ir::Mutator {
         for (const ir::Expr &value : checker.expressions) {
             add_use_counts(value);
             if (const auto *c = value.as<ir::Call>()) {
-                ir::Stmt call =
-                    ir::CallStmt::make(std::move(c->func), std::move(c->args));
+                ir::Expr call_func =
+                    ir::Call::make(std::move(c->func), std::move(c->args));
+                ir::Stmt call = ir::EvalStmt::make(std::move(call_func));
                 side_effecting_statements.push_back(std::move(call));
                 continue;
             }

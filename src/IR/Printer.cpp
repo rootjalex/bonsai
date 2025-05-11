@@ -259,7 +259,7 @@ void Printer::print(const Function &function) {
 
     os << ") -> " << function.ret_type << " {\n";
     set_indent(1);
-    function.body.accept(this);
+    print(function.body);
     os << "}";
 }
 
@@ -313,6 +313,10 @@ void Printer::print_expr_list(const std::vector<Expr> &exprs) {
 }
 
 void Printer::print(const Stmt &stmt) {
+    if (!stmt.defined()) {
+        os << "(undef-stmt)\n";
+        return;
+    }
     stmt->accept(this);
     print_annotation(stmt, os);
 }
@@ -909,12 +913,10 @@ void Printer::visit(const Deref *node) {
     os << ")";
 }
 
-void Printer::visit(const CallStmt *node) {
+void Printer::visit(const EvalStmt *node) {
     os << get_indent();
-    print_no_parens(node->func);
-    os << '(';
-    print_expr_list(node->args);
-    os << ')' << '\n';
+    print(node->value);
+    os << "\n";
 }
 
 void Printer::visit(const Print *node) {

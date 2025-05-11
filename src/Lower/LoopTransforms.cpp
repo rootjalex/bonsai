@@ -171,15 +171,6 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
             Visitor::visit(node);
         }
 
-        void visit(const ir::CallStmt *node) override {
-            // Calls to this function must only exist when return'ing.
-            internal_assert(!is_tail_call(node, function))
-                << "unexpected non-return call to same function in tail "
-                   "recursion of "
-                << function.name;
-            Visitor::visit(node);
-        }
-
         void visit(const ir::Return *node) override {
             const Expr &value = node->value;
             internal_assert(value.defined())

@@ -432,13 +432,12 @@ Expr Mutator::visit(const Deref *node) {
     return Deref::make(std::move(expr));
 }
 
-Stmt Mutator::visit(const CallStmt *node) {
-    Expr func = mutate(node->func);
-    auto [args, not_changed] = visit_list(this, node->args);
-    if (func.same_as(node->func) && not_changed) {
+Stmt Mutator::visit(const EvalStmt *node) {
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
         return node;
     }
-    return CallStmt::make(std::move(func), std::move(args));
+    return EvalStmt::make(std::move(value));
 }
 
 Stmt Mutator::visit(const Print *node) {

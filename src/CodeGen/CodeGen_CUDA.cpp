@@ -756,12 +756,9 @@ void CodeGen_CUDA::visit(const ir::Return *node) {
     os << ';' << '\n';
 }
 
-void CodeGen_CUDA::visit(const ir::CallStmt *node) {
+void CodeGen_CUDA::visit(const ir::EvalStmt *node) {
     os << get_indent();
-    node->func.accept(this);
-    os << '(';
-    print_expr_list(node->args);
-    os << ')';
+    node->value.accept(this);
     os << ';' << '\n';
 }
 

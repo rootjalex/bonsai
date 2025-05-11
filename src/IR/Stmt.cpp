@@ -7,19 +7,12 @@
 namespace bonsai {
 namespace ir {
 
-Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
-    internal_assert(func.defined()) << "CallStmt::make received undefined func";
-    internal_assert(std::all_of(args.cbegin(), args.cend(),
-                                [](const Expr &e) { return e.defined(); }))
-        << "CallStmt::make received undefined arg to func: " << func;
+Stmt EvalStmt::make(Expr value) {
+    internal_assert(value.defined())
+        << "EvalStmt::make received undefined func";
 
-    CallStmt *node = new CallStmt;
-    const Function_t *f = func.type().as<Function_t>();
-    internal_assert(f) << "CallStmt::make received bad function type: "
-                       << func.type();
-
-    node->func = std::move(func);
-    node->args = std::move(args);
+    EvalStmt *node = new EvalStmt;
+    node->value = std::move(value);
     return node;
 }
 

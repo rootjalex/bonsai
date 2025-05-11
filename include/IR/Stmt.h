@@ -16,7 +16,7 @@ namespace ir {
 struct Stmt;
 
 enum class IRStmtEnum {
-    CallStmt,
+    EvalStmt,
     Print,
     Return,
     LetStmt,
@@ -74,14 +74,13 @@ Stmt StmtNode<T>::mutate_stmt(Mutator *m) const {
     return m->visit((const T *)this);
 }
 
-// A call to a function; the return value is ignored.
-struct CallStmt : StmtNode<CallStmt> {
-    Expr func;
-    std::vector<Expr> args;
+// Evaluate the expression, presumably it has side effects.
+struct EvalStmt : StmtNode<EvalStmt> {
+    Expr value;
 
-    static Stmt make(Expr func, std::vector<Expr> args);
+    static Stmt make(Expr value);
 
-    static const IRStmtEnum node_type = IRStmtEnum::CallStmt;
+    static const IRStmtEnum node_type = IRStmtEnum::EvalStmt;
 };
 
 struct Print : StmtNode<Print> {

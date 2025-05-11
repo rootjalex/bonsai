@@ -68,7 +68,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::SetOp);
     RESTRICT_VISITOR(ir::Instantiate);
     // Statements
-    void visit(const ir::CallStmt *) override;
+    void visit(const ir::EvalStmt *) override;
     void visit(const ir::Print *) override;
     void visit(const ir::Return *) override;
     void visit(const ir::LetStmt *) override;
