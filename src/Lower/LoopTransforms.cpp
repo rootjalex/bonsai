@@ -148,10 +148,66 @@ std::string unique_queue_name(size_t counter) {
     return "_queue" + std::to_string(counter++);
 }
 
-// Rewrites tail recursion to a do-while loop to avoid stack overflow. This is
-// done by saving each variable to the stack and using these during iteration.
-// For example,
-// func acc(n: i32) {
+// Verifies this function is appropraite for tail call optimization, and asserts
+// an appropriate error if otherwise.
+void is_valid_tail_recursion(const Stmt &body, const Function &function) {
+    struct Checker : public Visitor {
+        Checker(const Function &function) : function(function) {}
+
+        void visit(const ir::Call *node) override {
+            const auto *var = node->func.as<Var>();
+            if (var == nullptr) {
+                return;
+            }
+            if (var->name != function.name) {
+                return;
+            }
+            std::vector<Expr> args = node->args;
+            for (int i = 0, e = args.size(); i < e; i++) {
+                const Function::Argument &farg = function.args[i];
+                // Right now we conservatively assume that tail recursion does
+                // not have mutating arguments.
+                internal_assert(!farg.mutating)
+                    << "unexpected mutable argument in tail recursion: "
+                    << function;
+            }
+        }
+
+        void visit(const ir::CallStmt *node) override {
+            const auto *var = node->func.as<Var>();
+            if (var == nullptr) {
+                return;
+            }
+            if (var->name == function.name) {
+                internal_error << "unexpected void call in tail recursion: "
+                               << Stmt(node);
+            }
+        }
+
+        void visit(const ir::Return *node) override {
+            const Expr &value = node->value;
+            internal_assert(value.defined())
+                << "unexpected no return value: " << Stmt(node);
+            if (const auto *call = value.as<Call>()) {
+                const auto *f = call->func.as<Var>();
+                internal_assert(f);
+                internal_assert(f->name == function.name)
+                    << "unexpected call to another function: " << f->name
+                    << " in tail recursion of: " << function.name;
+            }
+        }
+
+      private:
+        const Function &function;
+    };
+
+    Checker checker(function);
+    body.accept(&checker);
+}
+
+// Rewrites tail recursion to a do-while loop to avoid stack overflow (i.e.,
+// tail call optimization). This is done by saving each variable to the stack
+// and using these during iteration. For example, func acc(n: i32) {
 //   if (n <= 0) { return 1; }
 //   foo(n);
 //   return acc(n - 1);
@@ -170,33 +226,23 @@ std::string unique_queue_name(size_t counter) {
 // }
 Stmt handle_tail_recursion(Stmt body, const Function &function) {
     // Not all arguments of a function need to be stack allocated when
-    // transforming tail recursion, e.g., if we are just passing back the same
-    // unmodified argument. This pass determines which ones do.
+    // transforming tail recursion, e.g., if we are just passing back the
+    // same unmodified argument. This pass determines which ones do.
     struct RequiresStackAllocation : public Visitor {
         RequiresStackAllocation(const Function &function)
             : function(function) {}
 
         void visit(const ir::Call *node) override {
-            std::vector<Expr> args = node->args;
-            for (int i = 0, e = args.size(); i < e; i++) {
-                const Function::Argument &farg = function.args[i];
-                internal_assert(!farg.mutating)
-                    << "unexpected mutable argument in tail recursion: "
-                    << function;
-                const auto *v = args[i].as<Var>();
-                if (v == nullptr || v->name != farg.name) {
-                    arguments.insert(farg.name);
-                }
+            const auto *var = node->func.as<Var>();
+            if (var == nullptr) {
+                return;
             }
-        }
-
-        void visit(const ir::CallStmt *node) override {
+            if (var->name != function.name) {
+                return;
+            }
             std::vector<Expr> args = node->args;
             for (int i = 0, e = args.size(); i < e; i++) {
                 const Function::Argument &farg = function.args[i];
-                internal_assert(!farg.mutating)
-                    << "unexpected mutable argument in tail recursion: "
-                    << function;
                 const auto *v = args[i].as<Var>();
                 if (v == nullptr || v->name != farg.name) {
                     arguments.insert(farg.name);
@@ -258,10 +304,10 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
         Expr visit(const Call *node) override {
             const auto *var = node->func.as<Var>();
             if (var && var->name == function.name) {
-                return Mutator::visit(node);
-                // TODO(cgyurgyik): Overly restrictive, we can relax this. It
-                // just requires making statements inside visits to expressions,
-                // which is additional complexity (similar to renaming in DCE).
+                // TODO(cgyurgyik): Overly restrictive, we can relax this.
+                // It just requires making statements inside visits to
+                // expressions, which is additional complexity (similar to
+                // renaming in DCE).
                 internal_error << "Loopify of tail-recursion requires all "
                                   "calls to be returned, received: "
                                << Expr(node);
@@ -270,21 +316,21 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
         }
 
         Stmt visit(const Return *node) override {
-            if (!node->value.defined()) {
-                return node;
-            }
             if (const auto *call = node->value.as<Call>()) {
-                std::vector<Stmt> statements;
-                std::vector<Expr> args = call->args;
-                for (int i = 0, e = args.size(); i < e; ++i) {
-                    if (!requires_stack.contains(function.args[i].name)) {
-                        continue;
+                if (const auto *var = call->func.as<Var>();
+                    var && var->name == function.name) {
+                    std::vector<Stmt> statements;
+                    std::vector<Expr> args = call->args;
+                    for (int i = 0, e = args.size(); i < e; ++i) {
+                        if (!requires_stack.contains(function.args[i].name)) {
+                            continue;
+                        }
+                        WriteLoc loc(state_variables[i], args[i].type());
+                        statements.push_back(Store::make(loc, mutate(args[i])));
                     }
-                    WriteLoc loc(state_variables[i], args[i].type());
-                    statements.push_back(Store::make(loc, mutate(args[i])));
+                    statements.push_back(Continue::make());
+                    return Sequence::make(std::move(statements));
                 }
-                statements.push_back(Continue::make());
-                return Sequence::make(std::move(statements));
             }
             Expr value = mutate(node->value);
             if (value.same_as(node->value)) {
@@ -402,8 +448,8 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         Expr visit(const Call *node) override {
             if (const Var *var = node->func.as<Var>()) {
                 std::string name = var->name;
-                // TODO(ajr): hope to God it's impossible to have self-recursion
-                // in these.
+                // TODO(ajr): hope to God it's impossible to have
+                // self-recursion in these.
                 if (name.starts_with("_traverse_tree")) {
                     funcs[name]->body = loopify(
                         name, std::move(funcs[name]->body), queue_size, funcs);
@@ -415,9 +461,11 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
     };
 
     if (!queue_size.has_value()) {
-        // TODO(cgyurgyik): Add some `is_tail_recursive` check so this always
-        // fails gracefully.
-        return handle_tail_recursion(std::move(stmt), *funcs[name]);
+        auto it = funcs.find(name);
+        internal_assert(it != funcs.end()) << name;
+        const Function &func = *it->second;
+        is_valid_tail_recursion(stmt, func);
+        return handle_tail_recursion(std::move(stmt), func);
     }
 
     LoopifyImpl rewriter(std::move(queue_size), funcs);
