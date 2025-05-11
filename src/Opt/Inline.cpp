@@ -62,6 +62,10 @@ ir::FuncMap Inline::run(ir::FuncMap funcs,
     // size blowup.
     std::unordered_map<std::string, ir::Expr> function_to_expr;
     for (const auto &[name, func] : funcs) {
+        if (func->is_kernel()) {
+            // Don't inline kernels.
+            continue;
+        }
         if (!func->ret_type.is<ir::Void_t>()) {
             if (const auto *body = func->body.as<ir::Return>()) {
                 internal_assert(body->value.defined());
