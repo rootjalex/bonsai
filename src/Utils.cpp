@@ -278,6 +278,24 @@ struct VarReplacer : public Mutator {
     }
 };
 
+struct VarNameReplacer : public Mutator {
+    VarNameReplacer(const std::map<std::string, std::string> &repls)
+        : repls(repls) {}
+
+  private:
+    const std::map<std::string, std::string> &repls;
+
+  public:
+    Expr visit(const Var *node) override {
+        auto iter = repls.find(node->name);
+        if (iter != repls.cend()) {
+            return ir::Var::make(node->type, iter->second);
+        } else {
+            return node;
+        }
+    }
+};
+
 } // namespace
 
 Expr replace(const std::map<std::string, Expr> &repls, const Expr &orig) {
@@ -287,6 +305,12 @@ Expr replace(const std::map<std::string, Expr> &repls, const Expr &orig) {
 
 Stmt replace(const std::map<std::string, Expr> &repls, const Stmt &orig) {
     VarReplacer replacer(repls);
+    return replacer.mutate(orig);
+}
+
+Stmt replace(const std::map<std::string, std::string> &repls,
+             const Stmt &orig) {
+    VarNameReplacer replacer(repls);
     return replacer.mutate(orig);
 }
 

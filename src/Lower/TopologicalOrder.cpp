@@ -203,5 +203,58 @@ std::ostream &operator<<(std::ostream &os, const CallGraph &call_graph) {
     return os;
 }
 
+std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
+    std::set<std::string> devices;
+    lower::CallGraph call_graph = lower::build_call_graph(funcs);
+
+    std::vector<std::string> topological_order =
+        lower::func_topological_order(funcs);
+    std::reverse(topological_order.begin(), topological_order.end());
+    for (int i = 0, e = topological_order.size(); i < e; ++i) {
+        const std::string &name = topological_order[i];
+        auto it = funcs.find(name);
+        internal_assert(it != funcs.end()) << name;
+        const auto &func = *it->second;
+        if (!func.is_kernel() && !devices.contains(name)) {
+            continue;
+        }
+        auto cit = call_graph.find(name);
+        internal_assert(cit != call_graph.end()) << name;
+        const auto &graph = cit->second;
+        // Propagate to respective function calls used by this kernel.
+        devices.insert(graph.begin(), graph.end());
+    }
+    return devices;
+}
+
+std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
+    std::set<std::string> hosts;
+    lower::CallGraph call_graph = lower::build_call_graph(funcs);
+    constexpr char ENTRY[] = "main";
+    auto it = call_graph.find(ENTRY);
+    internal_assert(it != call_graph.end())
+        << "expected entry-point function \"main\" for CUDA programs";
+
+    std::vector<std::string> visit;
+    visit.push_back(ENTRY);
+    visit.insert(visit.end(), it->second.begin(), it->second.end());
+    while (!visit.empty()) {
+        std::string name = visit.back();
+        visit.pop_back();
+        auto it = funcs.find(name);
+        internal_assert(it != funcs.end()) << name;
+        const auto &func = *it->second;
+        if (func.is_kernel()) {
+            continue;
+        }
+        auto cit = call_graph.find(name);
+        internal_assert(cit != call_graph.end()) << name;
+        const auto &graph = cit->second;
+        hosts.insert(name);
+        visit.insert(visit.end(), graph.begin(), graph.end());
+    }
+    return hosts;
+}
+
 } // namespace lower
 } // namespace bonsai

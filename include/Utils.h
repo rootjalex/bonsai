@@ -121,6 +121,9 @@ ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
 ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
                  const ir::Stmt &orig);
 
+ir::Stmt replace(const std::map<std::string, std::string> &repls,
+                 const ir::Stmt &orig);
+
 ir::Type replace(const ir::TypeMap &repls, const ir::Type &type);
 
 // Automatic fusion if `func` is a lambda, otherwise just makes a Call node.

@@ -77,32 +77,6 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
     }
 }
 
-// Returns a list of functions that need the __device__ attribute. Kernels being
-// launched are not included since they will be annotated with __global__.
-std::set<std::string> find_device_functions(const FuncMap &funcs) {
-    std::set<std::string> kernel_devices;
-    lower::CallGraph call_graph = lower::build_call_graph(funcs);
-
-    std::vector<std::string> topological_order =
-        lower::func_topological_order(funcs);
-    std::reverse(topological_order.begin(), topological_order.end());
-    for (int i = 0, e = topological_order.size(); i < e; ++i) {
-        const std::string &name = topological_order[i];
-        auto it = funcs.find(name);
-        internal_assert(it != funcs.end()) << name;
-        const auto &func = *it->second;
-        if (!func.is_kernel() && !kernel_devices.contains(name)) {
-            continue;
-        }
-        auto cit = call_graph.find(name);
-        internal_assert(cit != call_graph.end()) << name;
-        const auto &graph = cit->second;
-        // Propagate to respective function calls used by this kernel.
-        kernel_devices.insert(graph.begin(), graph.end());
-    }
-    return kernel_devices;
-}
-
 std::string bonsai_scalar_type_to_cpp(Type type) {
     if (const auto *float_t = type.as<Float_t>()) {
         internal_assert(float_t->is_ieee754());
@@ -892,13 +866,14 @@ void CodeGen_CUDA::print(const Program &program) {
     const std::vector<std::string> topological_order =
         lower::func_topological_order(program.funcs,
                                       /*undef_calls=*/false);
-    std::set<std::string> kernel_devices = find_device_functions(program.funcs);
+    std::set<std::string> devices = lower::find_device_functions(program.funcs);
+    std::set<std::string> hosts = lower::find_host_functions(program.funcs);
     for (int i = 0, e = topological_order.size(); i < e; ++i) {
         const std::string &name = topological_order[i];
         const auto &it = program.funcs.find(name);
         internal_assert(it != program.funcs.end());
         const auto &func = it->second;
-        ScopedValue<bool> _(on_device, kernel_devices.contains(func->name));
+        ScopedValue<bool> _(on_device, devices.contains(func->name));
         if (func == nullptr) {
             // Minimize aborts when printing, since we use printing to
             // debug.
@@ -908,17 +883,10 @@ void CodeGen_CUDA::print(const Program &program) {
         if (func->is_kernel()) {
             os << "__global__" << ' ';
         } else {
-            if (kernel_devices.contains(func->name)) {
+            if (devices.contains(func->name)) {
                 os << "__device__" << ' ';
             }
-            // cuRAND can only be used on device.
-            if (std::none_of(func->args.begin(), func->args.end(),
-                             [](const ir::Function::Argument &arg) {
-                                 return arg.name == lower::rng_state_name;
-                             })) {
-                // TODO(cgyurgyik): We also want the complement; any function
-                // that is *not* used by device functions should be marked as
-                // __host__.
+            if (hosts.contains(func->name)) {
                 os << "__host__" << ' ';
             }
         }

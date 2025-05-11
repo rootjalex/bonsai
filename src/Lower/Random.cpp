@@ -75,6 +75,50 @@ bool calls_rand(const Stmt &stmt,
     return finder.found;
 }
 
+// Splits functions that exist on both host and device and use rand() on CUDA.
+// There are two separate paths for these, since cuRAND is only allowed on host.
+void split_functions_with_rand(FuncMap &funcs) {
+    std::set<std::string> devices = find_device_functions(funcs),
+                          hosts = find_host_functions(funcs);
+    std::vector<std::string> intersection;
+    std::set_intersection(devices.begin(), devices.end(), hosts.begin(),
+                          hosts.end(), std::back_inserter(intersection));
+    for (const std::string &name : intersection) {
+        const auto &func = funcs[name];
+        if (!calls_rand(func->body, {})) {
+            continue;
+        }
+        // Insert two copies, one for host and one for device.
+        std::string new_device_name = "d_" + name;
+        std::string new_host_name = "h_" + name;
+        funcs[new_device_name] = std::make_shared<Function>(
+            new_device_name, func->args, func->ret_type, func->body,
+            func->interfaces, func->attributes);
+        funcs[new_host_name] = std::make_shared<Function>(
+            new_host_name, func->args, func->ret_type, func->body,
+            func->interfaces, func->attributes);
+
+        // Update the bodies of functions that use them.
+        for (const std::string &device_name : devices) {
+            internal_assert(funcs.contains(device_name)) << device_name;
+            auto &device_func = funcs[device_name];
+            std::map<std::string, std::string> replacements = {
+                {name, new_device_name},
+            };
+            device_func->body = replace(replacements, device_func->body);
+        }
+        for (const std::string &host_name : hosts) {
+            internal_assert(funcs.contains(host_name)) << host_name;
+            auto &host_func = funcs[host_name];
+            std::map<std::string, std::string> replacements = {
+                {name, new_host_name},
+            };
+            host_func->body = replace(replacements, host_func->body);
+        }
+        funcs.erase(name);
+    }
+}
+
 Stmt insert_rand_state(const Stmt &stmt,
                        const std::set<std::string> &funcs_call_rand) {
     // Purposefully does not look through Launch()!
@@ -151,18 +195,10 @@ Stmt insert_rand_state(const Stmt &stmt,
 } // namespace
 
 FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
-
-    const std::vector<std::string> topo_order =
-        lower::func_topological_order(funcs, /*undef_calls=*/false);
-
     std::set<std::string> call_rand;
-    static const size_t max_allowed_iters = 5;
-    size_t iter_count = 0, old_size = 0, new_size = 0;
-
     switch (options.target) {
-        // TODO(cgyurgyik): I believe we need to duplicate calls that contain
-        // rand(), and appear in both the host and device.
     case BackendTarget::CUDA: {
+        split_functions_with_rand(funcs);
         // In CUDA, instances of rand() are lowered to cuRAND when running on
         // the device. Since cuRAND is only available on device, we assume RNG
         // state will be set up in the kernel, and then propagated to nested
@@ -213,6 +249,10 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
         return funcs;
     }
     default: {
+        const std::vector<std::string> topo_order =
+            lower::func_topological_order(funcs);
+        static const size_t max_allowed_iters = 5;
+        size_t iter_count = 0, old_size = 0, new_size = 0;
         // First find the set of all random calls.
         // Technically needs to be done to convergence for mutual recursion.
 

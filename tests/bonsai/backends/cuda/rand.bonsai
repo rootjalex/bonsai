@@ -1,5 +1,11 @@
 //! flags: -b cuda
 
+// Support rand that is used on both host and device.
+func plus_rand(x: f32) -> f32 {
+    if (x == 0) { return 0; }
+    return x + rand();
+}
+
 func f4(x: f32) -> f32 {
     if (x > 42) { return -1; }
     return 1;
@@ -11,7 +17,7 @@ func f3(x: f32) -> f32 {
 }
 
 func f2(x: f32) -> f32 {
-    if (x == rand()) { return 0; }
+    if (x == rand()) { return plus_rand(x); }
     return f3(x);
 }
 
@@ -22,5 +28,5 @@ func [[kernel]] f1(x: f32) -> f32  {
 
 func main(input: f32) -> i32 {
     if (f1(input) == rand()) { return 0; }
-    return 1;
+    return plus_rand(input);
 }

@@ -1,6 +1,13 @@
 #include "runtime/CUDA/math.h"
 
-__device__ __host__ float f4(float x) {
+__device__ float d_plus_rand(float x, curandState* _rng_state) {
+  if (x == 0) {
+    return 0;
+  }
+  return (x + curand_uniform(_rng_state));
+}
+
+__device__ float f4(float x) {
   if ((float)42 < x) {
     return (float)-1;
   }
@@ -16,7 +23,7 @@ __device__ float f3(float x, curandState* _rng_state) {
 
 __device__ float f2(float x, curandState* _rng_state) {
   if (x == curand_uniform(_rng_state)) {
-    return 0;
+    return d_plus_rand(x, _rng_state);
   }
   return f3(x, _rng_state);
 }
@@ -30,9 +37,16 @@ __global__ float f1(float x) {
   return f2(x, (&_rng_state));
 }
 
+__host__ float h_plus_rand(float x) {
+  if (x == 0) {
+    return 0;
+  }
+  return (x + random<float>());
+}
+
 __host__ int32_t main(float input) {
   if (f1(input) == random<float>()) {
     return 0;
   }
-  return 1;
+  return (int32_t)h_plus_rand(input);
 }
