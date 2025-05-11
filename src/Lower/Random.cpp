@@ -135,7 +135,7 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
     std::set<std::string> call_rand;
 
     // First find the set of all random calls.
-    // Technically needs to be done to convergence for mututal recursion.
+    // Technically needs to be done to convergence for mutual recursion.
     static const size_t max_allowed_iters = 5;
     size_t iter_count = 0;
     size_t old_size = 0;

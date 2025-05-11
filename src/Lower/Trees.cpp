@@ -518,15 +518,8 @@ struct LowerBVH : public ir::Mutator {
     ir::Expr build_func(const ir::Expr &expr) {
         const std::string func = new_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
+        // TODO(ajr): this is always empty, why?
         const auto mutables = mutated_variables(expr);
-
-        std::cout << "Found mutables:\n";
-
-        for (const auto &m : mutables) {
-            std::cout << m << std::endl;
-        }
-
-        std::cout << "From expr: " << expr << std::endl;
 
         bool found = false;
         for (const auto &var : free_vars) {

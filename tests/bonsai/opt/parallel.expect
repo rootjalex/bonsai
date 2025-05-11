@@ -1,6 +1,6 @@
 type _ctx0 = struct _ctx0{ _alloc0 : i32[8]; fs : i32[8] }
 
-func _parfunc0(_ctx0 : mut (_ctx0*), _parfor_idx : i64) -> void {
+func [[kernel]] _parfunc0(_ctx0 : mut (_ctx0*), _parfor_idx : i64) -> void {
   let _i0 = cast<i32>(_parfor_idx) in
   _ctx0._alloc0[_i0] = f((*_ctx0).fs[_i0])
   return

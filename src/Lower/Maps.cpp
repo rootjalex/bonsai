@@ -291,9 +291,7 @@ Program LowerMaps::run(Program program, const CompilerOptions &options) const {
     LowerMapsImpl lower(program.funcs);
 
     for (auto &[_, func] : program.funcs) {
-        std::cout << "Before LowerMaps: " << func->body;
         func->body = lower.mutate(std::move(func->body));
-        std::cout << "After LowerMaps: " << func->body;
     }
 
     return program;
