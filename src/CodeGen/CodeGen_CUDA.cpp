@@ -38,6 +38,8 @@ namespace {
 
 std::set<std::string> find_device_functions(const FuncMap &funcs) {
     std::set<std::string> kernel_devices;
+    // TODO(cgyurgyik): does this go beyond one level of nesting? Probably need
+    // what the random pass is doing.
     lower::CallGraph call_graph =
         lower::build_call_graph(funcs, /*undef_calls=*/false);
     for (const auto &[name, graph] : call_graph) {
