@@ -19,7 +19,7 @@ namespace opt {
 //   let i = start + stride * j in
 //   body
 // }
-// EvalStmt("launch", closure, (end - start + (stride - 1)) / stride)
+// Launch(closure, (end - start + (stride - 1)) / stride, {ctx})
 ir::Stmt parallelize_forall(const std::string &loop_idx, ir::Stmt body,
                             ir::FuncMap &funcs, ir::TypeMap &types);
 } // namespace opt
