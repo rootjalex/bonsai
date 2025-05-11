@@ -7,8 +7,8 @@
 namespace bonsai {
 namespace opt {
 
-// Replaces a parallel ForAll loop with a EvalStmt("launch", func, n)
-// with a context struct and the number of iterations.
+// Replaces a parallel ForAll loop with a Launch(func, n, {ctx})
+// Where `ctx` is a context struct and `n` is the number of iterations.
 // Intended to be used for `dispatch_apply_f` code generation.
 // Inserts new functions into the func map (parallel closures).
 
