@@ -4,10 +4,11 @@
 // [1] https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
 
 #include "cuda_runtime.h"
+#include "curand_kernel.h"
+#include <cuda_fp16.h>
 
 #include <algorithm>
 #include <cstdint>
-#include <cuda_fp16.h>
 #include <initializer_list>
 #include <limits>
 #include <math.h>
