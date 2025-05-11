@@ -75,6 +75,7 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
     default:
         internal_error << "unimplemented: " << type;
     }
+}
 
 std::set<std::string> find_device_functions(const FuncMap &funcs) {
     std::set<std::string> kernel_devices;
