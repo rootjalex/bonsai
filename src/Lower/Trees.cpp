@@ -46,7 +46,9 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
 }
 
 struct Rewriter : public ir::Mutator {
+    // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
+    // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
 
     ir::Stmt visit(const ir::Match *node) final override {
