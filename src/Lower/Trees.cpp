@@ -47,10 +47,12 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
 
 struct Rewriter : public ir::Mutator {
     std::vector<ir::Expr> volumes;
+    std::vector<ir::Expr> locs;
 
     ir::Stmt visit(const ir::Match *node) final override {
         const ir::Var *var = node->loc.as<ir::Var>();
         internal_assert(var) << "TODO: handle Match on non-Var";
+        locs.push_back(node->loc);
 
         const size_t n = node->arms.size();
         ir::Match::Arms new_arms(n);
@@ -75,6 +77,8 @@ struct Rewriter : public ir::Mutator {
             volumes.pop_back();
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
+
+        locs.pop_back();
 
         return ir::Match::make(node->loc, std::move(new_arms));
     }
@@ -175,7 +179,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             // simplified predicates. This is required for proper predicate
             // analysis of conjunctions/disjunctions. ir::Stmt body =
             // ir::YieldFrom::make(ir::filter(predicate, node->value));
-            ir::Stmt body = ir::YieldFrom::make(node->value);
+            ir::Stmt body = ir::YieldFrom::make(node->values);
             // Add the maybe case -> recursive call
             body = ir::IfElse::make(std::move(bounds.max), std::move(body));
 
@@ -347,6 +351,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
         using ir::Mutator::visit;
 
         ir::Stmt a_body;
+        ir::Expr a_node;
 
         ir::Expr make_tuple(ir::Expr a, ir::Expr b) {
             ir::Type tuple_t = ir::Tuple_t::make({a.type(), b.type()});
@@ -365,7 +370,14 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     return ir::Yield::make(
                         make_tuple(yield->value, node->value));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
-                    return ir::Scan::make(make_tuple(scan->value, node->value));
+                    internal_assert(locs.size() == 2);
+                    // Forall nodes a is scanning, pair with b.
+                    std::vector<ir::Expr> pairs;
+                    pairs.reserve(scan->values.size());
+                    for (const auto &av : scan->values) {
+                        pairs.push_back(make_tuple(av, locs.back()));
+                    }
+                    return ir::Scan::make(std::move(pairs));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -386,10 +398,24 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                 return ret;
             } else {
                 if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
-                    return ir::Scan::make(
-                        make_tuple(yield->value, node->value));
+                    internal_assert(locs.size() == 2);
+                    // Forall nodes a is scanning, pair with b.
+                    std::vector<ir::Expr> pairs;
+                    pairs.reserve(node->values.size());
+                    for (const auto &bv : node->values) {
+                        pairs.push_back(make_tuple(locs.front(), bv));
+                    }
+                    return ir::Scan::make(std::move(pairs));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
-                    return ir::Scan::make(make_tuple(scan->value, node->value));
+                    // Cartesian product of nodes! TODO: doesn't have to be...
+                    // Make this scheduable?
+                    std::vector<ir::Expr> pairs;
+                    for (const auto &av : scan->values) {
+                        for (const auto &bv : scan->values) {
+                            pairs.push_back(make_tuple(av, bv));
+                        }
+                    }
+                    return ir::Scan::make(std::move(pairs));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -439,7 +465,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
             const auto [data, children] =
                 analyze_node(bvh->nodes[i], as_var->type.element_of());
 
-            std::vector<ir::Stmt> stmts(data.size() + children.size());
+            std::vector<ir::Stmt> stmts(data.size() + !children.empty());
             // TODO: visit order should be scheduable?
             for (size_t i = 0; i < data.size(); i++) {
                 ir::Expr access = ir::Access::make(data[i].name, node);
@@ -455,10 +481,13 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                     stmts[i] = ir::Yield::make(std::move(access));
                 }
             }
-            for (size_t j = 0; j < children.size(); j++) {
-                // Type is recursively a tree.
-                stmts[data.size() + j] =
-                    ir::Scan::make(ir::Access::make(children[j].name, node));
+            if (!children.empty()) {
+                std::vector<ir::Expr> cs;
+                cs.reserve(children.size());
+                for (const auto &c : children) {
+                    cs.push_back(ir::Access::make(c.name, node));
+                }
+                stmts.back() = ir::Scan::make(std::move(cs));
             }
 
             arms[i].first = bvh->nodes[i];

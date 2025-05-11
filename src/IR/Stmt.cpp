@@ -218,17 +218,21 @@ Stmt Yield::make(Expr value) {
     return node;
 }
 
-Stmt Scan::make(Expr value) {
-    internal_assert(value.defined()) << "Undefined value in Scan::make";
+Stmt Scan::make(std::vector<Expr> values) {
+    internal_assert(std::all_of(values.cbegin(), values.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "Scan::make received undefined arg.";
     Scan *node = new Scan;
-    node->value = std::move(value);
+    node->values = std::move(values);
     return node;
 }
 
-Stmt YieldFrom::make(Expr value) {
-    internal_assert(value.defined()) << "Undefined value in YieldFrom::make";
+Stmt YieldFrom::make(std::vector<Expr> values) {
+    internal_assert(std::all_of(values.cbegin(), values.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "YieldFrom::make received undefined arg.";
     YieldFrom *node = new YieldFrom;
-    node->value = std::move(value);
+    node->values = std::move(values);
     return node;
 }
 

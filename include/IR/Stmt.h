@@ -229,17 +229,17 @@ struct Yield : StmtNode<Yield> {
 };
 
 struct Scan : StmtNode<Scan> {
-    Expr value;
+    std::vector<Expr> values;
 
-    static Stmt make(Expr value);
+    static Stmt make(std::vector<Expr> values);
 
     static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };
 
 struct YieldFrom : StmtNode<YieldFrom> {
-    Expr value;
+    std::vector<Expr> values;
 
-    static Stmt make(Expr value);
+    static Stmt make(std::vector<Expr> values);
 
     static const IRStmtEnum node_type = IRStmtEnum::YieldFrom;
 };

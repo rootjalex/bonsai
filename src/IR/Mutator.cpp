@@ -569,19 +569,19 @@ Stmt Mutator::visit(const Yield *node) {
 }
 
 Stmt Mutator::visit(const Scan *node) {
-    Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
+    auto [values, not_changed] = visit_list(this, node->values);
+    if (not_changed) {
         return node;
     }
-    return Scan::make(std::move(value));
+    return Scan::make(std::move(values));
 }
 
 Stmt Mutator::visit(const YieldFrom *node) {
-    Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
+    auto [values, not_changed] = visit_list(this, node->values);
+    if (not_changed) {
         return node;
     }
-    return YieldFrom::make(std::move(value));
+    return YieldFrom::make(std::move(values));
 }
 
 Stmt Mutator::visit(const ForEach *node) {

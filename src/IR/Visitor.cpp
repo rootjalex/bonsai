@@ -248,9 +248,9 @@ void Visitor::visit(const Match *node) {
 
 void Visitor::visit(const Yield *node) { node->value.accept(this); }
 
-void Visitor::visit(const Scan *node) { node->value.accept(this); }
+void Visitor::visit(const Scan *node) { visit_list(this, node->values); }
 
-void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }
+void Visitor::visit(const YieldFrom *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const ForEach *node) {
     node->iter.accept(this);

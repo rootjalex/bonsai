@@ -101,8 +101,12 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
               queue_etype(std::move(queue_etype)) {}
 
         Stmt visit(const YieldFrom *node) override {
-            // TODO(ajr): yieldfrom should be rewritten into yieldfromlist
+            // TODO: this is where sorting should be done!
+            // TODO: that would require the node->values is a Bonsai list...
             Expr value;
+
+            internal_error << "TODO: " << Stmt(node);
+            /*
             if (!equals(node->value.type(), queue_etype)) {
                 internal_assert(node->value.type().is<Tuple_t>() &&
                                 node->value.is<Build>())
@@ -125,6 +129,7 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
                                                 make_one(count_var.type()));
             return Sequence::make(
                 {std::move(write_queue), std::move(inc_counter)});
+            */
         }
     };
 

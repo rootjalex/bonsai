@@ -16,10 +16,7 @@ func _traverse_tree0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> set
   match triangles {
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
-      from (triangles as Interior).left
-    }
-    if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
-      from (triangles as Interior).right
+      from (triangles as Interior).left, (triangles as Interior).right
     }
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
@@ -36,37 +33,18 @@ func _traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree
     match triangles2 {
     | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
       if (intersects(build<AABB>((triangles as Interior).low, (triangles as Interior).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-        from build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).left, (triangles2 as Interior).left)
-      }
-      if (intersects(build<AABB>((triangles as Interior).low, (triangles as Interior).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-        from build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).left, (triangles2 as Interior).right)
+        from build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).left, (triangles as Interior).left), build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).left, (triangles as Interior).right), build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).right, (triangles as Interior).left), build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).right, (triangles as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
       if (intersects(build<AABB>((triangles as Interior).low, (triangles as Interior).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
-        from build<((const TriangleBVH&), Triangle)>((triangles as Interior).left, (triangles2 as Leaf).data)
-      }
-    }
-    match triangles2 {
-    | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
-      if (intersects(build<AABB>((triangles as Interior).low, (triangles as Interior).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-        from build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).right, (triangles2 as Interior).left)
-      }
-      if (intersects(build<AABB>((triangles as Interior).low, (triangles as Interior).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-        from build<((const TriangleBVH&), (const TriangleBVH&))>((triangles as Interior).right, (triangles2 as Interior).right)
-      }
-    | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
-      if (intersects(build<AABB>((triangles as Interior).low, (triangles as Interior).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
-        from build<((const TriangleBVH&), Triangle)>((triangles as Interior).right, (triangles2 as Leaf).data)
+        from build<((const TriangleBVH&), tree[[Triangle]] TriangleBVH)>((triangles as Interior).left, triangles2), build<((const TriangleBVH&), tree[[Triangle]] TriangleBVH)>((triangles as Interior).right, triangles2)
       }
     }
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
     match triangles2 {
     | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
       if (intersects(build<AABB>((triangles as Leaf).low, (triangles as Leaf).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-        from build<(Triangle, (const TriangleBVH&))>((triangles as Leaf).data, (triangles2 as Interior).left)
-      }
-      if (intersects(build<AABB>((triangles as Leaf).low, (triangles as Leaf).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-        from build<(Triangle, (const TriangleBVH&))>((triangles as Leaf).data, (triangles2 as Interior).right)
+        from build<(tree[[Triangle]] TriangleBVH, (const TriangleBVH&))>(triangles, (triangles2 as Interior).left), build<(tree[[Triangle]] TriangleBVH, (const TriangleBVH&))>(triangles, (triangles2 as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
       if (intersects(build<AABB>((triangles as Leaf).low, (triangles as Leaf).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
@@ -83,10 +61,7 @@ func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> opt
   match triangles {
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) && (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0])) {
-      from (triangles as Interior).left
-    }
-    if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) && (distmin(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high)) < _best0[0])) {
-      from (triangles as Interior).right
+      from (triangles as Interior).left, (triangles as Interior).right
     }
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
     if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) && (distmin(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < _best0[0])) {

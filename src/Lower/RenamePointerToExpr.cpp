@@ -76,6 +76,7 @@ struct Rename : public ir::Mutator {
     }
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Expr> args;
+        args.reserve(node->args.size());
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
@@ -117,8 +118,22 @@ struct Rename : public ir::Mutator {
         return make(ir::DoWhile::make(std::move(body), std::move(cond)));
     }
 
+    ir::Stmt visit(const ir::Scan *node) override {
+        std::vector<ir::Expr> values;
+        values.reserve(node->values.size());
+        for (const ir::Expr &arg : node->values) {
+            values.push_back(mutate(arg));
+        }
+        return make(ir::Scan::make(std::move(values)));
+    }
+
     ir::Stmt visit(const ir::YieldFrom *node) override {
-        return make(ir::YieldFrom::make(mutate(node->value)));
+        std::vector<ir::Expr> values;
+        values.reserve(node->values.size());
+        for (const ir::Expr &arg : node->values) {
+            values.push_back(mutate(arg));
+        }
+        return make(ir::YieldFrom::make(std::move(values)));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {

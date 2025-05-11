@@ -1102,14 +1102,14 @@ void Printer::visit(const Yield *node) {
 void Printer::visit(const Scan *node) {
     os << get_indent();
     os << "scan ";
-    print_no_parens(node->value);
+    print_expr_list(node->values);
     os << "\n";
 }
 
 void Printer::visit(const YieldFrom *node) {
     os << get_indent();
     os << "from ";
-    print_no_parens(node->value);
+    print_expr_list(node->values);
     os << "\n";
 }
 

@@ -83,16 +83,25 @@ IndexTList get_index_type(const std::string &base_name,
 }
 
 struct FindFromType : public ir::Visitor {
-    ir::Type from_type;
+    std::vector<ir::Type> from_types;
 
     void visit(const ir::YieldFrom *node) override {
-        if (from_type.defined()) {
-            internal_assert(ir::equals(from_type, node->value.type()))
-                << "Mismatching types in YieldFrom: " << node->value
-                << " is of type " << node->value.type()
-                << ", not: " << from_type;
+        if (from_types.empty()) {
+            from_types.reserve(node->values.size());
+            for (const auto &v : node->values) {
+                from_types.push_back(v.type());
+            }
         } else {
-            from_type = node->value.type();
+            internal_assert(from_types.size() == node->values.size())
+                << ir::Stmt(node);
+            for (size_t i = 0; i < from_types.size(); i++) {
+                internal_assert(
+                    ir::equals(from_types[i], node->values[i].type()))
+                    << "Mismatching types in YieldFrom: " << ir::Stmt(node)
+                    << " at index: " << i << ", expected: " << from_types[i]
+                    << " but " << node->values[i]
+                    << " has type: " << node->values[i].type();
+            }
         }
     }
 };
@@ -459,7 +468,7 @@ ir::Expr flatten_tuple(ir::Expr expr) {
 
     // Base case, no tuple:
     if (exprs.size() == 1) {
-        return expr;
+        return exprs.front();
     }
 
     std::vector<ir::Type> etypes;
@@ -479,33 +488,31 @@ ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body) {
             : index_list(index_list) {}
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
+            std::vector<ir::Expr> flat_ids;
+            flat_ids.reserve(node->values.size());
+
             // Base case, single value yield from.
-            ir::Expr value = flatten_tuple(node->value);
-            ir::Type type = value.type();
-
             if (index_list.size() == 1) {
-                internal_assert(ir::equals(type, index_list[0].type))
-                    << "Mismatching YieldFroms, expected type: "
-                    << index_list[0].type << " but found type: " << type
-                    << " in: " << ir::Stmt(node);
-            } else {
-                const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
-                internal_assert(tuple &&
-                                tuple->etypes.size() == index_list.size())
-                    << "Expected " << index_list.size()
-                    << " values, but found: " << type
-                    << " in recursive function of: " << ir::Stmt(node);
-
-                for (size_t i = 0; i < index_list.size(); i++) {
-                    internal_assert(
-                        ir::equals(index_list[i].type, tuple->etypes[i]))
+                for (const auto &c : node->values) {
+                    internal_assert(ir::equals(c.type(), index_list[0].type))
                         << "Mismatching YieldFroms, expected type: "
-                        << index_list[i].type
-                        << " but found type: " << tuple->etypes[i]
-                        << " at index: " << i << " in: " << ir::Stmt(node);
+                        << index_list[0].type << " but found type: " << c.type()
+                        << " in: " << ir::Stmt(node);
+                    flat_ids.push_back(flatten_tuple(c));
+                }
+            } else {
+                for (const auto &c : node->values) {
+                    const ir::Tuple_t *tuple = c.type().as<ir::Tuple_t>();
+
+                    internal_assert(tuple &&
+                                    tuple->etypes.size() == index_list.size())
+                        << "Expected " << index_list.size()
+                        << " values, but found: " << c.type()
+                        << " in recursive function of: " << ir::Stmt(node);
+                    flat_ids.push_back(flatten_tuple(c));
                 }
             }
-            return ir::YieldFrom::make(std::move(value));
+            return ir::YieldFrom::make(std::move(flat_ids));
         }
     };
 
