@@ -148,40 +148,36 @@ std::string unique_queue_name(size_t counter) {
     return "_queue" + std::to_string(counter++);
 }
 
-// Verifies this function is appropraite for tail call optimization, and asserts
-// an appropriate error if otherwise.
-void is_valid_tail_recursion(const Stmt &body, const Function &function) {
+// Returns whether this is a tail call to itself.
+template <typename T>
+bool is_tail_call(const T *node, const Function &f) {
+    const auto *v = node->func.template as<Var>();
+    internal_assert(v);
+    return v->name == f.name;
+}
+
+// Verifies this function is appropriate for tail call optimization, and throws
+// an error otherwise.
+void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
     struct Checker : public Visitor {
         Checker(const Function &function) : function(function) {}
 
         void visit(const ir::Call *node) override {
-            const auto *var = node->func.as<Var>();
-            if (var == nullptr) {
-                return;
-            }
-            if (var->name != function.name) {
-                return;
-            }
-            std::vector<Expr> args = node->args;
-            for (int i = 0, e = args.size(); i < e; i++) {
-                const Function::Argument &farg = function.args[i];
-                // Right now we conservatively assume that tail recursion does
-                // not have mutating arguments.
-                internal_assert(!farg.mutating)
-                    << "unexpected mutable argument in tail recursion: "
-                    << function;
-            }
+            // Calls to this function must only exist when return'ing.
+            internal_assert(!is_tail_call(node, function))
+                << "unexpected non-return call to same function in tail "
+                   "recursion of "
+                << function.name;
+            Visitor::visit(node);
         }
 
         void visit(const ir::CallStmt *node) override {
-            const auto *var = node->func.as<Var>();
-            if (var == nullptr) {
-                return;
-            }
-            if (var->name == function.name) {
-                internal_error << "unexpected void call in tail recursion: "
-                               << Stmt(node);
-            }
+            // Calls to this function must only exist when return'ing.
+            internal_assert(!is_tail_call(node, function))
+                << "unexpected non-return call to same function in tail "
+                   "recursion of "
+                << function.name;
+            Visitor::visit(node);
         }
 
         void visit(const ir::Return *node) override {
@@ -189,11 +185,11 @@ void is_valid_tail_recursion(const Stmt &body, const Function &function) {
             internal_assert(value.defined())
                 << "unexpected no return value: " << Stmt(node);
             if (const auto *call = value.as<Call>()) {
-                const auto *f = call->func.as<Var>();
-                internal_assert(f);
-                internal_assert(f->name == function.name)
-                    << "unexpected call to another function: " << f->name
+                internal_assert(is_tail_call(call, function))
+                    << "unexpected call to another function: " << Expr(call)
                     << " in tail recursion of: " << function.name;
+            } else {
+                node->value.accept(this);
             }
         }
 
@@ -201,6 +197,14 @@ void is_valid_tail_recursion(const Stmt &body, const Function &function) {
         const Function &function;
     };
 
+    std::vector<Function::Argument> args = function.args;
+    for (int i = 0, e = args.size(); i < e; i++) {
+        const Function::Argument &farg = function.args[i];
+        // Right now we conservatively assume that tail recursion does
+        // not have mutating arguments.
+        internal_assert(!farg.mutating)
+            << "unexpected mutable argument in tail recursion: " << function;
+    }
     Checker checker(function);
     body.accept(&checker);
 }
@@ -464,7 +468,7 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         auto it = funcs.find(name);
         internal_assert(it != funcs.end()) << name;
         const Function &func = *it->second;
-        is_valid_tail_recursion(stmt, func);
+        verify_valid_tail_recursion(stmt, func);
         return handle_tail_recursion(std::move(stmt), func);
     }
 
