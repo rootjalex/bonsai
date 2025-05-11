@@ -156,45 +156,77 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
         lower::func_topological_order(funcs, /*undef_calls=*/false);
 
     std::set<std::string> call_rand;
-
-    // First find the set of all random calls.
-    // Technically needs to be done to convergence for mutual recursion.
     static const size_t max_allowed_iters = 5;
-    size_t iter_count = 0;
-    size_t old_size = 0;
+    size_t iter_count = 0, old_size = 0, new_size = 0;
 
-    do {
-        old_size = call_rand.size();
+    switch (options.target) {
+    case BackendTarget::CUDA: {
+        // In CUDA, instances of rand() are lowered to cuRAND when running on
+        // the device. Since cuRAND is explicitly only available on device, so
+        // we assume RNG state will be set up in the top most kernel,
+        // and then propagated to nested functions from there.
+        do {
+            old_size = call_rand.size();
+            // TODO(cgyurgyik): build call graph from each kernel, and propagate
+            // from there.
+            for (const auto &[name, func] : funcs) {
+                if (call_rand.contains(name)) {
+                    continue;
+                } else if (calls_rand(func->body, call_rand)) {
+                    call_rand.insert(name);
+                }
+            }
 
-        for (const auto &[name, func] : funcs) {
-            if (call_rand.contains(name)) {
-                continue;
-            } else if (calls_rand(func->body, call_rand)) {
-                call_rand.insert(name);
+            if (iter_count++ > max_allowed_iters) {
+                internal_error
+                    << "May have found pathological mutual recursion in "
+                       "Random lowering.";
+            }
+            new_size = call_rand.size();
+        } while (new_size != old_size);
+        return funcs; // XXX
+    }
+    default: {
+        // First find the set of all random calls.
+        // Technically needs to be done to convergence for mutual recursion.
+
+        do {
+            old_size = call_rand.size();
+
+            for (const auto &[name, func] : funcs) {
+                if (call_rand.contains(name)) {
+                    continue;
+                } else if (calls_rand(func->body, call_rand)) {
+                    call_rand.insert(name);
+                }
+            }
+
+            if (iter_count++ > max_allowed_iters) {
+                internal_error
+                    << "May have found pathological mutual recursion in "
+                       "Random lowering.";
+            }
+            new_size = call_rand.size();
+        } while (new_size != old_size);
+        for (const auto &fname : call_rand) {
+            funcs[fname]->body =
+                insert_rand_state(funcs[fname]->body, call_rand);
+            // Parallel functions must set up their own random state.
+            if (!(fname == "main" || funcs[fname]->is_kernel() ||
+                  funcs[fname]->is_exported())) {
+                funcs[fname]->args.emplace_back(rng_state_name,
+                                                Rand_State_t::make(),
+                                                /*default_value=*/Expr(),
+                                                /*mutating=*/true);
+            } else {
+                funcs[fname]->attributes.push_back(
+                    Function::Attribute::setup_rng);
             }
         }
 
-        if (iter_count++ > max_allowed_iters) {
-            internal_error << "May have found pathological mutual recursion in "
-                              "Random lowering.";
-        }
-    } while (call_rand.size() > old_size);
-
-    for (const auto &fname : call_rand) {
-        funcs[fname]->body = insert_rand_state(funcs[fname]->body, call_rand);
-        // Parallel functions must set up their own random state.
-        if (!(fname == "main" || funcs[fname]->is_kernel() ||
-              funcs[fname]->is_exported())) {
-            funcs[fname]->args.emplace_back(rng_state_name,
-                                            Rand_State_t::make(),
-                                            /*default_value=*/Expr(),
-                                            /*mutating=*/true);
-        } else {
-            funcs[fname]->attributes.push_back(Function::Attribute::setup_rng);
-        }
+        return funcs;
     }
-
-    return funcs;
+    }
 }
 
 } // namespace lower
