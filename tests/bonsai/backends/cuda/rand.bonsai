@@ -26,7 +26,7 @@ func [[kernel]] f1(x: f32) -> f32  {
   return f2(x);
 }
 
-func main(input: f32) -> i32 {
+func [[export]] main(input: f32) -> i32 {
     if (f1(input) == rand()) { return 0; }
     return plus_rand(input);
 }

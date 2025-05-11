@@ -230,28 +230,31 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
 std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
     std::set<std::string> hosts;
     lower::CallGraph call_graph = lower::build_call_graph(funcs);
-    constexpr char ENTRY[] = "main";
-    auto it = call_graph.find(ENTRY);
-    internal_assert(it != call_graph.end())
-        << "expected entry-point function \"main\" for CUDA programs";
-
-    std::vector<std::string> visit;
-    visit.push_back(ENTRY);
-    visit.insert(visit.end(), it->second.begin(), it->second.end());
-    while (!visit.empty()) {
-        std::string name = visit.back();
-        visit.pop_back();
-        auto it = funcs.find(name);
-        internal_assert(it != funcs.end()) << name;
-        const auto &func = *it->second;
-        if (func.is_kernel()) {
+    for (const auto &[name, func] : funcs) {
+        if (!func->is_exported()) {
             continue;
         }
-        auto cit = call_graph.find(name);
-        internal_assert(cit != call_graph.end()) << name;
-        const auto &graph = cit->second;
-        hosts.insert(name);
-        visit.insert(visit.end(), graph.begin(), graph.end());
+        auto it = call_graph.find(name);
+        internal_assert(it != call_graph.end());
+
+        std::vector<std::string> visit;
+        visit.push_back(name);
+        visit.insert(visit.end(), it->second.begin(), it->second.end());
+        while (!visit.empty()) {
+            std::string name = visit.back();
+            visit.pop_back();
+            auto it = funcs.find(name);
+            internal_assert(it != funcs.end()) << name;
+            const auto &func = *it->second;
+            if (func.is_kernel()) {
+                continue;
+            }
+            auto cit = call_graph.find(name);
+            internal_assert(cit != call_graph.end()) << name;
+            const auto &graph = cit->second;
+            hosts.insert(name);
+            visit.insert(visit.end(), graph.begin(), graph.end());
+        }
     }
     return hosts;
 }
