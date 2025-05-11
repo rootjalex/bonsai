@@ -1,0 +1,207 @@
+// Purposefully don't use stdlib, want to match as close as possible.
+
+element float3 = vector[f32, 3];
+
+element Ray {
+	origin, dir, invDir : float3;
+	dirIsNeg : vector[i32, 3]; // weird, why not bool?
+	min_t, max_t : f32;
+	hitId : i32;
+}
+
+element Triangle {
+	// Why are there 3 x 4? Is it just for padding?
+	p0, p1, p2 : vector[f32, 3];
+	id : i32;
+	pad : vector[i32, 3];
+}
+
+element AABB {
+	low, high : float3;
+}
+
+// TODO: want Matrix[f32, 4, 4]
+element v4 = vector[f32, 4];
+
+func generateRay(r2c0 : v4, r2c1 : v4, r2c2 : v4, r2c3 : v4, c2w0 : v4, c2w1 : v4, c2w2 : v4, c2w3 : v4, x : f32, y : f32) -> Ray {
+	ray : mut = Ray{};
+	ray.min_t = 0.0;
+	ray.max_t = inf;
+	ray.hitId = 0;
+
+	// transform raster coordinate (x, y, 0) to camera space
+	camw = r2c3[3];
+	camx = (r2c0[0] * x + r2c0[1] * y + r2c0[3]) / camw;
+	camy = (r2c1[0] * x + r2c1[1] * y + r2c1[3]) / camw;
+	camz = r2c2[3] / camw;
+
+	ray.dir.x = c2w0[0] * camx + c2w0[1] * camy + c2w0[2] * camz;
+	ray.dir.y = c2w1[0] * camx + c2w1[1] * camy + c2w1[2] * camz;
+    ray.dir.z = c2w2[0] * camx + c2w2[1] * camy + c2w2[2] * camz;
+
+    ray.origin.x = c2w0[3] / c2w3[3];
+    ray.origin.y = c2w1[3] / c2w3[3];
+    ray.origin.z = c2w2[3] / c2w3[3];
+
+    ray.invDir = 1.0 / ray.dir;
+
+    ray.dirIsNeg[0] = cast[[i32]](ray.invDir.x < 0);
+    ray.dirIsNeg[1] = cast[[i32]](ray.invDir.y < 0);
+    ray.dirIsNeg[2] = cast[[i32]](ray.invDir.z < 0);
+
+    return ray;
+}
+
+func intersectp(bounds : AABB, ray : Ray) -> (f32, f32) {
+	// Check all three axis-aligned slabs.  Don't try to early out; it's
+    // not worth the trouble
+    tNear : mut = (bounds.low- ray.origin) * ray.invDir;
+    tFar : mut = (bounds.high - ray.origin) * ray.invDir;
+    if (tNear.x > tFar.x) {
+        tmp = tNear.x;
+        tNear.x = tFar.x;
+        tFar.x = tmp;
+    }
+    t0 : mut = max(tNear.x, ray.min_t);
+    t1 : mut = min(tFar.x, ray.max_t);
+
+    if (tNear.y > tFar.y) {
+        tmp = tNear.y;
+        tNear.y = tFar.y;
+        tFar.y = tmp;
+    }
+    t0 = max(tNear.y, t0);
+    t1 = min(tFar.y, t1);
+
+    if (tNear.z > tFar.z) {
+        tmp = tNear.z;
+        tNear.z = tFar.z;
+        tFar.z = tmp;
+    }
+    t0 = max(tNear.z, t0);
+    t1 = min(tFar.z, t1);
+
+    return (t0, t1);
+}
+
+func intersects(bounds : AABB, ray : Ray) -> bool {
+	times = intersectp(bounds, ray);
+	return times[0] <= times[1];
+}
+
+func distmin(bounds : AABB, ray : Ray) -> f32 {
+	times = intersectp(bounds, ray);
+	return times[0];
+}
+
+func distmax(bounds : AABB, ray : Ray) -> f32 {
+	times = intersectp(bounds, ray);
+	return times[1];
+}
+
+// TODO: does this work, as mutable param?
+func intersects(tri : Triangle, ray : mut Ray) -> bool {
+	p0 = tri.p0;
+	p1 = tri.p1;
+	p2 = tri.p2;
+	e1 = p1 - p0;
+	e2 = p2 - p0;
+
+	s1 = cross(ray.dir, e2);
+	divisor = dot(s1, e1);
+	hit : mut bool = true;
+
+	if (divisor == 0.0) {
+		hit = false;
+	}
+	invDivisor = 1.0 / divisor;
+
+    // Compute first barycentric coordinate
+    d = ray.origin - p0;
+    b1 = dot(d, s1) * invDivisor;
+    if (b1 < 0.0 || b1 > 1.0) {
+        hit = false;
+    }
+
+    // Compute second barycentric coordinate
+    s2 = cross(d, e1);
+    b2 = dot(ray.dir, s2) * invDivisor;
+    if (b2 < 0.0 || b1 + b2 > 1.0) {
+        hit = false;
+    }
+
+    // Compute _t_ to intersection point
+    t = dot(e2, s2) * invDivisor;
+    if (t < ray.min_t || t > ray.max_t) {
+        hit = false;
+    }
+
+    if (hit) {
+        ray.max_t = t;
+        ray.hitId = tri.id;
+    }
+    return hit;
+}
+
+
+// See schedule at bottom for layout.
+extern tris : set[Triangle];
+
+// Hmm, not really an argmin, closer to an `any`?
+func distmin(tri : Triangle, ray : Ray) {
+	return ray.min_t - 0.000001;	
+}
+
+func distmax(tri : Triangle, ray : Ray) {
+	return ray.max_t + 0.000001;	
+}
+
+func BVHIntersect(ray : mut Ray) = cast[[bool]](argmin(|t : Triangle| distmin(t, ray), filter(|t : Triangle| intersects(t, ray), tris)));
+
+func kernel(x : i32, width : i32, y : i32, height : i32, xScale : f32, yScale : f32, r2c0 : v4, r2c1 : v4, r2c2 : v4, r2c3 : v4, c2w0 : v4, c2w1 : v4, c2w2 : v4, c2w3 : v4, image : mut array[f32, width * height], id : mut array[i32, width * height]) {
+	ray : mut Ray = generateRay(r2c0, r2c1, r2c2, r2c3, c2w0, c2w1, c2w2, c2w3, cast[[f32]](x) * xScale, cast[[f32]](y) * yScale);
+	isect = BVHIntersect(ray);
+	offset = y * width + x;
+	image[offset] = ray.max_t;
+	id[offset] = ray.hitId;
+	return;
+}
+
+
+
+func [[export]] raytrace(width : i32, height : i32, baseWidth : i32, baseHeight : i32, r2c0 : v4, r2c1 : v4, r2c2 : v4, r2c3 : v4, c2w0 : v4, c2w1 : v4, c2w2 : v4, c2w3 : v4, image : mut array[f32, width * height], id : mut array[i32, width * height]) {
+	widthScale = cast[[f32]](baseWidth) / cast[[f32]](width);
+	heightScale = cast[[f32]](baseHeight) / cast[[f32]](height);
+
+	map(|y : i32| map(|x : i32| kernel(x, width, y, height, widthScale, heightScale, r2c0, r2c1, r2c2, r2c3, c2w0, c2w1, c2w2, c2w3, image, id), iter(width)), iter(height));
+	return;
+}
+
+
+schedule {
+	tree[[Triangle]] BVH(low : float3, high : float3) with AABB(low, high) =
+    | Interior(left : BVH, right : BVH, axis : i8) // TODO: axis.
+    | Leaf(data : array[Triangle]);
+
+    tris : BVH;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+        	low : float3;
+        	high : float3;
+        	nPrims : u8;
+        	axis : i8;
+        	16; // pad
+        	switch nPrims { // TODO: they have this after, but our scoping doesn't allow that for now.
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    // TODO: raytrace.split().cpu_thread()
+
+}

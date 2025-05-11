@@ -137,10 +137,6 @@ struct RewriteMutables : public ir::Mutator {
         return handle<ir::Expr>(node);
     }
 
-    ir::Stmt visit(const ir::CallStmt *node) override {
-        return handle<ir::Stmt>(node);
-    }
-
     ir::Stmt visit(const ir::Launch *node) override {
         // Context argument should always be mutable.
         // don't do anything: type is already ptr[struct]

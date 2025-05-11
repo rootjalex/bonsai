@@ -58,7 +58,9 @@ struct LowerRecLoopsImpl : public Mutator {
 
         new_funcs[func_name] = func;
 
-        return CallStmt::make(std::move(fexpr), std::move(call_args));
+        Expr call = Call::make(std::move(fexpr), std::move(call_args));
+
+        return EvalStmt::make(std::move(call));
     }
 
     Stmt visit(const YieldFrom *node) override {
@@ -72,7 +74,8 @@ struct LowerRecLoopsImpl : public Mutator {
         } else {
             call_args[0] = node->value;
         }
-        return CallStmt::make(current_func, std::move(call_args));
+        Expr call = Call::make(current_func, std::move(call_args));
+        return EvalStmt::make(std::move(call));
     }
 };
 

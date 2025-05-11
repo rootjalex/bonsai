@@ -63,7 +63,7 @@ struct Deref;
 
 // Stmts
 struct Stmt;
-struct CallStmt;
+struct EvalStmt;
 struct Print;
 struct Return;
 struct Store;

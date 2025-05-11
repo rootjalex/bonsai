@@ -518,6 +518,15 @@ struct LowerBVH : public ir::Mutator {
     ir::Expr build_func(const ir::Expr &expr) {
         const std::string func = new_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
+        const auto mutables = mutated_variables(expr);
+
+        std::cout << "Found mutables:\n";
+
+        for (const auto &m : mutables) {
+            std::cout << m << std::endl;
+        }
+
+        std::cout << "From expr: " << expr << std::endl;
 
         bool found = false;
         for (const auto &var : free_vars) {
@@ -541,11 +550,12 @@ struct LowerBVH : public ir::Mutator {
         std::transform(free_vars.cbegin(), free_vars.cend(),
                        std::back_inserter(func_args), [&](const auto &var) {
                            const auto &iter = this->tree_types.find(var.name);
-                           if (iter != this->tree_types.cend()) {
-                               return ir::Function::Argument(var.name,
-                                                             iter->second);
-                           }
-                           return ir::Function::Argument(var.name, var.type);
+                           const ir::Type &type =
+                               (iter != this->tree_types.cend()) ? iter->second
+                                                                 : var.type;
+                           return ir::Function::Argument(
+                               var.name, type, /*default_value=*/ir::Expr(),
+                               mutables.contains(var.name));
                        });
 
         // When should this type be concretized into e.g. a list?

@@ -129,7 +129,7 @@ struct Printer : public Visitor {
     void visit(const PtrTo *) override;
     void visit(const Deref *) override;
     // Stmts
-    void visit(const CallStmt *) override;
+    void visit(const EvalStmt *) override;
     void visit(const Print *) override;
     void visit(const Return *) override;
     void visit(const LetStmt *) override;

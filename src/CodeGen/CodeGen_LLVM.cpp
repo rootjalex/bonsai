@@ -1092,8 +1092,8 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     args.push_back(expr);
 }
 
-void CodeGen_LLVM::visit(const CallStmt *node) {
-    Call::make(node->func, node->args).accept(this);
+void CodeGen_LLVM::visit(const EvalStmt *node) {
+    codegen_expr(node->value);
     value = nullptr;
 }
 

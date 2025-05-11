@@ -324,7 +324,8 @@ struct Parser {
         case Token::Type::SCHEDULE:
             return parse_schedule();
         default:
-            report_error() << "failure in parse_program_element";
+            report_error() << "failure in parse_program_element"
+                           << "Parsed: " << program << " so far";
         }
     }
 
@@ -767,36 +768,12 @@ struct Parser {
     // TODO(cgyurgyik): Need to eventually extend this to support struct methods
     // as well, e.g., `a.foo(1)`.
     std::optional<ir::Stmt> parse_call_statement(std::string id) {
-        auto it = program.funcs.find(id);
-        if (it == program.funcs.end()) {
-            return {};
+        if (program.funcs.contains(id) || is_builtin(id)) {
+            ir::Expr call = parse_function_call(id);
+            expect(Token::Type::SEMICOL);
+            return ir::EvalStmt::make(std::move(call));
         }
-        const ir::Function &function = *it->second;
-        expect(Token::Type::LPAREN);
-        ir::Type f_type = function.call_type();
-
-        std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);
-
-        const ir::Function_t *function_t = f_type.as<ir::Function_t>();
-        internal_assert(function_t);
-        if (function_t->arg_types.size() != args.size()) {
-            report_error() << "Incorrect number of arguments to: " << id
-                           << "parsed: " << args.size()
-                           << " but expected: " << function_t->arg_types.size();
-        }
-
-        for (size_t i = 0; i < args.size(); i++) {
-            // TODO(ajr): add other type checking here?
-            if (function_t->arg_types[i].is_mutable && !is_mutable(args[i])) {
-                report_error()
-                    << "Argument " << args[i] << " at position " << i
-                    << " of call to function " << id << " must be mutable.";
-            }
-        }
-
-        ir::Expr v = ir::Var::make(f_type, std::move(id));
-        expect(Token::Type::SEMICOL);
-        return ir::CallStmt::make(std::move(v), std::move(args));
+        return {};
     }
 
     // if expr stmt [elif expr stmt]* [else stmt]?
@@ -860,7 +837,7 @@ struct Parser {
             }
         }
         internal_error << "[unimplemented] parse_statement for "
-                       << peek().to_string();
+                       << peek() << "parsed so far: " << program;
     }
 
     ir::Stmt parse_name_decl(ir::WriteLoc loc) {

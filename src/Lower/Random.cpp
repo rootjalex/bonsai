@@ -56,19 +56,6 @@ bool calls_rand(const Stmt &stmt,
             }
             Visitor::visit(node);
         }
-
-        void visit(const CallStmt *node) override {
-            if (found) {
-                return;
-            }
-            if (const Var *var = node->func.as<Var>()) {
-                if (funcs_call_rand.contains(var->name)) {
-                    found = true;
-                    return;
-                }
-            }
-            Visitor::visit(node);
-        }
     };
     CallsRandFinder finder(funcs_call_rand);
     stmt.accept(&finder);
@@ -132,16 +119,6 @@ Stmt insert_rand_state(const Stmt &stmt,
                 return node;
             }
             return Call::make(node->func, std::move(args));
-        }
-
-        Stmt visit(const CallStmt *node) override {
-            auto [func, args, not_changed] = handle(node->func, node->args);
-            if (func.defined()) {
-                return CallStmt::make(std::move(func), std::move(args));
-            } else if (not_changed) {
-                return node;
-            }
-            return CallStmt::make(node->func, std::move(args));
         }
     };
     CallsRandFinder finder(funcs_call_rand);

@@ -73,6 +73,10 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
     Stmt loop_body;
 
     auto build_loop_body = [&args](Expr expr, Expr idx) {
+        if (!args.base_type.defined()) {
+            // Just evalaute the function.
+            return EvalStmt::make(expr);
+        }
         WriteLoc loc(args.result, args.base_type);
         if (expr.type().is_vector()) {
             // TODO(ajr): fix this hack.
@@ -100,7 +104,7 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
             << " called with " << load;
         Expr expr = replace(l->args[0].name, load, l->value);
         // Try to fuse a nested map.
-        if (auto map = as_map(expr)) {
+        if (const auto *map = as_map(expr)) {
             Expr next_func = map->a, next_array = map->b;
             loop_body = build_traversal_helper(next_func, next_array, depth + 1,
                                                nested_idx, args, funcs);
@@ -126,22 +130,38 @@ Stmt build_traversal(const SetOp *map_expr, FuncMap &funcs) {
     BuildMapArgs args;
     std::string alloc_name = unique_alloc_name();
     args.result = alloc_name;
-    args.base_type = alloc_type;
 
-    Stmt alloc = Allocate::make(WriteLoc(alloc_name, alloc_type),
-                                // On the heap because it is returned.
-                                Allocate::Memory::Heap);
+    std::vector<Stmt> stmts;
+
+    // check for `apply`
+    if (!alloc_type.is<Void_t>()) {
+        args.base_type = alloc_type;
+        Stmt alloc = Allocate::make(WriteLoc(alloc_name, alloc_type),
+                                    // On the heap because it is returned.
+                                    Allocate::Memory::Heap);
+        stmts.push_back(std::move(alloc));
+    }
+
     static const Expr zero = make_zero(index_t);
     Stmt body = build_traversal_helper(map_expr->a, map_expr->b, /*depth=*/0,
                                        zero, args, funcs);
+    stmts.push_back(std::move(body));
 
-    Expr ret_var = Cast::make(map_expr->type, Var::make(alloc_type, alloc_name),
-                              Cast::Mode::Reinterpret);
-    Stmt return_var = Return::make(ret_var);
+    if (!alloc_type.is<Void_t>()) {
+        Expr ret_var =
+            Cast::make(map_expr->type, Var::make(alloc_type, alloc_name),
+                       Cast::Mode::Reinterpret);
+        Stmt return_var = Return::make(ret_var);
+        stmts.push_back(std::move(return_var));
+    } else {
+        stmts.push_back(Return::make());
+    }
 
+    if (stmts.size() == 1) {
+        return stmts[0];
+    }
     // TODO: flatten sequence?
-    return Sequence::make(
-        {std::move(alloc), std::move(body), std::move(return_var)});
+    return Sequence::make(std::move(stmts));
 }
 
 Stmt build_traversal(const VectorReduce *reduce_expr, FuncMap &funcs) {
@@ -209,7 +229,7 @@ struct LowerMapsImpl : public Mutator {
     }
 
     Expr visit(const SetOp *node) override {
-        if (node->op == SetOp::map && node->type.is<Array_t>()) {
+        if (node->op == SetOp::map && node->b.type().is<Array_t>()) {
             return build_func(node);
         }
         return Mutator::visit(node);
@@ -229,6 +249,7 @@ struct LowerMapsImpl : public Mutator {
     Expr build_func(const T *node) {
         const std::string func = new_func_name();
         const auto free_vars = gather_free_vars(node);
+        auto mutables = mutated_variables(node);
 
         Stmt body = build_traversal(node, funcs);
         internal_assert(body.defined());
@@ -236,7 +257,9 @@ struct LowerMapsImpl : public Mutator {
         std::vector<Function::Argument> func_args;
         std::transform(free_vars.cbegin(), free_vars.cend(),
                        std::back_inserter(func_args), [&](const auto &var) {
-                           return Function::Argument(var.name, var.type);
+                           return Function::Argument(
+                               var.name, var.type, /*default_value=*/Expr(),
+                               mutables.contains(var.name));
                        });
 
         Type ret_type = node->type;
@@ -268,7 +291,9 @@ Program LowerMaps::run(Program program, const CompilerOptions &options) const {
     LowerMapsImpl lower(program.funcs);
 
     for (auto &[_, func] : program.funcs) {
+        std::cout << "Before LowerMaps: " << func->body;
         func->body = lower.mutate(std::move(func->body));
+        std::cout << "After LowerMaps: " << func->body;
     }
 
     return program;

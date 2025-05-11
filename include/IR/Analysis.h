@@ -71,7 +71,8 @@ bool contains(const Stmt &stmt) {
     return checker.found;
 }
 
-std::set<std::string> mutated_variables(Stmt stmt);
+std::set<std::string> mutated_variables(const Expr &expr);
+std::set<std::string> mutated_variables(const Stmt &stmt);
 
 bool reads(Expr expr, const std::set<std::string> &vars);
 bool reads(Stmt stmt, const std::set<std::string> &vars);

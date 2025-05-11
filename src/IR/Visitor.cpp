@@ -180,10 +180,7 @@ void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
 
 void Visitor::visit(const Deref *node) { node->expr.accept(this); }
 
-void Visitor::visit(const CallStmt *node) {
-    node->func.accept(this);
-    visit_list(this, node->args);
-}
+void Visitor::visit(const EvalStmt *node) { node->value.accept(this); }
 
 void Visitor::visit(const Print *node) { visit_list(this, node->args); }
 

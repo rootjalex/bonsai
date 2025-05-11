@@ -149,7 +149,7 @@ struct AlwaysReturns : public Visitor {
         node->stmts.back().accept(this);
     }
 
-    void visit(const CallStmt *node) override { returns = false; }
+    void visit(const EvalStmt *node) override { returns = false; }
     void visit(const LetStmt *node) override { returns = false; }
     void visit(const Allocate *node) override { returns = false; }
     void visit(const Store *node) override { returns = false; }
@@ -302,16 +302,11 @@ struct HasSideEffects : ir::Visitor {
         }
     }
 
-    void visit(const ir::CallStmt *node) override {
+    void visit(const ir::EvalStmt *node) override {
         if (found) {
             return;
         }
-        const auto *var = node->func.as<ir::Var>();
-        internal_assert(var) << node;
-        if (var->type.is<ir::Function_t>() &&
-            function_has_side_effects.contains(var->name)) {
-            found = true;
-        }
+        Visitor::visit(node);
     }
 };
 
@@ -431,20 +426,43 @@ bool contains_generics(const Type &type, const TypeMap &types) {
     return !checker.seen_types.empty();
 }
 
-std::set<std::string> mutated_variables(Stmt stmt) {
-    struct Gather : Visitor {
-        std::set<std::string> mutated;
+namespace {
 
-        void visit(const Store *node) override {
-            mutated.insert(node->loc.base);
+struct GatherMutableVariables : Visitor {
+    std::set<std::string> mutated;
+
+    void visit(const Store *node) override { mutated.insert(node->loc.base); }
+
+    void visit(const Accumulate *node) override {
+        mutated.insert(node->loc.base);
+    }
+
+    void visit(const Call *node) override {
+        const Function_t *func_t = node->func.type().as<Function_t>();
+        internal_assert(func_t);
+        internal_assert(func_t->arg_types.size() == node->args.size());
+        for (size_t i = 0; i < node->args.size(); i++) {
+            if (func_t->arg_types[i].is_mutable) {
+                const Var *var = node->args[i].as<Var>();
+                internal_assert(var)
+                    << "mutated_variables() found mutable non-var: "
+                    << node->args[i] << " in Call: " << Expr(node);
+                mutated.insert(var->name);
+            }
         }
+    }
+};
 
-        void visit(const Accumulate *node) override {
-            mutated.insert(node->loc.base);
-        }
-    };
+} // namespace
 
-    Gather g;
+std::set<std::string> mutated_variables(const Expr &expr) {
+    GatherMutableVariables g;
+    expr.accept(&g);
+    return std::move(g.mutated);
+}
+
+std::set<std::string> mutated_variables(const Stmt &stmt) {
+    GatherMutableVariables g;
     stmt.accept(&g);
     return std::move(g.mutated);
 }

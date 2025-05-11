@@ -439,6 +439,8 @@ Type flatten_array_type_helper(Type type, Expr size) {
 Type flatten_array_type(const Type &type) {
     if (const Array_t *nested = type.as<Array_t>()) {
         return flatten_array_type_helper(nested->etype, nested->size);
+    } else if (type.is<Void_t>()) {
+        return type; // map(T -> void, array[T]) is just an apply()
     }
     internal_error << "flatten_array_type called on non-Array_t: " << type;
 }

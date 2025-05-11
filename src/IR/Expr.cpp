@@ -1107,7 +1107,10 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected map function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();
-            if (b.type().is<Set_t>()) {
+            if (f->ret_type.is<Void_t>()) {
+                // This is an `apply`
+                node->type = f->ret_type;
+            } else if (b.type().is<Set_t>()) {
                 node->type = Set_t::make(f->ret_type);
             } else {
                 Expr size = b.type().as<Array_t>()->size;

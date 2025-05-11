@@ -662,10 +662,6 @@ struct LowerMatches : public ir::Mutator {
     ir::Expr visit(const ir::Call *node) override {
         return handle<ir::Expr>(node);
     }
-
-    ir::Stmt visit(const ir::CallStmt *node) override {
-        return handle<ir::Stmt>(node);
-    }
 };
 
 } // namespace
