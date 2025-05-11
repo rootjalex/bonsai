@@ -36,6 +36,24 @@ using namespace ir;
 
 namespace {
 
+std::set<std::string> find_device_functions(const FuncMap &funcs) {
+    std::set<std::string> kernel_devices;
+    lower::CallGraph call_graph =
+        lower::build_call_graph(funcs, /*undef_calls=*/false);
+    for (const auto &[name, graph] : call_graph) {
+        auto it = funcs.find(name);
+        const Function &function = *it->second;
+        if (!function.is_kernel()) {
+            continue;
+        }
+        kernel_devices.insert(function.name);
+        // Propagate to respective function calls used by this kernel.
+        kernel_devices.insert(graph.begin(), graph.end());
+    }
+
+    return kernel_devices;
+}
+
 std::string bonsai_scalar_type_to_cpp(Type type) {
     if (const auto *float_t = type.as<Float_t>()) {
         internal_assert(float_t->is_ieee754());
@@ -814,6 +832,7 @@ void CodeGen_CUDA::print(const Program &program) {
     const std::vector<std::string> topological_order =
         lower::func_topological_order(program.funcs,
                                       /*undef_calls=*/false);
+    std::set<std::string> kernel_devices = find_device_functions(program.funcs);
     for (int i = 0, e = topological_order.size(); i < e; ++i) {
         const std::string &name = topological_order[i];
         const auto &it = program.funcs.find(name);
@@ -825,6 +844,15 @@ void CodeGen_CUDA::print(const Program &program) {
             os << get_indent() << "[NULL FUNCTION]" << '\n';
             continue;
         }
+        if (func->is_kernel()) {
+            os << "__global__";
+        } else if (kernel_devices.contains(func->name)) {
+            os << "__device__";
+        } else {
+            // TODO(cgyurgyik): This else-if may be too restrictive.
+            os << "__host__";
+        }
+        os << ' ';
         print(*func);
         os << '\n';
         if (i + 1 == e) {
