@@ -211,6 +211,12 @@ void Printer::print(const Function &function) {
     if (function.is_exported()) {
         os << "[[export]] ";
     }
+    if (function.is_imported()) {
+        os << "[[imported]] ";
+    }
+    if (function.is_kernel()) {
+        os << "[[kernel]] ";
+    }
     os << function.name;
 
     if (!function.interfaces.empty()) {
@@ -368,6 +374,9 @@ void Printer::visit(const Vector_t *node) {
 
 void Printer::visit(const Struct_t *node) {
     if (verbose) {
+        if (node->is_packed()) {
+            os << "[[packed]] ";
+        }
         os << "struct ";
     }
     os << node->name;

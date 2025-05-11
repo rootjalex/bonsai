@@ -14,15 +14,15 @@ type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }
-type _ts_layout0 = struct _ts_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
-type _ts_layout1 = struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }
-type _ts_layout2 = struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }
-type _ts_split_layout3 = struct _ts_split_layout3{ offset : u32 }
-type _ts_split_layout4 = struct _ts_split_layout4{ pOffset : u32 }
+type _ts_layout0 = [[packed]] struct _ts_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : [[packed]] struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : [[packed]] struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
+type _ts_layout1 = [[packed]] struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : [[packed]] struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }
+type _ts_layout2 = [[packed]] struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }
+type _ts_split_layout3 = [[packed]] struct _ts_split_layout3{ offset : u32 }
+type _ts_split_layout4 = [[packed]] struct _ts_split_layout4{ pOffset : u32 }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern ts : struct _ts_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
+extern ts : [[packed]] struct _ts_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; ts_index : [[packed]] struct _ts_layout1{ low_32 : f32x3; high_32 : f32x3; ts_bit : [[packed]] struct _ts_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; _pad0 : u8; ts_spliton_nPrims : u8x4 }[2] }[count] }
 
 func _recloop_func0(ts__index : u32, ts__bit : u1, ts : (_ts_layout0*), ray : (Ray*), _best0 : mut (__tuple_0*)) -> void {
   if (intersects_Ray_AABB(ray, (&build<AABB>((*ts).ts_index[ts__index].low_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].low_16), (*ts).ts_index[ts__index].high_32 + cast<f32x3>((*ts).ts_index[ts__index].ts_bit[ts__bit].high_16))))) {
