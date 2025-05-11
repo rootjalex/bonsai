@@ -845,14 +845,17 @@ void CodeGen_CUDA::print(const Program &program) {
             continue;
         }
         if (func->is_kernel()) {
-            os << "__global__";
-        } else if (kernel_devices.contains(func->name)) {
-            os << "__device__";
+            os << "__global__" << ' ';
         } else {
-            // TODO(cgyurgyik): This else-if may be too restrictive.
-            os << "__host__";
+            if (kernel_devices.contains(func->name)) {
+                os << "__device__" << ' ';
+            }
+            // TODO(cgyurgyik): We also want the complement; any function that
+            // is *not* used by device functions should be marked as __host__.
+            // For now, we just assume everything may be used by the host
+            // device.
+            os << "__host__" << ' ';
         }
-        os << ' ';
         print(*func);
         os << '\n';
         if (i + 1 == e) {
