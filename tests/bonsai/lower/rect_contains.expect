@@ -12,14 +12,9 @@ func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
   match points {
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
     if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
-      scan (points as Interior).left
+      scan ((points as Interior).left, (points as Interior).right)
     } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
-      from (points as Interior).left
-    }
-    if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
-      scan (points as Interior).right
-    } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
-      from (points as Interior).right
+      from ((points as Interior).left, (points as Interior).right)
     }
   | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
     if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {

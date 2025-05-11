@@ -108,6 +108,9 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
     }
 }
 
+ir::Expr make_tuple(std::vector<ir::Expr> exprs);
+std::vector<ir::Expr> break_tuple(ir::Expr expr);
+
 ir::Expr constant_cast(const ir::Type &t, const ir::Expr &e);
 // Handles broadcasting if necessary.
 ir::Expr cast_to(const ir::Type &t, const ir::Expr &e);

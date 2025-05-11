@@ -247,9 +247,8 @@ __host__ _option0 _traverse_tree0(Ray* r, _spheres_layout0* spheres) {
         if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
           if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
             _queue0[(*_queue_count0)] = (spheres__index + 1u);
-            *_queue_count0 += 1;
-            _queue0[(*_queue_count0)] = (spheres__index + bonsai_reinterpret<_spheres_split_layout2>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).offset);
-            *_queue_count0 += 1;
+            _queue0[(*_queue_count0) + 1] = (spheres__index + bonsai_reinterpret<_spheres_split_layout2>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).offset);
+            *_queue_count0 += 2;
           } else {
             for (uint16_t _idx0 = 0u; _idx0 < (*spheres).spheres_index[spheres__index].nPrims; _idx0 += 1u) {
               if (intersects_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_spheres_split_layout3>((*spheres).spheres_index[spheres__index].spheres_spliton_nPrims).pOffset + _idx0].s))) {

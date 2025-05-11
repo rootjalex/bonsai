@@ -42,9 +42,8 @@ func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option
       if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
         if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
           _queue0[(*_queue_count0)] = triangles__index + 1u
-          _queue_count0 += 1
-          _queue0[(*_queue_count0)] = triangles__index + reinterpret_cast<_triangles_split_layout2>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset
-          _queue_count0 += 1
+          _queue0[(*_queue_count0) + 1] = triangles__index + reinterpret_cast<_triangles_split_layout2>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset
+          _queue_count0 += 2
         } else {
           forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
             if (intersectsp_ray_tri(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {

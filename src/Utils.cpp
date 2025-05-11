@@ -150,6 +150,24 @@ Expr make_one_hot(Type t, Expr idx, size_t lanes) {
     return Build::make(Vector_t::make(t, lanes), std::move(values));
 }
 
+Expr make_tuple(std::vector<Expr> exprs) {
+    std::vector<Type> etypes;
+    etypes.reserve(exprs.size());
+    for (const auto &e : exprs) {
+        etypes.push_back(e.type());
+    }
+    Type tuple_t = Tuple_t::make(std::move(etypes));
+    return ir::Build::make(std::move(tuple_t), std::move(exprs));
+}
+
+std::vector<Expr> break_tuple(Expr expr) {
+    // TODO(ajr): this may someday need to handle expr being a `Sort`
+    const Build *build = expr.as<Build>();
+    internal_assert(build && build->type.is<Tuple_t>())
+        << "Expected Tuple build: " << expr;
+    return build->values;
+}
+
 Expr constant_cast(const Type &t, const Expr &e) {
     if (equals(e.type(), t)) {
         return e;

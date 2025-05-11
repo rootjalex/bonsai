@@ -63,16 +63,25 @@ struct LowerRecLoopsImpl : public Mutator {
 
     Stmt visit(const YieldFrom *node) override {
         internal_assert(current_func.defined());
-        std::vector<Expr> call_args = current_args;
-        if (const Tuple_t *tuple_t = node->value.type().as<Tuple_t>()) {
-            internal_assert(tuple_t->etypes.size() < current_args.size());
-            for (size_t i = 0; i < tuple_t->etypes.size(); i++) {
-                call_args[i] = Extract::make(node->value, i);
+        // TODO(ajr): handle sorting and compression.
+        auto ids = break_tuple(node->value);
+        std::vector<Stmt> stmts;
+        stmts.reserve(ids.size());
+
+        // Make n recursive calls.
+        for (const auto &id : ids) {
+            std::vector<Expr> call_args = current_args;
+            if (const Tuple_t *tuple_t = id.type().as<Tuple_t>()) {
+                internal_assert(tuple_t->etypes.size() < current_args.size());
+                for (size_t i = 0; i < tuple_t->etypes.size(); i++) {
+                    call_args[i] = Extract::make(id, i);
+                }
+            } else {
+                call_args[0] = id;
             }
-        } else {
-            call_args[0] = node->value;
+            stmts.push_back(CallStmt::make(current_func, std::move(call_args)));
         }
-        return CallStmt::make(current_func, std::move(call_args));
+        return Sequence::make(std::move(stmts));
     }
 };
 

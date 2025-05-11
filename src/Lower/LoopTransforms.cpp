@@ -101,30 +101,43 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
               queue_etype(std::move(queue_etype)) {}
 
         Stmt visit(const YieldFrom *node) override {
-            // TODO(ajr): yieldfrom should be rewritten into yieldfromlist
-            Expr value;
-            if (!equals(node->value.type(), queue_etype)) {
-                internal_assert(node->value.type().is<Tuple_t>() &&
-                                node->value.is<Build>())
-                    << "Loopify cannot build " << queue_etype
-                    << " from recursion on : " << node->value
-                    << " of type: " << node->value.type();
-                const Build *build = node->value.as<Build>();
-                internal_assert(build);
-                value = Build::make(queue_etype, build->values);
-            } else {
-                value = node->value;
+            // TODO(ajr): handle sorting here?
+            auto ids = break_tuple(node->value);
+            // TODO(ajr): handle if the tuple must be compressed.
+
+            // TODO(ajr): make sure LLVM does a compressed write.
+            std::vector<Stmt> stmts;
+            stmts.reserve(ids.size() + 1);
+
+            for (size_t i = 0; i < ids.size(); i++) {
+                Expr value = ids[i];
+                if (!equals(value.type(), queue_etype)) {
+                    internal_assert(value.type().is<Tuple_t>() &&
+                                    value.is<Build>())
+                        << "Loopify cannot build " << queue_etype
+                        << " from recursion on : " << value
+                        << " of type: " << value.type();
+                    const Build *build = value.as<Build>();
+                    internal_assert(build);
+                    value = Build::make(queue_etype, build->values);
+                }
+                // Write to queue at current count.
+                WriteLoc current_queue_loc = queue_loc;
+                current_queue_loc.add_index_access(count_var + i);
+
+                Stmt write_queue =
+                    Store::make(current_queue_loc, std::move(value));
+                stmts.emplace_back(std::move(write_queue));
             }
 
-            // Write to queue at current count.
-            WriteLoc current_queue_loc = queue_loc;
-            current_queue_loc.add_index_access(count_var);
-            Stmt write_queue = Store::make(current_queue_loc, std::move(value));
             // Increment counter.
-            Stmt inc_counter = Accumulate::make(count_loc, Accumulate::Add,
-                                                make_one(count_var.type()));
-            return Sequence::make(
-                {std::move(write_queue), std::move(inc_counter)});
+            // TODO(ajr): This is not correct with child-bv trees.
+            Stmt inc_counter =
+                Accumulate::make(count_loc, Accumulate::Add,
+                                 make_const(count_var.type(), ids.size()));
+
+            stmts.push_back(std::move(inc_counter));
+            return Sequence::make(std::move(stmts));
         }
     };
 

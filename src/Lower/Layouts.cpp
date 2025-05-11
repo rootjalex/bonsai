@@ -415,6 +415,31 @@ struct LowerUnwrapAccesses : public ir::Mutator {
         // Not the rewrite we're looking for.
         return ir::Mutator::visit(node);
     }
+
+    std::pair<std::vector<ir::Expr>, bool>
+    visit_list(const std::vector<ir::Expr> &exprs) {
+        bool not_changed = true;
+        const size_t n = exprs.size();
+        std::vector<ir::Expr> new_exprs(n);
+        for (size_t i = 0; i < n; i++) {
+            new_exprs[i] = mutate(exprs[i]);
+            not_changed = not_changed && new_exprs[i].same_as(exprs[i]);
+        }
+        return {std::move(new_exprs), not_changed};
+    }
+
+    ir::Expr visit(const ir::Build *node) override {
+        if (!node->type.is<ir::Tuple_t>()) {
+            return Mutator::visit(node);
+        }
+        // Handle the case that YieldFrom / Scan lowering
+        // changed the types of Tuples being built.
+        auto [values, not_changed] = visit_list(node->values);
+        if (not_changed) {
+            return node;
+        }
+        return make_tuple(std::move(values));
+    }
 };
 
 struct FillHole : public ir::Mutator {
@@ -479,32 +504,38 @@ ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body) {
             : index_list(index_list) {}
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
-            // Base case, single value yield from.
-            ir::Expr value = flatten_tuple(node->value);
-            ir::Type type = value.type();
+            const auto ids = break_tuple(node->value);
+            std::vector<ir::Expr> flat_ids;
+            flat_ids.reserve(ids.size());
 
-            if (index_list.size() == 1) {
-                internal_assert(ir::equals(type, index_list[0].type))
-                    << "Mismatching YieldFroms, expected type: "
-                    << index_list[0].type << " but found type: " << type
-                    << " in: " << ir::Stmt(node);
-            } else {
-                const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
-                internal_assert(tuple &&
-                                tuple->etypes.size() == index_list.size())
-                    << "Expected " << index_list.size()
-                    << " values, but found: " << type
-                    << " in recursive function of: " << ir::Stmt(node);
-
-                for (size_t i = 0; i < index_list.size(); i++) {
-                    internal_assert(
-                        ir::equals(index_list[i].type, tuple->etypes[i]))
+            for (const auto &id : ids) {
+                ir::Expr value = flatten_tuple(id);
+                ir::Type type = value.type();
+                if (index_list.size() == 1) {
+                    internal_assert(ir::equals(type, index_list[0].type))
                         << "Mismatching YieldFroms, expected type: "
-                        << index_list[i].type
-                        << " but found type: " << tuple->etypes[i]
-                        << " at index: " << i << " in: " << ir::Stmt(node);
+                        << index_list[0].type << " but found type: " << type
+                        << " in: " << ir::Stmt(node);
+                } else {
+                    const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
+                    internal_assert(tuple &&
+                                    tuple->etypes.size() == index_list.size())
+                        << "Expected " << index_list.size()
+                        << " values, but found: " << type
+                        << " in recursive function of: " << ir::Stmt(node);
+
+                    for (size_t i = 0; i < index_list.size(); i++) {
+                        internal_assert(
+                            ir::equals(index_list[i].type, tuple->etypes[i]))
+                            << "Mismatching YieldFroms, expected type: "
+                            << index_list[i].type
+                            << " but found type: " << tuple->etypes[i]
+                            << " at index: " << i << " in: " << ir::Stmt(node);
+                    }
                 }
+                flat_ids.push_back(std::move(value));
             }
+            ir::Expr value = make_tuple(std::move(flat_ids));
             return ir::YieldFrom::make(std::move(value));
         }
     };

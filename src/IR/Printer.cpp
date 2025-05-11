@@ -748,9 +748,12 @@ void Printer::visit(const Extract *node) {
 }
 
 void Printer::visit(const Build *node) {
-    os << "build<";
-    print(node->type);
-    os << ">(";
+    if (!node->type.is<Tuple_t>()) {
+        os << "build<";
+        print(node->type);
+        os << ">";
+    }
+    os << "(";
     print_expr_list(node->values);
     os << ")";
 }
