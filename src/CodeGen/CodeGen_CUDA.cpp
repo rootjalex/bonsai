@@ -751,6 +751,7 @@ void CodeGen_CUDA::visit(const ir::Return *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::CallStmt *node) {
+    // TODO(cgyurgyik): kernel calls must be configured <<<X,Y>>>
     os << get_indent();
     node->func.accept(this);
     os << '(';
@@ -882,6 +883,9 @@ void CodeGen_CUDA::print(const Program &program) {
         }
         if (func->is_kernel()) {
             os << "__global__" << ' ';
+            internal_assert(func->ret_type.is<Void_t>())
+                << "bonsai kernels must have a void return type, received: "
+                << func->ret_type;
         } else {
             if (devices.contains(func->name)) {
                 os << "__device__" << ' ';
@@ -923,7 +927,7 @@ void CodeGen_CUDA::print(const Function &function) {
             << "CUDA rng can only run on device, received:\n"
             << function;
         os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
-        // TODO: need `idx` to be set!!
+        // TODO(cgyurgyik): need `idx` to be set!!
         os << get_indent() << "curand_init(idx, 0, 0, &"
            << lower::rng_state_name << ");\n";
     }

@@ -28,13 +28,14 @@ __device__ float f2(float x, curandState* _rng_state) {
   return f3(x, _rng_state);
 }
 
-__global__ float f1(float x) {
+__global__ void f1(float* x) {
   curandState _rng_state;
   curand_init(idx, 0, 0, &_rng_state);
-  if (x == 1) {
-    return 1;
+  if ((*x) == 1) {
+    *x = 0;
+  } else {
+    *x += f2((*x), (&_rng_state));
   }
-  return f2(x, (&_rng_state));
 }
 
 __host__ float h_plus_rand(float x) {
@@ -45,7 +46,10 @@ __host__ float h_plus_rand(float x) {
 }
 
 __host__ int32_t main(float input) {
-  if (f1(input) == random<float>()) {
+  float _x = input;
+  float* x = &_x;
+  f1(x);
+  if ((*x) == random<float>()) {
     return 0;
   }
   return (int32_t)h_plus_rand(input);

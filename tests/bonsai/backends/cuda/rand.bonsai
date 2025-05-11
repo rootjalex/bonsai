@@ -21,12 +21,17 @@ func f2(x: f32) -> f32 {
     return f3(x);
 }
 
-func [[kernel]] f1(x: f32) -> f32  {
-  if (x == 1) { return 1; }
-  return f2(x);
+func [[kernel]] f1(x: mut f32) -> void  {
+  if (x == 1.0) { 
+    x = 0.0; 
+  } else {
+    x += f2(x);
+  }
 }
 
 func [[export]] main(input: f32) -> i32 {
-    if (f1(input) == rand()) { return 0; }
+    x: mut f32 = input;
+    f1(x);
+    if (x == rand()) { return 0; }
     return plus_rand(input);
 }
