@@ -75,6 +75,25 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
     default:
         internal_error << "unimplemented: " << type;
     }
+
+std::set<std::string> find_device_functions(const FuncMap &funcs) {
+    std::set<std::string> kernel_devices;
+    // TODO(cgyurgyik): does this go beyond one level of nesting? Probably need
+    // what the random pass is doing.
+    lower::CallGraph call_graph =
+        lower::build_call_graph(funcs, /*undef_calls=*/false);
+    for (const auto &[name, graph] : call_graph) {
+        auto it = funcs.find(name);
+        const Function &function = *it->second;
+        if (!function.is_kernel()) {
+            continue;
+        }
+        kernel_devices.insert(function.name);
+        // Propagate to respective function calls used by this kernel.
+        kernel_devices.insert(graph.begin(), graph.end());
+    }
+
+    return kernel_devices;
 }
 
 std::string bonsai_scalar_type_to_cpp(Type type) {
@@ -851,6 +870,7 @@ void CodeGen_CUDA::print(const Program &program) {
     const std::vector<std::string> topological_order =
         lower::func_topological_order(program.funcs,
                                       /*undef_calls=*/false);
+    std::set<std::string> kernel_devices = find_device_functions(program.funcs);
     for (int i = 0, e = topological_order.size(); i < e; ++i) {
         const std::string &name = topological_order[i];
         const auto &it = program.funcs.find(name);
@@ -861,6 +881,18 @@ void CodeGen_CUDA::print(const Program &program) {
             // debug.
             os << get_indent() << "[NULL FUNCTION]" << '\n';
             continue;
+        }
+        if (func->is_kernel()) {
+            os << "__global__" << ' ';
+        } else {
+            if (kernel_devices.contains(func->name)) {
+                os << "__device__" << ' ';
+            }
+            // TODO(cgyurgyik): We also want the complement; any function that
+            // is *not* used by device functions should be marked as __host__.
+            // For now, we just assume everything may be used by the host
+            // device.
+            os << "__host__" << ' ';
         }
         print(*func);
         os << '\n';

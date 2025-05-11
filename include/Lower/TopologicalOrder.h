@@ -23,5 +23,9 @@ std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
 
 std::vector<std::string> type_topological_order(const ir::TypeMap &types);
 
+using CallGraph = std::map<std::string, std::set<std::string>>;
+
+CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls);
+
 } // namespace lower
 } // namespace bonsai
