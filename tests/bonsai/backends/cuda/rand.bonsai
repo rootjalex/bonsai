@@ -1,0 +1,21 @@
+//! flags: -b cuda
+
+func f3(x: f32) -> f32 {
+    if (x > rand() + 1) { return 42; }
+    return 0;
+}
+
+func f2(x: f32) -> f32 {
+    if (x == rand()) { return 0; }
+    return f3(x);
+}
+
+func [[kernel]] f1(x: f32) -> f32  {
+  if (x == 1) { return 1; }
+  return f2(x);
+}
+
+func main(input: f32) -> i32 {
+    if (f3(input) == 0) { return 0; }
+    return 1;
+}

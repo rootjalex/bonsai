@@ -188,5 +188,20 @@ CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls) {
     return call_graph;
 }
 
+std::ostream &operator<<(std::ostream &os, const CallGraph &call_graph) {
+    for (const auto &[call, graph] : call_graph) {
+        os << call << '\n';
+        if (graph.empty()) {
+            os << ' ' << "↳" << ' ' << '[' << ']' << '\n';
+            continue;
+        }
+        for (const std::string &nested : graph) {
+            os << ' ' << "↳" << ' ' << nested << '\n';
+        }
+    }
+    os << '\n';
+    return os;
+}
+
 } // namespace lower
 } // namespace bonsai

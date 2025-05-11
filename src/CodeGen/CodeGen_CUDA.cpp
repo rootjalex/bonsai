@@ -886,8 +886,6 @@ void CodeGen_CUDA::print(const Function &function) {
     }
     os << ')' << ' ' << '{' << '\n';
     increment();
-    /*
-    // TODO(cgyurgyik): set up for kernel launch.
     if (function.must_setup_rng()) {
         internal_assert(function.is_kernel())
             << "CUDA rng can only run on __device__:\n"
@@ -897,7 +895,6 @@ void CodeGen_CUDA::print(const Function &function) {
         os << get_indent() << "curand_init(idx, 0, 0, &"
            << lower::rng_state_name << ");\n";
     }
-    */
 
     function.body.accept(this);
     decrement();

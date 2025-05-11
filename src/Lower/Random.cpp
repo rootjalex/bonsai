@@ -165,15 +165,30 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
         // the device. Since cuRAND is explicitly only available on device, so
         // we assume RNG state will be set up in the top most kernel,
         // and then propagated to nested functions from there.
+        lower::CallGraph call_graph =
+            lower::build_call_graph(funcs, /*undef_calls=*/false);
         do {
             old_size = call_rand.size();
-            // TODO(cgyurgyik): build call graph from each kernel, and propagate
-            // from there.
             for (const auto &[name, func] : funcs) {
-                if (call_rand.contains(name)) {
-                    continue;
-                } else if (calls_rand(func->body, call_rand)) {
-                    call_rand.insert(name);
+                if (func->is_kernel()) {
+                    // The kernel does not have an additional argument for the
+                    // RNG state, it only sets it up.
+                    funcs[name]->attributes.push_back(
+                        Function::Attribute::setup_rng);
+                }
+
+                // Any nested calls should, though.
+                // TODO(cgyurgyik): I don't think build_call_graph propagates
+                // beyond a single nested call.
+                auto it = call_graph.find(name);
+                internal_assert(it != call_graph.end()) << name;
+                for (const std::string &nested_name : it->second) {
+                    internal_assert(funcs.contains(nested_name)) << nested_name;
+                    const Function &nested_f = *funcs[nested_name];
+                    if (calls_rand(nested_f.body, call_rand)) {
+                        // We must propagate it from the kernel level.
+                        call_rand.insert(name);
+                    }
                 }
             }
 
@@ -184,7 +199,15 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
             }
             new_size = call_rand.size();
         } while (new_size != old_size);
-        return funcs; // XXX
+
+        // Insert the random state.
+        for (const std::string &name : call_rand) {
+            funcs[name]->body = insert_rand_state(funcs[name]->body, call_rand);
+            funcs[name]->args.emplace_back(rng_state_name, Rand_State_t::make(),
+                                           /*default_value=*/Expr(),
+                                           /*mutating=*/true);
+        }
+        return funcs;
     }
     default: {
         // First find the set of all random calls.

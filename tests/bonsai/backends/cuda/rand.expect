@@ -1,0 +1,31 @@
+#include "runtime/CUDA/math.h"
+
+__host__ float f3(float x) {
+  if ((curand_uniform(_rng_state) + static_cast<float>(1)) < x) {
+    return static_cast<float>(42);
+  }
+  return static_cast<float>(0);
+}
+
+__device__ __host__ float f2(float x) {
+  if (x == curand_uniform(_rng_state)) {
+    return static_cast<float>(0);
+  }
+  return f3(x);
+}
+
+__global__ float f1(float x, curandState* _rng_state) {
+  curandState _rng_state;
+  curand_init(idx, 0, 0, &_rng_state);
+  if (x == static_cast<float>(1)) {
+    return static_cast<float>(1);
+  }
+  return f2(x);
+}
+
+__host__ int32_t main(float input) {
+  if (f3(input) == static_cast<float>(0)) {
+    return 0;
+  }
+  return 1;
+}

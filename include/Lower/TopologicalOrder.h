@@ -23,7 +23,10 @@ std::vector<std::string> func_topological_order(const ir::FuncMap &funcs,
 
 std::vector<std::string> type_topological_order(const ir::TypeMap &types);
 
+// Represents a mapping from function to nested function calls.
 using CallGraph = std::map<std::string, std::set<std::string>>;
+
+std::ostream &operator<<(std::ostream &, const CallGraph &);
 
 CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls);
 

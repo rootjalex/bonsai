@@ -661,6 +661,8 @@ struct Parser {
             std::string attribute = get_id();
             if (attribute == "export") {
                 attributes.push_back(ir::Function::Attribute::exported);
+            } else if (attribute == "kernel") {
+                attributes.push_back(ir::Function::Attribute::kernel);
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }
