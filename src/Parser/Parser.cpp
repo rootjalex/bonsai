@@ -1679,7 +1679,7 @@ struct Parser {
                 << def.name << " marked as mutable.";
             args.push_back({std::move(def.name), std::move(def.type)});
         } while (consume(Token::Type::COMMA));
-        consume(Token::Type::BAR);
+        expect(Token::Type::BAR);
         return args;
     }
 
