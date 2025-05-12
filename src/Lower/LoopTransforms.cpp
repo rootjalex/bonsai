@@ -28,19 +28,19 @@ bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
     return is_const_zero(opt::Simplify::simplify((e - b) % s));
 }
 
-// for (int io = b0; i < e0; i += s0)
-//   for (int ii = b1; j < e1; j += s1)
+// for (int io = bo; i < eo; i += so)
+//   for (int ii = bi; j < ei; j += si)
 //     foo(io, ii);
 //
 //   ->
 //
-// int c0 = (e0 - b0 + s0 - 1) / s0;
-// int c1 = (e1 - b1 + s1 - 1) / s1;
-// int n = c0 * c1;
+// int co = (eo - bo + so - 1) / so;
+// int ci = (ei - bi + si - 1) / si;
+// int n = co * ci;
 // for (int c = 0; c < n; ++c) {
-//   int io = b0 + (c / c1) * s0;
-//   int ii = b1 + (c % c1) * s1;
-//   if (io < e0 && ii < e1)
+//   int io = bo + (c / ci) * so;
+//   int ii = bi + (c % ci) * si;
+//   if (io < eo && ii < ei)
 //     foo(io, ii)
 // }
 Stmt collapse_loops(Stmt body, const std::string &io, const std::string &ii,
@@ -65,32 +65,32 @@ Stmt collapse_loops(Stmt body, const std::string &io, const std::string &ii,
             }
             const ForAll::Slice &oslice = outer->slice;
             const ForAll::Slice &islice = inner->slice;
-            Expr b0 = oslice.begin, e0 = oslice.end, s0 = oslice.stride;
-            Expr b1 = islice.begin, e1 = islice.end, s1 = islice.stride;
+            Expr bo = oslice.begin, eo = oslice.end, so = oslice.stride;
+            Expr bi = islice.begin, ei = islice.end, si = islice.stride;
             internal_assert(
                 ir::equals(inner->index_type(), outer->index_type()));
             Type idx_t = outer->index_type();
-            Expr c0 = outer->count(), c1 = inner->count();
+            Expr co = outer->count(), ci = inner->count();
             ForAll::Slice slice{
                 .begin = make_zero(idx_t),
-                .end = c0 * c1,
+                .end = co * ci,
                 .stride = make_one(idx_t),
             };
             Expr idx = Var::make(idx_t, i);
-            Expr ioe = Var::make(idx_t, io);
-            Expr iie = Var::make(idx_t, ii);
+            Expr io_e = Var::make(idx_t, io);
+            Expr ii_e = Var::make(idx_t, ii);
 
             std::vector<Stmt> stmts;
             stmts.push_back(
-                LetStmt::make(WriteLoc(io, idx_t), b0 + (idx / c1) * s0));
+                LetStmt::make(WriteLoc(io, idx_t), bo + (idx / ci) * so));
             stmts.push_back(
-                LetStmt::make(WriteLoc(ii, idx_t), b1 + (idx % c1) * s1));
+                LetStmt::make(WriteLoc(ii, idx_t), bi + (idx % ci) * si));
 
             Stmt body = inner->body;
-            if (!(is_perfectly_divisible(b0, e0, s0) &&
-                  is_perfectly_divisible(b1, e1, s1))) {
+            if (!(is_perfectly_divisible(bo, eo, so) &&
+                  is_perfectly_divisible(bi, ei, si))) {
                 // Need to guard against out-of-bounds accesses.
-                stmts.push_back(IfElse::make(ioe < e0 && iie < e1, body));
+                stmts.push_back(IfElse::make(io_e < eo && ii_e < ei, body));
             } else {
                 stmts.push_back(body);
             }

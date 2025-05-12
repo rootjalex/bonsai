@@ -64,6 +64,8 @@ struct Split {
 };
 
 // Collapse two for-loops (io, ii) into a single for-loop (i).
+// Note that io is shorthand for index in the outer loop, and ii
+// is shorthand for index in the inner loop.
 struct Collapse {
     Location io;
     Location ii;
