@@ -216,6 +216,8 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
             if (!func.is_kernel() && !call_rand.contains(name)) {
                 continue;
             }
+            // TODO(cgyurgyik): This should only occur if rand is actually used
+            // in this kernel.
             if (func.is_kernel()) {
                 // The kernel only sets up the RNG.
                 func.attributes.push_back(Function::Attribute::setup_rng);
