@@ -1203,9 +1203,12 @@ void CodeGen_LLVM::visit(const Cast *node) {
         value = builder->CreateFPCast(inner, llvm_dst);
     } else if (src.is<Array_t>() && dst.is<Array_t>()) {
         value = inner; // no-op
+    } else if (src.is_bool() && dst.is_uint()) {
+        value = builder->CreateIntCast(inner, llvm_dst,
+                                       /* isSigned */ false);
     } else {
         internal_error << "TODO: implement Cast codegen: " << Expr(node)
-                       << "with types: " << src << " -> " << dst;
+                       << " with types: " << src << " -> " << dst;
     }
 }
 
