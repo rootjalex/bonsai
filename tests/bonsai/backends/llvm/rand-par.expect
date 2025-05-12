@@ -6,7 +6,7 @@ source_filename = "bonsai_module"
 @0 = private unnamed_addr constant [66 x i8] c"{%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f}\0A\00", align 1
 @1 = private unnamed_addr constant [22 x i8] c"%d, [%f, %f, %f, %f]\0A\00", align 1
 
-define void @_parfunc0(ptr nocapture noundef nonnull readonly %_ctx0, i64 noundef %_parfor_idx) {
+define void @_parfunc0(ptr nocapture noundef nonnull readonly %ctx0, i64 noundef %_parfor_idx) {
 _parfunc0_entry:
   %0 = tail call i32 @rand()
   %1 = insertelement <4 x i32> poison, i32 %0, i64 0
@@ -31,10 +31,10 @@ _parfunc0_entry:
   %20 = extractelement <4 x float> %16, i64 3
   %21 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %8, float %17, float %18, float %19, float %20)
   %22 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %16)
-  %_ctx0__alloc0_ld = load ptr, ptr %_ctx0, align 8
+  %ctx0__alloc0_ld = load ptr, ptr %ctx0, align 8
   %23 = sext i32 %8 to i64
-  %_ctx0__alloc0_ld1 = getelementptr inbounds float, ptr %_ctx0__alloc0_ld, i64 %23
-  store float %22, ptr %_ctx0__alloc0_ld1, align 4
+  %ctx0__alloc0_ld1 = getelementptr inbounds float, ptr %ctx0__alloc0_ld, i64 %23
+  store float %22, ptr %ctx0__alloc0_ld1, align 4
   ret void
 }
 
