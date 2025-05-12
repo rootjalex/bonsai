@@ -122,12 +122,10 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
 
             std::vector<Stmt> stmts;
             stmts.push_back(
-                LetStmt::make(WriteLoc(i1, idx_t), b1 + (idx / c1) * s1));
+                LetStmt::make(WriteLoc(i1, idx_t), b1 + (idx / c2) * s1));
             stmts.push_back(
                 LetStmt::make(WriteLoc(i2, idx_t), b2 + (idx % c2) * s2));
 
-            // TODO(cgyurgyik): debug, remove
-            // stmts.push_back(Print::make({idx}));
             ReplaceIndexing replace(i1, i2, idx);
             Stmt body = replace.mutate(inner->body);
             if (!(is_perfectly_divisible(b1, e1, s1) &&
