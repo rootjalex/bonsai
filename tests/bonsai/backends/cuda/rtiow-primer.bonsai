@@ -201,6 +201,7 @@ schedule {
 
     sample.loopify();
     trace.loopify(64);
+    image.collapse(i0, i1, i);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
