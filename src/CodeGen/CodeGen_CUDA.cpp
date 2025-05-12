@@ -647,6 +647,7 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
+// TODO(cgyurgyik): Verify this is coming from device memory.
 void CodeGen_CUDA::visit(const Free *node) {
     os << get_indent() << "cudaFree" << '(';
     node->value.accept(this);
@@ -917,7 +918,7 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << node->func;
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
-    // TODO(cgyurgyik): Should this be handlded in Parallelize?
+    // TODO(cgyurgyik): Should this be handled in Parallelize?
     Expr block_size = make_const(n.type(), 1024);
     (n / (block_size - 1)).accept(this);
     os << ',' << ' ';
