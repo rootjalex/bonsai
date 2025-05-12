@@ -850,7 +850,7 @@ void CodeGen_CUDA::visit(const Print *node) {
     if (Expr value = args.front();
         args.size() == 1 && value.type().is_scalar()) {
         std::string specifier = get_specifier(value.type());
-        os << '\"' << specifier << '\"' << ',' << ' ';
+        os << '\"' << specifier << '\n' << '\"' << ',' << ' ';
         value.accept(this);
         os << ')' << ';' << '\n';
         return;
