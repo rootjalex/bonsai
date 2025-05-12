@@ -647,7 +647,7 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
-void CodeGen_CUDA::visit(const Deallocate *node) {
+void CodeGen_CUDA::visit(const Free *node) {
     os << get_indent() << "cudaFree" << '(';
     node->value.accept(this);
     os << ')' << ';' << '\n';
@@ -713,7 +713,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         internal_error << "[unimplemented] Allocate CUDA codegen: "
                        << Stmt(node);
     }
-    case Allocate::Memory::ToDevice: {
+    case Allocate::Memory::Device: {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';
@@ -732,7 +732,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         internal_error << "[unimplemented] Allocate CUDA codegen: "
                        << Stmt(node);
     }
-    case Allocate::Memory::FromDevice: {
+    case Allocate::Memory::Host: {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';

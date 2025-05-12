@@ -507,12 +507,12 @@ Stmt Mutator::visit(const Allocate *node) {
     return Allocate::make(std::move(loc), std::move(value), node->memory);
 }
 
-Stmt Mutator::visit(const Deallocate *node) {
+Stmt Mutator::visit(const Free *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
         return node;
     }
-    return Deallocate::make(std::move(value));
+    return Free::make(std::move(value));
 }
 
 Stmt Mutator::visit(const Store *node) {

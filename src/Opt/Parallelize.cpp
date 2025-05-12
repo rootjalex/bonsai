@@ -234,7 +234,7 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
         if (value.type().is<Struct_t, Array_t>()) {
             std::string device_name = "d_" + v->name;
             stmts.push_back(Allocate::make(WriteLoc(device_name, value.type()),
-                                           value, Allocate::Memory::ToDevice));
+                                           value, Allocate::Memory::Device));
             to_device.push_back(Var::make(value.type(), device_name));
             continue;
         }
@@ -264,9 +264,9 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
                 std::string host_name = "h_" + v->name;
                 stmts.push_back(
                     Allocate::make(WriteLoc(host_name, value.type()), value,
-                                   Allocate::Memory::FromDevice));
+                                   Allocate::Memory::Host));
             }
-            stmts.push_back(Deallocate::make(value));
+            stmts.push_back(Free::make(value));
             continue;
         }
         if (value.type().is_scalar()) {

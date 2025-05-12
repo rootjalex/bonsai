@@ -138,7 +138,7 @@ struct Printer : public Visitor {
     void visit(const DoWhile *) override;
     void visit(const Sequence *) override;
     void visit(const Allocate *) override;
-    void visit(const Deallocate *) override;
+    void visit(const Free *) override;
     void visit(const Store *) override;
     void visit(const Accumulate *) override;
     void visit(const Label *) override;
