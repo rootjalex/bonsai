@@ -30,7 +30,7 @@ bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
 
 // for (int i0 = b1; i < e1; i += s1)
 //   for (int i1 = b2; j < e2; j += s2)
-//     foo(i1, i1);
+//     foo(i0, i1);
 //
 //   ->
 //
