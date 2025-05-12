@@ -8,10 +8,15 @@ namespace bonsai {
 namespace lower {
 
 // Lowers the `sort` scheduling command.
-// Expects a body that contains a single `YieldFrom`, which will be sorted based
-// on the application of the cost function.
-ir::Stmt apply_sort(const ir::Location &loc, const ir::Expr &cost_func,
-                    ir::Stmt stmt, ir::FuncMap &funcs);
+//
+class LowerSorts : public Pass {
+  public:
+    constexpr std::string name() const override { return "lower-sorts"; }
+
+    // Requires full-program (needs access to schedule).
+    ir::Program run(ir::Program program,
+                    const CompilerOptions &options) const override;
+};
 
 } // namespace lower
 } // namespace bonsai

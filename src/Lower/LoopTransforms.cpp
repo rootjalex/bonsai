@@ -2,8 +2,6 @@
 
 #include "Opt/Parallelize.h"
 
-#include "Lower/Sorts.h"
-
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
@@ -526,30 +524,31 @@ ir::Program LoopTransforms::run(ir::Program program,
 
         Stmt body = std::move(func->body);
         for (const auto &t : ts) {
-            std::visit(
-                Overloaded{
-                    [&](const Loopify &l) {
-                        body = loopify(name, std::move(body), l.queue_size,
-                                       program.funcs);
-                    },
-                    [&](const Sort &sort) {
-                        body = apply_sort(sort.loc, sort.lambda,
-                                          std::move(body), program.funcs);
-                    },
-                    [&](const Split &split) {
-                        std::string i = get_name(split.i);
-                        std::string io = get_name(split.io);
-                        std::string ii = get_name(split.ii);
-                        body =
-                            split_loop(std::move(body), i, io, ii, split.factor,
-                                       split.generate_tail, program.funcs);
-                    },
-                    [&](const Parallelize &par) {
-                        std::string i = get_name(par.i);
-                        body = opt::parallelize_forall(
-                            i, std::move(body), program.funcs, program.types);
-                    }},
-                t);
+            std::visit(Overloaded{[&](const Loopify &l) {
+                                      body =
+                                          loopify(name, std::move(body),
+                                                  l.queue_size, program.funcs);
+                                  },
+                                  [&](const Sort &sort) {
+                                      // no-op, should have been handled in
+                                      // Lower/Sorts.cpp
+                                  },
+                                  [&](const Split &split) {
+                                      std::string i = get_name(split.i);
+                                      std::string io = get_name(split.io);
+                                      std::string ii = get_name(split.ii);
+                                      body = split_loop(std::move(body), i, io,
+                                                        ii, split.factor,
+                                                        split.generate_tail,
+                                                        program.funcs);
+                                  },
+                                  [&](const Parallelize &par) {
+                                      std::string i = get_name(par.i);
+                                      body = opt::parallelize_forall(
+                                          i, std::move(body), program.funcs,
+                                          program.types);
+                                  }},
+                       t);
         }
         func->body = std::move(body);
     }

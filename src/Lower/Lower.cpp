@@ -17,6 +17,7 @@
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
 #include "Lower/ReturnToOutParameter.h"
+#include "Lower/Sorts.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
 #include "Lower/VerifyLayouts.h"
@@ -76,6 +77,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerGenerics>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
+    manager.register_pass<LowerSorts>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerGeometrics>();
@@ -106,6 +108,8 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<opt::Fusion>());
     core.push_back(std::make_unique<LowerMaps>());
     core.push_back(std::make_unique<LowerTrees>());
+    // This must always run after LowerTrees and before LowerLayouts
+    core.push_back(std::make_unique<LowerSorts>());
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
@@ -140,6 +144,8 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<opt::Fusion>());
     d.push_back(std::make_unique<LowerMaps>());
     d.push_back(std::make_unique<LowerTrees>());
+    // This must always run after LowerTrees and before LowerLayouts
+    d.push_back(std::make_unique<LowerSorts>());
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
