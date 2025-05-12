@@ -32,7 +32,7 @@ __host__ int32_t* _traverse_array0(int32_t n, int32_t* fs) {
   _parfunc0<<<(n / (1024 - 1)), 1024>>>(ctx);
   cudaDeviceSynchronize();
   int32_t* h__alloc0;
-  cudaMallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, n * sizeof(int32_t));
+  mallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, n * sizeof(int32_t));
   cudaFree(_alloc0);
   cudaFree(d_fs);
   _alloc0 = h__alloc0;

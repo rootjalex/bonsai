@@ -1801,7 +1801,7 @@ cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
 }
 
 __forceinline__ __host__ void
-cudaMallocAndCopyFromDevice(void **host, const void *device, size_t size) {
-    cudaMalloc(host, size);
+mallocAndCopyFromDevice(void **host, const void *device, size_t size) {
+    *host = malloc(size);
     cudaMemcpy(*host, device, size, cudaMemcpyDeviceToHost);
 }

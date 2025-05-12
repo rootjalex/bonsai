@@ -736,7 +736,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';
-            os << get_indent() << "cudaMallocAndCopyFromDevice" << '(';
+            os << get_indent() << "mallocAndCopyFromDevice" << '(';
             os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
             internal_assert(node->value.defined())
                 << "allocation to device expects a value (what is copied)";
