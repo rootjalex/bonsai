@@ -13,7 +13,7 @@ namespace lower {
 // parallelization.
 class LoopTransforms : public Pass {
   public:
-    constexpr std::string name() const override { return "loop-transforms"; }
+    const std::string name() const override { return "loop-transforms"; }
 
     // Requires full-program (needs access to schedule).
     ir::Program run(ir::Program program,

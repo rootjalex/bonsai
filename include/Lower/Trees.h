@@ -13,7 +13,7 @@ namespace lower {
 // TODO: nice description
 class LowerTrees : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-trees"; }
+    const std::string name() const override { return "lower-trees"; }
 
     // Requires full-program analysis (needs access to schedule).
     ir::Program run(ir::Program program,

@@ -24,7 +24,7 @@ namespace lower {
 //   v = $r
 class ReturnToOutParameter : public Pass {
   public:
-    constexpr std::string name() const override { return "rtop"; }
+    const std::string name() const override { return "rtop"; }
 
     ir::FuncMap run(ir::FuncMap functions,
                     const CompilerOptions &options) const override;

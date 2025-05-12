@@ -16,7 +16,7 @@ namespace lower {
 // dynamic size cases).
 class LowerYields : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-yields"; }
+    const std::string name() const override { return "lower-yields"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

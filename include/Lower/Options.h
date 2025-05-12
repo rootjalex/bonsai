@@ -12,7 +12,7 @@ namespace lower {
 // Lowers an `option` type to a form more amenable for backend code generation.
 class LowerOptions : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-option"; }
+    const std::string name() const override { return "lower-option"; }
 
     ir::Program run(ir::Program program,
                     const CompilerOptions &options) const override;

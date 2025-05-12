@@ -17,7 +17,7 @@ namespace lower {
 // compile-time-constants.
 class LowerTuples : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-tuples"; }
+    const std::string name() const override { return "lower-tuples"; }
 
     // Requires full-program analysis (needs access to types + funcs).
     ir::Program run(ir::Program program,

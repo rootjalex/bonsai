@@ -10,7 +10,7 @@ namespace opt {
 // Performs function inlining.
 class Inline : public lower::Pass {
   public:
-    constexpr std::string name() const override { return "inline"; }
+    const std::string name() const override { return "inline"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

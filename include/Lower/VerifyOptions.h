@@ -19,7 +19,7 @@ namespace lower {
 //      use(*i);          // ILLEGAL
 class VerifyOptions : public Pass {
   public:
-    constexpr std::string name() const override { return "verify-option"; }
+    const std::string name() const override { return "verify-option"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

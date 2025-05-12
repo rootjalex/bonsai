@@ -15,7 +15,7 @@ namespace lower {
 // CUDA).
 class LowerRandom : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-random"; }
+    const std::string name() const override { return "lower-random"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

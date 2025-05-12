@@ -10,7 +10,7 @@ namespace lower {
 
 struct Pass {
     // Returns the name of this pass.
-    virtual constexpr std::string name() const = 0;
+    virtual const std::string name() const = 0;
 
     // Runs this pass on `program`.
     // Default runs in types -> externs -> order -> schedules order.

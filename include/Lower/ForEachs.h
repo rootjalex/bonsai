@@ -12,7 +12,7 @@ namespace lower {
 
 class LowerForEachs : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-foreachs"; }
+    const std::string name() const override { return "lower-foreachs"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

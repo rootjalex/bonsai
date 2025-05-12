@@ -174,7 +174,7 @@ inline bool is_geometric_metric(const std::string &name) {
 }
 
 // Returns a bit mask of size n.
-uint64_t bit_mask(int64_t n);
+uint64_t bit_mask(uint64_t n);
 
 // Returns whether `value` up to size `width` is all ones.
 template <typename T>
