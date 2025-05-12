@@ -20,6 +20,19 @@ namespace lower {
 
 using namespace ir;
 
+uint32_t next_pow2(uint32_t n) {
+    if (n == 0) {
+        return 1;
+    }
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    return n + 1;
+}
+
 Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
                 FuncMap &funcs) {
     struct ApplySortImpl : public Mutator {
@@ -57,10 +70,36 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             for (size_t i = 0; i < exprs.size(); i++) {
                 costs[i] = sort_cost(i);
             }
-            // TODO(ajr): Figure out how to generate a sorting network.
-            internal_assert(exprs.size() == 2);
-            const size_t n = exprs.size();
-            internal_assert((n & (n - 1)) == 0) << "Expected power of 2: " << n;
+            const size_t n = next_pow2(exprs.size());
+
+            std::vector<Stmt> temps;
+
+            size_t bool_counter = 0;
+            auto make_temp_bool = [&temps, &bool_counter](Expr expr) {
+                std::string name = "_sort_cmp" + std::to_string(bool_counter++);
+                temps.push_back(LetStmt::make(WriteLoc(name, Bool_t::make()),
+                                              std::move(expr)));
+                return Var::make(Bool_t::make(), std::move(name));
+            };
+
+            size_t cost_counter = 0;
+            auto make_temp_cost = [&temps, &cost_counter](Expr expr) {
+                std::string name =
+                    "_sort_cost" + std::to_string(cost_counter++);
+                Type t = expr.type();
+                temps.push_back(
+                    LetStmt::make(WriteLoc(name, t), std::move(expr)));
+                return Var::make(std::move(t), std::move(name));
+            };
+
+            size_t val_counter = 0;
+            auto make_temp_val = [&temps, &val_counter](Expr expr) {
+                std::string name = "_sort_tmp" + std::to_string(val_counter++);
+                Type t = expr.type();
+                temps.push_back(
+                    LetStmt::make(WriteLoc(name, t), std::move(expr)));
+                return Var::make(std::move(t), std::move(name));
+            };
 
             // Use bitonic sorting network.
             // https://en.wikipedia.org/wiki/Bitonic_sorter
@@ -68,22 +107,32 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
                 for (size_t j = k / 2; j > 0; j /= 2) {
                     for (size_t i = 0; i < n; i++) {
                         const size_t l = i ^ j;
-                        if (l > i) {
+                        if (l > i && std::max(i, l) < exprs.size()) {
                             Expr compare_cost = ((i & k) == 0)
                                                     ? (costs[i] < costs[l])
                                                     : (costs[i] > costs[l]);
+
+                            compare_cost =
+                                make_temp_bool(std::move(compare_cost));
                             Expr cost0 = costs[i], cost1 = costs[l];
                             Expr expr0 = exprs[i], expr1 = exprs[l];
                             costs[i] = select(compare_cost, cost0, cost1);
+                            costs[i] = make_temp_cost(std::move(costs[i]));
                             exprs[i] = select(compare_cost, expr0, expr1);
+                            exprs[i] = make_temp_val(std::move(exprs[i]));
                             costs[l] = select(compare_cost, cost1, cost0);
+                            costs[l] = make_temp_cost(std::move(costs[l]));
                             exprs[l] = select(compare_cost, expr1, expr0);
+                            exprs[l] = make_temp_val(std::move(exprs[l]));
                         }
                     }
                 }
             }
             Expr value = make_tuple(exprs);
-            return YieldFrom::make(std::move(value));
+            Stmt yield = YieldFrom::make(std::move(value));
+            internal_assert(!temps.empty());
+            temps.emplace_back(std::move(yield));
+            return Sequence::make(std::move(temps));
         }
 
         // TODO(ajr): Matches have already been lowered, annoyingly...
