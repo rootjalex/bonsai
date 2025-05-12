@@ -42,7 +42,7 @@ std::string unique_collapse_index() {
 // int c2 = (e2 - b2 + s2 - 1) / s2;
 // int n = c1 * c2;
 // for (int c = 0; c < n; ++c) {
-//   int i1 = b1 + (c / c1) * s1;
+//   int i1 = b1 + (c / c2) * s1;
 //   int i2 = b2 + (c % c2) * s2;
 //   if (i1 < e1 && i2 < e2)
 //     foo(i1, i2)
