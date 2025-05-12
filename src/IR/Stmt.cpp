@@ -142,7 +142,7 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
 Stmt Deallocate::make(Expr var) {
     internal_assert(var.defined()) << "Undefined var in Deallocate::make";
     Deallocate *node = new Deallocate;
-    internal_assert(var.type().is<Array_t>())
+    internal_assert((var.type().is<Array_t, Struct_t>()))
         << "unexpected type in Deallocate::make, " << var.type();
     node->value = std::move(var);
     return node;

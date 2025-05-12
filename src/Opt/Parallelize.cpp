@@ -231,11 +231,11 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
             to_device.push_back(value);
             continue;
         }
-        if (const auto *array_t = value.type().as<Array_t>()) {
+        if (value.type().is<Struct_t, Array_t>()) {
             std::string device_name = "d_" + v->name;
-            stmts.push_back(Allocate::make(WriteLoc(device_name, array_t),
+            stmts.push_back(Allocate::make(WriteLoc(device_name, value.type()),
                                            value, Allocate::Memory::ToDevice));
-            to_device.push_back(Var::make(array_t, device_name));
+            to_device.push_back(Var::make(value.type(), device_name));
             continue;
         }
         if (value.type().is_scalar()) {
@@ -259,12 +259,12 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
     for (const Expr &value : to_device) {
         const auto *v = value.as<Var>();
         internal_assert(v) << "unexpected context argument: " << value;
-        if (const auto *array_t = value.type().as<Array_t>()) {
+        if (value.type().is<Array_t, Struct_t>()) {
             if (closure.written.contains(v->name)) {
                 std::string host_name = "h_" + v->name;
-                stmts.push_back(Allocate::make(WriteLoc(host_name, array_t),
-                                               value,
-                                               Allocate::Memory::FromDevice));
+                stmts.push_back(
+                    Allocate::make(WriteLoc(host_name, value.type()), value,
+                                   Allocate::Memory::FromDevice));
             }
             stmts.push_back(Deallocate::make(value));
             continue;
