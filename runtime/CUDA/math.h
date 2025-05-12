@@ -1792,3 +1792,15 @@ O bonsai_reinterpret(I input) {
     output = reinterpret_cast<O *>(i);
     return *output;
 }
+
+__forceinline__ __host__ void
+cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
+    cudaMalloc(device, size);
+    cudaMemcpy(*device, host, size, cudaMemcpyHostToDevice);
+}
+
+__forceinline__ __host__ void
+cudaMallocAndCopyFromDevice(void **host, const void *device, size_t size) {
+    cudaMalloc(host, size);
+    cudaMemcpy(*host, device, size, cudaMemcpyDeviceToHost);
+}

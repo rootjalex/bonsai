@@ -1007,6 +1007,14 @@ void Printer::visit(const Allocate *node) {
     os << "\n";
 }
 
+void Printer::visit(const Deallocate *node) {
+    os << get_indent();
+    os << "free" << '(';
+    node->value.accept(this);
+    os << ')';
+    os << "\n";
+}
+
 void Printer::visit(const Store *node) {
     os << get_indent();
     print(node->loc);

@@ -541,8 +541,7 @@ ir::Program LoopTransforms::run(ir::Program program,
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);
                                       body = opt::parallelize_forall(
-                                          i, std::move(body), program.funcs,
-                                          program.types);
+                                          i, std::move(body), program, options);
                                   }},
                        t);
         }

@@ -34,17 +34,21 @@ std::string unique_func_name() {
 struct Closure {
     std::shared_ptr<Function> func;
     Expr context;
+    // Variables that are written to.
+    std::map<std::string, Type> written;
 };
 
 Stmt replace_reads_and_writes(const WriteLoc &ctx,
                               const std::map<std::string, Expr> &repls,
-                              const Stmt &orig) {
+                              const Stmt &orig, Closure &closure) {
     struct Replacer : public Mutator {
         const WriteLoc &ctx;
         const std::map<std::string, Expr> &repls;
+        Closure &closure;
 
-        Replacer(const WriteLoc &ctx, const std::map<std::string, Expr> &repls)
-            : ctx(ctx), repls(repls) {}
+        Replacer(const WriteLoc &ctx, const std::map<std::string, Expr> &repls,
+                 Closure &closure)
+            : ctx(ctx), repls(repls), closure(closure) {}
 
         Expr visit(const Var *node) override {
             const auto &iter = repls.find(node->name);
@@ -57,6 +61,7 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
 
         std::pair<WriteLoc, bool>
         mutate_writeloc(const WriteLoc &loc) override {
+            closure.written[loc.base] = loc.base_type;
             if (repls.contains(loc.base)) {
                 WriteLoc new_loc = ctx;
                 new_loc.add_struct_access(loc.base);
@@ -74,10 +79,13 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
             }
         }
     };
-    Replacer replacer(ctx, repls);
+    Replacer replacer(ctx, repls, closure);
     return replacer.mutate(orig);
 }
 
+// Builds a closure that greatly resembles what is needed for the Grand Central
+// Dispatch (GCD) on MacOS.
+// TODO(ajr): this closure is somewhat GCD-specific, maybe generalize?
 Closure build_closure(const ForAll *forall, TypeMap &types) {
     // TODO: might be able to optimize this with LICM or something.
     std::vector<TypedVar> vars = gather_free_vars(forall);
@@ -119,13 +127,13 @@ Closure build_closure(const ForAll *forall, TypeMap &types) {
         cast(itype, cast(idx_t, forall->slice.begin) +
                         cast(idx_t, forall->slice.stride) * loop_i));
     // TODO(ajr): this also needs to replace Stores/Allocates/Accumulates!
+    Closure closure;
     stmts[1] = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
-                                        forall->body);
+                                        forall->body, closure);
     stmts[2] = Return::make();
     Stmt body = Sequence::make(std::move(stmts));
 
     std::string func = unique_func_name();
-    Closure closure;
     closure.context = ctx;
     closure.func = std::make_shared<Function>(
         std::move(func), std::move(f_args), Void_t::make(), std::move(body),
@@ -134,43 +142,180 @@ Closure build_closure(const ForAll *forall, TypeMap &types) {
     return closure;
 }
 
+// Builds a kernel to execute in the CUDA backend.
+Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
+    // TODO: might be able to optimize this with LICM or something.
+    std::vector<TypedVar> vars = gather_free_vars(forall);
+    // TODO(ajr): if struct supported mutable fields, we would need this.
+    std::set<std::string> mut_vars = mutated_variables(forall);
+
+    std::string ctx_name = unique_ctx_name();
+    Type ctx_t = Struct_t::make(ctx_name, vars);
+    types[ctx_name] = ctx_t;
+    std::vector<Expr> build_args;
+    build_args.reserve(vars.size());
+    std::transform(vars.begin(), vars.end(), std::back_inserter(build_args),
+                   [](const TypedVar &v) { return Var::make(v.type, v.name); });
+    Expr ctx = Build::make(ctx_t, build_args);
+    Expr ctx_var = Var::make(ctx_t, ctx_name);
+
+    std::vector<Function::Argument> f_args;
+    f_args.push_back(Function::Argument(
+        /*name=*/ctx_name,
+        /*type=*/ctx_t,
+        /*default_value=*/Expr(),
+        /*mutating=*/true));
+
+    Expr b = forall->slice.begin;
+    Expr e = forall->slice.end;
+    Expr s = forall->slice.stride;
+
+    Type idx_t = forall->index_type();
+    // TOOD(cgyurgyik): hacky; make this work for multiple dimensions.
+    static Expr bidx = Var::make(idx_t, "blockIdx.x");
+    static Expr bdim = Var::make(idx_t, "blockDim.x");
+    static Expr tidx = Var::make(idx_t, "threadIdx.x");
+    static Expr tid = Var::make(idx_t, "tid");
+
+    std::vector<Stmt> stmts;
+    // tid = blockIdx * blockDim + threadIdx;
+    stmts.push_back(
+        LetStmt::make(WriteLoc("tid", idx_t), (bidx * bdim + tidx)));
+    // index = begin + tid * stride;
+    stmts.push_back(LetStmt::make(WriteLoc(forall->index, idx_t), b + tid * s));
+    // if (index >= end) { return; }
+    Expr idx = Var::make(idx_t, forall->index);
+    stmts.push_back(IfElse::make(idx >= e, Return::make()));
+
+    // Replace reads and writes to access the context, e.g., x -> ctx.x
+    std::map<std::string, Expr> repls;
+    for (const auto &var : vars) {
+        repls[var.name] = Access::make(var.name, ctx_var);
+    }
+    Closure closure;
+    ir::Stmt body = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
+                                             forall->body, closure);
+    stmts.push_back(std::move(body));
+    stmts.push_back(Return::make());
+
+    std::string name = unique_func_name();
+    closure.context = ctx;
+    closure.func = std::make_shared<Function>(
+        std::move(name), std::move(f_args), Void_t::make(),
+        Sequence::make(std::move(stmts)), Function::InterfaceList{},
+        std::vector<Function::Attribute>{Function::Attribute::kernel});
+    return closure;
+}
+
+// Builds necessary epilogue, launch, and prologue for a CUDA kernel launch.
+Stmt launch_cuda(const ForAll *node, const Closure &closure) {
+    // Allocate and copy members of the context to device.
+    Type closure_type = closure.context.type();
+    const auto *build = closure.context.as<Build>();
+    internal_assert(build) << closure.context;
+    std::vector<Expr> to_device;
+    std::vector<Stmt> stmts;
+    for (const Expr &value : build->values) {
+        const auto *v = value.as<Var>();
+        internal_assert(v) << "unexpected context argument: " << value;
+        // TODO(cgyurgyik): Probably type mismatch.
+        if (closure.written.contains(v->name)) {
+            // Allocations are automatically cudaMalloc'ed.
+            to_device.push_back(value);
+            continue;
+        }
+        if (const auto *array_t = value.type().as<Array_t>()) {
+            std::string device_name = "d_" + v->name;
+            stmts.push_back(Allocate::make(WriteLoc(device_name, array_t),
+                                           value, Allocate::Memory::ToDevice));
+            to_device.push_back(Var::make(array_t, device_name));
+            continue;
+        }
+        internal_error << "[unimplemented] handling context argument: " << value
+                       << " : " << value.type();
+    }
+    Expr device_build = ir::Build::make(build->type, to_device);
+
+    stmts.push_back(Allocate::make(WriteLoc("ctx", closure_type), device_build,
+                                   Allocate::Memory::Stack));
+
+    Type idx_t = node->index_type();
+    Expr b = node->slice.begin, e = node->slice.end, s = node->slice.stride;
+    Expr n = Simplify::simplify(((e - b) + (s - make_one(idx_t))) / s);
+    stmts.push_back(Launch::make(
+        closure.func->name, n, {Var::make(Ptr_t::make(closure_type), "ctx")}));
+
+    for (const Expr &value : to_device) {
+        const auto *v = value.as<Var>();
+        internal_assert(v) << "unexpected context argument: " << value;
+        if (const auto *array_t = value.type().as<Array_t>()) {
+            if (closure.written.contains(v->name)) {
+                std::string host_name = "h_" + v->name;
+                stmts.push_back(Allocate::make(WriteLoc(host_name, array_t),
+                                               value,
+                                               Allocate::Memory::FromDevice));
+            }
+            stmts.push_back(Deallocate::make(value));
+            continue;
+        }
+        internal_error << "[unimplemented] handling context argument: " << value
+                       << " : " << value.type();
+    }
+    internal_assert(closure.written.size() == 1)
+        << "[unimplemented]: multiple writes in the closure";
+    for (const auto &[name, type] : closure.written) {
+        stmts.push_back(
+            Store::make(WriteLoc(name, type), Var::make(type, "h_" + name)));
+    }
+
+    return Sequence::make(std::move(stmts));
+}
+
 } // namespace
 
-Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
-                        TypeMap &types) {
+Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
+                        Program &program, const CompilerOptions &options) {
     struct ParallelizeForAll : public Mutator {
         const std::string &loop_idx;
-        FuncMap &funcs;
-        TypeMap &types;
+        const CompilerOptions &options;
+        Program &program;
 
-        ParallelizeForAll(const std::string &loop_idx, FuncMap &funcs,
-                          TypeMap &types)
-            : loop_idx(loop_idx), funcs(funcs), types(types) {}
+        ParallelizeForAll(const std::string &loop_idx,
+                          const CompilerOptions &options, Program &program)
+            : loop_idx(loop_idx), options(options), program(program) {}
 
         Stmt visit(const ForAll *node) override {
             if (node->index != loop_idx) {
                 return Mutator::visit(node);
             }
-            // TODO: this closure is somewhat GCD-specific, maybe generalize?
-            Closure closure = build_closure(node, types);
 
-            auto [_, inserted] =
-                funcs.try_emplace(closure.func->name, closure.func);
-            internal_assert(inserted);
-
-            Expr n =
-                ((node->slice.end - node->slice.begin) +
-                 (node->slice.stride - make_one(node->slice.stride.type()))) /
-                node->slice.stride;
-            n = Simplify::simplify(n);
-            std::vector<Expr> args = {closure.context};
-            std::vector<Stmt> seq(2);
-            seq[0] = Allocate::make(WriteLoc("ctx", closure.context.type()),
-                                    closure.context, Allocate::Memory::Stack);
-            seq[1] = Launch::make(
-                closure.func->name, n,
-                {Var::make(Ptr_t::make(closure.context.type()), "ctx")});
-            return Sequence::make(std::move(seq));
+            switch (options.target) {
+            case BackendTarget::CUDA: {
+                Closure closure = build_cuda_closure(node, program.types);
+                auto [_, inserted] =
+                    program.funcs.try_emplace(closure.func->name, closure.func);
+                internal_assert(inserted) << closure.func;
+                return launch_cuda(node, closure);
+            }
+            default: {
+                Closure closure = build_closure(node, program.types);
+                auto [_, inserted] =
+                    program.funcs.try_emplace(closure.func->name, closure.func);
+                internal_assert(inserted) << closure.func;
+                Expr b = node->slice.begin, e = node->slice.end,
+                     s = node->slice.stride;
+                Expr n = ((e - b) + (s - make_one(node->index_type()))) / s;
+                n = Simplify::simplify(n);
+                std::vector<Stmt> seq(2);
+                seq[0] =
+                    Allocate::make(WriteLoc("ctx", closure.context.type()),
+                                   closure.context, Allocate::Memory::Stack);
+                seq[1] = Launch::make(
+                    closure.func->name, n,
+                    {Var::make(Ptr_t::make(closure.context.type()), "ctx")});
+                return Sequence::make(std::move(seq));
+            }
+            }
         }
 
         // TODO: this is hacky, need a better way.
@@ -179,9 +324,9 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
                 // TODO(ajr): hope to God it's impossible to have self-recursion
                 // in these.
                 if (var->name.starts_with("_traverse_array")) {
-                    funcs[var->name]->body = parallelize_forall(
-                        loop_idx, std::move(funcs[var->name]->body), funcs,
-                        types);
+                    program.funcs[var->name]->body = parallelize_forall(
+                        loop_idx, std::move(program.funcs[var->name]->body),
+                        program, options);
                     return node;
                 }
             }
@@ -189,7 +334,7 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body, FuncMap &funcs,
         }
     };
 
-    ParallelizeForAll par(loop_idx, funcs, types);
+    ParallelizeForAll par(loop_idx, options, program);
     return par.mutate(std::move(body));
 }
 

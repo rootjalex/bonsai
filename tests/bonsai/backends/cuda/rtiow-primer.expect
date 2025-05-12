@@ -388,7 +388,7 @@ __host__ int3 to_rgb(float3 v) {
 
 __host__ int3* _traverse_array0(Camera* c, int32_t height, _spheres_layout0* spheres) {
   int32_t* _alloc0;
-  (void)cudaMalloc((void**)&_alloc0,((height * (*c).width) * 3) * sizeof(int32_t));
+  (void)cudaMalloc((void**)&_alloc0, ((height * (*c).width) * 3) * sizeof(int32_t));
   for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
     for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
       int3 __temp = to_rgb(pixel(_i1, _i0, c, spheres));

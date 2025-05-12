@@ -139,6 +139,15 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
     return node;
 }
 
+Stmt Deallocate::make(Expr var) {
+    internal_assert(var.defined()) << "Undefined var in Deallocate::make";
+    Deallocate *node = new Deallocate;
+    internal_assert(var.type().is<Array_t>())
+        << "unexpected type in Deallocate::make, " << var.type();
+    node->value = std::move(var);
+    return node;
+}
+
 Stmt Store::make(WriteLoc loc, Expr value) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
@@ -264,6 +273,8 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
     node->body = std::move(body);
     return node;
 }
+
+Type ForAll::index_type() const { return slice.begin.type(); }
 
 Stmt Continue::make() {
     static Stmt global_break = new Continue;

@@ -627,6 +627,12 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Deallocate *node) {
+    os << get_indent() << "cudaFree" << '(';
+    node->value.accept(this);
+    os << ')' << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Allocate *node) {
     // TODO(ajr): if this is a launched kernel, this cannot be an array
     // allocation. Otherwise, this should probably cuda malloc for arrays.
@@ -669,7 +675,45 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ' ' << b << ';' << '\n';
             // TODO(cgyurgyik): check the status of the CUDA malloc.
             os << get_indent() << "(void)" << "cudaMalloc" << '(';
-            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            array_t->size.accept(this);
+            os << ' ' << '*' << ' ' << "sizeof" << '(';
+            array_t->etype.accept(this);
+            os << ')' << ')' << ';' << '\n';
+            return;
+        }
+        internal_error << "[unimplemented] Allocate CUDA codegen: "
+                       << Stmt(node);
+    }
+    case Allocate::Memory::ToDevice: {
+        if (const auto *array_t = type.as<Array_t>()) {
+            type.accept(this);
+            os << ' ' << b << ';' << '\n';
+            os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            internal_assert(node->value.defined())
+                << "allocation to device expects a value (what is copied)";
+            node->value.accept(this);
+            os << ',' << ' ';
+            array_t->size.accept(this);
+            os << ' ' << '*' << ' ' << "sizeof" << '(';
+            array_t->etype.accept(this);
+            os << ')' << ')' << ';' << '\n';
+            return;
+        }
+        internal_error << "[unimplemented] Allocate CUDA codegen: "
+                       << Stmt(node);
+    }
+    case Allocate::Memory::FromDevice: {
+        if (const auto *array_t = type.as<Array_t>()) {
+            type.accept(this);
+            os << ' ' << b << ';' << '\n';
+            os << get_indent() << "cudaMallocAndCopyFromDevice" << '(';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            internal_assert(node->value.defined())
+                << "allocation to device expects a value (what is copied)";
+            node->value.accept(this);
+            os << ',' << ' ';
             array_t->size.accept(this);
             os << ' ' << '*' << ' ' << "sizeof" << '(';
             array_t->etype.accept(this);
@@ -684,7 +728,17 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
-    if (!node->loc.base_type.is<Array_t>()) {
+
+    Expr value = node->value;
+    if (node->loc.base_type.is<Array_t>()) {
+        if (value.type().is<Array_t>()) {
+            // We assume `T* = T*` is a pointer assignment.
+            os << node->loc << ' ' << '=' << ' ';
+            value.accept(this);
+            os << ';' << '\n';
+            return;
+        }
+    } else {
         os << '*';
     }
     os << node->loc.base;
@@ -698,7 +752,7 @@ void CodeGen_CUDA::visit(const Store *node) {
         }
     }
     os << ' ' << '=' << ' ';
-    node->value.accept(this);
+    value.accept(this);
     os << ';' << '\n';
 }
 
@@ -824,7 +878,18 @@ void CodeGen_CUDA::visit(const Continue *node) {
 }
 
 void CodeGen_CUDA::visit(const Launch *node) {
-    internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);
+    os << get_indent() << node->func;
+    os << '<' << '<' << '<';
+    ir::Expr n = node->n;
+    Expr block_size = make_const(n.type(), 1024);
+    (n / (block_size - 1)).accept(this);
+    os << ',' << ' ';
+    block_size.accept(this);
+    os << '>' << '>' << '>';
+    os << '(';
+    print_expr_list(node->args);
+    os << ')' << ';' << '\n';
+    os << get_indent() << "cudaDeviceSynchronize" << '(' << ')' << ';' << '\n';
 }
 
 void CodeGen_CUDA::emit_prologue() {

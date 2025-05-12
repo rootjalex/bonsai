@@ -1,0 +1,48 @@
+#include "runtime/CUDA/math.h"
+
+struct _ctx0 {
+  int32_t* _alloc0; // of size 4096
+  int32_t* fs; // of size 4096
+};
+
+__global__ void _parfunc0(_ctx0* _ctx0) {
+  curandState _rng_state;
+  curand_init(idx, 0, 0, &_rng_state);
+  int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
+  int32_t _i0 = tid;
+  if (4096 <= _i0) {
+    return;
+  }
+  *_ctx0._alloc0[_i0] = ((*_ctx0).fs[_i0] + 1);
+  return;
+}
+
+__host__ int32_t* _traverse_array0(int32_t* fs) {
+  int32_t* _alloc0;
+  (void)cudaMalloc((void**)&_alloc0, 4096 * sizeof(int32_t));
+  int32_t* d_fs;
+  cudaMallocAndCopyToDevice((void**)&d_fs, fs, 4096 * sizeof(int32_t));
+  _ctx0 _ctx = _ctx0{_alloc0, d_fs};
+  _ctx0* ctx = &_ctx;
+  _parfunc0<<<(4096 / (1024 - 1)), 1024>>>(ctx);
+  cudaDeviceSynchronize();
+  int32_t* h__alloc0;
+  cudaMallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, 4096 * sizeof(int32_t));
+  cudaFree(_alloc0);
+  cudaFree(d_fs);
+  _alloc0 = h__alloc0;
+  return _alloc0;
+}
+
+int32_t* apply_function(int32_t* fs) {
+  return _traverse_array0(fs);
+}
+
+int32_t f(int32_t i) {
+  return (i + 1);
+}
+
+__host__ int32_t* main(int32_t* a) {
+  int32_t* b = _traverse_array0(a);
+  return b;
+}

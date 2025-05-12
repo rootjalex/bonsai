@@ -1,0 +1,18 @@
+//! flags: -b cuda
+
+func f(i : i32) {
+  return i + 1;
+}
+
+func apply_function(fs: array[i32, 4096]) -> array[i32, 4096] {
+  return map(f, fs);
+}
+
+func [[export]] main(a: array[i32, 4096]) -> array[i32, 4096] {
+    b = apply_function(a);
+    return b;
+}
+
+schedule {
+    apply_function.cpu_thread(i0);
+}

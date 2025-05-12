@@ -2024,6 +2024,14 @@ struct Parser {
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(
                     ir::Parallelize{std::move(i), ir::Parallelize::CPUThread});
+            } else if (rewrite == "gpu_thread") {
+                ir::Location i = parse_location();
+                schedule.func_transforms[func].emplace_back(
+                    ir::Parallelize{std::move(i), ir::Parallelize::GPUThread});
+            } else if (rewrite == "gpu_block") {
+                ir::Location i = parse_location();
+                schedule.func_transforms[func].emplace_back(
+                    ir::Parallelize{std::move(i), ir::Parallelize::GPUBlock});
             } else if (rewrite == "split") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
