@@ -183,7 +183,7 @@ func [[export]] image(c : Camera) {
 schedule {
     // TODO: generic over primitive types!
     tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
-    | Interior(left : SphereBVH, right : SphereBVH)
+    | Interior(left : SphereBVH, right : SphereBVH, axis : u8)
     | Leaf(data : array[MaterialSphere]);
 
     spheres : SphereBVH;
@@ -195,17 +195,21 @@ schedule {
         group[count] index : u16 {
             center : vec3f;
             radius : Float;
-            nPrims : u16;
+            nPrims : u8;
+            axis : u8;
             switch nPrims {
                 0 => Interior { offset : u16; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u16; data = range(prims, pOffset, nPrims); };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
             };
         };
     };
 
     image.split(i0, io, ii, 50, false) // make 16 threads
          .cpu_thread(io);
-    trace.loopify(64);
+    trace
+         // This actually slows the application down. Not sure why.
+         // .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| select(1 / r.d[axis] < 0, 1 - i, i))
+         .loopify(64);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
