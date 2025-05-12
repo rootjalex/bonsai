@@ -64,6 +64,8 @@ struct Split {
 };
 
 // Collapse two for-loops into a single for-loop.
+// TODO(cgyurgyik): Allow custom naming of the new index, i.e., pass a third
+// location?
 struct Collapse {
     Location i1;
     Location i2;
