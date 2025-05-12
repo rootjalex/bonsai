@@ -21,6 +21,10 @@ Expr operator/(Expr a, Expr b) {
     return BinOp::make(BinOp::Div, std::move(a), std::move(b));
 }
 
+Expr operator%(Expr a, Expr b) {
+    return BinOp::make(BinOp::Mod, std::move(a), std::move(b));
+}
+
 Expr operator&&(Expr a, Expr b) {
     return BinOp::make(BinOp::LAnd, std::move(a), std::move(b));
 }

@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS correctness llvm
     FILES
     bitwise.bonsai
+    collapse.bonsai
     dce.bonsai
     exported-function.bonsai
     exported-recursive-function.bonsai

@@ -13,6 +13,7 @@ Expr operator+(Expr a, Expr b);
 Expr operator-(Expr a, Expr b);
 Expr operator*(Expr a, Expr b);
 Expr operator/(Expr a, Expr b);
+Expr operator%(Expr a, Expr b);
 Expr operator&&(Expr a, Expr b);
 Expr operator||(Expr a, Expr b);
 Expr operator&(Expr a, Expr b);

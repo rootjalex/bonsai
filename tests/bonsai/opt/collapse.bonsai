@@ -1,0 +1,16 @@
+func no_collapse(n : i32, m: i32, a : array[array[f32, n], m]) -> array[array[f32, n], m] {
+    return map(|l| map(|x : f32| sqrt(x), l), a);
+}
+
+func process1(n : i32, m: i32, a : array[array[f32, n], m]) -> array[array[f32, n], m] {
+    return map(|l| map(|x : f32| sqrt(x), l), a);
+}
+
+func process2(a : array[array[f32, 8], 32]) -> array[array[f32, 8], 32] {
+    return map(|l| map(|x : f32| sqrt(x), l), a);
+}
+
+schedule {
+    process1.collapse(i0, i1);
+    process2.collapse(i0, i1);
+}

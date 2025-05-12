@@ -252,6 +252,14 @@ struct Simplifier : ir::Mutator {
                 e.defined()) {
                 return e;
             }
+            if (is_const_zero(a)) {
+                // 0 % N == 0
+                return a;
+            }
+            if (is_const_one(b)) {
+                // N % 1 == 0
+                return make_zero(type);
+            }
             std::optional<uint64_t> c_b = get_constant_value(b);
             if (c_b.has_value() && is_power_of_two(*c_b)) {
                 // x % 2^n -> x & (2^n - 1)

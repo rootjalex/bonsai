@@ -28,6 +28,8 @@ bool can_be_empty(const Expr &expr);
 
 bool contains_generics(const Type &type, const TypeMap &types);
 
+bool contains_variable_with_name(Expr expr, const std::string &s);
+
 template <typename IRNode>
 bool contains(const Expr &expr) {
     static_assert(std::is_base_of<BaseExprNode, IRNode>::value,

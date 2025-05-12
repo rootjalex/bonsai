@@ -63,7 +63,13 @@ struct Split {
     bool generate_tail;
 };
 
-using Transform = std::variant<Loopify, Parallelize, Split, Sort>;
+// Collapse two for-loops into a single for-loop.
+struct Collapse {
+    Location i1;
+    Location i2;
+};
+
+using Transform = std::variant<Collapse, Loopify, Parallelize, Split, Sort>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

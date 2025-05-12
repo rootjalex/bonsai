@@ -6,6 +6,7 @@
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
+#include "Opt/Simplify.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -21,6 +22,144 @@ namespace lower {
 namespace {
 
 using namespace ir;
+
+bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
+    return is_const_zero(opt::Simplify::simplify((e - b) % s));
+}
+
+size_t collapse_index_counter = 0;
+std::string unique_collapse_index() {
+    return "_c" + std::to_string(collapse_index_counter++);
+}
+
+// for (int i1 = b1; i < e1; i += s1)
+//   for (int i2 = b2; j < e2; j += s2)
+//     foo(i2, i2);
+//
+//   ->
+//
+// int c1 = (e1 - b1 + s1 - 1) / s1;
+// int c2 = (e2 - b2 + s2 - 1) / s2;
+// int n = c1 * c2;
+// for (int c = 0; c < n; ++c) {
+//   int i1 = b1 + (c / c1) * s1;
+//   int i2 = b2 + (c % c2) * s2;
+//   if (i1 < e1 && i2 < e2)
+//     foo(i1, i2)
+// }
+Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
+                    Program &program) {
+    struct ReplaceIndexing : public Mutator {
+        const std::string &i1;
+        const std::string &i2;
+        ir::Expr replacement;
+        ReplaceIndexing(const std::string &i1, const std::string &i2,
+                        ir::Expr replacement)
+            : i1(i1), i2(i2), replacement(replacement) {}
+
+        Stmt visit(const Store *node) {
+            if (node->loc.accesses.empty()) {
+                return Mutator::visit(node);
+            }
+            bool changed = false;
+            std::vector<std::variant<std::string, Expr>> new_accesses;
+            for (const auto &access : node->loc.accesses) {
+                if (std::holds_alternative<Expr>(access)) {
+                    Expr e = std::get<Expr>(access);
+                    if (contains_variable_with_name(e, i1) ||
+                        contains_variable_with_name(e, i2)) {
+                        new_accesses.push_back(replacement);
+                        changed = true;
+                        continue;
+                    }
+                }
+                new_accesses.push_back(access);
+            }
+            if (!changed) {
+                return Mutator::visit(node);
+            }
+            WriteLoc loc(node->loc.base, node->loc.type);
+            loc.base_type = node->loc.base_type;
+            loc.accesses = std::move(new_accesses);
+            return Store::make(loc, mutate(node->value));
+        }
+    };
+
+    struct CollapseLoops : public Mutator {
+        const std::string &i1;
+        const std::string &i2;
+        Program &program;
+        CollapseLoops(const std::string &i1, const std::string &i2,
+                      Program &program)
+            : i1(i1), i2(i2), program(program) {}
+
+        Stmt visit(const ForAll *outer) override {
+            if (outer->index != i1) {
+                return Mutator::visit(outer);
+            }
+            const auto *inner = outer->body.as<ForAll>();
+            // TODO(cgyurgyik): we can probably relax this requirement.
+            if (inner == nullptr || inner->index != i2) {
+                return Mutator::visit(outer);
+            }
+            const ForAll::Slice &oslice = outer->slice;
+            const ForAll::Slice &islice = inner->slice;
+            Expr b1 = oslice.begin, e1 = oslice.end, s1 = oslice.stride;
+            Expr b2 = islice.begin, e2 = islice.end, s2 = islice.stride;
+            internal_assert(
+                ir::equals(inner->index_type(), outer->index_type()));
+            Type idx_t = outer->index_type();
+            Expr c1 = outer->count(), c2 = inner->count();
+            ForAll::Slice slice{
+                .begin = make_zero(idx_t),
+                .end = c1 * c2,
+                .stride = make_one(idx_t),
+            };
+            std::string index_name = unique_collapse_index();
+            Expr idx = Var::make(idx_t, index_name);
+            Expr i1e = Var::make(idx_t, i1);
+            Expr i2e = Var::make(idx_t, i2);
+
+            std::vector<Stmt> stmts;
+            stmts.push_back(
+                LetStmt::make(WriteLoc(i1, idx_t), b1 + (idx / c1) * s1));
+            stmts.push_back(
+                LetStmt::make(WriteLoc(i2, idx_t), b2 + (idx % c2) * s2));
+
+            // TODO(cgyurgyik): debug, remove
+            // stmts.push_back(Print::make({idx}));
+            ReplaceIndexing replace(i1, i2, idx);
+            Stmt body = replace.mutate(inner->body);
+            if (!(is_perfectly_divisible(b1, e1, s1) &&
+                  is_perfectly_divisible(b2, e2, s2))) {
+                // Need to guard against out-of-bounds accesses.
+                stmts.push_back(IfElse::make(i1e < e1 && i2e < e2, body));
+            } else {
+                stmts.push_back(body);
+            }
+            return ForAll::make(std::move(index_name), std::move(slice),
+                                Sequence::make(std::move(stmts)));
+        }
+
+        // TODO: this is hacky, need a better way.
+        Expr visit(const Call *node) override {
+            if (const Var *var = node->func.as<Var>()) {
+                // TODO(ajr): hope to God it's impossible to have self-recursion
+                // in these.
+                if (var->name.starts_with("_traverse_array")) {
+                    auto &func = program.funcs[var->name];
+                    func->body =
+                        collapse_loops(std::move(func->body), i1, i2, program);
+                    return node;
+                }
+            }
+            return Mutator::visit(node);
+        }
+    };
+
+    CollapseLoops lower(i1, i2, program);
+    return lower.mutate(std::move(body));
+}
 
 Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 const std::string &outer, const std::string &inner,
@@ -47,7 +186,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 << "[unimplemented] split with tail strategy\n";
             internal_assert(is_const_one(node->slice.stride));
 
-            Type index_t = node->slice.end.type();
+            Type index_t = node->index_type();
             Expr zero = make_zero(index_t);
             Expr one = make_one(index_t);
             Expr io = Var::make(index_t, outer);
@@ -541,6 +680,12 @@ ir::Program LoopTransforms::run(ir::Program program,
                                                         ii, split.factor,
                                                         split.generate_tail,
                                                         program.funcs);
+                                  },
+                                  [&](const Collapse &collapse) {
+                                      std::string i1 = get_name(collapse.i1);
+                                      std::string i2 = get_name(collapse.i2);
+                                      body = collapse_loops(std::move(body), i1,
+                                                            i2, program);
                                   },
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);

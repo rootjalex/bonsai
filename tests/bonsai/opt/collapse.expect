@@ -1,0 +1,45 @@
+func _traverse_array0(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
+  alloc _alloc0 : mut f32[m * n]
+  forall _i0 in [0:m:1] {
+    forall _i1 in [0:n:1] {
+      _alloc0[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
+    }
+  }
+  return reinterpret_cast<f32[n][m]>((*_alloc0))
+}
+
+func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
+  alloc _alloc1 : mut f32[m * n]
+  forall _c0 in [0:m * n:1] {
+    let _i0 = _c0 / m in
+    let _i1 = _c0 % n in
+    _alloc1[_c0] = sqrt(a[_i0][_i1])
+  }
+  return reinterpret_cast<f32[n][m]>((*_alloc1))
+}
+
+func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
+  alloc _alloc2 : mut f32[32 * 8]
+  forall _c1 in [0:256:1] {
+    let _i0 = _c1 / 32 in
+    let _i1 = _c1 & 7 in
+    _alloc2[_c1] = sqrt(a[_i0][_i1])
+  }
+  return reinterpret_cast<f32[8][32]>((*_alloc2))
+}
+
+func no_collapse(n : i32, m : i32, a : f32[n][m]) -> f32[n][m] {
+  return _traverse_array0(m, n, a)
+}
+
+func process1(n : i32, m : i32, a : f32[n][m]) -> f32[n][m] {
+  return _traverse_array1(m, n, a)
+}
+
+func process2(a : f32[8][32]) -> f32[8][32] {
+  return _traverse_array2(a)
+}
+
+
+schedule host{
+}
