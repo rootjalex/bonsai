@@ -515,7 +515,6 @@ bool contains_variable_with_name(Expr expr, const std::string &s) {
             found = node->name == s;
         }
         const std::string &s;
-
         bool found = false;
     };
     Checker checker(s);

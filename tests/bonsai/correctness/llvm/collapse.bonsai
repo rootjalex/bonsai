@@ -8,14 +8,16 @@ func process(a : array[array[i32, 3], 2]) -> array[array[i32, 3], 2] {
     return map(|l| map(|x : i32| { f(x) }, l), a);
 }
 
+// TODO(cgyurgyik): This produces garbage, and I'm 
+// fairly confident it is because of LLVM codegen.
 func main() -> i32 {
     x: array[i32, 3] = {0, 1, 2};
     y: array[i32, 3] = {3, 4, 5};
 
     input: array[array[i32, 3], 2] = {x, y};
-    print(input);
+    // print(input);
     output: array[array[i32, 3], 2] = process(input);
-    print(output);
+    // print(output);
     return 0;
 }
 
