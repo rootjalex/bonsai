@@ -24,7 +24,7 @@ using namespace ir;
 
 // TODO: we use this pattern a lot, could make it a helper func.
 size_t ctx_counter = 0;
-std::string unique_ctx_name() { return "_ctx" + std::to_string(ctx_counter++); }
+std::string unique_ctx_name() { return "ctx" + std::to_string(ctx_counter++); }
 
 size_t func_counter = 0;
 std::string unique_func_name() {
@@ -90,15 +90,15 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
 // Builds a closure that greatly resembles what is needed for the Grand Central
 // Dispatch (GCD) on MacOS.
 // TODO(ajr): this closure is somewhat GCD-specific, maybe generalize?
-Closure build_closure(const ForAll *forall, TypeMap &types) {
+Closure build_gcd_closure(const ForAll *forall, TypeMap &types) {
     // TODO: might be able to optimize this with LICM or something.
     std::vector<TypedVar> vars = gather_free_vars(forall);
     // TODO(ajr): if struct supported mutable fields, we would need this.
     std::set<std::string> mut_vars = mutated_variables(forall);
 
     std::string ctx_name = unique_ctx_name();
-    Type ctx_t = Struct_t::make(ctx_name, vars);
-    types[ctx_name] = ctx_t;
+    Type ctx_t = Struct_t::make("_" + ctx_name, vars);
+    types["_" + ctx_name] = ctx_t;
     std::vector<Expr> build_args;
     build_args.reserve(vars.size());
     std::transform(vars.begin(), vars.end(), std::back_inserter(build_args),
@@ -154,7 +154,7 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
     std::set<std::string> mut_vars = mutated_variables(forall);
 
     std::string ctx_name = unique_ctx_name();
-    Type ctx_t = Struct_t::make(ctx_name, vars);
+    Type ctx_t = Struct_t::make("_" + ctx_name, vars);
     types[ctx_name] = ctx_t;
     std::vector<Expr> build_args;
     build_args.reserve(vars.size());
@@ -312,7 +312,7 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
                 return launch_cuda(node, closure);
             }
             default: {
-                Closure closure = build_closure(node, program.types);
+                Closure closure = build_gcd_closure(node, program.types);
                 auto [_, inserted] =
                     program.funcs.try_emplace(closure.func->name, closure.func);
                 internal_assert(inserted) << closure.func;

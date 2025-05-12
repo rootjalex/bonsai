@@ -37,6 +37,17 @@ using namespace ir;
 
 namespace {
 
+// Returns whether this is a context type created during parallelization. The
+// contexts already allocate everything to device; we want to avoid also needing
+// to allocate the context pointer on device, so we just copy it.
+bool is_context_type(Type t) {
+    const auto *s = t.as<Struct_t>();
+    if (s == nullptr) {
+        return false;
+    }
+    return s->name.starts_with("_ctx");
+}
+
 // Returns the relevant CUDA version of each intrinsic, e.g.,
 // cuda_intrinsic("sin", f32) -> "sinf"
 std::string cuda_intrinsic(std::string intrinsic, Type type) {
@@ -263,7 +274,12 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
     // TODO(cgyurgyik): This isn't constant for an argument return type.
     // os << "const" << ' ';
     // Unlike the Bonsai printer, we cannot print () in argument parameters.
-    node->etype.accept(this);
+    Type etype = node->etype;
+    if (is_context_type(etype)) {
+        etype.accept(this);
+        return;
+    }
+    etype.accept(this);
     os << "*";
 }
 
@@ -425,6 +441,11 @@ void CodeGen_CUDA::visit(const Build *node) {
 
 void CodeGen_CUDA::visit(const Deref *node) {
     Expr pointee = node->expr;
+    internal_assert(pointee.type().is<Ptr_t>());
+    if (is_context_type(pointee.type().element_of())) {
+        pointee.accept(this);
+        return;
+    }
     if (const auto *p = pointee.type().as<Ptr_t>()) {
         if (p->etype.is<Array_t>()) {
             pointee.accept(this);
@@ -652,6 +673,14 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             return;
         }
         type.accept(this);
+        if (is_context_type(type)) {
+            os << ' ' << b << ' ' << '=' << ' ';
+            internal_assert(node->value.defined())
+                << "undefined value for CUDA stack allocation: " << Stmt(node);
+            node->value.accept(this);
+            os << ';' << '\n';
+            return;
+        }
         // Bonsai assumes *everything*, including stack allocated elements,
         // are pointers. So first we "stack" allocate,
         constexpr std::string_view P = "_";
@@ -729,27 +758,19 @@ void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
 
     Expr value = node->value;
-    if (node->loc.base_type.is<Array_t>() && value.type().is<Array_t>()) {
+    Type base_type = node->loc.base_type;
+    if (base_type.is<Array_t>() && value.type().is<Array_t>()) {
         // We assume `T* = T*` is a pointer assignment.
         os << node->loc << ' ' << '=' << ' ';
         value.accept(this);
         os << ';' << '\n';
         return;
     }
-
-    const auto &accesses = node->loc.accesses;
-    if (!node->loc.base_type.is<Array_t>()) {
-        // Order of operators - need to dereference before access.
-        if (!accesses.empty()) {
-            os << '(';
-        }
-        os << '*' << node->loc.base;
-        if (!accesses.empty()) {
-            os << ')';
-        }
-    } else {
-        os << node->loc.base;
+    if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
+        os << '*';
     }
+    os << node->loc.base;
+    const auto &accesses = node->loc.accesses;
     for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
             os << "." << std::get<std::string>(access);
