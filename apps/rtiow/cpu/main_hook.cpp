@@ -199,8 +199,8 @@ int main(int argc, char *argv[]) {
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
     cam.width = 1423; // makes height = 800
-    cam.samples_per_pixel = 50;
-    cam.max_depth = 10;
+    cam.samples_per_pixel = 5;
+    cam.max_depth = 5;
 
     cam.vfov = 20;
     cam.lookfrom = {13, 2, 3};

@@ -204,7 +204,8 @@ schedule {
     };
 
     image.split(i0, io, ii, 50, false) // make 16 threads
-         .cpu_thread(io);
+         //.cpu_thread(io)
+         ;
     trace.loopify(64);
 }
 

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.29)
 project(bonsai VERSION 0.1.0)
 
 include(CMakeDependentOption)
