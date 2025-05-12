@@ -252,7 +252,7 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
 
     Type idx_t = node->index_type();
     Expr b = node->slice.begin, e = node->slice.end, s = node->slice.stride;
-    Expr n = ((e - b) + (s - make_one(idx_t))) / s;
+    Expr n = node->count();
     stmts.push_back(Launch::make(
         closure.func->name, n, {Var::make(Ptr_t::make(closure_type), "ctx")}));
 
@@ -318,7 +318,7 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
                 internal_assert(inserted) << closure.func;
                 Expr b = node->slice.begin, e = node->slice.end,
                      s = node->slice.stride;
-                Expr n = ((e - b) + (s - make_one(node->index_type()))) / s;
+                Expr n = node->count();
                 n = Simplify::simplify(n);
                 std::vector<Stmt> seq(2);
                 seq[0] =

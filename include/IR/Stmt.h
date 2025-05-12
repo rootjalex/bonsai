@@ -273,6 +273,9 @@ struct ForAll : StmtNode<ForAll> {
 
     Type index_type() const;
 
+    // Returns the iteration count.
+    Expr count() const;
+
     static Stmt make(std::string index, Slice slice, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::ForAll;

@@ -276,6 +276,16 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
 
 Type ForAll::index_type() const { return slice.begin.type(); }
 
+Expr ForAll::count() const {
+    Type idx_t = index_type();
+    Expr b = slice.begin, e = slice.end, s = slice.stride;
+    // ((e - b) + (s - 1)) / s
+    Expr x = BinOp::make(BinOp::OpType::Sub, e, b);
+    Expr y = BinOp::make(BinOp::OpType::Sub, s, make_one(idx_t));
+    Expr z = BinOp::make(BinOp::OpType::Add, x, y);
+    return BinOp::make(BinOp::OpType::Div, z, s);
+}
+
 Stmt Continue::make() {
     static Stmt global_break = new Continue;
     return global_break;
