@@ -27,7 +27,7 @@ func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
 extern triangles2 : set[Triangle];
 
-func collisions() = filter(|t0 t1| intersects(t0, t1), product(triangles, triangles2));
+func collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles, triangles2));
 
 schedule {
     // TODO: generic over primitive types!
