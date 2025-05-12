@@ -505,22 +505,5 @@ std::set<std::string> find_side_effects(const ir::FuncMap &functions) {
     return side_effects;
 }
 
-bool contains_variable_with_name(Expr expr, const std::string &s) {
-    struct Checker : public Visitor {
-        Checker(const std::string &s) : s(s) {}
-        void visit(const Var *node) override {
-            if (found) {
-                return;
-            }
-            found = node->name == s;
-        }
-        const std::string &s;
-        bool found = false;
-    };
-    Checker checker(s);
-    expr.accept(&checker);
-    return checker.found;
-}
-
 } // namespace ir
 } // namespace bonsai
