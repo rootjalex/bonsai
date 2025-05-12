@@ -63,10 +63,10 @@ struct Split {
     bool generate_tail;
 };
 
-// Collapse two for-loops (i1, i2) into a single for-loop (i).
+// Collapse two for-loops (i0, i1) into a single for-loop (i).
 struct Collapse {
+    Location i0;
     Location i1;
-    Location i2;
     Location i;
 };
 

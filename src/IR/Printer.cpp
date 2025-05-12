@@ -311,9 +311,11 @@ void Printer::print(const Schedule &schedule) {
                                   },
                                   [&](const Collapse &collapse) {
                                       os << "collapse(";
+                                      print(collapse.i0);
+                                      os << ", ";
                                       print(collapse.i1);
                                       os << ", ";
-                                      print(collapse.i2);
+                                      print(collapse.i);
                                       os << ")";
                                   },
                                   [&](const Parallelize &par) {

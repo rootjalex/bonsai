@@ -28,9 +28,9 @@ bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
     return is_const_zero(opt::Simplify::simplify((e - b) % s));
 }
 
-// for (int i1 = b1; i < e1; i += s1)
-//   for (int i2 = b2; j < e2; j += s2)
-//     foo(i2, i2);
+// for (int i0 = b1; i < e1; i += s1)
+//   for (int i1 = b2; j < e2; j += s2)
+//     foo(i1, i1);
 //
 //   ->
 //
@@ -38,29 +38,29 @@ bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
 // int c2 = (e2 - b2 + s2 - 1) / s2;
 // int n = c1 * c2;
 // for (int c = 0; c < n; ++c) {
-//   int i1 = b1 + (c / c2) * s1;
-//   int i2 = b2 + (c % c2) * s2;
-//   if (i1 < e1 && i2 < e2)
-//     foo(i1, i2)
+//   int i0 = b1 + (c / c2) * s1;
+//   int i1 = b2 + (c % c2) * s2;
+//   if (i0 < e1 && i1 < e2)
+//     foo(i0, i1)
 // }
-Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
+Stmt collapse_loops(Stmt body, const std::string &i0, const std::string &i1,
                     const std::string &i, Program &program) {
     struct CollapseLoops : public Mutator {
+        const std::string &i0;
         const std::string &i1;
-        const std::string &i2;
         const std::string &i;
         Program &program;
-        CollapseLoops(const std::string &i1, const std::string &i2,
+        CollapseLoops(const std::string &i0, const std::string &i1,
                       const std::string &i, Program &program)
-            : i1(i1), i2(i2), i(i), program(program) {}
+            : i0(i0), i1(i1), i(i), program(program) {}
 
         Stmt visit(const ForAll *outer) override {
-            if (outer->index != i1) {
+            if (outer->index != i0) {
                 return Mutator::visit(outer);
             }
             const auto *inner = outer->body.as<ForAll>();
             // TODO(cgyurgyik): we can probably relax this requirement.
-            if (inner == nullptr || inner->index != i2) {
+            if (inner == nullptr || inner->index != i1) {
                 return Mutator::visit(outer);
             }
             const ForAll::Slice &oslice = outer->slice;
@@ -77,20 +77,20 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
                 .stride = make_one(idx_t),
             };
             Expr idx = Var::make(idx_t, i);
+            Expr i0e = Var::make(idx_t, i0);
             Expr i1e = Var::make(idx_t, i1);
-            Expr i2e = Var::make(idx_t, i2);
 
             std::vector<Stmt> stmts;
             stmts.push_back(
-                LetStmt::make(WriteLoc(i1, idx_t), b1 + (idx / c2) * s1));
+                LetStmt::make(WriteLoc(i0, idx_t), b1 + (idx / c2) * s1));
             stmts.push_back(
-                LetStmt::make(WriteLoc(i2, idx_t), b2 + (idx % c2) * s2));
+                LetStmt::make(WriteLoc(i1, idx_t), b2 + (idx % c2) * s2));
 
-            Stmt body = replace({{i, i1}, {i, i2}}, inner->body);
+            Stmt body = replace({{i, i0}, {i, i1}}, inner->body);
             if (!(is_perfectly_divisible(b1, e1, s1) &&
                   is_perfectly_divisible(b2, e2, s2))) {
                 // Need to guard against out-of-bounds accesses.
-                stmts.push_back(IfElse::make(i1e < e1 && i2e < e2, body));
+                stmts.push_back(IfElse::make(i0e < e1 && i1e < e2, body));
             } else {
                 stmts.push_back(body);
             }
@@ -105,7 +105,7 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
                 // in these.
                 if (var->name.starts_with("_traverse_array")) {
                     auto &func = program.funcs[var->name];
-                    func->body = collapse_loops(std::move(func->body), i1, i2,
+                    func->body = collapse_loops(std::move(func->body), i0, i1,
                                                 i, program);
                     return node;
                 }
@@ -114,7 +114,7 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
         }
     };
 
-    CollapseLoops lower(i1, i2, i, program);
+    CollapseLoops lower(i0, i1, i, program);
     return lower.mutate(std::move(body));
 }
 
@@ -639,11 +639,11 @@ ir::Program LoopTransforms::run(ir::Program program,
                                                         program.funcs);
                                   },
                                   [&](const Collapse &collapse) {
+                                      std::string i0 = get_name(collapse.i0);
                                       std::string i1 = get_name(collapse.i1);
-                                      std::string i2 = get_name(collapse.i2);
                                       std::string i = get_name(collapse.i);
-                                      body = collapse_loops(std::move(body), i1,
-                                                            i2, i, program);
+                                      body = collapse_loops(std::move(body), i0,
+                                                            i1, i, program);
                                   },
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);

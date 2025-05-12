@@ -1265,12 +1265,12 @@ struct Parser {
             {"fma", 3, ir::Intrinsic::fma},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
-            {"max", 2, ir::Intrinsic::max, /*skippable=*/ true},
-            {"min", 2, ir::Intrinsic::min, /*skippable=*/ true},
+            {"max", 2, ir::Intrinsic::max, /*skippable=*/true},
+            {"min", 2, ir::Intrinsic::min, /*skippable=*/true},
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
-            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/ true},
+            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
@@ -2050,14 +2050,14 @@ struct Parser {
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
             } else if (rewrite == "collapse") {
-                ir::Location i1 = parse_location();
+                ir::Location i0 = parse_location();
                 expect(Token::Type::COMMA);
-                ir::Location i2 = parse_location();
+                ir::Location i1 = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(ir::Collapse{
+                    .i0 = std::move(i0),
                     .i1 = std::move(i1),
-                    .i2 = std::move(i2),
                     .i = std::move(i),
                 });
             } else if (rewrite == "loopify") {
