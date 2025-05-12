@@ -86,7 +86,7 @@ Stmt collapse_loops(Stmt body, const std::string &i0, const std::string &i1,
             stmts.push_back(
                 LetStmt::make(WriteLoc(i1, idx_t), b1 + (idx % c1) * s1));
 
-            Stmt body = replace({{i, i0}, {i, i1}}, inner->body);
+            Stmt body = inner->body;
             if (!(is_perfectly_divisible(b0, e0, s0) &&
                   is_perfectly_divisible(b1, e1, s1))) {
                 // Need to guard against out-of-bounds accesses.
