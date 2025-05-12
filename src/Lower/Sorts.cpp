@@ -21,6 +21,7 @@ namespace lower {
 
 using namespace ir;
 
+// https://graphics.stanford.edu/%7Eseander/bithacks.html#RoundUpPowerOf2
 uint32_t next_pow2(uint32_t n) {
     if (n == 0) {
         return 1;
