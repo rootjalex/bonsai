@@ -5,15 +5,15 @@ func f(i : i32) {
   return i + 1;
 }
 
-func apply_function(fs: array[i32, 4096]) -> array[i32, 4096] {
+func apply_function(n: i32, fs: array[i32, n]) -> array[i32, n] {
   return map(f, fs);
 }
 
-func [[export]] entry(a: array[i32, 4096]) -> array[i32, 4096] {
-    b = apply_function(a);
+func [[export]] entry(n: i32, a: array[i32, n]) {
+    b: array[i32, n] = apply_function(n, a);
     return b;
 }
 
 schedule {
-    apply_function.cpu_thread(i0);
+    apply_function.gpu_thread(i0);
 }

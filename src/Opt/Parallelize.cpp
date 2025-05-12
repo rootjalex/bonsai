@@ -34,7 +34,7 @@ std::string unique_func_name() {
 struct Closure {
     std::shared_ptr<Function> func;
     Expr context;
-    // Variables that are written to.
+    // Array variables that are written to.
     std::map<std::string, Type> written;
 };
 
@@ -61,7 +61,11 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
 
         std::pair<WriteLoc, bool>
         mutate_writeloc(const WriteLoc &loc) override {
-            closure.written[loc.base] = loc.base_type;
+            // This should not include writes to scalars, e.g., the thread
+            // index calculation.
+            if (loc.base_type.is<Array_t>()) {
+                closure.written[loc.base] = loc.base_type;
+            }
             if (repls.contains(loc.base)) {
                 WriteLoc new_loc = ctx;
                 new_loc.add_struct_access(loc.base);
@@ -188,6 +192,8 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
     // if (index >= end) { return; }
     Expr idx = Var::make(idx_t, forall->index);
     stmts.push_back(IfElse::make(idx >= e, Return::make()));
+    stmts.push_back(forall->body);
+    stmts.push_back(Return::make());
 
     // Replace reads and writes to access the context, e.g., x -> ctx.x
     std::map<std::string, Expr> repls;
@@ -195,16 +201,15 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
         repls[var.name] = Access::make(var.name, ctx_var);
     }
     Closure closure;
-    ir::Stmt body = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
-                                             forall->body, closure);
-    stmts.push_back(std::move(body));
-    stmts.push_back(Return::make());
+    Stmt body = Sequence::make(std::move(stmts));
+    body = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls, body,
+                                    closure);
 
     std::string name = unique_func_name();
     closure.context = ctx;
     closure.func = std::make_shared<Function>(
-        std::move(name), std::move(f_args), Void_t::make(),
-        Sequence::make(std::move(stmts)), Function::InterfaceList{},
+        std::move(name), std::move(f_args), Void_t::make(), std::move(body),
+        Function::InterfaceList{},
         std::vector<Function::Attribute>{Function::Attribute::kernel});
     return closure;
 }
@@ -233,6 +238,10 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
             to_device.push_back(Var::make(array_t, device_name));
             continue;
         }
+        if (value.type().is_scalar()) {
+            to_device.push_back(value);
+            continue;
+        }
         internal_error << "[unimplemented] handling context argument: " << value
                        << " : " << value.type();
     }
@@ -243,7 +252,7 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
 
     Type idx_t = node->index_type();
     Expr b = node->slice.begin, e = node->slice.end, s = node->slice.stride;
-    Expr n = Simplify::simplify(((e - b) + (s - make_one(idx_t))) / s);
+    Expr n = ((e - b) + (s - make_one(idx_t))) / s;
     stmts.push_back(Launch::make(
         closure.func->name, n, {Var::make(Ptr_t::make(closure_type), "ctx")}));
 
@@ -258,6 +267,9 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
                                                Allocate::Memory::FromDevice));
             }
             stmts.push_back(Deallocate::make(value));
+            continue;
+        }
+        if (value.type().is_scalar()) {
             continue;
         }
         internal_error << "[unimplemented] handling context argument: " << value

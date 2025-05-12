@@ -29,10 +29,11 @@ __device__ float f2(float x, curandState* _rng_state) {
 }
 
 __global__ void f1(float* x) {
+  int32_t tid = ((float)42 + (*x));
   curandState _rng_state;
-  curand_init(idx, 0, 0, &_rng_state);
+  curand_init(tid, 0, 0, &_rng_state);
   if ((*x) == 1) {
-    *x = 0;
+    *x = (float)tid;
   } else {
     *x += f2((*x), (&_rng_state));
   }
