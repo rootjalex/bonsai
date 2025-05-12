@@ -2050,14 +2050,14 @@ struct Parser {
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
             } else if (rewrite == "collapse") {
-                ir::Location i0 = parse_location();
+                ir::Location io = parse_location();
                 expect(Token::Type::COMMA);
-                ir::Location i1 = parse_location();
+                ir::Location ii = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(ir::Collapse{
-                    .i0 = std::move(i0),
-                    .i1 = std::move(i1),
+                    .io = std::move(io),
+                    .ii = std::move(ii),
                     .i = std::move(i),
                 });
             } else if (rewrite == "loopify") {

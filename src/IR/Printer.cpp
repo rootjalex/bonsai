@@ -311,9 +311,9 @@ void Printer::print(const Schedule &schedule) {
                                   },
                                   [&](const Collapse &collapse) {
                                       os << "collapse(";
-                                      print(collapse.i0);
+                                      print(collapse.io);
                                       os << ", ";
-                                      print(collapse.i1);
+                                      print(collapse.ii);
                                       os << ", ";
                                       print(collapse.i);
                                       os << ")";
