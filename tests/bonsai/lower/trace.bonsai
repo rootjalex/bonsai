@@ -14,7 +14,7 @@ func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r
 schedule {
     // TODO: generic over primitive types!
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
     | Leaf(data : array[Triangle]);
 
     triangles : TriangleBVH;
@@ -36,7 +36,8 @@ schedule {
         };
     };
 
-    trace.loopify(64);
+    trace.sort(triangles.Interior, |i : u8, ray : Ray, axis : u8| select(1 / ray.d[axis] < 0, 1 - i, i))
+         .loopify(64);
 }
 
 

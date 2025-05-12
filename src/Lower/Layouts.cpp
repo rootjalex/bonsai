@@ -384,10 +384,49 @@ struct LowerUnwrapAccesses : public ir::Mutator {
     const std::string &node_type;
     const std::map<std::string, ir::Expr> &field_map;
 
+    ir::MapStack<std::string, ir::Type> type_repls;
+
     LowerUnwrapAccesses(const std::string &tree_name,
                         const std::string &node_type,
                         const std::map<std::string, ir::Expr> &field_map)
         : tree_name(tree_name), node_type(node_type), field_map(field_map) {}
+
+    ir::Expr visit(const ir::Var *node) override {
+        if (auto new_type = type_repls.from_frames(node->name)) {
+            return ir::Var::make(*new_type, node->name);
+        }
+        return node;
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        internal_assert(node->loc.accesses.empty());
+        ir::Expr value = mutate(node->value);
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        if (equals(value.type(), node->loc.base_type)) {
+            return ir::LetStmt::make(node->loc, std::move(value));
+        }
+        ir::WriteLoc new_loc(node->loc.base, value.type());
+        type_repls.add_to_frame(node->loc.base, value.type());
+        return ir::LetStmt::make(std::move(new_loc), std::move(value));
+    }
+
+    ir::Stmt visit(const ir::Allocate *node) override {
+        internal_assert(node->loc.accesses.empty());
+        ir::Expr value = mutate(node->value);
+        if (value.same_as(node->value)) {
+            return node;
+        }
+        if (equals(value.type(), node->loc.base_type)) {
+            return ir::Allocate::make(node->loc, std::move(value),
+                                      node->memory);
+        }
+        ir::WriteLoc new_loc(node->loc.base, value.type());
+        type_repls.add_to_frame(node->loc.base, value.type());
+        return ir::Allocate::make(std::move(new_loc), std::move(value),
+                                  node->memory);
+    }
 
     ir::Expr visit(const ir::Access *node) override {
         if (!node->value.is<ir::Unwrap>()) {

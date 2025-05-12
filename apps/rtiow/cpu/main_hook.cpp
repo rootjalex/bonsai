@@ -97,6 +97,8 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
             if (extent[2] > extent[axis])
                 axis = 2;
 
+            tree.spheres_index[this_index].axis = axis;
+
             // Partition at midpoint along chosen axis
             auto mid_iter = spheres.begin() + low + count / 2;
             std::nth_element(
@@ -251,9 +253,9 @@ int main(int argc, char *argv[]) {
     auto write_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
 
-    std::cerr << "Setup time: " << setup_ms << " ms\n";
-    std::cerr << "Render time: " << render_ms << " ms\n";
-    std::cerr << "Write-to-output time: " << write_ms << " ms\n";
+    std::cout << "Setup time: " << setup_ms << " ms\n";
+    std::cout << "Render time: " << render_ms << " ms\n";
+    std::cout << "Write-to-output time: " << write_ms << " ms\n";
 
     free(im);
     return 0;

@@ -87,6 +87,9 @@ ir::Expr constant_fold_integral(F f, ir::Expr a, ir::Expr b,
     if (type->is_uint()) {
         return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
     }
+    if (type->is_bool()) {
+        return ir::BoolImm::make(apply<uint64_t>(f, *c_a, *c_b));
+    }
 
     return ir::Expr();
 }
@@ -355,9 +358,63 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
+
+        case ir::BinOp::OpType::Lt: {
+            if (ir::Expr e =
+                    constant_fold_integral(std::less<>{}, a, b, node->type);
+                e.defined()) {
+                return e;
+            }
+            if (const ir::Select *a_sel = a.as<ir::Select>()) {
+                if (const ir::Select *b_sel = b.as<ir::Select>()) {
+                    // This assumes a cost model of select being more expensive
+                    // than less than. I think that's valid.
+                    // select(a, x, y) < select(a, w, z)
+                    //  -> select(a, x < w, y < z)
+                    if (equals(a_sel->cond, b_sel->cond)) {
+                        ir::Expr repl = ir::Select::make(
+                            a_sel->cond, a_sel->tvalue < b_sel->tvalue,
+                            a_sel->fvalue < b_sel->fvalue);
+                        return mutate(repl);
+                    }
+                }
+            }
+            return make(node, std::move(a), std::move(b));
+        }
         default:
             return make(node, std::move(a), std::move(b));
         }
+    }
+
+    ir::Expr visit(const ir::Select *node) override {
+        ir::Expr cond = mutate(node->cond), tvalue = mutate(node->tvalue),
+                 fvalue = mutate(node->fvalue);
+        if (is_const_one(cond)) {
+            // select(true, a, b) = a
+            return tvalue;
+        }
+        if (is_const_zero(cond)) {
+            // select(false, a, b) = b
+            return fvalue;
+        }
+        if (is_const_zero(tvalue) && is_const_one(fvalue)) {
+            // select(a, 0, 1) = cast<type>(a)
+            return cast(tvalue.type(), cond);
+        }
+        if (is_const_one(tvalue) && is_const_zero(fvalue)) {
+            // select(a, 1, 0) = cast<type>(!a)
+            return cast(tvalue.type(), ~cond);
+        }
+        if (equals(tvalue, fvalue)) {
+            // select(x, a, a) = a
+            return tvalue;
+        }
+        if (cond.same_as(node->cond) && tvalue.same_as(node->tvalue) &&
+            fvalue.same_as(node->fvalue)) {
+            return node;
+        }
+        return ir::Select::make(std::move(cond), std::move(tvalue),
+                                std::move(fvalue));
     }
 
     ir::Expr visit(const ir::Cast *node) override {

@@ -275,7 +275,76 @@ void Printer::print(const Schedule &schedule) {
         print(layout);
         os << '\n';
     }
+
+    for (const auto &[func, ts] : schedule.func_transforms) {
+        os << func;
+        std::string whitespace(func.size(), ' ');
+        for (size_t i = 0; i < ts.size(); i++) {
+            if (i > 0) {
+                os << "\n" << whitespace;
+            }
+            os << ".";
+            std::visit(Overloaded{[&](const Loopify &l) {
+                                      os << "loopify(";
+                                      if (l.queue_size.has_value()) {
+                                          print(*l.queue_size);
+                                      }
+                                      os << ")";
+                                  },
+                                  [&](const Sort &sort) {
+                                      os << "sort(";
+                                      print(sort.loc);
+                                      os << ", ";
+                                      print(sort.lambda);
+                                      os << ")";
+                                  },
+                                  [&](const Split &split) {
+                                      os << "split(";
+                                      print(split.i);
+                                      os << ", ";
+                                      print(split.io);
+                                      os << ", ";
+                                      print(split.ii);
+                                      os << ", ";
+                                      print(split.factor);
+                                      os << ", " << split.generate_tail << ")";
+                                  },
+                                  [&](const Parallelize &par) {
+                                      switch (par.strategy) {
+                                      case Parallelize::CPUThread: {
+                                          os << "cpu_thread";
+                                          break;
+                                      }
+                                      case Parallelize::CPUVector: {
+                                          os << "vectorize";
+                                          break;
+                                      }
+                                      case Parallelize::GPUThread: {
+                                          os << "gpu_thread";
+                                          break;
+                                      }
+                                      case Parallelize::GPUBlock: {
+                                          os << "gpu_block";
+                                          break;
+                                      }
+                                      }
+                                      os << "(";
+                                      print(par.i);
+                                      os << ")";
+                                  }},
+                       ts[i]);
+        }
+    }
     // TODO: the rest of the schedule.
+}
+
+void Printer::print(const Location &loc) {
+    for (size_t i = 0; i < loc.names.size(); i++) {
+        if (i > 0) {
+            os << ".";
+        }
+        os << loc.names[i];
+    }
 }
 
 void Printer::print(const Interface &interface) {
