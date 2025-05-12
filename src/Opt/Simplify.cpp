@@ -399,12 +399,10 @@ struct Simplifier : ir::Mutator {
         }
         if (is_const_zero(tvalue) && is_const_one(fvalue)) {
             // select(a, 0, 1) = cast<type>(a)
-            std::cout << "select(a, 0, 1): " << ir::Expr(node) << std::endl;
             return cast(tvalue.type(), cond);
         }
         if (is_const_one(tvalue) && is_const_zero(fvalue)) {
             // select(a, 1, 0) = cast<type>(!a)
-            std::cout << "select(a, 1, 0): " << ir::Expr(node) << std::endl;
             return cast(tvalue.type(), ~cond);
         }
         if (equals(tvalue, fvalue)) {
