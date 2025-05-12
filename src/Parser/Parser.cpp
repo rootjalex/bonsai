@@ -1265,12 +1265,12 @@ struct Parser {
             {"fma", 3, ir::Intrinsic::fma},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
-            {"max", 2, ir::Intrinsic::max, .skippable = true},
-            {"min", 2, ir::Intrinsic::min, .skippable = true},
+            {"max", 2, ir::Intrinsic::max, /*skippable=*/ true},
+            {"min", 2, ir::Intrinsic::min, /*skippable=*/ true},
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
-            {"rand", 0, ir::Intrinsic::rand, .skippable = true},
+            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/ true},
             {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},

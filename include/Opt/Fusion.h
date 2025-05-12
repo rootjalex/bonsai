@@ -15,7 +15,7 @@ namespace opt {
 // -> map(|y| : foo(bar(y)), data)
 class Fusion : public lower::Pass {
   public:
-    constexpr std::string name() const override { return "fusion"; }
+    const std::string name() const override { return "fusion"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

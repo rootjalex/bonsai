@@ -21,7 +21,7 @@ namespace lower {
 //   foo(&x);
 class RenamePointerToExpr : public Pass {
   public:
-    constexpr std::string name() const override { return "rpte"; }
+    const std::string name() const override { return "rpte"; }
 
     ir::FuncMap run(ir::FuncMap functions,
                     const CompilerOptions &options) const override;

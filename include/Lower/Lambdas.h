@@ -28,7 +28,7 @@ namespace lower {
 //
 class LowerLambdas : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-lambda"; }
+    const std::string name() const override { return "lower-lambda"; }
 
     // Requires full-program analysis (updates function list).
     ir::Program run(ir::Program program,

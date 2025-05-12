@@ -258,5 +258,6 @@ int main(int argc, char *argv[]) {
     std::cout << "Write-to-output time: " << write_ms << " ms\n";
 
     free(im);
+    free(tree.spheres_index);
     return 0;
 }

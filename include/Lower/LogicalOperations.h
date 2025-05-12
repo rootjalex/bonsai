@@ -16,7 +16,7 @@ namespace lower {
 // if (a) { if (b) { foo(); } }
 class LowerLogicalOperations : public Pass {
   public:
-    constexpr std::string name() const override {
+    const std::string name() const override {
         return "lower-logical-operation";
     }
 

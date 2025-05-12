@@ -12,7 +12,7 @@ namespace lower {
 // Lowers generics to their respective typed variant.
 class LowerGenerics : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-generic"; }
+    const std::string name() const override { return "lower-generic"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

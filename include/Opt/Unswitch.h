@@ -23,7 +23,7 @@ namespace opt {
 // https://en.wikipedia.org/wiki/Loop_unswitching
 class Unswitch : public lower::Pass {
   public:
-    constexpr std::string name() const override { return "unswitch"; }
+    const std::string name() const override { return "unswitch"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

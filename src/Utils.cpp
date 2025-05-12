@@ -3,6 +3,9 @@
 #include "IR/Equality.h"
 #include "IR/Operators.h"
 
+#include <cmath>
+#include <limits>
+
 namespace bonsai {
 
 using namespace ir;
@@ -439,7 +442,7 @@ bool is_writeloc(const Expr &expr) {
     return false;
 }
 
-uint64_t bit_mask(int64_t n) {
+uint64_t bit_mask(uint64_t n) {
     const uint64_t width = std::numeric_limits<uint64_t>::digits;
     internal_assert(0 < n && n <= 64) << n;
     return n >= width ? ~uint64_t{0} : (uint64_t{1} << n) - uint64_t{1};
@@ -448,7 +451,7 @@ uint64_t bit_mask(int64_t n) {
 Expr update_type(Expr expr, Type type) {
     internal_assert(type.defined());
     internal_assert(expr.defined());
-    switch (expr->node_type) {
+    switch (expr->node_type_) {
     case IRExprEnum::Build: {
         const auto *build = expr.as<Build>();
         return Build::make(std::move(type), build->values);

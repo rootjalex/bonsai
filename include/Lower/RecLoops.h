@@ -12,7 +12,7 @@ namespace lower {
 // Turns RecLoop into true recursion
 class LowerRecLoops : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-recloops"; }
+    const std::string name() const override { return "lower-recloops"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

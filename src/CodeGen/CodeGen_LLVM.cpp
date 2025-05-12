@@ -752,7 +752,7 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             return;
         }
         case BinOp::Neq: {
-            value = value = builder->CreateFCmpONE(a, b);
+            value = builder->CreateFCmpONE(a, b);
             return;
         }
         default: {
@@ -1420,7 +1420,7 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             create_aligned_load(vec_ty, rng_state_ptr, "rng_seed");
         std::vector<llvm::Value *> pieces;
 
-        int generated = 0;
+        uint64_t generated = 0;
         while (generated < req_vals) {
             llvm::Value *s = seed;
 

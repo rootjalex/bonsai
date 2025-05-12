@@ -17,7 +17,7 @@ namespace lower {
 // args?
 class LowerExterns : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-externs"; }
+    const std::string name() const override { return "lower-externs"; }
 
     // Requires full-program analysis (needs access to externs).
     ir::Program run(ir::Program program,

@@ -25,7 +25,7 @@ uint32_t Type::bits() const {
     if (auto *as_float = this->as<Float_t>()) {
         return as_float->bits();
     }
-    if (auto *as_bool = this->as<Bool_t>()) {
+    if (this->is<Bool_t>()) {
         return 1;
     }
     internal_error << "Called bits() on bad type: " << *this;
@@ -540,7 +540,7 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         std::string number = field.substr(p);
         internal_assert(!number.empty()) << field;
         std::stringstream ss(number);
-        int64_t position;
+        uint64_t position;
         internal_assert(ss >> position) << field;
         internal_assert(position < as_tuple->etypes.size());
         return as_tuple->etypes[position];

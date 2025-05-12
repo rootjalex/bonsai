@@ -13,7 +13,7 @@ namespace opt {
 // need to be reapplied iteratively.
 class DCE : public lower::Pass {
   public:
-    constexpr std::string name() const override { return "dce"; }
+    const std::string name() const override { return "dce"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;

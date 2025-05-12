@@ -130,7 +130,7 @@ struct DoWhile : StmtNode<DoWhile> {
 
     static Stmt make(Stmt body, Expr cond);
 
-    static const IRStmtEnum _node_type = IRStmtEnum::DoWhile;
+    static const IRStmtEnum node_type = IRStmtEnum::DoWhile;
 };
 
 struct Sequence : StmtNode<Sequence> {

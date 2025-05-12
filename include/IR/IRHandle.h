@@ -59,7 +59,7 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
     }
 
     inline typename IRNode::TypeEnum node_type() const {
-        return this->ptr->node_type;
+        return this->ptr->node_type_;
     }
 };
 

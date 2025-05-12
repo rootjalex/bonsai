@@ -13,7 +13,7 @@ namespace ir {
 template <typename IR, typename _TypeEnum>
 struct IRNode {
     virtual void accept(Visitor *v) const = 0;
-    IRNode(_TypeEnum t) : node_type(t) {}
+    IRNode(_TypeEnum t) : node_type_(t) {}
     virtual ~IRNode() = default;
 
     /** These classes are all managed with intrusive reference
@@ -33,7 +33,7 @@ struct IRNode {
      * have 32 free bits in between the ref count and the Type
      * anyway, so this doesn't increase the memory footprint of an IR node.
      */
-    _TypeEnum node_type;
+    _TypeEnum node_type_;
 
     using TypeEnum = _TypeEnum;
 

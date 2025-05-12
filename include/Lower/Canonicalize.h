@@ -11,7 +11,7 @@ namespace lower {
 
 class Canonicalize : public Pass {
   public:
-    constexpr std::string name() const override { return "canonicalize"; }
+    const std::string name() const override { return "canonicalize"; }
 
     ir::FuncMap run(ir::FuncMap funcs,
                     const CompilerOptions &options) const override;
