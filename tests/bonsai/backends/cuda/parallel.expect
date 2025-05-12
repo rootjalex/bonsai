@@ -5,15 +5,20 @@ struct _ctx0 {
   int32_t* fs; // of size 4096
 };
 
+__device__ int32_t f(int32_t i) {
+  printf("%d", i);
+  return (i + 1);
+}
+
 __global__ void _parfunc0(_ctx0* _ctx0) {
-  curandState _rng_state;
-  curand_init(idx, 0, 0, &_rng_state);
   int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
+  curandState _rng_state;
+  curand_init(tid, 0, 0, &_rng_state);
   int32_t _i0 = tid;
   if (4096 <= _i0) {
     return;
   }
-  *_ctx0._alloc0[_i0] = ((*_ctx0).fs[_i0] + 1);
+  (*_ctx0)._alloc0[_i0] = f((*_ctx0).fs[_i0]);
   return;
 }
 
@@ -38,11 +43,7 @@ int32_t* apply_function(int32_t* fs) {
   return _traverse_array0(fs);
 }
 
-int32_t f(int32_t i) {
-  return (i + 1);
-}
-
-__host__ int32_t* main(int32_t* a) {
+__host__ int32_t* entry(int32_t* a) {
   int32_t* b = _traverse_array0(a);
   return b;
 }

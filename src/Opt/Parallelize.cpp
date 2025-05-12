@@ -179,6 +179,8 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
 
     std::vector<Stmt> stmts;
     // tid = blockIdx * blockDim + threadIdx;
+    // Note: this should *always* be the first statement; RNG depends on this
+    // location (unfortunately).
     stmts.push_back(
         LetStmt::make(WriteLoc("tid", idx_t), (bidx * bdim + tidx)));
     // index = begin + tid * stride;

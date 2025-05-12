@@ -12,6 +12,7 @@
 #include <initializer_list>
 #include <limits>
 #include <math.h>
+#include <stdio.h>
 #include <type_traits>
 
 typedef unsigned int uint;

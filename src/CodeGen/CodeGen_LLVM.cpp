@@ -81,38 +81,6 @@ static llvm::Function *retrieve_printf(llvm::Module &m) {
     return printf;
 }
 
-// Returns the printf format specifier for this value, or error if it is not
-// implemented yet.
-// TODO(cgyurgyik): Add support for non-standard types.
-static std::string get_specifier(const ir::Type &type) {
-    std::string specifier = "%";
-    const uint32_t width = type.bits();
-    if (type.is_bool()) {
-        // Boolean values are printed as strings ("true", "false").
-        return "%s";
-    }
-    if (!(type.is_numeric() && (width == 32 || width == 64))) {
-        internal_error << "[unimplemented] LLVM print: " << type;
-    }
-    if (type.is_int()) {
-        if (width > 32)
-            return "%ld";
-        return "%d";
-    }
-    if (type.is_uint()) {
-        if (width > 32)
-            return "%lu";
-        return "%u";
-    }
-    if (type.is_float()) {
-        // C will convert float (f32) to double (f64) for variadic
-        // argument functions (to include printf).
-        return "%f";
-    }
-
-    internal_error << "[unimplemented] LLVM print: " << type;
-}
-
 } // namespace
 
 using namespace ir;

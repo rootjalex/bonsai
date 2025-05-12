@@ -220,7 +220,6 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     }
     os << get_indent();
     os << "struct" << ' ' << node->name << ' ' << '{' << '\n';
-    // TODO: alignment or packing?
     ScopedValue<bool> _(is_declaration, false);
     increment();
     for (const auto &[name, type] : node->fields) {
@@ -730,19 +729,28 @@ void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
 
     Expr value = node->value;
-    if (node->loc.base_type.is<Array_t>()) {
-        if (value.type().is<Array_t>()) {
-            // We assume `T* = T*` is a pointer assignment.
-            os << node->loc << ' ' << '=' << ' ';
-            value.accept(this);
-            os << ';' << '\n';
-            return;
+    if (node->loc.base_type.is<Array_t>() && value.type().is<Array_t>()) {
+        // We assume `T* = T*` is a pointer assignment.
+        os << node->loc << ' ' << '=' << ' ';
+        value.accept(this);
+        os << ';' << '\n';
+        return;
+    }
+
+    const auto &accesses = node->loc.accesses;
+    if (!node->loc.base_type.is<Array_t>()) {
+        // Order of operators - need to dereference before access.
+        if (!accesses.empty()) {
+            os << '(';
+        }
+        os << '*' << node->loc.base;
+        if (!accesses.empty()) {
+            os << ')';
         }
     } else {
-        os << '*';
+        os << node->loc.base;
     }
-    os << node->loc.base;
-    for (const auto &access : node->loc.accesses) {
+    for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
             os << "." << std::get<std::string>(access);
         } else {
@@ -815,10 +823,17 @@ void CodeGen_CUDA::visit(const ir::CallStmt *node) {
 }
 
 void CodeGen_CUDA::visit(const Print *node) {
-    // TODO(cgyurgyik): CUDA enables printing through `printf`. I imagine
-    // (though have not verified) this is going to use the same format
-    // specifiers as C printf, so we can just refactor the LLVM version and use
-    // it here.
+    // TODO(cgyurgyik): Extend support; borrow from LLVM's printf.
+    std::vector<Expr> args = node->args;
+    os << get_indent() << "printf" << '(';
+    if (Expr value = args.front();
+        args.size() == 1 && value.type().is_scalar()) {
+        std::string specifier = get_specifier(value.type());
+        os << '\"' << specifier << '\"' << ',' << ' ';
+        value.accept(this);
+        os << ')' << ';' << '\n';
+        return;
+    }
     internal_error << "[unimplemented] Print CUDA codegen: " << Stmt(node);
 }
 
@@ -991,13 +1006,25 @@ void CodeGen_CUDA::print(const Function &function) {
         internal_assert(function.is_kernel())
             << "CUDA rng can only run on device, received:\n"
             << function;
+        // We need to print the thread index (first statement) before cuRAND
+        // state setup since it is used as a seed.
+        const auto *seq = function.body.as<Sequence>();
+        internal_assert(seq)
+            << "unexpected kernel with non-sequence body: " << function.body;
+        constexpr char TID[] = "tid";
+        const auto *seed = seq->stmts.front().as<LetStmt>();
+        internal_assert(seed && seed->loc.base == TID)
+            << "unexpected first statement in kernel: " << Stmt(seed);
+        seed->accept(this);
         os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
-        // TODO(cgyurgyik): need `idx` to be set!!
-        os << get_indent() << "curand_init(idx, 0, 0, &"
+        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
            << lower::rng_state_name << ");\n";
+        for (int i = 1, e = seq->stmts.size(); i < e; ++i) {
+            seq->stmts[i].accept(this);
+        }
+    } else {
+        function.body.accept(this);
     }
-
-    function.body.accept(this);
     decrement();
     os << get_indent() << '}';
 }
