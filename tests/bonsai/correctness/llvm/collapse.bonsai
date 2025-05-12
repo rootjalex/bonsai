@@ -1,11 +1,21 @@
 //! flags: -b llvm -e
 
-func f(x: i32) -> i32 {
+func f1(x: i32) -> i32 {
     return x;
 }
 
 func process(a : array[array[i32, 3], 2]) -> array[array[i32, 3], 2] {
-    return map(|l| map(|x : i32| { f(x) }, l), a);
+    return map(|l| map(|x : i32| { f1(x) }, l), a);
+}
+
+
+func f2(x: i32, y: i32) -> i32 {
+    print(x, y);
+    return x + y;
+}
+
+func g(w: i32, h: i32) {
+return map(|i : i32| map(|j : i32| f2(i, j), iter(h)), iter(w));
 }
 
 func main() -> i32 {
@@ -19,12 +29,15 @@ func main() -> i32 {
     print(input[1][0]);
     print(input[1][1]);
     print(input[1][2]);
-    
     print(input);
+
     // TODO(cgyurgyik): This is broken even without collapse.
     // output: array[array[i32, 3], 2] = process(input);
     // print(output);
+
+    g(3, 4);
+    
     return 0;
 }
 
-// schedule { process.collapse(i0, i1); }
+schedule { g.collapse(i0, i1); }
