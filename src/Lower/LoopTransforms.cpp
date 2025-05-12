@@ -6,6 +6,7 @@
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
+#include "IR/Program.h"
 #include "Opt/Simplify.h"
 
 #include "Error.h"
@@ -27,11 +28,6 @@ bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
     return is_const_zero(opt::Simplify::simplify((e - b) % s));
 }
 
-size_t collapse_index_counter = 0;
-std::string unique_collapse_index() {
-    return "_c" + std::to_string(collapse_index_counter++);
-}
-
 // for (int i1 = b1; i < e1; i += s1)
 //   for (int i2 = b2; j < e2; j += s2)
 //     foo(i2, i2);
@@ -48,50 +44,15 @@ std::string unique_collapse_index() {
 //     foo(i1, i2)
 // }
 Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
-                    Program &program) {
-    struct ReplaceIndexing : public Mutator {
-        const std::string &i1;
-        const std::string &i2;
-        ir::Expr replacement;
-        ReplaceIndexing(const std::string &i1, const std::string &i2,
-                        ir::Expr replacement)
-            : i1(i1), i2(i2), replacement(replacement) {}
-
-        Stmt visit(const Store *node) {
-            if (node->loc.accesses.empty()) {
-                return Mutator::visit(node);
-            }
-            bool changed = false;
-            std::vector<std::variant<std::string, Expr>> new_accesses;
-            for (const auto &access : node->loc.accesses) {
-                if (std::holds_alternative<Expr>(access)) {
-                    Expr e = std::get<Expr>(access);
-                    if (contains_variable_with_name(e, i1) ||
-                        contains_variable_with_name(e, i2)) {
-                        new_accesses.push_back(replacement);
-                        changed = true;
-                        continue;
-                    }
-                }
-                new_accesses.push_back(access);
-            }
-            if (!changed) {
-                return Mutator::visit(node);
-            }
-            WriteLoc loc(node->loc.base, node->loc.type);
-            loc.base_type = node->loc.base_type;
-            loc.accesses = std::move(new_accesses);
-            return Store::make(loc, mutate(node->value));
-        }
-    };
-
+                    const std::string &i, Program &program) {
     struct CollapseLoops : public Mutator {
         const std::string &i1;
         const std::string &i2;
+        const std::string &i;
         Program &program;
         CollapseLoops(const std::string &i1, const std::string &i2,
-                      Program &program)
-            : i1(i1), i2(i2), program(program) {}
+                      const std::string &i, Program &program)
+            : i1(i1), i2(i2), i(i), program(program) {}
 
         Stmt visit(const ForAll *outer) override {
             if (outer->index != i1) {
@@ -115,8 +76,7 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
                 .end = c1 * c2,
                 .stride = make_one(idx_t),
             };
-            std::string index_name = unique_collapse_index();
-            Expr idx = Var::make(idx_t, index_name);
+            Expr idx = Var::make(idx_t, i);
             Expr i1e = Var::make(idx_t, i1);
             Expr i2e = Var::make(idx_t, i2);
 
@@ -126,8 +86,7 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
             stmts.push_back(
                 LetStmt::make(WriteLoc(i2, idx_t), b2 + (idx % c2) * s2));
 
-            ReplaceIndexing replace(i1, i2, idx);
-            Stmt body = replace.mutate(inner->body);
+            Stmt body = replace({{i, i1}, {i, i2}}, inner->body);
             if (!(is_perfectly_divisible(b1, e1, s1) &&
                   is_perfectly_divisible(b2, e2, s2))) {
                 // Need to guard against out-of-bounds accesses.
@@ -135,7 +94,7 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
             } else {
                 stmts.push_back(body);
             }
-            return ForAll::make(std::move(index_name), std::move(slice),
+            return ForAll::make(i, std::move(slice),
                                 Sequence::make(std::move(stmts)));
         }
 
@@ -146,8 +105,8 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
                 // in these.
                 if (var->name.starts_with("_traverse_array")) {
                     auto &func = program.funcs[var->name];
-                    func->body =
-                        collapse_loops(std::move(func->body), i1, i2, program);
+                    func->body = collapse_loops(std::move(func->body), i1, i2,
+                                                i, program);
                     return node;
                 }
             }
@@ -155,7 +114,7 @@ Stmt collapse_loops(Stmt body, const std::string &i1, const std::string &i2,
         }
     };
 
-    CollapseLoops lower(i1, i2, program);
+    CollapseLoops lower(i1, i2, i, program);
     return lower.mutate(std::move(body));
 }
 
@@ -682,8 +641,9 @@ ir::Program LoopTransforms::run(ir::Program program,
                                   [&](const Collapse &collapse) {
                                       std::string i1 = get_name(collapse.i1);
                                       std::string i2 = get_name(collapse.i2);
+                                      std::string i = get_name(collapse.i);
                                       body = collapse_loops(std::move(body), i1,
-                                                            i2, program);
+                                                            i2, i, program);
                                   },
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);

@@ -20,7 +20,7 @@ return map(|i : i32| map(|j : i32| f(i, j), iter(h)), iter(w));
 }
 
 schedule {
-    process1.collapse(i0, i1);
-    process2.collapse(i0, i1);
-    process3.collapse(i0, i1);
+    process1.collapse(i0, i1, i_a);
+    process2.collapse(i0, i1, i_b);
+    process3.collapse(i0, i1, i_c);
 }

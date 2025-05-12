@@ -40,4 +40,4 @@ func main() -> i32 {
     return 0;
 }
 
-schedule { g.collapse(i0, i1); }
+schedule { g.collapse(i0, i1, i); }

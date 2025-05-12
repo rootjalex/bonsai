@@ -63,12 +63,11 @@ struct Split {
     bool generate_tail;
 };
 
-// Collapse two for-loops into a single for-loop.
-// TODO(cgyurgyik): Allow custom naming of the new index, i.e., pass a third
-// location?
+// Collapse two for-loops (i1, i2) into a single for-loop (i).
 struct Collapse {
     Location i1;
     Location i2;
+    Location i;
 };
 
 using Transform = std::variant<Collapse, Loopify, Parallelize, Split, Sort>;
