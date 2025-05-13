@@ -38,7 +38,6 @@ func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
   return reinterpret_cast<i32[h][w]>((*_alloc3))
 }
 
-
 func _traverse_array4(w : i32) -> i32[w] {
   alloc _alloc4 : mut i32[w]
   forall _i in [0:((w + 3) / 4) << 2:1] {
@@ -52,7 +51,6 @@ func _traverse_array4(w : i32) -> i32[w] {
   }
   return (*_alloc4)
 }
-
 
 func f(x : i32, y : i32) -> i32 {
   print(x, y)
@@ -74,7 +72,6 @@ func process2(a : f32[8][32]) -> f32[8][32] {
 func process3(w : i32, h : i32) -> i32[h][w] {
   return _traverse_array3(h, w)
 }
-
 
 func process4(w : i32) -> i32[w] {
   return _traverse_array4(w)
