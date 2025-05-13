@@ -290,6 +290,13 @@ struct HasSideEffects : ir::Visitor {
         found = node->op == ir::Intrinsic::rand;
     }
 
+    void visit(const ir::Free *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
+
     void visit(const ir::Call *node) override {
         if (found) {
             return;

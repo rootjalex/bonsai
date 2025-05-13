@@ -188,4 +188,9 @@ ir::Expr update_type(ir::Expr, ir::Type);
 
 ir::Type flatten_array_type(const ir::Type &type);
 
+// Returns the printf format specifier for this value, or error if it is not
+// implemented yet.
+// TODO(cgyurgyik): Add support for non-standard types.
+std::string get_specifier(const ir::Type &type);
+
 } // namespace bonsai

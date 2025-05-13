@@ -156,6 +156,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
+    // TODO(cgyurgyik): support deallocation.
+    RESTRICT_VISITOR(ir::Free);
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);

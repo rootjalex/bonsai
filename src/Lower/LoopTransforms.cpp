@@ -529,6 +529,10 @@ ir::Program LoopTransforms::run(ir::Program program,
                                           loopify(name, std::move(body),
                                                   l.queue_size, program.funcs);
                                   },
+                                  [&](const Sort &sort) {
+                                      // no-op, should have been handled in
+                                      // Lower/Sorts.cpp
+                                  },
                                   [&](const Split &split) {
                                       std::string i = get_name(split.i);
                                       std::string io = get_name(split.io);
@@ -541,8 +545,7 @@ ir::Program LoopTransforms::run(ir::Program program,
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);
                                       body = opt::parallelize_forall(
-                                          i, std::move(body), program.funcs,
-                                          program.types);
+                                          i, std::move(body), program, options);
                                   }},
                        t);
         }

@@ -37,6 +37,17 @@ using namespace ir;
 
 namespace {
 
+// Returns whether this is a context type created during parallelization. The
+// contexts already allocate everything to device; we want to avoid also needing
+// to allocate the context pointer on device, so we just copy it.
+bool is_context_type(Type t) {
+    const auto *s = t.as<Struct_t>();
+    if (s == nullptr) {
+        return false;
+    }
+    return s->name.starts_with("_ctx");
+}
+
 // Returns the relevant CUDA version of each intrinsic, e.g.,
 // cuda_intrinsic("sin", f32) -> "sinf"
 std::string cuda_intrinsic(std::string intrinsic, Type type) {
@@ -220,7 +231,6 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     }
     os << get_indent();
     os << "struct" << ' ' << node->name << ' ' << '{' << '\n';
-    // TODO: alignment or packing?
     ScopedValue<bool> _(is_declaration, false);
     increment();
     for (const auto &[name, type] : node->fields) {
@@ -264,7 +274,12 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
     // TODO(cgyurgyik): This isn't constant for an argument return type.
     // os << "const" << ' ';
     // Unlike the Bonsai printer, we cannot print () in argument parameters.
-    node->etype.accept(this);
+    Type etype = node->etype;
+    if (is_context_type(etype)) {
+        etype.accept(this);
+        return;
+    }
+    etype.accept(this);
     os << "*";
 }
 
@@ -426,6 +441,11 @@ void CodeGen_CUDA::visit(const Build *node) {
 
 void CodeGen_CUDA::visit(const Deref *node) {
     Expr pointee = node->expr;
+    internal_assert(pointee.type().is<Ptr_t>());
+    if (is_context_type(pointee.type().element_of())) {
+        pointee.accept(this);
+        return;
+    }
     if (const auto *p = pointee.type().as<Ptr_t>()) {
         if (p->etype.is<Array_t>()) {
             pointee.accept(this);
@@ -627,6 +647,13 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
+// TODO(cgyurgyik): Verify this is coming from device memory.
+void CodeGen_CUDA::visit(const Free *node) {
+    os << get_indent() << "cudaFree" << '(';
+    node->value.accept(this);
+    os << ')' << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Allocate *node) {
     // TODO(ajr): if this is a launched kernel, this cannot be an array
     // allocation. Otherwise, this should probably cuda malloc for arrays.
@@ -647,6 +674,14 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             return;
         }
         type.accept(this);
+        if (is_context_type(type)) {
+            os << ' ' << b << ' ' << '=' << ' ';
+            internal_assert(node->value.defined())
+                << "undefined value for CUDA stack allocation: " << Stmt(node);
+            node->value.accept(this);
+            os << ';' << '\n';
+            return;
+        }
         // Bonsai assumes *everything*, including stack allocated elements,
         // are pointers. So first we "stack" allocate,
         constexpr std::string_view P = "_";
@@ -669,7 +704,45 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ' ' << b << ';' << '\n';
             // TODO(cgyurgyik): check the status of the CUDA malloc.
             os << get_indent() << "(void)" << "cudaMalloc" << '(';
-            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            array_t->size.accept(this);
+            os << ' ' << '*' << ' ' << "sizeof" << '(';
+            array_t->etype.accept(this);
+            os << ')' << ')' << ';' << '\n';
+            return;
+        }
+        internal_error << "[unimplemented] Allocate CUDA codegen: "
+                       << Stmt(node);
+    }
+    case Allocate::Memory::Device: {
+        if (const auto *array_t = type.as<Array_t>()) {
+            type.accept(this);
+            os << ' ' << b << ';' << '\n';
+            os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            internal_assert(node->value.defined())
+                << "allocation to device expects a value (what is copied)";
+            node->value.accept(this);
+            os << ',' << ' ';
+            array_t->size.accept(this);
+            os << ' ' << '*' << ' ' << "sizeof" << '(';
+            array_t->etype.accept(this);
+            os << ')' << ')' << ';' << '\n';
+            return;
+        }
+        internal_error << "[unimplemented] Allocate CUDA codegen: "
+                       << Stmt(node);
+    }
+    case Allocate::Memory::Host: {
+        if (const auto *array_t = type.as<Array_t>()) {
+            type.accept(this);
+            os << ' ' << b << ';' << '\n';
+            os << get_indent() << "mallocAndCopyFromDevice" << '(';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            internal_assert(node->value.defined())
+                << "allocation to device expects a value (what is copied)";
+            node->value.accept(this);
+            os << ',' << ' ';
             array_t->size.accept(this);
             os << ' ' << '*' << ' ' << "sizeof" << '(';
             array_t->etype.accept(this);
@@ -684,11 +757,22 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
-    if (!node->loc.base_type.is<Array_t>()) {
+
+    Expr value = node->value;
+    Type base_type = node->loc.base_type;
+    if (base_type.is<Array_t>() && value.type().is<Array_t>()) {
+        // We assume `T* = T*` is a pointer assignment.
+        os << node->loc << ' ' << '=' << ' ';
+        value.accept(this);
+        os << ';' << '\n';
+        return;
+    }
+    if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
         os << '*';
     }
     os << node->loc.base;
-    for (const auto &access : node->loc.accesses) {
+    const auto &accesses = node->loc.accesses;
+    for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
             os << "." << std::get<std::string>(access);
         } else {
@@ -698,7 +782,7 @@ void CodeGen_CUDA::visit(const Store *node) {
         }
     }
     os << ' ' << '=' << ' ';
-    node->value.accept(this);
+    value.accept(this);
     os << ';' << '\n';
 }
 
@@ -761,10 +845,17 @@ void CodeGen_CUDA::visit(const ir::CallStmt *node) {
 }
 
 void CodeGen_CUDA::visit(const Print *node) {
-    // TODO(cgyurgyik): CUDA enables printing through `printf`. I imagine
-    // (though have not verified) this is going to use the same format
-    // specifiers as C printf, so we can just refactor the LLVM version and use
-    // it here.
+    // TODO(cgyurgyik): Extend support; borrow from LLVM's printf.
+    std::vector<Expr> args = node->args;
+    os << get_indent() << "printf" << '(';
+    if (Expr value = args.front();
+        args.size() == 1 && value.type().is_scalar()) {
+        std::string specifier = get_specifier(value.type());
+        os << '\"' << specifier << "\\n" << '\"' << ',' << ' ';
+        value.accept(this);
+        os << ')' << ';' << '\n';
+        return;
+    }
     internal_error << "[unimplemented] Print CUDA codegen: " << Stmt(node);
 }
 
@@ -824,7 +915,19 @@ void CodeGen_CUDA::visit(const Continue *node) {
 }
 
 void CodeGen_CUDA::visit(const Launch *node) {
-    internal_error << "[unimplemented] Launch CUDA codegen: " << Stmt(node);
+    os << get_indent() << node->func;
+    os << '<' << '<' << '<';
+    ir::Expr n = node->n;
+    // TODO(cgyurgyik): Should this be handled in Parallelize?
+    Expr block_size = make_const(n.type(), 1024);
+    ((n + (block_size - 1)) / block_size).accept(this);
+    os << ',' << ' ';
+    block_size.accept(this);
+    os << '>' << '>' << '>';
+    os << '(';
+    print_expr_list(node->args);
+    os << ')' << ';' << '\n';
+    os << get_indent() << "cudaDeviceSynchronize" << '(' << ')' << ';' << '\n';
 }
 
 void CodeGen_CUDA::emit_prologue() {
@@ -926,13 +1029,25 @@ void CodeGen_CUDA::print(const Function &function) {
         internal_assert(function.is_kernel())
             << "CUDA rng can only run on device, received:\n"
             << function;
+        // We need to print the thread index (first statement) before cuRAND
+        // state setup since it is used as a seed.
+        const auto *seq = function.body.as<Sequence>();
+        internal_assert(seq)
+            << "unexpected kernel with non-sequence body: " << function.body;
+        constexpr char TID[] = "tid";
+        const auto *seed = seq->stmts.front().as<LetStmt>();
+        internal_assert(seed && seed->loc.base == TID)
+            << "unexpected first statement in kernel: " << Stmt(seed);
+        seed->accept(this);
         os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
-        // TODO(cgyurgyik): need `idx` to be set!!
-        os << get_indent() << "curand_init(idx, 0, 0, &"
+        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
            << lower::rng_state_name << ");\n";
+        for (int i = 1, e = seq->stmts.size(); i < e; ++i) {
+            seq->stmts[i].accept(this);
+        }
+    } else {
+        function.body.accept(this);
     }
-
-    function.body.accept(this);
     decrement();
     os << get_indent() << '}';
 }

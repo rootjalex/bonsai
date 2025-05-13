@@ -71,6 +71,7 @@ struct LetStmt;
 struct IfElse;
 struct DoWhile;
 struct Sequence;
+struct Free;
 struct Allocate;
 struct Store;
 struct Accumulate;

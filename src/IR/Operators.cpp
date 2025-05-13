@@ -69,6 +69,10 @@ Expr operator~(Expr a) { return UnOp::make(UnOp::Not, std::move(a)); }
 
 Expr operator-(Expr a) { return UnOp::make(UnOp::Neg, std::move(a)); }
 
+Expr select(Expr c, Expr t, Expr f) {
+    return Select::make(std::move(c), std::move(t), std::move(f));
+}
+
 Expr distmax(Expr a, Expr b) {
     return GeomOp::make(GeomOp::distmax, std::move(a), std::move(b));
 }

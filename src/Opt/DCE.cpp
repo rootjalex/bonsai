@@ -53,7 +53,7 @@ struct NameHygiene : ir::Mutator {
 
         auto it = old_to_new.find(node->loc.base);
         if (it == old_to_new.end()) {
-            return node;
+            return ir::Mutator::visit(node);
         }
         ir::WriteLoc new_loc(it->second, node->loc.base_type);
         for (const auto &value : node->loc.accesses) {

@@ -12,6 +12,7 @@
 #include <initializer_list>
 #include <limits>
 #include <math.h>
+#include <stdio.h>
 #include <type_traits>
 
 typedef unsigned int uint;
@@ -1755,16 +1756,16 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
     return r;
 }
 
-__forceinline__ __host__ __device__ template <typename T>
-T argmin(T *current, T update) {
+template <typename T>
+__forceinline__ __host__ __device__ T argmin(T *current, T update) {
     if (current->_field0 < update._field0) {
         return *current;
     }
     return update;
 }
 
-__forceinline__ __host__ __device__ template <typename T>
-T *argmax(T *current, T update) {
+template <typename T>
+__forceinline__ __host__ __device__ T *argmax(T *current, T update) {
     if (current->_field0 > update._field0) {
         return current;
     }
@@ -1782,8 +1783,8 @@ __forceinline__ __host__ T random() {
 }
 
 // Jesus christ
-__forceinline__ __host__ __device__ template <typename O, typename I>
-O bonsai_reinterpret(I input) {
+template <typename O, typename I>
+__forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
     static_assert(sizeof(O) == sizeof(I));
     static_assert(std::is_trivially_copyable<O>::value);
     static_assert(std::is_trivially_copyable<I>::value);
@@ -1791,4 +1792,16 @@ O bonsai_reinterpret(I input) {
     O *output;
     output = reinterpret_cast<O *>(i);
     return *output;
+}
+
+__forceinline__ __host__ void
+cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
+    cudaMalloc(device, size);
+    cudaMemcpy(*device, host, size, cudaMemcpyHostToDevice);
+}
+
+__forceinline__ __host__ void
+mallocAndCopyFromDevice(void **host, const void *device, size_t size) {
+    *host = malloc(size);
+    cudaMemcpy(*host, device, size, cudaMemcpyDeviceToHost);
 }

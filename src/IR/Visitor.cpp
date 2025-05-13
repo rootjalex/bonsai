@@ -221,6 +221,8 @@ void Visitor::visit(const Allocate *node) {
     }
 }
 
+void Visitor::visit(const Free *node) { node->value.accept(this); }
+
 void Visitor::visit(const Store *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);

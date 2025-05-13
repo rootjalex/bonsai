@@ -24,6 +24,7 @@ enum class IRStmtEnum {
     DoWhile,
     Sequence,
     Allocate,
+    Free,
     Store,
     Accumulate,
     Label,
@@ -146,6 +147,8 @@ struct Allocate : StmtNode<Allocate> {
     enum Memory {
         Heap,
         Stack,
+        Device,
+        Host,
     };
     Memory memory;
 
@@ -153,6 +156,13 @@ struct Allocate : StmtNode<Allocate> {
     static Stmt make(WriteLoc loc, Expr value, Memory memory = Heap);
 
     static const IRStmtEnum node_type = IRStmtEnum::Allocate;
+};
+
+struct Free : StmtNode<Free> {
+    Expr value;
+    static Stmt make(Expr var);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Free;
 };
 
 // Assignment to mutable value.
@@ -260,6 +270,11 @@ struct ForAll : StmtNode<ForAll> {
     } slice;
     std::string index;
     Stmt body;
+
+    Type index_type() const;
+
+    // Returns the iteration count.
+    Expr count() const;
 
     static Stmt make(std::string index, Slice slice, Stmt body);
 

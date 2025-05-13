@@ -216,10 +216,7 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
             if (!func.is_kernel() && !call_rand.contains(name)) {
                 continue;
             }
-            if (func.is_kernel()) {
-                // The kernel only sets up the RNG.
-                func.attributes.push_back(Function::Attribute::setup_rng);
-            }
+            size_t before = call_rand.size();
             auto it = call_graph.find(name);
             internal_assert(it != call_graph.end()) << name;
             for (const std::string &nested : it->second) {
@@ -229,6 +226,11 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
                     // We must propagate it from the kernel level.
                     call_rand.insert(nested);
                 }
+            }
+            size_t after = call_rand.size();
+            if (func.is_kernel() && before != after) {
+                // The kernel only sets up the RNG.
+                func.attributes.push_back(Function::Attribute::setup_rng);
             }
         }
         // Fix up the bodies of kernel functions.

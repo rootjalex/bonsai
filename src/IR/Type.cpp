@@ -167,6 +167,8 @@ Type Type::element_of() const {
         return this->as<BVH_t>()->primitive;
     } else if (this->is<Array_t>()) {
         return this->as<Array_t>()->etype;
+    } else if (this->is<Ptr_t>()) {
+        return this->as<Ptr_t>()->etype;
     } else {
         internal_error << "Called element_of() on bad type: " << *this;
     }

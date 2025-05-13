@@ -31,7 +31,8 @@ typedef uint8_t vec2_uint8_t __attribute__((vector_size(2)));
 struct _spheres_layout1 {
     vec3_float center;
     float radius;
-    uint16_t nPrims;
+    uint8_t nPrims;
+    uint8_t axis;
     vec2_uint8_t spheres_spliton_nPrims;
 } __attribute__((packed));
 struct _spheres_layout0 {

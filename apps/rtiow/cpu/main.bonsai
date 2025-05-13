@@ -180,10 +180,15 @@ func [[export]] image(c : Camera) {
     return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(c.width)), iter(height));
 }
 
+func sort_key(r : Ray, axis : u8, i : u8) -> u8 {
+    invDir = 1 / r.d;
+    return select(invDir[axis] < 0, 1 - i, i);
+}
+
 schedule {
     // TODO: generic over primitive types!
     tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
-    | Interior(left : SphereBVH, right : SphereBVH)
+    | Interior(left : SphereBVH, right : SphereBVH, axis : u8)
     | Leaf(data : array[MaterialSphere]);
 
     spheres : SphereBVH;
@@ -195,10 +200,11 @@ schedule {
         group[count] index : u16 {
             center : vec3f;
             radius : Float;
-            nPrims : u16;
+            nPrims : u8;
+            axis : u8;
             switch nPrims {
                 0 => Interior { offset : u16; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u16; data = range(prims, pOffset, nPrims); };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
             };
         };
     };
@@ -206,7 +212,11 @@ schedule {
     image.split(i0, io, ii, 50, false) // make 16 threads
          //.cpu_thread(io)
          ;
-    trace.loopify(64);
+    trace
+         // This actually slows the application down. Not sure why.
+         .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| sort_key(r, axis, i))
+         // .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| 1 - i)
+         .loopify(64);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {

@@ -1678,7 +1678,8 @@ struct Parser {
                 << "TODO: support mutable arguments in lambdas. Argument: "
                 << def.name << " marked as mutable.";
             args.push_back({std::move(def.name), std::move(def.type)});
-        } while (!consume(Token::Type::BAR));
+        } while (consume(Token::Type::COMMA));
+        expect(Token::Type::BAR);
         return args;
     }
 
@@ -2024,6 +2025,14 @@ struct Parser {
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(
                     ir::Parallelize{std::move(i), ir::Parallelize::CPUThread});
+            } else if (rewrite == "gpu_thread") {
+                ir::Location i = parse_location();
+                schedule.func_transforms[func].emplace_back(
+                    ir::Parallelize{std::move(i), ir::Parallelize::GPUThread});
+            } else if (rewrite == "gpu_block") {
+                ir::Location i = parse_location();
+                schedule.func_transforms[func].emplace_back(
+                    ir::Parallelize{std::move(i), ir::Parallelize::GPUBlock});
             } else if (rewrite == "split") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
@@ -2047,6 +2056,16 @@ struct Parser {
                 }
                 schedule.func_transforms[func].emplace_back(
                     ir::Loopify{std::move(queue_size)});
+            } else if (rewrite == "sort") {
+                ir::Location loc = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Expr lambda = parse_base_expr();
+                internal_assert(lambda.is<ir::Lambda>())
+                    << "sort() expects a lambda as the second argument, "
+                       "received: "
+                    << lambda;
+                schedule.func_transforms[func].emplace_back(
+                    ir::Sort{std::move(loc), std::move(lambda)});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

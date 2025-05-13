@@ -27,7 +27,8 @@ Expr operator>(Expr a, Expr b);
 
 Expr operator~(Expr a);
 Expr operator-(Expr a);
-// TODO: the rest
+
+Expr select(Expr c, Expr t, Expr f);
 
 // Geometric
 Expr distmax(Expr a, Expr b);

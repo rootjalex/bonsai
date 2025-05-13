@@ -62,6 +62,7 @@ struct Printer : public Visitor {
     void print(const Program &program);
     void print(const Function &function);
     void print(const Schedule &schedule);
+    void print(const Location &loc);
     void print(const Type &type);
     void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
@@ -137,6 +138,7 @@ struct Printer : public Visitor {
     void visit(const DoWhile *) override;
     void visit(const Sequence *) override;
     void visit(const Allocate *) override;
+    void visit(const Free *) override;
     void visit(const Store *) override;
     void visit(const Accumulate *) override;
     void visit(const Label *) override;

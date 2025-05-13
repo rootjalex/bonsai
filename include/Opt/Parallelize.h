@@ -21,6 +21,7 @@ namespace opt {
 // }
 // CallStmt("launch", closure, (end - start + (stride - 1)) / stride)
 ir::Stmt parallelize_forall(const std::string &loop_idx, ir::Stmt body,
-                            ir::FuncMap &funcs, ir::TypeMap &types);
+                            ir::Program &program,
+                            const CompilerOptions &options);
 } // namespace opt
 } // namespace bonsai

@@ -37,6 +37,17 @@ struct Parallelize {
     Strategy strategy;
 };
 
+// Sort the children of `loc` via a lambda applied to each index.
+// For now, `loc` is assumed to be something like spheres.Interior
+// TODO(ajr): also support queue sorting.
+// Note: lambda arguments must always start with the index into
+// the children list. All other arguments must be things in scope,
+// e.g. the ray.
+struct Sort {
+    Location loc;
+    Expr lambda;
+};
+
 // For-loop `i` with extent `n` becomes for-loop `io`
 // with start=i.start end=(i.end / factor) * factor, stride=factor and
 // nested for-loop `ii` with start=io, end=io+factor,
@@ -52,7 +63,7 @@ struct Split {
     bool generate_tail;
 };
 
-using Transform = std::variant<Loopify, Parallelize, Split>;
+using Transform = std::variant<Loopify, Parallelize, Split, Sort>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

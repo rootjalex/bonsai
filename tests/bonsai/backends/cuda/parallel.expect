@@ -1,0 +1,47 @@
+#include "runtime/CUDA/math.h"
+
+struct _ctx0 {
+  int32_t n;
+  int32_t* _alloc0; // of size n
+  int32_t* fs; // of size n
+};
+
+__device__ int32_t f(int32_t i) {
+  printf("%d\n", i);
+  return (i + 1);
+}
+
+__global__ void _parfunc0(_ctx0 ctx0) {
+  int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
+  int32_t _i0 = tid;
+  if (ctx0.n <= _i0) {
+    return;
+  }
+  ctx0._alloc0[_i0] = f(ctx0.fs[_i0]);
+  return;
+}
+
+__host__ int32_t* _traverse_array0(int32_t n, int32_t* fs) {
+  int32_t* _alloc0;
+  (void)cudaMalloc((void**)&_alloc0, n * sizeof(int32_t));
+  int32_t* d_fs;
+  cudaMallocAndCopyToDevice((void**)&d_fs, fs, n * sizeof(int32_t));
+  _ctx0 ctx = _ctx0{n, _alloc0, d_fs};
+  _parfunc0<<<((n + (1024 - 1)) / 1024), 1024>>>(ctx);
+  cudaDeviceSynchronize();
+  int32_t* h__alloc0;
+  mallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, n * sizeof(int32_t));
+  cudaFree(_alloc0);
+  cudaFree(d_fs);
+  _alloc0 = h__alloc0;
+  return _alloc0;
+}
+
+int32_t* apply_function(int32_t n, int32_t* fs) {
+  return _traverse_array0(n, fs);
+}
+
+__host__ int32_t* entry(int32_t n, int32_t* a) {
+  int32_t* b = _traverse_array0(n, a);
+  return b;
+}

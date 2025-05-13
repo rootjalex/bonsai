@@ -81,38 +81,6 @@ static llvm::Function *retrieve_printf(llvm::Module &m) {
     return printf;
 }
 
-// Returns the printf format specifier for this value, or error if it is not
-// implemented yet.
-// TODO(cgyurgyik): Add support for non-standard types.
-static std::string get_specifier(const ir::Type &type) {
-    std::string specifier = "%";
-    const uint32_t width = type.bits();
-    if (type.is_bool()) {
-        // Boolean values are printed as strings ("true", "false").
-        return "%s";
-    }
-    if (!(type.is_numeric() && (width == 32 || width == 64))) {
-        internal_error << "[unimplemented] LLVM print: " << type;
-    }
-    if (type.is_int()) {
-        if (width > 32)
-            return "%ld";
-        return "%d";
-    }
-    if (type.is_uint()) {
-        if (width > 32)
-            return "%lu";
-        return "%u";
-    }
-    if (type.is_float()) {
-        // C will convert float (f32) to double (f64) for variadic
-        // argument functions (to include printf).
-        return "%f";
-    }
-
-    internal_error << "[unimplemented] LLVM print: " << type;
-}
-
 } // namespace
 
 using namespace ir;
@@ -1203,9 +1171,12 @@ void CodeGen_LLVM::visit(const Cast *node) {
         value = builder->CreateFPCast(inner, llvm_dst);
     } else if (src.is<Array_t>() && dst.is<Array_t>()) {
         value = inner; // no-op
+    } else if (src.is_bool() && dst.is_uint()) {
+        value = builder->CreateIntCast(inner, llvm_dst,
+                                       /* isSigned */ false);
     } else {
         internal_error << "TODO: implement Cast codegen: " << Expr(node)
-                       << "with types: " << src << " -> " << dst;
+                       << " with types: " << src << " -> " << dst;
     }
 }
 

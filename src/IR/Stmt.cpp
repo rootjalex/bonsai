@@ -139,6 +139,15 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
     return node;
 }
 
+Stmt Free::make(Expr var) {
+    internal_assert(var.defined()) << "Undefined var in Free::make";
+    Free *node = new Free;
+    internal_assert((var.type().is<Array_t, Struct_t>()))
+        << "unexpected type in Free::make, " << var.type();
+    node->value = std::move(var);
+    return node;
+}
+
 Stmt Store::make(WriteLoc loc, Expr value) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
@@ -263,6 +272,18 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
     node->slice = std::move(slice);
     node->body = std::move(body);
     return node;
+}
+
+Type ForAll::index_type() const { return slice.begin.type(); }
+
+Expr ForAll::count() const {
+    Type idx_t = index_type();
+    Expr b = slice.begin, e = slice.end, s = slice.stride;
+    // ((e - b) + (s - 1)) / s
+    Expr x = BinOp::make(BinOp::OpType::Sub, e, b);
+    Expr y = BinOp::make(BinOp::OpType::Sub, s, make_one(idx_t));
+    Expr z = BinOp::make(BinOp::OpType::Add, x, y);
+    return BinOp::make(BinOp::OpType::Div, z, s);
 }
 
 Stmt Continue::make() {
