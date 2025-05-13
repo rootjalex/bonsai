@@ -10,6 +10,21 @@ func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r
 
 // func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
+func bounce(ray : Ray) -> Ray {
+    return Ray{ray.o + rand(3), rand(3)};
+}
+
+func num_hits(ray : Ray, depth : i32, acc : i32) -> i32 {
+    if depth <= 0 {
+        return acc;
+    } else if trace(ray) {
+        return num_hits(bounce(ray), depth - 1, acc + 1);
+    } else {
+        return acc;
+    }
+}
+
+func map_hits(n : i32, rays : array[Ray, n]) = map(|r : Ray| num_hits(r, 100, 0), rays);
 
 schedule {
     // TODO: generic over primitive types!
@@ -38,6 +53,8 @@ schedule {
 
     trace.sort(triangles.Interior, |i : u8, ray : Ray, axis : u8| select(1 / ray.d[axis] < 0, 1 - i, i))
          .loopify(64);
+
+    num_hits.defer(num_hits, i0, hit_queue);
 }
 
 

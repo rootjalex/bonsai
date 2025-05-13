@@ -1265,12 +1265,12 @@ struct Parser {
             {"fma", 3, ir::Intrinsic::fma},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
-            {"max", 2, ir::Intrinsic::max, /*skippable=*/ true},
-            {"min", 2, ir::Intrinsic::min, /*skippable=*/ true},
+            {"max", 2, ir::Intrinsic::max, /*skippable=*/true},
+            {"min", 2, ir::Intrinsic::min, /*skippable=*/true},
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
-            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/ true},
+            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
@@ -2025,6 +2025,14 @@ struct Parser {
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(
                     ir::Parallelize{std::move(i), ir::Parallelize::CPUThread});
+            } else if (rewrite == "defer") {
+                ir::Location consumer = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location loop = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location queue = parse_location();
+                schedule.func_transforms[func].emplace_back(ir::Defer{
+                    std::move(consumer), std::move(loop), std::move(queue)});
             } else if (rewrite == "gpu_thread") {
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(
@@ -2033,22 +2041,6 @@ struct Parser {
                 ir::Location i = parse_location();
                 schedule.func_transforms[func].emplace_back(
                     ir::Parallelize{std::move(i), ir::Parallelize::GPUBlock});
-            } else if (rewrite == "split") {
-                ir::Location i = parse_location();
-                expect(Token::Type::COMMA);
-                ir::Location io = parse_location();
-                expect(Token::Type::COMMA);
-                ir::Location ii = parse_location();
-                expect(Token::Type::COMMA);
-                ir::Expr factor = parse_expr();
-                expect(Token::Type::COMMA);
-                bool generate_tail = consume(Token::Type::TRUE).has_value();
-                if (!generate_tail) {
-                    expect(Token::Type::FALSE);
-                }
-                schedule.func_transforms[func].emplace_back(
-                    ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), generate_tail});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
                 if (peek().type != Token::Type::RPAREN) {
@@ -2066,6 +2058,22 @@ struct Parser {
                     << lambda;
                 schedule.func_transforms[func].emplace_back(
                     ir::Sort{std::move(loc), std::move(lambda)});
+            } else if (rewrite == "split") {
+                ir::Location i = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location io = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location ii = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Expr factor = parse_expr();
+                expect(Token::Type::COMMA);
+                bool generate_tail = consume(Token::Type::TRUE).has_value();
+                if (!generate_tail) {
+                    expect(Token::Type::FALSE);
+                }
+                schedule.func_transforms[func].emplace_back(
+                    ir::Split{std::move(i), std::move(io), std::move(ii),
+                              std::move(factor), generate_tail});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

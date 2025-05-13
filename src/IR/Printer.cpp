@@ -284,7 +284,16 @@ void Printer::print(const Schedule &schedule) {
                 os << "\n" << whitespace;
             }
             os << ".";
-            std::visit(Overloaded{[&](const Loopify &l) {
+            std::visit(Overloaded{[&](const Defer &def) {
+                                      os << "defer(";
+                                      print(def.producer);
+                                      os << ", ";
+                                      print(def.loop);
+                                      os << ", ";
+                                      print(def.queue);
+                                      os << ")";
+                                  },
+                                  [&](const Loopify &l) {
                                       os << "loopify(";
                                       if (l.queue_size.has_value()) {
                                           print(*l.queue_size);

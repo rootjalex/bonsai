@@ -11,7 +11,7 @@ namespace lower {
 //
 class LowerSorts : public Pass {
   public:
-    constexpr std::string name() const override { return "lower-sorts"; }
+    const std::string name() const override { return "lower-sorts"; }
 
     // Requires full-program (needs access to schedule).
     ir::Program run(ir::Program program,

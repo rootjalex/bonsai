@@ -31,7 +31,8 @@ struct OptionSets {
 OptionSets get_option_sets(const ir::Expr &expr) {
     internal_assert(expr.type().is_bool()) << expr;
     if (const ir::Cast *cast = expr.as<ir::Cast>()) {
-        if (cast->value.type().is<ir::Option_t>()) {
+        if (cast->value.type().is<ir::Option_t>() &&
+            cast->value.is<ir::Var, ir::Access, ir::Extract>()) {
             ir::WriteLoc singleton = read_to_writeloc(cast->value);
             return OptionSets{.positive = {std::move(singleton)}};
         }

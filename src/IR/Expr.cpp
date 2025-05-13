@@ -1043,51 +1043,65 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
     SetOp *node = new SetOp;
 
     // Only do type inference if it's enabled or both types are defined.
-    const bool infer_types = type_enforcement_enabled() ||
-                             (a.type().defined() && b.type().defined());
+    // Filters and argmins can be infered regardless of the lambda type.
+    const bool infer_types =
+        type_enforcement_enabled() ||
+        ((op == SetOp::filter || op == SetOp::argmin || a.type().defined()) &&
+         b.type().defined());
 
     if (infer_types) {
         if (op == SetOp::filter) {
-            internal_assert(a.type().is<Function_t>() &&
-                            a.type().as<Function_t>()->ret_type.is_bool())
+            // TODO: allow this assert to pass if !a.type().defined() only if
+            // !type_enforcement_enabled()
+            internal_assert(
+                (!a.type().defined() && !type_enforcement_enabled()) ||
+                (a.type().is<Function_t>() &&
+                 a.type().as<Function_t>()->ret_type.is_bool()))
                 << "Expected lhs of filter to be a boolean function, instead "
                    "received: "
                 << a << " : " << a.type();
             internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
                 << "Expected rhs of filter to be a set, instead received: " << b
                 << " : " << b.type();
-            const Function_t *f = a.type().as<Function_t>();
-            if (f->arg_types.size() == 1) {
-                internal_assert(
-                    equals(f->arg_types[0].type, b.type().element_of()))
-                    << "Expected filter function to accept element of type: "
-                    << b.type().element_of() << " instead got " << a << " : "
-                    << a.type();
-            } else {
-                internal_assert(
-                    b.type().element_of().is<Tuple_t>() &&
-                    b.type().element_of().as<Tuple_t>()->etypes.size() ==
-                        f->arg_types.size())
-                    << "Expected filter function to accept elements of group: "
-                    << b.type().element_of() << " instead got " << a << " : "
-                    << a.type();
+            if (const Function_t *f = a.type().as<Function_t>()) {
+                if (f->arg_types.size() == 1) {
+                    internal_assert(
+                        equals(f->arg_types[0].type, b.type().element_of()))
+                        << "Expected filter function to accept element of "
+                           "type: "
+                        << b.type().element_of() << " instead got " << a
+                        << " : " << a.type();
+                } else {
+                    internal_assert(
+                        b.type().element_of().is<Tuple_t>() &&
+                        b.type().element_of().as<Tuple_t>()->etypes.size() ==
+                            f->arg_types.size())
+                        << "Expected filter function to accept elements of "
+                           "group: "
+                        << b.type().element_of() << " instead got " << a
+                        << " : " << a.type();
+                }
             }
             node->type = b.type();
         } else if (op == SetOp::argmin) {
-            internal_assert(a.type().is<Function_t>() &&
-                            a.type().as<Function_t>()->ret_type.is_numeric())
+            internal_assert(
+                (!a.type().defined() && !type_enforcement_enabled()) ||
+                (a.type().is<Function_t>() &&
+                 a.type().as<Function_t>()->ret_type.is_numeric()))
                 << "Expected lhs of argmin to be a numeric function, instead "
                    "received: "
                 << a << " : " << a.type();
             internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
                 << "Expected rhs of argmin to be a set, instead received: " << b
                 << " : " << b.type();
-            const Function_t *f = a.type().as<Function_t>();
-            internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0].type, b.type().element_of()))
-                << "Expected argmin function to accept element of type: "
-                << b.type().element_of() << " instead got " << a << " : "
-                << a.type();
+            if (const Function_t *f = a.type().as<Function_t>()) {
+                internal_assert(
+                    f->arg_types.size() == 1 &&
+                    equals(f->arg_types[0].type, b.type().element_of()))
+                    << "Expected argmin function to accept element of type: "
+                    << b.type().element_of() << " instead got " << a << " : "
+                    << a.type();
+            }
             if (can_be_empty(b)) {
                 node->type = Option_t::make(b.type().element_of());
             } else {
