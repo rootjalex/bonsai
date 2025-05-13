@@ -10,6 +10,7 @@
 #include "Lower/Intrinsics.h"
 #include "Lower/Random.h"
 #include "Lower/TopologicalOrder.h"
+#include "Opt/Simplify.h"
 
 #include "Utils.h"
 
@@ -691,6 +692,7 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 }
 
 // TODO(cgyurgyik): Verify this is coming from device memory.
+// TODO(cgyurgyik): Need to free inner members that were allocated.
 void CodeGen_CUDA::visit(const Free *node) {
     os << get_indent() << "cudaFree" << '(';
     ir::Expr value = node->value;
@@ -1046,7 +1048,7 @@ void CodeGen_CUDA::visit(const Launch *node) {
     ir::Expr n = node->n;
     // TODO(cgyurgyik): Should this be handled in Parallelize?
     Expr block_size = make_const(n.type(), 1024);
-    ((n + (block_size - 1)) / block_size).accept(this);
+    opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';
     block_size.accept(this);
     os << '>' << '>' << '>';
