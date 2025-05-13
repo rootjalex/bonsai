@@ -208,7 +208,7 @@ schedule {
          .cpu_thread(io);
     trace
          // This actually slows the application down. Not sure why.
-         // .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| select(1 / r.d[axis] < 0, 1 - i, i))
+         // .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| select((1 / r.d)[axis] < 0, 1 - i, i))
          .loopify(64);
 }
 
