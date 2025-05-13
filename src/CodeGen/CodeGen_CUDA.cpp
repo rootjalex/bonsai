@@ -1046,7 +1046,7 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
     // TODO(cgyurgyik): Should this be handled in Parallelize?
-    Expr block_size = make_const(n.type(), 1024);
+    Expr block_size = make_const(n.type(), 512);
     opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';
     block_size.accept(this);

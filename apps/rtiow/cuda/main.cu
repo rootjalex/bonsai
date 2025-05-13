@@ -1,5 +1,3 @@
-
-
 // Pulled from [1], with our own addendums for Bonsai.
 // [1] https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
 
@@ -2368,7 +2366,7 @@ __host__ int3 *_traverse_array0(Camera *c, int32_t height,
     cudaMallocAndCopyToDevice((void **)&d_spheres, &h_spheres,
                               sizeof(_spheres_layout0));
     _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
-    _parfunc0<<<(((height * (*c).width) + 1023) / 1024), 1024>>>(ctx);
+    _parfunc0<<<(((height * (*c).width) + 511) / 512), 512>>>(ctx);
     cudaDeviceSynchronize();
     cudaFree(d_c);
     cudaFree(d_spheres);
@@ -2737,8 +2735,7 @@ inline float random_scalar_float() {
 }
 
 float random_float(float low, float high) {
-    return (low + ((high - low) * static_cast<float>(rand()) /
-                   static_cast<float>(RAND_MAX)));
+    return (low + ((high - low) * random<float>()));
 }
 
 inline float get_axis(float3 v, int index) {
