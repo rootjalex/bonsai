@@ -41,7 +41,7 @@ func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option
     if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high)))) {
       if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
         if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
-          let _sort_cmp0 = cast<u8>(!((1f / (*ray).d[(*triangles).triangles_index[triangles__index].axis]) < 0f)) < cast<u8>((1f / (*ray).d[(*triangles).triangles_index[triangles__index].axis]) < 0f) in
+          let _sort_cmp0 = cast<u8>(!((f32x3(1f) / (*ray).d)[(*triangles).triangles_index[triangles__index].axis] < 0f)) < cast<u8>((f32x3(1f) / (*ray).d)[(*triangles).triangles_index[triangles__index].axis] < 0f) in
           let _sort_tmp0 = select(_sort_cmp0, triangles__index + 1u, triangles__index + reinterpret_cast<_triangles_split_layout2>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset) in
           let _sort_tmp1 = select(_sort_cmp0, triangles__index + reinterpret_cast<_triangles_split_layout2>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset, triangles__index + 1u) in
           _queue0[(*_queue_count0)] = _sort_tmp0

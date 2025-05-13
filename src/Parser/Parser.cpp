@@ -981,7 +981,7 @@ struct Parser {
             ir::Expr inner = parse_unary();
             return ir::UnOp::make(ir::UnOp::Not, std::move(inner));
         } else {
-            return parse_base_expr();
+            return parse_fields_expr();
         }
     }
 
@@ -1125,6 +1125,28 @@ struct Parser {
             {{{ir::BinOp::LOr, Token::Type::LOGICAL_OR}}});
     }
 
+    ir::Expr parse_fields_expr() {
+        ir::Expr base = parse_base_expr();
+
+        while (true) {
+            if (consume(Token::Type::PERIOD)) {
+                // Field access.
+                std::string field = get_id();
+                base = ir::Access::make(std::move(field), std::move(base));
+            } else if (consume(Token::Type::LBRACKET)) {
+                // Can have multiple indexes in one `[` `]`
+                std::vector<ir::Expr> idxs =
+                    parse_expr_list_until(Token::Type::RBRACKET);
+                for (auto &idx : idxs) {
+                    base = ir::Extract::make(std::move(base), std::move(idx));
+                }
+            } else {
+                break;
+            }
+        }
+        return base;
+    }
+
     // base_expr := '(' expr ')' | name (('.' field) | ('[' index (, index)* ']'
     // |
     // () ) | lambda args? : expr
@@ -1200,10 +1222,11 @@ struct Parser {
             // TODO: should also support e.g. Type{} notation.
         } else if (consume(Token::Type::STAR)) {
             // Option dereference.
-            ir::Expr arg = parse_identifier();
+            ir::Expr arg = parse_fields_expr();
             ir::Type atype = arg.type();
             internal_assert(atype.defined() && atype.is<ir::Option_t>())
-                << "Parsed dereference of non-option: " << arg;
+                << "Parsed dereference of non-option: " << arg
+                << " of type: " << atype;
             ir::Type etype = atype.as<ir::Option_t>()->etype;
             // TODO(ajr): do we want an explicit Deref IR node?
             return ir::Cast::make(std::move(etype), std::move(arg));
@@ -1265,12 +1288,12 @@ struct Parser {
             {"fma", 3, ir::Intrinsic::fma},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
-            {"max", 2, ir::Intrinsic::max, /*skippable=*/ true},
-            {"min", 2, ir::Intrinsic::min, /*skippable=*/ true},
+            {"max", 2, ir::Intrinsic::max, /*skippable=*/true},
+            {"min", 2, ir::Intrinsic::min, /*skippable=*/true},
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
-            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/ true},
+            {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
@@ -1359,32 +1382,7 @@ struct Parser {
             return ir::Infinity::make(f32);
         }
 
-        // A string is a field access, an Expr is an index.
-        std::vector<std::variant<std::string, ir::Expr>> accesses;
-        while (true) {
-            if (consume(Token::Type::PERIOD)) {
-                // Field access.
-                std::string field = get_id();
-                accesses.emplace_back(std::move(field));
-            } else if (consume(Token::Type::LBRACKET)) {
-                // Can have multiple indexes in one `[` `]`
-                std::vector<ir::Expr> idxs =
-                    parse_expr_list_until(Token::Type::RBRACKET);
-                for (auto &idx : idxs) {
-                    accesses.emplace_back(std::move(idx));
-                }
-            } else {
-                break;
-            }
-        }
-
         if (consume(Token::Type::LPAREN)) {
-            // Must be a call to a lambda
-            if (!accesses.empty()) {
-                report_error() << "[unimplemented] function call on field "
-                                  "access or extract.";
-            }
-
             std::vector<ir::Expr> args =
                 parse_expr_list_until(Token::Type::RPAREN);
             if (name_in_scope(name)) {
@@ -1396,7 +1394,7 @@ struct Parser {
 
             // TODO: could be a ctor of a type?
             report_error() << "Unknown function call " << name;
-        } else if (peek().type == Token::Type::LSQUIGGLE && accesses.empty() &&
+        } else if (peek().type == Token::Type::LSQUIGGLE &&
                    program.types.contains(name)) {
             consume(Token::Type::LSQUIGGLE);
             // Type constructor
@@ -1424,19 +1422,6 @@ struct Parser {
 
         ir::Type var_type = get_type_from_frame(name); // never undefined.
         ir::Expr expr = ir::Var::make(var_type, name);
-
-        for (auto &access : accesses) {
-            if (std::holds_alternative<std::string>(access)) {
-                // Field access.
-                expr = ir::Access::make(std::get<std::string>(access),
-                                        std::move(expr));
-            } else {
-                internal_assert(std::holds_alternative<ir::Expr>(access));
-                // Extract
-                expr = ir::Extract::make(std::move(expr),
-                                         std::get<ir::Expr>(access));
-            }
-        }
         return expr;
     }
 
