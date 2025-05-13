@@ -2368,6 +2368,8 @@ __host__ int3 *_traverse_array0(Camera *c, int32_t height,
     _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
     _parfunc0<<<(((height * (*c).width) + 511) / 512), 512>>>(ctx);
     cudaDeviceSynchronize();
+    cudaFree(prims);
+    cudaFree(spheres_index);
     cudaFree(d_c);
     cudaFree(d_spheres);
     int32_t *h__alloc0;

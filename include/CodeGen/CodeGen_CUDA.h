@@ -97,7 +97,11 @@ class CodeGen_CUDA : public ir::Printer {
     // for correct usage of rand, which is different for __host__ and
     // __device__.
     bool on_device = false;
-    // The stream that is printed to.
+    // We need to also device allocate inner children, a concept that is
+    // (currently) foreign to bonsai so is done here. This list tracks all the
+    // device allocated children of a struct.
+    std::vector<ir::TypedVar> device_allocated;
+    //  The stream that is printed to.
     std::ostream &os;
 
     // Increments the indentation.

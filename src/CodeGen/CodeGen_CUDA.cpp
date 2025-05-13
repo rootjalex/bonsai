@@ -693,6 +693,16 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 // TODO(cgyurgyik): Verify this is coming from device memory.
 // TODO(cgyurgyik): Need to free inner members that were allocated.
 void CodeGen_CUDA::visit(const Free *node) {
+    if (!device_allocated.empty()) {
+        std::vector<Stmt> frees;
+        for (const auto &[name, type] : device_allocated) {
+            frees.push_back(Free::make(Var::make(type, name)));
+        }
+        device_allocated.clear();
+        for (const Stmt &free : frees) {
+            free.accept(this);
+        }
+    }
     os << get_indent() << "cudaFree" << '(';
     ir::Expr value = node->value;
     if (const auto *d = value.as<Deref>(); d && d->expr.type().is<Ptr_t>()) {
@@ -704,7 +714,6 @@ void CodeGen_CUDA::visit(const Free *node) {
 }
 
 void CodeGen_CUDA::emit_to_device(const Allocate *node) {
-    // TODO(cgyurgyik): make this work for arbitrary nesting.
     const Expr &value = node->value;
     const std::string &base = node->loc.base;
     Type type = node->loc.type;
@@ -722,6 +731,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     for (const auto &[name, type] : types) {
         emit_to_device(name, type, Access::make(name, Deref::make(value)),
                        /*parent=*/value);
+        device_allocated.push_back(TypedVar(name, type));
     }
     // ...and then hook them back up.
     internal_assert(base.starts_with("d_")) << base;
@@ -735,6 +745,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
         os << get_indent() << copy << '.' << name << ' ';
         os << '=' << ' ' << name << ';' << '\n';
     }
+    // Finally, emit the final struct.
     emit_to_device(base, type, Var::make(type, copy));
 }
 
