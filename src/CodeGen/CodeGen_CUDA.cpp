@@ -37,6 +37,43 @@ using namespace ir;
 
 namespace {
 
+// Returns whether this type contains a field with a memory address.
+bool has_address(Type type) {
+    if (type.is<Ptr_t, Array_t>()) {
+        return true;
+    }
+    if (type.is<Vector_t>()) {
+        return has_address(type.element_of());
+    }
+    if (const auto *struct_t = type.as<Struct_t>()) {
+        return std::any_of(
+            struct_t->fields.begin(), struct_t->fields.end(),
+            [](const TypedVar &v) { return has_address(v.type); });
+    }
+    if (const auto *tuple_t = type.as<Tuple_t>()) {
+        return std::any_of(tuple_t->etypes.begin(), tuple_t->etypes.end(),
+                           [](const ir::Type &t) { return has_address(t); });
+    }
+    return false;
+}
+
+std::vector<TypedVar> get_immediate_addressed_children(Type type) {
+    std::vector<TypedVar> children;
+    internal_assert(type.is<Struct_t>()) << "[unimplemented] " << type;
+    const auto *struct_t = type.as<Struct_t>();
+    for (const auto &[name, type] : struct_t->fields) {
+        if (type.is<Array_t>()) {
+            children.push_back(TypedVar(name, type));
+            continue;
+        }
+        if (type.is<Ptr_t>()) {
+            internal_assert(type.element_of().is<Struct_t>());
+            children.push_back(TypedVar(name, type.element_of()));
+        }
+    }
+    return children;
+}
+
 // Returns whether this is a context type created during parallelization. The
 // contexts already allocate everything to device; we want to avoid also needing
 // to allocate the context pointer on device, so we just copy it.
@@ -665,14 +702,105 @@ void CodeGen_CUDA::visit(const Free *node) {
     os << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::emit_to_device(const Allocate *node) {
+    // TODO(cgyurgyik): make this work for arbitrary nesting.
+    const Expr &value = node->value;
+    const std::string &base = node->loc.base;
+    Type type = node->loc.type;
+    if (type.is<Ptr_t>()) {
+        type = type.element_of();
+        internal_assert(type.is<Struct_t>());
+    }
+    if (type.is<Array_t>() || !has_address(type)) {
+        emit_to_device(base, type, value);
+        return;
+    }
+
+    std::vector<TypedVar> types = get_immediate_addressed_children(type);
+    // copy the children to the device...
+    for (const auto &[name, type] : types) {
+        emit_to_device(name, type, Access::make(name, Deref::make(value)),
+                       /*parent=*/value);
+    }
+    // ...and then hook them back up.
+    internal_assert(base.starts_with("d_")) << base;
+    std::string original = base.substr(2, base.size());
+    std::string copy = "h_" + original;
+    // Make a shallow copy for non-pointer members.
+    os << get_indent() << type << ' ' << copy << ' ';
+    os << '=' << ' ' << '*' << original << ';' << '\n';
+    // Then copy all the recently device-allocated members.
+    for (const auto &[name, type] : types) {
+        os << get_indent() << copy << '.' << name << ' ';
+        os << '=' << ' ' << name << ';' << '\n';
+    }
+    emit_to_device(base, type, Var::make(type, copy));
+}
+
+void CodeGen_CUDA::emit_to_device(std::string base, ir::Type type,
+                                  ir::Expr value,
+                                  std::optional<ir::Expr> parent) {
+    if (const auto *array_t = type.as<Array_t>()) {
+        emit_to_device(base, array_t, value, parent);
+        return;
+    }
+    const auto *struct_t = type.as<Struct_t>();
+    emit_to_device(base, struct_t, value);
+}
+
+void CodeGen_CUDA::emit_to_device(std::string base, const Struct_t *struct_t,
+                                  Expr value) {
+    os << get_indent();
+    struct_t->accept(this);
+    os << '*' << ' ' << base << ';' << '\n';
+    os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    internal_assert(value.defined())
+        << "allocation to device expects a value (what is copied)";
+    if (!value.type().is<Ptr_t>()) {
+        os << '&';
+    }
+    value.accept(this);
+    os << ',' << ' ' << "sizeof" << '(';
+    struct_t->accept(this);
+    os << ')' << ')' << ';' << '\n';
+}
+
+void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
+                                  Expr value, std::optional<ir::Expr> parent) {
+    internal_assert(!has_address(array_t->etype))
+        << "[unimplemented] array with pointers: " << array_t;
+    os << get_indent();
+    array_t->accept(this);
+    os << ' ' << base << ';' << '\n';
+    os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    internal_assert(value.defined())
+        << "allocation to device expects a value (what is copied)";
+    value.accept(this);
+    os << ',' << ' ';
+    if (parent.has_value()) {
+        // The size needs to be correctly accessed from the struct.
+        os << '(' << '*';
+        parent->accept(this);
+        os << ')';
+        os << '.';
+    }
+    array_t->size.accept(this);
+    os << ' ' << '*' << ' ' << "sizeof" << '(';
+    array_t->etype.accept(this);
+    os << ')' << ')' << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Allocate *node) {
     // TODO(ajr): if this is a launched kernel, this cannot be an array
     // allocation. Otherwise, this should probably cuda malloc for arrays.
     ir::Type type = node->loc.type;
     const std::string &b = node->loc.base;
-    os << get_indent();
+
     switch (node->memory) {
     case Allocate::Memory::Stack: {
+        os << get_indent();
         if (const auto *array_type = type.as<Array_t>()) {
             // <type> <name>[<size>];
             array_type->etype.accept(this);
@@ -710,6 +838,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         return;
     }
     case Allocate::Memory::Heap: {
+        os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';
@@ -726,43 +855,11 @@ void CodeGen_CUDA::visit(const Allocate *node) {
                        << Stmt(node);
     }
     case Allocate::Memory::Device: {
-        if (const auto *array_t = type.as<Array_t>()) {
-            type.accept(this);
-            os << ' ' << b << ';' << '\n';
-            os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
-            internal_assert(node->value.defined())
-                << "allocation to device expects a value (what is copied)";
-            node->value.accept(this);
-            os << ',' << ' ';
-            array_t->size.accept(this);
-            os << ' ' << '*' << ' ' << "sizeof" << '(';
-            array_t->etype.accept(this);
-            os << ')' << ')' << ';' << '\n';
-            return;
-        }
-        // TODO(cgyurgyik): yes/no?
-        if (type.is<Ptr_t>()) {
-            type = type.element_of();
-            if (const auto *struct_t = type.as<Struct_t>()) {
-                type.accept(this);
-                os << '*' << ' ' << b << ';' << '\n';
-                os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-                os << '(' << "void" << '*' << '*' << ')' << '&' << b << ','
-                   << ' ';
-                internal_assert(node->value.defined())
-                    << "allocation to device expects a value (what is copied)";
-                node->value.accept(this);
-                os << ',' << ' ' << "sizeof" << '(';
-                type->accept(this);
-                os << ')' << ')' << ';' << '\n';
-                return;
-            }
-        }
-        internal_error << "[unimplemented] Allocate CUDA codegen: "
-                       << Stmt(node);
+        emit_to_device(node);
+        return;
     }
     case Allocate::Memory::Host: {
+        os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';

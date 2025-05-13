@@ -106,6 +106,13 @@ class CodeGen_CUDA : public ir::Printer {
     void decrement() { set_indent(get_indent().indent - 1); }
     // Necessary prologue code.
     void emit_prologue();
+    // Emits necessary malloc & host->device code for a struct.
+    void emit_to_device(const ir::Allocate *);
+    void emit_to_device(std::string base, ir::Type, ir::Expr,
+                        std::optional<ir::Expr> = {});
+    void emit_to_device(std::string base, const ir::Struct_t *, ir::Expr);
+    void emit_to_device(std::string base, const ir::Array_t *, ir::Expr,
+                        std::optional<ir::Expr> = {});
 };
 
 } //  namespace bonsai

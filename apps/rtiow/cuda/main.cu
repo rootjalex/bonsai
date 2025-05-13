@@ -2480,37 +2480,10 @@ __host__ int *_parallel_traverse_array0(Camera *c, int32_t height,
 
     // Device memory
     int *device_output;
-    Camera *d_camera;
-    _spheres_layout0 *d_spheres;
-
     cudaMalloc(&device_output, total_size);
+
+    Camera *d_camera;
     cudaMalloc(&d_camera, sizeof(Camera));
-
-    cudaMalloc(&d_spheres, sizeof(_spheres_layout0));
-
-    // Copy the primitives array
-    MaterialSphere *d_prims;
-    cudaMalloc(&d_prims, spheres->pCount * sizeof(MaterialSphere));
-    cudaMemcpy(d_prims, spheres->prims,
-               spheres->pCount * sizeof(MaterialSphere),
-               cudaMemcpyHostToDevice);
-
-    // Copy the spheres_index array
-    _spheres_layout1 *d_spheres_index;
-    cudaMalloc(&d_spheres_index, spheres->count * sizeof(_spheres_layout1));
-    cudaMemcpy(d_spheres_index, spheres->spheres_index,
-               spheres->count * sizeof(_spheres_layout1),
-               cudaMemcpyHostToDevice);
-
-    // Create a shallow copy of the struct, then patch the device pointers
-    _spheres_layout0 h_spheres_copy = *spheres;
-    h_spheres_copy.prims = d_prims;
-    h_spheres_copy.spheres_index = d_spheres_index;
-
-    // Now copy the patched struct
-    cudaMemcpy(d_spheres, &h_spheres_copy, sizeof(_spheres_layout0),
-               cudaMemcpyHostToDevice);
-
     cudaMemcpy(d_camera, c, sizeof(Camera), cudaMemcpyHostToDevice);
 
     dim3 blockDim(16, 16);
