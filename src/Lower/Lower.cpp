@@ -164,6 +164,10 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Simplify>());
+    // TODO(cgyurgyik): Right now, we don't update functions that are "dead" in
+    // the LowerRandom pass because we need to propagate through live functions
+    // to get the analysis correct. Ideally we could run this DCE pass much
+    // earlier, but this has caused issues that need to be investigated.
     d.push_back(std::make_unique<opt::DCE>());
     d.push_back(std::make_unique<opt::Inline>());
     // Clean up any dead functions after inlining.
