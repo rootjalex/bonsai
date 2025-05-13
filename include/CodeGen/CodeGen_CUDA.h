@@ -100,6 +100,8 @@ class CodeGen_CUDA : public ir::Printer {
     // We need to also device allocate inner children, a concept that is
     // (currently) foreign to bonsai so is done here. This list tracks all the
     // device allocated children of a struct.
+    // TODO(cgyurgyik): it might be cleaner to do this struct allocation
+    // / deallocation traversal in the Parallelize pass.
     std::vector<ir::TypedVar> device_allocated;
     //  The stream that is printed to.
     std::ostream &os;

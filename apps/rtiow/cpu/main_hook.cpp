@@ -139,10 +139,11 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
 
 int main(int argc, char *argv[]) {
     using clock = std::chrono::high_resolution_clock;
-
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <outfile>\n";
-        return 1;
+    std::string output_filename;
+    if (argc == 2) {
+        output_filename = argv[1];
+    } else {
+        output_filename = "rtiow-cpu-image.ppm";
     }
 
     auto t0 = clock::now();
@@ -223,7 +224,6 @@ int main(int argc, char *argv[]) {
 
     auto t2 = clock::now();
 
-    const char *output_filename = argv[1];
     std::ofstream out(output_filename);
 
     if (!out) {

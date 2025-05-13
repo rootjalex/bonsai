@@ -1,4 +1,4 @@
-#include "runtime/CUDA/math.h"
+#include "helpers.h"
 
 __device__ float d_plus_rand(float x, curandState* _rng_state) {
   if (x == 0) {

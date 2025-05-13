@@ -388,7 +388,7 @@ void CodeGen_CUDA::visit(const Cast *node) {
         if (node->type.is<Ptr_t, Array_t>()) {
             os << "reinterpret_cast";
         } else {
-            // See "runtime/CUDA/math.h" for what this function is doing.
+            // See "runtime/CUDA/helpers.h" for what this function is doing.
             os << "bonsai_reinterpret";
         }
         os << '<';
@@ -453,7 +453,7 @@ void CodeGen_CUDA::visit(const VectorReduce *node) {
 
 void CodeGen_CUDA::visit(const VectorShuffle *node) {
     // This assumes shuffling within a single thread, and defaults to a naive
-    // implementation in Bonsai's runtime/CUDA/math.h
+    // implementation in Bonsai's runtime/CUDA/helpers.h
     os << "shuffle" << '(';
     node->value.accept(this);
     os << ',' << ' ' << '{';
@@ -744,7 +744,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
         os << get_indent() << copy << '.' << name << ' ';
         os << '=' << ' ' << name << ';' << '\n';
     }
-    // Finally, emit the final struct.
+    // Finally, emit the base struct.
     emit_to_device(base, type, Var::make(type, copy));
 }
 
@@ -804,8 +804,6 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
 }
 
 void CodeGen_CUDA::visit(const Allocate *node) {
-    // TODO(ajr): if this is a launched kernel, this cannot be an array
-    // allocation. Otherwise, this should probably cuda malloc for arrays.
     ir::Type type = node->loc.type;
     const std::string &b = node->loc.base;
 
@@ -1069,10 +1067,8 @@ void CodeGen_CUDA::visit(const Launch *node) {
 
 void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
-    // TODO(cgyurgyik): assumes the compiler is run from the root
-    // directory. There is some way to make this work with <>, `-I`
-    // passed to the compiler.
-    os << '#' << "include" << ' ' << "\"runtime/CUDA/math.h\"" << '\n';
+    // Requires: `-Iruntime/CUDA` to work.
+    os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
     os << '\n';
 }
 
