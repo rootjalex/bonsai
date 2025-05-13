@@ -144,7 +144,11 @@ struct RewriteMutables : public ir::Mutator {
     ir::Stmt visit(const ir::Launch *node) override {
         // Context argument should always be mutable.
         // don't do anything: type is already ptr[struct]
-        return node;
+        ir::Expr n = mutate(node->n);
+        if (n.same_as(node->n)) {
+            return node;
+        }
+        return ir::Launch::make(node->func, n, node->args);
     }
 
     ir::Stmt visit(const ir::Allocate *node) override {

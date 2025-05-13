@@ -1,33 +1,19 @@
-// Compilation steps:
-// 1. Compile RTIOW with Bonsai, and include it here.
-//    `./build/compiler -i <rtiow-path> -o main.cu -b cuda`
-// 2. Compile this file:
-//    `nvcc -O3 main.cu -o main`
-// 3. Run it:
-//    `./main`
+
 
 // Pulled from [1], with our own addendums for Bonsai.
 // [1] https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_math.h
 
 #include "cuda_runtime.h"
 #include "curand_kernel.h"
+#include <cuda_fp16.h>
 
-// For math.h
 #include <algorithm>
 #include <cstdint>
-#include <cuda_fp16.h>
 #include <initializer_list>
+#include <limits>
 #include <math.h>
+#include <stdio.h>
 #include <type_traits>
-
-// For the main hook
-#include <cassert>
-#include <chrono>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <random>
-#include <vector>
 
 typedef unsigned int uint;
 typedef unsigned short ushort;
@@ -1786,6 +1772,16 @@ __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
     return &update;
 }
 
+// Mimics curand_uniform by producing an output in (0, 1].
+// https://docs.nvidia.com/cuda/curand/group__DEVICE.html#group__DEVICE_1gf1ba3a7a4a53b2bee1d7c1c7b837c00d
+template <typename T>
+__forceinline__ __host__ T random() {
+    T v = static_cast<T>(std::rand()) / static_cast<T>(RAND_MAX);
+    // Scale to (0, 1].
+    return (static_cast<T>(1.0) - std::numeric_limits<T>::epsilon()) * v +
+           std::numeric_limits<T>::epsilon();
+}
+
 // Jesus christ
 template <typename O, typename I>
 __forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
@@ -1798,6 +1794,18 @@ __forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
     return *output;
 }
 
+__forceinline__ __host__ void
+cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
+    cudaMalloc(device, size);
+    cudaMemcpy(*device, host, size, cudaMemcpyHostToDevice);
+}
+
+__forceinline__ __host__ void
+mallocAndCopyFromDevice(void **host, const void *device, size_t size) {
+    *host = malloc(size);
+    cudaMemcpy(*host, device, size, cudaMemcpyDeviceToHost);
+}
+
 struct AABB {
     float3 low;
     float3 high;
@@ -1808,15 +1816,12 @@ struct Camera {
     int32_t width;
     uint32_t samples_per_pixel = 100u;
     int32_t max_depth = 10;
-    float vfov = static_cast<float>(90);
-    float3 lookfrom = float3{static_cast<float>(0), static_cast<float>(0),
-                             static_cast<float>(0)};
-    float3 lookat = float3{static_cast<float>(0), static_cast<float>(0),
-                           static_cast<float>(-1)};
-    float3 vup = float3{static_cast<float>(0), static_cast<float>(1),
-                        static_cast<float>(0)};
-    float defocus_angle = static_cast<float>(0);
-    float focus_dist = static_cast<float>(10);
+    float vfov = (float)90;
+    float3 lookfrom = float3{0, 0, 0};
+    float3 lookat = float3{0, 0, (float)-1};
+    float3 vup = float3{0, 1, 0};
+    float defocus_angle = 0;
+    float focus_dist = (float)10;
 };
 
 struct FInterval {
@@ -1906,6 +1911,13 @@ struct _spheres_split_layout3 {
     uint16_t pOffset;
 } __attribute__((packed));
 
+struct _ctx0 {
+    int32_t height;
+    Camera *c;
+    _spheres_layout0 *spheres;
+    int32_t *_alloc0; // of size ((height * c.width) * 3)
+};
+
 struct hit_record {
     float3 p;
     float3 normal;
@@ -1926,26 +1938,88 @@ Point ClosestPtPointAABB(Point *pt, AABB *a) {
 float SqDistPointAABB(Point *pt, AABB *a) {
     float3 v = (*pt).vec;
     float3 sqLow = (((*a).low - v) * ((*a).low - v));
-    float3 low = make_float3(
-        ((v < (*a).low).x ? sqLow.x : make_float3(static_cast<float>(0)).x),
-        ((v < (*a).low).y ? sqLow.y : make_float3(static_cast<float>(0)).y),
-        ((v < (*a).low).z ? sqLow.z : make_float3(static_cast<float>(0)).z));
+    float3 low = make_float3(((v < (*a).low).x ? sqLow.x : make_float3(0).x),
+                             ((v < (*a).low).y ? sqLow.y : make_float3(0).y),
+                             ((v < (*a).low).z ? sqLow.z : make_float3(0).z));
     float3 sqHigh = ((v - (*a).high) * (v - (*a).high));
-    float3 high = make_float3(
-        (((*a).high < v).x ? sqHigh.x : make_float3(static_cast<float>(0)).x),
-        (((*a).high < v).y ? sqHigh.y : make_float3(static_cast<float>(0)).y),
-        (((*a).high < v).z ? sqHigh.z : make_float3(static_cast<float>(0)).z));
+    float3 high =
+        make_float3((((*a).high < v).x ? sqHigh.x : make_float3(0).x),
+                    (((*a).high < v).y ? sqHigh.y : make_float3(0).y),
+                    (((*a).high < v).z ? sqHigh.z : make_float3(0).z));
     return sum((low + high));
 }
 
 float __prod_diff_f32(float a, float b, float c, float d) {
     float cd = (c * d);
-    float diff = fma(a, b, -cd);
-    float err = fma(-c, d, cd);
+    float diff = fmaf(a, b, -cd);
+    float err = fmaf(-c, d, cd);
     return (diff + err);
 }
 
 float __sqlen_f32(float3 v) { return sum((v * v)); }
+
+__device__ float3 random_in_unit_disk(curandState *_rng_state) {
+    float r = sqrtf(curand_uniform(_rng_state));
+    float theta = (((float)2 * (float)3.14159) * curand_uniform(_rng_state));
+    return float3{r * cosf(theta), r * sinf(theta), 0};
+}
+
+__device__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u,
+                                      float3 defocus_disk_v,
+                                      curandState *_rng_state) {
+    float3 p = random_in_unit_disk(_rng_state);
+    return ((center + (make_float3(p.x) * defocus_disk_u)) +
+            (make_float3(p.y) * defocus_disk_v));
+}
+
+__device__ Ray build_ray(int32_t i, int32_t j, Camera *cam,
+                         curandState *_rng_state) {
+    int32_t width = (*cam).width;
+    int32_t _height = (int32_t)((float)width / (*cam).aspect_ratio);
+    int32_t *height = &_height;
+    *height = (((*height) < 1) ? 1 : (*height));
+    float theta = (((*cam).vfov * (float)3.14159) / (float)180);
+    float h = tanf(theta / (float)2);
+    float viewport_height = (((float)2 * h) * (*cam).focus_dist);
+    float viewport_width =
+        (viewport_height * ((float)width / (float)(*height)));
+    float3 camera_center = (*cam).lookfrom;
+    float3 w = (((*cam).lookfrom - (*cam).lookat) /
+                make_float3(length((*cam).lookfrom - (*cam).lookat)));
+    float3 u =
+        (cross((*cam).vup, w) / make_float3(length(cross((*cam).vup, w))));
+    float3 v = cross(w, u);
+    float3 viewport_u = (make_float3(viewport_width) * u);
+    float3 viewport_v = (make_float3(viewport_height) * -v);
+    float3 pixel_delta_u = (viewport_u / make_float3((float)width));
+    float3 pixel_delta_v = (viewport_v / make_float3((float)(*height)));
+    float3 viewport_upper_left =
+        (((camera_center - (make_float3((*cam).focus_dist) * w)) -
+          (viewport_u / make_float3((float)2))) -
+         (viewport_v / make_float3((float)2)));
+    float3 pixel00_loc =
+        (viewport_upper_left +
+         (make_float3((float)0.5) * (pixel_delta_u + pixel_delta_v)));
+    float defocus_radius =
+        ((*cam).focus_dist *
+         tanf((((*cam).defocus_angle / (float)2) * (float)3.14159) /
+              (float)180));
+    float3 defocus_disk_u = (u * make_float3(defocus_radius));
+    float3 defocus_disk_v = (v * make_float3(defocus_radius));
+    float3 offset = float3{curand_uniform(_rng_state) - (float)0.5,
+                           curand_uniform(_rng_state) - (float)0.5, 0};
+    float3 pixel_sample =
+        ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) +
+         (make_float3(((float)j + offset.y)) * pixel_delta_v));
+    float3 _ray_origin = camera_center;
+    float3 *ray_origin = &_ray_origin;
+    if (0 < (*cam).defocus_angle) {
+        *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u,
+                                          defocus_disk_v, _rng_state);
+    }
+    float3 ray_direction = (pixel_sample - (*ray_origin));
+    return Ray{(*ray_origin), ray_direction, INFINITY};
+}
 
 __device__ _option1 intersectsp_ray_sphere(Ray *r, Sphere *s) {
     float3 oc = ((*s).center - (*r).o);
@@ -1953,13 +2027,13 @@ __device__ _option1 intersectsp_ray_sphere(Ray *r, Sphere *s) {
     float h = dot((*r).d, oc);
     float c = (sum((oc * oc)) - ((*s).radius * (*s).radius));
     float disc = ((h * h) - (a * c));
-    if (disc < static_cast<float>(0)) {
+    if (disc < 0) {
         return _option1{};
     }
-    float sqrtd = sqrt(disc);
+    float sqrtd = sqrtf(disc);
     float root0 = ((h - sqrtd) / a);
     float root1 = ((h + sqrtd) / a);
-    FInterval interval = FInterval{min(root0, root1), max(root0, root1)};
+    FInterval interval = FInterval{fminf(root0, root1), fmaxf(root0, root1)};
     return _option1{interval, true};
 }
 
@@ -1985,180 +2059,9 @@ __device__ bool intersects_Ray_Sphere(Ray *ray, Sphere *s) {
     _option1 interval = intersectsp_ray_sphere(ray, s);
     if (interval.set) {
         FInterval extract = interval.value;
-        return ((extract.low < (*ray).tmax) &
-                (static_cast<float>(0) < extract.high));
+        return ((extract.low < (*ray).tmax) & (0 < extract.high));
     }
     return false;
-}
-
-__device__ void _recloop_func0(uint16_t spheres__index,
-                               _spheres_layout0 *spheres, Ray *r,
-                               __tuple_0 *_best0) {
-    Sphere _lv2 = Sphere{(*spheres).spheres_index[spheres__index].center,
-                         (*spheres).spheres_index[spheres__index].radius};
-    if (intersects_Ray_Sphere(r, (&_lv2))) {
-        Sphere _lv1 = Sphere{(*spheres).spheres_index[spheres__index].center,
-                             (*spheres).spheres_index[spheres__index].radius};
-        if (static_cast<float>(0.001) < distmax_Ray_Sphere(r, (&_lv1))) {
-            Sphere _lv0 =
-                Sphere{(*spheres).spheres_index[spheres__index].center,
-                       (*spheres).spheres_index[spheres__index].radius};
-            if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
-                if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
-                    _recloop_func0(spheres__index + 1u, spheres, r, _best0);
-                    _recloop_func0(
-                        spheres__index +
-                            bonsai_reinterpret<_spheres_split_layout2>(
-                                (*spheres)
-                                    .spheres_index[spheres__index]
-                                    .spheres_spliton_nPrims)
-                                .offset,
-                        spheres, r, _best0);
-                } else {
-                    for (uint16_t _idx0 = 0u;
-                         _idx0 <
-                         (*spheres).spheres_index[spheres__index].nPrims;
-                         _idx0 += 1u) {
-                        if (intersects_Ray_Sphere(
-                                r, (&(*spheres)
-                                         .prims[bonsai_reinterpret<
-                                                    _spheres_split_layout3>(
-                                                    (*spheres)
-                                                        .spheres_index
-                                                            [spheres__index]
-                                                        .spheres_spliton_nPrims)
-                                                    .pOffset +
-                                                _idx0]
-                                         .s))) {
-                            if (static_cast<float>(0.001) <
-                                distmin_Ray_Sphere(
-                                    r,
-                                    (&(*spheres)
-                                          .prims
-                                              [bonsai_reinterpret<
-                                                   _spheres_split_layout3>(
-                                                   (*spheres)
-                                                       .spheres_index
-                                                           [spheres__index]
-                                                       .spheres_spliton_nPrims)
-                                                   .pOffset +
-                                               _idx0]
-                                          .s))) {
-                                if (distmin_Ray_Sphere(
-                                        r,
-                                        (&(*spheres)
-                                              .prims
-                                                  [bonsai_reinterpret<
-                                                       _spheres_split_layout3>(
-                                                       (*spheres)
-                                                           .spheres_index
-                                                               [spheres__index]
-                                                           .spheres_spliton_nPrims)
-                                                       .pOffset +
-                                                   _idx0]
-                                              .s)) < (*_best0)._field0) {
-                                    *_best0 = argmin(
-                                        _best0,
-                                        __tuple_0{
-                                            distmin_Ray_Sphere(
-                                                r,
-                                                (&(*spheres)
-                                                      .prims
-                                                          [bonsai_reinterpret<
-                                                               _spheres_split_layout3>(
-                                                               (*spheres)
-                                                                   .spheres_index
-                                                                       [spheres__index]
-                                                                   .spheres_spliton_nPrims)
-                                                               .pOffset +
-                                                           _idx0]
-                                                      .s)),
-                                            (*spheres).prims
-                                                [bonsai_reinterpret<
-                                                     _spheres_split_layout3>(
-                                                     (*spheres)
-                                                         .spheres_index
-                                                             [spheres__index]
-                                                         .spheres_spliton_nPrims)
-                                                     .pOffset +
-                                                 _idx0]});
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return;
-}
-
-__device__ float3 random_in_unit_disk(curandState *local_state) {
-    float r = sqrt(curand_uniform(local_state));
-    float theta = ((static_cast<float>(2) * static_cast<float>(3.14159)) *
-                   curand_uniform(local_state));
-    return float3{r * cos(theta), r * sin(theta), static_cast<float>(0)};
-}
-
-__device__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u,
-                                      float3 defocus_disk_v,
-                                      curandState *local_state) {
-    float3 p = random_in_unit_disk(local_state);
-    return ((center + (make_float3(p.x) * defocus_disk_u)) +
-            (make_float3(p.y) * defocus_disk_v));
-}
-
-__device__ Ray build_ray(int32_t i, int32_t j, Camera *cam,
-                         curandState *local_state) {
-    int32_t width = (*cam).width;
-    int32_t _height = (int32_t)((float)width / (*cam).aspect_ratio);
-    int32_t *height = &_height;
-    *height = (((*height) < 1) ? 1 : (*height));
-    float theta =
-        (((*cam).vfov * static_cast<float>(3.14159)) / static_cast<float>(180));
-    float h = tan(theta / static_cast<float>(2));
-    float viewport_height = ((static_cast<float>(2) * h) * (*cam).focus_dist);
-    float viewport_width =
-        (viewport_height * ((float)width / (float)(*height)));
-    float3 camera_center = (*cam).lookfrom;
-    float3 w = (((*cam).lookfrom - (*cam).lookat) /
-                make_float3(length((*cam).lookfrom - (*cam).lookat)));
-    float3 u =
-        (cross((*cam).vup, w) / make_float3(length(cross((*cam).vup, w))));
-    float3 v = cross(w, u);
-    float3 viewport_u = (make_float3(viewport_width) * u);
-    float3 viewport_v = (make_float3(viewport_height) * -v);
-    float3 pixel_delta_u = (viewport_u / make_float3((float)width));
-    float3 pixel_delta_v = (viewport_v / make_float3((float)(*height)));
-    float3 viewport_upper_left =
-        (((camera_center - (make_float3((*cam).focus_dist) * w)) -
-          (viewport_u / make_float3(static_cast<float>(2)))) -
-         (viewport_v / make_float3(static_cast<float>(2))));
-    float3 pixel00_loc =
-        (viewport_upper_left + (make_float3(static_cast<float>(0.5)) *
-                                (pixel_delta_u + pixel_delta_v)));
-    float defocus_radius =
-        ((*cam).focus_dist *
-         tan((((*cam).defocus_angle / static_cast<float>(2)) *
-              static_cast<float>(3.14159)) /
-             static_cast<float>(180)));
-    float3 defocus_disk_u = (u * make_float3(defocus_radius));
-    float3 defocus_disk_v = (v * make_float3(defocus_radius));
-    float3 offset =
-        float3{curand_uniform(local_state) - static_cast<float>(0.5),
-               curand_uniform(local_state) - static_cast<float>(0.5),
-               static_cast<float>(0)};
-    float3 pixel_sample =
-        ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) +
-         (make_float3(((float)j + offset.y)) * pixel_delta_v));
-    float3 _ray_origin = camera_center;
-    float3 *ray_origin = &_ray_origin;
-    if (static_cast<float>(0) < (*cam).defocus_angle) {
-        *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u,
-                                          defocus_disk_v, local_state);
-    }
-    float3 ray_direction = (pixel_sample - (*ray_origin));
-    return Ray{(*ray_origin), ray_direction, INFINITY};
 }
 
 __device__ _option0 _traverse_tree0(Ray *r, _spheres_layout0 *spheres) {
@@ -2177,22 +2080,21 @@ __device__ _option0 _traverse_tree0(Ray *r, _spheres_layout0 *spheres) {
             Sphere _lv1 =
                 Sphere{(*spheres).spheres_index[spheres__index].center,
                        (*spheres).spheres_index[spheres__index].radius};
-            if (static_cast<float>(0.001) < distmax_Ray_Sphere(r, (&_lv1))) {
+            if ((float)0.001 < distmax_Ray_Sphere(r, (&_lv1))) {
                 Sphere _lv0 =
                     Sphere{(*spheres).spheres_index[spheres__index].center,
                            (*spheres).spheres_index[spheres__index].radius};
                 if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
                     if ((*spheres).spheres_index[spheres__index].nPrims == 0u) {
                         _queue0[(*_queue_count0)] = (spheres__index + 1u);
-                        *_queue_count0 += 1;
-                        _queue0[(*_queue_count0)] =
+                        _queue0[(*_queue_count0) + 1] =
                             (spheres__index +
                              bonsai_reinterpret<_spheres_split_layout2>(
                                  (*spheres)
                                      .spheres_index[spheres__index]
                                      .spheres_spliton_nPrims)
                                  .offset);
-                        *_queue_count0 += 1;
+                        *_queue_count0 += 2;
                     } else {
                         for (uint16_t _idx0 = 0u;
                              _idx0 <
@@ -2211,7 +2113,7 @@ __device__ _option0 _traverse_tree0(Ray *r, _spheres_layout0 *spheres) {
                                                    .pOffset +
                                                _idx0]
                                           .s))) {
-                                if (static_cast<float>(0.001) <
+                                if ((float)0.001 <
                                     distmin_Ray_Sphere(
                                         r,
                                         (&(*spheres)
@@ -2280,124 +2182,101 @@ __device__ hit_record get_hit_record(Ray *r, Sphere *s) {
     float t = distmin_Ray_Sphere(r, s);
     float3 p = ((*r).o + (make_float3(t) * (*r).d));
     float3 outward_normal = ((p - (*s).center) / make_float3((*s).radius));
-    bool front_face = (dot((*r).d, outward_normal) < static_cast<float>(0));
+    bool front_face = (dot((*r).d, outward_normal) < 0);
     float3 normal = (front_face ? outward_normal : -outward_normal);
     hit_record record = hit_record{p, normal, t, front_face};
     return record;
 }
 
-__device__ float3 random_unit_vector(curandState *local_state) {
-    float x1 = (static_cast<float>(-1) +
-                ((static_cast<float>(1) - static_cast<float>(-1)) *
-                 curand_uniform(local_state)));
-    float x2 = (static_cast<float>(-1) +
-                ((static_cast<float>(1) - static_cast<float>(-1)) *
-                 curand_uniform(local_state)));
-    float s = (((x1 * x1) + (x2 * x2)) + static_cast<float>(1e-08));
-    float factor = sqrt(static_cast<float>(2) / s);
+__device__ float3 random_unit_vector(curandState *_rng_state) {
+    float x1 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
+    float x2 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
+    float s = (((x1 * x1) + (x2 * x2)) + (float)1e-08);
+    float factor = sqrtf((float)2 / s);
     float x = (factor * x1);
     float y = (factor * x2);
-    float z = (static_cast<float>(1) - (static_cast<float>(2) * s));
-    float len = sqrt(((x * x) + (y * y)) + (z * z));
+    float z = (1 - ((float)2 * s));
+    float len = sqrtf(((x * x) + (y * y)) + (z * z));
     return float3{x / len, y / len, z / len};
 }
 
 __device__ float reflectance(float cos_theta, float refract_idx) {
-    float r0 = ((static_cast<float>(1) - refract_idx) /
-                (static_cast<float>(1) + refract_idx));
+    float r0 = ((1 - refract_idx) / (1 + refract_idx));
     float r1 = (r0 * r0);
-    return (r1 +
-            ((static_cast<float>(1) - r1) *
-             pow(static_cast<float>(1) - cos_theta, static_cast<float>(5))));
+    return (r1 + ((1 - r1) * powf(1 - cos_theta, (float)5)));
 }
 
 __device__ float3 refract(float3 uv, float3 n, float etai_over_etat) {
-    // TODO(cgyurgyik): the fuck is this?
-    //
-    // error: calling a constexpr __host__ function("min") from a __device__
-    // function("scatter") is not allowed. The experimental flag
-    // '--expt-relaxed-constexpr' can be used to allow this.
-    float cos_theta = min(dot(-uv, n), static_cast<float>(1));
+    float cos_theta = fminf(dot(-uv, n), 1);
     float3 r_out_perp =
         (make_float3(etai_over_etat) * (uv + (make_float3(cos_theta) * n)));
     float3 r_out_parallel =
-        (make_float3(-sqrt(
-             abs(static_cast<float>(1) - sum((r_out_perp * r_out_perp))))) *
-         n);
+        (make_float3(-sqrtf(fabsf(1 - sum((r_out_perp * r_out_perp))))) * n);
     return (r_out_perp + r_out_parallel);
 }
 
 __device__ scatter_record scatter(Ray *ray, MaterialSphere *ms,
-                                  curandState *local_state) {
+                                  curandState *_rng_state) {
     hit_record hit = get_hit_record(ray, (&(*ms).s));
     if ((*ms).material == 0u) {
-        float3 _scatter_dir = (hit.normal + random_unit_vector(local_state));
+        float3 _scatter_dir = (hit.normal + random_unit_vector(_rng_state));
         float3 *scatter_dir = &_scatter_dir;
-        if (((abs((*scatter_dir).x) < static_cast<float>(1e-08)) &
-             (abs((*scatter_dir).y) < static_cast<float>(1e-08))) &
-            (abs((*scatter_dir).z) < static_cast<float>(1e-08))) {
+        if (((fabsf((*scatter_dir).x) < (float)1e-08) &
+             (fabsf((*scatter_dir).y) < (float)1e-08)) &
+            (fabsf((*scatter_dir).z) < (float)1e-08)) {
             *scatter_dir = hit.normal;
         }
         Ray l_scattered = Ray{hit.p, (*scatter_dir), INFINITY};
         return scatter_record{(*ms).albedo, l_scattered, true};
     } else {
         if ((*ms).material == 1u) {
-            float3 ref = ((*ray).d - (make_float3((static_cast<float>(2) *
-                                                   dot((*ray).d, hit.normal))) *
-                                      hit.normal));
+            float3 ref = ((*ray).d -
+                          (make_float3(((float)2 * dot((*ray).d, hit.normal))) *
+                           hit.normal));
             float3 reflected =
                 ((ref / make_float3(length(ref))) +
-                 (make_float3((*ms).fuzz) * random_unit_vector(local_state)));
+                 (make_float3((*ms).fuzz) * random_unit_vector(_rng_state)));
             Ray m_scattered = Ray{hit.p, reflected, INFINITY};
             return scatter_record{(*ms).albedo, m_scattered, true};
         } else {
-            float ri = (hit.front_face ? (static_cast<float>(1) / (*ms).fuzz)
-                                       : (*ms).fuzz);
+            float ri = (hit.front_face ? (1 / (*ms).fuzz) : (*ms).fuzz);
             float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
-            float cos_theta =
-                min(dot(-unit_dir, hit.normal), static_cast<float>(1));
-            float sin_theta =
-                sqrt(static_cast<float>(1) - (cos_theta * cos_theta));
+            float cos_theta = fminf(dot(-unit_dir, hit.normal), 1);
+            float sin_theta = sqrtf(1 - (cos_theta * cos_theta));
             bool cannot_refract =
-                ((static_cast<float>(1) < (ri * sin_theta)) |
-                 (curand_uniform(local_state) < reflectance(cos_theta, ri)));
+                ((1 < (ri * sin_theta)) |
+                 (curand_uniform(_rng_state) < reflectance(cos_theta, ri)));
             float3 direction =
                 (cannot_refract
-                     ? (unit_dir - (make_float3((static_cast<float>(2) *
-                                                 dot(unit_dir, hit.normal))) *
-                                    hit.normal))
+                     ? (unit_dir -
+                        (make_float3(((float)2 * dot(unit_dir, hit.normal))) *
+                         hit.normal))
                      : refract(unit_dir, hit.normal, ri));
             Ray d_scattered = Ray{hit.p, direction, INFINITY};
-            return scatter_record{make_float3(static_cast<float>(1),
-                                              static_cast<float>(1),
-                                              static_cast<float>(1)),
-                                  d_scattered, true};
+            return scatter_record{make_float3(1, 1, 1), d_scattered, true};
         }
     }
 }
 
 __device__ float3 sample(Ray *r, int32_t depth, float3 mult,
-                         _spheres_layout0 *spheres, curandState *local_state) {
+                         _spheres_layout0 *spheres, curandState *_rng_state) {
     Ray _S_r = (*r);
     Ray *S_r = &_S_r;
     int32_t _S_depth = depth;
     int32_t *S_depth = &_S_depth;
     float3 _S_mult = mult;
     float3 *S_mult = &_S_mult;
-    _spheres_layout0 _S_spheres = (*spheres);
-    _spheres_layout0 *S_spheres = &_S_spheres;
     do {
         if ((*S_depth) <= 0) {
             return make_float3(0, 0, 0);
         }
-        _option0 isect = _traverse_tree0(S_r, S_spheres);
+        _option0 isect = _traverse_tree0(S_r, spheres);
         if (isect.set) {
-            scatter_record data = scatter(S_r, (&isect.value), local_state);
+            scatter_record data = scatter(S_r, (&isect.value), _rng_state);
             if (data.hit) {
                 *S_r = data.ray;
                 *S_depth = ((*S_depth) - 1);
                 *S_mult = ((*S_mult) * data.attenuation);
-                *S_spheres = (*S_spheres);
                 continue;
             } else {
                 return make_float3(0, 0, 0);
@@ -2413,109 +2292,98 @@ __device__ float3 sample(Ray *r, int32_t depth, float3 mult,
 
 __device__ float3 _traverse_array1(int32_t i, int32_t j, Camera *c,
                                    _spheres_layout0 *spheres,
-                                   curandState *local_state) {
-    float3 __alloc1 = make_float3(static_cast<float>(0));
+                                   curandState *_rng_state) {
+    float3 __alloc1 = make_float3(0);
     float3 *_alloc1 = &__alloc1;
     for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
-        Ray _lv0 = build_ray(i, j, c, local_state);
-        *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1.0), spheres,
-                           local_state);
+        Ray _lv0 = build_ray(i, j, c, _rng_state);
+        *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1, 1, 1),
+                           spheres, _rng_state);
     }
     return (*_alloc1);
 }
 
 __device__ float3 pixel(int32_t i, int32_t j, Camera *c,
-                        _spheres_layout0 *spheres, curandState *local_state) {
-    return (_traverse_array1(i, j, c, spheres, local_state) /
+                        _spheres_layout0 *spheres, curandState *_rng_state) {
+    return (_traverse_array1(i, j, c, spheres, _rng_state) /
             make_float3((float)(*c).samples_per_pixel));
 }
 
 __device__ float linear_to_gamma_f(float l) {
-    if (static_cast<float>(0) < l) {
-        return sqrt(l);
+    if (0 < l) {
+        return sqrtf(l);
     }
-    return static_cast<float>(0);
+    return 0;
 }
 
 __device__ int3 to_rgb(float3 v) {
     float3 corrected = float3{linear_to_gamma_f(v.x), linear_to_gamma_f(v.y),
                               linear_to_gamma_f(v.z)};
-    return make_int3((make_float3(static_cast<float>(256)) *
-                      min(max(corrected, make_float3(static_cast<float>(0))),
-                          make_float3(static_cast<float>(0.999))))
-                         .x,
-                     (make_float3(static_cast<float>(256)) *
-                      min(max(corrected, make_float3(static_cast<float>(0))),
-                          make_float3(static_cast<float>(0.999))))
-                         .y,
-                     (make_float3(static_cast<float>(256)) *
-                      min(max(corrected, make_float3(static_cast<float>(0))),
-                          make_float3(static_cast<float>(0.999))))
-                         .z);
+    return make_int3(
+        (make_float3((float)256) *
+         min(max(corrected, make_float3(0)), make_float3((float)0.999)))
+            .x,
+        (make_float3((float)256) *
+         min(max(corrected, make_float3(0)), make_float3((float)0.999)))
+            .y,
+        (make_float3((float)256) *
+         min(max(corrected, make_float3(0)), make_float3((float)0.999)))
+            .z);
 }
 
-__global__ void traverse_kernel(int *output, int width, int height, Camera *c,
-                                _spheres_layout0 *spheres) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x >= width || y >= height)
+__global__ void _parfunc0(_ctx0 ctx0) {
+    int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
+    curandState _rng_state;
+    curand_init(tid, 0, 0, &_rng_state);
+    int32_t _i = tid;
+    if ((ctx0.height * (*ctx0.c).width) <= _i) {
         return;
-    int idx = (y * width + x) * 3;
-    curandState local_state;
-    // Use pixel id as seed.
-    curand_init(idx, 0, 0, &local_state);
-
-    int3 rgb = to_rgb(pixel(x, y, c, spheres, &local_state));
-    output[idx + 0] = rgb.x;
-    output[idx + 1] = rgb.y;
-    output[idx + 2] = rgb.z;
+    }
+    int32_t _i0 = (_i / (*ctx0.c).width);
+    int32_t _i1 = (_i % (*ctx0.c).width);
+    int3 __temp = to_rgb(pixel(_i1, _i0, ctx0.c, ctx0.spheres, (&_rng_state)));
+    ctx0._alloc0[((_i0 * (*ctx0.c).width) + _i1) * 3] = __temp.x;
+    ctx0._alloc0[(((_i0 * (*ctx0.c).width) + _i1) * 3) + 1] = __temp.y;
+    ctx0._alloc0[(((_i0 * (*ctx0.c).width) + _i1) * 3) + 2] = __temp.z;
+    return;
 }
 
-__host__ int *_parallel_traverse_array0(Camera *c, int32_t height,
-                                        _spheres_layout0 *spheres) {
-    int width = c->width;
-    int total_pixels = width * height;
-    int total_size = total_pixels * 3 * sizeof(int);
-
-    // Device memory
-    int *device_output;
-    cudaMalloc(&device_output, total_size);
-
-    Camera *d_camera;
-    cudaMalloc(&d_camera, sizeof(Camera));
-    cudaMemcpy(d_camera, c, sizeof(Camera), cudaMemcpyHostToDevice);
-
-    dim3 blockDim(16, 16);
-    dim3 gridDim((width + 15) / 16, (height + 15) / 16);
-
-    // Kernel launch
-    traverse_kernel<<<gridDim, blockDim>>>(device_output, width, height,
-                                           d_camera, d_spheres);
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA Error: %s\n", cudaGetErrorString(err));
-    }
+__host__ int3 *_traverse_array0(Camera *c, int32_t height,
+                                _spheres_layout0 *spheres) {
+    int32_t *_alloc0;
+    (void)cudaMalloc((void **)&_alloc0,
+                     ((height * (*c).width) * 3) * sizeof(int32_t));
+    Camera *d_c;
+    cudaMallocAndCopyToDevice((void **)&d_c, c, sizeof(Camera));
+    MaterialSphere *prims;
+    cudaMallocAndCopyToDevice((void **)&prims, (*spheres).prims,
+                              (*spheres).pCount * sizeof(MaterialSphere));
+    _spheres_layout1 *spheres_index;
+    cudaMallocAndCopyToDevice((void **)&spheres_index, (*spheres).spheres_index,
+                              (*spheres).count * sizeof(_spheres_layout1));
+    _spheres_layout0 h_spheres = *spheres;
+    h_spheres.prims = prims;
+    h_spheres.spheres_index = spheres_index;
+    _spheres_layout0 *d_spheres;
+    cudaMallocAndCopyToDevice((void **)&d_spheres, &h_spheres,
+                              sizeof(_spheres_layout0));
+    _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
+    _parfunc0<<<(((height * (*c).width) + 1023) / 1024), 1024>>>(ctx);
     cudaDeviceSynchronize();
-
-    // Host memory for result
-    int *host_output = (int *)malloc(total_size);
-    cudaMemcpy(host_output, device_output, total_size, cudaMemcpyDeviceToHost);
-
-    // Cleanup
-    cudaFree(device_output);
-    cudaFree(d_camera);
+    cudaFree(d_c);
     cudaFree(d_spheres);
-    cudaFree(d_prims);
-    cudaFree(d_spheres_index);
-    return host_output;
+    int32_t *h__alloc0;
+    mallocAndCopyFromDevice((void **)&h__alloc0, _alloc0,
+                            ((height * (*c).width) * 3) * sizeof(int32_t));
+    cudaFree(_alloc0);
+    _alloc0 = h__alloc0;
+    return reinterpret_cast<int3 *>(_alloc0);
 }
 
 Sphere _unexported_bounding_sphere(Sphere *a, Sphere *b) {
     float3 d = ((*b).center - (*a).center);
     float dist_sq = sum((d * d));
-    float dist = sqrt(dist_sq);
+    float dist = sqrtf(dist_sq);
     if ((dist + (*b).radius) <= (*a).radius) {
         return (*a);
     } else {
@@ -2523,13 +2391,9 @@ Sphere _unexported_bounding_sphere(Sphere *a, Sphere *b) {
             return (*b);
         }
     }
-    float new_radius =
-        (static_cast<float>(0.5) * ((dist + (*a).radius) + (*b).radius));
+    float new_radius = ((float)0.5 * ((dist + (*a).radius) + (*b).radius));
     float3 direction =
-        ((static_cast<float>(0) < dist)
-             ? (d / make_float3(dist))
-             : make_float3(static_cast<float>(1), static_cast<float>(0),
-                           static_cast<float>(0)));
+        ((0 < dist) ? (d / make_float3(dist)) : make_float3(1, 0, 0));
     float3 new_center =
         ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
     return Sphere{new_center, new_radius};
@@ -2537,10 +2401,10 @@ Sphere _unexported_bounding_sphere(Sphere *a, Sphere *b) {
 
 float3 at(Ray *r, float t) { return ((*r).o + (make_float3(t) * (*r).d)); }
 
-void bounding_sphere(Sphere *_ret0, Sphere *a, Sphere *b) {
+__host__ void bounding_sphere(Sphere *_ret0, Sphere *a, Sphere *b) {
     float3 d = ((*b).center - (*a).center);
     float dist_sq = sum((d * d));
-    float dist = sqrt(dist_sq);
+    float dist = sqrtf(dist_sq);
     if ((dist + (*b).radius) <= (*a).radius) {
         *_ret0 = (*a);
         return;
@@ -2550,13 +2414,9 @@ void bounding_sphere(Sphere *_ret0, Sphere *a, Sphere *b) {
             return;
         }
     }
-    float new_radius =
-        (static_cast<float>(0.5) * ((dist + (*a).radius) + (*b).radius));
+    float new_radius = ((float)0.5 * ((dist + (*a).radius) + (*b).radius));
     float3 direction =
-        ((static_cast<float>(0) < dist)
-             ? (d / make_float3(dist))
-             : make_float3(static_cast<float>(1), static_cast<float>(0),
-                           static_cast<float>(0)));
+        ((0 < dist) ? (d / make_float3(dist)) : make_float3(1, 0, 0));
     float3 new_center =
         ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
     *_ret0 = Sphere{new_center, new_radius};
@@ -2577,67 +2437,58 @@ __tuple_1 closestPointonTriangle(Point *pt, Triangle *tri) {
     float3 ap = (p - a);
     float d1 = dot(ab, ap);
     float d2 = dot(ac, ap);
-    if (d1 <= static_cast<float>(0)) {
-        if (d2 <= static_cast<float>(0)) {
-            return __tuple_1{Point{a}, Point{float3{static_cast<float>(1),
-                                                    static_cast<float>(0),
-                                                    static_cast<float>(0)}}};
+    if (d1 <= 0) {
+        if (d2 <= 0) {
+            return __tuple_1{Point{a}, Point{float3{1, 0, 0}}};
         }
     }
     float3 bp = (p - b);
     float d3 = dot(ab, bp);
     float d4 = dot(ac, bp);
-    if (static_cast<float>(0) <= d3) {
+    if (0 <= d3) {
         if (d4 <= d3) {
-            return __tuple_1{Point{b}, Point{float3{static_cast<float>(0),
-                                                    static_cast<float>(1),
-                                                    static_cast<float>(0)}}};
+            return __tuple_1{Point{b}, Point{float3{0, 1, 0}}};
         }
     }
     float vc = ((d1 * d4) - (d3 * d2));
-    if (vc <= static_cast<float>(0)) {
-        if (static_cast<float>(0) <= d1) {
-            if (d3 <= static_cast<float>(0)) {
+    if (vc <= 0) {
+        if (0 <= d1) {
+            if (d3 <= 0) {
                 float v0 = (d1 / (d1 - d3));
                 return __tuple_1{Point{a + (make_float3(v0) * ab)},
-                                 Point{float3{static_cast<float>(1) - v0, v0,
-                                              static_cast<float>(0)}}};
+                                 Point{float3{1 - v0, v0, 0}}};
             }
         }
     }
     float3 cp = (p - c);
     float d5 = dot(ab, cp);
     float d6 = dot(ac, cp);
-    if (static_cast<float>(0) <= d6) {
+    if (0 <= d6) {
         if (d5 <= d6) {
-            return __tuple_1{Point{c}, Point{float3{static_cast<float>(0),
-                                                    static_cast<float>(0),
-                                                    static_cast<float>(1)}}};
+            return __tuple_1{Point{c}, Point{float3{0, 0, 1}}};
         }
     }
     float vb = ((d5 * d2) - (d1 * d6));
-    if (vb <= static_cast<float>(0)) {
-        if (static_cast<float>(0) <= d2) {
-            if (d6 <= static_cast<float>(0)) {
+    if (vb <= 0) {
+        if (0 <= d2) {
+            if (d6 <= 0) {
                 float w0 = (d2 / (d2 - d6));
                 return __tuple_1{Point{a + (make_float3(w0) * ac)},
-                                 Point{float3{static_cast<float>(1) - w0,
-                                              static_cast<float>(0), w0}}};
+                                 Point{float3{1 - w0, 0, w0}}};
             }
         }
     }
     float va = ((d3 * d6) - (d5 * d4));
-    if (va <= static_cast<float>(0)) {
-        if (static_cast<float>(0) <= (d4 - d3)) {
-            if (static_cast<float>(0) <= (d5 - d6)) {
+    if (va <= 0) {
+        if (0 <= (d4 - d3)) {
+            if (0 <= (d5 - d6)) {
                 float w1 = ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
                 return __tuple_1{Point{b + (make_float3(w1) * (c - b))},
-                                 Point{float3{static_cast<float>(0),
-                                              static_cast<float>(1) - w1, w1}}};
+                                 Point{float3{0, 1 - w1, w1}}};
             }
         }
     }
-    float denom = (static_cast<float>(1) / ((va + vb) + vc));
+    float denom = (1 / ((va + vb) + vc));
     float v = (vb * denom);
     float w = (vc * denom);
     float u = (va * denom);
@@ -2652,12 +2503,12 @@ float3 cross_(float3 v0, float3 v1) {
 }
 
 float degrees_to_radians(float degrees) {
-    return ((degrees * static_cast<float>(3.14159)) / static_cast<float>(180));
+    return ((degrees * (float)3.14159) / (float)180);
 }
 
 _option1 intersectsp_ray_aabb(Ray *r, AABB *b) {
-    float3 invDir = (make_float3(static_cast<float>(1)) / (*r).d);
-    bool3 dirIsNeg = (invDir < make_float3(static_cast<float>(0)));
+    float3 invDir = (make_float3(1) / (*r).d);
+    bool3 dirIsNeg = (invDir < make_float3(0));
     float3 low_parts = make_float3((dirIsNeg.x ? (*b).high.x : (*b).low.x),
                                    (dirIsNeg.y ? (*b).high.y : (*b).low.y),
                                    (dirIsNeg.z ? (*b).high.z : (*b).low.z));
@@ -2668,23 +2519,20 @@ _option1 intersectsp_ray_aabb(Ray *r, AABB *b) {
     float3 *tMin = &_tMin;
     float3 _tMax = ((high_parts - (*r).o) * invDir);
     float3 *tMax = &_tMax;
-    *tMax *= (static_cast<float>(1) +
-              (static_cast<float>(2) *
-               (((float)3 * static_cast<float>(5.96046e-08)) /
-                (static_cast<float>(1) -
-                 ((float)3 * static_cast<float>(5.96046e-08))))));
+    *tMax *= (1 + ((float)2 * (((float)3 * (float)5.96046e-08) /
+                               (1 - ((float)3 * (float)5.96046e-08)))));
     if (((*tMax).y < (*tMin).x) || ((*tMax).x < (*tMin).y)) {
         return _option1{};
     }
-    float _tmin = max((*tMin).x, (*tMin).y);
+    float _tmin = fmaxf((*tMin).x, (*tMin).y);
     float *tmin = &_tmin;
-    float _tmax = min((*tMax).x, (*tMax).y);
+    float _tmax = fminf((*tMax).x, (*tMax).y);
     float *tmax = &_tmax;
     if (((*tMax).z < (*tmin)) || ((*tmax) < (*tMin).z)) {
         return _option1{};
     }
-    *tmin = max((*tmin), (*tMin).z);
-    *tmax = min((*tmax), (*tMax).z);
+    *tmin = fmaxf((*tmin), (*tMin).z);
+    *tmax = fminf((*tmax), (*tMax).z);
     return _option1{FInterval{(*tmin), (*tmax)}, true};
 }
 
@@ -2699,8 +2547,7 @@ float distmax_Ray_AABB(Ray *r, AABB *b) {
 
 _option2 intersectsp_ray_tri(Ray *ray, Triangle *tri) {
     if (sum((cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0) *
-             cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0))) ==
-        static_cast<float>(0)) {
+             cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0))) == 0) {
         return _option2{};
     }
     float3 _p0t = ((*tri).p0 - (*ray).o);
@@ -2718,7 +2565,7 @@ _option2 intersectsp_ray_tri(Ray *ray, Triangle *tri) {
     *p2t = shuffle((*p2t), {kx, ky, kz});
     float Sx = (-d.x / d.z);
     float Sy = (-d.y / d.z);
-    float Sz = (static_cast<float>(1) / d.z);
+    float Sz = (1 / d.z);
     *p0t += (Sx * (*p0t).z);
     *p0t += (Sy * (*p0t).z);
     *p1t += (Sx * (*p1t).z);
@@ -2728,69 +2575,57 @@ _option2 intersectsp_ray_tri(Ray *ray, Triangle *tri) {
     float e0 = __prod_diff_f32((*p1t).x, (*p2t).y, (*p1t).y, (*p2t).x);
     float e1 = __prod_diff_f32((*p2t).x, (*p0t).y, (*p2t).y, (*p0t).x);
     float e2 = __prod_diff_f32((*p0t).x, (*p1t).y, (*p0t).y, (*p1t).x);
-    if (((e0 < static_cast<float>(0)) || (e1 < static_cast<float>(0))) ||
-        (e2 < static_cast<float>(0))) {
-        if (((static_cast<float>(0) < e0) || (static_cast<float>(0) < e1)) ||
-            (static_cast<float>(0) < e2)) {
+    if (((e0 < 0) || (e1 < 0)) || (e2 < 0)) {
+        if (((0 < e0) || (0 < e1)) || (0 < e2)) {
             return _option2{};
         }
     }
     float det = ((e0 + e1) + e2);
-    if (det == static_cast<float>(0)) {
+    if (det == 0) {
         return _option2{};
     }
     *p0t *= Sz;
     *p1t *= Sz;
     *p2t *= Sz;
     float tScaled = (((e0 * (*p0t).z) + (e1 * (*p1t).z)) + (e2 * (*p2t).z));
-    if ((det < static_cast<float>(0)) && ((static_cast<float>(0) <= tScaled) ||
-                                          (tScaled < ((*ray).tmax * det)))) {
+    if ((det < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * det)))) {
         return _option2{};
     } else {
-        if ((static_cast<float>(0) < det) &&
-            ((tScaled <= static_cast<float>(0)) ||
-             (((*ray).tmax * det) < tScaled))) {
+        if ((0 < det) && ((tScaled <= 0) || (((*ray).tmax * det) < tScaled))) {
             return _option2{};
         }
     }
-    float invDet = (static_cast<float>(1) / det);
+    float invDet = (1 / det);
     float b0 = (e0 * invDet);
     float b1 = (e1 * invDet);
     float b2 = (e2 * invDet);
     float t = (tScaled * invDet);
     float maxZt = max(abs(float3{(*p0t).z, (*p1t).z, (*p2t).z}));
-    float deltaZ = ((((float)3 * static_cast<float>(5.96046e-08)) /
-                     (static_cast<float>(1) -
-                      ((float)3 * static_cast<float>(5.96046e-08)))) *
+    float deltaZ = ((((float)3 * (float)5.96046e-08) /
+                     (1 - ((float)3 * (float)5.96046e-08))) *
                     maxZt);
     float maxXt = max(abs(float3{(*p0t).x, (*p1t).x, (*p2t).x}));
     float maxYt = max(abs(float3{(*p0t).y, (*p1t).y, (*p2t).y}));
-    float deltaX = ((((float)5 * static_cast<float>(5.96046e-08)) /
-                     (static_cast<float>(1) -
-                      ((float)5 * static_cast<float>(5.96046e-08)))) *
+    float deltaX = ((((float)5 * (float)5.96046e-08) /
+                     (1 - ((float)5 * (float)5.96046e-08))) *
                     (maxXt + maxZt));
-    float deltaY = ((((float)5 * static_cast<float>(5.96046e-08)) /
-                     (static_cast<float>(1) -
-                      ((float)5 * static_cast<float>(5.96046e-08)))) *
+    float deltaY = ((((float)5 * (float)5.96046e-08) /
+                     (1 - ((float)5 * (float)5.96046e-08))) *
                     (maxYt + maxZt));
-    float deltaE = (static_cast<float>(2) *
-                    (((((((float)2 * static_cast<float>(5.96046e-08)) /
-                         (static_cast<float>(1) -
-                          ((float)2 * static_cast<float>(5.96046e-08)))) *
-                        maxXt) *
-                       maxYt) +
-                      (deltaY * maxXt)) +
-                     (deltaX * maxYt)));
+    float deltaE = ((float)2 * (((((((float)2 * (float)5.96046e-08) /
+                                    (1 - ((float)2 * (float)5.96046e-08))) *
+                                   maxXt) *
+                                  maxYt) +
+                                 (deltaY * maxXt)) +
+                                (deltaX * maxYt)));
     float maxE = max(abs(float3{e0, e1, e2}));
-    float deltaT = ((static_cast<float>(3) *
-                     (((((((float)3 * static_cast<float>(5.96046e-08)) /
-                          (static_cast<float>(1) -
-                           ((float)3 * static_cast<float>(5.96046e-08)))) *
-                         maxE) *
-                        maxZt) +
-                       (deltaE * maxZt)) +
-                      (deltaZ * maxE))) *
-                    abs(invDet));
+    float deltaT = (((float)3 * (((((((float)3 * (float)5.96046e-08) /
+                                     (1 - ((float)3 * (float)5.96046e-08))) *
+                                    maxE) *
+                                   maxZt) +
+                                  (deltaE * maxZt)) +
+                                 (deltaZ * maxE))) *
+                    fabsf(invDet));
     if (t <= deltaT) {
         return _option2{};
     }
@@ -2808,7 +2643,7 @@ float distmax_Ray_Triangle(Ray *ray, Triangle *tri) {
 }
 
 float distmin_Point_AABB(Point *pt, AABB *a) {
-    return sqrt(SqDistPointAABB(pt, a));
+    return sqrtf(SqDistPointAABB(pt, a));
 }
 
 float distmin_Point_Triangle(Point *p, Triangle *tri) {
@@ -2825,10 +2660,6 @@ float distmin_Ray_AABB(Ray *r, AABB *b) {
     return -INFINITY;
 }
 
-__device__ float distmin_Ray_MaterialSphere(Ray *r, MaterialSphere *ms) {
-    return distmin_Ray_Sphere(r, (&(*ms).s));
-}
-
 float distmin_Ray_Triangle(Ray *ray, Triangle *tri) {
     _option2 isect = intersectsp_ray_tri(ray, tri);
     if (isect.set) {
@@ -2840,74 +2671,58 @@ float distmin_Ray_Triangle(Ray *ray, Triangle *tri) {
 }
 
 float gamma(int32_t n) {
-    return (
-        ((float)n * static_cast<float>(5.96046e-08)) /
-        (static_cast<float>(1) - ((float)n * static_cast<float>(5.96046e-08))));
+    return (((float)n * (float)5.96046e-08) /
+            (1 - ((float)n * (float)5.96046e-08)));
 }
 
-__host__ int *image(Camera *c, _spheres_layout0 *spheres) {
+__host__ int3 *image(Camera *c, _spheres_layout0 *spheres) {
     int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
     int32_t *height = &_height;
     *height = (((*height) < 1) ? 1 : (*height));
-    return _parallel_traverse_array0(c, (*height), spheres);
+    return _traverse_array0(c, (*height), spheres);
 }
 
 bool intersects_Ray_AABB(Ray *r, AABB *b) {
     _option1 interval = intersectsp_ray_aabb(r, b);
     if (interval.set) {
         FInterval extract = interval.value;
-        return ((extract.low < (*r).tmax) &
-                (static_cast<float>(0) < extract.high));
+        return ((extract.low < (*r).tmax) & (0 < extract.high));
     }
     return false;
 }
 
+bool intersects_Ray_Triangle(Ray *ray, Triangle *tri) {
+    return intersectsp_ray_tri(ray, tri).set;
+}
+
 float len_squared(float3 v) { return sum((v * v)); }
 
-__device__ float3 linear_to_gamma_v(float3 l) {
-    return float3{linear_to_gamma_f(l.x), linear_to_gamma_f(l.y),
-                  linear_to_gamma_f(l.z)};
-}
-
-bool near_zero(float3 v) {
-    return (((abs(v.x) < static_cast<float>(1e-08)) &
-             (abs(v.y) < static_cast<float>(1e-08))) &
-            (abs(v.z) < static_cast<float>(1e-08)));
-}
-
-float random_float(float low, float high) {
-    return (low + ((high - low) * static_cast<float>(rand()) /
-                   static_cast<float>(RAND_MAX)));
-}
-
-float3 random_vec3f() {
-    return float3{static_cast<float>(rand()) / static_cast<float>(RAND_MAX),
-                  static_cast<float>(rand()) / static_cast<float>(RAND_MAX),
-                  static_cast<float>(rand()) / static_cast<float>(RAND_MAX)};
-}
-
-float3 random_vec3f_in(float low, float high) {
-    return float3{low + ((high - low) * static_cast<float>(rand()) /
-                         static_cast<float>(RAND_MAX)),
-                  low + ((high - low) * static_cast<float>(rand()) /
-                         static_cast<float>(RAND_MAX)),
-                  low + ((high - low) * static_cast<float>(rand()) /
-                         static_cast<float>(RAND_MAX))};
+float random_float(float low, float high, curandState *_rng_state) {
+    return (low + ((high - low) * random<float>()));
 }
 
 float3 reflect(float3 v, float3 n) {
-    return (v - (make_float3((static_cast<float>(2) * dot(v, n))) * n));
+    return (v - (make_float3(((float)2 * dot(v, n))) * n));
 }
 
-float3 sample_square() {
-    return float3{static_cast<float>(rand()) / static_cast<float>(RAND_MAX) -
-                      static_cast<float>(0.5),
-                  static_cast<float>(rand()) / static_cast<float>(RAND_MAX) -
-                      static_cast<float>(0.5),
-                  static_cast<float>(0)};
+float3 sample_square(curandState *_rng_state) {
+    return float3{random<float>() - (float)0.5, random<float>() - (float)0.5,
+                  0};
 }
 
 float3 unit_vector(float3 v) { return (v / make_float3(length(v))); }
+
+// ---------------------------
+// main hook
+// ---------------------------
+
+#include <cassert>
+#include <chrono>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <random>
+#include <vector>
 
 constexpr uint32_t LAMBERTIAN = 0;
 constexpr uint32_t METAL = 1;
@@ -2919,6 +2734,11 @@ inline float random_scalar_float() {
     static std::uniform_real_distribution<float> distribution(0.0, 1.0);
     static std::mt19937 generator;
     return distribution(generator);
+}
+
+float random_float(float low, float high) {
+    return (low + ((high - low) * static_cast<float>(rand()) /
+                   static_cast<float>(RAND_MAX)));
 }
 
 inline float get_axis(float3 v, int index) {
@@ -3101,7 +2921,7 @@ int main(int argc, char **argv) {
     image_height = (image_height < 1) ? 1 : image_height;
     auto t1 = clock::now();
     // Render
-    int *im = image(&cam, &tree);
+    int *im = (int *)image(&cam, &tree);
     auto t2 = clock::now();
     std::string output_filename = "rtiow-image-cuda.ppm";
     std::ofstream out(output_filename);

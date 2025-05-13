@@ -239,7 +239,6 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
     for (const Expr &value : build->values) {
         const auto *v = value.as<Var>();
         internal_assert(v) << "unexpected context argument: " << value;
-        // TODO(cgyurgyik): Probably type mismatch.
         if (closure.written.contains(v->name)) {
             // Allocations are automatically cudaMalloc'ed.
             to_device.push_back(value);

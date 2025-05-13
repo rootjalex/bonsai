@@ -655,8 +655,7 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::Access *node) {
-    ir::Expr value = node->value;
-    value.accept(this);
+    node->value.accept(this);
     os << ".";
     os << node->field;
 }
