@@ -43,12 +43,10 @@ class Inliner : public ir::Mutator {
                        [](const auto &a) { return a.name; });
         // Replace function arguments with call arguments.
         std::map<std::string, ir::Expr> repls;
-        if (argument_names.size() != node->args.size()) {
-            // TODO(cgyurgyik): This is occurring in RTIOW because "dead"
-            // functions aren't being updated, and thus will have the wrong
-            // number of arguments. Easiest path is DCE'ing dead functions.
-            return node;
-        }
+        internal_assert(argument_names.size() == node->args.size())
+            << "mismatch in function argument size: " << argument_names.size()
+            << " and call argument size: " << node->args.size()
+            << " for function: " << function_name;
         for (int i = 0, e = argument_names.size(); i < e; ++i) {
             repls[argument_names[i]] = node->args[i];
         }

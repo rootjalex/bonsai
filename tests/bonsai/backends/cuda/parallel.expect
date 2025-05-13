@@ -37,10 +37,6 @@ __host__ int32_t* _traverse_array0(int32_t n, int32_t* fs) {
   return _alloc0;
 }
 
-int32_t* apply_function(int32_t n, int32_t* fs) {
-  return _traverse_array0(n, fs);
-}
-
 __host__ int32_t* entry(int32_t n, int32_t* a) {
   int32_t* b = _traverse_array0(n, a);
   return b;

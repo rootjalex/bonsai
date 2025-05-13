@@ -1,4 +1,4 @@
-//! flags: -b cuda
+//! flags: -p core -b cuda
 
 element Inner { x: i32; y: i32; z: i32; }
 element Outer { f: f32; position: Inner; }
