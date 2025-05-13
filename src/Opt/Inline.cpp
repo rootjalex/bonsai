@@ -26,7 +26,7 @@ class Inliner : public ir::Mutator {
         const ir::Var *v = node->func.as<ir::Var>();
         if (v == nullptr) {
             // (here and below)
-            // TODO(cgyurgyik): this should be visiting recursively.
+            // TODO(bonsai/issues/176): this should be visiting recursively.
             return node;
         }
         const std::string &function_name = v->name;

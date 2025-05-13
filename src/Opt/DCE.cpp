@@ -525,6 +525,8 @@ void visit(const std::string &name, const lower::CallGraph &call_graph,
 
 // Deletes any functions not visited from an entry point. We define a bonsai
 // entry point as being [[exported]].
+// TODO(cgyurgyik): We can use this same call count to (potentially) inline
+// functions that are only called once during the Inline pass.
 void delete_dead_functions(ir::FuncMap &funcs) {
     lower::CallGraph call_graph = lower::build_call_graph(funcs);
     std::map<std::string, int> call_counts;

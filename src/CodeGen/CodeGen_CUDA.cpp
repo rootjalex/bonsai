@@ -1053,7 +1053,8 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << node->func;
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
-    // TODO(cgyurgyik): Should this be handled in Parallelize?
+    // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full block
+    // size (1024) was causing resource launch errors.
     Expr block_size = make_const(n.type(), 512);
     opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';

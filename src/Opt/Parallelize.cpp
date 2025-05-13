@@ -150,7 +150,7 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
     // TODO: might be able to optimize this with LICM or something.
     std::vector<TypedVar> vars = gather_free_vars(forall);
     // TODO(ajr): if struct supported mutable fields, we would need this.
-    // std::set<std::string> mut_vars = mutated_variables(forall);
+    std::set<std::string> mut_vars = mutated_variables(forall);
 
     for (int i = 0, e = vars.size(); i < e; ++i) {
         // Structs should be pointers; these will be copied to device.
