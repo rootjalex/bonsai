@@ -544,6 +544,8 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         internal_assert(ss >> position) << field;
         internal_assert(position < as_tuple->etypes.size());
         return as_tuple->etypes[position];
+    } else if (const Ptr_t *as_ptr = struct_type.as<Ptr_t>()) {
+        return get_field_type(as_ptr->etype, field);
     } else {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;

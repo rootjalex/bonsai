@@ -25,6 +25,8 @@ class Inliner : public ir::Mutator {
     ir::Expr visit(const ir::Call *node) override {
         const ir::Var *v = node->func.as<ir::Var>();
         if (v == nullptr) {
+            // (here and below)
+            // TODO(cgyurgyik): this should be visiting recursively.
             return node;
         }
         const std::string &function_name = v->name;
@@ -41,7 +43,12 @@ class Inliner : public ir::Mutator {
                        [](const auto &a) { return a.name; });
         // Replace function arguments with call arguments.
         std::map<std::string, ir::Expr> repls;
-        internal_assert(argument_names.size() == node->args.size());
+        if (argument_names.size() != node->args.size()) {
+            // TODO(cgyurgyik): This is occurring in RTIOW because "dead"
+            // functions aren't being updated, and thus will have the wrong
+            // number of arguments. Easiest path is DCE'ing dead functions.
+            return node;
+        }
         for (int i = 0, e = argument_names.size(); i < e; ++i) {
             repls[argument_names[i]] = node->args[i];
         }

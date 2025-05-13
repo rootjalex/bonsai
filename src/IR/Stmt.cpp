@@ -142,8 +142,10 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
 Stmt Free::make(Expr var) {
     internal_assert(var.defined()) << "Undefined var in Free::make";
     Free *node = new Free;
-    internal_assert((var.type().is<Array_t, Struct_t>()))
-        << "unexpected type in Free::make, " << var.type();
+    ir::Type type = var.type();
+    internal_assert((type.is<Array_t>() ||
+                     (type.is<Ptr_t>() && type.element_of().is<Struct_t>())))
+        << "unexpected type in Free::make, " << type;
     node->value = std::move(var);
     return node;
 }

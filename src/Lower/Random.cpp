@@ -75,6 +75,26 @@ bool calls_rand(const Stmt &stmt,
     return finder.found;
 }
 
+// Determines whether a rand() call occurs anywhere in the call graph. This is
+// necessary to propagate past functions that may not use it, even when their
+// children use it.
+bool calls_rand(const Function &f, const std::set<std::string> &funcs_call_rand,
+                const lower::CallGraph &call_graph, const FuncMap &funcs) {
+    if (calls_rand(f.body, funcs_call_rand)) {
+        return true;
+    }
+    auto cit = call_graph.find(f.name);
+    internal_assert(cit != call_graph.end()) << f.name;
+    for (const std::string &call : cit->second) {
+        auto it = funcs.find(call);
+        internal_assert(it != funcs.end()) << call;
+        if (calls_rand(*it->second, funcs_call_rand, call_graph, funcs)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Splits functions that exist on both host and device and use rand() on CUDA.
 // There are two separate paths for these, since cuRAND is only allowed on host.
 void split_functions_with_rand(FuncMap &funcs) {
@@ -222,7 +242,7 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
             for (const std::string &nested : it->second) {
                 internal_assert(funcs.contains(nested)) << nested;
                 const Function &nested_function = *funcs[nested];
-                if (calls_rand(nested_function.body, call_rand)) {
+                if (calls_rand(nested_function, call_rand, call_graph, funcs)) {
                     // We must propagate it from the kernel level.
                     call_rand.insert(nested);
                 }

@@ -434,6 +434,12 @@ void CodeGen_CUDA::visit(const Build *node) {
         if (i != 0) {
             os << ',' << ' ';
         }
+        if (is_context_type(node->type)) {
+            if (const auto *d = node->values[i].as<Deref>()) {
+                print_no_parens(d->expr);
+                continue;
+            }
+        }
         print_no_parens(node->values[i]);
     }
     os << '}';
@@ -650,7 +656,12 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 // TODO(cgyurgyik): Verify this is coming from device memory.
 void CodeGen_CUDA::visit(const Free *node) {
     os << get_indent() << "cudaFree" << '(';
-    node->value.accept(this);
+    ir::Expr value = node->value;
+    if (const auto *d = value.as<Deref>(); d && d->expr.type().is<Ptr_t>()) {
+        d->expr.accept(this);
+    } else {
+        value.accept(this);
+    }
     os << ')' << ';' << '\n';
 }
 
@@ -729,6 +740,24 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             array_t->etype.accept(this);
             os << ')' << ')' << ';' << '\n';
             return;
+        }
+        // TODO(cgyurgyik): yes/no?
+        if (type.is<Ptr_t>()) {
+            type = type.element_of();
+            if (const auto *struct_t = type.as<Struct_t>()) {
+                type.accept(this);
+                os << '*' << ' ' << b << ';' << '\n';
+                os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+                os << '(' << "void" << '*' << '*' << ')' << '&' << b << ','
+                   << ' ';
+                internal_assert(node->value.defined())
+                    << "allocation to device expects a value (what is copied)";
+                node->value.accept(this);
+                os << ',' << ' ' << "sizeof" << '(';
+                type->accept(this);
+                os << ')' << ')' << ';' << '\n';
+                return;
+            }
         }
         internal_error << "[unimplemented] Allocate CUDA codegen: "
                        << Stmt(node);
