@@ -59,10 +59,13 @@ Stmt collapse_loops(Stmt body, const std::string &io, const std::string &ii,
                 return Mutator::visit(outer);
             }
             const auto *inner = outer->body.as<ForAll>();
-            // TODO(cgyurgyik): we can probably relax this requirement.
-            if (inner == nullptr || inner->index != ii) {
-                return Mutator::visit(outer);
-            }
+            internal_assert(inner) << "expected a single loop as the body of "
+                                      "the outer loop, received: "
+                                   << outer->body;
+            internal_assert(inner->index == ii)
+                << "expected loop index: " << ii
+                << ", received: " << inner->index;
+
             const ForAll::Slice &oslice = outer->slice;
             const ForAll::Slice &islice = inner->slice;
             Expr bo = oslice.begin, eo = oslice.end, so = oslice.stride;
