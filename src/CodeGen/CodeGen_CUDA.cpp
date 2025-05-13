@@ -691,7 +691,6 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 }
 
 // TODO(cgyurgyik): Verify this is coming from device memory.
-// TODO(cgyurgyik): Need to free inner members that were allocated.
 void CodeGen_CUDA::visit(const Free *node) {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
