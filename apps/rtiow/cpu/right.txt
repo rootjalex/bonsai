@@ -1,0 +1,27 @@
+[ 93%] Built target bonsai_library
+[ 96%] Built target bonsai_compiler
+[100%] Built target bonsai_test_runner
+Run #1
+Time: 6.334355232
+Run #2
+Time: 6.551604497
+Run #3
+Time: 6.347174328
+Run #4
+Time: 6.374668629
+Run #5
+Time: 6.518976482
+Run #6
+Time: 6.290394084
+Run #7
+Time: 6.399607410
+Run #8
+Time: 6.628542448
+Run #9
+Time: 6.395895673
+Run #10
+Time: 6.407109890
+
+Min time: 6.290394084 seconds
+Max time: 6.628542448 seconds
+Avg time: 6.42483286730000000000 seconds

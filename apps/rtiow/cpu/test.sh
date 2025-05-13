@@ -1,5 +1,7 @@
 #!/bin/bash 
 
+num_runs=${1:-10}
+
 set -e
 
 # Enable this to be run from either root or 
@@ -30,7 +32,45 @@ clang++   -g   -O3   -fsanitize=address,undefined   -fno-omit-frame-pointer -L$C
 /scratch/ajroot/_bonsai/deps/llvm-install/bin/llc -O3   -filetype=obj   -relocation-model=pic   -mtriple=x86_64-unknown-linux-gnu   main.ll   -o utils.o
 clang++ -g -O3 -fsanitize=address,undefined -fno-omit-frame-pointer         main_hook.o utils.o -lm  -L$CONDA_PREFIX/lib -I$CONDA_PREFIX/include/c++/v1 -lc++ -lc++abi  -o main.out         -shared-libasan
 
-time ./main.out output.ppm
+
+echo "done build"
+exit
+# time ./main.out output.ppm
+
+# GTIME=$(which gtime)
+
+times=()
+
+for ((i = 1; i <= num_runs; i++)); do
+  echo "Run #$i"
+
+  start=$(date +%s.%N)
+  ./main.out output.ppm > /dev/null
+  end=$(date +%s.%N)
+  
+  t=$(echo "$end - $start" | bc -l)
+
+  echo "Time: $t"
+  times+=($t)
+done
+
+min=${times[0]}
+max=${times[0]}
+sum=0
+
+for t in "${times[@]}"; do
+  # Convert to floating point
+  (( $(echo "$t < $min" | bc -l) )) && min=$t
+  (( $(echo "$t > $max" | bc -l) )) && max=$t
+  sum=$(echo "$sum + $t" | bc -l)
+done
+
+avg=$(echo "$sum / ${#times[@]}" | bc -l)
+
+echo
+echo "Min time: $min seconds"
+echo "Max time: $max seconds"
+echo "Avg time: $avg seconds"
 
 # Clean up
 # rm $PREFIX/main.bir

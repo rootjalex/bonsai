@@ -1,0 +1,25 @@
+Run #1
+Time: 7.684943243
+Run #2
+Time: 7.647260131
+Run #3
+Time: 7.616393819
+Run #4
+Time: 7.625641336
+Run #5
+Time: 7.616238090
+Run #6
+Time: 7.615142393
+Run #7
+Time: 7.628759704
+Run #8
+Time: 7.651218514
+Run #9
+Time: 7.635529798
+Run #10
+Time: 7.629959804
+
+Min time: 7.615142393 seconds
+Max time: 7.684943243 seconds
+Avg time: 7.63510868320000000000 seconds
+

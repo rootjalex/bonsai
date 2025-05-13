@@ -1,0 +1,1 @@
+numactl --physcpubind=0-15 perf stat -r 5 -e cycles,instructions,branches,branch-misses,cache-references,cache-misses,stalled-cycles-frontend,stalled-cycles-backend,cpu-clock,task-clock,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses ./main.out output.ppm

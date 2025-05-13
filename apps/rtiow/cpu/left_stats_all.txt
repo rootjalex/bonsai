@@ -1,0 +1,35 @@
+Setup time: 2 ms
+Render time: 6065 ms
+Write-to-output time: 397 ms
+Setup time: 0 ms
+Render time: 6087 ms
+Write-to-output time: 401 ms
+Setup time: 0 ms
+Render time: 5822 ms
+Write-to-output time: 393 ms
+Setup time: 0 ms
+Render time: 6077 ms
+Write-to-output time: 401 ms
+Setup time: 0 ms
+Render time: 5878 ms
+Write-to-output time: 399 ms
+
+ Performance counter stats for './main.out output.ppm' (5 runs):
+
+    37,241,366,608      cycles                    #    5.826 GHz                      ( +-  0.95% )
+   105,903,205,965      instructions              #    2.78  insn per cycle           ( +-  0.00% )
+    11,545,507,408      branches                  #    1.806 G/sec                    ( +-  0.00% )
+       102,619,385      branch-misses             #    0.89% of all branches          ( +-  0.19% )
+         7,951,898      cache-references          #    1.244 M/sec                    ( +-  1.62% )
+           776,293      cache-misses              #    9.639 % of all cache refs      ( +-  4.61% )
+   <not supported>      stalled-cycles-frontend                                     
+   <not supported>      stalled-cycles-backend                                      
+          6,284.11 msec cpu-clock                 #    0.983 CPUs utilized            ( +-  0.92% )
+          6,284.12 msec task-clock                #    0.983 CPUs utilized            ( +-  0.92% )
+   <not supported>      dTLB-loads                                                  
+   <not supported>      dTLB-load-misses                                            
+   <not supported>      iTLB-loads                                                  
+   <not supported>      iTLB-load-misses                                            
+
+            6.3952 +- 0.0578 seconds time elapsed  ( +-  0.90% )
+

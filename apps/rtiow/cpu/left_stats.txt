@@ -1,0 +1,47 @@
+(dbcmp) ajroot@redwood:/scratch/ajroot/_bonsai/apps/rtiow/cpu$ perf stat -r 5 -e cache-misses,cache-references ./main.out output.ppm
+Setup time: 0 ms
+Render time: 6074 ms
+Write-to-output time: 418 ms
+Setup time: 0 ms
+Render time: 5825 ms
+Write-to-output time: 395 ms
+Setup time: 0 ms
+Render time: 5822 ms
+Write-to-output time: 398 ms
+Setup time: 0 ms
+Render time: 6063 ms
+Write-to-output time: 395 ms
+Setup time: 0 ms
+Render time: 5865 ms
+Write-to-output time: 401 ms
+
+ Performance counter stats for './main.out output.ppm' (5 runs):
+
+           951,713      cache-misses              #   11.499 % of all cache refs      ( +-  0.93% )
+         8,284,143      cache-references                                              ( +-  1.05% )
+
+            6.3437 +- 0.0615 seconds time elapsed  ( +-  0.97% )
+(dbcmp) ajroot@redwood:/scratch/ajroot/_bonsai/apps/rtiow/cpu$ perf stat -r 5 -e branch-misses,instructions,cycles ./main.out output.ppm
+Setup time: 0 ms
+Render time: 6139 ms
+Write-to-output time: 396 ms
+Setup time: 0 ms
+Render time: 6142 ms
+Write-to-output time: 402 ms
+Setup time: 0 ms
+Render time: 6145 ms
+Write-to-output time: 399 ms
+Setup time: 0 ms
+Render time: 6104 ms
+Write-to-output time: 391 ms
+Setup time: 0 ms
+Render time: 5819 ms
+Write-to-output time: 394 ms
+
+ Performance counter stats for './main.out output.ppm' (5 runs):
+
+       102,728,483      branch-misses                                                 ( +-  0.17% )
+   105,901,905,494      instructions              #    2.76  insn per cycle           ( +-  0.00% )
+    37,247,499,241      cycles                                                        ( +-  0.77% )
+
+            6.4769 +- 0.0641 seconds time elapsed  ( +-  0.99% )
