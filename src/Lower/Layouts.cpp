@@ -24,10 +24,6 @@ struct LayoutTypeMap {
     uint64_t counter = 0;
 };
 
-std::string concat(const std::string &a, const std::string &b) {
-    return a + "_" + b;
-}
-
 std::string pad_name(uint32_t count) {
     return "pad" + std::to_string(count);
 }
@@ -38,71 +34,6 @@ std::string group_name(uint32_t count, const std::string &index) {
 
 std::string split_name(uint32_t count, const std::string &field) {
     return "split" + std::to_string(count) + "on_" + field;
-}
-
-std::string arm_name(uint64_t branch, const ir::Switch::Arm &arm) {
-    std::string name;
-    if (arm.value.has_value()) {
-        name += std::to_string(*arm.value);
-    }
-    if (arm.name.has_value()) {
-        if (!name.empty()) {
-            name += "_";
-        }
-        name += *arm.name;
-    }
-    if (name.empty()) {
-        return std::to_string(branch);
-    } else {
-        return name;
-    }
-}
-
-std::string layout_to_string(const ir::Layout &layout) {
-    switch (layout.node_type()) {
-    case ir::IRLayoutEnum::Name: {
-        const ir::Name *name = layout.as<ir::Name>();
-        return "_N" + name->name;
-    }
-    case ir::IRLayoutEnum::Pad: {
-        const ir::Pad *pad = layout.as<ir::Pad>();
-        return "_P" + std::to_string(pad->bits);
-    }
-    case ir::IRLayoutEnum::Switch: {
-        const ir::Switch *switch_ = layout.as<ir::Switch>();
-        std::string name = "_S" + switch_->field;
-
-        for (const auto &arm : switch_->arms) {
-            std::string arm_name = "_";
-            if (arm.value.has_value()) {
-                arm_name += std::to_string(*arm.value);
-            }
-            arm_name += "_";
-            if (arm.name.has_value()) {
-                arm_name += *arm.name;
-            }
-            arm_name += "_";
-            name += arm_name + layout_to_string(arm.layout);
-        }
-        return name;
-    }
-    case ir::IRLayoutEnum::Chain: {
-        const ir::Chain *chain = layout.as<ir::Chain>();
-        std::string name = "_C";
-        for (const auto &l : chain->layouts) {
-            name += "_" + layout_to_string(l);
-        }
-        return name;
-    }
-    case ir::IRLayoutEnum::Group: {
-        const ir::Group *group = layout.as<ir::Group>();
-        return "_G_" + group->name + "_" + layout_to_string(group->inner);
-    }
-    case ir::IRLayoutEnum::Materialize: {
-        const ir::Materialize *mat = layout.as<ir::Materialize>();
-        return "_M" + mat->name;
-    }
-    }
 }
 
 using IndexTList = std::vector<ir::TypedVar>;
