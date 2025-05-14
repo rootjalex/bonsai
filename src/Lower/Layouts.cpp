@@ -18,7 +18,20 @@ namespace lower {
 
 namespace {
 
-using LayoutTypeMap = std::map<ir::Layout, ir::Type, ir::LayoutLessThan>;
+struct NamedLayout {
+    std::string name;
+    ir::Layout layout;
+};
+struct NamedLayoutLessThan {
+    bool operator()(const NamedLayout &l0, const NamedLayout &l1) const {
+        if (l0.layout < l1.layout)
+            return true;
+        if (l1.layout < l0.layout)
+            return false;
+        return l0.name < l1.name;
+    }
+};
+using LayoutTypeMap = std::map<NamedLayout, ir::Type, NamedLayoutLessThan>;
 
 // ensures unique names in lowering.
 static size_t name_counter = 0;
@@ -129,7 +142,9 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
 
 ir::Type layout_to_structs(std::string base, const ir::Layout &layout,
                            LayoutTypeMap &ltmap) {
-    if (const auto in_cache = ltmap.find(layout); in_cache != ltmap.cend()) {
+    if (const auto in_cache =
+            ltmap.find(NamedLayout{.name = base, .layout = layout});
+        in_cache != ltmap.cend()) {
         return in_cache->second;
     }
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
@@ -170,11 +185,13 @@ ir::Type layout_to_structs(std::string base, const ir::Layout &layout,
                 ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
                 std::string split_name =
                     get_split_field_name(base, node->field);
+                std::cerr << "switch split_name: " << split_name << "\n";
                 fields.emplace_back(std::move(split_name), std::move(byte_vec));
                 // Cache the struct-type of each arm.
                 // TODO(ajr): this fails if an arm is ever not a Chain, can that
                 // happen?
                 for (const auto &arm : node->arms) {
+                    std::cerr << "arm name: " << base + "_split" << "\n";
                     layout_to_structs(base + "_split", arm.layout, ltmap);
                 }
                 break;
@@ -187,10 +204,12 @@ ir::Type layout_to_structs(std::string base, const ir::Layout &layout,
             }
         }
         constexpr auto P = ir::Struct_t::Attribute::packed;
-        ir::Type struct_t =
-            ir::Struct_t::make(std::move(name), std::move(fields), {P});
-        auto [_, inserted] = ltmap.try_emplace(layout, struct_t);
-        internal_assert(inserted) << layout << " already in cache\n";
+        ir::Type struct_t = ir::Struct_t::make(name, std::move(fields), {P});
+        auto [_, inserted] = ltmap.try_emplace(
+            NamedLayout{.name = name, .layout = layout}, struct_t);
+        internal_assert(inserted)
+            << name << ' ' << layout << " already in cache\n";
+        std::cerr << "inserted: " << name << ":\n" << layout;
         return struct_t;
     }
     internal_error << "Handle layout conversion for: " << layout;
@@ -234,19 +253,25 @@ ir::Expr get_field(ir::Expr base, const std::string &obj_name,
         // No overload for Pad
 
         void visit(const ir::Switch *node) override {
-            // TODO(ajr): this is not equivalent w.r.t. naming.
-            // Can save by caching this call.
-
             for (const auto &arm : node->arms) {
                 if (!arm.name.has_value() || (*arm.name == node_name)) {
                     ir::Expr old_path = path;
                     std::string field =
                         get_split_field_name(base_name, node->field);
                     path = ir::Access::make(std::move(field), std::move(path));
-                    auto iter = type_cache.find(arm.layout);
+                    std::cerr << "base_name: " << base_name << "\n";
+                    std::cerr << "node_name: " << node_name << "\n";
+                    if (arm.name.has_value()) {
+                        std::cerr << "arm.name: " << *arm.name << "\n";
+                    }
+                    std::string n =
+                        arm.name.has_value() ? *arm.name : node_name;
+                    std::cerr << "n: " << n << "\n";
+                    auto iter = type_cache.find(
+                        NamedLayout{.name = n, .layout = arm.layout});
                     internal_assert(iter != type_cache.cend())
-                        << "Unseen Switch arm layout: " << ir::Layout(node)
-                        << " at " << arm.layout;
+                        << "unseen Switch arm layout with name " << n << ":\n"
+                        << ir::Layout(node) << " at " << arm.layout;
                     ir::Type reinterpret_type = iter->second;
                     path = ir::Cast::make(reinterpret_type, path,
                                           ir::Cast::Mode::Reinterpret);
