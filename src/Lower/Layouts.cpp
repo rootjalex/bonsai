@@ -18,7 +18,11 @@ namespace lower {
 
 namespace {
 
-using LayoutTypeMap = std::map<ir::Layout, ir::Type, ir::LayoutLessThan>;
+struct LayoutTypeMap {
+    std::map<ir::Layout, ir::Type, ir::LayoutLessThan> layout_to_type;
+    std::map<ir::Layout, std::string, ir::LayoutLessThan> layout_to_name;
+    uint64_t counter = 0;
+};
 
 std::string concat(const std::string &a, const std::string &b) {
     return a + "_" + b;
@@ -189,7 +193,7 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
 
 ir::Type layout_to_structs(const ir::Layout &layout,
                            LayoutTypeMap &ltmap) {
-    if (const auto in_cache = ltmap.find(layout); in_cache != ltmap.cend()) {
+    if (const auto in_cache = ltmap.layout_to_type.find(layout); in_cache != ltmap.layout_to_type.cend()) {
         return in_cache->second;
     }
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
@@ -247,18 +251,23 @@ ir::Type layout_to_structs(const ir::Layout &layout,
             }
             }
         }
+
+        std::string name = "layout" + std::to_string(ltmap.counter++);
+        {
+            auto [_, inserted] = ltmap.layout_to_name.try_emplace(layout, name);
+            internal_assert(inserted) << layout;
+        }
         constexpr auto P = ir::Struct_t::Attribute::packed;
-        std::string name = layout_to_string(layout);
         ir::Type struct_t =
             ir::Struct_t::make(std::move(name), std::move(fields), {P});
-        auto [_, inserted] = ltmap.try_emplace(layout, struct_t);
+        auto [_, inserted] = ltmap.layout_to_type.try_emplace(layout, struct_t);
         internal_assert(inserted) << layout << " already in cache\n";
         return struct_t;
     }
     internal_error << "Handle layout conversion for: " << layout;
 }
 
-ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::MapStack<std::string, ir::Expr> frames, const std::string &iter_name, const std::string &node_type, const std::string &field, const LayoutTypeMap &type_cache) {
+ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::MapStack<std::string, ir::Expr> frames, const std::string &iter_name, const std::string &node_type, const std::string &field, const LayoutTypeMap &ltmap) {
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         uint32_t group_count = 0;
         uint32_t split_count = 0;
@@ -288,7 +297,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
                 ir::Expr index = ir::Var::make(node->index_t, iter_name + "_" + node->name);
                 path = ir::Extract::make(std::move(path), std::move(index));
                 frames.push_frame();
-                ir::Expr rec = field_in_layout(path, node->inner, frames, iter_name, node_type, field, type_cache);
+                ir::Expr rec = field_in_layout(path, node->inner, frames, iter_name, node_type, field, ltmap);
                 frames.pop_frame();
                 if (rec.defined()) {
                     return rec;
@@ -303,15 +312,15 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
                     if (!arm.name.has_value() || (*arm.name == node_type)) {
                         std::string field_name = split_name(split_count++, node->field);
                         ir::Expr path = ir::Access::make(std::move(field_name), base);
-                        auto iter = type_cache.find(arm.layout);
-                        internal_assert(iter != type_cache.cend())
+                        auto iter = ltmap.layout_to_type.find(arm.layout);
+                        internal_assert(iter != ltmap.layout_to_type.cend())
                             << "Unseen Switch arm layout: " << ir::Layout(node)
                             << " at " << arm.layout;
                         ir::Type reinterpret_type = iter->second;
                         path = ir::Cast::make(reinterpret_type, path,
                                               ir::Cast::Mode::Reinterpret);
                         frames.push_frame();
-                        ir::Expr rec = field_in_layout(path, arm.layout, frames, iter_name, node_type, field, type_cache);
+                        ir::Expr rec = field_in_layout(path, arm.layout, frames, iter_name, node_type, field, ltmap);
                         frames.pop_frame();
                         if (rec.defined()) {
                             return rec;
@@ -344,18 +353,18 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
 
 // ir::Expr get_field(ir::Expr base, const std::string &obj_name,
 //                    const ir::Layout &layout, const std::string &node_name,
-//                    const std::string &field, const LayoutTypeMap &type_cache) {
+//                    const std::string &field, const LayoutTypeMap &ltmap) {
 //     struct FindPaths : public ir::Visitor {
 //         std::string base_name;
 //         const std::string &node_name;
 //         const std::string &field;
-//         const LayoutTypeMap &type_cache;
+//         const LayoutTypeMap &ltmap;
 
 //         FindPaths(ir::Expr base, const std::string &obj_name,
 //                   const std::string &node_name, const std::string &field,
-//                   const LayoutTypeMap &type_cache)
+//                   const LayoutTypeMap &ltmap)
 //             : base_name(obj_name), node_name(node_name), field(field),
-//               type_cache(type_cache), path(std::move(base)) {
+//               ltmap(ltmap), path(std::move(base)) {
 //             frames.push_frame();
 //         }
 
@@ -389,8 +398,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
 //                     std::string field =
 //                         get_split_field_name(base_name, node->field);
 //                     path = ir::Access::make(std::move(field), std::move(path));
-//                     auto iter = type_cache.find(arm.layout);
-//                     internal_assert(iter != type_cache.cend())
+//                     auto iter = ltmap.find(arm.layout);
+//                     internal_assert(iter != ltmap.cend())
 //                         << "Unseen Switch arm layout: " << ir::Layout(node)
 //                         << " at " << arm.layout;
 //                     ir::Type reinterpret_type = iter->second;
@@ -434,7 +443,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
 //             }
 //         }
 //     };
-//     FindPaths finder(base, obj_name, node_name, field, type_cache);
+//     FindPaths finder(base, obj_name, node_name, field, ltmap);
 //     layout.accept(&finder);
 //     internal_assert(finder.value.defined())
 //         << "Field: " << field << " not set in layout traversal: " << layout;
@@ -443,7 +452,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
 
 ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
                            const std::string &obj_name,
-                           const LayoutTypeMap &type_cache) {
+                           const LayoutTypeMap &ltmap) {
     struct FindPaths : public ir::Visitor {
         using Path =
             std::vector<std::pair<std::string, std::optional<int64_t>>>;
@@ -497,7 +506,7 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
 
             for (const auto &pair : path) {
                 internal_assert(pair.second.has_value());
-                ir::Expr value = field_in_layout(base, layout, ir::MapStack<std::string, ir::Expr>(), obj_name, node_name, pair.first, type_cache);
+                ir::Expr value = field_in_layout(base, layout, ir::MapStack<std::string, ir::Expr>(), obj_name, node_name, pair.first, ltmap);
                 ir::Expr constant = make_const(value.type(), *pair.second);
                 // TODO: support non-eq matching? e.g. ranges?
                 ir::Expr eq = ir::BinOp::make(ir::BinOp::Eq, std::move(value),
@@ -731,11 +740,11 @@ ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body) {
 struct LowerMatches : public ir::Mutator {
     const ir::LayoutMap &layouts;
     const ir::TypeMap &structs;
-    const LayoutTypeMap &type_cache;
+    const LayoutTypeMap &ltmap;
 
     LowerMatches(const ir::LayoutMap &layouts, const ir::TypeMap &structs,
-                 const LayoutTypeMap &type_cache)
-        : layouts(layouts), structs(structs), type_cache(type_cache) {}
+                 const LayoutTypeMap &ltmap)
+        : layouts(layouts), structs(structs), ltmap(ltmap) {}
 
     std::map<std::string, ir::Type> ref_types;
     size_t n_matches = 0;
@@ -771,13 +780,13 @@ struct LowerMatches : public ir::Mutator {
 
         ir::Expr base_struct = ir::Var::make(struct_type, tree_name);
         ir::Stmt body =
-            lower_switch_tree(layout, base_struct, tree_name, type_cache);
+            lower_switch_tree(layout, base_struct, tree_name, ltmap);
 
         for (const auto &arm : node->arms) {
             std::map<std::string, ir::Expr> field_map;
             const std::string &branch_name = arm.first.name();
             for (const auto &field : arm.first.fields()) {
-                field_map[field.name] = field_in_layout(base_struct, layout, ir::MapStack<std::string, ir::Expr>{}, tree_name, branch_name, field.name, type_cache);
+                field_map[field.name] = field_in_layout(base_struct, layout, ir::MapStack<std::string, ir::Expr>{}, tree_name, branch_name, field.name, ltmap);
             }
 
             // Lower these Unwraps.
@@ -902,9 +911,9 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     ir::TypeMap types;
-    LayoutTypeMap type_cache;
+    LayoutTypeMap ltmap;
     for (const auto &[name, layout] : tree_layouts) {
-        ir::Type struct_t = layout_to_structs(layout, type_cache);
+        ir::Type struct_t = layout_to_structs(layout, ltmap);
         types[name] = struct_t;
 
         bool found = false;
@@ -918,14 +927,14 @@ ir::Program LowerLayouts::run(ir::Program program,
         internal_assert(found)
             << "Extern " << name << " has layout but not found.\n";
 
-        for (const auto &[layout, type] : type_cache) {
+        for (const auto &[layout, type] : ltmap.layout_to_type) {
             internal_assert(type.is<ir::Struct_t>());
             program.types[type.as<ir::Struct_t>()->name] = type;
         }
     }
 
     // lower all `Access`es on `Unwrap`s
-    LowerMatches lowerer(tree_layouts, types, type_cache);
+    LowerMatches lowerer(tree_layouts, types, ltmap);
 
     for (auto &[fname, func] : program.funcs) {
         for (auto &arg : func->args) {
