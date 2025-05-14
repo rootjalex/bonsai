@@ -1082,13 +1082,28 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
     const auto *seq = function.body.as<Sequence>();
     internal_assert(seq) << "unexpected kernel with non-sequence body: "
                          << function.body;
-    int i = 0, e = seq->stmts.size();
-    bool exit_condition_visited = false;
-    for (; i < e; ++i) {
+    // Whether we've seen this exit condition.
+    bool thread_within_bounds_visited = false;
+    // Whether the thread index (TID) has been initialized. This is absolutely
+    // necessary before we visit the exit condition and ensures the compiler
+    // will never haphazardly produce incorrect code.
+    bool tid_seen = false;
+    for (int i = 0, e = seq->stmts.size(); i < e; ++i) {
         seq->stmts[i].accept(this);
-        if (exit_condition_visited) {
+        constexpr char TID[] = "tid";
+        if (const auto *seed = seq->stmts[i].as<LetStmt>();
+            !tid_seen && seed && seed->loc.base == TID) {
+            tid_seen = true;
+        }
+        // TODO(cgyurgyik): We can future-proof this even more by ensuring the
+        // condition contains the correct variable (which won't be TID, so isn't
+        // necessarily straight forward). However, this is a good first step.
+        if (thread_within_bounds_visited || !tid_seen) {
             continue;
         }
+        // We'd like to only initialize this state if the thread id is within
+        // bounds. This is usually done by some statement of the form:
+        //  `if (tid >= C) { return; }`
         const auto *ifelse = seq->stmts[i].as<IfElse>();
         if (ifelse == nullptr) {
             continue;
@@ -1097,15 +1112,13 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
         if (r == nullptr || r->value.defined()) {
             continue;
         }
-        constexpr char TID[] = "tid";
+        thread_within_bounds_visited = true;
         os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
         os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
            << lower::rng_state_name << ");\n";
-        exit_condition_visited = true;
     }
-    internal_assert(exit_condition_visited)
-        << "unexpected the thread id is never verified to be within bounds "
-           "for kernel: "
+    internal_assert(thread_within_bounds_visited)
+        << "the thread id is never verified to be within bounds for kernel: "
         << function;
 }
 
