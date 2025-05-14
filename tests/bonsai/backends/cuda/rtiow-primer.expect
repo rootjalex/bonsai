@@ -83,24 +83,24 @@ struct _option2 {
   bool set = false;
 };
 
-struct layout2 {
+struct tree_layout1 {
   float3 center;
   float radius;
   uint16_t nPrims;
   uchar2 split0on_nPrims;
 } __attribute__((packed));
 
-struct layout3 {
+struct tree_layout0 {
   uint32_t pCount;
   MaterialSphere* prims; // of size pCount
   uint32_t count;
-  layout2* group0_index; // of size count
+  tree_layout1* group0_index; // of size count
 } __attribute__((packed));
 
 struct _ctx0 {
   int32_t height;
   Camera* c;
-  layout3* spheres;
+  tree_layout0* spheres;
   int32_t* _alloc0; // of size ((height * c.width) * 3)
 };
 
@@ -111,19 +111,19 @@ struct hit_record {
   bool front_face;
 };
 
-struct layout0 {
-  uint16_t offset;
-} __attribute__((packed));
-
-struct layout1 {
-  uint16_t pOffset;
-} __attribute__((packed));
-
 struct scatter_record {
   float3 attenuation;
   Ray ray;
   bool hit;
 };
+
+struct tree_layout2 {
+  uint16_t offset;
+} __attribute__((packed));
+
+struct tree_layout3 {
+  uint16_t pOffset;
+} __attribute__((packed));
 
 __device__ float3 random_in_unit_disk(curandState* _rng_state) {
   float r = sqrtf(curand_uniform(_rng_state));
@@ -212,7 +212,7 @@ __device__ bool intersects_Ray_Sphere(Ray* ray, Sphere* s) {
   return false;
 }
 
-__device__ _option0 _traverse_tree0(Ray* r, layout3* spheres) {
+__device__ _option0 _traverse_tree0(Ray* r, tree_layout0* spheres) {
   __tuple_0 __best0 = __tuple_0{INFINITY, MaterialSphere{}};
   __tuple_0* _best0 = &__best0;
   int32_t __queue_count0 = 1;
@@ -230,14 +230,14 @@ __device__ _option0 _traverse_tree0(Ray* r, layout3* spheres) {
         if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
           if ((*spheres).group0_index[spheres_index].nPrims == 0u) {
             _queue0[(*_queue_count0)] = (spheres_index + 1u);
-            _queue0[(*_queue_count0) + 1] = (spheres_index + bonsai_reinterpret<layout0>((*spheres).group0_index[spheres_index].split0on_nPrims).offset);
+            _queue0[(*_queue_count0) + 1] = (spheres_index + bonsai_reinterpret<tree_layout2>((*spheres).group0_index[spheres_index].split0on_nPrims).offset);
             *_queue_count0 += 2;
           } else {
             for (uint16_t _idx0 = 0u; _idx0 < (*spheres).group0_index[spheres_index].nPrims; _idx0 += 1u) {
-              if (intersects_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<layout1>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s))) {
-                if ((float)0.001 < distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<layout1>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s))) {
-                  if (distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<layout1>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s)) < (*_best0)._field0) {
-                    *_best0 = argmin(_best0, __tuple_0{distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<layout1>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s)), (*spheres).prims[bonsai_reinterpret<layout1>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0]});
+              if (intersects_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s))) {
+                if ((float)0.001 < distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s))) {
+                  if (distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s)) < (*_best0)._field0) {
+                    *_best0 = argmin(_best0, __tuple_0{distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s)), (*spheres).prims[bonsai_reinterpret<tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0]});
                   }
                 }
               }
@@ -314,7 +314,7 @@ __device__ scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rn
   }
 }
 
-__device__ float3 sample(Ray* r, int32_t depth, float3 mult, layout3* spheres, curandState* _rng_state) {
+__device__ float3 sample(Ray* r, int32_t depth, float3 mult, tree_layout0* spheres, curandState* _rng_state) {
   Ray _S_r = (*r);
   Ray* S_r = &_S_r;
   int32_t _S_depth = depth;
@@ -343,7 +343,7 @@ __device__ float3 sample(Ray* r, int32_t depth, float3 mult, layout3* spheres, c
   } while (true);
 }
 
-__device__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, layout3* spheres, curandState* _rng_state) {
+__device__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, tree_layout0* spheres, curandState* _rng_state) {
   float3 __alloc1 = make_float3(0);
   float3* _alloc1 = &__alloc1;
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
@@ -353,7 +353,7 @@ __device__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, layout3* sph
   return (*_alloc1);
 }
 
-__device__ float3 pixel(int32_t i, int32_t j, Camera* c, layout3* spheres, curandState* _rng_state) {
+__device__ float3 pixel(int32_t i, int32_t j, Camera* c, tree_layout0* spheres, curandState* _rng_state) {
   return (_traverse_array1(i, j, c, spheres, _rng_state) / make_float3((float)(*c).samples_per_pixel));
 }
 
@@ -386,20 +386,20 @@ __global__ void _parfunc0(_ctx0 ctx0) {
   return;
 }
 
-__host__ int3* _traverse_array0(Camera* c, int32_t height, layout3* spheres) {
+__host__ int3* _traverse_array0(Camera* c, int32_t height, tree_layout0* spheres) {
   int32_t* _alloc0;
   (void)cudaMalloc((void**)&_alloc0, ((height * (*c).width) * 3) * sizeof(int32_t));
   Camera* d_c;
   cudaMallocAndCopyToDevice((void**)&d_c, c, sizeof(Camera));
   MaterialSphere* prims;
   cudaMallocAndCopyToDevice((void**)&prims, (*spheres).prims, (*spheres).pCount * sizeof(MaterialSphere));
-  layout2* group0_index;
-  cudaMallocAndCopyToDevice((void**)&group0_index, (*spheres).group0_index, (*spheres).count * sizeof(layout2));
-  layout3 h_spheres = *spheres;
+  tree_layout1* group0_index;
+  cudaMallocAndCopyToDevice((void**)&group0_index, (*spheres).group0_index, (*spheres).count * sizeof(tree_layout1));
+  tree_layout0 h_spheres = *spheres;
   h_spheres.prims = prims;
   h_spheres.group0_index = group0_index;
-  layout3* d_spheres;
-  cudaMallocAndCopyToDevice((void**)&d_spheres, &h_spheres, sizeof(layout3));
+  tree_layout0* d_spheres;
+  cudaMallocAndCopyToDevice((void**)&d_spheres, &h_spheres, sizeof(tree_layout0));
   _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
   _parfunc0<<<(((height * (*c).width) + 511) / 512), 512>>>(ctx);
   cudaDeviceSynchronize();
@@ -451,7 +451,7 @@ __host__ void bounding_sphere(Sphere* _ret0, Sphere* a, Sphere* b) {
   return;
 }
 
-__host__ int3* image(Camera* c, layout3* spheres) {
+__host__ int3* image(Camera* c, tree_layout0* spheres) {
   int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
   int32_t* height = &_height;
   *height = (((*height) < 1) ? 1 : (*height));

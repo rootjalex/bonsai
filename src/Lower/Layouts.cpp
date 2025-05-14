@@ -132,6 +132,7 @@ ir::Type layout_to_structs(const ir::Layout &layout,
         uint32_t pad_count = 0;
         uint32_t group_count = 0;
         uint32_t split_count = 0;
+        std::string name = "tree_layout" + std::to_string(ltmap.counter++);
         for (const auto &l : chain->layouts) {
             switch (l.node_type()) {
             case ir::IRLayoutEnum::Name: {
@@ -183,7 +184,6 @@ ir::Type layout_to_structs(const ir::Layout &layout,
             }
         }
 
-        std::string name = "layout" + std::to_string(ltmap.counter++);
         {
             auto [_, inserted] = ltmap.layout_to_name.try_emplace(layout, name);
             internal_assert(inserted) << layout;
