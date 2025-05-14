@@ -226,8 +226,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
                 std::string field_name = group_name(group_count++, node->name);
                 ir::Expr path = ir::Access::make(field_name, base);
                 ir::Expr index = ir::Var::make(node->index_t, iter_name + "_" + node->name);
-                path = ir::Extract::make(std::move(path), std::move(index));
+                path = ir::Extract::make(std::move(path), index);
                 frames.push_frame();
+                frames.add_to_frame(node->name, index);
                 ir::Expr rec = field_in_layout(path, node->inner, frames, iter_name, node_type, field, ltmap);
                 frames.pop_frame();
                 if (rec.defined()) {
@@ -281,105 +282,6 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
     }
     internal_error << "Handle layout field grab for: " << layout;
 }
-
-// ir::Expr get_field(ir::Expr base, const std::string &obj_name,
-//                    const ir::Layout &layout, const std::string &node_name,
-//                    const std::string &field, const LayoutTypeMap &ltmap) {
-//     struct FindPaths : public ir::Visitor {
-//         std::string base_name;
-//         const std::string &node_name;
-//         const std::string &field;
-//         const LayoutTypeMap &ltmap;
-
-//         FindPaths(ir::Expr base, const std::string &obj_name,
-//                   const std::string &node_name, const std::string &field,
-//                   const LayoutTypeMap &ltmap)
-//             : base_name(obj_name), node_name(node_name), field(field),
-//               ltmap(ltmap), path(std::move(base)) {
-//             frames.push_frame();
-//         }
-
-//         ir::MapStack<std::string, ir::Expr> frames;
-
-//         ir::Expr path;
-//         ir::Expr value;
-
-//         void visit(const ir::Name *node) override {
-//             ir::Expr load = ir::Access::make(node->name, path);
-//             if (node->name == field) {
-//                 // Found it!
-//                 // Just return a read from the current path.
-//                 value = std::move(load);
-//             } else {
-//                 // Otherwise insert into current frame,
-//                 // might be used in materialization.
-//                 frames.add_to_frame(node->name, std::move(load));
-//             }
-//         }
-
-//         // No overload for Pad
-
-//         void visit(const ir::Switch *node) override {
-//             // TODO(ajr): this is not equivalent w.r.t. naming.
-//             // Can save by caching this call.
-
-//             for (const auto &arm : node->arms) {
-//                 if (!arm.name.has_value() || (*arm.name == node_name)) {
-//                     ir::Expr old_path = path;
-//                     std::string field =
-//                         get_split_field_name(base_name, node->field);
-//                     path = ir::Access::make(std::move(field), std::move(path));
-//                     auto iter = ltmap.find(arm.layout);
-//                     internal_assert(iter != ltmap.cend())
-//                         << "Unseen Switch arm layout: " << ir::Layout(node)
-//                         << " at " << arm.layout;
-//                     ir::Type reinterpret_type = iter->second;
-//                     path = ir::Cast::make(reinterpret_type, path,
-//                                           ir::Cast::Mode::Reinterpret);
-//                     frames.push_frame();
-//                     arm.layout.accept(this);
-//                     frames.pop_frame();
-//                     path = old_path;
-//                 }
-//             }
-//         }
-
-//         // No overload for Chain
-
-//         void visit(const ir::Group *node) override {
-//             // Path becomes index into array.
-//             ir::Expr old_path = path;
-//             std::string iter_name = get_group_name(base_name, node->name);
-//             ir::Expr var = ir::Var::make(node->index_t, iter_name);
-//             std::string field_name = base_name + "_" + node->name;
-//             path = ir::Extract::make(ir::Access::make(field_name, path), var);
-
-//             frames.push_frame();
-//             frames.add_to_frame(node->name, std::move(var));
-//             ir::Visitor::visit(node);
-//             frames.pop_frame();
-//             path = old_path;
-//         }
-
-//         void visit(const ir::Materialize *node) override {
-//             ir::Expr mat = fill(frames, node->value);
-//             if (node->name == field) {
-//                 // Found it!
-//                 // Just return a read from the current path.
-//                 value = std::move(mat);
-//             } else {
-//                 // Otherwise insert into current frame,
-//                 // might be used in materialization.
-//                 frames.add_to_frame(node->name, std::move(mat));
-//             }
-//         }
-//     };
-//     FindPaths finder(base, obj_name, node_name, field, ltmap);
-//     layout.accept(&finder);
-//     internal_assert(finder.value.defined())
-//         << "Field: " << field << " not set in layout traversal: " << layout;
-//     return finder.value;
-// }
 
 ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
                            const std::string &obj_name,
