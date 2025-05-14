@@ -23,6 +23,7 @@ func f2(x: f32) -> f32 {
 
 func [[kernel]] f1(x: mut f32) -> void  {
   tid: i32 = 42 + x;
+  if (tid >= 1024) { return; }
   if (x == 1.0) { 
     x = cast[[f32]](tid); 
   } else {

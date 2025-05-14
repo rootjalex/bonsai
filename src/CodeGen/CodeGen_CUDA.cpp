@@ -1073,6 +1073,42 @@ void CodeGen_CUDA::emit_prologue() {
     os << '\n';
 }
 
+void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
+    internal_assert(function.is_kernel())
+        << "CUDA rng can only run on device, received:\n"
+        << function;
+    // We need to print the thread index (first statement) before cuRAND
+    // state setup since it is used as a seed.
+    const auto *seq = function.body.as<Sequence>();
+    internal_assert(seq) << "unexpected kernel with non-sequence body: "
+                         << function.body;
+    int i = 0, e = seq->stmts.size();
+    bool exit_condition_visited = false;
+    for (; i < e; ++i) {
+        seq->stmts[i].accept(this);
+        if (exit_condition_visited) {
+            continue;
+        }
+        const auto *ifelse = seq->stmts[i].as<IfElse>();
+        if (ifelse == nullptr) {
+            continue;
+        }
+        const auto *r = ifelse->then_body.as<Return>();
+        if (r == nullptr || r->value.defined()) {
+            continue;
+        }
+        constexpr char TID[] = "tid";
+        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
+        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
+           << lower::rng_state_name << ");\n";
+        exit_condition_visited = true;
+    }
+    internal_assert(exit_condition_visited)
+        << "unexpected the thread id is never verified to be within bounds "
+           "for kernel: "
+        << function;
+}
+
 void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
@@ -1160,25 +1196,7 @@ void CodeGen_CUDA::print(const Function &function) {
     os << ')' << ' ' << '{' << '\n';
     increment();
     if (function.must_setup_rng()) {
-        internal_assert(function.is_kernel())
-            << "CUDA rng can only run on device, received:\n"
-            << function;
-        // We need to print the thread index (first statement) before cuRAND
-        // state setup since it is used as a seed.
-        const auto *seq = function.body.as<Sequence>();
-        internal_assert(seq)
-            << "unexpected kernel with non-sequence body: " << function.body;
-        constexpr char TID[] = "tid";
-        const auto *seed = seq->stmts.front().as<LetStmt>();
-        internal_assert(seed && seed->loc.base == TID)
-            << "unexpected first statement in kernel: " << Stmt(seed);
-        seed->accept(this);
-        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
-        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
-           << lower::rng_state_name << ");\n";
-        for (int i = 1, e = seq->stmts.size(); i < e; ++i) {
-            seq->stmts[i].accept(this);
-        }
+        setup_kernel_rng(function);
     } else {
         function.body.accept(this);
     }

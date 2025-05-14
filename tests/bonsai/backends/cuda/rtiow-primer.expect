@@ -367,12 +367,12 @@ __device__ int3 to_rgb(float3 v) {
 
 __global__ void _parfunc0(_ctx0 ctx0) {
   int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
-  curandState _rng_state;
-  curand_init(tid, 0, 0, &_rng_state);
   int32_t _i = tid;
   if ((ctx0.height * (*ctx0.c).width) <= _i) {
     return;
   }
+  curandState _rng_state;
+  curand_init(tid, 0, 0, &_rng_state);
   int32_t _i0 = (_i / (*ctx0.c).width);
   int32_t _i1 = (_i % (*ctx0.c).width);
   int3 __temp = to_rgb(_traverse_array1(_i1, _i0, ctx0.c, ctx0.spheres, (&_rng_state)) / make_float3((float)(*ctx0.c).samples_per_pixel));
