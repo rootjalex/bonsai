@@ -112,6 +112,8 @@ class CodeGen_CUDA : public ir::Printer {
     void decrement() { set_indent(get_indent().indent - 1); }
     // Necessary prologue code.
     void emit_prologue();
+    // Performs rng setup for CUDA, using cuRAND.
+    void setup_kernel_rng(const ir::Function &function);
     // Emits necessary malloc & host->device code for a struct.
     void emit_to_device(const ir::Allocate *);
     void emit_to_device(std::string base, ir::Type, ir::Expr,
