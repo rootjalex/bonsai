@@ -42,9 +42,9 @@ inline float get_axis(float3 v, int index) {
     __builtin_unreachable();
 }
 
-_spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
+_tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
-    _spheres_layout0 tree;
+    _tree_layout0 tree;
     tree.pCount = spheres.size();
     tree.prims = spheres.data();
     // Just do a simple split, don't even sort for now.
@@ -55,7 +55,7 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
     size_t internal_count = leaf_count - 1;
     tree.count = leaf_count + internal_count;
     tree.spheres_index =
-        (_spheres_layout1 *)malloc(sizeof(_spheres_layout1) * tree.count);
+        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.count);
 
     uint32_t next_node = 0;
 
@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    _spheres_layout0 tree = build_tree_simple(spheres, 1);
+    _tree_layout0 tree = build_tree_simple(spheres, 1);
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
     cam.width = 1423; // makes height = 800
