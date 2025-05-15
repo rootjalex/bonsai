@@ -333,7 +333,8 @@ struct ReplaceUses : public Mutator {
             loc.add_index_access(
                 Var::make(curr_writes[i].type, curr_writes[i].name));
         }
-        return Store::make(std::move(loc), std::move(value));
+        return Sequence::make(
+            {Store::make(std::move(loc), std::move(value)), Return::make()});
     }
 
     Stmt visit(const Return *node) override {
