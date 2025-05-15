@@ -96,6 +96,7 @@ target_sources(
     src/IR/WriteLoc.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
+    src/Lower/Defers.cpp
     src/Lower/Externs.cpp
     src/Lower/ForEachs.cpp
     src/Lower/Generics.cpp
@@ -177,6 +178,7 @@ target_sources(
     include/IntrusivePtr.h
     include/LLVMIncl.h
     include/Lower/Canonicalize.h
+    include/Lower/Defers.h
     include/Lower/Externs.h
     include/Lower/ForEachs.h
     include/Lower/Generics.h
