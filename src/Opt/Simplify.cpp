@@ -604,7 +604,10 @@ struct Simplifier : ir::Mutator {
 ir::FuncMap Simplify::run(ir::FuncMap funcs,
                           const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
-        func->body = Simplify::simplify(std::move(func->body));
+        // Don't try to simplify templated functions.
+        if (func->interfaces.empty()) {
+            func->body = Simplify::simplify(std::move(func->body));
+        }
     }
     return funcs;
 }

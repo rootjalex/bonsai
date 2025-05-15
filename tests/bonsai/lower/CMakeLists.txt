@@ -3,6 +3,8 @@ add_bonsai_tests(
     FILES
     array.bonsai
     bvh.bonsai
+    defer-dbl-buffer.bonsai
+    defer.bonsai
     exported-function.bonsai
     float.bonsai
     import_float.bonsai

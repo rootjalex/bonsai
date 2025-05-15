@@ -9,5 +9,6 @@ extern tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] Tria
   | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high)
   | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high)
 
-schedule host{
+schedule host {
+
 }

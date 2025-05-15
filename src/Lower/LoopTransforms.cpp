@@ -524,31 +524,34 @@ ir::Program LoopTransforms::run(ir::Program program,
 
         Stmt body = std::move(func->body);
         for (const auto &t : ts) {
-            std::visit(
-                Overloaded{
-                    [&](const Defer &def) { /*internal_error << "TODO";*/ },
-                    [&](const Loopify &l) {
-                        body = loopify(name, std::move(body), l.queue_size,
-                                       program.funcs);
-                    },
-                    [&](const Sort &sort) {
-                        // no-op, should have been handled in
-                        // Lower/Sorts.cpp
-                    },
-                    [&](const Split &split) {
-                        std::string i = get_name(split.i);
-                        std::string io = get_name(split.io);
-                        std::string ii = get_name(split.ii);
-                        body =
-                            split_loop(std::move(body), i, io, ii, split.factor,
-                                       split.generate_tail, program.funcs);
-                    },
-                    [&](const Parallelize &par) {
-                        std::string i = get_name(par.i);
-                        body = opt::parallelize_forall(i, std::move(body),
-                                                       program, options);
-                    }},
-                t);
+            std::visit(Overloaded{[&](const Defer &def) {
+                                      // no-op, should have been handled in
+                                      // Lower/Defers.cpp
+                                  },
+                                  [&](const Loopify &l) {
+                                      body =
+                                          loopify(name, std::move(body),
+                                                  l.queue_size, program.funcs);
+                                  },
+                                  [&](const Sort &sort) {
+                                      // no-op, should have been handled in
+                                      // Lower/Sorts.cpp
+                                  },
+                                  [&](const Split &split) {
+                                      std::string i = get_name(split.i);
+                                      std::string io = get_name(split.io);
+                                      std::string ii = get_name(split.ii);
+                                      body = split_loop(std::move(body), i, io,
+                                                        ii, split.factor,
+                                                        split.generate_tail,
+                                                        program.funcs);
+                                  },
+                                  [&](const Parallelize &par) {
+                                      std::string i = get_name(par.i);
+                                      body = opt::parallelize_forall(
+                                          i, std::move(body), program, options);
+                                  }},
+                       t);
         }
         func->body = std::move(body);
     }

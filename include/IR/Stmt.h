@@ -37,7 +37,8 @@ enum class IRStmtEnum {
     ForAll,
     ForEach,
     Continue,
-    Launch
+    Launch,
+    QueueWrite,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -296,6 +297,15 @@ struct Launch : StmtNode<Launch> {
     static Stmt make(std::string func, Expr n, std::vector<Expr> args);
 
     static const IRStmtEnum node_type = IRStmtEnum::Launch;
+};
+
+// Write the arguments to the named queue, presumably atomically.
+struct QueueWrite : StmtNode<QueueWrite> {
+    std::string queue;
+    std::vector<Expr> args;
+    static Stmt make(std::string queue, std::vector<Expr> args);
+
+    static const IRStmtEnum node_type = IRStmtEnum::QueueWrite;
 };
 
 } // namespace ir

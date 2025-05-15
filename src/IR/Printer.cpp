@@ -133,6 +133,12 @@ std::ostream &operator<<(std::ostream &os, const Schedule &schedule) {
     return os;
 }
 
+std::ostream &operator<<(std::ostream &os, const Location &loc) {
+    Printer printer(os, /*verbose=*/true);
+    printer.print(loc);
+    return os;
+}
+
 std::string to_string(const Layout &layout) {
     std::ostringstream oss;
     oss << layout;
@@ -186,9 +192,9 @@ void Printer::print(const Program &program) {
         // Similarly, we always verbosely print the schedule.
         ScopedValue<bool> _(verbose, true);
         for (const auto &[target, schedule] : program.schedules) {
-            os << "schedule " << target << "{\n";
+            os << "schedule " << target << " {\n";
             print(schedule);
-            os << '}';
+            os << "\n}";
         }
         if (!program.schedules.empty()) {
             os << std::endl;
@@ -583,6 +589,12 @@ void Printer::visit(const BVH_t *node) {
 }
 
 void Printer::visit(const Rand_State_t *node) { os << "rng_state_t"; }
+
+void Printer::visit(const Queue_t *node) {
+    os << "queue_t[";
+    print_type_list(node->arg_types);
+    os << "]";
+}
 
 void Printer::visit(const IEmpty *node) { os << "IEmpty"; }
 
@@ -1239,6 +1251,13 @@ void Printer::visit(const Launch *node) {
     os << get_indent() << "launch ";
     print_no_parens(node->n);
     os << " " << node->func << "(";
+    print_expr_list(node->args);
+    os << ")\n";
+}
+
+void Printer::visit(const QueueWrite *node) {
+    os << get_indent() << "enqueue<";
+    os << node->queue << ">(";
     print_expr_list(node->args);
     os << ")\n";
 }

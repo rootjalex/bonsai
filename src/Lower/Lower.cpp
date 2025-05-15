@@ -2,6 +2,7 @@
 
 #include "IR/Mutator.h"
 #include "Lower/Canonicalize.h"
+#include "Lower/Defers.h"
 #include "Lower/Externs.h"
 #include "Lower/ForEachs.h"
 #include "Lower/Generics.h"
@@ -78,6 +79,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerSorts>();
+    manager.register_pass<LowerDefers>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerGeometrics>();
@@ -110,6 +112,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     core.push_back(std::make_unique<LowerSorts>());
+    core.push_back(std::make_unique<LowerDefers>());
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
@@ -146,6 +149,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     d.push_back(std::make_unique<LowerSorts>());
+    d.push_back(std::make_unique<LowerDefers>());
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());

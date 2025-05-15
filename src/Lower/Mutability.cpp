@@ -147,6 +147,9 @@ struct RewriteMutables : public ir::Mutator {
         return node;
     }
 
+    // TODO(ajr): figure this out.
+    RESTRICT_MUTATOR(ir::Stmt, ir::QueueWrite);
+
     ir::Stmt visit(const ir::Allocate *node) override {
         mut_locals.insert(node->loc.base);
         return ir::Mutator::visit(node);

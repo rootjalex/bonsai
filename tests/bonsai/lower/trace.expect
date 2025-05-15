@@ -163,5 +163,6 @@ func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_triangles_layout
 }
 
 
-schedule host{
+schedule host {
+
 }

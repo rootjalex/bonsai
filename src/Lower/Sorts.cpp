@@ -263,7 +263,7 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
         return program;
     }
 
-    for (auto &[name, ts] : transforms) {
+    for (const auto &[name, ts] : transforms) {
         auto fiter = program.funcs.find(name);
         internal_assert(fiter != program.funcs.end());
 

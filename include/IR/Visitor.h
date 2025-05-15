@@ -25,6 +25,7 @@ struct Visitor {
     virtual void visit(const Generic_t *);
     virtual void visit(const BVH_t *);
     virtual void visit(const Rand_State_t *);
+    virtual void visit(const Queue_t *);
     // Interfaces
     virtual void visit(const IEmpty *);
     virtual void visit(const IFloat *);
@@ -80,6 +81,7 @@ struct Visitor {
     virtual void visit(const ForEach *);
     virtual void visit(const Continue *);
     virtual void visit(const Launch *);
+    virtual void visit(const QueueWrite *);
     // Layouts
     virtual void visit(const Name *);
     virtual void visit(const Pad *);

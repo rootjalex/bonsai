@@ -13,5 +13,6 @@ func process(n : i32, a : f32[n]) -> f32[n] {
 }
 
 
-schedule host{
+schedule host {
+
 }

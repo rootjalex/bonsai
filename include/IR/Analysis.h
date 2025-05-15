@@ -16,6 +16,7 @@ std::vector<TypedVar> gather_free_vars(const Expr &expr);
 std::vector<TypedVar> gather_free_vars(const Stmt &stmt);
 // std::vector<const Var *> gather_free_vars(const Stmt &stmt);
 std::vector<TypedVar> gather_free_vars(const Function &func);
+std::vector<TypedVar> gather_write_vars(const WriteLoc &loc);
 
 bool always_returns(const Stmt &stmt);
 Type get_return_type(const Stmt &stmt);

@@ -147,5 +147,6 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), ts : (_ts_layout0*)
 }
 
 
-schedule host{
+schedule host {
+
 }

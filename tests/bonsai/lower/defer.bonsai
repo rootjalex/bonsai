@@ -1,0 +1,31 @@
+//! flags: -p canonicalize -p lower-maps -p lower-defers
+
+import stdlib/ray;
+
+func bounce(ray : Ray) -> Ray {
+    return Ray{ray.o + rand(3), rand(3)};
+}
+
+func foo(ray : Ray) -> bool {
+    return ray.d[0] < rand();
+}
+
+func expensive(ray : Ray) {
+    return cast[[i32]](sum(ray.d + ray.o));
+}
+
+func num_hits(ray : Ray, depth : i32, acc : i32) -> i32 {
+    if depth <= 0 {
+        return expensive(ray);
+    } else if foo(ray) {
+        return num_hits(bounce(ray), depth - 1, acc + 1);
+    } else {
+        return acc;
+    }
+}
+
+func map_hits(n : i32, rays : array[Ray, n]) = map(|r : Ray| num_hits(r, 100, 0), rays);
+
+schedule {
+    num_hits.defer(expensive, map_hits.root, hit_queue);
+}

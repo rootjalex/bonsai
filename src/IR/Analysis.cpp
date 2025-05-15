@@ -169,6 +169,7 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
+    RESTRICT_VISITOR(QueueWrite);
 };
 
 struct ReturnType : public Visitor {
@@ -190,6 +191,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
     RESTRICT_VISITOR(Launch);
+    RESTRICT_VISITOR(QueueWrite);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);
@@ -342,6 +344,17 @@ std::vector<TypedVar> gather_free_vars(const Function &func) {
         gather.seen_vars.insert(arg.name);
     }
     func.body.accept(&gather);
+    return std::move(gather.free_vars);
+}
+
+std::vector<TypedVar> gather_write_vars(const WriteLoc &loc) {
+    GatherFreeVars gather;
+    gather.free_vars = {{loc.base, loc.base_type}};
+    for (const auto &value : loc.accesses) {
+        if (std::holds_alternative<Expr>(value)) {
+            std::get<Expr>(value).accept(&gather);
+        }
+    }
     return std::move(gather.free_vars);
 }
 

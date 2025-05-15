@@ -1,0 +1,672 @@
+#include "Lower/Defers.h"
+
+#include "Lower/TopologicalOrder.h"
+
+#include "Opt/Simplify.h"
+
+#include "IR/Analysis.h"
+#include "IR/Equality.h"
+#include "IR/Mutator.h"
+#include "IR/Operators.h"
+#include "IR/Printer.h"
+#include "IR/Visitor.h"
+
+#include "Error.h"
+#include "Utils.h"
+
+#include <map>
+#include <set>
+#include <string>
+
+namespace bonsai {
+namespace lower {
+
+namespace {
+
+using namespace ir;
+
+// Get a map from func to any func that calls it.
+CallGraph invert_graph(const CallGraph &call_graph) {
+    CallGraph calls_graph;
+    for (const auto &[producer, consumers] : call_graph) {
+        for (const auto &consumer : consumers) {
+            calls_graph[consumer].insert(producer);
+        }
+    }
+    return calls_graph;
+}
+
+bool write_types_match(const std::vector<TypedVar> &write0,
+                       const std::vector<TypedVar> &write1) {
+    if (write0.size() != write1.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < write0.size(); i++) {
+        if (!equals(write0[i].type, write1[i].type)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct FindUses : public Visitor {
+    std::vector<TypedVar> store_types;
+    bool is_return = false;
+    const std::string &producer;
+    const std::string &consumer;
+
+    FindUses(const std::string &producer, const std::string &consumer)
+        : producer(producer), consumer(consumer) {}
+
+    void visit(const Var *node) override {
+        internal_assert(node->name != producer)
+            << producer << " not directly a return or store in " << consumer
+            << ", Bonsai cannot defer it.";
+    }
+
+    // TODO: handle Froms
+    RESTRICT_VISITOR(YieldFrom);
+
+    void visit(const Return *node) override {
+        const Call *call = node->value.as<Call>();
+        if (!call) {
+            return Visitor::visit(node);
+        }
+        const Var *func = call->func.as<Var>();
+        internal_assert(func) << call->func;
+        if (func->name == producer) {
+            internal_assert(store_types.empty())
+                << producer << " is both a stored-value and returned-value in "
+                << consumer;
+            is_return = true;
+        }
+    }
+
+    void visit(const Store *node) override {
+        const Call *call = node->value.as<Call>();
+        if (!call) {
+            return Visitor::visit(node);
+        }
+        const Var *func = call->func.as<Var>();
+        internal_assert(func) << call->func;
+        if (func->name == producer) {
+            internal_assert(!is_return)
+                << producer << " is both a stored-value and returned-value in "
+                << consumer;
+            // TODO: support multiple stores.
+            internal_assert(store_types.empty())
+                << producer << " is written twice in " << consumer;
+            std::cout << Stmt(node) << std::endl;
+            store_types = gather_write_vars(node->loc);
+        }
+    }
+};
+
+std::vector<TypedVar> find_write_type(const std::string &consumer,
+                                      const std::string &producer,
+                                      const Program &program,
+                                      const CallGraph &producer_to_consumer,
+                                      const std::set<std::string> &visited) {
+    const auto &fiter = program.funcs.find(consumer);
+    internal_assert(fiter != program.funcs.cend())
+        << consumer << " not found in program";
+
+    FindUses analysis(producer, consumer);
+    fiter->second->body.accept(&analysis);
+    internal_assert(!analysis.store_types.empty() || analysis.is_return)
+        << "Cannot find write_type of " << consumer << " in " << producer;
+    if (!analysis.is_return) {
+        return analysis.store_types;
+    }
+    // Need to recursively analyse funcs that call consumer.
+    std::vector<TypedVar> current;
+    std::string prev;
+    for (const auto &func : producer_to_consumer.at(consumer)) {
+        if (visited.contains(func)) {
+            continue;
+        }
+        std::set<std::string> next_visited = visited;
+        next_visited.insert(func);
+        auto rec = find_write_type(func, consumer, program,
+                                   producer_to_consumer, next_visited);
+        if (rec.empty()) {
+            continue;
+        }
+        if (current.empty()) {
+            current = rec;
+            prev = func;
+            continue;
+        }
+        internal_assert(write_types_match(current, rec))
+            << "Write type of " << prev << " does not match write type of "
+            << func << " for producer: " << consumer;
+    }
+    return current;
+}
+
+// Is there a call path from f0 to f1?
+// e.g. true if f0 calls f1, or f0 calls g which calls f1, and so forth.
+bool reachable(const std::string &f0, const std::string &f1,
+               const CallGraph &consumer_to_producer,
+               std::set<std::string> visited = {}) {
+    for (const auto &producer : consumer_to_producer.at(f0)) {
+        if (producer == f1) {
+            return true;
+        } else if (visited.contains(producer)) {
+            continue;
+        }
+        std::set<std::string> next_visited = visited;
+        next_visited.insert(producer);
+        if (reachable(producer, f1, consumer_to_producer, next_visited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string queued_func_name(const std::string &name) {
+    return "_queued_" + name;
+}
+
+std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars) {
+    os << "{";
+    for (size_t i = 0; i < vars.size(); i++) {
+        if (i > 0) {
+            os << ", ";
+        }
+        os << vars[i].name << " : " << vars[i].type;
+    }
+    os << "}";
+    return os;
+}
+
+struct ReplaceUses : public Mutator {
+    const std::string &producer;
+    const std::string &consumer;
+    const std::string &queue_name;
+    const Type &queue_type;
+    const CallGraph &consumer_to_producer;
+    FuncMap &funcs;
+
+    // TO avoid infinite recursion.
+    std::set<std::string> mutated;
+    // These are stacks.
+    std::vector<std::vector<TypedVar>> write_types;
+    std::vector<std::string> called_funcs;
+
+    ReplaceUses(const std::string &producer, const std::string &consumer,
+                const std::string &queue_name, const Type &queue_type,
+                const CallGraph &consumer_to_producer, FuncMap &funcs)
+        : producer(producer), consumer(consumer), queue_name(queue_name),
+          queue_type(queue_type), consumer_to_producer(consumer_to_producer),
+          funcs(funcs) {}
+
+    Expr visit(const Var *node) override {
+        if (node->type.is<Function_t>()) {
+            internal_assert(
+                !reachable(node->name, producer, consumer_to_producer))
+                << node->name
+                << " cannot be augmented with write information in deferal of "
+                << producer;
+        }
+        return node;
+    }
+
+    // TODO: handle Froms
+    RESTRICT_MUTATOR(Stmt, YieldFrom);
+
+    void handle_func_build(const std::string &old_name,
+                           const std::vector<TypedVar> &old_write_types) {
+        auto old_iter = funcs.find(old_name);
+        internal_assert(old_iter != funcs.end()) << old_name;
+        std::cout << "handling func " << old_name << " with " << old_write_types
+                  << std::endl;
+        // Build a new function with the same initial args + write args
+        // + the queue. The new function is a void return type.
+        std::vector<Function::Argument> args = old_iter->second->args;
+        std::vector<TypedVar> new_write_types;
+        bool first = true;
+        for (const auto &[name, type] : old_write_types) {
+            std::string arg_name =
+                name.starts_with("_write_") ? name : "_write_" + name;
+            args.emplace_back(arg_name, type, /*default_value=*/Expr(),
+                              first); // only array arg is mutating
+            first = false;
+            new_write_types.push_back({arg_name, type});
+        }
+        args.emplace_back(queue_name, queue_type, /*default_value=*/Expr(),
+                          true);
+        static const Type ret_type = Void_t::make();
+
+        std::shared_ptr<Function> funcptr = nullptr;
+        if (old_name == consumer) {
+            // Directly modify this function, all calls to it must be modified.
+            funcptr = old_iter->second;
+            funcptr->args = std::move(args);
+            funcptr->ret_type = ret_type;
+        } else {
+            std::string new_name = queued_func_name(old_name);
+            funcptr = std::make_shared<Function>(
+                new_name, std::move(args), ret_type, /*body=*/Stmt(),
+                old_iter->second->interfaces, old_iter->second->attributes);
+            // Insert without a body into the funcs list. this is to properly
+            // handle recursion.
+            auto [_, inserted] = funcs.try_emplace(new_name, funcptr);
+            internal_assert(inserted) << new_name << " already in funcs map...";
+        }
+
+        // Now build the body.
+        mutated.insert(old_name);
+        write_types.push_back(std::move(new_write_types));
+        called_funcs.push_back(old_name);
+        Stmt body = mutate(old_iter->second->body);
+        write_types.pop_back();
+        called_funcs.pop_back();
+        funcptr->body = std::move(body);
+    }
+
+    Stmt handle(const std::string &func,
+                const std::vector<TypedVar> &curr_write_types,
+                const std::vector<Expr> call_args) {
+        internal_assert(!called_funcs.empty()) << func;
+
+        if (reachable(func, producer, consumer_to_producer)) {
+            internal_assert(!called_funcs.empty())
+                << "Function responsible for queueing: " << producer
+                << " cannot directly return it -- TODO: implement heap "
+                   "allocate lowering.";
+            internal_assert(!curr_write_types.empty())
+                << "In deferral of: " << producer << ", "
+                << called_funcs.back();
+
+            // Grab regular args.
+            std::vector<Expr> args = call_args;
+            // Insert write locations
+            for (const auto &[name, type] : curr_write_types) {
+                args.push_back(Var::make(type, name));
+            }
+            args.push_back(Var::make(queue_type, queue_name));
+
+            const std::string new_func_name =
+                (func == consumer) ? func : queued_func_name(func);
+
+            if (!mutated.contains(func)) {
+                // Haven't mutated func, need to build new signature, insert
+                // into funcs/visited, and then mutate body (handles recursion).
+                handle_func_build(func, curr_write_types);
+            }
+
+            if (called_funcs.back() == consumer) {
+                // This is an enqueue
+                return QueueWrite::make(queue_name, std::move(args));
+            } else {
+                // This is a call.
+                const auto &fiter = funcs.find(new_func_name);
+                internal_assert(fiter != funcs.cend())
+                    << func << " visited but " << new_func_name
+                    << " not found in funcs.";
+
+                // TODO: if the calling func is the consumer, this must turn
+                // into a WriteQueue!
+
+                Expr new_func =
+                    Var::make(fiter->second->call_type(), new_func_name);
+
+                return CallStmt::make(std::move(new_func), std::move(args));
+            }
+        }
+        return Stmt();
+    }
+
+    Stmt visit(const Return *node) override {
+        const Call *call = node->value.as<Call>();
+        if (!call) {
+            return Mutator::visit(node);
+        }
+        const Var *func = call->func.as<Var>();
+        internal_assert(func) << call->func;
+
+        internal_assert(!write_types.empty()) << Stmt(node);
+        Stmt try_mutate = handle(func->name, write_types.back(), call->args);
+        if (try_mutate.defined()) {
+            return Sequence::make({std::move(try_mutate), Return::make()});
+        }
+        return node;
+    }
+
+    Stmt visit(const Store *node) override {
+        std::cout << "Hit store: " << Stmt(node) << std::endl;
+        const Call *call = node->value.as<Call>();
+        if (!call) {
+            std::cout << "Not call.\n";
+            return Mutator::visit(node);
+        }
+        const Var *func = call->func.as<Var>();
+        internal_assert(func) << call->func;
+
+        auto store_types = gather_write_vars(node->loc);
+
+        std::cout << "Trying to mutate with writes: " << store_types
+                  << std::endl;
+        Stmt try_mutate = handle(func->name, store_types, call->args);
+        if (try_mutate.defined()) {
+            std::cout << "Success!\n" << try_mutate;
+            return try_mutate;
+        }
+        std::cout << "Failure.\n";
+        return node;
+    }
+};
+
+std::string second_buffer(const std::string &queue_name) {
+    return queue_name + "_dbl_buffer";
+}
+
+// TODO(ajr): make this findable via scheduling.
+std::string idx_name(const std::string &queue_name) {
+    return "_" + queue_name + "_task";
+}
+
+Stmt apply_queueing(const std::string &responsible, Stmt stmt,
+                    const std::string &idx, const std::string &producer,
+                    const std::string &consumer, const std::string &queue_name,
+                    const Type &queue_type,
+                    const CallGraph &consumer_to_producer, FuncMap &funcs) {
+
+    // Mutate the body of responsible, below loop_idx.
+    // responsible should become:
+    // forall i in . . .
+    //   foo()
+    // =>
+    // forall i in  . . .
+    //   alloc queue
+    //   foo()
+    //   if work is recursive, double buffer and iterate
+    //   else:
+    //      forall task in queue:
+    //        do task
+
+    ReplaceUses mutator(producer, consumer, queue_name, queue_type,
+                        consumer_to_producer, funcs);
+
+    std::cout << "Queue type: " << queue_type << std::endl;
+    auto process_producer_loop = [&](bool include_queue) {
+        const std::string &name =
+            (producer == consumer) ? producer : queued_func_name(producer);
+        const auto &piter = funcs.find(producer);
+        internal_assert(piter != funcs.cend()) << producer;
+        const Expr func = Var::make(piter->second->call_type(), producer);
+        const size_t n_args = piter->second->args.size() - include_queue;
+
+        std::string iter_name = idx_name(queue_name);
+        Expr iter = Var::make(queue_type.element_of(), iter_name);
+        std::vector<Expr> args(n_args + include_queue);
+
+        for (size_t i = 0; i < n_args; i++) {
+            args[i] = Extract::make(iter, i);
+        }
+        if (include_queue) {
+            const std::string dbl_buffer = second_buffer(queue_name);
+            Expr queue1 = Var::make(queue_type, dbl_buffer);
+            args[n_args] = queue1;
+        }
+
+        Stmt call = CallStmt::make(std::move(func), std::move(args));
+
+        Expr queue0 = Var::make(queue_type, queue_name);
+        return ForEach::make(iter_name, queue0, std::move(call));
+    };
+
+    auto rewrite_loop_body = [&](const Stmt &body) {
+        mutator.called_funcs = {responsible};
+        mutator.write_types = {{}};
+        // Remove return
+        Stmt repl = mutator.mutate(body);
+        Stmt ret;
+        if (contains<Return>(repl)) {
+            internal_assert(repl.as<Sequence>() &&
+                            !repl.as<Sequence>()->stmts.empty())
+                << repl;
+            std::vector<Stmt> stmts = repl.as<Sequence>()->stmts;
+            ret = stmts.back();
+            internal_assert(ret.is<Return>()) << repl;
+            stmts.pop_back();
+            repl = Sequence::make(std::move(stmts));
+            internal_assert(!contains<Return>(repl)) << repl;
+        }
+
+        Stmt handle_queue;
+        WriteLoc queue_loc(queue_name, queue_type);
+
+        if (reachable(producer, producer, consumer_to_producer)) {
+            // Recursive func, must iteratively evaluate in a double-buffer
+            // loop.
+            // allocate second buffer
+            // do {
+            //   processs queue
+            //   swap queue with second buffer
+            // } while (!queue.empty())
+            const std::string dbl_buffer = second_buffer(queue_name);
+            Expr queue0 = Var::make(queue_type, queue_name);
+            Expr queue1 = Var::make(queue_type, dbl_buffer);
+            // TODO: make sure this lowers correctly.
+            Expr not_empty = cast(Bool_t::make(), queue0);
+            WriteLoc dbl_buffer_loc(dbl_buffer, queue_type);
+            const std::string tmp = "_tmp_" + dbl_buffer;
+            WriteLoc tmp_loc(tmp, queue_type);
+            Stmt process_queue = process_producer_loop(true);
+
+            handle_queue = Sequence::make(
+                {// Should this be heap?
+                 Allocate::make(WriteLoc(dbl_buffer, queue_type),
+                                Allocate::Stack),
+                 DoWhile::make(
+                     Sequence::make(
+                         {process_queue,
+                          // Do queue swap
+                          LetStmt::make(tmp_loc, queue1),
+                          // TODO(ajr): this should zero out the queue...
+                          Store::make(dbl_buffer_loc, queue0),
+                          Store::make(queue_loc, Var::make(queue_type, tmp))}),
+                     not_empty)});
+        } else {
+            handle_queue = process_producer_loop(false);
+        }
+
+        std::vector<Stmt> stmts = {// Should this be heap?
+                                   Allocate::make(queue_loc, Allocate::Stack),
+                                   repl, // perform original code
+                                   handle_queue};
+        if (ret.defined()) {
+            stmts.push_back(std::move(ret));
+        }
+
+        return Sequence::make(stmts);
+    };
+
+    // if idx == root, then wrap the whole body.
+    if (idx == "root") {
+        // Handle annoying case that should be inlined...
+        if (const Return *ret = stmt.as<Return>()) {
+            internal_assert(ret->value.defined()) << stmt;
+            const Call *call = ret->value.as<Call>();
+            internal_assert(call) << stmt;
+            const Var *func = call->func.as<Var>();
+            internal_assert(func && func->name.starts_with("_traverse_array"))
+                << stmt;
+            internal_assert(funcs.contains(func->name))
+                << func->name << " " << stmt;
+            return rewrite_loop_body(funcs.at(func->name)->body);
+        }
+        return rewrite_loop_body(stmt);
+    }
+
+    // Otherwise, find the Loop body.
+    // TODO(ajr): this could be useful for more succinct LoopTransforms as well.
+    struct FindLoop : Mutator {
+        const std::string &loop_idx;
+        std::function<Stmt(const Stmt &)> mutator;
+        FuncMap &funcs;
+
+        FindLoop(const std::string &loop_idx,
+                 std::function<Stmt(const Stmt &)> mutator, FuncMap &funcs)
+            : loop_idx(loop_idx), mutator(std::move(mutator)), funcs(funcs) {}
+
+        Stmt visit(const ForAll *node) override {
+            if (node->index != loop_idx) {
+                return Mutator::visit(node);
+            }
+            Stmt body = mutator(node->body);
+            return ForAll::make(node->index, node->slice, std::move(body));
+        }
+
+        // TODO: this is hacky, need a better way.
+        Expr visit(const Call *node) override {
+            if (const Var *var = node->func.as<Var>()) {
+                // TODO(ajr): hope to God it's impossible to have self-recursion
+                // in these.
+                if (var->name.starts_with("_traverse_array")) {
+                    funcs[var->name]->body =
+                        mutate(std::move(funcs[var->name]->body));
+                    return node;
+                }
+            }
+            return Mutator::visit(node);
+        }
+    };
+
+    return FindLoop(idx, rewrite_loop_body, funcs).mutate(stmt);
+}
+
+void defer_call(const std::string &consumer, const std::string &producer,
+                const std::string &responsible, const std::string &loop,
+                const std::string &queue, Program &program) {
+    // Find map from consumers to producers.
+    CallGraph consumer_to_producer = build_call_graph(program.funcs);
+    internal_assert(consumer_to_producer[consumer].contains(producer))
+        << producer << " is not called by " << consumer
+        << "; it cannot be defered";
+    CallGraph producer_to_consumer = invert_graph(consumer_to_producer);
+    // Find the "write type" of producer. If consumer directly returns it,
+    // then the "write type" is the "write type" of consumer. If consumer
+    // stores it, then it is the storage type.
+    // Note: to do this correctly, the storage must last. This should be
+    // asserted to be on the Heap, I think.
+    // At the very least, it must be allocated by `responsible`, I think.
+    // TODO(ajr): also support accumulate operations.
+    std::set<std::string> visited = {consumer};
+    auto write_type = find_write_type(consumer, producer, program,
+                                      producer_to_consumer, visited);
+    internal_assert(!write_type.empty())
+        << "Failed to find write type for " << consumer << ".defer(" << producer
+        << ")";
+    // Now, replace all calls to producer in consumer with a store
+    // TODO(ajr): or accumulate.
+    // All paths from responsible to consumer need to be augmented with
+    // write parameters, including passing the queue through!
+
+    std::cout << producer << " " << consumer << " " << responsible << "\n";
+    for (const auto &[name, type] : write_type) {
+        std::cout << name << " : " << type << std::endl;
+    }
+
+    // Queue type is call_args type + write_type
+    // TODO(ajr): should this lower to SoA or AoS?
+    Type queue_type;
+    {
+        std::vector<Type> etypes;
+        const auto &piter = program.funcs.find(producer);
+        internal_assert(piter != program.funcs.cend())
+            << "Cannot find producer: " << producer << " in program functions.";
+        etypes.reserve(piter->second->args.size() + write_type.size());
+        for (const auto &arg : piter->second->args) {
+            etypes.push_back(arg.type);
+        }
+        for (const auto &arg : write_type) {
+            etypes.push_back(arg.type);
+        }
+        queue_type = Queue_t::make(std::move(etypes));
+    }
+
+    const auto &riter = program.funcs.find(responsible);
+    internal_assert(riter != program.funcs.cend())
+        << "Cannot find responsible: " << responsible
+        << " in program functions.";
+
+    // std::cout << "Before: " << program << std::endl;
+
+    riter->second->body = apply_queueing(
+        responsible, std::move(riter->second->body), loop, producer, consumer,
+        queue, queue_type, consumer_to_producer, program.funcs);
+
+    // std::cout << "After: " << program << std::endl;
+}
+
+} // namespace
+
+Program LowerDefers::run(Program program,
+                         const CompilerOptions &options) const {
+    if (program.schedules.empty()) {
+        return program;
+    }
+
+    internal_assert(program.schedules.size() == 1)
+        << "TODO: support selecting a schedule target!\n";
+
+    TransformMap &transforms = program.schedules[Target::Host].func_transforms;
+
+    if (transforms.empty()) {
+        return program;
+    }
+
+    // Need simplification to run to avoid unnecessary saved variables
+    // TODO(ajr): might also want LICM/CSE here...
+    program.funcs = opt::Simplify().run(std::move(program.funcs), options);
+
+    // TODO(ajr): should defers happen in any particular order...?
+    for (const auto &[consumer, ts] : transforms) {
+        for (const auto &t : ts) {
+            if (std::holds_alternative<Defer>(t)) {
+                // Steps:
+                // (1) in `func` (== name), search for `producer`.
+                //     assert all calls to producer are directly
+                //     returns or stores. turn those returns and
+                //     stores to queue writes, and add a queue
+                //     parameter to the argument list.
+                // (2) if `func` is a non-void return type, and
+                //     the deferred call is in returns, then add
+                //     a mutable write location to `func`'s arg
+                //     list, based on the calls to `func`. rewrite
+                //     calls to func to provide the mutable write
+                //     location parameters
+                // (3) assert that defer.loop has a queue available?
+                const Defer &def = std::get<Defer>(t);
+                internal_assert(def.producer.names.size() == 1)
+                    << "TODO: Multi-location in defer() producer: "
+                    << def.producer;
+                const std::string &producer = def.producer.names.front();
+                internal_assert(def.loop.names.size() == 1 ||
+                                def.loop.names.size() == 2)
+                    << "Failed to parse valid loop location in defer(): "
+                    << def.loop;
+                const std::string &responsible = (def.loop.names.size() == 1)
+                                                     ? consumer
+                                                     : def.loop.names.front();
+                const std::string &loop_idx = (def.loop.names.size() == 1)
+                                                  ? def.loop.names.front()
+                                                  : def.loop.names.back();
+                internal_assert(def.queue.names.size() == 1)
+                    << "TODO: Multi-location in defer() queue: " << def.queue;
+                const std::string &queue = def.queue.names.front();
+
+                defer_call(consumer, producer, responsible, loop_idx, queue,
+                           program);
+            }
+        }
+    }
+
+    return program;
+}
+
+} // namespace lower
+} // namespace bonsai

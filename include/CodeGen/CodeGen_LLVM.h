@@ -110,6 +110,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
     virtual void visit(const ir::Rand_State_t *) override;
+    RESTRICT_VISITOR(ir::Queue_t); // TODO
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
     RESTRICT_VISITOR(ir::IFloat);
@@ -167,6 +168,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::ForEach);
     virtual void visit(const ir::Continue *) override;
     virtual void visit(const ir::Launch *) override;
+    RESTRICT_VISITOR(ir::QueueWrite);
 
   private:
     llvm::FunctionType *get_function_type(const ir::Type &type);

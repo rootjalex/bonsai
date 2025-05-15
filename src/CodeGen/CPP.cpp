@@ -102,6 +102,7 @@ void emit_type(std::ostream &ss, Type type) {
         RESTRICT_VISITOR(Generic_t);
         RESTRICT_VISITOR(BVH_t);
         RESTRICT_VISITOR(Rand_State_t);
+        RESTRICT_VISITOR(Queue_t);
     };
 
     Emit emitter(ss);

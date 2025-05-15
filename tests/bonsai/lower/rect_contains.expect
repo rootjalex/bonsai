@@ -46,5 +46,6 @@ func query(r : AABB) -> set<Point> {
 }
 
 
-schedule host{
+schedule host {
+
 }
