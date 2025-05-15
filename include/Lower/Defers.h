@@ -12,7 +12,7 @@ namespace lower {
 // forces it to pass a write location and the queue through. Queue allocations
 // happen at the specified loop index, which looks like `qfunc.index`. If
 // `qfunc` is not provided, it is assumed that `qfunc` is this func.
-// func dumb_sum(i : i32, n : i32, a : array[f32, n, acc : f32]) -> f32 {
+// func dumb_sum(i : i32, n : i32, a : array[f32, n], acc : f32) -> f32 {
 //     if (i == n) {
 //         return acc;
 //     } else {
