@@ -527,13 +527,13 @@ ir::Expr flatten_tuple(ir::Expr expr, const std::map<std::string, ir::Expr> &ref
     return ir::Build::make(std::move(tuple), std::move(exprs));
 }
 
-ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body, std::map<std::string, ir::Expr> references) {
+ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body, const std::map<std::string, ir::Expr> &references) {
     struct FlattenYieldFroms : public ir::Mutator {
         const IndexTList &index_list;
-        std::map<std::string, ir::Expr> references;
+        const std::map<std::string, ir::Expr> &references;
 
-        FlattenYieldFroms(const IndexTList &index_list, std::map<std::string, ir::Expr> references)
-            : index_list(index_list), references(std::move(references)) {}
+        FlattenYieldFroms(const IndexTList &index_list, const std::map<std::string, ir::Expr> &references)
+            : index_list(index_list), references(references) {}
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
             auto ids = break_tuple(node->value);
@@ -573,7 +573,7 @@ ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body, std::m
         }
     };
 
-    FlattenYieldFroms f(index_list, std::move(references));
+    FlattenYieldFroms f(index_list, references);
     return f.mutate(std::move(body));
 }
 
@@ -667,8 +667,8 @@ struct LowerMatches : public ir::Mutator {
         // YieldFroms.
 
         if (n_matches == 0) {
-            body = flatten_yield_froms(index_list, std::move(body), std::move(references));
-
+            body = flatten_yield_froms(index_list, std::move(body), references);
+            references.clear();
             return ir::RecLoop::make(std::move(index_list), std::move(body));
         }
         return body;
