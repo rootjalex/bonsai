@@ -318,9 +318,36 @@ struct ReplaceUses : public Mutator {
         return Stmt();
     }
 
+    Stmt build_write(Expr value) const {
+        internal_assert(!write_types.empty())
+            << "Cannot build write of " << value
+            << " without location to write to.";
+        auto curr_writes = write_types.back();
+        internal_assert(!curr_writes.empty())
+            << "Cannot build write of " << value
+            << " without location to write to.";
+        // TODO(ajr): this somewhat assumes a specific gather_write_vars ->
+        // WriteLoc ordering, which may not be perfect...
+        WriteLoc loc(curr_writes.front().name, curr_writes.front().type);
+        for (size_t i = 1; i < curr_writes.size(); i++) {
+            loc.add_index_access(
+                Var::make(curr_writes[i].type, curr_writes[i].name));
+        }
+        return Store::make(std::move(loc), std::move(value));
+    }
+
     Stmt visit(const Return *node) override {
+        if (called_funcs.back() == producer && (producer != consumer)) {
+            // This is now a write!
+            return build_write(node->value);
+        }
+
         const Call *call = node->value.as<Call>();
         if (!call) {
+            if (called_funcs.back() == producer) {
+                // This is now a write!
+                return build_write(node->value);
+            }
             return Mutator::visit(node);
         }
         const Var *func = call->func.as<Var>();
@@ -330,6 +357,11 @@ struct ReplaceUses : public Mutator {
         Stmt try_mutate = handle(func->name, write_types.back(), call->args);
         if (try_mutate.defined()) {
             return Sequence::make({std::move(try_mutate), Return::make()});
+        }
+
+        if (called_funcs.back() == producer) {
+            // This is now a write!
+            return build_write(node->value);
         }
         return node;
     }

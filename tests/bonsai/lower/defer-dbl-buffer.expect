@@ -52,12 +52,12 @@ func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
 
 func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32]) -> void {
   if (depth <= 0) {
-    return acc
+    _write__alloc0[_write__i0] = acc
   } else if (foo(ray)) {
     enqueue<hit_queue>(bounce(ray), depth - 1, acc + 1, _write__alloc0, _write__i0, hit_queue)
     return
   } else {
-    return acc
+    _write__alloc0[_write__i0] = acc
   }
 }
 
