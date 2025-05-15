@@ -21,7 +21,7 @@ namespace lower {
 // }
 // dumb_sum.defer(dumb_sum, <loop id>, <queue id>)
 // func dumb_sum_defer(i : i32, n : i32, a : array[f32, n, acc : f32], out : mut
-// f32, queue : Queue) -> f32 {
+// f32, queue : Queue) -> void {
 //     if (i == n) {
 //         out = acc;
 //         return;

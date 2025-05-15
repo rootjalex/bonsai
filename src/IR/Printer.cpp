@@ -193,7 +193,9 @@ void Printer::print(const Program &program) {
         ScopedValue<bool> _(verbose, true);
         for (const auto &[target, schedule] : program.schedules) {
             os << "schedule " << target << " {\n";
+            indent++;
             print(schedule);
+            indent--;
             os << "\n}";
         }
         if (!program.schedules.empty()) {
@@ -271,23 +273,27 @@ void Printer::print(const Function &function) {
 
 void Printer::print(const Schedule &schedule) {
     for (const auto &[name, type] : schedule.tree_types) {
-        os << name << " : ";
+        os << get_indent() << name << " : ";
+        indent++;
         print(type);
+        indent--;
         os << '\n';
     }
 
     for (const auto &[name, layout] : schedule.tree_layouts) {
-        os << name << " : ";
+        os << get_indent() << name << " : ";
+        indent++;
         print(layout);
+        indent--;
         os << '\n';
     }
 
     for (const auto &[func, ts] : schedule.func_transforms) {
-        os << func;
+        os << get_indent() << func;
         std::string whitespace(func.size(), ' ');
         for (size_t i = 0; i < ts.size(); i++) {
             if (i > 0) {
-                os << "\n" << whitespace;
+                os << "\n" << get_indent() << whitespace;
             }
             os << ".";
             std::visit(Overloaded{[&](const Defer &def) {

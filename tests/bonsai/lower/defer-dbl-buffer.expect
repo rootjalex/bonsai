@@ -45,5 +45,5 @@ func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _w
 
 
 schedule host {
-num_hits.defer(num_hits, map_hits.root, hit_queue)
+    num_hits.defer(num_hits, map_hits.root, hit_queue)
 }
