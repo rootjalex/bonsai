@@ -1,15 +1,3 @@
-_alloc0[_i0] = num_hits(rays[_i0], 100, 0)
-
-num_hits num_hits map_hits
-_alloc0 : i32[n]
-_i0 : i32
-Queue type: queue_t[Ray, i32, i32, i32[n], i32]
-Hit store: _alloc0[_i0] = num_hits(rays[_i0], 100, 0)
-
-Trying to mutate with writes: {_alloc0 : i32[n], _i0 : i32}
-handling func num_hits with {_alloc0 : i32[n], _i0 : i32}
-Success!
-num_hits(rays[_i0], 100, 0, _alloc0, _i0, hit_queue)
 type Float = f32
 type Half = f16
 type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 }
