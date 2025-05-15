@@ -1,0 +1,205 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleBVH = (const TriangleBVH&)
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type vec3f = f32x3
+
+extern triangles1 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+extern triangles2 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+
+func _traverse_tree0(triangles1 : _tree_layout0, triangles2 : _tree_layout0) -> set<(Triangle, Triangle)> {
+  rec(triangles1_index : u32, triangles2_index : u32) {
+    if (triangles1.group0_index[triangles1_index].nPrims == 0u) {
+      if (triangles2.group0_index[triangles2_index].nPrims == 0u) {
+        if (intersects_AABB_AABB(build<AABB>(triangles1.group0_index[triangles1_index].low, triangles1.group0_index[triangles1_index].high), build<AABB>(triangles2.group0_index[triangles2_index].low, triangles2.group0_index[triangles2_index].high))) {
+          from ((triangles1_index + 1u, triangles2_index + 1u), (triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>(triangles2.group0_index[triangles2_index].split0on_nPrims).offset), (triangles1_index + reinterpret_cast<_tree_layout2>(triangles1.group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u), (triangles1_index + reinterpret_cast<_tree_layout2>(triangles1.group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>(triangles2.group0_index[triangles2_index].split0on_nPrims).offset))
+        }
+      } else {
+        foreach _iter1 in range(triangles2.prims, reinterpret_cast<_tree_layout3>(triangles2.group0_index[triangles2_index].split0on_nPrims).pOffset, cast<u32>(triangles2.group0_index[triangles2_index].nPrims)) {
+          if (intersects_AABB_AABB(build<AABB>(triangles1.group0_index[triangles1_index].low, triangles1.group0_index[triangles1_index].high), build<AABB>(triangles2.group0_index[triangles2_index].low, triangles2.group0_index[triangles2_index].high))) {
+            from ((triangles1_index + 1u, triangles2_index), (triangles1_index + reinterpret_cast<_tree_layout2>(triangles1.group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index))
+          }
+        }
+      }
+    } else {
+      foreach _iter0 in range(triangles1.prims, reinterpret_cast<_tree_layout3>(triangles1.group0_index[triangles1_index].split0on_nPrims).pOffset, cast<u32>(triangles1.group0_index[triangles1_index].nPrims)) {
+        if (triangles2.group0_index[triangles2_index].nPrims == 0u) {
+          if (intersects_AABB_AABB(build<AABB>(triangles1.group0_index[triangles1_index].low, triangles1.group0_index[triangles1_index].high), build<AABB>(triangles2.group0_index[triangles2_index].low, triangles2.group0_index[triangles2_index].high))) {
+            from ((triangles1_index, triangles2_index + 1u), (triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>(triangles2.group0_index[triangles2_index].split0on_nPrims).offset))
+          }
+        } else {
+          foreach _iter1 in range(triangles2.prims, reinterpret_cast<_tree_layout3>(triangles2.group0_index[triangles2_index].split0on_nPrims).pOffset, cast<u32>(triangles2.group0_index[triangles2_index].nPrims)) {
+            if (intersects_AABB_AABB(build<AABB>(triangles1.group0_index[triangles1_index].low, triangles1.group0_index[triangles1_index].high), build<AABB>(triangles2.group0_index[triangles2_index].low, triangles2.group0_index[triangles2_index].high))) {
+              if (intersects_Triangle_Triangle((_iter0, _iter1)[0], (_iter0, _iter1)[1])) {
+                yield (_iter0, _iter1)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> bool {
+  let R = dot(extents, abs(A)) in
+  let P = build<f32x3>(dot(v0, A), dot(v1, A), dot(v2, A)) in
+  return reduce<all>((P <= f32x3(R)) & (f32x3(-R) <= P))
+}
+
+func collisions() -> set<(Triangle, Triangle)> {
+  return _traverse_tree0(triangles1, triangles2)
+}
+
+func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
+  let low = max(a.low, b.low) in
+  let high = min(a.high, b.high) in
+  return reduce<all>(low <= high)
+}
+
+func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
+  let center = (a.low + a.high) * f32x3(0.5f) in
+  let extents = (a.high - a.low) * f32x3(0.5f) in
+  let v0 = b.p0 - center in
+  let v1 = b.p1 - center in
+  let v2 = b.p2 - center in
+  let f0 = v1 - v0 in
+  let f1 = v2 - v1 in
+  let f2 = v0 - v2 in
+  let tri_min = min(min(v0, v1), v2) in
+  let tri_max = max(max(v0, v1), v2) in
+  if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
+    return false
+  }
+  let X = (i32x3)[1,0,0] in
+  let Y = (i32x3)[0,1,0] in
+  let Z = (i32x3)[0,0,1] in
+  let A0 = cross(f0, X) in
+  let A1 = cross(f0, Y) in
+  let A2 = cross(f0, Z) in
+  let A3 = cross(f1, X) in
+  let A4 = cross(f1, Y) in
+  let A5 = cross(f1, Z) in
+  let A6 = cross(f2, X) in
+  let A7 = cross(f2, Y) in
+  let A8 = cross(f2, Z) in
+  if (!axis(A0, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A1, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A2, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A3, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A4, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A5, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A6, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A7, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A8, extents, v0, v1, v2)) {
+    return false
+  }
+  let N = cross(f0, f1) in
+  let Rn = dot(extents, abs(N)) in
+  let dist = dot(v0, N) in
+  if ((Rn < dist) || (dist < -Rn)) {
+    return false
+  }
+  return true
+}
+
+func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
+  let eA0 = a.p1 - a.p0 in
+  let eA1 = a.p2 - a.p1 in
+  let eA2 = a.p0 - a.p2 in
+  let eB0 = b.p1 - b.p0 in
+  let eB1 = b.p2 - b.p1 in
+  let eB2 = b.p0 - b.p2 in
+  let N0 = cross(eA0, eA1) in
+  let N1 = cross(eB0, eB1) in
+  let a0 = a.p0 in
+  let a1 = a.p1 in
+  let a2 = a.p2 in
+  let b0 = b.p0 in
+  let b1 = b.p1 in
+  let b2 = b.p2 in
+  if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  let E00 = cross(eA0, eB0) in
+  let E01 = cross(eA0, eB1) in
+  let E02 = cross(eA0, eB2) in
+  let E10 = cross(eA1, eB0) in
+  let E11 = cross(eA1, eB1) in
+  let E12 = cross(eA1, eB2) in
+  let E20 = cross(eA2, eB0) in
+  let E21 = cross(eA2, eB1) in
+  let E22 = cross(eA2, eB2) in
+  if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  return true
+}
+
+func tri_tri_axis(A : f32x3, a0 : f32x3, a1 : f32x3, a2 : f32x3, b0 : f32x3, b1 : f32x3, b2 : f32x3) -> bool {
+  if (reduce<all>(A == f32x3(0f))) {
+    return true
+  }
+  let PA0 = dot(a0, A) in
+  let PA1 = dot(a1, A) in
+  let PA2 = dot(a2, A) in
+  let amin = min(min(PA0, PA1), PA2) in
+  let amax = max(max(PA0, PA1), PA2) in
+  let PB0 = dot(b0, A) in
+  let PB1 = dot(b1, A) in
+  let PB2 = dot(b2, A) in
+  let bmin = min(min(PB0, PB1), PB2) in
+  let bmax = max(max(PB0, PB1), PB2) in
+  return !((amax < bmin) || (bmax < amin))
+}
+
+
+schedule host{
+}

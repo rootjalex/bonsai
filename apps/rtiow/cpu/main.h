@@ -28,20 +28,20 @@ struct MaterialSphere {
     float fuzz;
 };
 typedef uint8_t vec2_uint8_t __attribute__((vector_size(2)));
-struct _spheres_layout1 {
+struct _tree_layout1 {
     vec3_float center;
     float radius;
     uint8_t nPrims;
     uint8_t axis;
-    vec2_uint8_t spheres_spliton_nPrims;
+    vec2_uint8_t split0on_nPrims;
 } __attribute__((packed));
-struct _spheres_layout0 {
+struct _tree_layout0 {
     uint32_t pCount;
     MaterialSphere * prims;
     uint32_t count;
-    _spheres_layout1 * spheres_index;
+    _tree_layout1 * group0_index;
 } __attribute__((packed));
 
 void bounding_sphere(Sphere& _ret0, const Sphere& a, const Sphere& b);
-vec3_int32_t * * image(const Camera& c, const _spheres_layout0& spheres);
+vec3_int32_t * * image(const Camera& c, const _tree_layout0& spheres);
 }

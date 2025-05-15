@@ -13,16 +13,16 @@ type __tuple_1 = struct __tuple_1{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool }
-type _triangles_layout0 = [[packed]] struct _triangles_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : [[packed]] struct _triangles_layout1{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
-type _triangles_layout1 = [[packed]] struct _triangles_layout1{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }
-type _triangles_split_layout2 = [[packed]] struct _triangles_split_layout2{ offset : u32 }
-type _triangles_split_layout3 = [[packed]] struct _triangles_split_layout3{ pOffset : u32 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern triangles : [[packed]] struct _triangles_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; triangles_index : [[packed]] struct _triangles_layout1{ low : f32x3; nPrims : u16; axis : u8; _pad0 : u8; high : f32x3; triangles_spliton_nPrims : u8x4 }[count] }
+extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 
-func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout0*)) -> _option0[n] {
+func _traverse_array0(n : u32, rays : Ray[n], triangles : (_tree_layout0*)) -> _option0[n] {
   alloc _alloc0 : mut _option0[n]
   forall _i0 in [0u:n:1u] {
     _alloc0[_i0] = _traverse_tree0((&rays[_i0]), triangles)
@@ -30,28 +30,28 @@ func _traverse_array0(n : u32, rays : Ray[n], triangles : (_triangles_layout0*))
   return (*_alloc0)
 }
 
-func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option0 {
+func _traverse_tree0(ray : (Ray*), triangles : (_tree_layout0*)) -> _option0 {
   _best0 : mut __tuple_0 := build<__tuple_0>((f32)inf, build<Triangle>())
   _queue_count0 : mut i32 := 1
   _queue0 : mut u32[64]
   _queue0[0] = 0u
   do {
     _queue_count0 -= 1
-    let triangles__index = (*_queue0)[(*_queue_count0)] in
-    if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high)))) {
-      if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).triangles_index[triangles__index].low, (*triangles).triangles_index[triangles__index].high))) < (*_best0)._field0) {
-        if ((*triangles).triangles_index[triangles__index].nPrims == 0u) {
-          let _sort_cmp0 = cast<u8>(!((f32x3(1f) / (*ray).d)[(*triangles).triangles_index[triangles__index].axis] < 0f)) < cast<u8>((f32x3(1f) / (*ray).d)[(*triangles).triangles_index[triangles__index].axis] < 0f) in
-          let _sort_tmp0 = select(_sort_cmp0, triangles__index + 1u, triangles__index + reinterpret_cast<_triangles_split_layout2>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset) in
-          let _sort_tmp1 = select(_sort_cmp0, triangles__index + reinterpret_cast<_triangles_split_layout2>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).offset, triangles__index + 1u) in
+    let triangles_index = (*_queue0)[(*_queue_count0)] in
+    if (intersects_Ray_AABB(ray, (&build<AABB>((*triangles).group0_index[triangles_index].low, (*triangles).group0_index[triangles_index].high)))) {
+      if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).group0_index[triangles_index].low, (*triangles).group0_index[triangles_index].high))) < (*_best0)._field0) {
+        if ((*triangles).group0_index[triangles_index].nPrims == 0u) {
+          let _sort_cmp0 = cast<u8>(!((f32x3(1f) / (*ray).d)[(*triangles).group0_index[triangles_index].axis] < 0f)) < cast<u8>((f32x3(1f) / (*ray).d)[(*triangles).group0_index[triangles_index].axis] < 0f) in
+          let _sort_tmp0 = select(_sort_cmp0, triangles_index + 1u, triangles_index + reinterpret_cast<_tree_layout2>((*triangles).group0_index[triangles_index].split0on_nPrims).offset) in
+          let _sort_tmp1 = select(_sort_cmp0, triangles_index + reinterpret_cast<_tree_layout2>((*triangles).group0_index[triangles_index].split0on_nPrims).offset, triangles_index + 1u) in
           _queue0[(*_queue_count0)] = _sort_tmp0
           _queue0[(*_queue_count0) + 1] = _sort_tmp1
           _queue_count0 += 2
         } else {
-          forall _idx0 in [0u:cast<u32>((*triangles).triangles_index[triangles__index].nPrims):1u] {
-            if (intersectsp_ray_tri(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])).set) {
-              if (distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-                _best0 argmin= build<__tuple_0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])), (*triangles).prims[reinterpret_cast<_triangles_split_layout3>((*triangles).triangles_index[triangles__index].triangles_spliton_nPrims).pOffset + _idx0])
+          forall _idx0 in [0u:cast<u32>((*triangles).group0_index[triangles_index].nPrims):1u] {
+            if (intersectsp_ray_tri(ray, (&(*triangles).prims[reinterpret_cast<_tree_layout3>((*triangles).group0_index[triangles_index].split0on_nPrims).pOffset + _idx0])).set) {
+              if (distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_tree_layout3>((*triangles).group0_index[triangles_index].split0on_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
+                _best0 argmin= build<__tuple_0>(distmin_Ray_Triangle(ray, (&(*triangles).prims[reinterpret_cast<_tree_layout3>((*triangles).group0_index[triangles_index].split0on_nPrims).pOffset + _idx0])), (*triangles).prims[reinterpret_cast<_tree_layout3>((*triangles).group0_index[triangles_index].split0on_nPrims).pOffset + _idx0])
               }
             }
           }
@@ -62,7 +62,7 @@ func _traverse_tree0(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option
   return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
 }
 
-func _unexported_trace(ray : (Ray*), triangles : (_triangles_layout0*)) -> _option0 {
+func _unexported_trace(ray : (Ray*), triangles : (_tree_layout0*)) -> _option0 {
   return _traverse_tree0(ray, triangles)
 }
 
@@ -153,12 +153,12 @@ func intersects_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_triangles_layout0*)) -> void {
+func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_layout0*)) -> void {
   _ret0 = _traverse_tree0(ray, triangles)
   return
 }
 
-func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_triangles_layout0*)) -> _option0[n] {
+func [[export]] trace_all(n : u32, rays : Ray[n], triangles : (_tree_layout0*)) -> _option0[n] {
   return _traverse_array0(n, rays, triangles)
 }
 
