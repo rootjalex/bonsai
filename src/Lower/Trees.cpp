@@ -10,6 +10,8 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include "Opt/Simplify.h"
+
 #include <algorithm>
 #include <set>
 #include <string>
@@ -43,6 +45,41 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     }
 
     return {data, children};
+}
+
+struct RewriteYields : public ir::Mutator {
+    std::function<ir::Stmt(const ir::Expr &)> f;
+    RewriteYields(std::function<ir::Stmt(const ir::Expr &)> f)
+        : f(std::move(f)) {}
+
+    ir::Stmt visit(const ir::Yield *node) override { return f(node->value); }
+};
+
+ir::Expr make_tuple_pair(ir::Expr a, ir::Expr b) {
+    ir::Type tuple_t = ir::Tuple_t::make({a.type(), b.type()});
+    std::vector<ir::Expr> values = {std::move(a), std::move(b)};
+    return ir::Build::make(std::move(tuple_t), std::move(values));
+}
+
+ir::Stmt lower_iterate(const ir::Expr &expr) {
+    if (const ir::SetOp *setop = expr.as<ir::SetOp>()) {
+        if (setop->op == ir::SetOp::product) {
+            ir::Stmt left = lower_iterate(setop->a);
+            return RewriteYields([&](const ir::Expr &a) {
+                       ir::Stmt right = lower_iterate(setop->b);
+                       return RewriteYields([&](const ir::Expr &b) {
+                                  return ir::Yield::make(make_tuple_pair(a, b));
+                              })
+                           .mutate(right);
+                   })
+                .mutate(left);
+        }
+        internal_error << "TODO: lower_iterate for: " << expr;
+    }
+    std::string name = unique_iter_name();
+    ir::Stmt body =
+        ir::Yield::make(ir::Var::make(expr.type().element_of(), name));
+    return ir::ForEach::make(std::move(name), expr, std::move(body));
 }
 
 struct Rewriter : public ir::Mutator {
@@ -132,6 +169,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
                     // TODO: this needs to simplify or have CSE for it to be
                     // efficient!
                     ir::Expr value = ir::Extract::make(node->value, i);
+                    value = opt::Simplify::simplify(value);
                     internal_assert(
                         ir::equals(value.type(), lambda->args[i].type));
                     repls[lambda->args[i].name] = std::move(value);
@@ -158,6 +196,11 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             }
 
             return body;
+        }
+
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
@@ -283,6 +326,11 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
                                         std::move(update));
         }
 
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
+        }
+
         ir::Stmt visit(const ir::Scan *node) override { return node; }
 
         ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
@@ -353,12 +401,6 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
 
         ir::Stmt a_body;
 
-        ir::Expr make_tuple_pair(ir::Expr a, ir::Expr b) {
-            ir::Type tuple_t = ir::Tuple_t::make({a.type(), b.type()});
-            std::vector<ir::Expr> values = {std::move(a), std::move(b)};
-            return ir::Build::make(std::move(tuple_t), std::move(values));
-        }
-
         ir::Stmt visit(const ir::Yield *node) override {
             if (!a_body.defined()) {
                 a_body = node;
@@ -369,6 +411,9 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                 if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
                     return ir::Yield::make(
                         make_tuple_pair(yield->value, node->value));
+                } else if (const ir::Iterate *iterate =
+                               a_body.as<ir::Iterate>()) {
+                    internal_error << "TODO: lower Yield x Iterate in product.";
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
                     internal_assert(locs.size() == 2);
                     auto as = break_tuple(scan->value);
@@ -391,6 +436,42 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
             }
         }
 
+        ir::Stmt visit(const ir::Iterate *node) override {
+            if (!a_body.defined()) {
+                a_body = node;
+                ir::Stmt ret = mutate(b_body);
+                a_body = ir::Stmt();
+                return ret;
+            } else {
+                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    ir::Stmt body = lower_iterate(node->value);
+                    return mutate(body);
+                } else if (const ir::Iterate *iterate =
+                               a_body.as<ir::Iterate>()) {
+                    return ir::Iterate::make(
+                        product(iterate->value, node->value));
+                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
+                    internal_assert(locs.size() == 2);
+                    auto as = break_tuple(scan->value);
+                    auto b = locs.back();
+                    std::vector<ir::Expr> vals;
+                    vals.reserve(as.size());
+                    for (const auto &a : as) {
+                        vals.push_back(make_tuple_pair(a, b));
+                    }
+                    return ir::Scan::make(make_tuple(std::move(vals)));
+                } else if (const ir::YieldFrom *from =
+                               a_body.as<ir::YieldFrom>()) {
+                    internal_error
+                        << "TODO: lower Iterate + YieldFrom properly: "
+                        << a_body << " and " << ir::Stmt(node);
+                } else {
+                    internal_error << "Failure in lowering product: " << a_body
+                                   << " and " << ir::Stmt(node);
+                }
+            }
+        }
+
         ir::Stmt visit(const ir::Scan *node) override {
             if (!a_body.defined()) {
                 a_body = node;
@@ -399,6 +480,17 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                 return ret;
             } else {
                 if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    internal_assert(locs.size() == 2);
+                    auto bs = break_tuple(node->value);
+                    auto a = locs.front();
+                    std::vector<ir::Expr> vals;
+                    vals.reserve(bs.size());
+                    for (const auto &b : bs) {
+                        vals.push_back(make_tuple_pair(a, b));
+                    }
+                    return ir::Scan::make(make_tuple(std::move(vals)));
+                } else if (const ir::Iterate *iterate =
+                               a_body.as<ir::Iterate>()) {
                     internal_assert(locs.size() == 2);
                     auto bs = break_tuple(node->value);
                     auto a = locs.front();
@@ -475,11 +567,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                 ir::Expr access = ir::Access::make(data[i].name, node);
                 if (data[i].type.is_iterable()) {
                     // forall d in data: yield d
-                    std::string name = unique_iter_name();
-                    ir::Stmt body = ir::Yield::make(
-                        ir::Var::make(data[i].type.element_of(), name));
-                    stmts[i] = ir::ForEach::make(
-                        std::move(name), std::move(access), std::move(body));
+                    stmts[i] = ir::Iterate::make(std::move(access));
                 } else {
                     // yield d
                     stmts[i] = ir::Yield::make(std::move(access));

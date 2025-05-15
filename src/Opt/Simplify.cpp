@@ -252,6 +252,14 @@ struct Simplifier : ir::Mutator {
                 e.defined()) {
                 return e;
             }
+            if (is_const_zero(a)) {
+                // 0 % N == 0
+                return a;
+            }
+            if (is_const_one(b)) {
+                // N % 1 == 0
+                return make_zero(type);
+            }
             std::optional<uint64_t> c_b = get_constant_value(b);
             if (c_b.has_value() && is_power_of_two(*c_b)) {
                 // x % 2^n -> x & (2^n - 1)
@@ -460,14 +468,23 @@ struct Simplifier : ir::Mutator {
                 return i; // just the index.
             }
             // TODO(ajr): handle range() simplification
+        } else if (const auto *build = v.as<ir::Build>()) {
+            if (build->type.is<ir::Tuple_t>()) {
+                std::optional<uint64_t> index = get_constant_value(i);
+                internal_assert(index.has_value())
+                    << "Simplifier found non-constant index into tuple: " << i
+                    << " of " << v;
+                internal_assert(*index < build->values.size())
+                    << "Simplifier found out-of-range index into tuple: " << i
+                    << " of " << v;
+                return build->values[*index];
+            }
         }
 
         std::optional<uint64_t> index = get_constant_value(i);
-        if (v.is<ir::VecImm, ir::Build>()) {
-            if (index.has_value()) {
-                if (std::optional<uint64_t> c = get_constant_value(v, index)) {
-                    return make_const(v.type().element_of(), *c);
-                }
+        if (v.is<ir::VecImm, ir::Build>() && index.has_value()) {
+            if (std::optional<uint64_t> c = get_constant_value(v, index)) {
+                return make_const(v.type().element_of(), *c);
             }
         }
         if (v.same_as(node->vec) && i.same_as(node->idx)) {

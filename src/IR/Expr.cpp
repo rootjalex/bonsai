@@ -1128,8 +1128,9 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 node->type = Array_t::make(f->ret_type, std::move(size));
             }
         } else if (op == SetOp::product) {
-            internal_assert(a.type().is<Set_t>() && b.type().is<Set_t>())
-                << "Expected args of product to be sets, instead received: "
+            internal_assert(a.type().is_iterable() && b.type().is_iterable())
+                << "Expected args of product to be iterables, instead "
+                   "received: "
                 << a << " : " << a.type() << " and " << b << " : " << b.type();
             Type atype = a.type().element_of();
             Type btype = b.type().element_of();

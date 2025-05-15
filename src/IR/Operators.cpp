@@ -21,6 +21,10 @@ Expr operator/(Expr a, Expr b) {
     return BinOp::make(BinOp::Div, std::move(a), std::move(b));
 }
 
+Expr operator%(Expr a, Expr b) {
+    return BinOp::make(BinOp::Mod, std::move(a), std::move(b));
+}
+
 Expr operator&&(Expr a, Expr b) {
     return BinOp::make(BinOp::LAnd, std::move(a), std::move(b));
 }
@@ -99,6 +103,10 @@ Expr argmin(Expr metric, Expr set) {
 
 Expr map(Expr func, Expr set) {
     return SetOp::make(SetOp::map, std::move(func), std::move(set));
+}
+
+Expr product(Expr a, Expr b) {
+    return SetOp::make(SetOp::product, std::move(a), std::move(b));
 }
 
 Expr sqrt(Expr a) { return Intrinsic::make(Intrinsic::sqrt, {std::move(a)}); }

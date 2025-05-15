@@ -1,5 +1,4 @@
-//! flags: -b cuda
-
+// TODO(bonsai/issues/177): Use a single rtiow.bonsai between CPU and GPU.
 import stdlib/numerics;
 import stdlib/random;
 import stdlib/ray;

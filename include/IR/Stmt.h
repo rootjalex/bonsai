@@ -32,6 +32,7 @@ enum class IRStmtEnum {
     RecLoop,
     Match,
     Yield,
+    Iterate,
     Scan,
     YieldFrom,
     ForAll,
@@ -231,6 +232,7 @@ struct Match : StmtNode<Match> {
     static const IRStmtEnum node_type = IRStmtEnum::Match;
 };
 
+// Include this datum as an output
 struct Yield : StmtNode<Yield> {
     Expr value;
 
@@ -239,6 +241,16 @@ struct Yield : StmtNode<Yield> {
     static const IRStmtEnum node_type = IRStmtEnum::Yield;
 };
 
+// Include each datum as an output
+struct Iterate : StmtNode<Iterate> {
+    Expr value; // must be an iterable
+
+    static Stmt make(Expr value);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Iterate;
+};
+
+// Recursively traverse this tree for all datums
 struct Scan : StmtNode<Scan> {
     Expr value;
 
@@ -247,6 +259,7 @@ struct Scan : StmtNode<Scan> {
     static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };
 
+// Recursively evaluate the query on this tree
 struct YieldFrom : StmtNode<YieldFrom> {
     Expr value;
 

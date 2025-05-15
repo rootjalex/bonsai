@@ -324,6 +324,15 @@ void Printer::print(const Schedule &schedule) {
                                       print(split.factor);
                                       os << ", " << split.generate_tail << ")";
                                   },
+                                  [&](const Collapse &collapse) {
+                                      os << "collapse(";
+                                      print(collapse.io);
+                                      os << ", ";
+                                      print(collapse.ii);
+                                      os << ", ";
+                                      print(collapse.i);
+                                      os << ")";
+                                  },
                                   [&](const Parallelize &par) {
                                       switch (par.strategy) {
                                       case Parallelize::CPUThread: {
@@ -1196,6 +1205,13 @@ void Printer::visit(const Match *node) {
 void Printer::visit(const Yield *node) {
     os << get_indent();
     os << "yield ";
+    print_no_parens(node->value);
+    os << "\n";
+}
+
+void Printer::visit(const Iterate *node) {
+    os << get_indent();
+    os << "iter ";
     print_no_parens(node->value);
     os << "\n";
 }

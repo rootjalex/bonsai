@@ -10,6 +10,7 @@
 #include "Lower/Intrinsics.h"
 #include "Lower/Random.h"
 #include "Lower/TopologicalOrder.h"
+#include "Opt/Simplify.h"
 
 #include "Utils.h"
 
@@ -36,6 +37,43 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options) {
 using namespace ir;
 
 namespace {
+
+// Returns whether this type contains a field with a memory address.
+bool has_address(Type type) {
+    if (type.is<Ptr_t, Array_t>()) {
+        return true;
+    }
+    if (type.is<Vector_t>()) {
+        return has_address(type.element_of());
+    }
+    if (const auto *struct_t = type.as<Struct_t>()) {
+        return std::any_of(
+            struct_t->fields.begin(), struct_t->fields.end(),
+            [](const TypedVar &v) { return has_address(v.type); });
+    }
+    if (const auto *tuple_t = type.as<Tuple_t>()) {
+        return std::any_of(tuple_t->etypes.begin(), tuple_t->etypes.end(),
+                           [](const ir::Type &t) { return has_address(t); });
+    }
+    return false;
+}
+
+std::vector<TypedVar> get_immediate_addressed_children(Type type) {
+    std::vector<TypedVar> children;
+    internal_assert(type.is<Struct_t>()) << "[unimplemented] " << type;
+    const auto *struct_t = type.as<Struct_t>();
+    for (const auto &[name, type] : struct_t->fields) {
+        if (type.is<Array_t>()) {
+            children.push_back(TypedVar(name, type));
+            continue;
+        }
+        if (type.is<Ptr_t>()) {
+            internal_assert(type.element_of().is<Struct_t>());
+            children.push_back(TypedVar(name, type.element_of()));
+        }
+    }
+    return children;
+}
 
 // Returns whether this is a context type created during parallelization. The
 // contexts already allocate everything to device; we want to avoid also needing
@@ -350,7 +388,7 @@ void CodeGen_CUDA::visit(const Cast *node) {
         if (node->type.is<Ptr_t, Array_t>()) {
             os << "reinterpret_cast";
         } else {
-            // See "runtime/CUDA/math.h" for what this function is doing.
+            // See "runtime/CUDA/helpers.h" for what this function is doing.
             os << "bonsai_reinterpret";
         }
         os << '<';
@@ -415,7 +453,7 @@ void CodeGen_CUDA::visit(const VectorReduce *node) {
 
 void CodeGen_CUDA::visit(const VectorShuffle *node) {
     // This assumes shuffling within a single thread, and defaults to a naive
-    // implementation in Bonsai's runtime/CUDA/math.h
+    // implementation in Bonsai's runtime/CUDA/helpers.h
     os << "shuffle" << '(';
     node->value.accept(this);
     os << ',' << ' ' << '{';
@@ -433,6 +471,12 @@ void CodeGen_CUDA::visit(const Build *node) {
     for (size_t i = 0, n = node->values.size(); i < n; i++) {
         if (i != 0) {
             os << ',' << ' ';
+        }
+        if (is_context_type(node->type)) {
+            if (const auto *d = node->values[i].as<Deref>()) {
+                print_no_parens(d->expr);
+                continue;
+            }
         }
         print_no_parens(node->values[i]);
     }
@@ -611,8 +655,7 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::Access *node) {
-    ir::Expr value = node->value;
-    value.accept(this);
+    node->value.accept(this);
     os << ".";
     os << node->field;
 }
@@ -649,19 +692,124 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 
 // TODO(cgyurgyik): Verify this is coming from device memory.
 void CodeGen_CUDA::visit(const Free *node) {
+    if (!device_allocated.empty()) {
+        std::vector<Stmt> frees;
+        for (const auto &[name, type] : device_allocated) {
+            frees.push_back(Free::make(Var::make(type, name)));
+        }
+        device_allocated.clear();
+        for (const Stmt &free : frees) {
+            free.accept(this);
+        }
+    }
     os << get_indent() << "cudaFree" << '(';
-    node->value.accept(this);
+    ir::Expr value = node->value;
+    if (const auto *d = value.as<Deref>(); d && d->expr.type().is<Ptr_t>()) {
+        d->expr.accept(this);
+    } else {
+        value.accept(this);
+    }
     os << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::emit_to_device(const Allocate *node) {
+    const Expr &value = node->value;
+    const std::string &base = node->loc.base;
+    Type type = node->loc.type;
+    if (type.is<Ptr_t>()) {
+        type = type.element_of();
+        internal_assert(type.is<Struct_t>());
+    }
+    if (type.is<Array_t>() || !has_address(type)) {
+        emit_to_device(base, type, value);
+        return;
+    }
+
+    std::vector<TypedVar> types = get_immediate_addressed_children(type);
+    // copy the children to the device...
+    for (const auto &[name, type] : types) {
+        emit_to_device(name, type, Access::make(name, Deref::make(value)),
+                       /*parent=*/value);
+        device_allocated.push_back(TypedVar(name, type));
+    }
+    // ...and then hook them back up.
+    internal_assert(base.starts_with("d_")) << base;
+    std::string original = base.substr(2, base.size());
+    std::string copy = "h_" + original;
+    // Make a shallow copy for non-pointer members.
+    os << get_indent() << type << ' ' << copy << ' ';
+    os << '=' << ' ' << '*' << original << ';' << '\n';
+    // Then copy all the recently device-allocated members.
+    for (const auto &[name, type] : types) {
+        os << get_indent() << copy << '.' << name << ' ';
+        os << '=' << ' ' << name << ';' << '\n';
+    }
+    // Finally, emit the base struct.
+    emit_to_device(base, type, Var::make(type, copy));
+}
+
+void CodeGen_CUDA::emit_to_device(std::string base, ir::Type type,
+                                  ir::Expr value,
+                                  std::optional<ir::Expr> parent) {
+    if (const auto *array_t = type.as<Array_t>()) {
+        emit_to_device(base, array_t, value, parent);
+        return;
+    }
+    const auto *struct_t = type.as<Struct_t>();
+    emit_to_device(base, struct_t, value);
+}
+
+void CodeGen_CUDA::emit_to_device(std::string base, const Struct_t *struct_t,
+                                  Expr value) {
+    os << get_indent();
+    struct_t->accept(this);
+    os << '*' << ' ' << base << ';' << '\n';
+    os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    internal_assert(value.defined())
+        << "allocation to device expects a value (what is copied)";
+    if (!value.type().is<Ptr_t>()) {
+        os << '&';
+    }
+    value.accept(this);
+    os << ',' << ' ' << "sizeof" << '(';
+    struct_t->accept(this);
+    os << ')' << ')' << ';' << '\n';
+}
+
+void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
+                                  Expr value, std::optional<ir::Expr> parent) {
+    internal_assert(!has_address(array_t->etype))
+        << "[unimplemented] array with pointers: " << array_t;
+    os << get_indent();
+    array_t->accept(this);
+    os << ' ' << base << ';' << '\n';
+    os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    internal_assert(value.defined())
+        << "allocation to device expects a value (what is copied)";
+    value.accept(this);
+    os << ',' << ' ';
+    if (parent.has_value()) {
+        // The size needs to be correctly accessed from the struct.
+        os << '(' << '*';
+        parent->accept(this);
+        os << ')';
+        os << '.';
+    }
+    array_t->size.accept(this);
+    os << ' ' << '*' << ' ' << "sizeof" << '(';
+    array_t->etype.accept(this);
+    os << ')' << ')' << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Allocate *node) {
-    // TODO(ajr): if this is a launched kernel, this cannot be an array
-    // allocation. Otherwise, this should probably cuda malloc for arrays.
     ir::Type type = node->loc.type;
     const std::string &b = node->loc.base;
-    os << get_indent();
+
     switch (node->memory) {
     case Allocate::Memory::Stack: {
+        os << get_indent();
         if (const auto *array_type = type.as<Array_t>()) {
             // <type> <name>[<size>];
             array_type->etype.accept(this);
@@ -699,6 +847,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         return;
     }
     case Allocate::Memory::Heap: {
+        os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';
@@ -715,25 +864,11 @@ void CodeGen_CUDA::visit(const Allocate *node) {
                        << Stmt(node);
     }
     case Allocate::Memory::Device: {
-        if (const auto *array_t = type.as<Array_t>()) {
-            type.accept(this);
-            os << ' ' << b << ';' << '\n';
-            os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
-            internal_assert(node->value.defined())
-                << "allocation to device expects a value (what is copied)";
-            node->value.accept(this);
-            os << ',' << ' ';
-            array_t->size.accept(this);
-            os << ' ' << '*' << ' ' << "sizeof" << '(';
-            array_t->etype.accept(this);
-            os << ')' << ')' << ';' << '\n';
-            return;
-        }
-        internal_error << "[unimplemented] Allocate CUDA codegen: "
-                       << Stmt(node);
+        emit_to_device(node);
+        return;
     }
     case Allocate::Memory::Host: {
+        os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
             os << ' ' << b << ';' << '\n';
@@ -918,9 +1053,10 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << node->func;
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
-    // TODO(cgyurgyik): Should this be handled in Parallelize?
-    Expr block_size = make_const(n.type(), 1024);
-    ((n + (block_size - 1)) / block_size).accept(this);
+    // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full block
+    // size (1024) was causing resource launch errors.
+    Expr block_size = make_const(n.type(), 512);
+    opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';
     block_size.accept(this);
     os << '>' << '>' << '>';
@@ -932,11 +1068,58 @@ void CodeGen_CUDA::visit(const Launch *node) {
 
 void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
-    // TODO(cgyurgyik): assumes the compiler is run from the root
-    // directory. There is some way to make this work with <>, `-I`
-    // passed to the compiler.
-    os << '#' << "include" << ' ' << "\"runtime/CUDA/math.h\"" << '\n';
+    // Requires: `-Iruntime/CUDA` to work.
+    os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
     os << '\n';
+}
+
+void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
+    internal_assert(function.is_kernel())
+        << "CUDA rng can only run on device, received:\n"
+        << function;
+    // We need to print the thread index (first statement) before cuRAND
+    // state setup since it is used as a seed.
+    const auto *seq = function.body.as<Sequence>();
+    internal_assert(seq) << "unexpected kernel with non-sequence body: "
+                         << function.body;
+    // Whether we've seen this exit condition.
+    bool thread_within_bounds_visited = false;
+    // Whether the thread index (TID) has been initialized. This is absolutely
+    // necessary before we visit the exit condition and ensures the compiler
+    // will never haphazardly produce incorrect code.
+    bool tid_seen = false;
+    for (int i = 0, e = seq->stmts.size(); i < e; ++i) {
+        seq->stmts[i].accept(this);
+        constexpr char TID[] = "tid";
+        if (const auto *seed = seq->stmts[i].as<LetStmt>();
+            !tid_seen && seed && seed->loc.base == TID) {
+            tid_seen = true;
+        }
+        // TODO(cgyurgyik): We can future-proof this even more by ensuring the
+        // condition contains the correct variable (which won't be TID, so isn't
+        // necessarily straight forward). However, this is a good first step.
+        if (thread_within_bounds_visited || !tid_seen) {
+            continue;
+        }
+        // We'd like to only initialize this state if the thread id is within
+        // bounds. This is usually done by some statement of the form:
+        //  `if (tid >= C) { return; }`
+        const auto *ifelse = seq->stmts[i].as<IfElse>();
+        if (ifelse == nullptr) {
+            continue;
+        }
+        const auto *r = ifelse->then_body.as<Return>();
+        if (r == nullptr || r->value.defined()) {
+            continue;
+        }
+        thread_within_bounds_visited = true;
+        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
+        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
+           << lower::rng_state_name << ");\n";
+    }
+    internal_assert(thread_within_bounds_visited)
+        << "the thread id is never verified to be within bounds for kernel: "
+        << function;
 }
 
 void CodeGen_CUDA::print(const Program &program) {
@@ -1026,25 +1209,7 @@ void CodeGen_CUDA::print(const Function &function) {
     os << ')' << ' ' << '{' << '\n';
     increment();
     if (function.must_setup_rng()) {
-        internal_assert(function.is_kernel())
-            << "CUDA rng can only run on device, received:\n"
-            << function;
-        // We need to print the thread index (first statement) before cuRAND
-        // state setup since it is used as a seed.
-        const auto *seq = function.body.as<Sequence>();
-        internal_assert(seq)
-            << "unexpected kernel with non-sequence body: " << function.body;
-        constexpr char TID[] = "tid";
-        const auto *seed = seq->stmts.front().as<LetStmt>();
-        internal_assert(seed && seed->loc.base == TID)
-            << "unexpected first statement in kernel: " << Stmt(seed);
-        seed->accept(this);
-        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
-        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
-           << lower::rng_state_name << ");\n";
-        for (int i = 1, e = seq->stmts.size(); i < e; ++i) {
-            seq->stmts[i].accept(this);
-        }
+        setup_kernel_rng(function);
     } else {
         function.body.accept(this);
     }

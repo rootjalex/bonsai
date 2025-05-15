@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS opt
     FILES
+    collapse.bonsai
     constant-fold.bonsai
     dce-flip-if.bonsai
     dce-hygiene.bonsai

@@ -52,11 +52,10 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
 
         Expr visit(const Var *node) override {
             const auto &iter = repls.find(node->name);
-            if (iter != repls.cend()) {
-                return iter->second;
-            } else {
+            if (iter == repls.cend()) {
                 return node;
             }
+            return iter->second;
         }
 
         std::pair<WriteLoc, bool>
@@ -153,8 +152,17 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
     // TODO(ajr): if struct supported mutable fields, we would need this.
     std::set<std::string> mut_vars = mutated_variables(forall);
 
+    for (int i = 0, e = vars.size(); i < e; ++i) {
+        // Structs should be pointers; these will be copied to device.
+        ir::Type type = vars[i].type;
+        if (type.is<Struct_t>()) {
+            vars[i].type = Ptr_t::make(std::move(type));
+        }
+    }
+
     std::string ctx_name = unique_ctx_name();
     Type ctx_t = Struct_t::make("_" + ctx_name, vars);
+
     types[ctx_name] = ctx_t;
     std::vector<Expr> build_args;
     build_args.reserve(vars.size());
@@ -198,8 +206,14 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
     // Replace reads and writes to access the context, e.g., x -> ctx.x
     std::map<std::string, Expr> repls;
     for (const auto &var : vars) {
-        repls[var.name] = Access::make(var.name, ctx_var);
+        ir::Expr value = Access::make(var.name, ctx_var);
+        ir::Type type = value.type();
+        if (type.is<Ptr_t>() && type.element_of().is<Struct_t>()) {
+            value = Deref::make(std::move(value));
+        }
+        repls[var.name] = value;
     }
+
     Closure closure;
     Stmt body = Sequence::make(std::move(stmts));
     body = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls, body,
@@ -225,25 +239,32 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
     for (const Expr &value : build->values) {
         const auto *v = value.as<Var>();
         internal_assert(v) << "unexpected context argument: " << value;
-        // TODO(cgyurgyik): Probably type mismatch.
         if (closure.written.contains(v->name)) {
             // Allocations are automatically cudaMalloc'ed.
             to_device.push_back(value);
             continue;
         }
-        if (value.type().is<Struct_t, Array_t>()) {
+        ir::Type type = value.type();
+        if (type.is<Ptr_t>()) {
             std::string device_name = "d_" + v->name;
-            stmts.push_back(Allocate::make(WriteLoc(device_name, value.type()),
-                                           value, Allocate::Memory::Device));
-            to_device.push_back(Var::make(value.type(), device_name));
+            stmts.push_back(Allocate::make(WriteLoc(device_name, type), value,
+                                           Allocate::Memory::Device));
+            to_device.push_back(Var::make(type, device_name));
             continue;
         }
-        if (value.type().is_scalar()) {
+        if (type.is<Struct_t, Array_t>()) {
+            std::string device_name = "d_" + v->name;
+            stmts.push_back(Allocate::make(WriteLoc(device_name, type), value,
+                                           Allocate::Memory::Device));
+            to_device.push_back(Var::make(type, device_name));
+            continue;
+        }
+        if (type.is_scalar()) {
             to_device.push_back(value);
             continue;
         }
         internal_error << "[unimplemented] handling context argument: " << value
-                       << " : " << value.type();
+                       << " : " << type;
     }
     Expr device_build = ir::Build::make(build->type, to_device);
 
@@ -259,17 +280,20 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
     for (const Expr &value : to_device) {
         const auto *v = value.as<Var>();
         internal_assert(v) << "unexpected context argument: " << value;
-        if (value.type().is<Array_t, Struct_t>()) {
+        ir::Type type = value.type();
+        if (type.is<Ptr_t>()) {
+            type = type.element_of();
+        }
+        if (type.is<Array_t, Struct_t>()) {
             if (closure.written.contains(v->name)) {
                 std::string host_name = "h_" + v->name;
-                stmts.push_back(
-                    Allocate::make(WriteLoc(host_name, value.type()), value,
-                                   Allocate::Memory::Host));
+                stmts.push_back(Allocate::make(WriteLoc(host_name, type), value,
+                                               Allocate::Memory::Host));
             }
             stmts.push_back(Free::make(value));
             continue;
         }
-        if (value.type().is_scalar()) {
+        if (type.is_scalar()) {
             continue;
         }
         internal_error << "[unimplemented] handling context argument: " << value

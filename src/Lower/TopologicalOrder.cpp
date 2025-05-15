@@ -48,6 +48,8 @@ struct CallGraphBuilder : public ir::Visitor {
         }
     }
 
+    void visit(const ir::Launch *node) override { calls.insert(node->func); }
+
     void visit(const ir::Access *node) override {
         internal_assert(!in_call)
             << "TODO: support call graph through interface" << node;

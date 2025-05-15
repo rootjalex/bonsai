@@ -510,6 +510,50 @@ struct DeadCodeElimination : ir::Mutator {
     }
 };
 
+void visit(const std::string &name, const lower::CallGraph &call_graph,
+           std::map<std::string, int> &call_counts) {
+    auto it = call_graph.find(name);
+    internal_assert(it != call_graph.end());
+    for (const std::string &call : it->second) {
+        if (name == call) {
+            continue;
+        }
+        ++call_counts[call];
+        visit(call, call_graph, call_counts);
+    }
+}
+
+// Deletes any functions not visited from an entry point. We define a bonsai
+// entry point as being [[exported]].
+// TODO(cgyurgyik): We can use this same call count to (potentially) inline
+// functions that are only called once during the Inline pass.
+void delete_dead_functions(ir::FuncMap &funcs) {
+    lower::CallGraph call_graph = lower::build_call_graph(funcs);
+    std::map<std::string, int> call_counts;
+
+    std::vector<std::string> exports;
+    for (const auto &[name, func] : funcs) {
+        call_counts[name] = 0;
+        if (!func->is_exported()) {
+            continue;
+        }
+        exports.push_back(name);
+        // Exported functions should never be deleted.
+        ++call_counts[name];
+    }
+    // Count the number of times each one is called.
+    for (const std::string &name : exports) {
+        visit(name, call_graph, call_counts);
+    }
+
+    for (const auto &[name, count] : call_counts) {
+        if (count > 0) {
+            continue;
+        }
+        funcs.erase(name);
+    }
+}
+
 } // namespace
 
 // TODO(ajr): for non-exported functions, we can remove mutable args that
@@ -531,8 +575,12 @@ ir::FuncMap DCE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     // Functions. This requires mutating the definitions and all calls,
     // which can get tricky.
 
-    std::set<std::string> se_functions = find_side_effects(funcs);
+    if (options.target == BackendTarget::CUDA) {
+        // TODO(cgyurgyik): This unleashes wrath on a lot of the tests.
+        delete_dead_functions(funcs);
+    }
 
+    std::set<std::string> se_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_func_args = func->mutable_args();
         func->body =

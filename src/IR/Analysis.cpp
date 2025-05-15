@@ -22,8 +22,11 @@ struct GatherFreeVars : public Visitor {
         // Function calls are not free vars.
         if (seen_vars.count(node->name) == 0 && !node->type.is_func()) {
             // Visit sizes, might be a free var
-            if (node->type.is<Array_t>()) {
-                node->type.as<Array_t>()->size.accept(this);
+            ir::Type type = node->type;
+            while (type.is<Array_t>()) {
+                const auto *array_t = type.as<Array_t>();
+                array_t->size.accept(this);
+                type = array_t->etype;
             }
             free_vars.push_back({node->name, node->type});
             seen_vars.insert(node->name);
@@ -165,6 +168,7 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Iterate);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
@@ -187,6 +191,7 @@ struct ReturnType : public Visitor {
 
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Iterate);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);

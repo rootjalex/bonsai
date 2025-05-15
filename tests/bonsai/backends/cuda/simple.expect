@@ -1,4 +1,4 @@
-#include "runtime/CUDA/math.h"
+#include "helpers.h"
 
 struct Foo {
   int32_t x = 42;

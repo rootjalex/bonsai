@@ -104,7 +104,7 @@ ir::Program LowerExterns::run(ir::Program program,
 
             new_args[counter].name = ext.name;
             new_args[counter].type = ext.type;
-            // TODO: mutating = false.
+            new_args[counter].mutating = false;
             counter++;
         }
         internal_assert(counter == free_vars.size())

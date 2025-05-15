@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     array.bonsai
     bvh.bonsai
+    collision.bonsai
     defer-dbl-buffer.bonsai
     defer.bonsai
     exported-function.bonsai

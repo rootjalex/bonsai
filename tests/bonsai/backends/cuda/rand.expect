@@ -1,8 +1,8 @@
-#include "runtime/CUDA/math.h"
+#include "helpers.h"
 
 __device__ float d_plus_rand(float x, curandState* _rng_state) {
   if (x == 0) {
-    return 0;
+    return (float)0;
   }
   return (x + curand_uniform(_rng_state));
 }
@@ -11,7 +11,7 @@ __device__ float f4(float x) {
   if ((float)42 < x) {
     return (float)-1;
   }
-  return 1;
+  return (float)1;
 }
 
 __device__ float f3(float x, curandState* _rng_state) {
@@ -30,6 +30,9 @@ __device__ float f2(float x, curandState* _rng_state) {
 
 __global__ void f1(float* x) {
   int32_t tid = ((float)42 + (*x));
+  if (1024 <= tid) {
+    return;
+  }
   curandState _rng_state;
   curand_init(tid, 0, 0, &_rng_state);
   if ((*x) == 1) {
@@ -41,7 +44,7 @@ __global__ void f1(float* x) {
 
 __host__ float h_plus_rand(float x) {
   if (x == 0) {
-    return 0;
+    return (float)0;
   }
   return (x + random<float>());
 }

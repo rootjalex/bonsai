@@ -1,4 +1,4 @@
-#include "runtime/CUDA/math.h"
+#include "helpers.h"
 
 struct _ctx0 {
   int32_t n;
@@ -27,7 +27,7 @@ __host__ int32_t* _traverse_array0(int32_t n, int32_t* fs) {
   int32_t* d_fs;
   cudaMallocAndCopyToDevice((void**)&d_fs, fs, n * sizeof(int32_t));
   _ctx0 ctx = _ctx0{n, _alloc0, d_fs};
-  _parfunc0<<<((n + (1024 - 1)) / 1024), 1024>>>(ctx);
+  _parfunc0<<<((n + 511) / 512), 512>>>(ctx);
   cudaDeviceSynchronize();
   int32_t* h__alloc0;
   mallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, n * sizeof(int32_t));
@@ -35,10 +35,6 @@ __host__ int32_t* _traverse_array0(int32_t n, int32_t* fs) {
   cudaFree(d_fs);
   _alloc0 = h__alloc0;
   return _alloc0;
-}
-
-int32_t* apply_function(int32_t n, int32_t* fs) {
-  return _traverse_array0(n, fs);
 }
 
 __host__ int32_t* entry(int32_t n, int32_t* a) {

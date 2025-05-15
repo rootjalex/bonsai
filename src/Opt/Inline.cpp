@@ -25,12 +25,12 @@ class Inliner : public ir::Mutator {
     ir::Expr visit(const ir::Call *node) override {
         const ir::Var *v = node->func.as<ir::Var>();
         if (v == nullptr) {
-            return node;
+            return Mutator::visit(node);
         }
         const std::string &function_name = v->name;
         auto it = function_to_expr.find(function_name);
         if (it == function_to_expr.end()) {
-            return node;
+            return Mutator::visit(node);
         }
         auto f = functions.find(function_name);
         internal_assert(f != functions.end());
@@ -41,7 +41,10 @@ class Inliner : public ir::Mutator {
                        [](const auto &a) { return a.name; });
         // Replace function arguments with call arguments.
         std::map<std::string, ir::Expr> repls;
-        internal_assert(argument_names.size() == node->args.size());
+        internal_assert(argument_names.size() == node->args.size())
+            << "mismatch in function argument size: " << argument_names.size()
+            << " and call argument size: " << node->args.size()
+            << " for function: " << function_name;
         for (int i = 0, e = argument_names.size(); i < e; ++i) {
             repls[argument_names[i]] = node->args[i];
         }

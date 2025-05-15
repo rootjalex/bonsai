@@ -18,7 +18,7 @@ struct Function {
         std::string name;
         Type type;
         Expr default_value;
-        bool mutating;
+        bool mutating = false;
 
         Argument() {}
 

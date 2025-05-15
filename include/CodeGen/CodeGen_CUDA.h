@@ -89,6 +89,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);
     RESTRICT_VISITOR(ir::Yield);
+    RESTRICT_VISITOR(ir::Iterate);
     RESTRICT_VISITOR(ir::Scan);
 
   private:
@@ -99,7 +100,13 @@ class CodeGen_CUDA : public ir::Printer {
     // for correct usage of rand, which is different for __host__ and
     // __device__.
     bool on_device = false;
-    // The stream that is printed to.
+    // We need to also device allocate inner children, a concept that is
+    // (currently) foreign to bonsai so is done here. This list tracks all the
+    // device allocated children of a struct.
+    // TODO(cgyurgyik): it might be cleaner to do this struct allocation
+    // / deallocation traversal in the Parallelize pass.
+    std::vector<ir::TypedVar> device_allocated;
+    //  The stream that is printed to.
     std::ostream &os;
 
     // Increments the indentation.
@@ -108,6 +115,15 @@ class CodeGen_CUDA : public ir::Printer {
     void decrement() { set_indent(get_indent().indent - 1); }
     // Necessary prologue code.
     void emit_prologue();
+    // Performs rng setup for CUDA, using cuRAND.
+    void setup_kernel_rng(const ir::Function &function);
+    // Emits necessary malloc & host->device code for a struct.
+    void emit_to_device(const ir::Allocate *);
+    void emit_to_device(std::string base, ir::Type, ir::Expr,
+                        std::optional<ir::Expr> = {});
+    void emit_to_device(std::string base, const ir::Struct_t *, ir::Expr);
+    void emit_to_device(std::string base, const ir::Array_t *, ir::Expr,
+                        std::optional<ir::Expr> = {});
 };
 
 } //  namespace bonsai

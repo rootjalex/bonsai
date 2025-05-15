@@ -1,0 +1,32 @@
+func no_collapse(n : i32, m: i32, a : array[array[f32, n], m]) -> array[array[f32, n], m] {
+    return map(|l| map(|x : f32| sqrt(x), l), a);
+}
+
+func process1(n : i32, m: i32, a : array[array[f32, n], m]) -> array[array[f32, n], m] {
+    return map(|l| map(|x : f32| sqrt(x), l), a);
+}
+
+func process2(a : array[array[f32, 8], 32]) -> array[array[f32, 8], 32] {
+    return map(|l| map(|x : f32| sqrt(x), l), a);
+}
+
+func f(x: i32, y: i32) -> i32 {
+    print(x, y);
+    return x + y;
+}
+
+func process3(w: i32, h: i32) {
+return map(|i : i32| map(|j : i32| f(i, j), iter(h)), iter(w));
+}
+
+func process4(w: i32) {
+  return map(|x: i32| f(x, 1), iter(w));
+}
+
+schedule {
+    process1.collapse(i0, i1, i_a);
+    process2.collapse(i0, i1, i_b);
+    process3.collapse(i0, i1, i_c);
+    // TODO(cgyurgyik): The simplifier should catch this.
+    process4.split(i0, io, ii, 4, false).collapse(io, ii, i);
+}

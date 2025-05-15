@@ -1,0 +1,179 @@
+//! flags: -p canonicalize -p lower-maps -p lower-trees -p lower-geometrics -p lower-layouts
+
+
+
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element Triangle {
+    p0, p1, p2 : vec3f;
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+func axis(A: vec3f, extents: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> bool {
+    R = dot(extents, abs(A));
+    P: vec3f = {dot(v0, A), dot(v1, A), dot(v2, A)};
+    return all(P <= R & P >= -R);
+}
+
+func tri_tri_axis(A: vec3f, a0: vec3f, a1: vec3f, a2: vec3f, b0: vec3f, b1: vec3f, b2: vec3f) -> bool {
+    if (all(A == 0)) { return true; }
+    PA0 = dot(a0, A); 
+    PA1 = dot(a1, A); 
+    PA2 = dot(a2, A);
+    amin = min(min(PA0, PA1), PA2); 
+    amax = max(max(PA0, PA1), PA2);
+
+    PB0 = dot(b0, A); 
+    PB1 = dot(b1, A); 
+    PB2 = dot(b2, A);
+    bmin = min(min(PB0, PB1), PB2); 
+    bmax = max(max(PB0, PB1), PB2);
+    
+    return !(amax < bmin || bmax < amin);
+}
+
+func intersects(a: AABB, b: Triangle) -> bool {
+    center  = (a.low + a.high) * 0.5;
+    extents = (a.high - a.low) * 0.5;
+
+    v0 = b.p0 - center;
+    v1 = b.p1 - center;
+    v2 = b.p2 - center;
+
+    f0 = v1 - v0;
+    f1 = v2 - v1;
+    f2 = v0 - v2;
+
+    tri_min = min(min(v0, v1), v2);
+    tri_max = max(max(v0, v1), v2);
+    if (!all(tri_min <= extents & tri_max >= -extents)) { return false; }
+
+    X: vec3f  = {1,0,0};
+    Y: vec3f  = {0,1,0};
+    Z: vec3f  = {0,0,1};
+
+    A0 = cross(f0, X);
+    A1 = cross(f0, Y);
+    A2 = cross(f0, Z);
+    A3 = cross(f1, X);
+    A4 = cross(f1, Y);
+    A5 = cross(f1, Z);
+    A6 = cross(f2, X);
+    A7 = cross(f2, Y);
+    A8 = cross(f2, Z);
+
+    if (!axis(A0, extents, v0, v1, v2)) { return false; }
+    if (!axis(A1, extents, v0, v1, v2)) { return false; }
+    if (!axis(A2, extents, v0, v1, v2)) { return false; }
+    if (!axis(A3, extents, v0, v1, v2)) { return false; }
+    if (!axis(A4, extents, v0, v1, v2)) { return false; }
+    if (!axis(A5, extents, v0, v1, v2)) { return false; }
+    if (!axis(A6, extents, v0, v1, v2)) { return false; }
+    if (!axis(A7, extents, v0, v1, v2)) { return false; }
+    if (!axis(A8, extents, v0, v1, v2)) { return false; }
+
+    N = cross(f0, f1);
+    Rn = dot(extents, abs(N));
+    dist = dot(v0, N);
+    if (dist > Rn || dist < -Rn) { return false; }
+
+    return true;
+}
+
+func intersects(a: Triangle, b: Triangle) -> bool {
+    eA0 = a.p1 - a.p0;
+    eA1 = a.p2 - a.p1;
+    eA2 = a.p0 - a.p2;
+
+    eB0 = b.p1 - b.p0;
+    eB1 = b.p2 - b.p1;
+    eB2 = b.p0 - b.p2;
+
+    N0 = cross(eA0, eA1);
+    N1 = cross(eB0, eB1);
+
+    a0 = a.p0; a1 = a.p1; a2 = a.p2;
+    b0 = b.p0; b1 = b.p1; b2 = b.p2;
+
+    if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) { return false; }
+
+    E00 = cross(eA0, eB0);
+    E01 = cross(eA0, eB1);
+    E02 = cross(eA0, eB2);
+    E10 = cross(eA1, eB0);
+    E11 = cross(eA1, eB1);
+    E12 = cross(eA1, eB2);
+    E20 = cross(eA2, eB0);
+    E21 = cross(eA2, eB1);
+    E22 = cross(eA2, eB2);
+
+    if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) { return false; }
+    return true;
+}
+
+func intersects(a : AABB, b : AABB) -> bool {
+    low = max(a.low, b.low);
+    high = min(a.high, b.high);
+    return all(low <= high);
+}
+
+extern triangles1 : set[Triangle];
+extern triangles2 : set[Triangle];
+
+func collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : array[Triangle]);
+
+    triangles1 : TriangleBVH;
+    triangles2 : TriangleBVH;
+
+    layout triangles1 {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    layout triangles2 {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

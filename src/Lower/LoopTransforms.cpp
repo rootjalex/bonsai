@@ -6,6 +6,8 @@
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
+#include "IR/Program.h"
+#include "Opt/Simplify.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -21,6 +23,103 @@ namespace lower {
 namespace {
 
 using namespace ir;
+
+bool is_perfectly_divisible(Expr b, Expr e, Expr s) {
+    return is_const_zero(opt::Simplify::simplify((e - b) % s));
+}
+
+// for (int io = bo; i < eo; i += so)
+//   for (int ii = bi; j < ei; j += si)
+//     foo(io, ii);
+//
+//   ->
+//
+// int co = (eo - bo + so - 1) / so;
+// int ci = (ei - bi + si - 1) / si;
+// int n = co * ci;
+// for (int c = 0; c < n; ++c) {
+//   int io = bo + (c / ci) * so;
+//   int ii = bi + (c % ci) * si;
+//   if (io < eo && ii < ei)
+//     foo(io, ii)
+// }
+Stmt collapse_loops(Stmt body, const std::string &io, const std::string &ii,
+                    const std::string &i, Program &program) {
+    struct CollapseLoops : public Mutator {
+        const std::string &io;
+        const std::string &ii;
+        const std::string &i;
+        Program &program;
+        CollapseLoops(const std::string &io, const std::string &ii,
+                      const std::string &i, Program &program)
+            : io(io), ii(ii), i(i), program(program) {}
+
+        Stmt visit(const ForAll *outer) override {
+            if (outer->index != io) {
+                return Mutator::visit(outer);
+            }
+            const auto *inner = outer->body.as<ForAll>();
+            internal_assert(inner) << "expected a single loop as the body of "
+                                      "the outer loop, received: "
+                                   << outer->body;
+            internal_assert(inner->index == ii)
+                << "expected loop index: " << ii
+                << ", received: " << inner->index;
+
+            const ForAll::Slice &oslice = outer->slice;
+            const ForAll::Slice &islice = inner->slice;
+            Expr bo = oslice.begin, eo = oslice.end, so = oslice.stride;
+            Expr bi = islice.begin, ei = islice.end, si = islice.stride;
+            internal_assert(
+                ir::equals(inner->index_type(), outer->index_type()));
+            Type idx_t = outer->index_type();
+            Expr co = outer->count(), ci = inner->count();
+            ForAll::Slice slice{
+                .begin = make_zero(idx_t),
+                .end = co * ci,
+                .stride = make_one(idx_t),
+            };
+            Expr idx = Var::make(idx_t, i);
+            Expr io_e = Var::make(idx_t, io);
+            Expr ii_e = Var::make(idx_t, ii);
+
+            std::vector<Stmt> stmts;
+            stmts.push_back(
+                LetStmt::make(WriteLoc(io, idx_t), bo + (idx / ci) * so));
+            stmts.push_back(
+                LetStmt::make(WriteLoc(ii, idx_t), bi + (idx % ci) * si));
+
+            Stmt body = inner->body;
+            if (!(is_perfectly_divisible(bo, eo, so) &&
+                  is_perfectly_divisible(bi, ei, si))) {
+                // Need to guard against out-of-bounds accesses.
+                stmts.push_back(IfElse::make(io_e < eo && ii_e < ei, body));
+            } else {
+                stmts.push_back(body);
+            }
+            return ForAll::make(i, std::move(slice),
+                                Sequence::make(std::move(stmts)));
+        }
+
+        // TODO: this is hacky, need a better way.
+        Expr visit(const Call *node) override {
+            if (const Var *var = node->func.as<Var>()) {
+                // TODO(ajr): hope to God it's impossible to have self-recursion
+                // in these.
+                if (var->name.starts_with("_traverse_array")) {
+                    auto &func = program.funcs[var->name];
+                    func->body = collapse_loops(std::move(func->body), io, ii,
+                                                i, program);
+                    return node;
+                }
+            }
+            return Mutator::visit(node);
+        }
+    };
+
+    CollapseLoops lower(io, ii, i, program);
+    return lower.mutate(std::move(body));
+}
 
 Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 const std::string &outer, const std::string &inner,
@@ -47,7 +146,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 << "[unimplemented] split with tail strategy\n";
             internal_assert(is_const_one(node->slice.stride));
 
-            Type index_t = node->slice.end.type();
+            Type index_t = node->index_type();
             Expr zero = make_zero(index_t);
             Expr one = make_one(index_t);
             Expr io = Var::make(index_t, outer);
@@ -545,6 +644,13 @@ ir::Program LoopTransforms::run(ir::Program program,
                                                         ii, split.factor,
                                                         split.generate_tail,
                                                         program.funcs);
+                                  },
+                                  [&](const Collapse &collapse) {
+                                      std::string io = get_name(collapse.io);
+                                      std::string ii = get_name(collapse.ii);
+                                      std::string i = get_name(collapse.i);
+                                      body = collapse_loops(std::move(body), io,
+                                                            ii, i, program);
                                   },
                                   [&](const Parallelize &par) {
                                       std::string i = get_name(par.i);
