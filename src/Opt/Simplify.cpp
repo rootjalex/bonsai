@@ -471,8 +471,12 @@ struct Simplifier : ir::Mutator {
         } else if (const auto *build = v.as<ir::Build>()) {
             if (build->type.is<ir::Tuple_t>()) {
                 std::optional<uint64_t> index = get_constant_value(i);
-                internal_assert(index.has_value()) << "Simplifier found non-constant index into tuple: " << i << " of " << v;
-                internal_assert(*index < build->values.size()) << "Simplifier found out-of-range index into tuple: " << i << " of " << v;
+                internal_assert(index.has_value())
+                    << "Simplifier found non-constant index into tuple: " << i
+                    << " of " << v;
+                internal_assert(*index < build->values.size())
+                    << "Simplifier found out-of-range index into tuple: " << i
+                    << " of " << v;
                 return build->values[*index];
             }
         }

@@ -231,12 +231,12 @@ Stmt Yield::make(Expr value) {
 
 Stmt Iterate::make(Expr value) {
     internal_assert(value.defined()) << "Undefined value in Iterate::make";
-    internal_assert(value.type().is_iterable()) << "Non-iterable type in Iterate::make" << value;
+    internal_assert(value.type().is_iterable())
+        << "Non-iterable type in Iterate::make" << value;
     Iterate *node = new Iterate;
     node->value = std::move(value);
     return node;
 }
-
 
 Stmt Scan::make(Expr value) {
     internal_assert(value.defined()) << "Undefined value in Scan::make";

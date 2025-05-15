@@ -24,9 +24,7 @@ struct LayoutTypeMap {
     uint64_t counter = 0;
 };
 
-std::string pad_name(uint32_t count) {
-    return "pad" + std::to_string(count);
-}
+std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
 
 std::string group_name(uint32_t count, const std::string &index) {
     return "group" + std::to_string(count) + "_" + index;
@@ -122,9 +120,9 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
     return Rewrite(frames).mutate(expr);
 }
 
-ir::Type layout_to_structs(const ir::Layout &layout,
-                           LayoutTypeMap &ltmap) {
-    if (const auto in_cache = ltmap.layout_to_type.find(layout); in_cache != ltmap.layout_to_type.cend()) {
+ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
+    if (const auto in_cache = ltmap.layout_to_type.find(layout);
+        in_cache != ltmap.layout_to_type.cend()) {
         return in_cache->second;
     }
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
@@ -198,7 +196,11 @@ ir::Type layout_to_structs(const ir::Layout &layout,
     internal_error << "Handle layout conversion for: " << layout;
 }
 
-ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::MapStack<std::string, ir::Expr> frames, const std::string &iter_name, const std::string &node_type, const std::string &field, const LayoutTypeMap &ltmap) {
+ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
+                         ir::MapStack<std::string, ir::Expr> frames,
+                         const std::string &iter_name,
+                         const std::string &node_type, const std::string &field,
+                         const LayoutTypeMap &ltmap) {
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         uint32_t group_count = 0;
         uint32_t split_count = 0;
@@ -225,11 +227,14 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
                 const ir::Group *node = l.as<ir::Group>();
                 std::string field_name = group_name(group_count++, node->name);
                 ir::Expr path = ir::Access::make(field_name, base);
-                ir::Expr index = ir::Var::make(node->index_t, iter_name + "_" + node->name);
+                ir::Expr index =
+                    ir::Var::make(node->index_t, iter_name + "_" + node->name);
                 path = ir::Extract::make(std::move(path), index);
                 frames.push_frame();
                 frames.add_to_frame(node->name, index);
-                ir::Expr rec = field_in_layout(path, node->inner, frames, iter_name, node_type, field, ltmap);
+                ir::Expr rec =
+                    field_in_layout(path, node->inner, frames, iter_name,
+                                    node_type, field, ltmap);
                 frames.pop_frame();
                 if (rec.defined()) {
                     return rec;
@@ -242,8 +247,10 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
                 // type.
                 for (const auto &arm : node->arms) {
                     if (!arm.name.has_value() || (*arm.name == node_type)) {
-                        std::string field_name = split_name(split_count++, node->field);
-                        ir::Expr path = ir::Access::make(std::move(field_name), base);
+                        std::string field_name =
+                            split_name(split_count++, node->field);
+                        ir::Expr path =
+                            ir::Access::make(std::move(field_name), base);
                         auto iter = ltmap.layout_to_type.find(arm.layout);
                         internal_assert(iter != ltmap.layout_to_type.cend())
                             << "Unseen Switch arm layout: " << ir::Layout(node)
@@ -252,7 +259,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout, ir::Map
                         path = ir::Cast::make(reinterpret_type, path,
                                               ir::Cast::Mode::Reinterpret);
                         frames.push_frame();
-                        ir::Expr rec = field_in_layout(path, arm.layout, frames, iter_name, node_type, field, ltmap);
+                        ir::Expr rec =
+                            field_in_layout(path, arm.layout, frames, iter_name,
+                                            node_type, field, ltmap);
                         frames.pop_frame();
                         if (rec.defined()) {
                             return rec;
@@ -339,7 +348,9 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
 
             for (const auto &pair : path) {
                 internal_assert(pair.second.has_value());
-                ir::Expr value = field_in_layout(base, layout, ir::MapStack<std::string, ir::Expr>(), obj_name, node_name, pair.first, ltmap);
+                ir::Expr value = field_in_layout(
+                    base, layout, ir::MapStack<std::string, ir::Expr>(),
+                    obj_name, node_name, pair.first, ltmap);
                 ir::Expr constant = make_const(value.type(), *pair.second);
                 // TODO: support non-eq matching? e.g. ranges?
                 ir::Expr eq = ir::BinOp::make(ir::BinOp::Eq, std::move(value),
@@ -488,7 +499,8 @@ struct FillHole : public ir::Mutator {
     }
 };
 
-ir::Expr flatten_tuple(ir::Expr expr, const std::map<std::string, ir::Expr> &references) {
+ir::Expr flatten_tuple(ir::Expr expr,
+                       const std::map<std::string, ir::Expr> &references) {
     std::vector<ir::Expr> exprs;
 
     std::function<void(const ir::Expr &)> handle_tuple =
@@ -499,7 +511,8 @@ ir::Expr flatten_tuple(ir::Expr expr, const std::map<std::string, ir::Expr> &ref
             }
             return;
         } else if (const ir::Var *var = t.as<ir::Var>()) {
-            if (const auto &iter = references.find(var->name); iter != references.cend()) {
+            if (const auto &iter = references.find(var->name);
+                iter != references.cend()) {
                 handle_tuple(iter->second);
                 return;
             }
@@ -527,12 +540,15 @@ ir::Expr flatten_tuple(ir::Expr expr, const std::map<std::string, ir::Expr> &ref
     return ir::Build::make(std::move(tuple), std::move(exprs));
 }
 
-ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body, const std::map<std::string, ir::Expr> &references) {
+ir::Stmt
+flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
+                    const std::map<std::string, ir::Expr> &references) {
     struct FlattenYieldFroms : public ir::Mutator {
         const IndexTList &index_list;
         const std::map<std::string, ir::Expr> &references;
 
-        FlattenYieldFroms(const IndexTList &index_list, const std::map<std::string, ir::Expr> &references)
+        FlattenYieldFroms(const IndexTList &index_list,
+                          const std::map<std::string, ir::Expr> &references)
             : index_list(index_list), references(references) {}
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
@@ -555,7 +571,8 @@ ir::Stmt flatten_yield_froms(const IndexTList &index_list, ir::Stmt body, const 
                         << "Expected " << index_list.size()
                         << " values, but found: " << type
                         << " in recursive function of: " << ir::Stmt(node)
-                        << "\n with type: " << type << " of flattened id: " << id;
+                        << "\n with type: " << type
+                        << " of flattened id: " << id;
 
                     for (size_t i = 0; i < index_list.size(); i++) {
                         internal_assert(
@@ -628,7 +645,9 @@ struct LowerMatches : public ir::Mutator {
             std::map<std::string, ir::Expr> field_map;
             const std::string &branch_name = arm.first.name();
             for (const auto &field : arm.first.fields()) {
-                field_map[field.name] = field_in_layout(base_struct, layout, ir::MapStack<std::string, ir::Expr>{}, tree_name, branch_name, field.name, ltmap);
+                field_map[field.name] = field_in_layout(
+                    base_struct, layout, ir::MapStack<std::string, ir::Expr>{},
+                    tree_name, branch_name, field.name, ltmap);
             }
 
             // Lower these Unwraps.
@@ -653,7 +672,6 @@ struct LowerMatches : public ir::Mutator {
             index_list.insert(index_list.end(),
                               std::make_move_iterator(node_index_list.begin()),
                               std::make_move_iterator(node_index_list.end()));
-            
         }
         matched_objects.insert(tree_name);
 
@@ -748,7 +766,9 @@ struct LowerMatches : public ir::Mutator {
         for (size_t i = 0; i < n; i++) {
             values[i] = mutate(node->values[i]);
             not_changed = not_changed && values[i].same_as(node->values[i]);
-            not_changed_type = not_changed_type && ir::equals(values[i].type(), node->values[i].type());
+            not_changed_type =
+                not_changed_type &&
+                ir::equals(values[i].type(), node->values[i].type());
         }
         if (not_changed) {
             return node;
@@ -756,7 +776,9 @@ struct LowerMatches : public ir::Mutator {
         if (not_changed_type) {
             return ir::Build::make(node->type, std::move(values));
         }
-        internal_assert(node->type.is<ir::Tuple_t>()) << "Mutated type of non-tuple in layout lowering: " << ir::Expr(node);
+        internal_assert(node->type.is<ir::Tuple_t>())
+            << "Mutated type of non-tuple in layout lowering: "
+            << ir::Expr(node);
         return make_tuple(std::move(values));
     }
 };

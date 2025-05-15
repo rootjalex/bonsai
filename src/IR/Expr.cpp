@@ -1115,7 +1115,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
             }
         } else if (op == SetOp::product) {
             internal_assert(a.type().is_iterable() && b.type().is_iterable())
-                << "Expected args of product to be iterables, instead received: "
+                << "Expected args of product to be iterables, instead "
+                   "received: "
                 << a << " : " << a.type() << " and " << b << " : " << b.type();
             Type atype = a.type().element_of();
             Type btype = b.type().element_of();
