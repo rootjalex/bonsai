@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: /src/Parser/Parser.cpp:60
+[internal] Error: src/Parser/Parser.cpp:60
 tests/bonsai/error/struct_default.bonsai:5:17: [parse error] Cannot check type of unknown var: o
 
     d : vec3f = o; // not allowed: non-constant set value.

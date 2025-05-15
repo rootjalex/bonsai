@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: /src/IR/ValidateLayout.cpp:125
+[internal] Error: src/IR/ValidateLayout.cpp:125
 
 --> iter != defined.cend()
 Switch does not have access to field: offset

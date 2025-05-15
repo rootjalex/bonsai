@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: /src/Lower/VerifyOptions.cpp:153
+[internal] Error: src/Lower/VerifyOptions.cpp:153
 
 --> is_safe_to_deref(node->value)
 illegal dereference of `i: i32`

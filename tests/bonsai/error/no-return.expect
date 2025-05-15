@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: /src/Lower/TypeInference.cpp:510
+[internal] Error: src/Lower/TypeInference.cpp:510
 
 --> ftypes->ret_type.is<ir::Void_t>() || always_returns(ftypes->body)
 Function: foo does not return in all code paths.

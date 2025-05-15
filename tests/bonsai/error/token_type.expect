@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: /src/Parser/Parser.cpp:60
+[internal] Error: src/Parser/Parser.cpp:60
 tests/bonsai/error/token_type.bonsai:1:34: [parse error] expected: id, received: int
 
 func me_parsed_wrong(i : i32) -> 42;
