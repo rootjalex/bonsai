@@ -168,6 +168,7 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Iterate);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
@@ -189,6 +190,7 @@ struct ReturnType : public Visitor {
 
     RESTRICT_VISITOR(Match);
     RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Iterate);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);

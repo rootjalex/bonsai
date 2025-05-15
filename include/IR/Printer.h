@@ -145,6 +145,7 @@ struct Printer : public Visitor {
     void visit(const RecLoop *) override;
     void visit(const Match *) override;
     void visit(const Yield *) override;
+    void visit(const Iterate *) override;
     void visit(const Scan *) override;
     void visit(const YieldFrom *) override;
     void visit(const ForAll *) override;

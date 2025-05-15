@@ -480,6 +480,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                         ir::Var::make(data[i].type.element_of(), name));
                     stmts[i] = ir::ForEach::make(
                         std::move(name), std::move(access), std::move(body));
+                    // stmts[i] = ir::Iterate::make(data[i])
                 } else {
                     // yield d
                     stmts[i] = ir::Yield::make(std::move(access));

@@ -1188,6 +1188,13 @@ void Printer::visit(const Yield *node) {
     os << "\n";
 }
 
+void Printer::visit(const Iterate *node) {
+    os << get_indent();
+    os << "iter ";
+    print_no_parens(node->value);
+    os << "\n";
+}
+
 void Printer::visit(const Scan *node) {
     os << get_indent();
     os << "scan ";

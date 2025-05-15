@@ -576,6 +576,14 @@ Stmt Mutator::visit(const Yield *node) {
     return Yield::make(std::move(value));
 }
 
+Stmt Mutator::visit(const Iterate *node) {
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return Scan::make(std::move(value));
+}
+
 Stmt Mutator::visit(const Scan *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {

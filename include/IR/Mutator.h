@@ -83,6 +83,7 @@ struct Mutator {
     virtual Stmt visit(const RecLoop *);
     virtual Stmt visit(const Match *);
     virtual Stmt visit(const Yield *);
+    virtual Stmt visit(const Iterate *);
     virtual Stmt visit(const Scan *);
     virtual Stmt visit(const YieldFrom *);
     virtual Stmt visit(const ForAll *);

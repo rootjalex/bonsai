@@ -250,6 +250,8 @@ void Visitor::visit(const Match *node) {
 
 void Visitor::visit(const Yield *node) { node->value.accept(this); }
 
+void Visitor::visit(const Iterate *node) { node->value.accept(this); }
+
 void Visitor::visit(const Scan *node) { node->value.accept(this); }
 
 void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }

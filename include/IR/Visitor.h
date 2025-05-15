@@ -74,6 +74,7 @@ struct Visitor {
     virtual void visit(const RecLoop *);
     virtual void visit(const Match *);
     virtual void visit(const Yield *);
+    virtual void visit(const Iterate *);
     virtual void visit(const Scan *);
     virtual void visit(const YieldFrom *);
     virtual void visit(const ForAll *);

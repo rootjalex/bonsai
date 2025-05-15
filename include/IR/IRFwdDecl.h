@@ -80,6 +80,7 @@ struct Label;
 struct RecLoop;
 struct Match;
 struct Yield;
+struct Iterate;
 struct Scan;
 struct YieldFrom;
 struct ForAll;

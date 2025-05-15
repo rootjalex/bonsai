@@ -87,6 +87,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);
     RESTRICT_VISITOR(ir::Yield);
+    RESTRICT_VISITOR(ir::Iterate);
     RESTRICT_VISITOR(ir::Scan);
 
   private:

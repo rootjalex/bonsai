@@ -11,7 +11,7 @@ namespace bonsai {
 namespace lower {
 
 // For now, this takes functions with a single Yield and turns it into a Return.
-// In the future, this should lower Yields/Scans into the appropriate code
+// In the future, this should lower Yields/Scans/Iterates into the appropriate code
 // that inserts into output data structures (which can be difficult in the
 // dynamic size cases).
 class LowerYields : public Pass {
