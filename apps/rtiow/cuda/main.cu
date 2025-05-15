@@ -42,9 +42,9 @@ inline float get_axis(float3 v, int index) {
     __builtin_unreachable();
 }
 
-_spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
+_tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
                                    size_t max_prims) {
-    _spheres_layout0 tree;
+    _tree_layout0 tree;
     tree.pCount = spheres.size();
     tree.prims = spheres.data();
     // Just do a simple split, don't even sort for now.
@@ -54,8 +54,8 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
     size_t leaf_count = (tree.pCount + (max_prims - 1)) / max_prims;
     size_t internal_count = leaf_count - 1;
     tree.count = leaf_count + internal_count;
-    tree.spheres_index =
-        (_spheres_layout1 *)malloc(sizeof(_spheres_layout1) * tree.count);
+    tree.group0_index =
+        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.count);
 
     uint32_t next_node = 0;
 
@@ -67,21 +67,21 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
 
         if (count <= 2) {
             // Leaf node
-            tree.spheres_index[this_index].nPrims = count;
+            tree.group0_index[this_index].nPrims = count;
             *reinterpret_cast<uint16_t *>(
-                &tree.spheres_index[this_index].spheres_spliton_nPrims) = low;
+                &tree.group0_index[this_index].split0on_nPrims) = low;
             if (count == 1) {
-                tree.spheres_index[this_index].center = spheres[low].s.center;
-                tree.spheres_index[this_index].radius = spheres[low].s.radius;
+                tree.group0_index[this_index].center = spheres[low].s.center;
+                tree.group0_index[this_index].radius = spheres[low].s.radius;
             } else if (count == 2) {
                 Sphere merged;
                 bounding_sphere(&merged, &spheres[low].s, &spheres[low + 1].s);
-                tree.spheres_index[this_index].center = merged.center;
-                tree.spheres_index[this_index].radius = merged.radius;
+                tree.group0_index[this_index].center = merged.center;
+                tree.group0_index[this_index].radius = merged.radius;
             }
         } else {
             // Internal node
-            tree.spheres_index[this_index].nPrims = 0;
+            tree.group0_index[this_index].nPrims = 0;
 
             float3 min_bound = spheres[low].s.center;
             float3 max_bound = spheres[low].s.center;
@@ -116,19 +116,19 @@ _spheres_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
             // Set split offset (offset from this node to right child)
             uint32_t offset = right - this_index;
             *reinterpret_cast<uint16_t *>(
-                &tree.spheres_index[this_index].spheres_spliton_nPrims) =
+                &tree.group0_index[this_index].split0on_nPrims) =
                 offset;
 
             // Compute bounding volume
             Sphere merged;
-            Sphere s1 = Sphere{tree.spheres_index[left].center,
-                               tree.spheres_index[left].radius};
-            Sphere s2 = Sphere{tree.spheres_index[right].center,
-                               tree.spheres_index[right].radius};
+            Sphere s1 = Sphere{tree.group0_index[left].center,
+                               tree.group0_index[left].radius};
+            Sphere s2 = Sphere{tree.group0_index[right].center,
+                               tree.group0_index[right].radius};
             bounding_sphere(&merged, &s1, &s2);
 
-            tree.spheres_index[this_index].center = merged.center;
-            tree.spheres_index[this_index].radius = merged.radius;
+            tree.group0_index[this_index].center = merged.center;
+            tree.group0_index[this_index].radius = merged.radius;
         }
 
         return this_index;
@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    _spheres_layout0 tree = build_tree_simple(spheres, 1);
+    _tree_layout0 tree = build_tree_simple(spheres, 1);
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
     cam.width = 1423; // makes height = 800
