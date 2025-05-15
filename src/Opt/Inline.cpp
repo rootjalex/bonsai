@@ -25,14 +25,12 @@ class Inliner : public ir::Mutator {
     ir::Expr visit(const ir::Call *node) override {
         const ir::Var *v = node->func.as<ir::Var>();
         if (v == nullptr) {
-            // (here and below)
-            // TODO(bonsai/issues/176): this should be visiting recursively.
-            return node;
+            return Mutator::visit(node);
         }
         const std::string &function_name = v->name;
         auto it = function_to_expr.find(function_name);
         if (it == function_to_expr.end()) {
-            return node;
+            return Mutator::visit(node);
         }
         auto f = functions.find(function_name);
         internal_assert(f != functions.end());

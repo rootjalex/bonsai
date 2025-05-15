@@ -1073,6 +1073,55 @@ void CodeGen_CUDA::emit_prologue() {
     os << '\n';
 }
 
+void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
+    internal_assert(function.is_kernel())
+        << "CUDA rng can only run on device, received:\n"
+        << function;
+    // We need to print the thread index (first statement) before cuRAND
+    // state setup since it is used as a seed.
+    const auto *seq = function.body.as<Sequence>();
+    internal_assert(seq) << "unexpected kernel with non-sequence body: "
+                         << function.body;
+    // Whether we've seen this exit condition.
+    bool thread_within_bounds_visited = false;
+    // Whether the thread index (TID) has been initialized. This is absolutely
+    // necessary before we visit the exit condition and ensures the compiler
+    // will never haphazardly produce incorrect code.
+    bool tid_seen = false;
+    for (int i = 0, e = seq->stmts.size(); i < e; ++i) {
+        seq->stmts[i].accept(this);
+        constexpr char TID[] = "tid";
+        if (const auto *seed = seq->stmts[i].as<LetStmt>();
+            !tid_seen && seed && seed->loc.base == TID) {
+            tid_seen = true;
+        }
+        // TODO(cgyurgyik): We can future-proof this even more by ensuring the
+        // condition contains the correct variable (which won't be TID, so isn't
+        // necessarily straight forward). However, this is a good first step.
+        if (thread_within_bounds_visited || !tid_seen) {
+            continue;
+        }
+        // We'd like to only initialize this state if the thread id is within
+        // bounds. This is usually done by some statement of the form:
+        //  `if (tid >= C) { return; }`
+        const auto *ifelse = seq->stmts[i].as<IfElse>();
+        if (ifelse == nullptr) {
+            continue;
+        }
+        const auto *r = ifelse->then_body.as<Return>();
+        if (r == nullptr || r->value.defined()) {
+            continue;
+        }
+        thread_within_bounds_visited = true;
+        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
+        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
+           << lower::rng_state_name << ");\n";
+    }
+    internal_assert(thread_within_bounds_visited)
+        << "the thread id is never verified to be within bounds for kernel: "
+        << function;
+}
+
 void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
@@ -1160,25 +1209,7 @@ void CodeGen_CUDA::print(const Function &function) {
     os << ')' << ' ' << '{' << '\n';
     increment();
     if (function.must_setup_rng()) {
-        internal_assert(function.is_kernel())
-            << "CUDA rng can only run on device, received:\n"
-            << function;
-        // We need to print the thread index (first statement) before cuRAND
-        // state setup since it is used as a seed.
-        const auto *seq = function.body.as<Sequence>();
-        internal_assert(seq)
-            << "unexpected kernel with non-sequence body: " << function.body;
-        constexpr char TID[] = "tid";
-        const auto *seed = seq->stmts.front().as<LetStmt>();
-        internal_assert(seed && seed->loc.base == TID)
-            << "unexpected first statement in kernel: " << Stmt(seed);
-        seed->accept(this);
-        os << get_indent() << "curandState " << lower::rng_state_name << ";\n";
-        os << get_indent() << "curand_init(" << TID << ", 0, 0, &"
-           << lower::rng_state_name << ");\n";
-        for (int i = 1, e = seq->stmts.size(); i < e; ++i) {
-            seq->stmts[i].accept(this);
-        }
+        setup_kernel_rng(function);
     } else {
         function.body.accept(this);
     }
