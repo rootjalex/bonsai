@@ -128,7 +128,7 @@ bool Type::is_stack_allocatable() const {
                 [](const auto &p) { return p.is_stack_allocatable(); }));
 }
 
-bool Type::is_iterable() const { return is<Vector_t, Array_t>(); }
+bool Type::is_iterable() const { return is<Vector_t, Array_t, Set_t>(); }
 
 bool Type::is_func() const { return is<Function_t>(); }
 

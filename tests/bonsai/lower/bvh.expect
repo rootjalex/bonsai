@@ -48,7 +48,7 @@ func _traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree
       }
     | Leaf(low : f32x3, high : f32x3, data : Triangle) with AABB(low, high) ->
       if (intersects(build<AABB>((triangles as Leaf).low, (triangles as Leaf).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
-        if (intersects(((triangles as Leaf).data, (triangles2 as Leaf).data)[0], ((triangles as Leaf).data, (triangles2 as Leaf).data)[1])) {
+        if (intersects((triangles as Leaf).data, (triangles2 as Leaf).data)) {
           yield ((triangles as Leaf).data, (triangles2 as Leaf).data)
         }
       }

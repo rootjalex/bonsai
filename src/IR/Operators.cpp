@@ -105,6 +105,10 @@ Expr map(Expr func, Expr set) {
     return SetOp::make(SetOp::map, std::move(func), std::move(set));
 }
 
+Expr product(Expr a, Expr b) {
+    return SetOp::make(SetOp::product, std::move(a), std::move(b));
+}
+
 Expr sqrt(Expr a) { return Intrinsic::make(Intrinsic::sqrt, {std::move(a)}); }
 
 Expr norm(Expr a) { return Intrinsic::make(Intrinsic::norm, {std::move(a)}); }

@@ -41,6 +41,7 @@ Expr contains(Expr a, Expr b);
 Expr filter(Expr predicate, Expr set);
 Expr argmin(Expr metric, Expr set);
 Expr map(Expr func, Expr set);
+Expr product(Expr a, Expr b);
 
 Expr sqrt(Expr a);
 Expr norm(Expr a);
