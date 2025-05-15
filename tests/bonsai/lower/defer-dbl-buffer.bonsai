@@ -16,7 +16,7 @@ func num_hits(ray : Ray, depth : i32, acc : i32) -> i32 {
     } else if foo(ray) {
         return num_hits(bounce(ray), depth - 1, acc + 1);
     } else {
-        return acc;
+        return -1;
     }
 }
 

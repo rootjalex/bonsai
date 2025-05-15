@@ -38,7 +38,7 @@ func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _w
     enqueue<hit_queue>(bounce(ray), depth - 1, acc + 1, _write__alloc0, _write__i0, hit_queue)
     return
   } else {
-    _write__alloc0[_write__i0] = acc
+    _write__alloc0[_write__i0] = -1
     return
   }
 }
