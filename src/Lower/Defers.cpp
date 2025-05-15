@@ -551,7 +551,9 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
                 << stmt;
             internal_assert(funcs.contains(func->name))
                 << func->name << " " << stmt;
-            return rewrite_loop_body(funcs.at(func->name)->body);
+            Stmt body = std::move(funcs.at(func->name)->body);
+            funcs.erase(func->name);
+            return rewrite_loop_body(body);
         }
         return rewrite_loop_body(stmt);
     }

@@ -9,14 +9,6 @@ func _queued_expensive(ray : Ray, _write__alloc0 : mut i32[n], _write__i0 : i32)
   return
 }
 
-func _traverse_array0(n : i32, rays : Ray[n]) -> i32[n] {
-  alloc _alloc0 : mut i32[n]
-  forall _i0 in [0:n:1] {
-    _alloc0[_i0] = num_hits(rays[_i0], 100, 0)
-  }
-  return _alloc0
-}
-
 func bounce(ray : Ray) -> Ray {
   return build<Ray>(ray.o + rand(3), rand(3), (f32)inf)
 }
