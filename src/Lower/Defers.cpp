@@ -431,6 +431,11 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
                         consumer_to_producer, funcs);
 
     Expr queue = Var::make(queue_type, queue_name);
+    Expr queue_size = Extract::make(queue, 0);
+    Expr queue_data = Extract::make(queue, 1);
+
+    Expr initial = make_tuple(
+        {make_zero(queue_size.type()), Build::make(queue_data.type())});
 
     auto process_producer_loop = [&](bool include_queue) {
         const std::string &name =
@@ -498,7 +503,7 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
             const std::string dbl_buffer = second_buffer(queue_name);
             Expr queue1 = Var::make(queue_type, dbl_buffer);
             // TODO: make sure this lowers correctly.
-            Expr not_empty = cast(Bool_t::make(), queue);
+            Expr not_empty = queue_size > 0;
             WriteLoc dbl_buffer_loc(dbl_buffer, queue_type);
             const std::string tmp = "_tmp_" + dbl_buffer;
             WriteLoc tmp_loc(tmp, queue_type);
@@ -507,7 +512,7 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
             handle_queue = Sequence::make(
                 {// Should this be heap?
                  Allocate::make(WriteLoc(dbl_buffer, queue_type),
-                                Allocate::Stack),
+                                std::move(initial), Allocate::Stack),
                  DoWhile::make(
                      Sequence::make(
                          {process_queue,
@@ -521,10 +526,14 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
             handle_queue = process_producer_loop(false);
         }
 
-        std::vector<Stmt> stmts = {// Should this be heap?
-                                   Allocate::make(queue_loc, Allocate::Stack),
-                                   repl, // perform original code
-                                   handle_queue};
+        Expr initial = make_tuple(
+            {make_zero(queue_size.type()), Build::make(queue_data.type())});
+
+        std::vector<Stmt> stmts = {
+            // Should this be heap?
+            Allocate::make(queue_loc, std::move(initial), Allocate::Stack),
+            repl, // perform original code
+            handle_queue};
         if (ret.defined()) {
             stmts.push_back(std::move(ret));
         }

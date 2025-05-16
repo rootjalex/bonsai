@@ -121,11 +121,7 @@ struct TuplesToStructs : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Build *node) override {
-        const ir::Tuple_t *as_tuple = node->type.as<ir::Tuple_t>();
-        if (as_tuple == nullptr) {
-            return ir::Mutator::visit(node);
-        }
-        ir::Type struct_t = visit(as_tuple);
+        ir::Type new_t = mutate(node->type);
 
         const size_t n = node->values.size();
         std::vector<ir::Expr> values(n);
@@ -134,7 +130,7 @@ struct TuplesToStructs : public ir::Mutator {
             values[i] = mutate(node->values[i]);
         }
 
-        return ir::Build::make(std::move(struct_t), std::move(values));
+        return ir::Build::make(std::move(new_t), std::move(values));
     }
 };
 
