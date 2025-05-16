@@ -65,10 +65,6 @@ struct LowerToForAll : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
-        internal_assert(!contains<ir::Yield>(node->body));
-
-        // TODO: should generate a For loop if not parallelizable...
-
         ir::Expr iterable = node->iter;
 
         const ir::Array_t *array_type = iterable.type().as<ir::Array_t>();

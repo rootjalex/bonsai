@@ -28,6 +28,7 @@ struct Mutator {
     virtual Type visit(const Struct_t *);
     virtual Type visit(const Tuple_t *);
     virtual Type visit(const Array_t *);
+    virtual Type visit(const DynArray_t *);
     virtual Type visit(const Option_t *);
     virtual Type visit(const Set_t *);
     virtual Type visit(const Function_t *);
@@ -92,6 +93,7 @@ struct Mutator {
     virtual Stmt visit(const Continue *);
     virtual Stmt visit(const Launch *);
     virtual Stmt visit(const QueueWrite *);
+    virtual Stmt visit(const Append *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

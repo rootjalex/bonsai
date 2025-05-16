@@ -29,6 +29,7 @@ enum class IRTypeEnum {
     Struct_t,
     Tuple_t,
     Array_t,
+    DynArray_t,
     Option_t,
     Set_t,
     Function_t,

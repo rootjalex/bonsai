@@ -378,6 +378,18 @@ Type Array_t::make(Type etype, Expr size) {
     return node;
 }
 
+Type DynArray_t::make(Type etype, Expr capacity) {
+    internal_assert(etype.defined())
+        << "DynArray_t::make received undefined etype";
+    if (!capacity.defined()) {
+        capacity = Expr(16);
+    }
+    DynArray_t *node = new DynArray_t;
+    node->etype = std::move(etype);
+    node->capacity = std::move(capacity);
+    return node;
+}
+
 Type Option_t::make(Type etype) {
     internal_assert(etype.defined())
         << "Option_t::make received undefined etype";

@@ -490,6 +490,10 @@ void Printer::visit(const Struct_t *node) {
             // TODO: flip? if easier to read.
             os << key << " : ";
             print(value);
+            if (auto it = node->defaults.find(key);
+                it != node->defaults.end()) {
+                os << " = " << it->second;
+            }
         }
         os << " }";
     }
@@ -513,6 +517,21 @@ void Printer::visit(const Array_t *node) {
         }
     }
     os << "]";
+}
+
+void Printer::visit(const DynArray_t *node) {
+    print(node->etype);
+    os << "{";
+    ir::Expr capacity = node->capacity;
+    if (capacity.defined()) {
+        if (std::optional<uint64_t> constant_size =
+                get_constant_value(capacity)) {
+            os << std::to_string(*constant_size);
+        } else {
+            print_no_parens(node->capacity);
+        }
+    }
+    os << "}";
 }
 
 void Printer::visit(const Option_t *node) {
@@ -1281,6 +1300,14 @@ void Printer::visit(const QueueWrite *node) {
     os << get_indent() << "enqueue<";
     os << node->queue << ">(";
     print_expr_list(node->args);
+    os << ")\n";
+}
+
+void Printer::visit(const Append *node) {
+    os << get_indent() << "append<";
+    os << node->loc;
+    os << ">(";
+    print_no_parens(node->value);
     os << ")\n";
 }
 

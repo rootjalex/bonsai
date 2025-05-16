@@ -206,6 +206,11 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         // TODO: check size equality?
         return compare_types(t0.as<Array_t>()->etype, t1.as<Array_t>()->etype);
     }
+    case IRTypeEnum::DynArray_t: {
+        // TODO: check size equality?
+        return compare_types(t0.as<DynArray_t>()->etype,
+                             t1.as<DynArray_t>()->etype);
+    }
     case IRTypeEnum::Option_t: {
         return compare_types(t0.as<Option_t>()->etype,
                              t1.as<Option_t>()->etype);

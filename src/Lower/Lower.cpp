@@ -3,7 +3,9 @@
 #include "IR/Mutator.h"
 #include "Lower/Canonicalize.h"
 #include "Lower/Defers.h"
+#include "Lower/DynamicArrays.h"
 #include "Lower/Externs.h"
+#include "Lower/Filters.h"
 #include "Lower/ForEachs.h"
 #include "Lower/Generics.h"
 #include "Lower/Geometrics.h"
@@ -58,7 +60,9 @@ void lower(ir::Program &program, const CompilerOptions &options) {
 
     // Run the passes.
     for (Pass *pass : passes) {
+        // std::cerr << pass->name() << ":\n";
         program = pass->run(std::move(program), options);
+        // std::cerr << "::::::::::::::::::::::::\n";
     }
 }
 
@@ -82,9 +86,12 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerDefers>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
+    manager.register_pass<LowerMaps>();
+    manager.register_pass<LowerFilters>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<LowerTuples>();
+    manager.register_pass<LowerDynamicArrays>();
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
@@ -122,11 +129,13 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must *always* go after parallelization,
     // and before Mutability
     core.push_back(std::make_unique<LowerRandom>());
+    core.push_back(std::make_unique<LowerFilters>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
+    core.push_back(std::make_unique<LowerDynamicArrays>());
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
@@ -159,11 +168,13 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must *always* go after parallelization,
     // and before Mutability
     d.push_back(std::make_unique<LowerRandom>());
+    d.push_back(std::make_unique<LowerFilters>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
+    d.push_back(std::make_unique<LowerDynamicArrays>());
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());

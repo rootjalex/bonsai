@@ -40,6 +40,7 @@ enum class IRStmtEnum {
     Continue,
     Launch,
     QueueWrite,
+    Append,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -319,6 +320,14 @@ struct QueueWrite : StmtNode<QueueWrite> {
     static Stmt make(std::string queue, std::vector<Expr> args);
 
     static const IRStmtEnum node_type = IRStmtEnum::QueueWrite;
+};
+
+struct Append : StmtNode<Append> {
+    WriteLoc loc;
+    Expr value;
+    static Stmt make(WriteLoc loc, Expr value);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Append;
 };
 
 } // namespace ir

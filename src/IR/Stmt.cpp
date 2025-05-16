@@ -91,9 +91,9 @@ Stmt DoWhile::make(Stmt body, Expr cond) {
 
 Stmt Sequence::make(std::vector<Stmt> stmts) {
     internal_assert(!stmts.empty()) << "Empty stmts in Sequence::make";
-    if (stmts.size() == 1) {
-        return stmts[0];
-    }
+    // if (stmts.size() == 1) {
+    //     return stmts[0];
+    // }
     Sequence *node = new Sequence;
     node->stmts = std::move(stmts);
     return node;
@@ -319,14 +319,26 @@ Stmt Launch::make(std::string func, Expr n, std::vector<Expr> args) {
 
 Stmt QueueWrite::make(std::string queue, std::vector<Expr> args) {
     internal_assert(!queue.empty())
-        << "QueueWrite::make received undefined func";
+        << "QueueWrite::make received empty queue name";
     internal_assert(std::all_of(args.cbegin(), args.cend(),
                                 [](const Expr &e) { return e.defined(); }))
-        << "Launch::make received undefined arg to func: " << queue;
+        << "QueueWrite::make received undefined arg to func: " << queue;
 
     QueueWrite *node = new QueueWrite;
     node->queue = std::move(queue);
     node->args = std::move(args);
+    return node;
+}
+
+Stmt Append::make(WriteLoc loc, Expr value) {
+    internal_assert(!loc.base.empty())
+        << "Append::make received empty allocation name";
+    internal_assert(loc.type.defined())
+        << "Append::make received untyped allocation";
+    internal_assert(value.defined()) << "Append::make received undefined value";
+    Append *node = new Append;
+    node->loc = std::move(loc);
+    node->value = std::move(value);
     return node;
 }
 

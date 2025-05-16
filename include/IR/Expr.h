@@ -461,6 +461,18 @@ struct Array_t : TypeNode<Array_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Array_t;
 };
 
+struct DynArray_t : TypeNode<DynArray_t> {
+    Type etype;
+
+    // The maximum capacity of this array upon creation. If full, it will be
+    // dynamically resized (handled in the backend code generation phase).
+    Expr capacity;
+
+    static Type make(Type etype, Expr capacity = Expr());
+
+    static const IRTypeEnum node_type = IRTypeEnum::DynArray_t;
+};
+
 } // namespace ir
 
 template <>

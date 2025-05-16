@@ -103,13 +103,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;
-    virtual void visit(const ir::Tuple_t *) override;
     virtual void visit(const ir::Function_t *) override;
+    virtual void visit(const ir::Rand_State_t *) override;
+    // These should have been lowered already.
+    RESTRICT_VISITOR(ir::DynArray_t);
     RESTRICT_VISITOR(ir::Option_t);
+    RESTRICT_VISITOR(ir::Tuple_t);
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
-    virtual void visit(const ir::Rand_State_t *) override;
     RESTRICT_VISITOR(ir::Queue_t); // TODO
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
@@ -157,6 +159,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
+    virtual void visit(const ir::Append *) override;
     // TODO(cgyurgyik): support deallocation.
     RESTRICT_VISITOR(ir::Free);
     RESTRICT_VISITOR(ir::RecLoop);

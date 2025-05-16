@@ -212,6 +212,9 @@ struct LowerMapsImpl : public Mutator {
         if (node->op == SetOp::map && node->type.is<Array_t>()) {
             return build_func(node);
         }
+        if (node->op == SetOp::filter && node->type.is<Array_t>()) {
+            return build_func(node);
+        }
         return Mutator::visit(node);
     }
 

@@ -28,6 +28,11 @@ struct GatherFreeVars : public Visitor {
                 array_t->size.accept(this);
                 type = array_t->etype;
             }
+            while (type.is<DynArray_t>()) {
+                const auto *array_t = type.as<DynArray_t>();
+                array_t->capacity.accept(this);
+                type = array_t->etype;
+            }
             free_vars.push_back({node->name, node->type});
             seen_vars.insert(node->name);
         }
@@ -49,6 +54,12 @@ struct GatherFreeVars : public Visitor {
         if (node->value.defined()) {
             node->value.accept(this);
         }
+    }
+
+    void visit(const Append *node) override {
+        seen_vars.insert(node->loc.base);
+        free_vars.push_back({node->loc.base, node->loc.base_type});
+        node->value.accept(this);
     }
 
     void visit(const Store *node) override {
@@ -152,6 +163,7 @@ struct AlwaysReturns : public Visitor {
         node->stmts.back().accept(this);
     }
 
+    void visit(const Append *node) override { returns = false; }
     void visit(const CallStmt *node) override { returns = false; }
     void visit(const LetStmt *node) override { returns = false; }
     void visit(const Allocate *node) override { returns = false; }
@@ -197,6 +209,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(DoWhile);
     RESTRICT_VISITOR(Launch);
     RESTRICT_VISITOR(QueueWrite);
+    RESTRICT_VISITOR(Append);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);
@@ -298,6 +311,20 @@ struct HasSideEffects : ir::Visitor {
     }
 
     void visit(const ir::Free *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
+
+    void visit(const ir::Append *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
+
+    void visit(const ir::QueueWrite *node) override {
         if (found) {
             return;
         }

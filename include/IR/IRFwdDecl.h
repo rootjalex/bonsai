@@ -17,6 +17,7 @@ struct Vector_t;
 struct Struct_t;
 struct Tuple_t;
 struct Array_t;
+struct DynArray_t;
 struct Option_t;
 struct Set_t;
 struct Function_t;
@@ -89,6 +90,7 @@ struct ForEach;
 struct Continue;
 struct Launch;
 struct QueueWrite;
+struct Append;
 
 // Layouts
 struct Name;

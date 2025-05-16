@@ -64,8 +64,8 @@ struct FindSoloYield : public ir::Visitor {
 ir::Stmt lower_yields_impl(const ir::Stmt &stmt) {
     FindSoloYield finder;
     stmt.accept(&finder);
-    internal_assert(finder.n_yields_in_loop == 0)
-        << "TODO: handle dynamic-sized outputs of tree traversals: " << stmt;
+    // internal_assert(finder.n_yields_in_loop == 0)
+    //     << "TODO: handle dynamic-sized outputs of tree traversals: " << stmt;
     internal_assert(finder.n_yields <= 1)
         << "TODO: handle dynamic-sized outputs of tree traversals: " << stmt;
     if (finder.n_yields == 0) {

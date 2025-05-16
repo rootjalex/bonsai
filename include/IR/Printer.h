@@ -88,6 +88,7 @@ struct Printer : public Visitor {
     void visit(const Struct_t *) override;
     void visit(const Tuple_t *) override;
     void visit(const Array_t *) override;
+    void visit(const DynArray_t *) override;
     void visit(const Option_t *) override;
     void visit(const Set_t *) override;
     void visit(const Function_t *) override;
@@ -155,6 +156,7 @@ struct Printer : public Visitor {
     void visit(const Continue *) override;
     void visit(const Launch *) override;
     void visit(const QueueWrite *) override;
+    void visit(const Append *) override;
     // Layouts
     void visit(const Name *) override;
     void visit(const Pad *) override;

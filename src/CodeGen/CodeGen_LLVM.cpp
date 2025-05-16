@@ -611,12 +611,6 @@ void CodeGen_LLVM::visit(const Struct_t *node) {
     type = struct_types[node->name];
 }
 
-void CodeGen_LLVM::visit(const Tuple_t *node) {
-    // TODO: struct_types should include tuples, probably? but they're
-    // unnamed... maybe use to_string() to map from node to built Struct_t
-    internal_error << "TODO: implement Tuple_t code generation: " << Type(node);
-}
-
 void CodeGen_LLVM::visit(const Rand_State_t *node) {
     // This is device-specific. For now, we default to a vector the size of the
     // vector width.
@@ -1950,10 +1944,19 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 void CodeGen_LLVM::visit(const Allocate *node) {
     llvm::Value *rhs = nullptr;
 
+    Type allocation_type = node->loc.base_type;
+    if (const auto *dynamic_array_t = allocation_type.as<Struct_t>()) {
+        internal_assert(dynamic_array_t->name.starts_with("__dyn_array"))
+            << allocation_type;
+        Expr v = Var::make(allocation_type, node->loc.base);
+        Expr a = Access::make("ptr", v);
+        allocation_type = a.type();
+    }
+
     if (node->value.defined()) {
         ScopedValue<Allocate::Memory> _(allocate_memory, node->memory);
         rhs = codegen_expr(node->value);
-    } else if (const Array_t *array_t = node->loc.base_type.as<Array_t>()) {
+    } else if (const Array_t *array_t = allocation_type.as<Array_t>()) {
         // Do allocation
         llvm::Type *etype = codegen_type(array_t->etype);
         internal_assert(array_t->size.defined());
@@ -1975,7 +1978,8 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         << "Allocating Allocate to non-local value: " << Stmt(node);
     internal_assert(!frames.from_frames(name).has_value()) << name;
 
-    llvm::Type *value_type = codegen_type(node->loc.base_type);
+    // TODO(cgyurgyik): I think this is wrong.
+    llvm::Type *value_type = codegen_type(allocation_type);
 
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
 
@@ -1987,6 +1991,13 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 void CodeGen_LLVM::visit(const Store *node) {
     llvm::Value *rhs = codegen_expr(node->value);
     llvm::Value *loc = codegen_write_loc(node->loc);
+    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+}
+
+void CodeGen_LLVM::visit(const Append *node) {
+    llvm::Value *rhs = codegen_expr(node->value);
+    llvm::Value *loc = codegen_write_loc(node->loc);
+    // TODO(cgyurgyik): Insert check for size.
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 

@@ -35,6 +35,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Struct_t *) override;
     void visit(const ir::Array_t *) override;
     void visit(const ir::Ptr_t *) override;
+
     RESTRICT_VISITOR(ir::Tuple_t);
     RESTRICT_VISITOR(ir::Function_t);
     RESTRICT_VISITOR(ir::Option_t);
@@ -42,7 +43,8 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
     void visit(const ir::Rand_State_t *) override;
-    RESTRICT_VISITOR(ir::Queue_t); // TODO
+    RESTRICT_VISITOR(ir::Queue_t);    // TODO
+    RESTRICT_VISITOR(ir::DynArray_t); // TODO
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
     RESTRICT_VISITOR(ir::IFloat);
@@ -84,6 +86,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Continue *) override;
     void visit(const ir::Launch *) override;
     RESTRICT_VISITOR(ir::QueueWrite);
+    RESTRICT_VISITOR(ir::Append);
     RESTRICT_VISITOR(ir::ForEach);
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
