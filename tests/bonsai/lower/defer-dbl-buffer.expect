@@ -13,12 +13,12 @@ func foo(ray : Ray) -> bool {
 }
 
 func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
-  hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32]
+  hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32][64]
   alloc _alloc0 : mut i32[n]
   forall _i0 in [0:n:1] {
     num_hits(rays[_i0], 100, 0, _alloc0, _i0, hit_queue)
   }
-  hit_queue_dbl_buffer : mut queue_t[Ray, i32, i32, i32[n], i32]
+  hit_queue_dbl_buffer : mut queue_t[Ray, i32, i32, i32[n], i32][64]
   do {
     foreach _hit_queue_task in hit_queue {
       num_hits(_hit_queue_task[0], _hit_queue_task[1], _hit_queue_task[2], _hit_queue_task[3], _hit_queue_task[4], hit_queue_dbl_buffer)
@@ -30,7 +30,7 @@ func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
   return _alloc0
 }
 
-func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32]) -> void {
+func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32][64]) -> void {
   if (depth <= 0) {
     _write__alloc0[_write__i0] = acc
     return
@@ -45,5 +45,7 @@ func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _w
 
 
 schedule host {
+    map_hits.make_queue(hit_queue, root, (i32)64)
     num_hits.defer(num_hits, map_hits.root, hit_queue)
+
 }

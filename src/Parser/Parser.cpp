@@ -2044,6 +2044,18 @@ struct Parser {
                 }
                 schedule.func_transforms[func].emplace_back(
                     ir::Loopify{std::move(queue_size)});
+            } else if (rewrite == "make_queue") {
+                // TODO(ajr): support dynamic queue sizes.
+                ir::Location queue = parse_location();
+                expect(Token::Type::COMMA);
+                ir::Location loop = parse_location();
+                std::optional<ir::Expr> queue_size;
+                if (peek().type != Token::Type::RPAREN) {
+                    expect(Token::Type::COMMA);
+                    queue_size = parse_expr();
+                }
+                schedule.func_transforms[func].emplace_back(ir::MakeQueue{
+                    std::move(queue), std::move(loop), std::move(queue_size)});
             } else if (rewrite == "sort") {
                 ir::Location loc = parse_location();
                 expect(Token::Type::COMMA);

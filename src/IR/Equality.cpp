@@ -203,7 +203,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         return compare_lists(tt0->etypes, tt1->etypes, compare_types);
     }
     case IRTypeEnum::Array_t: {
-        // TODO: check size equality?
+        // TODO(ajr): compare size?
         return compare_types(t0.as<Array_t>()->etype, t1.as<Array_t>()->etype);
     }
     case IRTypeEnum::Option_t: {
@@ -311,6 +311,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Queue_t: {
         const Queue_t *q0 = t0.as<Queue_t>();
         const Queue_t *q1 = t1.as<Queue_t>();
+        // TODO(ajr): compare max_size?
         return compare_lists(q0->arg_types, q1->arg_types, compare_types);
     }
     }

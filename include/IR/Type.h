@@ -330,15 +330,6 @@ struct Rand_State_t : TypeNode<Rand_State_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Rand_State_t;
 };
 
-// Queue type.
-struct Queue_t : TypeNode<Queue_t> {
-    std::vector<Type> arg_types;
-    // TODO: support size? Or should that just be lowered to Array_t?
-
-    static Type make(std::vector<Type> arg_types);
-    static const IRTypeEnum node_type = IRTypeEnum::Queue_t;
-};
-
 // TODO: List_t, Tensor_t
 
 // Useful helper function

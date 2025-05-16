@@ -312,6 +312,17 @@ void Printer::print(const Schedule &schedule) {
                                       }
                                       os << ")";
                                   },
+                                  [&](const MakeQueue &q) {
+                                      os << "make_queue(";
+                                      print(q.queue);
+                                      os << ", ";
+                                      print(q.loop);
+                                      if (q.queue_size.has_value()) {
+                                          os << ", ";
+                                          print(*q.queue_size);
+                                      }
+                                      os << ")";
+                                  },
                                   [&](const Sort &sort) {
                                       os << "sort(";
                                       print(sort.loc);
@@ -364,6 +375,7 @@ void Printer::print(const Schedule &schedule) {
                                   }},
                        ts[i]);
         }
+        os << "\n";
     }
     // TODO: the rest of the schedule.
 }
@@ -608,6 +620,9 @@ void Printer::visit(const Rand_State_t *node) { os << "rng_state_t"; }
 void Printer::visit(const Queue_t *node) {
     os << "queue_t[";
     print_type_list(node->arg_types);
+    os << "]";
+    os << "[";
+    print_no_parens(node->max_size);
     os << "]";
 }
 

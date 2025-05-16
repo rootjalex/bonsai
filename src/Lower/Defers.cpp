@@ -96,7 +96,6 @@ struct FindUses : public Visitor {
             // TODO: support multiple stores.
             internal_assert(store_types.empty())
                 << producer << " is written twice in " << consumer;
-            // std::cout << Stmt(node) << std::endl;
             store_types = gather_write_vars(node->loc);
         }
     }
@@ -220,9 +219,6 @@ struct ReplaceUses : public Mutator {
                            bool accept_queue) {
         auto old_iter = funcs.find(old_name);
         internal_assert(old_iter != funcs.end()) << old_name;
-        // std::cout << "handling func " << old_name << " with " <<
-        // old_write_types
-        //           << std::endl;
         // Build a new function with the same initial args + write args
         // + the queue. The new function is a void return type.
         std::vector<Function::Argument> args = old_iter->second->args;
@@ -347,10 +343,7 @@ struct ReplaceUses : public Mutator {
     }
 
     Stmt visit(const Return *node) override {
-        // std::cout << "Hit Return: " << Stmt(node)
-        //           << " with caller: " << called_funcs.back() << std::endl;
         if (called_funcs.back() == producer && (producer != consumer)) {
-            // std::cout << "Now a write (1)" << std::endl;
             // This is now a write!
             return build_write(node->value);
         }
@@ -358,11 +351,9 @@ struct ReplaceUses : public Mutator {
         const Call *call = node->value.as<Call>();
         if (!call) {
             if (called_funcs.back() == producer) {
-                // std::cout << "Now a write (2)" << std::endl;
                 // This is now a write!
                 return build_write(node->value);
             }
-            // std::cout << "Now nothing (1)" << std::endl;
             return Mutator::visit(node);
         }
         const Var *func = call->func.as<Var>();
@@ -371,24 +362,19 @@ struct ReplaceUses : public Mutator {
         internal_assert(!write_types.empty()) << Stmt(node);
         Stmt try_mutate = handle(func->name, write_types.back(), call->args);
         if (try_mutate.defined()) {
-            // std::cout << "Mutate success" << std::endl;
             return Sequence::make({std::move(try_mutate), Return::make()});
         }
 
         if (called_funcs.back() == producer) {
-            // std::cout << "Now a write (3)" << std::endl;
             // This is now a write!
             return build_write(node->value);
         }
-        // std::cout << "Now nothing (2)" << std::endl;
         return node;
     }
 
     Stmt visit(const Store *node) override {
-        // std::cout << "Hit store: " << Stmt(node) << std::endl;
         const Call *call = node->value.as<Call>();
         if (!call) {
-            // std::cout << "Not call.\n";
             return Mutator::visit(node);
         }
         const Var *func = call->func.as<Var>();
@@ -396,14 +382,10 @@ struct ReplaceUses : public Mutator {
 
         auto store_types = gather_write_vars(node->loc);
 
-        // std::cout << "Trying to mutate with writes: " << store_types
-        //           << std::endl;
         Stmt try_mutate = handle(func->name, store_types, call->args);
         if (try_mutate.defined()) {
-            // std::cout << "Success!\n" << try_mutate;
             return try_mutate;
         }
-        // std::cout << "Failure.\n";
         return node;
     }
 };
@@ -439,11 +421,9 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
     ReplaceUses mutator(producer, consumer, queue_name, queue_type,
                         consumer_to_producer, funcs);
 
-    // std::cout << "Queue type: " << queue_type << std::endl;
     auto process_producer_loop = [&](bool include_queue) {
         const std::string &name =
             (producer == consumer) ? producer : queued_func_name(producer);
-        // std::cout << "Name = " << name << std::endl;
         const auto &piter = funcs.find(name);
         internal_assert(piter != funcs.cend()) << name;
         const Expr func = Var::make(piter->second->call_type(), name);
@@ -453,9 +433,6 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
         std::string iter_name = idx_name(queue_name);
         Expr iter = Var::make(queue_type.element_of(), iter_name);
         std::vector<Expr> args(n_args + include_queue);
-
-        // std::cout << iter.type() << " versus n_args: " << n_args << std::endl
-        //           << *piter->second << std::endl;
 
         for (size_t i = 0; i < n_args; i++) {
             args[i] = Extract::make(iter, i);
@@ -597,7 +574,8 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
 
 void defer_call(const std::string &consumer, const std::string &producer,
                 const std::string &responsible, const std::string &loop,
-                const std::string &queue, Program &program) {
+                const std::string &queue, Program &program,
+                const std::map<std::string, Expr> &queue_sizes) {
     // Find map from consumers to producers.
     CallGraph consumer_to_producer = build_call_graph(program.funcs);
     internal_assert(consumer_to_producer[consumer].contains(producer))
@@ -622,13 +600,6 @@ void defer_call(const std::string &consumer, const std::string &producer,
     // All paths from responsible to consumer need to be augmented with
     // write parameters, including passing the queue through!
 
-    // std::cout << producer << " " << consumer << " " << responsible << "\n";
-    // for (const auto &[name, type] : write_type) {
-    //     std::cout << name << " : " << type << std::endl;
-    // }
-
-    // Queue type is call_args type + write_type
-    // TODO(ajr): should this lower to SoA or AoS?
     Type queue_type;
     {
         std::vector<Type> etypes;
@@ -642,7 +613,14 @@ void defer_call(const std::string &consumer, const std::string &producer,
         for (const auto &arg : write_type) {
             etypes.push_back(arg.type);
         }
-        queue_type = Queue_t::make(std::move(etypes));
+
+        const std::string location = responsible + "." + queue;
+
+        const auto &siter = queue_sizes.find(location);
+        internal_assert(siter != queue_sizes.cend())
+            << queue << " at " << responsible << " was not given a size.";
+
+        queue_type = Queue_t::make(std::move(etypes), siter->second);
     }
 
     const auto &riter = program.funcs.find(responsible);
@@ -650,13 +628,9 @@ void defer_call(const std::string &consumer, const std::string &producer,
         << "Cannot find responsible: " << responsible
         << " in program functions.";
 
-    // std::cout << "Before: " << program << std::endl;
-
     riter->second->body = apply_queueing(
         responsible, std::move(riter->second->body), loop, producer, consumer,
         queue, queue_type, consumer_to_producer, program.funcs);
-
-    // std::cout << "After: " << program << std::endl;
 }
 
 } // namespace
@@ -679,6 +653,8 @@ Program LowerDefers::run(Program program,
     // Need simplification to run to avoid unnecessary saved variables
     // TODO(ajr): might also want LICM/CSE here...
     program.funcs = opt::Simplify().run(std::move(program.funcs), options);
+
+    std::map<std::string, Expr> queue_sizes;
 
     // TODO(ajr): should defers happen in any particular order...?
     for (const auto &[consumer, ts] : transforms) {
@@ -717,7 +693,24 @@ Program LowerDefers::run(Program program,
                 const std::string &queue = def.queue.names.front();
 
                 defer_call(consumer, producer, responsible, loop_idx, queue,
-                           program);
+                           program, queue_sizes);
+            } else if (std::holds_alternative<MakeQueue>(t)) {
+                const MakeQueue &makeq = std::get<MakeQueue>(t);
+                internal_assert(makeq.queue.names.size() == 1)
+                    << "Multi-location in make_queue queue name: "
+                    << makeq.queue;
+                internal_assert(makeq.loop.names.size() == 1)
+                    << "Multi-location in make_queue loop name: " << makeq.loop;
+                internal_assert(makeq.queue_size.has_value())
+                    << "TODO: dynamic queue sizes for: " << makeq.queue
+                    << " at " << makeq.loop << " of " << consumer;
+                const std::string location =
+                    consumer + "." + makeq.queue.names.front();
+                auto [_, inserted] =
+                    queue_sizes.try_emplace(location, *makeq.queue_size);
+                internal_assert(inserted)
+                    << consumer << " already has a queue named " << makeq.queue
+                    << ", can't build one at loop " << makeq.loop;
             }
         }
     }

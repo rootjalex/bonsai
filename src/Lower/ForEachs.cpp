@@ -71,10 +71,16 @@ struct LowerToForAll : public ir::Mutator {
 
         ir::Expr iterable = node->iter;
 
-        const ir::Array_t *array_type = iterable.type().as<ir::Array_t>();
-        internal_assert(array_type);
+        ir::Expr size;
+        if (const ir::Array_t *array_type = iterable.type().as<ir::Array_t>()) {
+            size = array_type->size;
+        } else if (iterable.type().as<ir::Queue_t>()) {
+            // TODO(ajr): this is a bit hacky, but LLVM codegen of
+            // cast<u32>(queue_t) gets lowered to a size grab.
+            size = cast(ir::UInt_t::make(32), iterable);
+        }
 
-        ir::Expr end = array_type->size;
+        ir::Expr end = size;
         ir::Expr begin = make_zero(end.type());
         ir::Expr stride = make_one(end.type());
 

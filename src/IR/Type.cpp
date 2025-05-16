@@ -517,10 +517,13 @@ Type Rand_State_t::make() {
     return global_rng;
 }
 
-Type Queue_t::make(std::vector<Type> arg_types) {
+Type Queue_t::make(std::vector<Type> arg_types, Expr max_size) {
     internal_assert(!arg_types.empty()) << "Empty arg_types in Queue_t::make";
+    // TODO(ajr): support dynamic sizes.
+    internal_assert(max_size.defined()) << "Undefined size in Queue_t::make";
     Queue_t *node = new Queue_t;
     node->arg_types = std::move(arg_types);
+    node->max_size = std::move(max_size);
     return node;
 }
 

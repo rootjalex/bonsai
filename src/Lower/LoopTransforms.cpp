@@ -632,6 +632,10 @@ ir::Program LoopTransforms::run(ir::Program program,
                                           loopify(name, std::move(body),
                                                   l.queue_size, program.funcs);
                                   },
+                                  [&](const MakeQueue &q) {
+                                      // no-op, should have been handled in
+                                      // Lower/Defers.cpp
+                                  },
                                   [&](const Sort &sort) {
                                       // no-op, should have been handled in
                                       // Lower/Sorts.cpp

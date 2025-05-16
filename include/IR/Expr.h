@@ -461,6 +461,15 @@ struct Array_t : TypeNode<Array_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Array_t;
 };
 
+// Queue type.
+struct Queue_t : TypeNode<Queue_t> {
+    std::vector<Type> arg_types;
+    Expr max_size;
+
+    static Type make(std::vector<Type> arg_types, Expr max_size);
+    static const IRTypeEnum node_type = IRTypeEnum::Queue_t;
+};
+
 } // namespace ir
 
 template <>

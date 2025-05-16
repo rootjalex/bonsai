@@ -53,6 +53,17 @@ struct Loopify {
     std::optional<Expr> queue_size;
 };
 
+// Allocate a queue at a loop of the func, with a constant maximum size.
+// TODO(ajr): support dynamic queue sizes.
+// If the queue already exists, tag it with the output size.
+struct MakeQueue {
+    Location queue;
+    Location loop;
+    std::optional<Expr> queue_size;
+    // TODO(ajr): might also want AoS vs. SoA control
+    // TODO(ajr): memory type? e.g. Shared/Register/Global/Heap/Stack?
+};
+
 // Parallelize `i` via some strategy.
 struct Parallelize {
     enum Strategy { CPUVector, CPUThread, GPUThread, GPUBlock };
@@ -88,7 +99,7 @@ struct Split {
 };
 
 using Transform =
-    std::variant<Collapse, Defer, Loopify, Parallelize, Split, Sort>;
+    std::variant<Collapse, Defer, Loopify, MakeQueue, Parallelize, Split, Sort>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;
