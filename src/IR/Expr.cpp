@@ -570,7 +570,7 @@ Expr Extract::make(Expr vec, Expr idx) {
     Type type;
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        internal_assert((vec.type().is<Vector_t, Array_t, Tuple_t, Queue_t>()))
+        internal_assert((vec.type().is<Vector_t, Array_t, Tuple_t>()))
             << "Extract of non-vector: " << vec;
         internal_assert(idx.type().is_int_or_uint())
             << "Extract with non-integer index: " << idx;

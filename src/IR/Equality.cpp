@@ -308,12 +308,6 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Rand_State_t: {
         return Cmp::Equals;
     }
-    case IRTypeEnum::Queue_t: {
-        const Queue_t *q0 = t0.as<Queue_t>();
-        const Queue_t *q1 = t1.as<Queue_t>();
-        // TODO(ajr): compare max_size?
-        return compare_lists(q0->arg_types, q1->arg_types, compare_types);
-    }
     }
 }
 

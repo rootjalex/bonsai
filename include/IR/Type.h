@@ -35,7 +35,6 @@ enum class IRTypeEnum {
     Generic_t,
     BVH_t,
     Rand_State_t,
-    Queue_t,
 };
 
 using IRTypeNode = IRNode<Type, IRTypeEnum>;

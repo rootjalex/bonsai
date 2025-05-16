@@ -87,8 +87,6 @@ void Visitor::visit(const BVH_t *node) {
 
 void Visitor::visit(const Rand_State_t *) {}
 
-void Visitor::visit(const Queue_t *node) { visit_list(this, node->arg_types); }
-
 void Visitor::visit(const IEmpty *) {}
 
 void Visitor::visit(const IFloat *) {}
@@ -281,8 +279,6 @@ void Visitor::visit(const Launch *node) {
     node->n.accept(this);
     visit_list(this, node->args);
 }
-
-void Visitor::visit(const QueueWrite *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Name *node) {}
 

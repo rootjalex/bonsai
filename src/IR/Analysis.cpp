@@ -173,7 +173,6 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(QueueWrite);
 };
 
 struct ReturnType : public Visitor {
@@ -196,7 +195,6 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(QueueWrite);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);

@@ -23,7 +23,6 @@ struct Function_t;
 struct Generic_t;
 struct BVH_t;
 struct Rand_State_t;
-struct Queue_t;
 
 // Interfaces
 struct Interface;
@@ -89,7 +88,6 @@ struct ForAll;
 struct ForEach;
 struct Continue;
 struct Launch;
-struct QueueWrite;
 
 // Layouts
 struct Name;

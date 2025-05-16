@@ -22,20 +22,20 @@ func foo(ray : Ray) -> bool {
 }
 
 func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
-  exp_queue : mut queue_t[Ray, i32[n], i32][64]
+  exp_queue : mut (u64, (Ray, i32[n], i32)[64])
   alloc _alloc0 : mut i32[n]
   forall _i0 in [0:n:1] {
     num_hits(rays[_i0], 100, 0, _alloc0, _i0, exp_queue)
   }
-  foreach _exp_queue_task in exp_queue {
-    _queued_expensive(_exp_queue_task[0], _exp_queue_task[1], _exp_queue_task[2])
+  forall _exp_queue_task in [0u:exp_queue[0]:1u] {
+    _queued_expensive(exp_queue[1][_exp_queue_task][0], exp_queue[1][_exp_queue_task][1], exp_queue[1][_exp_queue_task][2])
   }
   return _alloc0
 }
 
-func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, exp_queue : mut queue_t[Ray, i32[n], i32][64]) -> void {
+func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, exp_queue : mut (u64, (Ray, i32[n], i32)[64])) -> void {
   if (depth <= 0) {
-    enqueue<exp_queue>(ray, _write__alloc0, _write__i0)
+    exp_queue[1][atomic_add((&exp_queue[0]), 1u)] = (ray, _write__alloc0, _write__i0)
     return
   } else if (foo(ray)) {
     num_hits(bounce(ray), depth - 1, acc + 1, _write__alloc0, _write__i0, exp_queue)

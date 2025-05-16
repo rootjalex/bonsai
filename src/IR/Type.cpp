@@ -128,9 +128,7 @@ bool Type::is_stack_allocatable() const {
                 [](const auto &p) { return p.is_stack_allocatable(); }));
 }
 
-bool Type::is_iterable() const {
-    return is<Vector_t, Array_t, Set_t, Queue_t>();
-}
+bool Type::is_iterable() const { return is<Vector_t, Array_t, Set_t>(); }
 
 bool Type::is_func() const { return is<Function_t>(); }
 
@@ -171,8 +169,6 @@ Type Type::element_of() const {
         return this->as<Array_t>()->etype;
     } else if (this->is<Ptr_t>()) {
         return this->as<Ptr_t>()->etype;
-    } else if (this->is<Queue_t>()) {
-        return Tuple_t::make(this->as<Queue_t>()->arg_types);
     } else {
         internal_error << "Called element_of() on bad type: " << *this;
     }
@@ -515,16 +511,6 @@ Type BVH_t::make(ir::Type primitive, std::string name,
 Type Rand_State_t::make() {
     static Type global_rng = new Rand_State_t;
     return global_rng;
-}
-
-Type Queue_t::make(std::vector<Type> arg_types, Expr max_size) {
-    internal_assert(!arg_types.empty()) << "Empty arg_types in Queue_t::make";
-    // TODO(ajr): support dynamic sizes.
-    internal_assert(max_size.defined()) << "Undefined size in Queue_t::make";
-    Queue_t *node = new Queue_t;
-    node->arg_types = std::move(arg_types);
-    node->max_size = std::move(max_size);
-    return node;
 }
 
 Type get_field_type(const Type &struct_type, const std::string &field) {

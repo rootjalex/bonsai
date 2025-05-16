@@ -617,15 +617,6 @@ void Printer::visit(const BVH_t *node) {
 
 void Printer::visit(const Rand_State_t *node) { os << "rng_state_t"; }
 
-void Printer::visit(const Queue_t *node) {
-    os << "queue_t[";
-    print_type_list(node->arg_types);
-    os << "]";
-    os << "[";
-    print_no_parens(node->max_size);
-    os << "]";
-}
-
 void Printer::visit(const IEmpty *node) { os << "IEmpty"; }
 
 void Printer::visit(const IFloat *node) { os << "IFloat"; }
@@ -1297,13 +1288,6 @@ void Printer::visit(const Launch *node) {
     os << get_indent() << "launch ";
     print_no_parens(node->n);
     os << " " << node->func << "(";
-    print_expr_list(node->args);
-    os << ")\n";
-}
-
-void Printer::visit(const QueueWrite *node) {
-    os << get_indent() << "enqueue<";
-    os << node->queue << ">(";
     print_expr_list(node->args);
     os << ")\n";
 }

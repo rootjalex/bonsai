@@ -186,6 +186,7 @@ struct ReplaceUses : public Mutator {
     const Type &queue_type;
     const CallGraph &consumer_to_producer;
     FuncMap &funcs;
+    Expr queue;
 
     // TO avoid infinite recursion.
     std::set<std::string> mutated;
@@ -198,7 +199,9 @@ struct ReplaceUses : public Mutator {
                 const CallGraph &consumer_to_producer, FuncMap &funcs)
         : producer(producer), consumer(consumer), queue_name(queue_name),
           queue_type(queue_type), consumer_to_producer(consumer_to_producer),
-          funcs(funcs) {}
+          funcs(funcs) {
+        queue = Var::make(queue_type, queue_name);
+    }
 
     Expr visit(const Var *node) override {
         if (node->type.is<Function_t>()) {
@@ -290,7 +293,7 @@ struct ReplaceUses : public Mutator {
                 args.push_back(Var::make(type, name));
             }
             if (accept_queue) {
-                args.push_back(Var::make(queue_type, queue_name));
+                args.push_back(queue);
             }
 
             const std::string new_func_name =
@@ -303,8 +306,14 @@ struct ReplaceUses : public Mutator {
             }
 
             if (func == producer && called_funcs.back() == consumer) {
-                // This is an enqueue
-                return QueueWrite::make(queue_name, std::move(args));
+                Expr size = PtrTo::make(Extract::make(queue, 0));
+                WriteLoc loc(queue_name, queue_type);
+                loc.add_index_access(1); // get second element of tuple
+                Expr one = make_one(size.type().element_of());
+                Expr count = AtomicAdd::make(size, one);
+                loc.add_index_access(count);
+                Expr store = make_tuple(std::move(args));
+                return Store::make(loc, store);
             } else {
                 // This is a call.
                 const auto &fiter = funcs.find(new_func_name);
@@ -421,6 +430,8 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
     ReplaceUses mutator(producer, consumer, queue_name, queue_type,
                         consumer_to_producer, funcs);
 
+    Expr queue = Var::make(queue_type, queue_name);
+
     auto process_producer_loop = [&](bool include_queue) {
         const std::string &name =
             (producer == consumer) ? producer : queued_func_name(producer);
@@ -430,12 +441,16 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
 
         const size_t n_args = piter->second->args.size() - include_queue;
 
-        std::string iter_name = idx_name(queue_name);
-        Expr iter = Var::make(queue_type.element_of(), iter_name);
+        std::string idx = idx_name(queue_name);
+        Expr size = Extract::make(queue, 0);
+        Expr data = Extract::make(queue, 1);
+
+        Expr idx_var = Var::make(size.type(), idx);
+        Expr datum = Extract::make(data, idx_var);
         std::vector<Expr> args(n_args + include_queue);
 
         for (size_t i = 0; i < n_args; i++) {
-            args[i] = Extract::make(iter, i);
+            args[i] = Extract::make(datum, i);
         }
         if (include_queue) {
             const std::string dbl_buffer = second_buffer(queue_name);
@@ -445,8 +460,10 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
 
         Stmt call = CallStmt::make(std::move(func), std::move(args));
 
-        Expr queue0 = Var::make(queue_type, queue_name);
-        return ForEach::make(iter_name, queue0, std::move(call));
+        ForAll::Slice slice{make_zero(size.type()), size,
+                            make_one(size.type())};
+
+        return ForAll::make(std::move(idx), std::move(slice), std::move(call));
     };
 
     auto rewrite_loop_body = [&](const Stmt &body) {
@@ -479,10 +496,9 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
             //   swap queue with second buffer
             // } while (!queue.empty())
             const std::string dbl_buffer = second_buffer(queue_name);
-            Expr queue0 = Var::make(queue_type, queue_name);
             Expr queue1 = Var::make(queue_type, dbl_buffer);
             // TODO: make sure this lowers correctly.
-            Expr not_empty = cast(Bool_t::make(), queue0);
+            Expr not_empty = cast(Bool_t::make(), queue);
             WriteLoc dbl_buffer_loc(dbl_buffer, queue_type);
             const std::string tmp = "_tmp_" + dbl_buffer;
             WriteLoc tmp_loc(tmp, queue_type);
@@ -498,7 +514,7 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
                           // Do queue swap
                           LetStmt::make(tmp_loc, queue1),
                           // TODO(ajr): this should zero out the queue...
-                          Store::make(dbl_buffer_loc, queue0),
+                          Store::make(dbl_buffer_loc, queue),
                           Store::make(queue_loc, Var::make(queue_type, tmp))}),
                      not_empty)});
         } else {
@@ -620,7 +636,10 @@ void defer_call(const std::string &consumer, const std::string &producer,
         internal_assert(siter != queue_sizes.cend())
             << queue << " at " << responsible << " was not given a size.";
 
-        queue_type = Queue_t::make(std::move(etypes), siter->second);
+        Type tuple_t = Tuple_t::make(std::move(etypes));
+        Type array_t = Array_t::make(std::move(tuple_t), siter->second);
+        static const Type count_t = UInt_t::make(64);
+        queue_type = Tuple_t::make({count_t, array_t});
     }
 
     const auto &riter = program.funcs.find(responsible);
