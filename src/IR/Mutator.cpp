@@ -434,6 +434,15 @@ Expr Mutator::visit(const Deref *node) {
     return Deref::make(std::move(expr));
 }
 
+Expr Mutator::visit(const AtomicAdd *node) {
+    Expr ptr = mutate(node->ptr);
+    Expr value = mutate(node->value);
+    if (ptr.same_as(node->ptr) && value.same_as(node->value)) {
+        return node;
+    }
+    return AtomicAdd::make(std::move(ptr), std::move(value));
+}
+
 Stmt Mutator::visit(const CallStmt *node) {
     Expr func = mutate(node->func);
     auto [args, not_changed] = visit_list(this, node->args);

@@ -182,6 +182,11 @@ void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
 
 void Visitor::visit(const Deref *node) { node->expr.accept(this); }
 
+void Visitor::visit(const AtomicAdd *node) {
+    node->ptr.accept(this);
+    node->value.accept(this);
+}
+
 void Visitor::visit(const CallStmt *node) {
     node->func.accept(this);
     visit_list(this, node->args);

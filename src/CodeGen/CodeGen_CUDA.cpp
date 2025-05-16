@@ -922,6 +922,8 @@ void CodeGen_CUDA::visit(const Store *node) {
 }
 
 void CodeGen_CUDA::visit(const Accumulate *node) {
+    // internal_assert(!node->atomic)
+    //     << "TODO: atomic accumulates in CUDA:" << Stmt(node);
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();

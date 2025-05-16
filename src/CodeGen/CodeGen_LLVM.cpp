@@ -1654,6 +1654,45 @@ void CodeGen_LLVM::visit(const Deref *node) {
     }
 }
 
+void CodeGen_LLVM::visit(const AtomicAdd *node) {
+    llvm::Value *ptr = codegen_expr(node->ptr);
+    llvm::Value *acc = codegen_expr(node->value);
+    internal_assert(ptr->getType()->isPointerTy())
+        << "Cannot perform atomic add on non-pointer expression: " << node->ptr;
+
+    llvm::Type *elt_t = codegen_type(node->ptr.type().element_of());
+    if (acc->getType() != elt_t) {
+        if (acc->getType()->isIntegerTy() && elt_t->isIntegerTy()) {
+            const uint64_t dst_bits =
+                cast<llvm::IntegerType>(elt_t)->getBitWidth();
+            const uint64_t src_bits =
+                cast<llvm::IntegerType>(acc->getType())->getBitWidth();
+            if (src_bits < dst_bits) {
+                acc = builder->CreateZExt(acc, elt_t, "atomicadd_zext");
+            } else {
+                acc = builder->CreateTrunc(acc, elt_t, "atomicadd_trunc");
+            }
+        } else if (acc->getType()->isFloatingPointTy() &&
+                   elt_t->isFloatingPointTy()) {
+            acc = builder->CreateFPCast(acc, elt_t, "atomicadd_fpcast");
+        } else {
+            internal_error << "Type mismatch in atomic add: value is "
+                           << node->value.type() << " but pointer-to is "
+                           << node->ptr.type().element_of();
+        }
+    }
+
+    // LLVM rmw add, returns *old* value at ptr
+    llvm::AtomicOrdering ordering = llvm::AtomicOrdering::Monotonic;
+    llvm::MaybeAlign alignment; // chooses alignment if necessary
+    // TODO: does this always need to be System scope?
+    llvm::Value *old =
+        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, acc, alignment,
+                                 ordering, llvm::SyncScope::System);
+
+    value = old;
+}
+
 void CodeGen_LLVM::visit(const Build *node) {
     // This will be a StructType or a VectorType
     llvm::Type *build_type = codegen_type(node->type);
@@ -1991,6 +2030,8 @@ void CodeGen_LLVM::visit(const Store *node) {
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
+    // internal_assert(!node->atomic)
+    //     << "TODO: atomic accumulates in CUDA:" << Stmt(node);
     if (node->loc.base_type.is<Vector_t>() && node->loc.accesses.size() == 1) {
         // Update a single element of a vector.
         // For now, we rewrite this into an equivalent expr.

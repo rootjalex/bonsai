@@ -1253,5 +1253,28 @@ Expr Deref::make(Expr expr) {
     return node;
 }
 
+Expr AtomicAdd::make(Expr ptr, Expr value) {
+    internal_assert(ptr.defined()) << "AtomicAdd::make received undefined ptr";
+    internal_assert(ptr.type().defined())
+        << "AtomicAdd::make received untyped ptr: " << ptr;
+    internal_assert(ptr.type().is<Ptr_t>())
+        << "AtomicAdd::make received non-ptr ptr: " << ptr
+        << " has type: " << ptr.type();
+    internal_assert(value.defined())
+        << "AtomicAdd::make received undefined value";
+    internal_assert(value.type().defined())
+        << "AtomicAdd::make received untyped value: " << ptr;
+    internal_assert(equals(ptr.type().element_of(), value.type()))
+        << "AtomicAdd::make received mismatching types: " << ptr
+        << " has type: " << ptr.type() << " and " << value
+        << " has type: " << value.type();
+
+    AtomicAdd *node = new AtomicAdd;
+    node->type = value.type();
+    node->ptr = std::move(ptr);
+    node->value = std::move(value);
+    return node;
+}
+
 } // namespace ir
 } // namespace bonsai

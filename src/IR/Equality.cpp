@@ -594,6 +594,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         const Deref *v1 = e1.as<Deref>();
         return compare_exprs(v0->expr, v1->expr);
     }
+    case IRExprEnum::AtomicAdd: {
+        const AtomicAdd *v0 = e0.as<AtomicAdd>();
+        const AtomicAdd *v1 = e1.as<AtomicAdd>();
+        if (const Cmp ptr = compare_exprs(v0->ptr, v1->ptr);
+            ptr != Cmp::Equals) {
+            return ptr;
+        }
+        return compare_exprs(v0->value, v1->value);
+    }
     }
 }
 

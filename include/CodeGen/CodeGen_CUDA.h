@@ -52,6 +52,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::VecImm *) override;
     void visit(const ir::Infinity *) override;
     void visit(const ir::Deref *) override;
+    RESTRICT_VISITOR(ir::AtomicAdd); // TODO
     void visit(const ir::Select *) override;
     void visit(const ir::Cast *) override;
     void visit(const ir::Broadcast *) override;

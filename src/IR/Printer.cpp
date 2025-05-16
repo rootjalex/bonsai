@@ -1032,6 +1032,14 @@ void Printer::visit(const Deref *node) {
     os << ")";
 }
 
+void Printer::visit(const AtomicAdd *node) {
+    os << "atomic_add(";
+    print_no_parens(node->ptr);
+    os << ", ";
+    print_no_parens(node->value);
+    os << ")";
+}
+
 void Printer::visit(const CallStmt *node) {
     os << get_indent();
     print_no_parens(node->func);
@@ -1173,9 +1181,10 @@ void Printer::visit(const Accumulate *node) {
     }
     }
     print_no_parens(node->value);
+    // if (node->atomic) {
+    //     os << "   atomic";
+    // }
     os << "\n";
-    // TODO: fix this!! bring back SSA
-    // print(node->body);
 }
 
 void Printer::visit(const Label *node) {

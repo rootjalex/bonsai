@@ -61,6 +61,7 @@ struct Call;
 struct Instantiate;
 struct PtrTo;
 struct Deref;
+struct AtomicAdd;
 
 // Stmts
 struct Stmt;
