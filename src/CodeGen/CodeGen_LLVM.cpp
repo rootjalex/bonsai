@@ -2030,8 +2030,6 @@ void CodeGen_LLVM::visit(const Store *node) {
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
-    // internal_assert(!node->atomic)
-    //     << "TODO: atomic accumulates in CUDA:" << Stmt(node);
     if (node->loc.base_type.is<Vector_t>() && node->loc.accesses.size() == 1) {
         // Update a single element of a vector.
         // For now, we rewrite this into an equivalent expr.

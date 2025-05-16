@@ -192,11 +192,8 @@ struct Accumulate : StmtNode<Accumulate> {
     WriteLoc loc;
     OpType op;
     Expr value;
-    // bool atomic;
 
     static Stmt make(WriteLoc loc, OpType op, Expr value);
-    // static Stmt make(WriteLoc loc, OpType op, Expr value, bool atomic =
-    // false);
 
     static const IRStmtEnum node_type = IRStmtEnum::Accumulate;
 };

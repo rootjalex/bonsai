@@ -1172,9 +1172,6 @@ void Printer::visit(const Accumulate *node) {
     }
     }
     print_no_parens(node->value);
-    // if (node->atomic) {
-    //     os << "   atomic";
-    // }
     os << "\n";
 }
 
