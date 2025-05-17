@@ -204,7 +204,7 @@ schedule {
         };
     };
 
-    image.split(i0, io, ii, 50, false) // make 16 threads
+    image.split(i0, io, ii, 45, false) // make 15 threads
          .cpu_thread(io);
     trace
          // This actually slows the application down. Not sure why.

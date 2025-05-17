@@ -43,7 +43,7 @@ inline float get_axis(float3 v, int index) {
 }
 
 _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
-                                   size_t max_prims) {
+                                size_t max_prims) {
     _tree_layout0 tree;
     tree.pCount = spheres.size();
     tree.prims = spheres.data();
@@ -116,8 +116,7 @@ _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
             // Set split offset (offset from this node to right child)
             uint32_t offset = right - this_index;
             *reinterpret_cast<uint16_t *>(
-                &tree.group0_index[this_index].split0on_nPrims) =
-                offset;
+                &tree.group0_index[this_index].split0on_nPrims) = offset;
 
             // Compute bounding volume
             Sphere merged;
@@ -198,9 +197,9 @@ int main(int argc, char **argv) {
     _tree_layout0 tree = build_tree_simple(spheres, 1);
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
-    cam.width = 1423; // makes height = 800
+    cam.width = 1200; // makes height = 675
     cam.samples_per_pixel = 50;
-    cam.max_depth = 10;
+    cam.max_depth = 20;
 
     cam.vfov = 20;
     cam.lookfrom = {13, 2, 3};
