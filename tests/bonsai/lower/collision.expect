@@ -1,362 +1,80 @@
-; ModuleID = 'bonsai_module'
-source_filename = "bonsai_module"
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleBVH = (const TriangleBVH&)
+type __dyn_array0 = struct __dyn_array0{ ptr : struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32 }
+type __tuple_0 = struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : u32 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type vec3f = f32x3
 
-%struct._tree_layout1 = type <{ <3 x float>, i16, i8, i8, <3 x float>, <4 x i8> }>
-%struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
-%struct.__dyn_array0 = type { ptr, i32 }
+extern triangles1 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+extern triangles2 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 
-; Function Attrs: nofree nosync nounwind memory(readwrite, inaccessiblemem: none)
-define void @_recloop_func0(i32 noundef %triangles1_index, i32 noundef %triangles2_index, ptr noundef nonnull readonly %triangles1, ptr noundef nonnull readonly %triangles2, ptr noundef nonnull readonly %_dyn_alloc) local_unnamed_addr #0 {
-_recloop_func0_entry:
-  %deref_temp.elt292 = getelementptr inbounds i8, ptr %triangles1, i64 16
-  %deref_temp125.elt310 = getelementptr inbounds i8, ptr %triangles2, i64 16
-  %deref_temp.unpack293732.pre = load ptr, ptr %deref_temp.elt292, align 1
-  br label %tailrecurse.outer
-
-tailrecurse.outer:                                ; preds = %tailrecurse.outer.backedge, %_recloop_func0_entry
-  %deref_temp.unpack293732 = phi ptr [ %deref_temp.unpack293732.pre, %_recloop_func0_entry ], [ %deref_temp109.unpack590.pn, %tailrecurse.outer.backedge ]
-  %triangles1_index.tr.ph = phi i32 [ %triangles1_index, %_recloop_func0_entry ], [ %triangles1_index.tr.ph.be, %tailrecurse.outer.backedge ]
-  %triangles2_index.tr.ph = phi i32 [ %triangles2_index, %_recloop_func0_entry ], [ %triangles2_index.tr.ph.be, %tailrecurse.outer.backedge ]
-  %0 = sext i32 %triangles1_index.tr.ph to i64
-  %extract_ptr733 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack293732, i64 %0
-  %extract.unpack734 = load <3 x float>, ptr %extract_ptr733, align 1
-  %extract.elt295735 = getelementptr inbounds i8, ptr %extract_ptr733, i64 16
-  %extract.unpack296736 = load i16, ptr %extract.elt295735, align 1
-  %extract.elt301737 = getelementptr inbounds i8, ptr %extract_ptr733, i64 20
-  %extract.unpack302738 = load <3 x float>, ptr %extract.elt301737, align 1
-  %1 = icmp eq i16 %extract.unpack296736, 0
-  %deref_temp4.unpack554.pre = load ptr, ptr %deref_temp125.elt310, align 1
-  br i1 %1, label %then_bb, label %next_bb.preheader
-
-next_bb.preheader:                                ; preds = %tailrecurse.outer
-  %2 = sext i32 %triangles2_index.tr.ph to i64
-  %extract128.elt313800 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp4.unpack554.pre, i64 %2, i32 1
-  %extract128.unpack314801 = load i16, ptr %extract128.elt313800, align 1
-  %3 = icmp eq i16 %extract128.unpack314801, 0
-  br i1 %3, label %then_bb123, label %_idx00_for.preheader745
-
-after_bb:                                         ; preds = %next_bb3, %then_bb2, %then_bb123, %_idx11_for_end
-  ret void
-
-then_bb:                                          ; preds = %then_bb131, %tailrecurse.outer
-  %deref_temp4.unpack554 = phi ptr [ %deref_temp4.unpack554.pre, %tailrecurse.outer ], [ %deref_temp157.unpack535, %then_bb131 ]
-  %triangles2_index.tr.lcssa = phi i32 [ %triangles2_index.tr.ph, %tailrecurse.outer ], [ %27, %then_bb131 ]
-  %extract.unpack.lcssa = phi <3 x float> [ %extract.unpack734, %tailrecurse.outer ], [ %extract.unpack, %then_bb131 ]
-  %extract.unpack302.lcssa = phi <3 x float> [ %extract.unpack302738, %tailrecurse.outer ], [ %extract.unpack302, %then_bb131 ]
-  %4 = sext i32 %triangles2_index.tr.lcssa to i64
-  %extract7.elt556 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp4.unpack554, i64 %4, i32 1
-  %extract7.unpack557 = load i16, ptr %extract7.elt556, align 1
-  %5 = icmp eq i16 %extract7.unpack557, 0
-  %extract_ptr22 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp4.unpack554, i64 %4
-  %extract23.unpack = load <3 x float>, ptr %extract_ptr22, align 1
-  %extract23.elt617 = getelementptr inbounds i8, ptr %extract_ptr22, i64 20
-  %extract23.unpack618 = load <3 x float>, ptr %extract23.elt617, align 1
-  %6 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %extract.unpack.lcssa, <3 x float> %extract23.unpack)
-  %7 = tail call <3 x float> @llvm.minnum.v3f32(<3 x float> %extract.unpack302.lcssa, <3 x float> %extract23.unpack618)
-  %8 = fcmp ugt <3 x float> %6, %7
-  %9 = bitcast <3 x i1> %8 to i3
-  %10 = icmp eq i3 %9, 0
-  br i1 %5, label %then_bb2, label %next_bb3
-
-next_bb:                                          ; preds = %then_bb131
-  %11 = sext i32 %27 to i64
-  %extract128.elt313 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp157.unpack535, i64 %11, i32 1
-  %extract128.unpack314 = load i16, ptr %extract128.elt313, align 1
-  %12 = icmp eq i16 %extract128.unpack314, 0
-  br i1 %12, label %then_bb123, label %_idx00_for.preheader745
-
-_idx00_for.preheader745:                          ; preds = %next_bb.preheader, %next_bb
-  %deref_temp254.unpack498768.lcssa = phi ptr [ %deref_temp.unpack293, %next_bb ], [ %deref_temp.unpack293732, %next_bb.preheader ]
-  %.lcssa789 = phi ptr [ %deref_temp157.unpack535, %next_bb ], [ %deref_temp4.unpack554.pre, %next_bb.preheader ]
-  %.lcssa = phi i64 [ %11, %next_bb ], [ %2, %next_bb.preheader ]
-  %deref_temp209.elt378 = getelementptr inbounds i8, ptr %triangles1, i64 4
-  %deref_temp217.elt397 = getelementptr inbounds i8, ptr %triangles2, i64 4
-  %_dyn_alloc.size248 = getelementptr inbounds i8, ptr %_dyn_alloc, i64 8
-  br label %_idx00_for
-
-then_bb2:                                         ; preds = %then_bb
-  br i1 %10, label %then_bb10, label %after_bb
-
-next_bb3:                                         ; preds = %then_bb
-  br i1 %10, label %then_bb83, label %after_bb
-
-then_bb10:                                        ; preds = %then_bb2
-  %13 = add i32 %triangles1_index.tr.ph, 1
-  %14 = add i32 %triangles2_index.tr.lcssa, 1
-  tail call void @_recloop_func0(i32 %13, i32 %14, ptr %triangles1, ptr %triangles2, ptr %_dyn_alloc)
-  %deref_temp31.unpack627 = load ptr, ptr %deref_temp125.elt310, align 1
-  %extract34.elt637 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp31.unpack627, i64 %4, i32 5
-  %extract34.unpack638640 = load i32, ptr %extract34.elt637, align 1
-  %15 = add i32 %extract34.unpack638640, %triangles2_index.tr.lcssa
-  tail call void @_recloop_func0(i32 %13, i32 %15, ptr %triangles1, ptr %triangles2, ptr %_dyn_alloc)
-  %deref_temp43.unpack646 = load ptr, ptr %deref_temp.elt292, align 1
-  %extract46.elt656 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp43.unpack646, i64 %0, i32 5
-  %extract46.unpack657659 = load i32, ptr %extract46.elt656, align 1
-  %16 = add i32 %extract46.unpack657659, %triangles1_index.tr.ph
-  tail call void @_recloop_func0(i32 %16, i32 %14, ptr %triangles1, ptr %triangles2, ptr %_dyn_alloc)
-  %deref_temp63.unpack684 = load ptr, ptr %deref_temp125.elt310, align 1
-  %extract66.elt694 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp63.unpack684, i64 %4, i32 5
-  %extract66.unpack695697 = load i32, ptr %extract66.elt694, align 1
-  %17 = add i32 %extract66.unpack695697, %triangles2_index.tr.lcssa
-  br label %tailrecurse.outer.backedge
-
-tailrecurse.outer.backedge:                       ; preds = %then_bb10, %then_bb83
-  %triangles2_index.tr.ph.be = phi i32 [ %triangles2_index.tr.lcssa, %then_bb83 ], [ %17, %then_bb10 ]
-  %deref_temp109.unpack590.pn = load ptr, ptr %deref_temp.elt292, align 1
-  %extract112.unpack601603.pn.in = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp109.unpack590.pn, i64 %0, i32 5
-  %extract112.unpack601603.pn = load i32, ptr %extract112.unpack601603.pn.in, align 1
-  %triangles1_index.tr.ph.be = add i32 %extract112.unpack601603.pn, %triangles1_index.tr.ph
-  br label %tailrecurse.outer
-
-then_bb83:                                        ; preds = %next_bb3
-  %18 = add i32 %triangles1_index.tr.ph, 1
-  tail call void @_recloop_func0(i32 %18, i32 %triangles2_index.tr.lcssa, ptr %triangles1, ptr %triangles2, ptr %_dyn_alloc)
-  br label %tailrecurse.outer.backedge
-
-then_bb123:                                       ; preds = %next_bb.preheader, %next_bb
-  %19 = phi i64 [ %11, %next_bb ], [ %2, %next_bb.preheader ]
-  %triangles2_index.tr739804 = phi i32 [ %27, %next_bb ], [ %triangles2_index.tr.ph, %next_bb.preheader ]
-  %extract.unpack740803 = phi <3 x float> [ %extract.unpack, %next_bb ], [ %extract.unpack734, %next_bb.preheader ]
-  %extract.unpack302741802 = phi <3 x float> [ %extract.unpack302, %next_bb ], [ %extract.unpack302738, %next_bb.preheader ]
-  %20 = phi ptr [ %deref_temp157.unpack535, %next_bb ], [ %deref_temp4.unpack554.pre, %next_bb.preheader ]
-  %extract_ptr146 = getelementptr inbounds %struct._tree_layout1, ptr %20, i64 %19
-  %extract147.unpack = load <3 x float>, ptr %extract_ptr146, align 1
-  %extract147.elt525 = getelementptr inbounds i8, ptr %extract_ptr146, i64 20
-  %extract147.unpack526 = load <3 x float>, ptr %extract147.elt525, align 1
-  %21 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %extract.unpack740803, <3 x float> %extract147.unpack)
-  %22 = tail call <3 x float> @llvm.minnum.v3f32(<3 x float> %extract.unpack302741802, <3 x float> %extract147.unpack526)
-  %23 = fcmp ugt <3 x float> %21, %22
-  %24 = bitcast <3 x i1> %23 to i3
-  %25 = icmp eq i3 %24, 0
-  br i1 %25, label %then_bb131, label %after_bb
-
-then_bb131:                                       ; preds = %then_bb123
-  %26 = add i32 %triangles2_index.tr739804, 1
-  tail call void @_recloop_func0(i32 %triangles1_index.tr.ph, i32 %26, ptr %triangles1, ptr %triangles2, ptr %_dyn_alloc)
-  %deref_temp157.unpack535 = load ptr, ptr %deref_temp125.elt310, align 1
-  %extract160.elt545 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp157.unpack535, i64 %19, i32 5
-  %extract160.unpack546548 = load i32, ptr %extract160.elt545, align 1
-  %27 = add i32 %extract160.unpack546548, %triangles2_index.tr739804
-  %deref_temp.unpack293 = load ptr, ptr %deref_temp.elt292, align 1
-  %extract_ptr = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack293, i64 %0
-  %extract.unpack = load <3 x float>, ptr %extract_ptr, align 1
-  %extract.elt295 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
-  %extract.unpack296 = load i16, ptr %extract.elt295, align 1
-  %extract.elt301 = getelementptr inbounds i8, ptr %extract_ptr, i64 20
-  %extract.unpack302 = load <3 x float>, ptr %extract.elt301, align 1
-  %28 = icmp eq i16 %extract.unpack296, 0
-  br i1 %28, label %then_bb, label %next_bb
-
-_idx00_for:                                       ; preds = %_idx00_for.preheader745, %_idx11_for_end
-  %deref_temp254.unpack498766 = phi ptr [ %deref_temp254.unpack498, %_idx11_for_end ], [ %deref_temp254.unpack498768.lcssa, %_idx00_for.preheader745 ]
-  %deref_temp249.unpack479762 = phi ptr [ %deref_temp249.unpack479763, %_idx11_for_end ], [ %.lcssa789, %_idx00_for.preheader745 ]
-  %deref_temp176.unpack329 = phi ptr [ %deref_temp176.unpack329759, %_idx11_for_end ], [ %.lcssa789, %_idx00_for.preheader745 ]
-  %29 = phi i32 [ %36, %_idx11_for_end ], [ 0, %_idx00_for.preheader745 ]
-  %extract179.elt331 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp176.unpack329, i64 %.lcssa, i32 1
-  %extract179.unpack332 = load i16, ptr %extract179.elt331, align 1
-  %.not = icmp eq i16 %extract179.unpack332, 0
-  br i1 %.not, label %_idx11_for_end, label %_idx11_for, !prof !0
-
-_idx11_for:                                       ; preds = %_idx00_for, %after_bb181
-  %deref_temp249.unpack479764 = phi ptr [ %deref_temp249.unpack479, %after_bb181 ], [ %deref_temp249.unpack479762, %_idx00_for ]
-  %deref_temp195.unpack365 = phi ptr [ %deref_temp249.unpack479, %after_bb181 ], [ %deref_temp176.unpack329, %_idx00_for ]
-  %30 = phi i32 [ %38, %after_bb181 ], [ 0, %_idx00_for ]
-  %deref_temp184.unpack347 = load ptr, ptr %deref_temp.elt292, align 1
-  %extract_ptr186 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp184.unpack347, i64 %0
-  %extract187.unpack = load <3 x float>, ptr %extract_ptr186, align 1
-  %extract187.elt355 = getelementptr inbounds i8, ptr %extract_ptr186, i64 20
-  %extract187.unpack356 = load <3 x float>, ptr %extract187.elt355, align 1
-  %extract_ptr197 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp195.unpack365, i64 %.lcssa
-  %extract198.unpack = load <3 x float>, ptr %extract_ptr197, align 1
-  %extract198.elt373 = getelementptr inbounds i8, ptr %extract_ptr197, i64 20
-  %extract198.unpack374 = load <3 x float>, ptr %extract198.elt373, align 1
-  %31 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %extract187.unpack, <3 x float> %extract198.unpack)
-  %32 = tail call <3 x float> @llvm.minnum.v3f32(<3 x float> %extract187.unpack356, <3 x float> %extract198.unpack374)
-  %33 = fcmp ugt <3 x float> %31, %32
-  %34 = bitcast <3 x i1> %33 to i3
-  %35 = icmp eq i3 %34, 0
-  br i1 %35, label %then_bb182, label %after_bb181
-
-_idx11_for_end.loopexit:                          ; preds = %after_bb181
-  %deref_temp254.unpack498.pre = load ptr, ptr %deref_temp.elt292, align 1
-  br label %_idx11_for_end
-
-_idx11_for_end:                                   ; preds = %_idx11_for_end.loopexit, %_idx00_for
-  %deref_temp254.unpack498 = phi ptr [ %deref_temp254.unpack498.pre, %_idx11_for_end.loopexit ], [ %deref_temp254.unpack498766, %_idx00_for ]
-  %deref_temp249.unpack479763 = phi ptr [ %deref_temp249.unpack479, %_idx11_for_end.loopexit ], [ %deref_temp249.unpack479762, %_idx00_for ]
-  %deref_temp176.unpack329759 = phi ptr [ %deref_temp249.unpack479, %_idx11_for_end.loopexit ], [ %deref_temp176.unpack329, %_idx00_for ]
-  %36 = add nuw nsw i32 %29, 1
-  %extract257.elt500 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp254.unpack498, i64 %0, i32 1
-  %extract257.unpack501 = load i16, ptr %extract257.elt500, align 1
-  %37 = zext i16 %extract257.unpack501 to i32
-  %.not511 = icmp ult i32 %36, %37
-  br i1 %.not511, label %_idx00_for, label %after_bb, !llvm.loop !1
-
-after_bb181:                                      ; preds = %then_bb182, %then_bb207, %_idx11_for
-  %deref_temp249.unpack479 = phi ptr [ %deref_temp249.unpack479764, %then_bb182 ], [ %deref_temp249.unpack479.pre, %then_bb207 ], [ %deref_temp249.unpack479764, %_idx11_for ]
-  %38 = add nuw nsw i32 %30, 1
-  %extract252.elt481 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp249.unpack479, i64 %.lcssa, i32 1
-  %extract252.unpack482 = load i16, ptr %extract252.elt481, align 1
-  %39 = zext i16 %extract252.unpack482 to i32
-  %.not492 = icmp ult i32 %38, %39
-  br i1 %.not492, label %_idx11_for, label %_idx11_for_end.loopexit
-
-then_bb182:                                       ; preds = %_idx11_for
-  %deref_temp209.unpack379 = load ptr, ptr %deref_temp209.elt378, align 1
-  %extract213.elt393 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp184.unpack347, i64 %0, i32 5
-  %extract213.unpack394396 = load i32, ptr %extract213.elt393, align 1
-  %40 = add i32 %extract213.unpack394396, %29
-  %41 = sext i32 %40 to i64
-  %extract_ptr215 = getelementptr inbounds %struct.Triangle, ptr %deref_temp209.unpack379, i64 %41
-  %deref_temp217.unpack398 = load ptr, ptr %deref_temp217.elt397, align 1
-  %extract222.elt412 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp195.unpack365, i64 %.lcssa, i32 5
-  %extract222.unpack413415 = load i32, ptr %extract222.elt412, align 1
-  %42 = add i32 %extract222.unpack413415, %30
-  %43 = sext i32 %42 to i64
-  %extract_ptr225 = getelementptr inbounds %struct.Triangle, ptr %deref_temp217.unpack398, i64 %43
-  %deref_temp.elt3.i = getelementptr inbounds i8, ptr %extract_ptr215, i64 16
-  %deref_temp.unpack4.i = load <3 x float>, ptr %deref_temp.elt3.i, align 16
-  %deref_temp1.elt8.i = getelementptr inbounds i8, ptr %extract_ptr225, i64 16
-  %deref_temp1.unpack9.i = load <3 x float>, ptr %deref_temp1.elt8.i, align 16
-  %44 = fcmp olt <3 x float> %deref_temp.unpack4.i, %deref_temp1.unpack9.i
-  %45 = extractelement <3 x i1> %44, i64 0
-  br i1 %45, label %then_bb207, label %after_bb181
-
-then_bb207:                                       ; preds = %then_bb182
-  %extract236.unpack = load <3 x float>, ptr %extract_ptr215, align 16
-  %extract236.elt437 = getelementptr inbounds i8, ptr %extract_ptr215, i64 32
-  %extract236.unpack438 = load <3 x float>, ptr %extract236.elt437, align 16
-  %extract246.unpack = load <3 x float>, ptr %extract_ptr225, align 16
-  %extract246.elt461 = getelementptr inbounds i8, ptr %extract_ptr225, i64 32
-  %extract246.unpack462 = load <3 x float>, ptr %extract246.elt461, align 16
-  %access-to-ptr = load %struct.__dyn_array0, ptr %_dyn_alloc, align 8
-  %_dyn_alloc.ptr = extractvalue %struct.__dyn_array0 %access-to-ptr, 0
-  %_dyn_alloc.size = extractvalue %struct.__dyn_array0 %access-to-ptr, 1
-  store <3 x float> %extract236.unpack, ptr %_dyn_alloc.ptr, align 16
-  %_dyn_alloc.ptr.repack466 = getelementptr inbounds i8, ptr %_dyn_alloc.ptr, i64 16
-  store <3 x float> %deref_temp.unpack4.i, ptr %_dyn_alloc.ptr.repack466, align 16
-  %_dyn_alloc.ptr.repack468 = getelementptr inbounds i8, ptr %_dyn_alloc.ptr, i64 32
-  store <3 x float> %extract236.unpack438, ptr %_dyn_alloc.ptr.repack468, align 16
-  %_dyn_alloc.ptr.repack464 = getelementptr inbounds i8, ptr %_dyn_alloc.ptr, i64 48
-  store <3 x float> %extract246.unpack, ptr %_dyn_alloc.ptr.repack464, align 16
-  %_dyn_alloc.ptr.repack464.repack470 = getelementptr inbounds i8, ptr %_dyn_alloc.ptr, i64 64
-  store <3 x float> %deref_temp1.unpack9.i, ptr %_dyn_alloc.ptr.repack464.repack470, align 16
-  %_dyn_alloc.ptr.repack464.repack472 = getelementptr inbounds i8, ptr %_dyn_alloc.ptr, i64 80
-  store <3 x float> %extract246.unpack462, ptr %_dyn_alloc.ptr.repack464.repack472, align 16
-  %_dyn_alloc.newsize = add i32 %_dyn_alloc.size, 1
-  store i32 %_dyn_alloc.newsize, ptr %_dyn_alloc.size248, align 4
-  %deref_temp249.unpack479.pre = load ptr, ptr %deref_temp125.elt310, align 1
-  br label %after_bb181
+func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*), _dyn_alloc : (__dyn_array0*)) -> void {
+  if (intersects_AABB_AABB((&build<AABB>((*triangles1).group0_index[triangles1_index].low, (*triangles1).group0_index[triangles1_index].high)), (&build<AABB>((*triangles2).group0_index[triangles2_index].low, (*triangles2).group0_index[triangles2_index].high)))) {
+    if ((*triangles1).group0_index[triangles1_index].nPrims == 0u) {
+      if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+        _recloop_func0(triangles1_index + 1u, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+      } else {
+        _recloop_func0(triangles1_index + 1u, triangles2_index, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index, triangles1, triangles2, _dyn_alloc)
+      }
+    } else if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+      _recloop_func0(triangles1_index, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
+      _recloop_func0(triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+    } else {
+      forall _idx0 in [0u:cast<u32>((*triangles1).group0_index[triangles1_index].nPrims):1u] {
+        forall _idx1 in [0u:cast<u32>((*triangles2).group0_index[triangles2_index].nPrims):1u] {
+          if ((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0].p1[0] < (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1].p1[0]) {
+            append<_dyn_alloc>(build<__tuple_0>((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
+          }
+        }
+      }
+    }
+  }
+  return
 }
 
-; Function Attrs: nofree nounwind
-define %struct.__dyn_array0 @_traverse_tree0(ptr noundef nonnull readonly %triangles1, ptr noundef nonnull readonly %triangles2) local_unnamed_addr #1 {
-_traverse_tree0_entry:
-  %_dyn_alloc = alloca ptr, align 8
-  %_dyn_alloc_untyped = tail call dereferenceable_or_null(1536) ptr @malloc(i64 1536)
-  store ptr %_dyn_alloc_untyped, ptr %_dyn_alloc, align 8
-  call void @_recloop_func0(i32 0, i32 0, ptr %triangles1, ptr %triangles2, ptr %_dyn_alloc)
-  %deref_temp.fca.0.insert = insertvalue %struct.__dyn_array0 poison, ptr %_dyn_alloc_untyped, 0
-  %deref_temp.fca.1.insert = insertvalue %struct.__dyn_array0 %deref_temp.fca.0.insert, i32 undef, 1
-  ret %struct.__dyn_array0 %deref_temp.fca.1.insert
+func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
+  alloc _dyn_alloc : mut __dyn_array0
+  _recloop_func0(0u, 0u, triangles1, triangles2, _dyn_alloc)
+  return (*_dyn_alloc)
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i1 @axis(<3 x float> noundef %A, <3 x float> noundef %extents, <3 x float> noundef %v0, <3 x float> noundef %v1, <3 x float> noundef %v2) local_unnamed_addr #2 {
-axis_entry:
-  %0 = extractelement <3 x float> %A, i64 0
-  %1 = extractelement <3 x float> %A, i64 1
-  %2 = fcmp olt float %0, %1
-  ret i1 %2
+func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> bool {
+  return A[0] < A[1]
 }
 
-; Function Attrs: nofree nounwind
-define %struct.__dyn_array0 @collisions(ptr noundef nonnull readonly %triangles1, ptr noundef nonnull readonly %triangles2) local_unnamed_addr #1 {
-collisions_entry:
-  %_dyn_alloc.i = alloca ptr, align 8
-  call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %_dyn_alloc.i)
-  %_dyn_alloc_untyped.i = tail call dereferenceable_or_null(1536) ptr @malloc(i64 1536)
-  store ptr %_dyn_alloc_untyped.i, ptr %_dyn_alloc.i, align 8
-  call void @_recloop_func0(i32 0, i32 0, ptr readonly %triangles1, ptr readonly %triangles2, ptr %_dyn_alloc.i)
-  %deref_temp.fca.0.insert.i = insertvalue %struct.__dyn_array0 poison, ptr %_dyn_alloc_untyped.i, 0
-  %deref_temp.fca.1.insert.i = insertvalue %struct.__dyn_array0 %deref_temp.fca.0.insert.i, i32 undef, 1
-  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_dyn_alloc.i)
-  ret %struct.__dyn_array0 %deref_temp.fca.1.insert.i
+func collisions(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
+  return _traverse_tree0(triangles1, triangles2)
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i1 @intersects_AABB_AABB(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %b) local_unnamed_addr #3 {
-intersects_AABB_AABB_entry:
-  %deref_temp.unpack = load <3 x float>, ptr %a, align 16
-  %deref_temp.elt6 = getelementptr inbounds i8, ptr %a, i64 16
-  %deref_temp.unpack7 = load <3 x float>, ptr %deref_temp.elt6, align 16
-  %deref_temp1.unpack = load <3 x float>, ptr %b, align 16
-  %deref_temp1.elt9 = getelementptr inbounds i8, ptr %b, i64 16
-  %deref_temp1.unpack10 = load <3 x float>, ptr %deref_temp1.elt9, align 16
-  %0 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %deref_temp.unpack, <3 x float> %deref_temp1.unpack)
-  %1 = tail call <3 x float> @llvm.minnum.v3f32(<3 x float> %deref_temp.unpack7, <3 x float> %deref_temp1.unpack10)
-  %2 = fcmp ugt <3 x float> %0, %1
-  %3 = bitcast <3 x i1> %2 to i3
-  %4 = icmp eq i3 %3, 0
-  ret i1 %4
+func intersects_AABB_AABB(a : (AABB*), b : (AABB*)) -> bool {
+  let low = max((*a).low, (*b).low) in
+  let high = min((*a).high, (*b).high) in
+  return reduce<all>(low <= high)
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i1 @intersects_AABB_Triangle(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %b) local_unnamed_addr #3 {
-intersects_AABB_Triangle_entry:
-  %deref_temp.unpack = load <3 x float>, ptr %b, align 16
-  %0 = extractelement <3 x float> %deref_temp.unpack, i64 0
-  %1 = getelementptr inbounds i8, ptr %b, i64 20
-  %2 = load float, ptr %1, align 4
-  %3 = fcmp olt float %0, %2
-  ret i1 %3
+func intersects_AABB_Triangle(a : (AABB*), b : (Triangle*)) -> bool {
+  return (*b).p0[0] < (*b).p1[1]
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i1 @intersects_Triangle_Triangle(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %b) local_unnamed_addr #3 {
-intersects_Triangle_Triangle_entry:
-  %deref_temp.elt3 = getelementptr inbounds i8, ptr %a, i64 16
-  %deref_temp.unpack4 = load <3 x float>, ptr %deref_temp.elt3, align 16
-  %deref_temp1.elt8 = getelementptr inbounds i8, ptr %b, i64 16
-  %deref_temp1.unpack9 = load <3 x float>, ptr %deref_temp1.elt8, align 16
-  %0 = extractelement <3 x float> %deref_temp.unpack4, i64 0
-  %1 = extractelement <3 x float> %deref_temp1.unpack9, i64 0
-  %2 = fcmp olt float %0, %1
-  ret i1 %2
+func intersects_Triangle_Triangle(a : (Triangle*), b : (Triangle*)) -> bool {
+  return (*a).p1[0] < (*b).p1[0]
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i1 @tri_tri_axis(<3 x float> noundef %A, <3 x float> noundef %a0, <3 x float> noundef %a1, <3 x float> noundef %a2, <3 x float> noundef %b0, <3 x float> noundef %b1, <3 x float> noundef %b2) local_unnamed_addr #2 {
-tri_tri_axis_entry:
-  %0 = extractelement <3 x float> %A, i64 0
-  %1 = extractelement <3 x float> %A, i64 1
-  %2 = fcmp olt float %0, %1
-  ret i1 %2
+func tri_tri_axis(A : f32x3, a0 : f32x3, a1 : f32x3, a2 : f32x3, b0 : f32x3, b1 : f32x3, b2 : f32x3) -> bool {
+  return A[0] < A[1]
 }
 
-; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
-declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #4
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.maxnum.v3f32(<3 x float>, <3 x float>) #5
+schedule host {
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.minnum.v3f32(<3 x float>, <3 x float>) #5
-
-; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.lifetime.start.p0(i64 immarg, ptr nocapture) #6
-
-; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.lifetime.end.p0(i64 immarg, ptr nocapture) #6
-
-attributes #0 = { nofree nosync nounwind memory(readwrite, inaccessiblemem: none) }
-attributes #1 = { nofree nounwind }
-attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
-attributes #4 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
-attributes #5 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #6 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
-
-!0 = !{!"branch_weights", i32 0, i32 1073741824}
-!1 = distinct !{!1, !2}
-!2 = !{!"llvm.loop.unswitch.partial.disable"}
+}

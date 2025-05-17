@@ -2044,6 +2044,12 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr, llvm::Value *size_ptr,
     llvm::Value *capacity_ptr, llvm::Type *element_type,
     const std::string &base_n) {
+    internal_assert(dynamic_array);
+    internal_assert(struct_t);
+    internal_assert(buffer_ptr);
+    internal_assert(size_ptr);
+    internal_assert(capacity_ptr);
+    internal_assert(element_type);
 
     int ptr_idx = find_struct_index("ptr", struct_t->fields);
     llvm::Value *ptr_to_buffer =
@@ -2060,12 +2066,14 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
 
     // Check if we need to grow.
     llvm::Value *condition =
-        builder->CreateICmpUGE(current_size, capacity, base_n + ".grow-uge");
+        builder->CreateICmpUGE(current_size, capacity, "grow-or-continue");
+
+    internal_assert(current_function);
     llvm::BasicBlock *grow_bb =
-        llvm::BasicBlock::Create(*context, base_n + ".grow", current_function);
-    llvm::BasicBlock *cont_bb =
-        llvm::BasicBlock::Create(*context, base_n + ".cont", current_function);
-    builder->CreateCondBr(condition, grow_bb, cont_bb);
+        llvm::BasicBlock::Create(*context, "grow", current_function);
+    llvm::BasicBlock *continue_bb =
+        llvm::BasicBlock::Create(*context, "continue", current_function);
+    builder->CreateCondBr(condition, grow_bb, continue_bb);
     // case 1: we need to grow
     builder->SetInsertPoint(grow_bb);
     auto *zero = llvm::ConstantInt::get(i32_t, 0);
@@ -2079,14 +2087,14 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::Value *new_buffer = create_malloc(
         element_type, new_capacity, /*zero_init=*/false, base_n + ".resize");
     // Memcpy the old values into the new buffer.
-    uint64_t element_size =
-        module->getDataLayout().getTypeAllocSize(element_type);
+    const llvm::DataLayout &layout = module->getDataLayout();
+    uint64_t element_size = layout.getTypeAllocSize(element_type);
     llvm::Value *old_buffer = buffer_ptr;
     builder->CreateMemCpy(
         /*Dst=*/new_buffer,
-        /*DstAlign=*/llvm::Align(element_size),
+        /*DstAlign=*/layout.getABITypeAlign(element_type),
         /*Src=*/old_buffer,
-        /*SrcAlign=*/llvm::Align(element_size),
+        /*SrcAlign=*/layout.getABITypeAlign(element_type),
         /*Size=*/
         builder->CreateMul(current_size,
                            llvm::ConstantInt::get(i32_t, element_size)));
@@ -2109,12 +2117,13 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
 
     // Update struct.capacity field
     builder->CreateStore(new_capacity, capacity_ptr);
-    builder->CreateBr(cont_bb);
+    builder->CreateBr(continue_bb);
 
     // case 2: no grow (and continuation of grow block).
-    builder->SetInsertPoint(cont_bb);
+    builder->SetInsertPoint(continue_bb);
     // Reload the final buffer pointer.
-    return builder->CreateLoad(element_type->getPointerTo(), ptr_to_buffer);
+    return builder->CreateLoad(element_type->getPointerTo(), ptr_to_buffer,
+                               base_n + ".load");
 }
 
 void CodeGen_LLVM::visit(const Append *node) {
