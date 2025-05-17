@@ -2248,7 +2248,7 @@ void CodeGen_LLVM::visit(const Append *node) {
         builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
                                  dynamic_array, // The pointer to the struct
                                  size_idx,      // The field index
-                                 base_n + ".size");
+                                 base_n + ".size_ptr");
     // Pointer to the capacity of the array.
     int32_t capacity_idx = find_struct_index("capacity", struct_t->fields);
     llvm::Value *capacity_ptr =
