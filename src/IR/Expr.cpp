@@ -1069,7 +1069,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                    "received: "
                 << a << " : " << a.type();
             internal_assert((b.type().is<Set_t, BVH_t>()))
-                << "Expected rhs of filter to be a (set|bvh|array), instead "
+                << "Expected rhs of filter to be a (set|bvh), instead "
                    "received: "
                 << b << " : " << b.type();
             if (const Function_t *f = a.type().as<Function_t>()) {
