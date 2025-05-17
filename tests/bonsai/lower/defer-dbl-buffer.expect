@@ -13,14 +13,14 @@ func foo(ray : Ray) -> bool {
 }
 
 func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
-  hit_queue_data : mut (Ray, i32, i32, i32[n], i32)[64]
-  hit_queue : mut (u64, (Ray, i32, i32, i32[n], i32)[64]) := (0u, hit_queue_data)
+  hit_queue_data : mut (Ray, i32, i32, (i32[n]*), i32)[64]
+  hit_queue : mut (u64, (Ray, i32, i32, (i32[n]*), i32)[64]) := (0u, hit_queue_data)
   alloc _alloc0 : mut i32[n]
   forall _i0 in [0:n:1] {
     num_hits(rays[_i0], 100, 0, _alloc0, _i0, hit_queue)
   }
-  hit_queue_dbl_buffer_data : mut (Ray, i32, i32, i32[n], i32)[64]
-  hit_queue_dbl_buffer : mut (u64, (Ray, i32, i32, i32[n], i32)[64]) := (0u, hit_queue_dbl_buffer_data)
+  hit_queue_dbl_buffer_data : mut (Ray, i32, i32, (i32[n]*), i32)[64]
+  hit_queue_dbl_buffer : mut (u64, (Ray, i32, i32, (i32[n]*), i32)[64]) := (0u, hit_queue_dbl_buffer_data)
   do {
     forall _hit_queue_task in [0u:hit_queue[0]:1u] {
       num_hits(hit_queue[1][_hit_queue_task][0], hit_queue[1][_hit_queue_task][1], hit_queue[1][_hit_queue_task][2], hit_queue[1][_hit_queue_task][3], hit_queue[1][_hit_queue_task][4], hit_queue_dbl_buffer)
@@ -33,12 +33,12 @@ func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
   return _alloc0
 }
 
-func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut (u64, (Ray, i32, i32, i32[n], i32)[64])) -> void {
+func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut (u64, (Ray, i32, i32, (i32[n]*), i32)[64])) -> void {
   if (depth <= 0) {
     _write__alloc0[_write__i0] = acc
     return
   } else if (foo(ray)) {
-    hit_queue[1][atomic_add((&hit_queue[0]), 1u)] = (bounce(ray), depth - 1, acc + 1, _write__alloc0, _write__i0)
+    hit_queue[1][atomic_add((&hit_queue[0]), 1u)] = (bounce(ray), depth - 1, acc + 1, (&_write__alloc0), _write__i0)
     return
   } else {
     _write__alloc0[_write__i0] = -1
