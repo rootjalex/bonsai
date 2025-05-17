@@ -193,4 +193,7 @@ ir::Type flatten_array_type(const ir::Type &type);
 // TODO(cgyurgyik): Add support for non-standard types.
 std::string get_specifier(const ir::Type &type);
 
+// Returns whether this type is a dynamic array.
+bool is_dynamic_array_type(const ir::Type &type);
+
 } // namespace bonsai

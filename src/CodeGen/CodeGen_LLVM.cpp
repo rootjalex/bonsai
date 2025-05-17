@@ -62,16 +62,6 @@ void to_llvm(const ir::Program &program, const CompilerOptions &options) {
 } // namespace codegen
 namespace {
 
-// Returns whether this type is a dynamic array.
-bool is_dynamic_array_type(const ir::Type &type) {
-    if (const auto *dynamic_array_t = type.as<ir::Struct_t>()) {
-        if (dynamic_array_t->name.starts_with("__dyn_array")) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // Returns the `printf` function for this module. If none exists, it is created.
 static llvm::Function *retrieve_printf(llvm::Module &m) {
     llvm::Function *printf;
