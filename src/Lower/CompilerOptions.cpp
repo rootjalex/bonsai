@@ -13,6 +13,9 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
     if (!opt.output_file.empty()) {
         os << "-o " << opt.output_file << "\n";
     }
+    if (opt.turn_off_optimizations) {
+        os << "-boo" << "\n";
+    }
     return os;
 }
 

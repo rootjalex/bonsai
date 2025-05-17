@@ -15,12 +15,13 @@ using namespace bonsai;
 std::string command_help() {
     std::stringstream s;
     s << "Bonsai Command Line:\n"
-      << "-b|--backend <backend>         | e.g., `-b llvm`\n"
-      << "-p|--pass <pass>               | e.g., `-p dce`\n"
-      << "-e|--execute,                  | e.g., `-e`\n"
-      << "-i|--input <input file name>   | e.g., `-i in.bonsai`\n"
-      << "-o|--output <output file name> | e.g., `-o out.bonsai`\n"
-      << "-v|--verbose                   | e.g., `-v`\n"
+      << "-b   | --backend <backend>         | e.g., `-b llvm`\n"
+      << "-p   | --pass <pass>               | e.g., `-p dce`\n"
+      << "-e   | --execute,                  | e.g., `-e`\n"
+      << "-i   | --input <input file name>   | e.g., `-i in.bonsai`\n"
+      << "-o   | --output <output file name> | e.g., `-o out.bonsai`\n"
+      << "-v   | --verbose                   | e.g., `-v`\n"
+      << "-boo | --backend-optimize-off      | e.g., `-boff`\n"
       << "-h|--help";
     return s.str();
 }
@@ -95,6 +96,11 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "-v" || arg == "--verbose") {
             options.is_verbose = true;
+            continue;
+        }
+        if (arg == "-boo" || arg == "--backend-optimize-off") {
+            options.turn_off_optimizations = true;
+            ++i;
             continue;
         }
         if (arg == "-b" || arg == "--backend") {

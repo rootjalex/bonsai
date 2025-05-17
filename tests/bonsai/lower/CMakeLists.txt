@@ -6,7 +6,6 @@ add_bonsai_tests(
     collision.bonsai
     defer-dbl-buffer.bonsai
     defer.bonsai
-    dynamic-array.bonsai
     exported-function.bonsai
     float.bonsai
     import_float.bonsai

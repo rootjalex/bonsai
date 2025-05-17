@@ -25,6 +25,10 @@ struct CompilerOptions {
     // Whether this should verbosely print Bonsai IR.
     bool is_verbose = false;
 
+    // Whether the backend should disable optimizations. This is useful for
+    // debugging.
+    bool turn_off_optimizations = false;
+
     // The input filename. This cannot be empty.
     std::string input_file;
 
