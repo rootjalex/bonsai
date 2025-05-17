@@ -2189,34 +2189,24 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::Value *new_capacity = builder->CreateSelect(
         builder->CreateICmpEQ(capacity, zero), one,
         builder->CreateMul(capacity, two), base_n + ".new_capacity");
-    // Allocate the new buffer.
-    llvm::Value *new_buffer = create_malloc(
-        element_type, new_capacity, /*zero_init=*/false, base_n + ".resize");
-    // Memcpy the old values into the new buffer.
-    const llvm::DataLayout &layout = module->getDataLayout();
-    uint64_t element_size = layout.getTypeAllocSize(element_type);
-    llvm::Value *old_buffer = buffer_ptr;
-    builder->CreateMemCpy(
-        /*Dst=*/new_buffer,
-        /*DstAlign=*/layout.getABITypeAlign(element_type),
-        /*Src=*/old_buffer,
-        /*SrcAlign=*/layout.getABITypeAlign(element_type),
-        /*Size=*/
-        builder->CreateMul(current_size,
-                           llvm::ConstantInt::get(i32_t, element_size)));
 
-    { // Free the old buffer.
-        llvm::Function *free_f = module->getFunction("free");
-        if (free_f == nullptr) {
-            llvm::FunctionType *type = llvm::FunctionType::get(
-                llvm::Type::getVoidTy(*context),
-                {llvm::Type::getInt8Ty(*context)->getPointerTo()},
-                /*isVarArg=*/false);
-            free_f = llvm::Function::Create(
-                type, llvm::Function::ExternalLinkage, "free", module.get());
-        }
-        builder->CreateCall(free_f, {old_buffer});
+    // Allocate the new buffer.
+    const llvm::DataLayout &layout = module->getDataLayout();
+    llvm::Type *i8_t = llvm::Type::getInt8Ty(*context);
+    llvm::Type *s_t = layout.getIntPtrType(*context);
+    new_capacity = builder->CreateZExtOrBitCast(new_capacity, s_t);
+    llvm::Value *element_size =
+        llvm::ConstantInt::get(s_t, layout.getTypeAllocSize(element_type));
+    llvm::Function *realloc = module->getFunction("realloc");
+    if (realloc == nullptr) {
+        llvm::FunctionType *type = llvm::FunctionType::get(
+            i8_t->getPointerTo(), {i8_t->getPointerTo(), s_t},
+            /*isVarArg=*/false);
+        realloc = llvm::Function::Create(type, llvm::Function::ExternalLinkage,
+                                         "realloc", module.get());
     }
+    llvm::Value *new_buffer = builder->CreateCall(
+        realloc, {buffer_ptr, builder->CreateMul(new_capacity, element_size)});
 
     // Update struct.ptr field
     builder->CreateStore(new_buffer, ptr_to_buffer);
