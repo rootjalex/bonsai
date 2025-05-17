@@ -1,6 +1,6 @@
 type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type Float = f32
-type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 = 0f }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type vec3f = f32x3

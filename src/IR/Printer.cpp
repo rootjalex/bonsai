@@ -502,13 +502,10 @@ void Printer::visit(const Struct_t *node) {
             // TODO: flip? if easier to read.
             os << key << " : ";
             print(value);
-            // TODO(cgyurgyik): need to add this; doing in a future PR because
-            // it is quite noisy.
-
-            // if (auto it = node->defaults.find(key);
-            //     it != node->defaults.end()) {
-            //     os << " = " << it->second;
-            // }
+            if (auto it = node->defaults.find(key);
+                it != node->defaults.end()) {
+                os << " = " << it->second;
+            }
         }
         os << " }";
     }

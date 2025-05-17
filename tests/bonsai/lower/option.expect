@@ -1,4 +1,4 @@
-type _option0 = struct _option0{ value : i32; set : bool }
+type _option0 = struct _option0{ value : i32; set : bool = false }
 
 func make_option0(i : i32) -> _option0 {
   return build<_option0>(i, true)

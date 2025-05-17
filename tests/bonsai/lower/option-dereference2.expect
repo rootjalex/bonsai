@@ -1,4 +1,4 @@
-type _option0 = struct _option0{ value : i32; set : bool }
+type _option0 = struct _option0{ value : i32; set : bool = false }
 
 func use_option(i : (_option0*)) -> i32 {
   let k = (*i) in
