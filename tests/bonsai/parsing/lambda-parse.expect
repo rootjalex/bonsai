@@ -1,4 +1,4 @@
-type __dyn_array0 = struct __dyn_array0{ buffer : i32[16]; size : i32; capacity : i32 }
+type __dyn_array0 = struct __dyn_array0{ buffer : i32[16]; size : i32 = 0; capacity : i32 }
 
 func _lambda0(x : i32) -> i32 {
   return x + 1

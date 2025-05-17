@@ -1,6 +1,6 @@
 type Float = f32
 type Half = f16
-type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type vec3f = f32x3
 type vec3h = f16x3
 

@@ -1,5 +1,5 @@
-type _option0 = struct _option0{ value : i32; set : bool }
-type _option1 = struct _option1{ value : struct _option0{ value : i32; set : bool }; set : bool }
+type _option0 = struct _option0{ value : i32; set : bool = false }
+type _option1 = struct _option1{ value : struct _option0{ value : i32; set : bool = false }; set : bool = false }
 
 func use_nested_option(i : (_option1*)) -> i32 {
   if ((*i).set) {

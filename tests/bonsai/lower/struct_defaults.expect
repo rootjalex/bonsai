@@ -1,7 +1,7 @@
-type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 }
-type Ray1 = struct Ray1{ o : f32x3; d : f32x3; t : f32 }
-type Ray2 = struct Ray2{ o : f32x3; d : f32x3; t : f32 }
-type Ray3 = struct Ray3{ o : f32x3; d : f32x3; t : f32 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 = 0f }
+type Ray1 = struct Ray1{ o : f32x3; d : f32x3; t : f32 = 1f }
+type Ray2 = struct Ray2{ o : f32x3 = f32x3(1f); d : f32x3 = f32x3(1f); t : f32 = 1f }
+type Ray3 = struct Ray3{ o : f32x3 = f32x3(0f); d : f32x3 = f32x3(1f); t : f32 = 1f }
 type vec3f = f32x3
 
 func build_ray() -> Ray {
