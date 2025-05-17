@@ -43,8 +43,10 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
     void visit(const ir::Rand_State_t *) override;
-    RESTRICT_VISITOR(ir::DynArray_t); // TODO
-  
+    // TODO(cgyurgyik): CUDA supports a std::vector variant through their thrust
+    // library. Potentially sufficient for our use case?
+    RESTRICT_VISITOR(ir::DynArray_t);
+
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
     RESTRICT_VISITOR(ir::IFloat);
