@@ -2255,7 +2255,7 @@ void CodeGen_LLVM::visit(const Append *node) {
         builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
                                  dynamic_array, // The pointer to the struct
                                  capacity_idx,  // The field index
-                                 base_n + ".capacity");
+                                 base_n + ".capacity_ptr");
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
     // TODO(cgyurgyik): require mutex for resize?
