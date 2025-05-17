@@ -1843,22 +1843,22 @@ void CodeGen_LLVM::visit(const Build *node) {
 }
 
 void CodeGen_LLVM::visit(const Access *node) {
-    ir::Expr field_e = node->value;
-    internal_assert(field_e.type().is<Struct_t>()) << field_e;
-    llvm::Value *field = codegen_expr(field_e);
+    ir::Expr value_e = node->value;
+    internal_assert(value_e.type().is<Struct_t>()) << value_e;
+    llvm::Value *field = codegen_expr(value_e);
 
     // For debuggability.
     std::string name = node->field;
-    if (const auto *var = field_e.as<Var>()) {
+    if (const auto *var = value_e.as<Var>()) {
         name = var->name + "." + name;
     }
     if (field->getType()->isPointerTy()) {
-        llvm::Type *struct_t = codegen_type(field_e.type());
+        llvm::Type *struct_t = codegen_type(value_e.type());
         field =
             builder->CreateLoad(struct_t, field, /*isVolatile=*/false, name);
     }
     if (field->getType()->isStructTy()) {
-        const auto &fields = field_e.type().as<Struct_t>()->fields;
+        const auto &fields = value_e.type().as<Struct_t>()->fields;
         const size_t idx = find_struct_index(node->field, fields);
         value = builder->CreateExtractValue(field, idx, name);
         return;
