@@ -2276,6 +2276,7 @@ void CodeGen_LLVM::visit(const Append *node) {
     // Store the value at the given pointer.
     builder->CreateStore(rhs, buffer_ptr, /*isVolatile=*/false);
     // Update the size of the dynamic array, and then store it.
+    // TODO(cgyurgyik): Use atomic add.
     llvm::Value *new_size = builder->CreateAdd(
         current_size, llvm::ConstantInt::get(i32_t, 1), base_n + ".new-size");
     builder->CreateStore(new_size, size_ptr);
