@@ -2261,6 +2261,7 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  base_n + ".capacity");
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
+    // TODO(cgyurgyik): require mutex for resize?
     buffer_ptr =
         ensure_capacity(dynamic_array, struct_t, llvm_struct_t, buffer_ptr,
                         size_ptr, capacity_ptr, element_type, base_n);
