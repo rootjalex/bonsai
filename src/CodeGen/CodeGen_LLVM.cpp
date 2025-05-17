@@ -1852,11 +1852,6 @@ void CodeGen_LLVM::visit(const Access *node) {
     if (const auto *var = value_e.as<Var>()) {
         name = var->name + "." + name;
     }
-    if (field->getType()->isPointerTy()) {
-        llvm::Type *struct_t = codegen_type(value_e.type());
-        field =
-            builder->CreateLoad(struct_t, field, /*isVolatile=*/false, name);
-    }
     if (field->getType()->isStructTy()) {
         const auto &fields = value_e.type().as<Struct_t>()->fields;
         const size_t idx = find_struct_index(node->field, fields);
@@ -2076,7 +2071,10 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     int cap_idx = find_struct_index("capacity", dynamic_array_t->fields);
     int size_idx = find_struct_index("size", dynamic_array_t->fields);
     // Retrieve element type and capacity.
-    Expr access = ir::Access::make("buffer", Var::make(type, name));
+    // Dynamic arrays are always mutable, so stored as pointers to the
+    // underlying struct type. Need to dereference that pointer to load buffer.
+    Expr access = ir::Access::make(
+        "buffer", Deref::make(Var::make(Ptr_t::make(type), name)));
     const auto *array_t = access.type().as<Array_t>();
     internal_assert(array_t) << access.type();
     llvm::Type *element_type = codegen_type(array_t->etype);
@@ -2231,7 +2229,9 @@ void CodeGen_LLVM::visit(const Append *node) {
     llvm::Value *rhs = codegen_expr(node->value);
 
     // Pointer to the statically sized array.
-    Expr base_v = ir::Var::make(struct_t, node->loc.base);
+    // Dynamic arrays are always mutable, so stored as pointers to the
+    // underlying struct type. Need to dereference that pointer to load buffer.
+    Expr base_v = Deref::make(Var::make(Ptr_t::make(struct_t), node->loc.base));
     Expr ptr = Access::make("buffer", base_v);
     const auto *array_t = ptr.type().as<Array_t>();
     internal_assert(array_t) << ptr.type();
