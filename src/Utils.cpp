@@ -517,8 +517,8 @@ std::string get_specifier(const ir::Type &type) {
     internal_error << "[unimplemented] print: " << type;
 }
 
-bool is_dynamic_array_type(const ir::Type &type) {
-    // Dynamic arrays are lowered to structs, so check this first.
+bool is_dynamic_array_struct_type(const ir::Type &type) {
+    // Dynamic arrays are lowered to structs.
     if (const auto *dynamic_array_t = type.as<ir::Struct_t>()) {
         if (dynamic_array_t->name.starts_with("__dyn_array")) {
             return true;

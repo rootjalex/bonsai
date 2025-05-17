@@ -2061,7 +2061,7 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     std::string name = node->loc.base;
     Type type = node->loc.base_type;
-    internal_assert(is_dynamic_array_type(type)) << type;
+    internal_assert(is_dynamic_array_struct_type(type)) << type;
     const auto *dynamic_array_t = type.as<Struct_t>();
 
     internal_assert(node->memory == Allocate::Memory::Heap) << Stmt(node);
@@ -2105,7 +2105,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     Type allocate_type = node->loc.base_type;
     ir::Expr value = node->value;
 
-    if (is_dynamic_array_type(allocate_type)) {
+    if (is_dynamic_array_struct_type(allocate_type)) {
         allocate_dynamic_array_type(node);
         return;
     }

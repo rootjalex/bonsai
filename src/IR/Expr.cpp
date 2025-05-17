@@ -570,9 +570,9 @@ Expr Extract::make(Expr vec, Expr idx) {
     Type type;
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        if (is_dynamic_array_type(vec.type())) {
+        if (is_dynamic_array_struct_type(vec.type())) {
             // Assumption: an extraction from a dynamic array is really an
-            // access to its buffer.
+            // access to its buffer when lowered to a struct_t.
             vec = Access::make("buffer", vec);
         }
         internal_assert(

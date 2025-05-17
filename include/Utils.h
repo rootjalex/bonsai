@@ -194,6 +194,6 @@ ir::Type flatten_array_type(const ir::Type &type);
 std::string get_specifier(const ir::Type &type);
 
 // Returns whether this type is a dynamic array.
-bool is_dynamic_array_type(const ir::Type &type);
+bool is_dynamic_array_struct_type(const ir::Type &type);
 
 } // namespace bonsai
