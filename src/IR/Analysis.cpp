@@ -207,7 +207,6 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(QueueWrite);
     RESTRICT_VISITOR(Append);
 
     void visit(const IfElse *node) override {
@@ -317,13 +316,6 @@ struct HasSideEffects : ir::Visitor {
     }
 
     void visit(const ir::Append *node) override {
-        if (found) {
-            return;
-        }
-        found = true;
-    }
-
-    void visit(const ir::QueueWrite *node) override {
         if (found) {
             return;
         }

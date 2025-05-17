@@ -89,7 +89,6 @@ struct ForAll;
 struct ForEach;
 struct Continue;
 struct Launch;
-struct QueueWrite;
 struct Append;
 
 // Layouts

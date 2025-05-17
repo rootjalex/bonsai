@@ -660,14 +660,6 @@ Stmt Mutator::visit(const Launch *node) {
     return Launch::make(node->func, std::move(n), std::move(args));
 }
 
-Stmt Mutator::visit(const QueueWrite *node) {
-    auto [args, not_changed] = visit_list(this, node->args);
-    if (not_changed) {
-        return node;
-    }
-    return QueueWrite::make(node->queue, std::move(args));
-}
-
 Stmt Mutator::visit(const Append *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);

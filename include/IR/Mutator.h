@@ -92,7 +92,6 @@ struct Mutator {
     virtual Stmt visit(const ForEach *);
     virtual Stmt visit(const Continue *);
     virtual Stmt visit(const Launch *);
-    virtual Stmt visit(const QueueWrite *);
     virtual Stmt visit(const Append *);
 };
 

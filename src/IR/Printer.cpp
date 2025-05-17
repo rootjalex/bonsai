@@ -1308,13 +1308,6 @@ void Printer::visit(const Launch *node) {
     os << ")\n";
 }
 
-void Printer::visit(const QueueWrite *node) {
-    os << get_indent() << "enqueue<";
-    os << node->queue << ">(";
-    print_expr_list(node->args);
-    os << ")\n";
-}
-
 void Printer::visit(const Append *node) {
     os << get_indent() << "append<";
     os << node->loc;

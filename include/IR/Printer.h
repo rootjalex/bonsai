@@ -155,7 +155,6 @@ struct Printer : public Visitor {
     void visit(const ForEach *) override;
     void visit(const Continue *) override;
     void visit(const Launch *) override;
-    void visit(const QueueWrite *) override;
     void visit(const Append *) override;
     // Layouts
     void visit(const Name *) override;

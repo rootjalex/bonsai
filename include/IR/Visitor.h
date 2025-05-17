@@ -83,7 +83,6 @@ struct Visitor {
     virtual void visit(const ForEach *);
     virtual void visit(const Continue *);
     virtual void visit(const Launch *);
-    virtual void visit(const QueueWrite *);
     virtual void visit(const Append *);
     // Layouts
     virtual void visit(const Name *);
