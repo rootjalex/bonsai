@@ -40,25 +40,23 @@ class LowerDynamicSetImpl : public ir::Mutator {
     LowerDynamicSetImpl(Type dynamic_array_t)
         : dynamic_array_t(std::move(dynamic_array_t)) {}
 
-    Stmt visit(const Sequence *node) override {
+    Stmt visit(const Yield *node) override {
+        WriteLoc loc(DYNAMIC_ALLOCATION, dynamic_array_t);
+        return Append::make(std::move(loc), node->value);
+    }
+
+    Stmt mutate(const Stmt &stmt) override {
         if (!entry) {
-            return ir::Mutator::visit(node);
+            return ir::Mutator::mutate(stmt);
         }
         entry = false;
         std::vector<Stmt> stmts;
         WriteLoc loc(DYNAMIC_ALLOCATION, dynamic_array_t);
         stmts.push_back(Allocate::make(std::move(loc), Allocate::Memory::Heap));
-        for (const Stmt &stmt : node->stmts) {
-            stmts.push_back(mutate(stmt));
-        }
+        stmts.push_back(ir::Mutator::mutate(stmt));
         stmts.push_back(
             Return::make(Var::make(dynamic_array_t, DYNAMIC_ALLOCATION)));
         return Sequence::make(std::move(stmts));
-    }
-
-    Stmt visit(const Yield *node) override {
-        WriteLoc loc(DYNAMIC_ALLOCATION, dynamic_array_t);
-        return Append::make(std::move(loc), node->value);
     }
 
   private:
@@ -86,8 +84,7 @@ Program LowerDynamicSets::run(Program program,
             LowerDynamicSetImpl lower(dynamic_array_t);
             // Canonicalize this into a sequence so we only need to handle a
             // single case.
-            Stmt sequence = Sequence::make(std::move(func->body));
-            func->body = lower.mutate(sequence);
+            func->body = lower.mutate(func->body);
         }
     }
     return program;

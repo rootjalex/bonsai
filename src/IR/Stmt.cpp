@@ -99,12 +99,6 @@ Stmt Sequence::make(std::vector<Stmt> stmts) {
     return node;
 }
 
-Stmt Sequence::make(Stmt stmt) {
-    Sequence *node = new Sequence;
-    node->stmts = {std::move(stmt)};
-    return node;
-}
-
 Stmt Allocate::make(WriteLoc loc, Memory memory) {
     internal_assert(loc.defined())
         << "Undefined write location in Allocate::make";
