@@ -21,7 +21,7 @@ std::string command_help() {
       << "-i   | --input <input file name>   | e.g., `-i in.bonsai`\n"
       << "-o   | --output <output file name> | e.g., `-o out.bonsai`\n"
       << "-v   | --verbose                   | e.g., `-v`\n"
-      << "-boo | --backend-optimize-off      | e.g., `-boff`\n"
+      << "-O<n>| n/a                         | e.g., `-O3`\n"
       << "-h   | --help";
     return s.str();
 }
@@ -98,8 +98,13 @@ Flags parse(const std::vector<std::string> &args) {
             options.is_verbose = true;
             continue;
         }
-        if (arg == "-boo" || arg == "--backend-optimize-off") {
-            options.turn_off_optimizations = true;
+        if (arg == "-O0") {
+            options.level = BackendOptimizationLevel::O0;
+            ++i;
+            continue;
+        }
+        if (arg == "-O3") {
+            options.level = BackendOptimizationLevel::O3;
             ++i;
             continue;
         }

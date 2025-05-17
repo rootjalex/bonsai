@@ -571,6 +571,9 @@ Expr Extract::make(Expr vec, Expr idx) {
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
         if (is_dynamic_array_struct_type(vec.type())) {
+            // We push the actual Extract down into the backend because we need
+            // to know when the extraction is occurring from a dynamic array
+            // (for atomic purposes).
             type = Access::make("buffer", vec).type().element_of();
         } else {
             internal_assert(
