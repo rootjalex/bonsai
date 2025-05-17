@@ -2099,22 +2099,18 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     llvm::Value *buffer_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, ptr_idx, name + ".buffer_ptr");
     llvm::StoreInst *store_buffer = builder->CreateStore(buffer, buffer_ptr);
-    store_buffer->setAlignment(llvm::Align(sizeof(void *)));
-
     store_buffer->setAtomic(llvm::AtomicOrdering::Release);
     // Initialize the size to 0.
     llvm::Value *size_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, size_idx, name + ".size_ptr");
     llvm::StoreInst *store_size =
         builder->CreateStore(llvm::ConstantInt::get(i32_t, 0), size_ptr);
-    store_size->setAlignment(llvm::Align(sizeof(int32_t)));
     store_size->setAtomic(llvm::AtomicOrdering::Release);
     // Initialize the current capacity.
     llvm::Value *capacity_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, cap_idx, name + ".capacity_ptr");
     llvm::StoreInst *store_capacity =
         builder->CreateStore(capacity, capacity_ptr);
-    store_capacity->setAlignment(llvm::Align(sizeof(int32_t)));
     store_capacity->setAtomic(llvm::AtomicOrdering::Release);
     return;
 }
