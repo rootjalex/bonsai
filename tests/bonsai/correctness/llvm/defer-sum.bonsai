@@ -1,0 +1,30 @@
+//! flags: -b llvm -e
+
+func stupid_sum(i : i32, n : i32, a : array[f32, n], acc : f32) -> f32 {
+    if i == n {
+        return acc;
+    } else {
+        return stupid_sum(i + 1, n, a, acc + a[i]);
+    }
+}
+
+func compute(n : i32, a : array[f32, n], res : mut f32) {
+    res = stupid_sum(0, n, a, 0.0);
+    return;
+}
+
+func main() -> i32 {
+    a : array[f32, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    print(a);
+    s : mut f32 = -1.0;
+    compute(8, a, s);
+    print(s);
+    return 0;
+}
+
+
+
+schedule {
+    compute.make_queue(queue, root, 1);
+    stupid_sum.defer(stupid_sum, compute.root, queue);
+}

@@ -49,6 +49,7 @@ enum class IRExprEnum {
     // Pointer operations
     PtrTo,
     Deref,
+    AtomicAdd,
 };
 
 using IRExprNode = IRNode<Expr, IRExprEnum>;
@@ -444,6 +445,15 @@ struct Deref : ExprNode<Deref> {
     static Expr make(Expr expr);
 
     static const IRExprEnum node_type = IRExprEnum::Deref;
+};
+
+struct AtomicAdd : ExprNode<AtomicAdd> {
+    Expr ptr;   // must be ptr<T>
+    Expr value; // must be T
+
+    static Expr make(Expr ptr, Expr value);
+
+    static const IRExprEnum node_type = IRExprEnum::AtomicAdd;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary

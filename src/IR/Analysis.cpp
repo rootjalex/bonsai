@@ -185,7 +185,6 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(QueueWrite);
 };
 
 struct ReturnType : public Visitor {

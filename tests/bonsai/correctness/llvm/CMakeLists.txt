@@ -4,6 +4,7 @@ add_bonsai_tests(
     bitwise.bonsai
     collapse.bonsai
     dce.bonsai
+    defer-sum.bonsai
     exported-function.bonsai
     exported-recursive-function.bonsai
     function-type.bonsai

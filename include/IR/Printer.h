@@ -95,7 +95,6 @@ struct Printer : public Visitor {
     void visit(const Generic_t *) override;
     void visit(const BVH_t *) override;
     void visit(const Rand_State_t *) override;
-    void visit(const Queue_t *) override;
     // Interfaces
     void visit(const IEmpty *) override;
     void visit(const IFloat *) override;
@@ -132,6 +131,7 @@ struct Printer : public Visitor {
     void visit(const Instantiate *) override;
     void visit(const PtrTo *) override;
     void visit(const Deref *) override;
+    void visit(const AtomicAdd *) override;
     // Stmts
     void visit(const CallStmt *) override;
     void visit(const Print *) override;

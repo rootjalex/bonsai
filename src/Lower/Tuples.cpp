@@ -53,26 +53,33 @@ struct TuplesToStructs : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Extract *node) override {
+        ir::Expr rec = mutate(node->vec);
+        ir::Expr idx = mutate(node->idx);
         const ir::Tuple_t *as_tuple = node->vec.type().as<ir::Tuple_t>();
         if (as_tuple == nullptr) {
-            return ir::Mutator::visit(node);
+            if (rec.same_as(node->vec) && idx.same_as(node->idx)) {
+                return node;
+            }
+            return ir::Extract::make(rec, idx);
         }
-        const auto constant_idx = get_constant_value(node->idx);
+        const auto constant_idx = get_constant_value(idx);
         internal_assert(constant_idx.has_value())
             << "Cannot lower Extract of tuple with non-constant index: "
             << ir::Expr(node);
-        uint64_t idx = *constant_idx;
+        uint64_t cidx = *constant_idx;
         ir::Type struct_t = visit(as_tuple);
         const ir::Struct_t *as_struct = struct_t.as<ir::Struct_t>();
         internal_assert(as_struct);
-        internal_assert(idx < as_struct->fields.size())
+        internal_assert(cidx < as_struct->fields.size())
             << "Extract on tuple is out of bounds: " << ir::Expr(node)
-            << " idx: " << idx << " >= " << as_struct->fields.size();
+            << " idx: " << cidx << " >= " << as_struct->fields.size();
         // Possibly unnecessary safety check.
-        internal_assert(ir::equals(as_struct->fields[idx].type, node->type));
-        std::string field = as_struct->fields[idx].name;
-        ir::Expr inner = mutate(node->vec);
-        return ir::Access::make(std::move(field), std::move(inner));
+        internal_assert(
+            ir::equals(as_struct->fields[cidx].type, mutate(node->type)))
+            << struct_t << " at " << idx << " is "
+            << as_struct->fields[cidx].type << " but expected " << node->type;
+        std::string field = as_struct->fields[cidx].name;
+        return ir::Access::make(std::move(field), std::move(rec));
     }
 
     ir::Expr visit(const ir::Var *node) override {
@@ -92,9 +99,20 @@ struct TuplesToStructs : public ir::Mutator {
 
         for (const auto &value : loc.accesses) {
             if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {
-                ir::Expr new_value = mutate(*expr);
-                not_changed = not_changed && new_value.same_as(*expr);
-                new_loc.add_index_access(std::move(new_value));
+                if (new_loc.type.is<ir::Struct_t>()) {
+                    // Type must have been tuple, is now a struct.
+                    const auto idx = get_constant_value(*expr);
+                    internal_assert(
+                        idx.has_value() &&
+                        *idx < new_loc.type.as<ir::Struct_t>()->fields.size());
+                    const std::string field =
+                        new_loc.type.as<ir::Struct_t>()->fields[*idx].name;
+                    new_loc.add_struct_access(field);
+                } else {
+                    ir::Expr new_value = mutate(*expr);
+                    not_changed = not_changed && new_value.same_as(*expr);
+                    new_loc.add_index_access(std::move(new_value));
+                }
             } else {
                 new_loc.add_struct_access(std::get<std::string>(value));
             }
@@ -103,11 +121,7 @@ struct TuplesToStructs : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::Build *node) override {
-        const ir::Tuple_t *as_tuple = node->type.as<ir::Tuple_t>();
-        if (as_tuple == nullptr) {
-            return ir::Mutator::visit(node);
-        }
-        ir::Type struct_t = visit(as_tuple);
+        ir::Type new_t = mutate(node->type);
 
         const size_t n = node->values.size();
         std::vector<ir::Expr> values(n);
@@ -116,7 +130,7 @@ struct TuplesToStructs : public ir::Mutator {
             values[i] = mutate(node->values[i]);
         }
 
-        return ir::Build::make(std::move(struct_t), std::move(values));
+        return ir::Build::make(std::move(new_t), std::move(values));
     }
 };
 

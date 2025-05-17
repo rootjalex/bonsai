@@ -89,8 +89,6 @@ void Visitor::visit(const BVH_t *node) {
 
 void Visitor::visit(const Rand_State_t *) {}
 
-void Visitor::visit(const Queue_t *node) { visit_list(this, node->arg_types); }
-
 void Visitor::visit(const IEmpty *) {}
 
 void Visitor::visit(const IFloat *) {}
@@ -183,6 +181,11 @@ void Visitor::visit(const Instantiate *node) {
 void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
 
 void Visitor::visit(const Deref *node) { node->expr.accept(this); }
+
+void Visitor::visit(const AtomicAdd *node) {
+    node->ptr.accept(this);
+    node->value.accept(this);
+}
 
 void Visitor::visit(const CallStmt *node) {
     node->func.accept(this);
@@ -279,13 +282,11 @@ void Visitor::visit(const Launch *node) {
     visit_list(this, node->args);
 }
 
-void Visitor::visit(const QueueWrite *node) { visit_list(this, node->args); }
-
 void Visitor::visit(const Append *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
 }
-
+  
 void Visitor::visit(const Name *node) {}
 
 void Visitor::visit(const Pad *node) {}

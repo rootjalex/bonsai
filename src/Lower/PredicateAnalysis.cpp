@@ -151,76 +151,20 @@ struct PredicateAnalysis : public ir::Visitor {
                        << ir::Expr(node);
     }
 
-    void visit(const ir::UnOp *node) override {
-        internal_error << "TODO: implement predicate analysis on UnOp: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Select *node) override {
-        internal_error << "TODO: implement predicate analysis on Select: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Cast *node) override {
-        internal_error << "TODO: implement predicate analysis on Cast: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Broadcast *node) override {
-        internal_error << "TODO: implement predicate analysis on Broadcast: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::VectorReduce *node) override {
-        internal_error << "TODO: implement predicate analysis on VectorReduce: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::VectorShuffle *node) override {
-        internal_error
-            << "TODO: implement predicate analysis on VectorShuffle: "
-            << ir::Expr(node);
-    }
-
-    void visit(const ir::Ramp *node) override {
-        internal_error << "TODO: implement predicate analysis on Ramp: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Extract *node) override {
-        internal_error << "TODO: implement predicate analysis on Extract: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Build *node) override {
-        internal_error << "TODO: implement predicate analysis on Build: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Access *node) override {
-        internal_error << "TODO: implement predicate analysis on Access: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Unwrap *node) override {
-        internal_error << "TODO: implement predicate analysis on Unwrap: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Intrinsic *node) override {
-        internal_error << "TODO: implement predicate analysis on Intrinsic: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Generator *node) override {
-        internal_error << "TODO: implement predicate analysis on Generator: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Lambda *node) override {
-        internal_error << "TODO: implement predicate analysis on Lambda: "
-                       << ir::Expr(node);
-    }
+    RESTRICT_VISITOR(ir::UnOp);
+    RESTRICT_VISITOR(ir::Select);
+    RESTRICT_VISITOR(ir::Cast);
+    RESTRICT_VISITOR(ir::Broadcast);
+    RESTRICT_VISITOR(ir::VectorReduce);
+    RESTRICT_VISITOR(ir::VectorShuffle);
+    RESTRICT_VISITOR(ir::Ramp);
+    RESTRICT_VISITOR(ir::Extract);
+    RESTRICT_VISITOR(ir::Build);
+    RESTRICT_VISITOR(ir::Access);
+    RESTRICT_VISITOR(ir::Unwrap);
+    RESTRICT_VISITOR(ir::Intrinsic);
+    RESTRICT_VISITOR(ir::Generator);
+    RESTRICT_VISITOR(ir::Lambda);
 
     void visit(const ir::GeomOp *node) override {
         const ir::Var *a_var = node->a.as<ir::Var>();
@@ -298,30 +242,12 @@ struct PredicateAnalysis : public ir::Visitor {
         }
     }
 
-    void visit(const ir::SetOp *node) override {
-        internal_error << "TODO: implement predicate analysis on SetOp: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Call *node) override {
-        internal_error << "TODO: implement predicate analysis on Call: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Instantiate *node) override {
-        internal_error << "TODO: implement predicate analysis on Instantiate: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::PtrTo *node) override {
-        internal_error << "TODO: implement predicate analysis on PtrTo: "
-                       << ir::Expr(node);
-    }
-
-    void visit(const ir::Deref *node) override {
-        internal_error << "TODO: implement predicate analysis on Deref: "
-                       << ir::Expr(node);
-    }
+    RESTRICT_VISITOR(ir::SetOp);
+    RESTRICT_VISITOR(ir::Call);
+    RESTRICT_VISITOR(ir::Instantiate);
+    RESTRICT_VISITOR(ir::PtrTo);
+    RESTRICT_VISITOR(ir::Deref);
+    RESTRICT_VISITOR(ir::AtomicAdd);
 };
 
 } // namespace

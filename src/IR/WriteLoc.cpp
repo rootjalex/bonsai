@@ -3,6 +3,8 @@
 #include "IR/Printer.h"
 #include "IR/TypeEnforcement.h"
 
+#include "Utils.h"
+
 namespace bonsai {
 namespace ir {
 
@@ -33,15 +35,27 @@ void WriteLoc::add_index_access(const Expr &index) {
     // that the current type must be a vector...
     const bool infer_types = type_enforcement_enabled() || type.defined();
     if (infer_types) {
-        const bool indexable = type.is<Vector_t, Array_t>();
+        const bool indexable = type.is<Vector_t, Array_t, Tuple_t>();
         internal_assert(indexable)
             << "Write location of non-vector received index: " << index
             << " but has type: " << type;
-        ir::Type _type = type.element_of();
-        internal_assert(_type.defined())
+        ir::Type etype;
+        if (type.is<Vector_t, Array_t>()) {
+            etype = type.element_of();
+        } else {
+            const Tuple_t *tuple_t = type.as<Tuple_t>();
+            internal_assert(tuple_t);
+            auto cvalue = get_constant_value(index);
+            internal_assert(cvalue.has_value())
+                << "Cannot write to Tuple at variable index: " << index;
+            internal_assert(*cvalue < tuple_t->etypes.size())
+                << "Cannot write to Tuple at OOB index: " << index;
+            etype = tuple_t->etypes[*cvalue];
+        }
+        internal_assert(etype.defined())
             << "Write location type inference produced undefined type: "
-            << _type << " from index " << index << " of type " << type;
-        type = std::move(_type);
+            << etype << " from index " << index << " of type " << type;
+        type = std::move(etype);
     }
 }
 

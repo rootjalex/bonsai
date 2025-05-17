@@ -167,7 +167,6 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value) {
     node->loc = std::move(loc);
     node->op = op;
     node->value = std::move(value);
-    // node->body = std::move(body);
     return node;
 }
 

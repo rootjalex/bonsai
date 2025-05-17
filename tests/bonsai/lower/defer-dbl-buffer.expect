@@ -5,7 +5,7 @@ type vec3f = f32x3
 type vec3h = f16x3
 
 func bounce(ray : Ray) -> Ray {
-  return build<Ray>(ray.o + rand(3), rand(3), (f32)inf)
+  return build<Ray>(ray.o + f32x3(rand()), ray.d + f32x3(rand()), (f32)inf)
 }
 
 func foo(ray : Ray) -> bool {
@@ -13,29 +13,32 @@ func foo(ray : Ray) -> bool {
 }
 
 func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
-  hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32]
+  hit_queue_data : mut (Ray, i32, i32, (i32[n]*), i32)[64]
+  hit_queue : mut (u64, (Ray, i32, i32, (i32[n]*), i32)[64]) := (0u, hit_queue_data)
   alloc _alloc0 : mut i32[n]
   forall _i0 in [0:n:1] {
     num_hits(rays[_i0], 100, 0, _alloc0, _i0, hit_queue)
   }
-  hit_queue_dbl_buffer : mut queue_t[Ray, i32, i32, i32[n], i32]
+  hit_queue_dbl_buffer_data : mut (Ray, i32, i32, (i32[n]*), i32)[64]
+  hit_queue_dbl_buffer : mut (u64, (Ray, i32, i32, (i32[n]*), i32)[64]) := (0u, hit_queue_dbl_buffer_data)
   do {
-    foreach _hit_queue_task in hit_queue {
-      num_hits(_hit_queue_task[0], _hit_queue_task[1], _hit_queue_task[2], _hit_queue_task[3], _hit_queue_task[4], hit_queue_dbl_buffer)
+    forall _hit_queue_task in [0u:hit_queue[0]:1u] {
+      num_hits(hit_queue[1][_hit_queue_task][0], hit_queue[1][_hit_queue_task][1], hit_queue[1][_hit_queue_task][2], hit_queue[1][_hit_queue_task][3], hit_queue[1][_hit_queue_task][4], hit_queue_dbl_buffer)
     }
     let _tmp_hit_queue_dbl_buffer = hit_queue_dbl_buffer in
     hit_queue_dbl_buffer = hit_queue
+    hit_queue_dbl_buffer[0] = 0u
     hit_queue = _tmp_hit_queue_dbl_buffer
-  } while (cast<bool>(hit_queue))
+  } while (0u < hit_queue[0])
   return _alloc0
 }
 
-func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut queue_t[Ray, i32, i32, i32[n], i32]) -> void {
+func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _write__i0 : i32, hit_queue : mut (u64, (Ray, i32, i32, (i32[n]*), i32)[64])) -> void {
   if (depth <= 0) {
     _write__alloc0[_write__i0] = acc
     return
   } else if (foo(ray)) {
-    enqueue<hit_queue>(bounce(ray), depth - 1, acc + 1, _write__alloc0, _write__i0, hit_queue)
+    hit_queue[1][atomic_add((&hit_queue[0]), 1u)] = (bounce(ray), depth - 1, acc + 1, (&_write__alloc0), _write__i0)
     return
   } else {
     _write__alloc0[_write__i0] = -1
@@ -45,5 +48,7 @@ func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _w
 
 
 schedule host {
+    map_hits.make_queue(hit_queue, root, (i32)64)
     num_hits.defer(num_hits, map_hits.root, hit_queue)
+
 }

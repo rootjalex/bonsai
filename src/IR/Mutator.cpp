@@ -231,8 +231,6 @@ Type Mutator::visit(const BVH_t *node) {
 
 Type Mutator::visit(const Rand_State_t *node) { return node; }
 
-Type Mutator::visit(const Queue_t *node) { return node; }
-
 Interface Mutator::visit(const IEmpty *node) { return node; }
 
 Interface Mutator::visit(const IFloat *node) { return node; }
@@ -441,6 +439,15 @@ Expr Mutator::visit(const Deref *node) {
         return node;
     }
     return Deref::make(std::move(expr));
+}
+
+Expr Mutator::visit(const AtomicAdd *node) {
+    Expr ptr = mutate(node->ptr);
+    Expr value = mutate(node->value);
+    if (ptr.same_as(node->ptr) && value.same_as(node->value)) {
+        return node;
+    }
+    return AtomicAdd::make(std::move(ptr), std::move(value));
 }
 
 Stmt Mutator::visit(const CallStmt *node) {

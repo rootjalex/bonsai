@@ -67,10 +67,11 @@ struct LowerToForAll : public ir::Mutator {
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iterable = node->iter;
 
-        const ir::Array_t *array_type = iterable.type().as<ir::Array_t>();
-        internal_assert(array_type);
+        const ir::Array_t *array_t = iterable.type().as<ir::Array_t>();
+        internal_assert(array_t)
+            << "Cannot lower ForEach over non-array: " << ir::Stmt(node);
 
-        ir::Expr end = array_type->size;
+        ir::Expr end = array_t->size;
         ir::Expr begin = make_zero(end.type());
         ir::Expr stride = make_one(end.type());
 

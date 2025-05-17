@@ -3,7 +3,7 @@
 import stdlib/ray;
 
 func bounce(ray : Ray) -> Ray {
-    return Ray{ray.o + rand(3), rand(3)};
+    return Ray{ray.o + rand(), ray.d + rand()};
 }
 
 func foo(ray : Ray) -> bool {
@@ -27,5 +27,6 @@ func num_hits(ray : Ray, depth : i32, acc : i32) -> i32 {
 func map_hits(n : i32, rays : array[Ray, n]) = map(|r : Ray| num_hits(r, 100, 0), rays);
 
 schedule {
+    map_hits.make_queue(exp_queue, root, 64);
     num_hits.defer(expensive, map_hits.root, exp_queue);
 }

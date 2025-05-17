@@ -203,7 +203,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         return compare_lists(tt0->etypes, tt1->etypes, compare_types);
     }
     case IRTypeEnum::Array_t: {
-        // TODO: check size equality?
+        // TODO(ajr): compare size?
         return compare_types(t0.as<Array_t>()->etype, t1.as<Array_t>()->etype);
     }
     case IRTypeEnum::DynArray_t: {
@@ -312,11 +312,6 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     }
     case IRTypeEnum::Rand_State_t: {
         return Cmp::Equals;
-    }
-    case IRTypeEnum::Queue_t: {
-        const Queue_t *q0 = t0.as<Queue_t>();
-        const Queue_t *q1 = t1.as<Queue_t>();
-        return compare_lists(q0->arg_types, q1->arg_types, compare_types);
     }
     }
 }
@@ -597,6 +592,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         const Deref *v0 = e0.as<Deref>();
         const Deref *v1 = e1.as<Deref>();
         return compare_exprs(v0->expr, v1->expr);
+    }
+    case IRExprEnum::AtomicAdd: {
+        const AtomicAdd *v0 = e0.as<AtomicAdd>();
+        const AtomicAdd *v1 = e1.as<AtomicAdd>();
+        if (const Cmp ptr = compare_exprs(v0->ptr, v1->ptr);
+            ptr != Cmp::Equals) {
+            return ptr;
+        }
+        return compare_exprs(v0->value, v1->value);
     }
     }
 }
