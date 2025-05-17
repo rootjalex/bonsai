@@ -4,8 +4,8 @@
 #include "Lower/Canonicalize.h"
 #include "Lower/Defers.h"
 #include "Lower/DynamicArrays.h"
+#include "Lower/DynamicSets.h"
 #include "Lower/Externs.h"
-#include "Lower/Filters.h"
 #include "Lower/ForEachs.h"
 #include "Lower/Generics.h"
 #include "Lower/Geometrics.h"
@@ -85,7 +85,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerMaps>();
-    manager.register_pass<LowerFilters>();
+    manager.register_pass<LowerDynamicSets>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<LowerTuples>();
@@ -127,7 +127,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must *always* go after parallelization,
     // and before Mutability
     core.push_back(std::make_unique<LowerRandom>());
-    core.push_back(std::make_unique<LowerFilters>());
+    core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
@@ -166,7 +166,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must *always* go after parallelization,
     // and before Mutability
     d.push_back(std::make_unique<LowerRandom>());
-    d.push_back(std::make_unique<LowerFilters>());
+    d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());

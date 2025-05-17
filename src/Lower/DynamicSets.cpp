@@ -1,4 +1,4 @@
-#include "Lower/Filters.h"
+#include "Lower/DynamicSets.h"
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
@@ -35,9 +35,9 @@ static constexpr char DYNAMIC_ALLOCATION[] = "_dyn_alloc";
 //   rec(...) { ... }
 //   return _dyn_alloc0;
 // }
-class LowerFilterImpl : public ir::Mutator {
+class LowerDynamicSetImpl : public ir::Mutator {
   public:
-    LowerFilterImpl(Type dynamic_array_t)
+    LowerDynamicSetImpl(Type dynamic_array_t)
         : dynamic_array_t(std::move(dynamic_array_t)) {}
 
     Stmt visit(const Sequence *node) override {
@@ -69,8 +69,8 @@ class LowerFilterImpl : public ir::Mutator {
 
 } // namespace
 
-Program LowerFilters::run(Program program,
-                          const CompilerOptions &options) const {
+Program LowerDynamicSets::run(Program program,
+                              const CompilerOptions &options) const {
     std::vector<std::string> topological_order =
         func_topological_order(program.funcs);
     for (const std::string &name : topological_order) {
@@ -82,10 +82,8 @@ Program LowerFilters::run(Program program,
         // TODO(cgyurgyik): Add schedule support for dynamic array size.
         Type dynamic_array_t = DynArray_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;
-        // TODO(cgyurgyik): Can we just do this in _traverse_tree by filtering
-        // for non-map filters?
         if (name.starts_with("_traverse_tree")) {
-            LowerFilterImpl lower(dynamic_array_t);
+            LowerDynamicSetImpl lower(dynamic_array_t);
             // Canonicalize this into a sequence so we only need to handle a
             // single case.
             Stmt sequence = Sequence::make(std::move(func->body));

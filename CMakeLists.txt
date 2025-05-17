@@ -99,7 +99,7 @@ target_sources(
     src/Lower/Defers.cpp
     src/Lower/DynamicArrays.cpp
     src/Lower/Externs.cpp
-    src/Lower/Filters.cpp
+    src/Lower/DynamicSets.cpp
     src/Lower/ForEachs.cpp
     src/Lower/Generics.cpp
     src/Lower/Geometrics.cpp
@@ -183,7 +183,7 @@ target_sources(
     include/Lower/Defers.h
     include/Lower/DynamicArrays.h
     include/Lower/Externs.h
-    include/Lower/Filters.h
+    include/Lower/DynamicSets.h
     include/Lower/ForEachs.h
     include/Lower/Generics.h
     include/Lower/Geometrics.h

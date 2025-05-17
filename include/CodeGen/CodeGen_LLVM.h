@@ -181,6 +181,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     void print_helper(const ir::Expr &expr, std::vector<llvm::Value *> &args,
                       std::string &to_print, uint32_t indent_level = 0);
 
+    // Allocates memory for the dynamic array type in Bonsai.
+    void allocate_dynamic_array_type(const ir::Allocate *);
     // Ensure buffer has capacity for one more element, growing if needed.
     // Returns the (possibly reallocated) buffer pointer.
     llvm::Value *ensure_capacity(llvm::Value *dynamic_array,

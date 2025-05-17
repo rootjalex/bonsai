@@ -10,10 +10,11 @@
 namespace bonsai {
 namespace lower {
 
-// Lowers filters over sets.
-class LowerFilters : public Pass {
+// Any sets at this point in lowering are assumed to be dynamically sized. These
+// are lowered to dynamically sized arrays.
+class LowerDynamicSets : public Pass {
   public:
-    const std::string name() const override { return "lower-filters"; }
+    const std::string name() const override { return "lower-dynamic-sets"; }
 
     ir::Program run(ir::Program, const CompilerOptions &) const override;
 };
