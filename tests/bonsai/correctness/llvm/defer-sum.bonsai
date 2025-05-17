@@ -1,4 +1,4 @@
-//! flags: -b llvm
+//! flags: -b llvm -e
 
 func stupid_sum(i : i32, n : i32, a : array[f32, n], acc : f32) -> f32 {
     if i == n {
