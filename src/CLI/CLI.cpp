@@ -22,7 +22,7 @@ std::string command_help() {
       << "-o   | --output <output file name> | e.g., `-o out.bonsai`\n"
       << "-v   | --verbose                   | e.g., `-v`\n"
       << "-boo | --backend-optimize-off      | e.g., `-boff`\n"
-      << "-h|--help";
+      << "-h   | --help";
     return s.str();
 }
 
