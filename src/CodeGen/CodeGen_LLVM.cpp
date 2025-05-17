@@ -2205,16 +2205,16 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
                            llvm::ConstantInt::get(i32_t, element_size)));
 
     { // Free the old buffer.
-        llvm::Function *freeF = module->getFunction("free");
-        if (freeF == nullptr) {
-            llvm::FunctionType *freeTy = llvm::FunctionType::get(
+        llvm::Function *free_f = module->getFunction("free");
+        if (free_f == nullptr) {
+            llvm::FunctionType *type = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*context),
                 {llvm::Type::getInt8Ty(*context)->getPointerTo()},
                 /*isVarArg=*/false);
-            freeF = llvm::Function::Create(
-                freeTy, llvm::Function::ExternalLinkage, "free", module.get());
+            free_f = llvm::Function::Create(
+                type, llvm::Function::ExternalLinkage, "free", module.get());
         }
-        builder->CreateCall(freeF, {old_buffer});
+        builder->CreateCall(free_f, {old_buffer});
     }
 
     // Update struct.ptr field
