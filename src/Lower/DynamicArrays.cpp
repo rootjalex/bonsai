@@ -31,7 +31,7 @@ struct DynamicArraysToStructs : public ir::Mutator {
         ir::Struct_t::DefMap defaults;
         // The pointer (which also defines the current capacity).
         fields.push_back(ir::TypedVar(
-            "ptr", ir::Array_t::make(node->etype, node->capacity)));
+            "buffer", ir::Array_t::make(node->etype, node->capacity)));
         // Size
         ir::Type type = node->capacity.type();
         std::string name = unique_dynamic_array_name();

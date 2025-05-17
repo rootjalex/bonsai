@@ -841,8 +841,9 @@ struct Parser {
             return ir::Print::make(std::move(args));
         } else if (peek().type == Token::Type::IDENTIFIER) {
             std::string id = get_id();
-            // TODO(cgyurgyik): remove imperative code from frontend?
-            // append[[alloc]](value);
+            // TODO(cgyurgyik): having this imperative code for debugging code
+            // generation is really useful. We should probably enable this kind
+            // of frontend imperative code behind a flag.
             if (id == "append") {
                 expect(Token::Type::LBRACKET);
                 expect(Token::Type::LBRACKET);

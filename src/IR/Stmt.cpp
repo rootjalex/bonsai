@@ -91,11 +91,17 @@ Stmt DoWhile::make(Stmt body, Expr cond) {
 
 Stmt Sequence::make(std::vector<Stmt> stmts) {
     internal_assert(!stmts.empty()) << "Empty stmts in Sequence::make";
-    // if (stmts.size() == 1) {
-    //     return stmts[0];
-    // }
+    if (stmts.size() == 1) {
+        return stmts[0];
+    }
     Sequence *node = new Sequence;
     node->stmts = std::move(stmts);
+    return node;
+}
+
+Stmt Sequence::make(Stmt stmt) {
+    Sequence *node = new Sequence;
+    node->stmts = {std::move(stmt)};
     return node;
 }
 

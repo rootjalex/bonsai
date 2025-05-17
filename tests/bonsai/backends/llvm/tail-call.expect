@@ -46,153 +46,153 @@ next_bb:                                          ; preds = %next_bb.lr.ph, %nex
 ; Function Attrs: nofree norecurse nosync nounwind memory(argmem: readwrite)
 define <3 x float> @sample1(ptr nocapture noundef nonnull readonly %e, ptr nocapture noundef nonnull %_rng_state) local_unnamed_addr #0 {
 sample1_entry:
-  %deref_temp20 = load %struct.Example, ptr %e, align 16
-  %0 = extractvalue %struct.Example %deref_temp20, 1
-  %1 = icmp slt i32 %0, 1
-  br i1 %1, label %then_bb, label %next_bb.lr.ph
+  %deref_temp24 = load %struct.Example, ptr %e, align 16
+  %depth25 = extractvalue %struct.Example %deref_temp24, 1
+  %0 = icmp slt i32 %depth25, 1
+  br i1 %0, label %then_bb, label %next_bb.lr.ph
 
 next_bb.lr.ph:                                    ; preds = %sample1_entry
   %_rng_state.promoted = load <4 x i32>, ptr %_rng_state, align 16
-  %2 = add <4 x i32> %_rng_state.promoted, <i32 4, i32 8, i32 12, i32 16>
-  store <4 x i32> %2, ptr %_rng_state, align 16
-  %3 = extractelement <4 x i32> %_rng_state.promoted, i64 0
-  %4 = mul i32 %3, 609248
-  %5 = add i32 %4, 5367177
-  %6 = mul i32 %5, %3
-  %7 = add i32 %6, 6517565
-  %8 = and i32 %7, 8388607
-  %9 = or disjoint i32 %8, 1065353216
-  %10 = bitcast i32 %9 to float
-  %11 = fadd float %10, -1.000000e+00
-  %12 = load <3 x float>, ptr %e, align 16
-  %13 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %12)
-  %14 = fcmp olt float %11, %13
-  br i1 %14, label %then_bb2.peel, label %next_bb3
+  %1 = add <4 x i32> %_rng_state.promoted, <i32 4, i32 8, i32 12, i32 16>
+  store <4 x i32> %1, ptr %_rng_state, align 16
+  %2 = extractelement <4 x i32> %_rng_state.promoted, i64 0
+  %3 = mul i32 %2, 609248
+  %4 = add i32 %3, 5367177
+  %5 = mul i32 %4, %2
+  %6 = add i32 %5, 6517565
+  %7 = and i32 %6, 8388607
+  %8 = or disjoint i32 %7, 1065353216
+  %9 = bitcast i32 %8 to float
+  %10 = fadd float %9, -1.000000e+00
+  %value5.peel = load <3 x float>, ptr %e, align 16
+  %11 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %value5.peel)
+  %12 = fcmp olt float %10, %11
+  br i1 %12, label %then_bb2.peel, label %next_bb3
 
 then_bb2.peel:                                    ; preds = %next_bb.lr.ph
-  %15 = add <4 x i32> %_rng_state.promoted, <i32 8, i32 16, i32 24, i32 32>
-  store <4 x i32> %15, ptr %_rng_state, align 16
-  %16 = extractelement <4 x i32> %2, i64 0
-  %17 = mul i32 %16, 609248
-  %18 = add i32 %17, 5367177
-  %19 = mul i32 %18, %16
-  %20 = add i32 %19, 6517565
-  %21 = and i32 %20, 8388607
-  %22 = or disjoint i32 %21, 1065353216
-  %23 = bitcast i32 %22 to float
-  %24 = fadd float %23, -1.000000e+00
-  %25 = load <3 x float>, ptr %e, align 16
-  %26 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %25)
-  %27 = fcmp olt float %26, %24
-  br i1 %27, label %then_bb6.peel, label %common.ret
+  %13 = add <4 x i32> %_rng_state.promoted, <i32 8, i32 16, i32 24, i32 32>
+  store <4 x i32> %13, ptr %_rng_state, align 16
+  %14 = extractelement <4 x i32> %1, i64 0
+  %15 = mul i32 %14, 609248
+  %16 = add i32 %15, 5367177
+  %17 = mul i32 %16, %14
+  %18 = add i32 %17, 6517565
+  %19 = and i32 %18, 8388607
+  %20 = or disjoint i32 %19, 1065353216
+  %21 = bitcast i32 %20 to float
+  %22 = fadd float %21, -1.000000e+00
+  %value10.peel = load <3 x float>, ptr %e, align 16
+  %23 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %value10.peel)
+  %24 = fcmp olt float %23, %22
+  br i1 %24, label %then_bb7.peel, label %common.ret
 
-then_bb6.peel:                                    ; preds = %then_bb2.peel
-  %28 = add <4 x i32> %_rng_state.promoted, <i32 12, i32 24, i32 36, i32 48>
-  store <4 x i32> %28, ptr %_rng_state, align 16
-  %29 = extractelement <4 x i32> %15, i64 0
-  %30 = mul i32 %29, 609248
-  %31 = add i32 %30, 5367177
-  %32 = mul i32 %31, %29
-  %33 = add i32 %32, 6517565
-  %34 = and i32 %33, 8388607
-  %35 = or disjoint i32 %34, 1065353216
-  %36 = bitcast i32 %35 to float
-  %37 = fadd float %36, -1.000000e+00
-  %.splatinsert.peel = insertelement <3 x float> poison, float %37, i64 0
+then_bb7.peel:                                    ; preds = %then_bb2.peel
+  %25 = add <4 x i32> %_rng_state.promoted, <i32 12, i32 24, i32 36, i32 48>
+  store <4 x i32> %25, ptr %_rng_state, align 16
+  %26 = extractelement <4 x i32> %13, i64 0
+  %27 = mul i32 %26, 609248
+  %28 = add i32 %27, 5367177
+  %29 = mul i32 %28, %26
+  %30 = add i32 %29, 6517565
+  %31 = and i32 %30, 8388607
+  %32 = or disjoint i32 %31, 1065353216
+  %33 = bitcast i32 %32 to float
+  %34 = fadd float %33, -1.000000e+00
+  %.splatinsert.peel = insertelement <3 x float> poison, float %34, i64 0
   %.splat.peel = shufflevector <3 x float> %.splatinsert.peel, <3 x float> poison, <3 x i32> zeroinitializer
-  %deref_temp10.peel = load %struct.Example, ptr %e, align 16
-  %38 = extractvalue %struct.Example %deref_temp10.peel, 0
-  %39 = fmul <3 x float> %.splat.peel, %38
-  %40 = extractvalue %struct.Example %deref_temp10.peel, 1
-  %41 = add i32 %40, -1
-  %42 = icmp slt i32 %41, 1
-  br i1 %42, label %then_bb.loopexit, label %next_bb
+  %deref_temp12.peel = load %struct.Example, ptr %e, align 16
+  %value13.peel = extractvalue %struct.Example %deref_temp12.peel, 0
+  %35 = fmul <3 x float> %.splat.peel, %value13.peel
+  %depth15.peel = extractvalue %struct.Example %deref_temp12.peel, 1
+  %36 = add i32 %depth15.peel, -1
+  %37 = icmp slt i32 %36, 1
+  br i1 %37, label %then_bb.loopexit, label %next_bb
 
 common.ret.loopexit:                              ; preds = %then_bb2
-  store <4 x i32> %57, ptr %_rng_state, align 16
+  store <4 x i32> %51, ptr %_rng_state, align 16
   br label %common.ret
 
 common.ret:                                       ; preds = %common.ret.loopexit, %then_bb2.peel, %next_bb3, %then_bb
-  %common.ret.op = phi <3 x float> [ %43, %then_bb ], [ %68, %next_bb3 ], [ zeroinitializer, %then_bb2.peel ], [ zeroinitializer, %common.ret.loopexit ]
+  %common.ret.op = phi <3 x float> [ %value, %then_bb ], [ %62, %next_bb3 ], [ zeroinitializer, %then_bb2.peel ], [ zeroinitializer, %common.ret.loopexit ]
   ret <3 x float> %common.ret.op
 
-then_bb.loopexit.loopexit:                        ; preds = %then_bb6
-  store <4 x i32> %69, ptr %_rng_state, align 16
+then_bb.loopexit.loopexit:                        ; preds = %then_bb7
+  store <4 x i32> %63, ptr %_rng_state, align 16
   br label %then_bb.loopexit
 
-then_bb.loopexit:                                 ; preds = %then_bb.loopexit.loopexit, %then_bb6.peel
-  %.pn36 = phi <3 x float> [ %39, %then_bb6.peel ], [ %79, %then_bb.loopexit.loopexit ]
-  %.pn = phi i32 [ %41, %then_bb6.peel ], [ %80, %then_bb.loopexit.loopexit ]
-  %deref_temp.peel.fca.0.insert.pn = insertvalue %struct.Example poison, <3 x float> %.pn36, 0
-  %deref_temp.lcssa27 = insertvalue %struct.Example %deref_temp.peel.fca.0.insert.pn, i32 %.pn, 1
+then_bb.loopexit:                                 ; preds = %then_bb.loopexit.loopexit, %then_bb7.peel
+  %.pn40 = phi <3 x float> [ %35, %then_bb7.peel ], [ %73, %then_bb.loopexit.loopexit ]
+  %.pn = phi i32 [ %36, %then_bb7.peel ], [ %74, %then_bb.loopexit.loopexit ]
+  %deref_temp.peel.fca.0.insert.pn = insertvalue %struct.Example poison, <3 x float> %.pn40, 0
+  %deref_temp.lcssa31 = insertvalue %struct.Example %deref_temp.peel.fca.0.insert.pn, i32 %.pn, 1
   br label %then_bb
 
 then_bb:                                          ; preds = %then_bb.loopexit, %sample1_entry
-  %deref_temp.lcssa = phi %struct.Example [ %deref_temp20, %sample1_entry ], [ %deref_temp.lcssa27, %then_bb.loopexit ]
-  %43 = extractvalue %struct.Example %deref_temp.lcssa, 0
+  %deref_temp.lcssa = phi %struct.Example [ %deref_temp24, %sample1_entry ], [ %deref_temp.lcssa31, %then_bb.loopexit ]
+  %value = extractvalue %struct.Example %deref_temp.lcssa, 0
   br label %common.ret
 
-next_bb:                                          ; preds = %then_bb6.peel, %then_bb6
-  %Example_ptrto.sroa.7.0 = phi i32 [ %80, %then_bb6 ], [ %41, %then_bb6.peel ]
-  %Example_ptrto.sroa.0.0 = phi <3 x float> [ %79, %then_bb6 ], [ %39, %then_bb6.peel ]
-  %44 = phi <4 x i32> [ %69, %then_bb6 ], [ %28, %then_bb6.peel ]
-  %45 = add <4 x i32> %44, <i32 4, i32 8, i32 12, i32 16>
-  %46 = extractelement <4 x i32> %44, i64 0
-  %47 = mul i32 %46, 609248
-  %48 = add i32 %47, 5367177
-  %49 = mul i32 %48, %46
-  %50 = add i32 %49, 6517565
-  %51 = and i32 %50, 8388607
-  %52 = or disjoint i32 %51, 1065353216
-  %53 = bitcast i32 %52 to float
-  %54 = fadd float %53, -1.000000e+00
-  %55 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %Example_ptrto.sroa.0.0)
-  %56 = fcmp olt float %54, %55
-  br i1 %56, label %then_bb2, label %next_bb3.loopexit
+next_bb:                                          ; preds = %then_bb7.peel, %then_bb7
+  %Example_ptrto.sroa.7.0 = phi i32 [ %74, %then_bb7 ], [ %36, %then_bb7.peel ]
+  %Example_ptrto.sroa.0.0 = phi <3 x float> [ %73, %then_bb7 ], [ %35, %then_bb7.peel ]
+  %38 = phi <4 x i32> [ %63, %then_bb7 ], [ %25, %then_bb7.peel ]
+  %39 = add <4 x i32> %38, <i32 4, i32 8, i32 12, i32 16>
+  %40 = extractelement <4 x i32> %38, i64 0
+  %41 = mul i32 %40, 609248
+  %42 = add i32 %41, 5367177
+  %43 = mul i32 %42, %40
+  %44 = add i32 %43, 6517565
+  %45 = and i32 %44, 8388607
+  %46 = or disjoint i32 %45, 1065353216
+  %47 = bitcast i32 %46 to float
+  %48 = fadd float %47, -1.000000e+00
+  %49 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %Example_ptrto.sroa.0.0)
+  %50 = fcmp olt float %48, %49
+  br i1 %50, label %then_bb2, label %next_bb3.loopexit
 
 then_bb2:                                         ; preds = %next_bb
-  %57 = add <4 x i32> %44, <i32 8, i32 16, i32 24, i32 32>
-  %58 = extractelement <4 x i32> %45, i64 0
-  %59 = mul i32 %58, 609248
-  %60 = add i32 %59, 5367177
-  %61 = mul i32 %60, %58
-  %62 = add i32 %61, 6517565
-  %63 = and i32 %62, 8388607
-  %64 = or disjoint i32 %63, 1065353216
-  %65 = bitcast i32 %64 to float
-  %66 = fadd float %65, -1.000000e+00
-  %67 = fcmp olt float %55, %66
-  br i1 %67, label %then_bb6, label %common.ret.loopexit
+  %51 = add <4 x i32> %38, <i32 8, i32 16, i32 24, i32 32>
+  %52 = extractelement <4 x i32> %39, i64 0
+  %53 = mul i32 %52, 609248
+  %54 = add i32 %53, 5367177
+  %55 = mul i32 %54, %52
+  %56 = add i32 %55, 6517565
+  %57 = and i32 %56, 8388607
+  %58 = or disjoint i32 %57, 1065353216
+  %59 = bitcast i32 %58 to float
+  %60 = fadd float %59, -1.000000e+00
+  %61 = fcmp olt float %49, %60
+  br i1 %61, label %then_bb7, label %common.ret.loopexit
 
 next_bb3.loopexit:                                ; preds = %next_bb
-  store <4 x i32> %45, ptr %_rng_state, align 16
+  store <4 x i32> %39, ptr %_rng_state, align 16
   br label %next_bb3
 
 next_bb3:                                         ; preds = %next_bb3.loopexit, %next_bb.lr.ph
-  %.lcssa24 = phi float [ %11, %next_bb.lr.ph ], [ %54, %next_bb3.loopexit ]
-  %.lcssa = phi <3 x float> [ %12, %next_bb.lr.ph ], [ %Example_ptrto.sroa.0.0, %next_bb3.loopexit ]
-  %.splatinsert12 = insertelement <3 x float> poison, float %.lcssa24, i64 0
-  %.splat13 = shufflevector <3 x float> %.splatinsert12, <3 x float> poison, <3 x i32> zeroinitializer
-  %68 = fmul <3 x float> %.lcssa, %.splat13
+  %.lcssa = phi float [ %10, %next_bb.lr.ph ], [ %48, %next_bb3.loopexit ]
+  %value5.lcssa = phi <3 x float> [ %value5.peel, %next_bb.lr.ph ], [ %Example_ptrto.sroa.0.0, %next_bb3.loopexit ]
+  %.splatinsert16 = insertelement <3 x float> poison, float %.lcssa, i64 0
+  %.splat17 = shufflevector <3 x float> %.splatinsert16, <3 x float> poison, <3 x i32> zeroinitializer
+  %62 = fmul <3 x float> %value5.lcssa, %.splat17
   br label %common.ret
 
-then_bb6:                                         ; preds = %then_bb2
-  %69 = add <4 x i32> %44, <i32 12, i32 24, i32 36, i32 48>
-  %70 = extractelement <4 x i32> %57, i64 0
-  %71 = mul i32 %70, 609248
-  %72 = add i32 %71, 5367177
-  %73 = mul i32 %72, %70
-  %74 = add i32 %73, 6517565
-  %75 = and i32 %74, 8388607
-  %76 = or disjoint i32 %75, 1065353216
-  %77 = bitcast i32 %76 to float
-  %78 = fadd float %77, -1.000000e+00
-  %.splatinsert = insertelement <3 x float> poison, float %78, i64 0
+then_bb7:                                         ; preds = %then_bb2
+  %63 = add <4 x i32> %38, <i32 12, i32 24, i32 36, i32 48>
+  %64 = extractelement <4 x i32> %51, i64 0
+  %65 = mul i32 %64, 609248
+  %66 = add i32 %65, 5367177
+  %67 = mul i32 %66, %64
+  %68 = add i32 %67, 6517565
+  %69 = and i32 %68, 8388607
+  %70 = or disjoint i32 %69, 1065353216
+  %71 = bitcast i32 %70 to float
+  %72 = fadd float %71, -1.000000e+00
+  %.splatinsert = insertelement <3 x float> poison, float %72, i64 0
   %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
-  %79 = fmul <3 x float> %.splat, %Example_ptrto.sroa.0.0
-  %80 = add i32 %Example_ptrto.sroa.7.0, -1
-  %81 = icmp slt i32 %80, 1
-  br i1 %81, label %then_bb.loopexit.loopexit, label %next_bb, !llvm.loop !0
+  %73 = fmul <3 x float> %.splat, %Example_ptrto.sroa.0.0
+  %74 = add i32 %Example_ptrto.sroa.7.0, -1
+  %75 = icmp slt i32 %74, 1
+  br i1 %75, label %then_bb.loopexit.loopexit, label %next_bb, !llvm.loop !0
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)

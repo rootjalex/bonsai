@@ -571,9 +571,10 @@ Expr Extract::make(Expr vec, Expr idx) {
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
         if (const auto *struct_t = vec.type().as<Struct_t>()) {
-            // Hacky mchackface (only necessary for debugging really).
+            // Assumption: an extraction from a dynamic array is really an
+            // access to its buffer.
             if (struct_t->name.starts_with("__dyn_array")) {
-                vec = Access::make("ptr", vec);
+                vec = Access::make("buffer", vec);
             }
         }
         internal_assert(
@@ -1067,7 +1068,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected lhs of filter to be a boolean function, instead "
                    "received: "
                 << a << " : " << a.type();
-            internal_assert((b.type().is<Set_t, BVH_t, Array_t>()))
+            internal_assert((b.type().is<Set_t, BVH_t>()))
                 << "Expected rhs of filter to be a (set|bvh|array), instead "
                    "received: "
                 << b << " : " << b.type();

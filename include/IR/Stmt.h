@@ -139,6 +139,8 @@ struct Sequence : StmtNode<Sequence> {
     std::vector<Stmt> stmts;
 
     static Stmt make(std::vector<Stmt> stmts);
+    // Makes a single statement sequence.
+    static Stmt make(Stmt stmt);
 
     static const IRStmtEnum node_type = IRStmtEnum::Sequence;
 };

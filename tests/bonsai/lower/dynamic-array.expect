@@ -6,22 +6,22 @@ source_filename = "bonsai_module"
 ; Function Attrs: nounwind
 define noundef i32 @main() local_unnamed_addr #0 {
 main_entry:
-  %x.resize_untyped33 = tail call dereferenceable_or_null(16) ptr @malloc(i64 16)
-  store i64 4294967296, ptr %x.resize_untyped33, align 4
-  %0 = getelementptr inbounds i8, ptr %x.resize_untyped33, i64 8
+  %x.resize_untyped32 = tail call dereferenceable_or_null(16) ptr @malloc(i64 16)
+  store i64 4294967296, ptr %x.resize_untyped32, align 4
+  %0 = getelementptr inbounds i8, ptr %x.resize_untyped32, i64 8
   store <2 x i32> <i32 2, i32 3>, ptr %0, align 4
-  %x.resize_untyped65 = tail call dereferenceable_or_null(32) ptr @malloc(i64 32)
-  tail call void @llvm.memcpy.p0.p0.i32(ptr noundef nonnull align 4 dereferenceable(16) %x.resize_untyped65, ptr noundef nonnull align 4 dereferenceable(16) %x.resize_untyped33, i32 16, i1 false)
-  tail call void @free(ptr %x.resize_untyped33)
-  %extract = load i32, ptr %x.resize_untyped65, align 4
+  %x.resize_untyped64 = tail call dereferenceable_or_null(32) ptr @malloc(i64 32)
+  tail call void @llvm.memcpy.p0.p0.i32(ptr noundef nonnull align 4 dereferenceable(16) %x.resize_untyped64, ptr noundef nonnull align 4 dereferenceable(16) %x.resize_untyped32, i32 16, i1 false)
+  tail call void @free(ptr %x.resize_untyped32)
+  %extract = load i32, ptr %x.resize_untyped64, align 4
   %1 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 %extract)
-  %extract_ptr86 = getelementptr inbounds i8, ptr %x.resize_untyped65, i64 4
+  %extract_ptr86 = getelementptr inbounds i8, ptr %x.resize_untyped64, i64 4
   %extract87 = load i32, ptr %extract_ptr86, align 4
   %2 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 %extract87)
-  %extract_ptr90 = getelementptr inbounds i8, ptr %x.resize_untyped65, i64 8
+  %extract_ptr90 = getelementptr inbounds i8, ptr %x.resize_untyped64, i64 8
   %extract91 = load i32, ptr %extract_ptr90, align 4
   %3 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 %extract91)
-  %extract_ptr94 = getelementptr inbounds i8, ptr %x.resize_untyped65, i64 12
+  %extract_ptr94 = getelementptr inbounds i8, ptr %x.resize_untyped64, i64 12
   %extract95 = load i32, ptr %extract_ptr94, align 4
   %4 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 %extract95)
   %5 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 4)

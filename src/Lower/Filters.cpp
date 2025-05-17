@@ -79,7 +79,7 @@ Program LowerFilters::run(Program program,
         if (set_t == nullptr) {
             continue;
         }
-        // TODO(cgyurgyik): This should be pulled from the schedule.
+        // TODO(cgyurgyik): Add schedule support for dynamic array size.
         Type dynamic_array_t = DynArray_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;
         // TODO(cgyurgyik): Can we just do this in _traverse_tree by filtering
@@ -88,7 +88,7 @@ Program LowerFilters::run(Program program,
             LowerFilterImpl lower(dynamic_array_t);
             // Canonicalize this into a sequence so we only need to handle a
             // single case.
-            Stmt sequence = Sequence::make({std::move(func->body)});
+            Stmt sequence = Sequence::make(std::move(func->body));
             func->body = lower.mutate(sequence);
         }
     }

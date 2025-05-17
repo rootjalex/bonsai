@@ -60,9 +60,7 @@ void lower(ir::Program &program, const CompilerOptions &options) {
 
     // Run the passes.
     for (Pass *pass : passes) {
-        // std::cerr << pass->name() << ":\n";
         program = pass->run(std::move(program), options);
-        // std::cerr << "::::::::::::::::::::::::\n";
     }
 }
 
