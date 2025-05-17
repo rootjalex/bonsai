@@ -22,8 +22,6 @@ std::string unique_dynamic_array_name() {
     return "__dyn_array" + std::to_string(counter++);
 }
 
-constexpr char PTR[] = "ptr";
-
 struct DynamicArraysToStructs : public ir::Mutator {
     std::map<ir::Type, ir::Type, ir::TypeLessThan> rewrite_map;
     ir::TypeMap new_structs;
@@ -32,12 +30,13 @@ struct DynamicArraysToStructs : public ir::Mutator {
         ir::Struct_t::Map fields;
         ir::Struct_t::DefMap defaults;
         // The pointer (which also defines the current capacity).
-        fields.push_back(
-            ir::TypedVar(PTR, ir::Array_t::make(node->etype, node->capacity)));
+        fields.push_back(ir::TypedVar(
+            "ptr", ir::Array_t::make(node->etype, node->capacity)));
         // Size
         ir::Type type = node->capacity.type();
         std::string name = unique_dynamic_array_name();
         fields.push_back(ir::TypedVar("size", type));
+        fields.push_back(ir::TypedVar("capacity", node->capacity.type()));
         defaults["size"] = make_zero(type);
 
         ir::Type new_struct =
@@ -62,15 +61,6 @@ struct DynamicArraysToStructs : public ir::Mutator {
             return node;
         }
         return ir::Var::make(std::move(new_type), node->name);
-    }
-
-    ir::Stmt visit(const ir::Append *node) override {
-        ir::WriteLoc loc = node->loc;
-        ir::Type updated_type = rewrite_map.at(loc.base_type);
-        loc = loc.rebuild_with_base_type(updated_type);
-        loc.add_struct_access(PTR);
-        ir::Expr value = mutate(node->value);
-        return ir::Append::make(std::move(loc), std::move(value));
     }
 
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.

@@ -348,6 +348,8 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
     // Validate the generated code, checking for consistency.
     if (llvm::verifyFunction(*function, &llvm::errs())) {
+        llvm::errs() << *function << "\n---\n";
+
         internal_error << "Function verification failed for " << func.name
                        << "\n";
     }
@@ -1737,18 +1739,37 @@ void CodeGen_LLVM::visit(const Build *node) {
 }
 
 void CodeGen_LLVM::visit(const Access *node) {
-    llvm::Value *inner = codegen_expr(node->value);
-    if (inner->getType()->isStructTy()) {
+    ir::Expr access_value = node->value;
+    internal_assert(access_value.type().is<Struct_t>()) << access_value;
+    llvm::Value *inner = codegen_expr(access_value);
+
+    // For debuggability.
+    std::string name = "." + node->field;
+    if (const auto *var = access_value.as<Var>()) {
+        name = var->name + name;
+    }
+
+    if (inner->getType()->isPointerTy()) {
+        // TODO(cgyurgyik): Why wasn't this necessary before...?
+        llvm::Type *struct_t = codegen_type(access_value.type());
+        inner = builder->CreateLoad(struct_t, inner,
+                                    /*isVolatile=*/false, "access-to-ptr");
         const size_t idx = find_struct_index(
-            node->field, node->value.type().as<Struct_t>()->fields);
-        value = builder->CreateExtractValue(inner, idx);
+            node->field, access_value.type().as<Struct_t>()->fields);
+        value = builder->CreateExtractValue(inner, idx, name);
+        return;
+    } else if (inner->getType()->isStructTy()) {
+        const size_t idx = find_struct_index(
+            node->field, access_value.type().as<Struct_t>()->fields);
+        value = builder->CreateExtractValue(inner, idx, name);
         return;
     }
-    llvm::errs() << *inner << "\n";
+    llvm::errs() << *inner << " : " << *inner->getType() << "\n";
     llvm::errs().flush();
     internal_error
-        << "Lowering of an Access's value did not result in a struct type: "
-        << Expr(node);
+        << "Lowering of an Access's value did not result in a struct type "
+        << Expr(node) << ", with value " << access_value << " : "
+        << access_value.type();
 }
 
 void CodeGen_LLVM::visit(const Unwrap *node) {
@@ -1942,48 +1963,72 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 // TODO(ajr): Figure out which parts of Halide's Store
 // codegen we can steal. They do better with __restrict
 void CodeGen_LLVM::visit(const Allocate *node) {
-    llvm::Value *rhs = nullptr;
-
-    Type allocation_type = node->loc.base_type;
-    if (const auto *dynamic_array_t = allocation_type.as<Struct_t>()) {
+    std::string name = node->loc.base;
+    Type allocate_type = node->loc.base_type;
+    ir::Expr value = node->value;
+    if (const auto *dynamic_array_t = allocate_type.as<Struct_t>()) {
+        internal_assert(node->memory == Allocate::Memory::Heap) << Stmt(node);
+        internal_assert(!node->value.defined()) << Stmt(node);
         internal_assert(dynamic_array_t->name.starts_with("__dyn_array"))
-            << allocation_type;
-        Expr v = Var::make(allocation_type, node->loc.base);
-        Expr a = Access::make("ptr", v);
-        allocation_type = a.type();
+            << allocate_type;
+
+        // Allocate the __dyn_array struct.
+        llvm::Type *struct_type = codegen_type(allocate_type);
+        llvm::Value *struct_ptr = create_alloca_at_entry(struct_type, name);
+        frames.add_to_frame(name, struct_ptr);
+        // Find indices to each field.
+        int ptr_idx = find_struct_index("ptr", dynamic_array_t->fields);
+        int cap_idx = find_struct_index("capacity", dynamic_array_t->fields);
+        int size_idx = find_struct_index("size", dynamic_array_t->fields);
+        // Retrieve element type and capacity.
+        Expr ar = ir::Access::make("ptr", Var::make(allocate_type, name));
+        const auto *array_t = ar.type().as<Array_t>();
+        internal_assert(array_t) << ar.type();
+        llvm::Type *element_type = codegen_type(array_t->etype);
+        llvm::Value *capacity = codegen_expr(array_t->size);
+        // Create the new buffer, and store it to this struct.
+        llvm::Value *buffer =
+            create_malloc(element_type, capacity,
+                          /*zero_init=*/false, name + ".buffer");
+        llvm::Value *buffer_ptr = builder->CreateStructGEP(
+            struct_type, struct_ptr, ptr_idx, name + ".buffer_ptr");
+        builder->CreateStore(buffer, buffer_ptr);
+        // Initialize the size to 0.
+        llvm::Value *size_ptr = builder->CreateStructGEP(
+            struct_type, struct_ptr, size_idx, name + ".size_ptr");
+        builder->CreateStore(llvm::ConstantInt::get(i32_t, 0), size_ptr);
+        // Initialize the current capacity.
+        llvm::Value *capacity_ptr = builder->CreateStructGEP(
+            struct_type, struct_ptr, cap_idx, name + ".capacity_ptr");
+        builder->CreateStore(capacity, capacity_ptr);
+        return;
     }
 
-    if (node->value.defined()) {
+    llvm::Value *rhs = nullptr;
+    if (value.defined()) {
         ScopedValue<Allocate::Memory> _(allocate_memory, node->memory);
-        rhs = codegen_expr(node->value);
-    } else if (const Array_t *array_t = allocation_type.as<Array_t>()) {
+        rhs = codegen_expr(value);
+    } else if (const Array_t *array_t = allocate_type.as<Array_t>()) {
         // Do allocation
         llvm::Type *etype = codegen_type(array_t->etype);
         internal_assert(array_t->size.defined());
         llvm::Value *size = codegen_expr(array_t->size);
 
         rhs = (node->memory == Allocate::Memory::Stack)
-                  ? create_alloca_at_entry(etype, node->loc.base, size)
-                  : create_malloc(etype, size, /*zero_initialize=*/false,
-                                  node->loc.base);
+                  ? create_alloca_at_entry(etype, name, size)
+                  : create_malloc(etype, size, /*zero_initialize=*/false, name);
     } else {
-        internal_error << "Allocation of non-array without initial value: "
+        internal_error << "Allocation of struct without initial value: "
                        << Stmt(node);
     }
-
-    std::string name = node->loc.base;
-
     // This must alloca the ptr and store
     internal_assert(node->loc.accesses.empty())
         << "Allocating Allocate to non-local value: " << Stmt(node);
     internal_assert(!frames.from_frames(name).has_value()) << name;
 
-    // TODO(cgyurgyik): I think this is wrong.
-    llvm::Type *value_type = codegen_type(allocation_type);
-
+    llvm::Type *value_type = codegen_type(node->loc.base_type);
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
-
-    frames.add_to_frame(node->loc.base, loc);
+    frames.add_to_frame(name, loc);
     // TODO: when is isVolatile true?
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
@@ -1994,11 +2039,133 @@ void CodeGen_LLVM::visit(const Store *node) {
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
+llvm::Value *CodeGen_LLVM::ensure_capacity(
+    llvm::Value *dynamic_array, const Struct_t *struct_t,
+    llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr, llvm::Value *size_ptr,
+    llvm::Value *capacity_ptr, llvm::Type *element_type,
+    const std::string &base_n) {
+
+    int ptr_idx = find_struct_index("ptr", struct_t->fields);
+    llvm::Value *ptr_to_buffer =
+        builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
+                                 dynamic_array, // The pointer to the struct
+                                 ptr_idx,       // The field index
+                                 base_n + ".ptr_to_buffer");
+
+    // Load current size and capacity.
+    llvm::Value *current_size =
+        builder->CreateLoad(i32_t, size_ptr, base_n + ".size");
+    llvm::Value *capacity =
+        builder->CreateLoad(i32_t, capacity_ptr, base_n + ".capacity");
+
+    // Check if we need to grow.
+    llvm::Value *condition =
+        builder->CreateICmpUGE(current_size, capacity, base_n + ".grow-uge");
+    llvm::BasicBlock *grow_bb =
+        llvm::BasicBlock::Create(*context, base_n + ".grow", current_function);
+    llvm::BasicBlock *cont_bb =
+        llvm::BasicBlock::Create(*context, base_n + ".cont", current_function);
+    builder->CreateCondBr(condition, grow_bb, cont_bb);
+    // case 1: we need to grow
+    builder->SetInsertPoint(grow_bb);
+    auto *zero = llvm::ConstantInt::get(i32_t, 0);
+    auto *one = llvm::ConstantInt::get(i32_t, 1);
+    auto *two = llvm::ConstantInt::get(i32_t, 2);
+    // Handle the zero capacity case.
+    llvm::Value *new_capacity = builder->CreateSelect(
+        builder->CreateICmpEQ(capacity, zero), one,
+        builder->CreateMul(capacity, two), base_n + ".new_capacity");
+    // Allocate the new buffer.
+    llvm::Value *new_buffer = create_malloc(
+        element_type, new_capacity, /*zero_init=*/false, base_n + ".resize");
+    // Memcpy the old values into the new buffer.
+    uint64_t element_size =
+        module->getDataLayout().getTypeAllocSize(element_type);
+    llvm::Value *old_buffer = buffer_ptr;
+    builder->CreateMemCpy(
+        /*Dst=*/new_buffer,
+        /*DstAlign=*/llvm::Align(element_size),
+        /*Src=*/old_buffer,
+        /*SrcAlign=*/llvm::Align(element_size),
+        /*Size=*/
+        builder->CreateMul(current_size,
+                           llvm::ConstantInt::get(i32_t, element_size)));
+
+    { // Free the old buffer.
+        llvm::Function *freeF = module->getFunction("free");
+        if (freeF == nullptr) {
+            llvm::FunctionType *freeTy = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(*context),
+                {llvm::Type::getInt8Ty(*context)->getPointerTo()},
+                /*isVarArg=*/false);
+            freeF = llvm::Function::Create(
+                freeTy, llvm::Function::ExternalLinkage, "free", module.get());
+        }
+        builder->CreateCall(freeF, {old_buffer});
+    }
+
+    // Update struct.ptr field
+    builder->CreateStore(new_buffer, ptr_to_buffer);
+
+    // Update struct.capacity field
+    builder->CreateStore(new_capacity, capacity_ptr);
+    builder->CreateBr(cont_bb);
+
+    // case 2: no grow (and continuation of grow block).
+    builder->SetInsertPoint(cont_bb);
+    // Reload the final buffer pointer.
+    return builder->CreateLoad(element_type->getPointerTo(), ptr_to_buffer);
+}
+
 void CodeGen_LLVM::visit(const Append *node) {
+    llvm::Value *dynamic_array = codegen_write_loc(node->loc);
+    std::string base_n = node->loc.base;
+    const auto *struct_t = node->loc.base_type.as<Struct_t>();
+    llvm::Type *llvm_struct_t = codegen_type(struct_t);
+    internal_assert(struct_t) << node->loc.base_type;
     llvm::Value *rhs = codegen_expr(node->value);
-    llvm::Value *loc = codegen_write_loc(node->loc);
-    // TODO(cgyurgyik): Insert check for size.
-    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+
+    // Pointer to the statically sized array.
+    Expr base_v = ir::Var::make(struct_t, node->loc.base);
+    Expr ptr = Access::make("ptr", base_v);
+    const auto *array_t = ptr.type().as<Array_t>();
+    internal_assert(array_t) << ptr.type();
+    llvm::Value *buffer_ptr = codegen_expr(ptr);
+    // Pointer to the "current size" of the array.
+    int32_t size_idx = find_struct_index("size", struct_t->fields);
+    llvm::Value *size_ptr =
+        builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
+                                 dynamic_array, // The pointer to the struct
+                                 size_idx,      // The field index
+                                 base_n + ".size");
+    // Pointer to the capacity of the array.
+    int32_t capacity_idx = find_struct_index("capacity", struct_t->fields);
+    llvm::Value *capacity_ptr =
+        builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
+                                 dynamic_array, // The pointer to the struct
+                                 capacity_idx,  // The field index
+                                 base_n + ".capacity");
+    // Perform resize if necessary.
+    llvm::Type *element_type = codegen_type(array_t->etype);
+    buffer_ptr =
+        ensure_capacity(dynamic_array, struct_t, llvm_struct_t, buffer_ptr,
+                        size_ptr, capacity_ptr, element_type, base_n);
+    // Cast it from i8* to i32* (no-op if this was not resized).
+    // Now offset it to the current size.
+    llvm::Value *current_size =
+        builder->CreateLoad(i32_t, size_ptr, base_n + ".size");
+    buffer_ptr =
+        builder->CreateInBoundsGEP(element_type, // The LLVM element type
+                                   buffer_ptr,   // pointer to the buffer
+                                   current_size  // offset
+        );
+
+    // Store the value at the given pointer.
+    builder->CreateStore(rhs, buffer_ptr, /*isVolatile=*/false);
+    // Update the size of the dynamic array, and then store it.
+    llvm::Value *new_size = builder->CreateAdd(
+        current_size, llvm::ConstantInt::get(i32_t, 1), base_n + ".new-size");
+    builder->CreateStore(new_size, size_ptr);
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {

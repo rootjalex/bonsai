@@ -182,6 +182,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     void print_helper(const ir::Expr &expr, std::vector<llvm::Value *> &args,
                       std::string &to_print, uint32_t indent_level = 0);
 
+    // Ensure buffer has capacity for one more element, growing if needed.
+    // Returns the (possibly reallocated) buffer pointer.
+    llvm::Value *ensure_capacity(llvm::Value *dynamic_array,
+                                 const ir::Struct_t *struct_t,
+                                 llvm::Type *llvm_struct_t,
+                                 llvm::Value *buffer_ptr, llvm::Value *size_ptr,
+                                 llvm::Value *capacity_ptr, llvm::Type *elt_ty,
+                                 const std::string &base_n);
+
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;

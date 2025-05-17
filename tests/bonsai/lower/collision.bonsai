@@ -1,4 +1,4 @@
-//! flags: -p core
+//! flags: -p core -b llvm
 
 
 

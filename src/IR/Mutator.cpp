@@ -511,7 +511,10 @@ Stmt Mutator::visit(const Sequence *node) {
 
 Stmt Mutator::visit(const Allocate *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
-    Expr value = mutate(node->value);
+    Expr value = node->value;
+    if (value.defined()) {
+        value = mutate(node->value);
+    }
     if (not_changed && value.same_as(node->value)) {
         return node;
     }

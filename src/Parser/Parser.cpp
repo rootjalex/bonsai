@@ -841,6 +841,32 @@ struct Parser {
             return ir::Print::make(std::move(args));
         } else if (peek().type == Token::Type::IDENTIFIER) {
             std::string id = get_id();
+            // TODO(cgyurgyik): remove imperative code from frontend?
+            // append[[alloc]](value);
+            if (id == "append") {
+                expect(Token::Type::LBRACKET);
+                expect(Token::Type::LBRACKET);
+                id = get_id();
+                std::optional<ir::Type> type = get_type_from_frame(id);
+                internal_assert(type.has_value()) << id;
+                ir::WriteLoc loc(id, *type);
+                expect(Token::Type::RBRACKET);
+                expect(Token::Type::RBRACKET);
+                expect(Token::Type::LPAREN);
+                ir::Expr value = parse_expr();
+                expect(Token::Type::RPAREN);
+                expect(Token::Type::SEMICOL);
+                return ir::Append::make(std::move(loc), std::move(value));
+            }
+            if (id == "alloc") {
+                id = get_id();
+                expect(Token::Type::COL);
+                ir::Type type = parse_type();
+                add_type_to_frame(id, type, /*mutable=*/true);
+                ir::WriteLoc loc(id, type);
+                expect(Token::Type::SEMICOL);
+                return ir::Allocate::make(loc);
+            }
             // TODO(cgyurgyik): This assumes that functions are declared before
             // they're called. This isn't the only place this constraint holds,
             // we should eventual support mutual recursion.
@@ -1849,6 +1875,15 @@ struct Parser {
             }
             expect(Token::Type::RBRACKET);
             return ir::Array_t::make(std::move(etype), std::move(size));
+        } else if (name == "dyn_array") {
+            expect(Token::Type::LBRACKET);
+            ir::Type etype = parse_type();
+            ir::Expr capacity = ir::Expr();
+            if (consume(Token::Type::COMMA)) {
+                capacity = parse_expr();
+            }
+            expect(Token::Type::RBRACKET);
+            return ir::DynArray_t::make(std::move(etype), std::move(capacity));
         } else if (current_generics.contains(name)) {
             return current_generics[name];
         }

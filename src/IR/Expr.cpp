@@ -570,8 +570,15 @@ Expr Extract::make(Expr vec, Expr idx) {
     Type type;
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
-        internal_assert((vec.type().is<Vector_t, Array_t, Tuple_t>()))
-            << "Extract of non-vector: " << vec;
+        if (const auto *struct_t = vec.type().as<Struct_t>()) {
+            // Hacky mchackface (only necessary for debugging really).
+            if (struct_t->name.starts_with("__dyn_array")) {
+                vec = Access::make("ptr", vec);
+            }
+        }
+        internal_assert(
+            (vec.type().is<Vector_t, Array_t, Tuple_t, DynArray_t>()))
+            << "Extract of non-aggregate: " << vec;
         internal_assert(idx.type().is_int_or_uint())
             << "Extract with non-integer index: " << idx;
         if (vec.type().is<Tuple_t>()) {
@@ -1060,9 +1067,10 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected lhs of filter to be a boolean function, instead "
                    "received: "
                 << a << " : " << a.type();
-            internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
-                << "Expected rhs of filter to be a set, instead received: " << b
-                << " : " << b.type();
+            internal_assert((b.type().is<Set_t, BVH_t, Array_t>()))
+                << "Expected rhs of filter to be a (set|bvh|array), instead "
+                   "received: "
+                << b << " : " << b.type();
             if (const Function_t *f = a.type().as<Function_t>()) {
                 if (f->arg_types.size() == 1) {
                     internal_assert(
