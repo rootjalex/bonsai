@@ -103,9 +103,15 @@ struct FindUses : public Visitor {
 
 std::vector<TypedVar> find_write_type(const std::string &consumer,
                                       const std::string &producer,
+                                      const std::string &responsible,
                                       const Program &program,
                                       const CallGraph &producer_to_consumer,
                                       const std::set<std::string> &visited) {
+    // Doesn't matter past the func responsible for handling the queue.
+    if (producer == responsible) {
+        return {};
+    }
+
     const auto &fiter = program.funcs.find(consumer);
     internal_assert(fiter != program.funcs.cend())
         << consumer << " not found in program";
@@ -126,7 +132,7 @@ std::vector<TypedVar> find_write_type(const std::string &consumer,
         }
         std::set<std::string> next_visited = visited;
         next_visited.insert(func);
-        auto rec = find_write_type(func, consumer, program,
+        auto rec = find_write_type(func, consumer, responsible, program,
                                    producer_to_consumer, next_visited);
         if (rec.empty()) {
             continue;
@@ -306,6 +312,9 @@ struct ReplaceUses : public Mutator {
             }
 
             if (func == producer && called_funcs.back() == consumer) {
+                if (accept_queue) {
+                    args.pop_back(); // don't store the queue.
+                }
                 Expr size = PtrTo::make(Extract::make(queue, 0));
                 WriteLoc loc(queue_name, queue_type);
                 loc.add_index_access(1); // get second element of tuple
@@ -321,7 +330,7 @@ struct ReplaceUses : public Mutator {
                     << func << " visited but " << new_func_name
                     << " not found in funcs.";
 
-                internal_assert(accept_queue) << func;
+                // internal_assert(accept_queue) << func;
 
                 Expr new_func =
                     Var::make(fiter->second->call_type(), new_func_name);
@@ -352,17 +361,25 @@ struct ReplaceUses : public Mutator {
     }
 
     Stmt visit(const Return *node) override {
+        // std::cout << "Visiting Return: " << Stmt(node);
+        // std::cout << "Called func: " << called_funcs.back() << std::endl;
+        // std::cout << "Producer: " << producer << std::endl;
+        // std::cout << "Consumer: " << consumer << std::endl;
         if (called_funcs.back() == producer && (producer != consumer)) {
             // This is now a write!
+            // std::cout << "now a write (1)\n\n";
             return build_write(node->value);
         }
 
         const Call *call = node->value.as<Call>();
         if (!call) {
-            if (called_funcs.back() == producer) {
+            if (called_funcs.back() == producer ||
+                called_funcs.back() == consumer) {
                 // This is now a write!
+                // std::cout << "now a write (2)\n\n";
                 return build_write(node->value);
             }
+            // std::cout << "NOT a write (1)\n\n";
             return Mutator::visit(node);
         }
         const Var *func = call->func.as<Var>();
@@ -371,13 +388,17 @@ struct ReplaceUses : public Mutator {
         internal_assert(!write_types.empty()) << Stmt(node);
         Stmt try_mutate = handle(func->name, write_types.back(), call->args);
         if (try_mutate.defined()) {
+            // std::cout << "mutated\n\n";
             return Sequence::make({std::move(try_mutate), Return::make()});
         }
 
-        if (called_funcs.back() == producer) {
+        if (called_funcs.back() == producer ||
+            called_funcs.back() == consumer) {
             // This is now a write!
+            // std::cout << "now a write (3)\n\n";
             return build_write(node->value);
         }
+        // std::cout << "NOT a write (2)\n\n";
         return node;
     }
 
@@ -434,8 +455,8 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
     Expr queue_size = Extract::make(queue, 0);
     Expr queue_data = Extract::make(queue, 1);
 
-    Expr initial = make_tuple(
-        {make_zero(queue_size.type()), Build::make(queue_data.type())});
+    // Expr initial = make_tuple(
+    //     {make_zero(queue_size.type()), Build::make(queue_data.type())});
 
     auto process_producer_loop = [&](bool include_queue) {
         const std::string &name =
@@ -469,6 +490,26 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
                             make_one(size.type())};
 
         return ForAll::make(std::move(idx), std::move(slice), std::move(call));
+    };
+
+    auto make_buffer =
+        [&](const std::string &buffer_name) -> std::pair<Stmt, Stmt> {
+        const std::string data_name = buffer_name + "_data";
+        Expr data = Var::make(queue_data.type(), data_name);
+        std::vector<Expr> args = {make_zero(queue_size.type()), data};
+        // TODO(ajr): make memory scheduable
+        return {// First allocate the array
+                Allocate::make(WriteLoc(data_name, queue_data.type()),
+                               Allocate::Stack),
+                // Then place the array and a count of zero into local memory
+                Allocate::make(WriteLoc(buffer_name, queue_type),
+                               Build::make(queue_type, args), Allocate::Stack)};
+    };
+
+    auto store_zero_size = [&](const std::string &buffer_name) -> Stmt {
+        WriteLoc loc(buffer_name, queue_type);
+        loc.add_index_access(0);
+        return Store::make(loc, make_zero(queue_size.type()));
     };
 
     auto rewrite_loop_body = [&](const Stmt &body) {
@@ -509,17 +550,17 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
             WriteLoc tmp_loc(tmp, queue_type);
             Stmt process_queue = process_producer_loop(true);
 
+            auto [make_data, make_queue] = make_buffer(dbl_buffer);
+
             handle_queue = Sequence::make(
-                {// Should this be heap?
-                 Allocate::make(WriteLoc(dbl_buffer, queue_type),
-                                std::move(initial), Allocate::Stack),
+                {make_data, make_queue,
                  DoWhile::make(
                      Sequence::make(
                          {process_queue,
                           // Do queue swap
                           LetStmt::make(tmp_loc, queue1),
-                          // TODO(ajr): this should zero out the queue...
                           Store::make(dbl_buffer_loc, queue),
+                          store_zero_size(dbl_buffer),
                           Store::make(queue_loc, Var::make(queue_type, tmp))}),
                      not_empty)});
         } else {
@@ -529,11 +570,11 @@ Stmt apply_queueing(const std::string &responsible, Stmt stmt,
         Expr initial = make_tuple(
             {make_zero(queue_size.type()), Build::make(queue_data.type())});
 
-        std::vector<Stmt> stmts = {
-            // Should this be heap?
-            Allocate::make(queue_loc, std::move(initial), Allocate::Stack),
-            repl, // perform original code
-            handle_queue};
+        auto [make_data, make_queue] = make_buffer(queue_name);
+
+        std::vector<Stmt> stmts = {make_data, make_queue,
+                                   // perform original code
+                                   repl, handle_queue};
         if (ret.defined()) {
             stmts.push_back(std::move(ret));
         }
@@ -615,7 +656,7 @@ void defer_call(const std::string &consumer, const std::string &producer,
     // At the very least, it must be allocated by `responsible`, I think.
     // TODO(ajr): also support accumulate operations.
     std::set<std::string> visited = {consumer};
-    auto write_type = find_write_type(consumer, producer, program,
+    auto write_type = find_write_type(consumer, producer, responsible, program,
                                       producer_to_consumer, visited);
     internal_assert(!write_type.empty())
         << "Failed to find write type for " << consumer << ".defer(" << producer

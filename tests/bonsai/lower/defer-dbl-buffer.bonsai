@@ -3,7 +3,7 @@
 import stdlib/ray;
 
 func bounce(ray : Ray) -> Ray {
-    return Ray{ray.o + rand(3), rand(3)};
+    return Ray{ray.o + rand(), ray.d + rand()};
 }
 
 func foo(ray : Ray) -> bool {

@@ -348,6 +348,8 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
     // Validate the generated code, checking for consistency.
     if (llvm::verifyFunction(*function, &llvm::errs())) {
+        llvm::errs() << *function << "\n";
+        llvm::errs().flush();
         internal_error << "Function verification failed for " << func.name
                        << "\n";
     }
@@ -1632,8 +1634,73 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
             llvm_type, node->expr.type().as<Struct_t>()->name + "_ptrto");
         builder->CreateStore(pointee, alloca);
         value = alloca;
+    } else if (node->expr.is<Extract, Access>()) {
+        // Build a pointer via accesses, similar to codegen_writeloc.
+        std::vector<std::variant<std::string, Expr>> accesses; // backwards
+        Expr expr = node->expr;
+        do {
+            if (const Extract *extract = expr.as<Extract>()) {
+                accesses.push_back(extract->idx);
+                expr = extract->vec;
+            } else {
+                const Access *access = expr.as<Access>();
+                internal_assert(access) << expr;
+                accesses.push_back(access->field);
+                expr = access->value;
+            }
+        } while (expr.is<Extract, Access>());
+        const Deref *deref = expr.as<Deref>();
+        internal_assert(deref) << expr;
+
+        llvm::Value *ptr = codegen_expr(deref->expr);
+
+        Type bonsai_type = deref->type;
+        llvm::Type *llvm_t = codegen_type(bonsai_type);
+
+        for (auto it = accesses.rbegin(); it != accesses.rend(); ++it) {
+            const auto &access = *it;
+            if (std::holds_alternative<Expr>(access)) {
+                Expr idx = std::get<Expr>(access);
+                llvm::Value *llvm_idx = codegen_expr(idx);
+
+                ptr = create_aligned_load(codegen_type(bonsai_type), ptr,
+                                          "ptr_array_ld");
+
+                bonsai_type = bonsai_type.element_of();
+                llvm_t = codegen_type(bonsai_type);
+
+                ptr = builder->CreateInBoundsGEP(
+                    codegen_type(bonsai_type), // The LLVM element type
+                    ptr,                       // The pointer to the container
+                    llvm_idx,                  // GEP indices
+                    "ptr_array_deref");
+            } else {
+                internal_assert(std::holds_alternative<std::string>(access));
+                const std::string &field_name = std::get<std::string>(access);
+
+                const Struct_t *struct_t = bonsai_type.as<Struct_t>();
+                internal_assert(struct_t)
+                    << "Field access (" << field_name << ") on non-struct type "
+                    << bonsai_type;
+                const size_t idx =
+                    find_struct_index(field_name, struct_t->fields);
+
+                // CreateStructGEP does the {0, fld} GEP for you
+                ptr = builder->CreateStructGEP(llvm_t, // the LLVM StructType*
+                                               ptr,    // pointer to the struct
+                                               idx,    // which field
+                                               field_name + "_gep");
+
+                bonsai_type = struct_t->fields[idx].type;
+                llvm_t = codegen_type(bonsai_type);
+            }
+        }
+
+        value = ptr;
     } else {
         pointee->print(llvm::errs());
+        llvm::errs() << "\n";
+        pointee->getType()->print(llvm::errs());
         llvm::errs() << "\n";
         llvm::errs().flush();
         internal_error << "Cannot generate ptr to: " << node->expr;

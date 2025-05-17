@@ -75,9 +75,10 @@ struct RewriteMutables : public ir::Mutator {
     };
 
     ArgsMutate mutate_args(const ir::Function_t *func_t,
-                           const std::vector<ir::Expr> &args) {
+                           const std::vector<ir::Expr> &args,
+                           const ir::Expr &func) {
         const size_t n = args.size();
-        internal_assert(func_t->arg_types.size() == n);
+        internal_assert(func_t->arg_types.size() == n) << func;
 
         ArgsMutate ret;
         ret.changed = false;
@@ -117,7 +118,7 @@ struct RewriteMutables : public ir::Mutator {
         const ir::Function_t *func_t =
             node->func.type().template as<ir::Function_t>();
         internal_assert(func_t);
-        auto check = mutate_args(func_t, node->args);
+        auto check = mutate_args(func_t, node->args, node->func);
         if (!check.changed) {
             return node;
         }

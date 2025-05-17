@@ -10,7 +10,7 @@ func _queued_expensive(ray : Ray, _write__alloc0 : mut i32[n], _write__i0 : i32)
 }
 
 func bounce(ray : Ray) -> Ray {
-  return build<Ray>(ray.o + rand(3), rand(3), (f32)inf)
+  return build<Ray>(ray.o + f32x3(rand()), ray.d + f32x3(rand()), (f32)inf)
 }
 
 func expensive(ray : Ray) -> i32 {
@@ -22,7 +22,8 @@ func foo(ray : Ray) -> bool {
 }
 
 func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
-  exp_queue : mut (u64, (Ray, i32[n], i32)[64])
+  exp_queue_data : mut (Ray, i32[n], i32)[64]
+  exp_queue : mut (u64, (Ray, i32[n], i32)[64]) := (0u, exp_queue_data)
   alloc _alloc0 : mut i32[n]
   forall _i0 in [0:n:1] {
     num_hits(rays[_i0], 100, 0, _alloc0, _i0, exp_queue)
@@ -41,7 +42,8 @@ func num_hits(ray : Ray, depth : i32, acc : i32, _write__alloc0 : mut i32[n], _w
     num_hits(bounce(ray), depth - 1, acc + 1, _write__alloc0, _write__i0, exp_queue)
     return
   } else {
-    return acc
+    _write__alloc0[_write__i0] = acc
+    return
   }
 }
 
