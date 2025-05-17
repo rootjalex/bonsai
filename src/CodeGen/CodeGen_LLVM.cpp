@@ -2203,13 +2203,10 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
         realloc = llvm::Function::Create(type, llvm::Function::ExternalLinkage,
                                          "realloc", module.get());
     }
-    buffer_ptr = builder->CreateBitCast(buffer_ptr, i8_t->getPointerTo());
     llvm::Value *new_buffer = builder->CreateCall(
         realloc, {buffer_ptr, builder->CreateMul(new_capacity, element_size)});
 
     // Update struct.ptr field
-    new_buffer =
-        builder->CreateBitCast(new_buffer, element_type->getPointerTo());
     builder->CreateStore(new_buffer, ptr_to_buffer);
 
     // Update struct.capacity field
