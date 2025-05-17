@@ -32,7 +32,7 @@ func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 :
     } else {
       forall _idx0 in [0u:cast<u32>((*triangles1).group0_index[triangles1_index].nPrims):1u] {
         forall _idx1 in [0u:cast<u32>((*triangles2).group0_index[triangles2_index].nPrims):1u] {
-          if ((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0].p1[0] < (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1].p1[0]) {
+          if (intersects_Triangle_Triangle((&(*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0]), (&(*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))) {
             append<_dyn_alloc>(build<__tuple_0>((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
           }
         }
@@ -49,7 +49,9 @@ func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*
 }
 
 func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> bool {
-  return A[0] < A[1]
+  let R = dot(extents, abs(A)) in
+  let P = build<f32x3>(dot(v0, A), dot(v1, A), dot(v2, A)) in
+  return reduce<all>((P <= f32x3(R)) & (f32x3(-R) <= P))
 }
 
 func collisions(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
@@ -63,15 +65,139 @@ func intersects_AABB_AABB(a : (AABB*), b : (AABB*)) -> bool {
 }
 
 func intersects_AABB_Triangle(a : (AABB*), b : (Triangle*)) -> bool {
-  return (*b).p0[0] < (*b).p1[1]
+  let center = ((*a).low + (*a).high) * f32x3(0.5f) in
+  let extents = ((*a).high - (*a).low) * f32x3(0.5f) in
+  let v0 = (*b).p0 - center in
+  let v1 = (*b).p1 - center in
+  let v2 = (*b).p2 - center in
+  let f0 = v1 - v0 in
+  let f1 = v2 - v1 in
+  let f2 = v0 - v2 in
+  let tri_min = min(min(v0, v1), v2) in
+  let tri_max = max(max(v0, v1), v2) in
+  if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
+    return false
+  }
+  let A0 = cross(f0, (i32x3)[1,0,0]) in
+  let A1 = cross(f0, (i32x3)[0,1,0]) in
+  let A2 = cross(f0, (i32x3)[0,0,1]) in
+  let A3 = cross(f1, (i32x3)[1,0,0]) in
+  let A4 = cross(f1, (i32x3)[0,1,0]) in
+  let A5 = cross(f1, (i32x3)[0,0,1]) in
+  let A6 = cross(f2, (i32x3)[1,0,0]) in
+  let A7 = cross(f2, (i32x3)[0,1,0]) in
+  let A8 = cross(f2, (i32x3)[0,0,1]) in
+  if (!axis(A0, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A1, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A2, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A3, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A4, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A5, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A6, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A7, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A8, extents, v0, v1, v2)) {
+    return false
+  }
+  let N = cross(f0, f1) in
+  let Rn = dot(extents, abs(N)) in
+  let dist = dot(v0, N) in
+  if ((Rn < dist) || (dist < -Rn)) {
+    return false
+  }
+  return true
 }
 
 func intersects_Triangle_Triangle(a : (Triangle*), b : (Triangle*)) -> bool {
-  return (*a).p1[0] < (*b).p1[0]
+  let eA0 = (*a).p1 - (*a).p0 in
+  let eA1 = (*a).p2 - (*a).p1 in
+  let eA2 = (*a).p0 - (*a).p2 in
+  let eB0 = (*b).p1 - (*b).p0 in
+  let eB1 = (*b).p2 - (*b).p1 in
+  let eB2 = (*b).p0 - (*b).p2 in
+  let N0 = cross(eA0, eA1) in
+  let N1 = cross(eB0, eB1) in
+  let a0 = (*a).p0 in
+  let a1 = (*a).p1 in
+  let a2 = (*a).p2 in
+  let b0 = (*b).p0 in
+  let b1 = (*b).p1 in
+  let b2 = (*b).p2 in
+  if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  let E00 = cross(eA0, eB0) in
+  let E01 = cross(eA0, eB1) in
+  let E02 = cross(eA0, eB2) in
+  let E10 = cross(eA1, eB0) in
+  let E11 = cross(eA1, eB1) in
+  let E12 = cross(eA1, eB2) in
+  let E20 = cross(eA2, eB0) in
+  let E21 = cross(eA2, eB1) in
+  let E22 = cross(eA2, eB2) in
+  if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  return true
 }
 
 func tri_tri_axis(A : f32x3, a0 : f32x3, a1 : f32x3, a2 : f32x3, b0 : f32x3, b1 : f32x3, b2 : f32x3) -> bool {
-  return A[0] < A[1]
+  if (reduce<all>(A == f32x3(0f))) {
+    return true
+  }
+  let PA0 = dot(a0, A) in
+  let PA1 = dot(a1, A) in
+  let PA2 = dot(a2, A) in
+  let amin = min(min(PA0, PA1), PA2) in
+  let amax = max(max(PA0, PA1), PA2) in
+  let PB0 = dot(b0, A) in
+  let PB1 = dot(b1, A) in
+  let PB2 = dot(b2, A) in
+  let bmin = min(min(PB0, PB1), PB2) in
+  let bmax = max(max(PB0, PB1), PB2) in
+  return !((amax < bmin) || (bmax < amin))
 }
 
 
