@@ -292,10 +292,25 @@ struct ReplaceUses : public Mutator {
                 << "In deferral of: " << producer << ", "
                 << called_funcs.back();
 
+            const bool do_enqueue =
+                func == producer && called_funcs.back() == consumer;
+
             // Grab regular args.
             std::vector<Expr> args = call_args;
             // Insert write locations
-            for (const auto &[name, type] : curr_write_types) {
+            // TODO: THE FIRST OF THESE MUST BE MUTABLE!!
+            {
+                const auto &[name, type] = curr_write_types[0];
+                // args.push_back(Var::make(Ptr_t::make(type), name));
+                if (do_enqueue) {
+                    args.push_back(PtrTo::make(Var::make(type, name)));
+                } else {
+                    args.push_back(Var::make(type, name));
+                }
+            }
+
+            for (size_t i = 1; i < curr_write_types.size(); i++) {
+                const auto &[name, type] = curr_write_types[i];
                 args.push_back(Var::make(type, name));
             }
             if (accept_queue) {
@@ -311,7 +326,7 @@ struct ReplaceUses : public Mutator {
                 handle_func_build(func, curr_write_types, accept_queue);
             }
 
-            if (func == producer && called_funcs.back() == consumer) {
+            if (do_enqueue) {
                 if (accept_queue) {
                     args.pop_back(); // don't store the queue.
                 }
@@ -676,8 +691,15 @@ void defer_call(const std::string &consumer, const std::string &producer,
         for (const auto &arg : piter->second->args) {
             etypes.push_back(arg.type);
         }
+        bool first = true;
         for (const auto &arg : write_type) {
-            etypes.push_back(arg.type);
+            if (first) {
+                // Make sure array arg is mutable
+                etypes.push_back(Ptr_t::make(arg.type));
+                first = false;
+            } else {
+                etypes.push_back(arg.type);
+            }
         }
 
         const std::string location = responsible + "." + queue;

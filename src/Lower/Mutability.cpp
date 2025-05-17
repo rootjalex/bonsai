@@ -87,8 +87,9 @@ struct RewriteMutables : public ir::Mutator {
 
         for (size_t i = 0; i < n; i++) {
             ir::Expr arg = mutate(args[i]);
-            if (func_t->arg_types[i].is_mutable ||
-                func_t->arg_types[i].type.is<ir::Struct_t>()) {
+            if ((func_t->arg_types[i].is_mutable ||
+                 func_t->arg_types[i].type.is<ir::Struct_t>()) &&
+                !arg.type().is<ir::Ptr_t>()) {
                 arg = ir::PtrTo::make(std::move(arg));
                 ret.rewrote_mut = true;
             }
