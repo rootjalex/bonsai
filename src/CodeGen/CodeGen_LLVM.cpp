@@ -1721,10 +1721,8 @@ void CodeGen_LLVM::visit(const Deref *node) {
     // Make sure the expression is a pointer
     if (pointer_value->getType()->isPointerTy()) {
         llvm::Type *loaded_type = codegen_type(node->type);
-        llvm::LoadInst *load =
-            create_aligned_load(loaded_type, pointer_value, "deref_temp");
         // Dereference the pointer (load the value at the pointer address)
-        value = load;
+        value = create_aligned_load(loaded_type, pointer_value, "deref_temp");
     } else {
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
@@ -2308,11 +2306,9 @@ void CodeGen_LLVM::visit(const Append *node) {
     store_buffer->setAtomic(llvm::AtomicOrdering::Release);
     // Now add the size offset.
     llvm::Value *one = builder->getInt32(1);
-    // TODO(cgyurgyik): Can this be monotonic?
-    llvm::MaybeAlign alignment;
-    builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, size_ptr, one, alignment,
-                             llvm::AtomicOrdering::AcquireRelease,
-                             llvm::SyncScope::System);
+    builder->CreateAtomicRMW(
+        llvm::AtomicRMWInst::Add, size_ptr, one, llvm::MaybeAlign(),
+        llvm::AtomicOrdering::AcquireRelease, llvm::SyncScope::System);
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
