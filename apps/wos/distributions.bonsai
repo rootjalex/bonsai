@@ -1,0 +1,49 @@
+import apps/wos/float;
+
+// TODO support Yukawa?
+
+element HarmonicGreensBall {
+    center : vec3f;
+    radius : Float;
+    rClamp : Float;
+}
+
+// evaluates the Green's function
+func harmonicEvaluate(h : HarmonicGreensBall, r : Float) {
+    return (1.0 / r - 1.0 / h.radius) / (4.0 * 3.14159265358979323846);
+}
+
+// evaluates the off-centered Green's function
+func harmonicEvaluateOffcenter(h : HarmonicGreensBall, x : vec3f, y : vec3f) {
+    r = max(h.rClamp, norm(y - x));
+    return (1.0 / r - h.radius / (h.radius * h.radius - dot(x - h.center, y - h.center))) / (4.0 * 3.14159265358979323846);
+}
+
+// evaluates the norm of the Green's function
+func harmonicNorm(h : HarmonicGreensBall) {
+    return h.radius * h.radius / 6.0;
+}
+
+func harmonicSampleVolume(h : HarmonicGreensBall, dir : vec3f) -> (vec3f, Float, Float) {
+    u1 = rand();
+    u2 = rand();
+    phi = 2.0 * 3.14159265358979323846 * u2;
+
+    r : mut = (1.0 + sqrt(1.0 - pow(u1 * u1, 1.0 / 3.0)) * cos(phi)) * h.radius / 2.0;
+    r = max(h.rClamp, r);
+
+    if (r > h.radius) {
+        r = h.radius / 2.0;
+    }
+
+    pdf = harmonicEvaluate(h, r) / harmonicNorm(h);
+    
+    q = h.center + r * dir;
+    return (q, r, pdf);
+}
+
+func harmonicDirectionSampledPoissonKernel(h : HarmonicGreensBall, y : vec3f) -> Float {
+    return 1.0;
+}
+
+// TODO: more stuff?

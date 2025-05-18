@@ -1,0 +1,2 @@
+element Float = f32;
+element vec3f = vector[Float, 3];

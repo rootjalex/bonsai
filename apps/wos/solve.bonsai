@@ -1,0 +1,168 @@
+import apps/wos/distributions;
+import apps/wos/pde;
+import apps/wos/sample;
+import apps/wos/settings;
+import apps/wos/statistics;
+
+element WalkResults {
+    pt : vec3f;
+    totalSourceContribution : Float;
+    // currentNormal : vec3f; // TODO: needed? for terminalContribution
+    throughput : Float;
+    walkLength : u32;
+    distToAbs : Float;
+}
+
+func sampleUnitSphereUniform() -> vec3f {
+    u0 = rand();
+    u1 = rand();
+    z = 1.0 - 2.0 * u0;
+    r = sqrt(max(0.0, 1.0 - z * z));
+    phi = 2.0 * 3.14159265358979323846 * u1;
+    return vec3f{r * cos(phi), r * sin(phi), z * z};
+}
+
+func computeSourceContribution(pde : PDE, s : WalkSettings, ball : HarmonicGreensBall, res : WalkResults) -> Float {
+    if (!ignoreSourceContribution(s)) {
+        dir = sampleUnitSphereUniform();
+
+        sample = harmonicSampleVolume(ball, dir);
+        sourcePt = sample[0];
+        sourceRadius = sample[1];
+        sourcePdf = sample[2];
+        sourceContribution = harmonicNorm(ball) * sourcePDE(sourcePt, pde, s);
+        return res.throughput * sourceContribution;
+    }
+    return 0.0;
+}
+
+func terminateWalk(s : WalkSettings, throughput : Float) -> (bool, Float) {
+    if throughput < s.russianRouletteThreshold {
+        survivalProb = throughput / s.russianRouletteThreshold;
+        if survivalProb < rand() {
+            return (true, 0.0);
+        }
+        return (false, s.russianRouletteThreshold);
+    }
+    return (false, throughput);
+}
+
+func computeDistToAbsBoundary(pt : vec3f) -> Float {
+    // TODO
+    return 0.0;
+}
+
+func getTerminalContribution(pde : PDE, s : WalkSettings, res : WalkResults) -> Float {
+    if !ignoreAbsorbingBoundaryContribution(s) {
+        // projectToAbsorbingBoundary always returns 0.0?
+        // signedDistance = 0.0;
+        // returnBoundaryNormalAlignedValue = solveDoubleSided(s) & signedDistance > 0.0; // never true?
+        return dirichletPDE(res.pt, pde, s);
+    } else {
+        return 0.0;
+    }
+}
+
+func walk(pde : PDE, s : WalkSettings, res : WalkResults) -> option[WalkResults] {
+    // TODO: queue ?
+    // TODO(ajr): walk splitting never happens in the two meshes Rohan provided,
+    // so I don't implement the queue. Need to ask him what that's for.
+    if (res.distToAbs <= s.epsShellAbs) {
+        // Reached absorbtion boundary. Compute terminalContribution
+        terminalContribution = getTerminalContribution(pde, s, res);
+        totalContribution = res.throughput * terminalContribution + res.totalSourceContribution;
+        return WalkResults{res.pt, totalContribution, res.throughput, res.walkLength, res.distToAbs};
+    } else {
+        ball = HarmonicGreensBall{res.pt, res.distToAbs, 1e-4};
+        // Add this to res.totalSourceContribution
+        contrib = computeSourceContribution(pde, s, ball, res);
+        totalSourceContribution = res.totalSourceContribution + contrib;
+
+        dir : vec3f = sampleUnitSphereUniform();
+
+        pt = res.pt + res.distToAbs * dir;
+
+        if !contains_(s.box, pt) {
+            return {}; // don't include results
+        }
+
+        t = res.throughput * harmonicDirectionSampledPoissonKernel(ball, pt);
+        term = terminateWalk(s, t); // (terminate, new_throughput)
+        throughput = term[1];
+
+        if term[0] {
+            return WalkResults{pt, totalSourceContribution, throughput, res.walkLength, res.distToAbs};
+        }
+
+        walkLength = res.walkLength + 1;
+        if (walkLength > s.maxWalkLength) {
+            return WalkResults{pt, totalSourceContribution, throughput, walkLength, res.distToAbs};
+        }
+
+        // No need to check Tikhonov, neither benchmark does it.
+
+        distToAbs = computeDistToAbsBoundary(pt); // + false?
+
+        new_res = WalkResults{pt, totalSourceContribution, throughput, walkLength, distToAbs};
+
+        return walk(pde, s, new_res);
+    }
+}
+
+func doWalk(pde : PDE, s : WalkSettings, p : SamplePoint, w : u32, nWalks : u32, stats : mut Statistics, walkLength : u32) -> u32 {
+    if (w >= nWalks) {
+        return walkLength;
+    }
+
+    // TODO: currentNormal?
+    // TODO: prevDirection?
+    starter_res = WalkResults{p.pt, 0.0, 1.0, 0u, p.distToAbs};
+    res = walk(pde, s, starter_res);
+    if res {
+        results = *res;
+        // Handle terminal contribution in walk.
+        // terminalContribution = getTerminalContribution();
+        // totalContribution = results.throughput * terminalContribution + results.totalSourceContribution;
+        totalContribution = results.totalSourceContribution;
+        addSolutionEstimate(stats, totalContribution);
+        // no splits performed
+        return doWalk(pde, s, p, w + 1, nWalks, stats, walkLength + results.walkLength);
+    }
+    return walkLength;
+}
+
+// estimateSolution
+func sol(pde : PDE, s : WalkSettings, p : SamplePoint, nWalks : u32) -> Statistics {
+    stats : mut = makeStatistics();
+    // assume no previous estimates (I think this is safe?)
+    if onAbsBoundary(p) {
+        // record the known boundary value.
+        totalContribution : mut Float = 0.0;
+        if !ignoreAbsorbingBoundaryContribution(s) {
+            totalContribution = dirichletPDE(p.pt, pde, s);
+        }
+        addSolutionEstimate(stats, totalContribution);
+        stats.firstSphereRadius = 0.0;
+        return stats;
+    }
+
+    n = select(p.distToAbs <= s.epsShellAbs, 1u, nWalks);
+
+    stats.firstSphereRadius = p.distToAbs;
+
+    // perform random walks.
+    // TODO: ideally, this would be a sum.
+    // unfortunately, needs to be a sum of two things,
+    // (totalContribution and walkLength)
+    // and I don't have time to write the fusion of that.
+    walkLength = doWalk(pde, s, p, 0u, n, stats, 0u);
+    stats.totalWalkLength = walkLength;
+
+    return stats;
+}
+
+
+
+func [[export]] solve(pde : PDE, s : WalkSettings, n : u32, pts : array[SamplePoint, n], nWalks : u32) {
+    return map(|pt : SamplePoint| sol(pde, s, pt, nWalks), pts);
+}

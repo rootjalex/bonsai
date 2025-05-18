@@ -1,0 +1,11 @@
+import apps/wos/float;
+
+// AABB
+element Box {
+    low, high : vec3f;
+}
+
+// Not used in geometric queries
+func contains_(b : Box, x : vec3f) {
+    return all(x >= b.low) & all(x <= b.high);
+}

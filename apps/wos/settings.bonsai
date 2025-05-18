@@ -1,0 +1,47 @@
+import apps/wos/float;
+import apps/wos/box;
+
+element WalkSettings {
+    box : Box;
+    epsShellAbs : Float;
+    epsShellRefl : Float;
+    silPrecision : Float; // TODO: need?
+    russianRouletteThreshold : Float;
+    maxWalkLength : u32;
+    stepsBeforeApplyingTikhonov : i32; // TODO: need?
+    flags : u8; // TODO: need?
+}
+
+func solveDoubleSided(w : WalkSettings) {
+    return (w.flags & 1) != 0;
+}
+
+func useGradientControlVariates(w : WalkSettings) {
+    return (w.flags & 2) != 0;
+}
+
+func useGradientAntitheticVariates(w : WalkSettings) {
+    return (w.flags & 4) != 0;
+}
+
+func useCosineSamplingForDerivatives(w : WalkSettings) {
+    return (w.flags & 8) != 0;
+}
+
+func ignoreAbsorbingBoundaryContribution(w : WalkSettings) {
+    return (w.flags & 16) != 0;
+}
+
+func ignoreReflectingBoundaryContribution(w : WalkSettings) {
+    return (w.flags & 32) != 0;
+}
+
+func ignoreSourceContribution(w : WalkSettings) {
+    return (w.flags & 64) != 0;
+}
+
+func printLogs(w : WalkSettings) {
+    return (w.flags & 128) != 0;
+}
+
+

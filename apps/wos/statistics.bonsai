@@ -1,0 +1,98 @@
+import apps/wos/float;
+
+element Statistics {
+    solMean, solMean2 : Float;
+    // gradMean, gradMean2 : vec3f;
+    totalFirstSourceContribution : Float;
+    // totalDerivativeContribution : Float;
+    nSolEstimates : u32;
+    // nGradEstimates : u32;
+    totalWalkLength, totalSplits : u32;
+    firstSphereRadius : Float;
+}
+
+func makeStatistics() -> Statistics {
+    return Statistics{0.0, 0.0, 0.0, 0u, 0u, 0u, 0.0};
+}
+
+func addSolutionEstimate(s : mut Statistics, estimate : Float) -> void {
+    s.nSolEstimates += 1;
+    delta = estimate - s.solMean;
+    s.solMean += delta / cast[[Float]](s.nSolEstimates);
+    delta2 = estimate - s.solMean;
+    s.solMean2 += delta * delta2;
+    return;
+}
+
+// TODO: add gradient estimations?
+
+// Add first source contribution
+func addFirstSourceContribution(s : mut Statistics, contribution : Float) -> void {
+    s.totalFirstSourceContribution += contribution;
+    return;
+}
+
+// Add derivative contribution
+//func addDerivativeContribution(s : mut Statistics, contribution : Float) -> void {
+//    s.totalDerivativeContribution += contribution;
+//    return;
+//}
+
+// Add walk length
+// func addWalkLength(s : mut Statistics, length : u32) -> void {
+//    s.totalWalkLength += length;
+//    return;
+// }
+
+// Add splits
+func addSplits(s : mut Statistics, nSplits : u32) -> void {
+    s.totalSplits += nSplits;
+    return;
+}
+
+// Get estimated solution
+func getEstimatedSolution(s : Statistics) -> Float {
+    return s.solMean;
+}
+
+// Get estimated solution variance
+func getEstimatedSolutionVariance(s : Statistics) -> Float {
+    n = max(1, s.nSolEstimates - 1);
+    return s.solMean2 / cast[[Float]](n);
+}
+
+// Get mean first source contribution
+func getMeanFirstSourceContribution(s : Statistics) -> Float {
+    n = max(1, s.nSolEstimates);
+    return s.totalFirstSourceContribution / cast[[Float]](n);
+}
+
+// TODO: estimated gradient
+
+// Get estimated derivative
+//func getEstimatedDerivative(s : Statistics) -> Float {
+//    n = max(1, s.nSolEstimates);
+//    return s.totalDerivativeContribution / cast[[Float]](n);
+//}
+
+// Get number of solution estimates
+func getSolutionEstimateCount(s : Statistics) -> u32 {
+    return s.nSolEstimates;
+}
+
+// Get number of gradient estimates
+// func getGradientEstimateCount(s : Statistics) -> u32 {
+//    return s.nGradEstimates;
+//}
+
+// Get mean walk length
+func getMeanWalkLength(s : Statistics) -> Float {
+    n = max(1, s.nSolEstimates);
+    return cast[[Float]](s.totalWalkLength) / cast[[Float]](n);
+}
+
+// Get mean splits per walk
+func getMeanSplits(s : Statistics) -> Float {
+    n = max(1, s.nSolEstimates);
+    return cast[[Float]](s.totalSplits) / cast[[Float]](n);
+}
