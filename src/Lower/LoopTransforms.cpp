@@ -395,9 +395,9 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
                                                Allocate::Memory::Stack));
             }
             // Place the rest of the body in a DoWhile.
-            std::vector<Stmt> loop = {ir::Mutator::mutate(node)};
+            Stmt loop = ir::Mutator::mutate(node);
             Stmt do_while =
-                DoWhile::make(Sequence::make(loop), ir::BoolImm::make(true));
+                DoWhile::make(loop, ir::BoolImm::make(true));
 
             // Then add the loop.
             stmts.push_back(std::move(do_while));
