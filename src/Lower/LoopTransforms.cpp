@@ -374,10 +374,9 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
         TailRecursionToImperative(const Function &function,
                                   const std::set<std::string> &requires_stack)
             : function(function), requires_stack(requires_stack) {}
-        Stmt visit(const Sequence *node) override {
-            // This should only be performed on the top-level sequence.
+        Stmt mutate(const Stmt &node) override {
             if (!entry) {
-                return Mutator::visit(node);
+                return ir::Mutator::mutate(node);
             }
             entry = false;
             std::vector<Stmt> stmts;
@@ -396,17 +395,17 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
                                                Allocate::Memory::Stack));
             }
             // Place the rest of the body in a DoWhile.
-            std::vector<Stmt> loop;
-            std::transform(node->stmts.begin(), node->stmts.end(),
-                           std::back_inserter(loop),
-                           [&](const Stmt &stmt) { return mutate(stmt); });
+            Stmt loop = ir::Mutator::mutate(node);
             Stmt do_while =
-                DoWhile::make(Sequence::make(loop), ir::BoolImm::make(true));
+                DoWhile::make(loop, ir::BoolImm::make(true));
 
             // Then add the loop.
             stmts.push_back(std::move(do_while));
             return Sequence::make(std::move(stmts));
         }
+        // Necessary so that uses below of mutate are distinguished from the
+        // override above.
+        using ir::Mutator::mutate;
 
         Expr visit(const Var *node) override {
             // Replace variable references with the new state variables.
@@ -414,6 +413,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             if (it == old_to_new.end()) {
                 return Mutator::visit(node);
             }
+            internal_assert(!it->second.empty()) << node->name;
             return Var::make(node->type, it->second);
         }
 
@@ -437,11 +437,13 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
                     var && var->name == function.name) {
                     std::vector<Stmt> statements;
                     std::vector<Expr> args = call->args;
-                    for (int i = 0, e = args.size(); i < e; ++i) {
+                    for (int i = 0, e = args.size(), j = 0; i < e; ++i) {
+                        internal_assert(i < function.args.size()) << i;
                         if (!requires_stack.contains(function.args[i].name)) {
                             continue;
                         }
-                        WriteLoc loc(state_variables[i], args[i].type());
+                        internal_assert(j < state_variables.size()) << j;
+                        WriteLoc loc(state_variables[j++], args[i].type());
                         statements.push_back(Store::make(loc, mutate(args[i])));
                     }
                     statements.push_back(Continue::make());
