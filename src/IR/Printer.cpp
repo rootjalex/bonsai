@@ -267,7 +267,11 @@ void Printer::print(const Function &function) {
 
     os << ") -> " << function.ret_type << " {\n";
     set_indent(1);
-    function.body.accept(this);
+    if (function.body.defined()) {
+        function.body.accept(this);
+    } else {
+        os << "<undefined-function-body>" << '\n';
+    }
     os << "}";
 }
 

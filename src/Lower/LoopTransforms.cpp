@@ -301,7 +301,7 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
                     << "unexpected call to another function: " << Expr(call)
                     << " in tail recursion of: " << function.name;
             } else {
-                node->value.accept(this);
+                value.accept(this);
             }
         }
 
@@ -309,15 +309,8 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
         const Function &function;
     };
 
-    std::vector<Function::Argument> args = function.args;
-    for (int i = 0, e = args.size(); i < e; i++) {
-        const Function::Argument &farg = function.args[i];
-        // Right now we conservatively assume that tail recursion does
-        // not have mutating arguments.
-        internal_assert(!farg.mutating)
-            << "unexpected mutable argument in tail recursion: " << function;
-    }
     Checker checker(function);
+    internal_assert(body.defined());
     body.accept(&checker);
 }
 
@@ -396,8 +389,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             }
             // Place the rest of the body in a DoWhile.
             Stmt loop = ir::Mutator::mutate(node);
-            Stmt do_while =
-                DoWhile::make(loop, ir::BoolImm::make(true));
+            Stmt do_while = DoWhile::make(loop, ir::BoolImm::make(true));
 
             // Then add the loop.
             stmts.push_back(std::move(do_while));
@@ -583,7 +575,8 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         internal_assert(it != funcs.end()) << name;
         const Function &func = *it->second;
         verify_valid_tail_recursion(stmt, func);
-        return handle_tail_recursion(std::move(stmt), func);
+        stmt = handle_tail_recursion(std::move(stmt), func);
+        return stmt;
     }
 
     LoopifyImpl rewriter(std::move(queue_size), funcs);
