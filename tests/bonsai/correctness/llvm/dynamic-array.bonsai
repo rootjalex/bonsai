@@ -3,16 +3,20 @@
 func main() -> i32 {
     alloc x : dyn_array[i32, 1];
     append[[x]](0);
+    append[[x]](42);
     append[[x]](1);
+    append[[x]](43);
     append[[x]](2);
+    append[[x]](44);
     append[[x]](3);
-    append[[x]](4);
-    append[[x]](5);
+    append[[x]](45);
     print(x[0]);
     print(x[1]);
     print(x[2]);
     print(x[3]);
     print(x[4]);
     print(x[5]);
+    print(x[6]);
+    print(x[7]);
     return 0;
 }

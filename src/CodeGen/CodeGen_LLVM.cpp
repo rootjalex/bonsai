@@ -2337,20 +2337,11 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  base_n + ".capacity_ptr");
     // Pointer to the mutex of the array.
     int32_t mutex_idx = find_struct_index("mutex", struct_t->fields);
-    llvm::Value *mutex_ptr =
+    llvm::Value *mutex =
         builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
                                  dynamic_array, // The pointer to the struct
                                  mutex_idx,     // The field index
                                  base_n + ".mutex_ptr");
-
-    llvm::Type *mutex_type =
-        llvm::ArrayType::get(llvm::IntegerType::get(*context, 8),
-                             struct_t->fields[mutex_idx].type.bytes());
-    llvm::Value *mutex_object =
-        builder->CreateLoad(mutex_type, mutex_ptr, base_n + ".mutex");
-    llvm::Value *mutex =
-        builder->CreateAlloca(mutex_type, nullptr, base_n + ".mutex_ptr");
-    builder->CreateStore(mutex_object, mutex);
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
     ensure_capacity(ptr, index, dynamic_array, struct_t, llvm_struct_t,
