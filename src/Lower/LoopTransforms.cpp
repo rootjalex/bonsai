@@ -575,8 +575,7 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         internal_assert(it != funcs.end()) << name;
         const Function &func = *it->second;
         verify_valid_tail_recursion(stmt, func);
-        stmt = handle_tail_recursion(std::move(stmt), func);
-        return stmt;
+        return handle_tail_recursion(std::move(stmt), func);
     }
 
     LoopifyImpl rewriter(std::move(queue_size), funcs);
