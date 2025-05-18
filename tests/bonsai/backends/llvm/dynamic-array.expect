@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 %struct.__dyn_array0 = type { ptr, i32, i32 }
-%struct.pthread_mutex_t = type {}
+%struct.pthread_mutex_t = type { [64 x i8] }
 
 define i32 @main() {
 main_entry:
@@ -33,29 +33,32 @@ lock-mutex:                                       ; preds = %main_entry
   br i1 %grow-or-unlock-mutex, label %grow, label %unlock-mutex
 
 continue:                                         ; preds = %unlock-mutex, %main_entry
-  %x.load = load atomic ptr, ptr %x.ptr_to_buffer acquire, align 8
-  %3 = getelementptr inbounds i32, ptr %x.load, i32 %1
-  store atomic i32 0, ptr %3 release, align 4
+  %3 = call i32 @pthread_mutex_lock(ptr %x.mutex)
   %deref_temp4 = load %struct.__dyn_array0, ptr %x, align 8
   %buffer5 = extractvalue %struct.__dyn_array0 %deref_temp4, 0
-  %extract_ptr = getelementptr inbounds i32, ptr %buffer5, i32 0
+  %4 = getelementptr inbounds i32, ptr %buffer5, i32 %1
+  store atomic i32 0, ptr %4 release, align 4
+  %5 = call i32 @pthread_mutex_unlock(ptr %x.mutex)
+  %deref_temp6 = load %struct.__dyn_array0, ptr %x, align 8
+  %buffer7 = extractvalue %struct.__dyn_array0 %deref_temp6, 0
+  %extract_ptr = getelementptr inbounds i32, ptr %buffer7, i32 0
   %extract = load atomic i32, ptr %extract_ptr acquire, align 4
   ret i32 %extract
 
 grow:                                             ; preds = %lock-mutex
-  %4 = icmp eq i32 %x.capacity3, 0
-  %5 = mul i32 %x.capacity3, 2
-  %x.new_capacity = select i1 %4, i32 1, i32 %5
-  %6 = zext i32 %x.new_capacity to i64
-  %7 = mul i64 %6, 4
-  %8 = call ptr @realloc(ptr %buffer, i64 %7)
-  store atomic ptr %8, ptr %x.ptr_to_buffer release, align 8
-  %9 = trunc i64 %6 to i32
-  store atomic i32 %9, ptr %x.capacity_ptr2 release, align 4
+  %6 = icmp eq i32 %x.capacity3, 0
+  %7 = mul i32 %x.capacity3, 2
+  %x.new-capacity = select i1 %6, i32 1, i32 %7
+  %8 = zext i32 %x.new-capacity to i64
+  %9 = mul i64 %8, 4
+  %10 = call ptr @realloc(ptr %buffer, i64 %9)
+  store atomic ptr %10, ptr %x.ptr_to_buffer release, align 8
+  %11 = trunc i64 %8 to i32
+  store atomic i32 %11, ptr %x.capacity_ptr2 release, align 4
   br label %unlock-mutex
 
 unlock-mutex:                                     ; preds = %grow, %lock-mutex
-  %10 = call i32 @pthread_mutex_unlock(ptr %x.mutex)
+  %12 = call i32 @pthread_mutex_unlock(ptr %x.mutex)
   br label %continue
 }
 

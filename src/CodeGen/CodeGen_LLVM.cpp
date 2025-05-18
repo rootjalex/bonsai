@@ -2123,7 +2123,11 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     // information in the bonsai middle end.
     llvm::StructType *mutex_type =
         llvm::StructType::create(*context, "struct.pthread_mutex_t");
-    mutex_type->setBody({}, /*packed=*/false);
+    // TODO(cgyurgyik): Another spot that will invalidate cross-compilation for
+    // another machine.
+    llvm::ArrayType *mutex_size = llvm::ArrayType::get(
+        llvm::IntegerType::get(*context, 8), sizeof(pthread_mutex_t));
+    mutex_type->setBody({mutex_size}, /*packed=*/false);
     std::string mutex_name = name + ".mutex";
     llvm::Value *mutex_ptr =
         builder->CreateAlloca(mutex_type, /*arraySize=*/nullptr, mutex_name);
@@ -2212,7 +2216,7 @@ llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
                                                       /*isVarARg=*/false));
 }
 
-llvm::Value *CodeGen_LLVM::ensure_capacity(
+void CodeGen_LLVM::ensure_capacity(
     llvm::Value *index, llvm::Value *dynamic_array, const Struct_t *struct_t,
     llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr, llvm::Value *size_ptr,
     llvm::Value *capacity_ptr, llvm::Type *element_type,
@@ -2257,6 +2261,7 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     //  The lock has been acquired. Now double check to make sure another thread
     //  hasn't updated this.
     capacity = builder->CreateLoad(i32_t, capacity_ptr, base_n + ".capacity");
+
     capacity->setAtomic(llvm::AtomicOrdering::Acquire);
     condition = builder->CreateICmpUGE(index, capacity, "grow-or-unlock-mutex");
 
@@ -2273,7 +2278,7 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     // Handle the zero capacity case.
     llvm::Value *new_capacity = builder->CreateSelect(
         builder->CreateICmpEQ(capacity, zero), one,
-        builder->CreateMul(capacity, two), base_n + ".new_capacity");
+        builder->CreateMul(capacity, two), base_n + ".new-capacity");
     const llvm::DataLayout &layout = module->getDataLayout();
     llvm::Type *i8_t = llvm::Type::getInt8Ty(*context);
     llvm::Type *s_t = layout.getIntPtrType(*context);
@@ -2312,11 +2317,6 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
 
     // case 2: no grow (and continuation of grow block).
     builder->SetInsertPoint(continue_bb);
-    // Reload the final buffer pointer.
-    llvm::LoadInst *load_buffer = builder->CreateLoad(
-        element_type->getPointerTo(), ptr_to_buffer, base_n + ".load");
-    load_buffer->setAtomic(llvm::AtomicOrdering::Acquire);
-    return load_buffer;
 }
 
 void CodeGen_LLVM::visit(const Append *node) {
@@ -2356,19 +2356,27 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  base_n + ".capacity_ptr");
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
-    buffer_ptr = ensure_capacity(index, dynamic_array, struct_t, llvm_struct_t,
-                                 buffer_ptr, size_ptr, capacity_ptr,
-                                 element_type, base_n);
+    ensure_capacity(index, dynamic_array, struct_t, llvm_struct_t, buffer_ptr,
+                    size_ptr, capacity_ptr, element_type, base_n);
 
+    // TODO(cgyurgyik): Any stores to the buffer are currently locked behind a
+    // mutex as well. Ideally, we would only need to lock when regrowing.
+    std::optional<llvm::Value *> mutex = frames.from_frames(base_n + ".mutex");
+    internal_assert(mutex.has_value());
+    builder->CreateCall(get_pthread_lock(), {*mutex});
+    // Load the buffer pointer.
+    buffer_ptr = codegen_expr(ptr);
     // Store the value at the given offset.
-    buffer_ptr =
+    llvm::Value *offset_in_buffer_ptr =
         builder->CreateInBoundsGEP(element_type, // The LLVM element type
                                    buffer_ptr,   // pointer to the buffer
                                    index         // offset
         );
+
     llvm::StoreInst *store_buffer =
-        builder->CreateStore(rhs, buffer_ptr, /*isVolatile=*/false);
+        builder->CreateStore(rhs, offset_in_buffer_ptr, /*isVolatile=*/false);
     store_buffer->setAtomic(llvm::AtomicOrdering::Release);
+    builder->CreateCall(get_pthread_unlock(), {*mutex});
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
