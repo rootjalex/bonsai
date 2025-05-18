@@ -203,7 +203,6 @@ schedule {
     };
 
     // TODO: schedule.
-    //solve.split(i0, io, ii, 256u, false)
-    //     .cpu_thread(io);
+    solve.split(i0, io, ii, 256u, it).cpu_thread(io);
     walk.loopify();
 }

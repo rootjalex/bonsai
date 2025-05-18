@@ -95,7 +95,7 @@ struct Split {
     Location io;
     Location ii;
     Expr factor;
-    bool generate_tail;
+    std::optional<Location> tail_index;
 };
 
 using Transform =
