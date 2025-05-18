@@ -9,12 +9,14 @@ import apps/wos/geometry;
 // TODO: support!
 extern tris : set[Triangle];
 
+func closest(p : Point) = argmin(|tri| distmin(p, tri), tris);
+
 func computeDistToAbsBoundary(pt : vec3f) -> Float {
     // Do not compute the signed distance (for WoS).
     // TODO(ajr): hope this fuses.
     // TODO: need idempotent accelerated min, but that fucks up parsing so bad.
     p = Point{pt};
-    ctri = argmin(|tri| distmin(p, tri), tris);
+    ctri = closest(p);
     return distmin(p, ctri);
 }
 
@@ -204,5 +206,7 @@ schedule {
 
     // TODO: schedule.
     solve.split(i0, io, ii, 256u, it).cpu_thread(io);
+    doWalk.loopify();
     walk.loopify();
+    closest.loopify(16);
 }
