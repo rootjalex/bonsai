@@ -2123,8 +2123,7 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     // information in the bonsai middle end.
     llvm::StructType *mutex_type =
         llvm::StructType::create(*context, "struct.pthread_mutex_t");
-    // TODO(cgyurgyik): Another spot that will invalidate cross-compilation for
-    // another machine.
+    // TODO(cgyurgyik): Another spot that will invalidate cross-compilation.
     llvm::ArrayType *mutex_size = llvm::ArrayType::get(
         llvm::IntegerType::get(*context, 8), sizeof(pthread_mutex_t));
     mutex_type->setBody({mutex_size}, /*packed=*/false);
