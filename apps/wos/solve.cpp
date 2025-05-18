@@ -1058,8 +1058,9 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
 
                 const uint32_t nSamplePts = samplePoints.size();
                 auto start = std::chrono::high_resolution_clock::now();
+                std::cout << nSamplePts << "pts" << std::endl;
                 
-                Statistics * bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts, bonsai_pts, nWalksForSamplePts, tree);
+                bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts, bonsai_pts, nWalksForSamplePts, tree);
 
                 auto end = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed = end - start;
