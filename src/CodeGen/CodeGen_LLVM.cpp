@@ -325,16 +325,21 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
         // Generate i32 x lanes vector using repeated scalar rand() calls
         llvm::Value *rand_vec =
-            llvm::UndefValue::get(llvm::FixedVectorType::get(i32_t, lanes));
+            llvm::UndefValue::get(llvm::FixedVectorType::get(i64_t, lanes));
         for (uint32_t i = 0; i < lanes; ++i) {
-            llvm::Value *r = builder->CreateCall(rand_function);
-            rand_vec = builder->CreateInsertElement(rand_vec, r, i);
+            llvm::Value *low = builder->CreateCall(rand_function);
+            llvm::Value *high = builder->CreateCall(rand_function);
+            llvm::Value *low64 = builder->CreateZExt(low, i64_t);
+            llvm::Value *high64 = builder->CreateZExt(high, i64_t);
+            llvm::Value *shifted = builder->CreateShl(high64, 32);
+            llvm::Value *combined = builder->CreateOr(shifted, low64);
+            rand_vec = builder->CreateInsertElement(rand_vec, combined, i);
         }
 
         // Allocate space on stack for vector (aligned to vector width)
         llvm::AllocaInst *rng_state_ptr = builder->CreateAlloca(
             rand_vec->getType(), nullptr, lower::rng_state_name);
-        rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
+        rng_state_ptr->setAlignment(llvm::Align(alignof(uint64_t) * lanes));
         builder->CreateStore(rand_vec, rng_state_ptr);
 
         frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
@@ -1406,16 +1411,24 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
                "vector width: "
             << req_vals << " with " << lanes;
         llvm::Type *vec_ty =
-            llvm::VectorType::get(i32_t, lanes, /*Scalable=*/false);
+            llvm::VectorType::get(i64_t, lanes, /*Scalable=*/false);
 
-        const uint64_t c0 = 576942909;
-        const uint64_t c1 = 1121052041;
-        const uint64_t c2 = 1040796640;
+        const uint64_t PCG32_MUL = 0x5851f42d4c957f2dULL;
 
-        auto broadcast_const = [&](uint64_t val) {
+        auto broadcast_u64 = [&](uint64_t val) {
+            return llvm::ConstantVector::getSplat(
+                llvm::ElementCount::getFixed(lanes),
+                llvm::ConstantInt::get(i64_t, val));
+        };
+
+        auto broadcast_u32 = [&](uint32_t val) {
             return llvm::ConstantVector::getSplat(
                 llvm::ElementCount::getFixed(lanes),
                 llvm::ConstantInt::get(i32_t, val));
+        };
+
+        auto cast_u32 = [&](llvm::Value *a) {
+            return builder->CreateTrunc(a, llvm::VectorType::get(i32_t, lanes, /*scalable=*/false));
         };
 
         llvm::Value *seed =
@@ -1424,25 +1437,36 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
 
         uint64_t generated = 0;
         while (generated < req_vals) {
-            llvm::Value *s = seed;
+            // uint64_t oldstate = state;
+            // state = oldstate * PCG32_MULT + inc;
+            llvm::Value *old_state = seed;
+            seed = builder->CreateMul(old_state, broadcast_u64(PCG32_MUL));
+            seed = builder->CreateAdd(seed, broadcast_u64(3)); // `inc` = 3?
 
-            // Apply the formula: (((c2 * s) + c1) * s) + c0
-            s = builder->CreateMul(broadcast_const(c2), s);
-            s = builder->CreateAdd(s, broadcast_const(c1));
-            s = builder->CreateMul(s, seed); // use original seed
-            s = builder->CreateAdd(s, broadcast_const(c0));
+            // uint32_t xorshifted = (uint32_t) (((oldstate >> 18u) ^ oldstate) >> 27u);
+            llvm::Value *xor_shifted = cast_u32(builder->CreateLShr(builder->CreateXor(builder->CreateLShr(old_state, broadcast_u64(18)), old_state), broadcast_u64(27)));
 
-            pieces.push_back(s);
+            // uint32_t rot = (uint32_t) (oldstate >> 59u);
+            llvm::Value *rot = cast_u32(builder->CreateLShr(old_state, broadcast_u64(59)));
+
+            // return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31));
+            llvm::Value *left = builder->CreateLShr(xor_shifted, rot);
+            llvm::Value *neg_rot = builder->CreateAnd(builder->CreateSub(broadcast_u32(0), rot), broadcast_u32(31));
+            llvm::Value *right = builder->CreateShl(xor_shifted, neg_rot);
+
+            llvm::Value *piece = builder->CreateOr(left, right);
+
+            pieces.push_back(piece);
             generated += lanes;
 
             // Update seed vector: add constant increment {lanes, 2 * lanes, ...
             // lanes * lanes}
-            std::vector<llvm::Constant *> incrs;
-            for (int i = 0; i < lanes; ++i) {
-                incrs.push_back(llvm::ConstantInt::get(i32_t, lanes * (i + 1)));
-            }
-            llvm::Value *incr = llvm::ConstantVector::get(incrs);
-            seed = builder->CreateAdd(seed, incr);
+            // std::vector<llvm::Constant *> incrs;
+            // for (int i = 0; i < lanes; ++i) {
+            //     incrs.push_back(llvm::ConstantInt::get(i64_t, lanes * (i + 1)));
+            // }
+            // llvm::Value *incr = llvm::ConstantVector::get(incrs);
+            // seed = builder->CreateAdd(seed, incr);
         }
 
         // Store updated seed back into RNG state
