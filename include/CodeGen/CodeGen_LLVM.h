@@ -196,7 +196,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::FunctionCallee get_pthread_lock();
     llvm::FunctionCallee get_pthread_unlock();
     llvm::FunctionCallee get_pthread_init();
-    size_t get_mutex_size_in_bytes();
 
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;

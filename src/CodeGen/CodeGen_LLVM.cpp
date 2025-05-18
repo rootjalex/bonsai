@@ -2205,10 +2205,6 @@ llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
                                                       /*isVarARg=*/false));
 }
 
-size_t CodeGen_LLVM::get_mutex_size_in_bytes() {
-    return sizeof(pthread_mutex_t);
-}
-
 void CodeGen_LLVM::ensure_capacity(
     Expr ptr, llvm::Value *index, llvm::Value *dynamic_array,
     const Struct_t *struct_t, llvm::Type *llvm_struct_t, llvm::Value *size_ptr,
@@ -2349,8 +2345,10 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  dynamic_array, // The pointer to the struct
                                  mutex_idx,     // The field index
                                  base_n + ".mutex_ptr");
-    llvm::Type *mutex_type = llvm::ArrayType::get(
-        llvm::IntegerType::get(*context, 8), get_mutex_size_in_bytes());
+
+    llvm::Type *mutex_type =
+        llvm::ArrayType::get(llvm::IntegerType::get(*context, 8),
+                             struct_t->fields[mutex_idx].type.bytes());
     llvm::Value *mutex_object =
         builder->CreateLoad(mutex_type, mutex_ptr, base_n + ".mutex");
     llvm::Value *mutex =
