@@ -607,6 +607,161 @@ void maskWalkOnSpheresEstimates(float boundaryDistanceMask,
     }
 }
 
+void plotWalkOnSpheresEstimatesBonsai(const Statistics *bonsai_solution, const uint64_t nPoints,
+                                bool estimateOnSlicePlane, std::vector<float>& solution)
+{
+    solution.clear();
+    solution.resize(nPoints, 0.0f);
+    std::vector<float> solutionVariance(nPoints, 0.0f);
+    std::vector<std::vector<float>> gradient(nPoints, std::vector<float>(3, 0.0f));
+    std::vector<std::vector<float>> gradientVariance(nPoints, std::vector<float>(3, 0.0f));
+    std::vector<float> walkLength(nPoints, 0.0f);
+
+    float solutionAvg = 0.0f;
+    float solutionMin = INFINITY;
+    float solutionMax = -INFINITY;
+    float solutionVarianceAvg = 0.0f;
+    float solutionVarianceMin = INFINITY;
+    float solutionVarianceMax = -INFINITY;
+    float nSolutionCountAvg = 0.0f;
+    float gradientAvg = 0.0f;
+    float gradientMin = INFINITY;
+    float gradientMax = -INFINITY;
+    float gradientVarianceAvg = 0.0f;
+    float gradientVarianceMin = INFINITY;
+    float gradientVarianceMax = -INFINITY;
+    float nGradientCountAvg = 0.0f;
+    float walkLengthAvg = 0.0;
+    float walkLengthMin = INFINITY;
+    float walkLengthMax = -INFINITY;
+    float nSplitsAvg = 0.0f;
+
+    for (int i = 0; i < nPoints; i++) {
+        if (bonsai_solution[i].nSolEstimates == 0) {
+            solution[i] = 0.0f;
+            continue;
+        }
+
+        int nSolutionCount = std::max((uint32_t)1, bonsai_solution[i].nSolEstimates);
+        solution[i] = bonsai_solution[i].solMean;
+        solutionVariance[i] = bonsai_solution[i].solMean2 / std::max((uint32_t)1, bonsai_solution[i].nSolEstimates - 1);
+
+        solutionVariance[i] /= nSolutionCount;
+        solutionAvg += solution[i];
+        solutionMin = std::min(solutionMin, solution[i]);
+        solutionMax = std::max(solutionMax, solution[i]);
+        solutionVarianceAvg += solutionVariance[i];
+        solutionVarianceMin = std::min(solutionVarianceMin, solutionVariance[i]);
+        solutionVarianceMax = std::max(solutionVarianceMax, solutionVariance[i]);
+        nSolutionCountAvg += nSolutionCount;
+
+        float gradientNorm = 0.0f;
+        float gradientVarianceNorm = 0.0f;
+        // int nGradientCount = std::max(1, /*statistics.getGradientEstimateCount()*/0);
+
+        // for (int j = 0; j < DIM; j++) {
+        //     gradient[i][j] = statistics.getEstimatedGradient()[j];
+        //     gradientVariance[i][j] = statistics.getEstimatedGradientVariance()[j];
+
+        //     gradientNorm += std::pow(gradient[i][j], 2);
+        //     gradientVarianceNorm += std::pow(gradientVariance[i][j], 2);
+        // }
+
+        // gradientNorm = std::sqrt(gradientNorm);
+        // gradientAvg += gradientNorm;
+        // gradientMin = std::min(gradientMin, gradientNorm);
+        // gradientMax = std::max(gradientMax, gradientNorm);
+        // gradientVarianceNorm = std::sqrt(gradientVarianceNorm)/nGradientCount;
+        // gradientVarianceAvg += gradientVarianceNorm;
+        // gradientVarianceMin = std::min(gradientVarianceMin, gradientVarianceNorm);
+        // gradientVarianceMax = std::max(gradientVarianceMax, gradientVarianceNorm);
+        // nGradientCountAvg += nGradientCount;
+
+        float meanWalkLength = bonsai_solution[i].totalWalkLength / std::max((uint32_t)1, bonsai_solution[i].nSolEstimates);
+        walkLength[i] = meanWalkLength;
+        walkLengthAvg += meanWalkLength;
+        walkLengthMin = std::min(walkLengthMin, meanWalkLength);
+        walkLengthMax = std::max(walkLengthMax, meanWalkLength);
+
+        nSplitsAvg += bonsai_solution[i].totalSplits / std::max((uint32_t)1, bonsai_solution[i].nSolEstimates);
+    }
+
+    solutionAvg /= nPoints;
+    solutionVarianceAvg /= nPoints;
+    nSolutionCountAvg /= nPoints;
+    gradientAvg /= nPoints;
+    gradientVarianceAvg /= nPoints;
+    nGradientCountAvg /= nPoints;
+    walkLengthAvg /= nPoints;
+    nSplitsAvg /= nPoints;
+
+    std::cout << "Walk on spheres" << std::endl;
+    std::cout << "  solution avg: " << solutionAvg
+              << " min: " << solutionMin
+              << " max: " << solutionMax
+              << std::endl;
+    std::cout << "  solution variance avg: " << solutionVarianceAvg
+              << " min: " << solutionVarianceMin
+              << " max: " << solutionVarianceMax
+              << std::endl;
+    std::cout << "  gradient avg: " << gradientAvg
+              << " min: " << gradientMin
+              << " max: " << gradientMax
+              << std::endl;
+    std::cout << "  gradient variance avg: " << gradientVarianceAvg
+              << " min: " << gradientVarianceMin
+              << " max: " << gradientVarianceMax
+              << std::endl;
+    std::cout << "  mean sample count for solution: " << nSolutionCountAvg
+              << " gradient: " << nGradientCountAvg
+              << std::endl;
+    std::cout << "  mean walk length: " << walkLengthAvg
+              << " min: " << walkLengthMin
+              << " max: " << walkLengthMax
+              << std::endl;
+    std::cout << "  mean splits performed: " << nSplitsAvg
+              << std::endl;
+
+    if (estimateOnSlicePlane) {
+        polyscope::SurfaceMesh *mesh = polyscope::getSurfaceMesh("Slice Plane");
+        mesh->addFaceScalarQuantity("Solution Estimate", solution);
+        mesh->getQuantity("Solution Estimate")->setEnabled(true);
+        mesh->addFaceVectorQuantity("Gradient Estimate", gradient);
+    } else {
+        polyscope::VolumeMesh *mesh = polyscope::getVolumeMesh("Mesh");
+        mesh->addVertexScalarQuantity("Solution Estimate", solution);
+        mesh->addVertexScalarQuantity("Solution Variance", solutionVariance);
+        mesh->addVertexScalarQuantity("Mean Walk Length", walkLength);
+        mesh->addVertexVectorQuantity("Gradient Estimate", gradient);
+        mesh->getQuantity("Solution Estimate")->setEnabled(true);
+    }
+}
+
+template <size_t DIM>
+void maskWalkOnSpheresEstimatesBonsai(float boundaryDistanceMask, const std::vector<zombie::SamplePoint<float, DIM>>& samplePoints,
+                                      Statistics *bonsai_solution)
+{
+    if (boundaryDistanceMask > 0.0f) {
+        auto run = [&](const tbb::blocked_range<int>& range) {
+            for (int i = range.begin(); i < range.end(); ++i) {
+                if (samplePoints[i].distToAbsorbingBoundary <= boundaryDistanceMask) {
+                    bonsai_solution[i].solMean = 0.0;
+                    bonsai_solution[i].solMean2 = 0.0;
+                    bonsai_solution[i].totalFirstSourceContribution = 0.0;
+                    bonsai_solution[i].nSolEstimates = 0;
+                    bonsai_solution[i].totalWalkLength = 0;
+                    bonsai_solution[i].totalSplits = 0;
+                    bonsai_solution[i].firstSphereRadius = 0.0;
+                }
+            }
+        };
+
+        int nPoints = (int)samplePoints.size();
+        tbb::blocked_range<int> range(0, nPoints);
+        tbb::parallel_for(range, run);
+    }
+}
+
 #ifdef USE_FEM
 template <size_t DIM>
 void plotFemResults(const std::vector<Vector<DIM>>& meshPositionsRefined,
@@ -1034,6 +1189,7 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
 
             // Now time to get my solver going.
             Statistics * bonsai_solution = nullptr;
+            // constexpr uint64_t bonsai_fixed_count = 200;
 
             if constexpr (DIM == 3) {
                 WalkSettings bonsai_ws;
@@ -1057,14 +1213,17 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
                 bonsai_pde.freq = pde.freq;
 
                 const uint32_t nSamplePts = samplePoints.size();
+                // const uint64_t nSamplePts = bonsai_fixed_count;
                 auto start = std::chrono::high_resolution_clock::now();
                 std::cout << nSamplePts << "pts" << std::endl;
+
+                std::cout << nWalksForSamplePts << " walks per pt" << std::endl;
                 
                 bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts, bonsai_pts, nWalksForSamplePts, tree);
 
                 auto end = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed = end - start;
-                std::cout << "walkOnSpheres.solve took " << elapsed.count() << " seconds.\n";
+                std::cout << "bonsai.solve took " << elapsed.count() << " seconds.\n";
 
                 if (false) {
                     const Statistics &first = bonsai_solution[0];
@@ -1080,8 +1239,14 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
             // plot results
             std::vector<float> firstSphereRadii;
             for (int i = 0; i < (int)samplePoints.size(); i++) {
-                firstSphereRadii.push_back(samplePoints[i].firstSphereRadius);
                 if (bonsai_solution) {
+                    firstSphereRadii.push_back(bonsai_solution[i].firstSphereRadius);
+                } else {
+                    firstSphereRadii.push_back(samplePoints[i].firstSphereRadius);
+                }
+                
+                if (false) {
+                // if (bonsai_solution && i < bonsai_fixed_count) {
                     // TODO: assert within epsilon?
                     const bool equal =
                         (samplePoints[i].firstSphereRadius == bonsai_solution[i].firstSphereRadius) &&
@@ -1096,6 +1261,34 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
 
                     if (!equal) {
                         std::cerr << "Not equal at: i = " << i << std::endl;
+
+                        if (samplePoints[i].firstSphereRadius != bonsai_solution[i].firstSphereRadius)
+                            std::cerr << " firstSphereRadius: sample=" << samplePoints[i].firstSphereRadius
+                                        << ", bonsai=" << bonsai_solution[i].firstSphereRadius << std::endl;
+
+                        if (samplePoints[i].statistics.solutionMean != bonsai_solution[i].solMean)
+                            std::cerr << " solutionMean: sample=" << samplePoints[i].statistics.solutionMean
+                                        << ", bonsai=" << bonsai_solution[i].solMean << std::endl;
+
+                        if (samplePoints[i].statistics.solutionM2 != bonsai_solution[i].solMean2)
+                            std::cerr << " solutionM2: sample=" << samplePoints[i].statistics.solutionM2
+                                        << ", bonsai=" << bonsai_solution[i].solMean2 << std::endl;
+
+                        if (samplePoints[i].statistics.totalFirstSourceContribution != bonsai_solution[i].totalFirstSourceContribution)
+                            std::cerr << " totalFirstSourceContribution: sample=" << samplePoints[i].statistics.totalFirstSourceContribution
+                                        << ", bonsai=" << bonsai_solution[i].totalFirstSourceContribution << std::endl;
+
+                        if (samplePoints[i].statistics.nSolutionEstimates != bonsai_solution[i].nSolEstimates)
+                            std::cerr << " nSolutionEstimates: sample=" << samplePoints[i].statistics.nSolutionEstimates
+                                        << ", bonsai=" << bonsai_solution[i].nSolEstimates << std::endl;
+
+                        if (samplePoints[i].statistics.totalWalkLength != bonsai_solution[i].totalWalkLength)
+                            std::cerr << " totalWalkLength: sample=" << samplePoints[i].statistics.totalWalkLength
+                                        << ", bonsai=" << bonsai_solution[i].totalWalkLength << std::endl;
+
+                        if (samplePoints[i].statistics.totalSplits != bonsai_solution[i].totalSplits)
+                            std::cerr << " totalSplits: sample=" << samplePoints[i].statistics.totalSplits
+                                        << ", bonsai=" << bonsai_solution[i].totalSplits << std::endl;
                         exit(-1);
                     }
                 }
@@ -1106,11 +1299,20 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
             pointCloud->addScalarQuantity("First Sphere Radii", firstSphereRadii);
             pointCloud->setPointRadiusQuantity("First Sphere Radii");
 
-            // mask out sample values close to the boundary
-            maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
+            if (bonsai_solution) {
+                // mask out sample values close to the boundary
+                maskWalkOnSpheresEstimatesBonsai(boundaryDistanceMask, samplePoints, bonsai_solution);
 
-            // plot sample values
-            plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane, walkOnSpheresSolution);
+                // plot sample values
+                plotWalkOnSpheresEstimatesBonsai(bonsai_solution, samplePoints.size(), estimateOnSlicePlane, walkOnSpheresSolution);
+            } else {
+                // mask out sample values close to the boundary
+                maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
+
+                // plot sample values
+                plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane, walkOnSpheresSolution);
+            }
+
 #ifdef USE_FEM
             if (!estimateOnSlicePlane) {
                 plotAbsoluteDifference<DIM>(samplePoints.size(), walkOnSpheresSolution, femSolution);
@@ -1290,7 +1492,11 @@ void run()
 
     // TODO(ajr): also build Bonsai aggregate
     if constexpr (DIM == 3) {
+        auto start = std::chrono::high_resolution_clock::now();
         tree = build_tree(boundaryPositions, boundaryIndices);
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        std::cout << "bonsai.tree_build took " << elapsed.count() << " seconds.\n";
     }
 
     // populate geometric queries
