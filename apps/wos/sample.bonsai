@@ -9,7 +9,6 @@ element SamplePoint {
     pdf : Float;
     distToAbs : Float;
     distToRefl : Float;
-    firstSphereRadius : Float;
     // robinCoeff : Float;
 
     // solution : Float;

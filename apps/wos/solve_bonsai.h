@@ -38,7 +38,6 @@ struct SamplePoint {
     float pdf;
     float distToAbs;
     float distToRefl;
-    float firstSphereRadius;
     uint8_t type_and_quantity;
 };
 struct Triangle {
