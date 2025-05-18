@@ -23,7 +23,7 @@ struct IRHandle : public IntrusivePtr<const IRNode> {
      * this node is actually an Add node, then this will call
      * Visitor::visit(const Add *) */
     void accept(Visitor *v) const {
-        assert(this->ptr);
+        assert(this->ptr && "visiting undefined node!");
         this->ptr->accept(v);
     }
 

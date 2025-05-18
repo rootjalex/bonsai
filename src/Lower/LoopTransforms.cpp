@@ -316,7 +316,7 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
                     << "unexpected call to another function: " << Expr(call)
                     << " in tail recursion of: " << function.name;
             } else {
-                node->value.accept(this);
+                value.accept(this);
             }
         }
 
@@ -324,15 +324,8 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
         const Function &function;
     };
 
-    std::vector<Function::Argument> args = function.args;
-    for (int i = 0, e = args.size(); i < e; i++) {
-        const Function::Argument &farg = function.args[i];
-        // Right now we conservatively assume that tail recursion does
-        // not have mutating arguments.
-        internal_assert(!farg.mutating)
-            << "unexpected mutable argument in tail recursion: " << function;
-    }
     Checker checker(function);
+    internal_assert(body.defined());
     body.accept(&checker);
 }
 
