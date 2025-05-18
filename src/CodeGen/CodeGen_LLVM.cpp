@@ -2083,6 +2083,7 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     int ptr_idx = find_struct_index("buffer", dynamic_array_t->fields);
     int cap_idx = find_struct_index("capacity", dynamic_array_t->fields);
     int size_idx = find_struct_index("size", dynamic_array_t->fields);
+    int mtx_idx = find_struct_index("mutex", dynamic_array_t->fields);
     // Retrieve element type and capacity.
     // Dynamic arrays are always mutable, so stored as pointers to the
     // underlying struct type. Need to dereference that pointer to load buffer.
@@ -2118,16 +2119,8 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     // TODO(cgyurgyik): it'd be nice if the mutex lived in the struct, but the
     // size of pthread_mutex is architecture-dependent and we don't have that
     // information in the bonsai middle end.
-    llvm::StructType *mutex_type =
-        llvm::StructType::create(*context, "struct.pthread_mutex_t");
-    // TODO(cgyurgyik): Another spot that will invalidate cross-compilation.
-    llvm::ArrayType *mutex_size = llvm::ArrayType::get(
-        llvm::IntegerType::get(*context, 8), sizeof(pthread_mutex_t));
-    mutex_type->setBody({mutex_size}, /*packed=*/false);
-    std::string mutex_name = name + ".mutex";
-    llvm::Value *mutex_ptr =
-        builder->CreateAlloca(mutex_type, /*arraySize=*/nullptr, mutex_name);
-    frames.add_to_frame(mutex_name, mutex_ptr);
+    llvm::Value *mutex_ptr = builder->CreateStructGEP(
+        struct_type, struct_ptr, mtx_idx, name + ".mutex_ptr");
     // Initialize the mutex.
     llvm::Type *i8_t = builder->getInt8Ty();
     builder->CreateCall(
@@ -2212,15 +2205,20 @@ llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
                                                       /*isVarARg=*/false));
 }
 
+size_t CodeGen_LLVM::get_mutex_size_in_bytes() {
+    return sizeof(pthread_mutex_t);
+}
+
 void CodeGen_LLVM::ensure_capacity(
     Expr ptr, llvm::Value *index, llvm::Value *dynamic_array,
     const Struct_t *struct_t, llvm::Type *llvm_struct_t, llvm::Value *size_ptr,
-    llvm::Value *capacity_ptr, llvm::Type *element_type,
+    llvm::Value *capacity_ptr, llvm::Value *mutex, llvm::Type *element_type,
     const std::string &base_n) {
     internal_assert(dynamic_array);
     internal_assert(struct_t);
     internal_assert(size_ptr);
     internal_assert(capacity_ptr);
+    internal_assert(mutex);
     internal_assert(element_type);
 
     int ptr_idx = find_struct_index("buffer", struct_t->fields);
@@ -2248,10 +2246,7 @@ void CodeGen_LLVM::ensure_capacity(
     builder->SetInsertPoint(lock_bb);
 
     // Lock the mutex.
-    std::optional<llvm::Value *> mutex = frames.from_frames(base_n + ".mutex");
-    internal_assert(mutex.has_value())
-        << "no mutex found for: " << base_n << ".mutex";
-    builder->CreateCall(get_pthread_lock(), {*mutex});
+    builder->CreateCall(get_pthread_lock(), {mutex});
 
     //  The lock has been acquired. Now double check to make sure another thread
     //  hasn't updated this.
@@ -2306,7 +2301,7 @@ void CodeGen_LLVM::ensure_capacity(
     builder->CreateBr(unlock_bb);
 
     builder->SetInsertPoint(unlock_bb);
-    builder->CreateCall(get_pthread_unlock(), {*mutex});
+    builder->CreateCall(get_pthread_unlock(), {mutex});
     builder->CreateBr(continue_bb);
 
     // case 2: no grow (and continuation of grow block).
@@ -2347,16 +2342,28 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  dynamic_array, // The pointer to the struct
                                  capacity_idx,  // The field index
                                  base_n + ".capacity_ptr");
+    // Pointer to the mutex of the array.
+    int32_t mutex_idx = find_struct_index("mutex", struct_t->fields);
+    llvm::Value *mutex_ptr =
+        builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
+                                 dynamic_array, // The pointer to the struct
+                                 mutex_idx,     // The field index
+                                 base_n + ".mutex_ptr");
+    llvm::Type *mutex_type = llvm::ArrayType::get(
+        llvm::IntegerType::get(*context, 8), get_mutex_size_in_bytes());
+    llvm::Value *mutex_object =
+        builder->CreateLoad(mutex_type, mutex_ptr, base_n + ".mutex");
+    llvm::Value *mutex =
+        builder->CreateAlloca(mutex_type, nullptr, base_n + ".mutex_ptr");
+    builder->CreateStore(mutex_object, mutex);
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
     ensure_capacity(ptr, index, dynamic_array, struct_t, llvm_struct_t,
-                    size_ptr, capacity_ptr, element_type, base_n);
+                    size_ptr, capacity_ptr, mutex, element_type, base_n);
 
     // TODO(cgyurgyik): Any stores to the buffer are currently locked behind a
     // mutex as well. Ideally, we would only need to lock when regrowing.
-    std::optional<llvm::Value *> mutex = frames.from_frames(base_n + ".mutex");
-    internal_assert(mutex.has_value());
-    builder->CreateCall(get_pthread_lock(), {*mutex}); // LOCK
+    builder->CreateCall(get_pthread_lock(), {mutex}); // LOCK
     // Load the buffer pointer.
     llvm::Value *buffer_ptr = codegen_expr(ptr);
     // Store the value at the given offset.
@@ -2366,7 +2373,7 @@ void CodeGen_LLVM::visit(const Append *node) {
                                    index         // offset
         );
     builder->CreateStore(rhs, offset_in_buffer_ptr, /*isVolatile=*/false);
-    builder->CreateCall(get_pthread_unlock(), {*mutex}); // UNLOCK
+    builder->CreateCall(get_pthread_unlock(), {mutex}); // UNLOCK
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {

@@ -190,12 +190,13 @@ struct CodeGen_LLVM : public ir::Visitor {
                          llvm::Value *dynamic_array,
                          const ir::Struct_t *struct_t,
                          llvm::Type *llvm_struct_t, llvm::Value *size_ptr,
-                         llvm::Value *capacity_ptr, llvm::Type *elt_ty,
-                         const std::string &base_n);
+                         llvm::Value *capacity_ptr, llvm::Value *mutex,
+                         llvm::Type *elt_ty, const std::string &base_n);
 
     llvm::FunctionCallee get_pthread_lock();
     llvm::FunctionCallee get_pthread_unlock();
     llvm::FunctionCallee get_pthread_init();
+    size_t get_mutex_size_in_bytes();
 
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;

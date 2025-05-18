@@ -37,6 +37,10 @@ struct DynamicArraysToStructs : public ir::Mutator {
         std::string name = unique_dynamic_array_name();
         fields.push_back(ir::TypedVar("size", type));
         fields.push_back(ir::TypedVar("capacity", node->capacity.type()));
+        // TODO(cgyurgyik): This invalidates cross-compilation.
+        fields.push_back(
+            ir::TypedVar("mutex", ir::Vector_t::make(ir::UInt_t::make(8),
+                                                     sizeof(pthread_mutex_t))));
         defaults["size"] = make_zero(type);
 
         ir::Type new_struct =
