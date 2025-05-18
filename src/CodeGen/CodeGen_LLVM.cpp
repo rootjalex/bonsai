@@ -2278,11 +2278,11 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::StoreInst *store_capacity =
         builder->CreateStore(truncated_capacity, capacity_ptr);
     store_capacity->setAtomic(llvm::AtomicOrdering::Release);
-    builder->CreateCall(get_pthread_unlock(), {mutex_t});
-
-    builder->CreateBr(continue_bb);
+    
     // case 2: no grow (and continuation of grow block).
+    builder->CreateBr(continue_bb);
     builder->SetInsertPoint(continue_bb);
+    builder->CreateCall(get_pthread_unlock(), {mutex_t});
     // Reload the final buffer pointer.
     llvm::LoadInst *load_buffer = builder->CreateLoad(
         element_type->getPointerTo(), ptr_to_buffer, base_n + ".load");
