@@ -16,8 +16,6 @@ main_entry:
   store atomic i32 1, ptr %x.capacity_ptr release, align 4
   %x.mutex = alloca %struct.pthread_mutex_t, align 8
   %0 = call i32 @pthread_mutex_init(ptr %x.mutex, ptr null)
-  %deref_temp = load %struct.__dyn_array0, ptr %x, align 8
-  %buffer = extractvalue %struct.__dyn_array0 %deref_temp, 0
   %x.size_ptr1 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 1
   %1 = atomicrmw add ptr %x.size_ptr1, i32 1 acq_rel, align 4
   %x.capacity_ptr2 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 2
@@ -50,6 +48,8 @@ grow:                                             ; preds = %lock-mutex
   %7 = mul i32 %x.capacity3, 2
   %x.new-capacity = select i1 %6, i32 1, i32 %7
   %8 = zext i32 %x.new-capacity to i64
+  %deref_temp = load %struct.__dyn_array0, ptr %x, align 8
+  %buffer = extractvalue %struct.__dyn_array0 %deref_temp, 0
   %9 = mul i64 %8, 4
   %10 = call ptr @realloc(ptr %buffer, i64 %9)
   store atomic ptr %10, ptr %x.ptr_to_buffer release, align 8

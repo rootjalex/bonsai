@@ -186,11 +186,12 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // Ensure buffer has capacity for one more element, growing if needed.
     // Returns the (possibly reallocated) buffer pointer.
-    void ensure_capacity(llvm::Value *index, llvm::Value *dynamic_array,
+    void ensure_capacity(ir::Expr ptr, llvm::Value *index,
+                         llvm::Value *dynamic_array,
                          const ir::Struct_t *struct_t,
-                         llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr,
-                         llvm::Value *size_ptr, llvm::Value *capacity_ptr,
-                         llvm::Type *elt_ty, const std::string &base_n);
+                         llvm::Type *llvm_struct_t, llvm::Value *size_ptr,
+                         llvm::Value *capacity_ptr, llvm::Type *elt_ty,
+                         const std::string &base_n);
 
     llvm::FunctionCallee get_pthread_lock();
     llvm::FunctionCallee get_pthread_unlock();

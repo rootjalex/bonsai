@@ -2216,13 +2216,12 @@ llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
 }
 
 void CodeGen_LLVM::ensure_capacity(
-    llvm::Value *index, llvm::Value *dynamic_array, const Struct_t *struct_t,
-    llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr, llvm::Value *size_ptr,
+    Expr ptr, llvm::Value *index, llvm::Value *dynamic_array,
+    const Struct_t *struct_t, llvm::Type *llvm_struct_t, llvm::Value *size_ptr,
     llvm::Value *capacity_ptr, llvm::Type *element_type,
     const std::string &base_n) {
     internal_assert(dynamic_array);
     internal_assert(struct_t);
-    internal_assert(buffer_ptr);
     internal_assert(size_ptr);
     internal_assert(capacity_ptr);
     internal_assert(element_type);
@@ -2292,6 +2291,7 @@ void CodeGen_LLVM::ensure_capacity(
         realloc = llvm::Function::Create(type, llvm::Function::ExternalLinkage,
                                          "realloc", module.get());
     }
+    llvm::Value *buffer_ptr = codegen_expr(ptr);
     llvm::Value *new_buffer = builder->CreateCall(
         realloc, {buffer_ptr, builder->CreateMul(new_capacity, element_size)});
 
@@ -2333,7 +2333,6 @@ void CodeGen_LLVM::visit(const Append *node) {
     Expr ptr = Access::make("buffer", base_v);
     const auto *array_t = ptr.type().as<Array_t>();
     internal_assert(array_t) << ptr.type();
-    llvm::Value *buffer_ptr = codegen_expr(ptr);
     // Pointer to the "current size" of the array.
     int32_t size_idx = find_struct_index("size", struct_t->fields);
     llvm::Value *size_ptr =
@@ -2355,7 +2354,7 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  base_n + ".capacity_ptr");
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
-    ensure_capacity(index, dynamic_array, struct_t, llvm_struct_t, buffer_ptr,
+    ensure_capacity(ptr, index, dynamic_array, struct_t, llvm_struct_t,
                     size_ptr, capacity_ptr, element_type, base_n);
 
     // TODO(cgyurgyik): Any stores to the buffer are currently locked behind a
@@ -2364,7 +2363,7 @@ void CodeGen_LLVM::visit(const Append *node) {
     internal_assert(mutex.has_value());
     builder->CreateCall(get_pthread_lock(), {*mutex});
     // Load the buffer pointer.
-    buffer_ptr = codegen_expr(ptr);
+    llvm::Value *buffer_ptr = codegen_expr(ptr);
     // Store the value at the given offset.
     llvm::Value *offset_in_buffer_ptr =
         builder->CreateInBoundsGEP(element_type, // The LLVM element type
