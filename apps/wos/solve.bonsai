@@ -4,6 +4,21 @@ import apps/wos/sample;
 import apps/wos/settings;
 import apps/wos/statistics;
 
+import apps/wos/geometry;
+
+// TODO: support!
+extern tris : set[Triangle];
+
+func computeDistToAbsBoundary(pt : vec3f) -> Float {
+    // Do not compute the signed distance (for WoS).
+    // TODO(ajr): hope this fuses.
+    // TODO: need idempotent accelerated min, but that fucks up parsing so bad.
+    p = Point{pt};
+    ctri = argmin(|tri| distmin(p, tri), tris);
+    return distmin(p, ctri);
+}
+
+
 element WalkResults {
     pt : vec3f;
     totalSourceContribution : Float;
@@ -45,11 +60,6 @@ func terminateWalk(s : WalkSettings, throughput : Float) -> (bool, Float) {
         return (false, s.russianRouletteThreshold);
     }
     return (false, throughput);
-}
-
-func computeDistToAbsBoundary(pt : vec3f) -> Float {
-    // TODO
-    return 0.0;
 }
 
 func getTerminalContribution(pde : PDE, s : WalkSettings, res : WalkResults) -> Float {
@@ -165,4 +175,32 @@ func sol(pde : PDE, s : WalkSettings, p : SamplePoint, nWalks : u32) -> Statisti
 
 func [[export]] solve(pde : PDE, s : WalkSettings, n : u32, pts : array[SamplePoint, n], nWalks : u32) {
     return map(|pt : SamplePoint| sol(pde, s, pt, nWalks), pts);
+}
+
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : array[Triangle]);
+
+    tris : TriangleBVH;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u16 {
+            low : vec3f;
+            32; // pad bits
+            high : vec3f;
+            nPrims : u8;
+            axis : u8;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
+            };
+        };
+    };
+
+    // TODO: schedule.
 }
