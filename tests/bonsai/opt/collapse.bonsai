@@ -15,7 +15,6 @@ func f(x: i32, y: i32) -> i32 {
     return x + y;
 }
 
-
 func process3(w: i32, h: i32) {
 return map(|i : i32| map(|j : i32| f(i, j), iter(h)), iter(w));
 }
