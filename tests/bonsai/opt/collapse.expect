@@ -1,56 +1,83 @@
-; ModuleID = 'bonsai_module'
-source_filename = "bonsai_module"
-
-define ptr @_traverse_array0(i32 noundef %w) {
-_traverse_array0_entry:
-  %_alloc0 = alloca ptr, align 8
-  %size64 = zext i32 %w to i64
-  %mallocsize = mul i64 %size64, 4
-  %_alloc0_untyped = tail call ptr @malloc(i64 %mallocsize)
-  store ptr %_alloc0_untyped, ptr %_alloc0, align 8
-  %0 = icmp slt i32 0, %w
-  br i1 %0, label %_io0_for, label %_io0_for_end, !prof !0
-
-_io0_for_inc:                                     ; preds = %_ii1_for_end
-  %1 = add i32 %4, 4
-  %2 = add i32 %4, 1
-  %3 = icmp sle i32 %w, %2
-  br i1 %3, label %_io0_for_end, label %_io0_for
-
-_io0_for:                                         ; preds = %_io0_for_inc, %_traverse_array0_entry
-  %4 = phi i32 [ 0, %_traverse_array0_entry ], [ %1, %_io0_for_inc ]
-  br i1 true, label %_ii1_for, label %_ii1_for_end, !prof !0
-
-_io0_for_end:                                     ; preds = %_io0_for_inc, %_traverse_array0_entry
-  %deref_temp = load ptr, ptr %_alloc0, align 8
-  ret ptr %deref_temp
-
-_ii1_for_inc:                                     ; preds = %_ii1_for
-  %5 = add i32 %8, 1
-  %6 = add i32 %8, 1
-  %7 = icmp sle i32 4, %6
-  br i1 %7, label %_ii1_for_end, label %_ii1_for
-
-_ii1_for:                                         ; preds = %_ii1_for_inc, %_io0_for
-  %8 = phi i32 [ 0, %_io0_for ], [ %5, %_ii1_for_inc ]
-  %9 = add i32 %4, %8
-  %10 = add i32 %9, 1
-  %11 = add i32 %4, %8
-  %_alloc0_ld = load ptr, ptr %_alloc0, align 8
-  %_alloc0_ld1 = getelementptr inbounds i32, ptr %_alloc0_ld, i32 %11
-  store i32 %10, ptr %_alloc0_ld1, align 4
-  br label %_ii1_for_inc
-
-_ii1_for_end:                                     ; preds = %_ii1_for_inc, %_io0_for
-  br label %_io0_for_inc
+func _traverse_array0(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
+  alloc _alloc0 : mut f32[m * n]
+  forall _i0 in [0:m:1] {
+    forall _i1 in [0:n:1] {
+      _alloc0[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
+    }
+  }
+  return reinterpret_cast<f32[n][m]>((*_alloc0))
 }
 
-define ptr @process(i32 noundef %w) {
-process_entry:
-  %0 = call ptr @_traverse_array0(i32 %w)
-  ret ptr %0
+func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
+  alloc _alloc1 : mut f32[m * n]
+  forall _i_a in [0:m * n:1] {
+    let _i0 = _i_a / n in
+    let _i1 = _i_a % n in
+    _alloc1[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
+  }
+  return reinterpret_cast<f32[n][m]>((*_alloc1))
 }
 
-declare noalias ptr @malloc(i64)
+func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
+  alloc _alloc2 : mut f32[32 * 8]
+  forall _i_b in [0:256:1] {
+    let _i0 = _i_b / 8 in
+    let _i1 = _i_b & 7 in
+    _alloc2[(_i0 << 3) + _i1] = sqrt(a[_i0][_i1])
+  }
+  return reinterpret_cast<f32[8][32]>((*_alloc2))
+}
 
-!0 = !{!"branch_weights", i32 1073741824, i32 0}
+func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
+  alloc _alloc3 : mut i32[w * h]
+  forall _i_c in [0:w * h:1] {
+    let _i0 = _i_c / h in
+    let _i1 = _i_c % h in
+    _alloc3[(_i0 * h) + _i1] = f(_i0, _i1)
+  }
+  return reinterpret_cast<i32[h][w]>((*_alloc3))
+}
+
+func _traverse_array4(w : i32) -> i32[w] {
+  alloc _alloc4 : mut i32[w]
+  forall _i in [0:((w + 3) / 4) << 2:1] {
+    let _io = (_i / 4) << 2 in
+    let _ii = _i & 3 in
+    if (_io < w) {
+      if (_ii < 4) {
+        _alloc4[_io + _ii] = f(_io + _ii, 1)
+      }
+    }
+  }
+  return (*_alloc4)
+}
+
+func f(x : i32, y : i32) -> i32 {
+  print(x, y)
+  return x + y
+}
+
+func no_collapse(n : i32, m : i32, a : f32[n][m]) -> f32[n][m] {
+  return _traverse_array0(m, n, a)
+}
+
+func process1(n : i32, m : i32, a : f32[n][m]) -> f32[n][m] {
+  return _traverse_array1(m, n, a)
+}
+
+func process2(a : f32[8][32]) -> f32[8][32] {
+  return _traverse_array2(a)
+}
+
+func process3(w : i32, h : i32) -> i32[h][w] {
+  return _traverse_array3(h, w)
+}
+
+func process4(w : i32) -> i32[w] {
+  return _traverse_array4(w)
+}
+
+
+schedule host {
+
+}

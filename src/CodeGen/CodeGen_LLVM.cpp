@@ -2116,9 +2116,6 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     store_capacity->setAtomic(llvm::AtomicOrdering::Release);
 
     // Lastly, allocate a mutex for this dynamic vector.
-    // TODO(cgyurgyik): it'd be nice if the mutex lived in the struct, but the
-    // size of pthread_mutex is architecture-dependent and we don't have that
-    // information in the bonsai middle end.
     llvm::Value *mutex_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, mtx_idx, name + ".mutex_ptr");
     // Initialize the mutex.
