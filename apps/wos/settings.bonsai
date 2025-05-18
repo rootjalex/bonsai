@@ -12,35 +12,37 @@ element WalkSettings {
     flags : u8; // TODO: need?
 }
 
-func solveDoubleSided(w : WalkSettings) {
+// these NEED underscores, otherwise they conflict with global names in solve.cpp
+
+func solveDoubleSided_(w : WalkSettings) {
     return (w.flags & 1) != 0;
 }
 
-func useGradientControlVariates(w : WalkSettings) {
+func useGradientControlVariates_(w : WalkSettings) {
     return (w.flags & 2) != 0;
 }
 
-func useGradientAntitheticVariates(w : WalkSettings) {
+func useGradientAntitheticVariates_(w : WalkSettings) {
     return (w.flags & 4) != 0;
 }
 
-func useCosineSamplingForDerivatives(w : WalkSettings) {
+func useCosineSamplingForDerivatives_(w : WalkSettings) {
     return (w.flags & 8) != 0;
 }
 
-func ignoreAbsorbingBoundaryContribution(w : WalkSettings) {
+func ignoreAbsorbingBoundaryContribution_(w : WalkSettings) {
     return (w.flags & 16) != 0;
 }
 
-func ignoreReflectingBoundaryContribution(w : WalkSettings) {
+func ignoreReflectingBoundaryContribution_(w : WalkSettings) {
     return (w.flags & 32) != 0;
 }
 
-func ignoreSourceContribution(w : WalkSettings) {
+func ignoreSourceContribution_(w : WalkSettings) {
     return (w.flags & 64) != 0;
 }
 
-func printLogs(w : WalkSettings) {
+func printLogs_(w : WalkSettings) {
     return (w.flags & 128) != 0;
 }
 

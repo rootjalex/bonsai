@@ -9,7 +9,7 @@ element PDE {
 }
 
 func sourcePDE(x : vec3f, p : PDE, s : WalkSettings) {
-    if ignoreSourceContribution(s) {
+    if ignoreSourceContribution_(s) {
         return 0.0;
     } else {
         return 5.0 * sin(p.freq * x.y) * cos(p.freq * x.x);
@@ -17,7 +17,7 @@ func sourcePDE(x : vec3f, p : PDE, s : WalkSettings) {
 }
 
 func dirichletPDE(x : vec3f, p : PDE, s : WalkSettings) {
-    if (solveDoubleSided(s) && !contains_(s.box, x)) || ignoreAbsorbingBoundaryContribution(s) {
+    if (solveDoubleSided_(s) && !contains_(s.box, x)) || ignoreAbsorbingBoundaryContribution_(s) {
         return 0.0;
     } else {
         return sin(p.freq * x.x) * cos(p.freq * x.y);

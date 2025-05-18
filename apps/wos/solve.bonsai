@@ -38,7 +38,7 @@ func sampleUnitSphereUniform() -> vec3f {
 }
 
 func computeSourceContribution(pde : PDE, s : WalkSettings, ball : HarmonicGreensBall, res : WalkResults) -> Float {
-    if (!ignoreSourceContribution(s)) {
+    if (!ignoreSourceContribution_(s)) {
         dir = sampleUnitSphereUniform();
 
         sample = harmonicSampleVolume(ball, dir);
@@ -63,10 +63,10 @@ func terminateWalk(s : WalkSettings, throughput : Float) -> (bool, Float) {
 }
 
 func getTerminalContribution(pde : PDE, s : WalkSettings, res : WalkResults) -> Float {
-    if !ignoreAbsorbingBoundaryContribution(s) {
+    if !ignoreAbsorbingBoundaryContribution_(s) {
         // projectToAbsorbingBoundary always returns 0.0?
         // signedDistance = 0.0;
-        // returnBoundaryNormalAlignedValue = solveDoubleSided(s) & signedDistance > 0.0; // never true?
+        // returnBoundaryNormalAlignedValue = solveDoubleSided_(s) & signedDistance > 0.0; // never true?
         return dirichletPDE(res.pt, pde, s);
     } else {
         return 0.0;
@@ -148,7 +148,7 @@ func sol(pde : PDE, s : WalkSettings, p : SamplePoint, nWalks : u32) -> Statisti
     if onAbsBoundary(p) {
         // record the known boundary value.
         totalContribution : mut Float = 0.0;
-        if !ignoreAbsorbingBoundaryContribution(s) {
+        if !ignoreAbsorbingBoundaryContribution_(s) {
             totalContribution = dirichletPDE(p.pt, pde, s);
         }
         addSolutionEstimate(stats, totalContribution);
