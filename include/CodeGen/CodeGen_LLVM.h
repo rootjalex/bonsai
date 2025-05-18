@@ -184,8 +184,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     // Allocates memory for the dynamic array type in Bonsai.
     void allocate_dynamic_array_type(const ir::Allocate *);
 
-    // Ensure buffer has capacity for one more element, growing if needed.
-    // Returns the (possibly reallocated) buffer pointer.
+    // Ensures the buffer has the capacity for one more element (indicated by
+    // `index`), and otherwise growing the buffer.
     void ensure_capacity(ir::Expr ptr, llvm::Value *index,
                          llvm::Value *dynamic_array,
                          const ir::Struct_t *struct_t,
