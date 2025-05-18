@@ -183,9 +183,10 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // Allocates memory for the dynamic array type in Bonsai.
     void allocate_dynamic_array_type(const ir::Allocate *);
+
     // Ensure buffer has capacity for one more element, growing if needed.
     // Returns the (possibly reallocated) buffer pointer.
-    llvm::Value *ensure_capacity(llvm::Value *dynamic_array,
+    llvm::Value *ensure_capacity(llvm::Value *index, llvm::Value *dynamic_array,
                                  const ir::Struct_t *struct_t,
                                  llvm::Type *llvm_struct_t,
                                  llvm::Value *buffer_ptr, llvm::Value *size_ptr,
@@ -194,7 +195,7 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     llvm::FunctionCallee get_pthread_lock();
     llvm::FunctionCallee get_pthread_unlock();
-    llvm::Value *get_mutex_global();
+    llvm::FunctionCallee get_pthread_init();
 
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;
