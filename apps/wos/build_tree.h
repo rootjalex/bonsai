@@ -25,10 +25,15 @@ inline vec3_float max(const vec3_float &a, const vec3_float &b) {
 
 _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
                          const std::vector<Vectori<3>> &boundaryIndices,
-                         const size_t max_prims_per_leaf = 2) {
+                         const size_t max_prims_per_leaf = 4) {
+    constexpr uint64_t MAX_TREE_DEPTH = 64;
 
     _tree_layout0 tree;
     tree.pCount = boundaryIndices.size();
+    if (tree.pCount >= std::numeric_limits<uint16_t>::max()) {
+        std::cerr << "Use larger index type!\n";
+        exit(-1);
+    }
     assert(tree.pCount < std::numeric_limits<uint16_t>::max());
 
     auto build_triangle = [&](const uint64_t i) {
@@ -51,19 +56,30 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
     tree.prims = triangles;
 
 
-    // Leaf and internal node count
-    const size_t leaf_count = (tree.pCount + (max_prims_per_leaf - 1)) / max_prims_per_leaf;
-    const size_t internal_count = leaf_count - 1;
+    // // Leaf and internal node count
+    // const size_t leaf_count = (tree.pCount + (max_prims_per_leaf - 1)) / max_prims_per_leaf;
+    // // Upper bound for unbalanced binary tree
+    // const size_t internal_count = 2 * leaf_count - 1;
 
-    tree.count = leaf_count + internal_count;
-    assert(tree.count & 1 == 0); // needs even number.
+    // Upper bound for unbalanced binary tree
+    tree.count = 2 * tree.pCount;
     tree.group0_index = (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.count);
 
     uint32_t next_node = 0;
 
+    uint32_t max_depth = 0;
+
     std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
-        assert(depth < MAX_TREE_DEPTH);
+        max_depth = std::max(max_depth, depth);
+        if (depth >= MAX_TREE_DEPTH) {
+            std::cerr << "tree build surpassed max tree depth: " << depth << "\n";
+            exit(-1);
+        }
+        if (low >= tree.pCount) {
+            std::cerr << "tree build out of range: " << low << " with " << tree.pCount << "primitives\n";
+            exit(-1);
+        }
         uint32_t count = high - low;
         uint32_t this_index = next_node++;
 
@@ -78,6 +94,7 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
         }
         tree.group0_index[this_index].low = aabb_min;
         tree.group0_index[this_index].high = aabb_max;
+        tree.group0_index[this_index].pad0 = 0;
 
         if (count <= max_prims_per_leaf) {
             // Leaf node
@@ -114,5 +131,22 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
     };
 
     handle_range(0, tree.pCount, 0);
+
+    std::cout << "Bonsai max depth: " << max_depth << std::endl;
+
+    if (next_node != tree.count) {
+        if (next_node >= tree.count) {
+            std::cerr << "Debug tree build: " << tree.count << " versus " << next_node << std::endl;
+            exit(-1);
+        }
+        for (uint64_t i = next_node; i < tree.count; i++) {
+            tree.group0_index[i].low = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+            tree.group0_index[i].high = {std::numeric_limits<float>::min(), std::numeric_limits<float>::min(), std::numeric_limits<float>::min()};
+            tree.group0_index[i].nPrims = 0;
+            tree.group0_index[i].axis = 0;
+            tree.group0_index[i].pad0 = 0;
+            *reinterpret_cast<uint16_t *>(&tree.group0_index[i].split0on_nPrims) = 0;
+        }
+    }
     return tree;
 }
