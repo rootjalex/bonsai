@@ -343,6 +343,12 @@ void CodeGen_LLVM::compile_function(const Function &func,
     codegen_stmt(func.body);
     frames.pop_frame();
 
+    // If the current block has no terminator, emit unreachable
+    llvm::BasicBlock *curr_bb = builder->GetInsertBlock();
+    if (!curr_bb->getTerminator()) {
+        builder->CreateUnreachable();
+    }
+
     // Restore previous insertion point
     builder->restoreIP(here);
 
