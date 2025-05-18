@@ -2166,6 +2166,35 @@ void CodeGen_LLVM::visit(const Store *node) {
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
+llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {
+    return module->getOrInsertFunction(
+        "pthread_mutex_lock",
+        // int pthread_mutex_lock(pthread_mutex_t *);
+        llvm::FunctionType::get(builder->getInt32Ty(),
+                                {builder->getInt8Ty()->getPointerTo()},
+                                /*isVarArg=*/false));
+}
+
+llvm::FunctionCallee CodeGen_LLVM::get_pthread_unlock() {
+    return module->getOrInsertFunction(
+        "pthread_mutex_unlock",
+        // int pthread_mutex_unlock(pthread_mutex_t *);
+        llvm::FunctionType::get(builder->getInt32Ty(),
+                                {builder->getInt8Ty()->getPointerTo()},
+                                /*isVarArg=*/false));
+}
+
+llvm::Value *CodeGen_LLVM::get_mutex_global() {
+    llvm::StructType *pmutex_type =
+        llvm::StructType::create(*context, "struct.pthread_mutex_t");
+    pmutex_type->setBody({}, /*isPacked=*/false);
+    auto *mutex_global_variable = new llvm::GlobalVariable(
+        *module, pmutex_type,
+        /*isConstant=*/false, llvm::GlobalValue::InternalLinkage,
+        llvm::Constant::getNullValue(pmutex_type), "capacity_mutex");
+    return mutex_global_variable;
+}
+
 llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::Value *dynamic_array, const Struct_t *struct_t,
     llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr, llvm::Value *size_ptr,
@@ -2205,6 +2234,12 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     builder->CreateCondBr(condition, grow_bb, continue_bb);
     // case 1: we need to grow
     builder->SetInsertPoint(grow_bb);
+    // TODO(cgyurgyik): bit cast unnecessary?
+    llvm::Value *mutex_t = builder->CreateBitCast(
+        get_mutex_global(), builder->getInt8Ty()->getPointerTo(), "mutex.ptr");
+    builder->CreateCall(get_pthread_lock(), {mutex_t});
+    // TODO(cgyurgyik): The lock has been acquired. Now double check to make
+    // sure another thread hasn't updated this.
     auto *zero = llvm::ConstantInt::get(i32_t, 0);
     auto *one = llvm::ConstantInt::get(i32_t, 1);
     auto *two = llvm::ConstantInt::get(i32_t, 2);
@@ -2243,8 +2278,9 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::StoreInst *store_capacity =
         builder->CreateStore(truncated_capacity, capacity_ptr);
     store_capacity->setAtomic(llvm::AtomicOrdering::Release);
-    builder->CreateBr(continue_bb);
+    builder->CreateCall(get_pthread_unlock(), {mutex_t});
 
+    builder->CreateBr(continue_bb);
     // case 2: no grow (and continuation of grow block).
     builder->SetInsertPoint(continue_bb);
     // Reload the final buffer pointer.

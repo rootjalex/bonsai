@@ -192,6 +192,10 @@ struct CodeGen_LLVM : public ir::Visitor {
                                  llvm::Value *capacity_ptr, llvm::Type *elt_ty,
                                  const std::string &base_n);
 
+    llvm::FunctionCallee get_pthread_lock();
+    llvm::FunctionCallee get_pthread_unlock();
+    llvm::Value *get_mutex_global();
+
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;
