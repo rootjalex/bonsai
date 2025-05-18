@@ -1,6 +1,25 @@
 cmake_minimum_required(VERSION 3.15...3.27)
 project(wos-test-bonsai)
 
+# Enable LTO globally (if supported)
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+if(ipo_supported)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+    message(WARNING "IPO/LTO not supported: ${ipo_error}")
+endif()
+
+# Set high optimization level
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -flto -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -flto -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+
+# Ensure you're building in Release mode (or set manually when invoking CMake)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(ZOMBIE_DIR /Users/ajroot/projects/zombie-mirror)
 option(ZOMBIE_BUILD_DEMO OFF)
 option(ZOMBIE_BUILD_TESTS OFF)
@@ -25,6 +44,9 @@ set(ZOMBIE_TEST_NANOFLANN_INCLUDES ${ZOMBIE_DIR}/deps/nanoflann/include)
 
 # Build test_wos
 add_executable(test_wos_bonsai solve.cpp solve_bonsai.o)
+
+target_compile_options(test_wos_bonsai PRIVATE -O3 -flto -march=native)
+target_link_options(test_wos_bonsai PRIVATE -flto)
 
 # Link libraries
 target_link_libraries(test_wos_bonsai

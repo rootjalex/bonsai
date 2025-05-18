@@ -31,7 +31,7 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
     _tree_layout0 tree;
     tree.pCount = boundaryIndices.size();
     if (tree.pCount >= std::numeric_limits<uint16_t>::max()) {
-        std::cerr << "Use larger index type!\n";
+        std::cerr << "Use larger index type for primitive offsets!\n";
         exit(-1);
     }
     assert(tree.pCount < std::numeric_limits<uint16_t>::max());
@@ -63,11 +63,21 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
 
     // Upper bound for unbalanced binary tree
     tree.count = 2 * tree.pCount;
+    if (tree.count >= std::numeric_limits<uint16_t>::max()) {
+        std::cerr << "Use larger index type for references!\n";
+        exit(-1);
+    }
+
     tree.group0_index = (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.count);
 
     uint32_t next_node = 0;
 
     uint32_t max_depth = 0;
+
+    uint32_t leaf_nodes = 0;
+    uint32_t interior_nodes = 0;
+
+    uint32_t *leaf_numbers = (uint32_t*)malloc(sizeof(uint32_t) * max_prims_per_leaf);
 
     std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
@@ -97,10 +107,13 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
         tree.group0_index[this_index].pad0 = 0;
 
         if (count <= max_prims_per_leaf) {
+            leaf_numbers[count]++;
+            leaf_nodes++;
             // Leaf node
             tree.group0_index[this_index].nPrims = count;
             *reinterpret_cast<uint16_t *>(&tree.group0_index[this_index].split0on_nPrims) = low;
         } else {
+            interior_nodes++;
             // Internal node
             tree.group0_index[this_index].nPrims = 0;
 
@@ -133,6 +146,12 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
     handle_range(0, tree.pCount, 0);
 
     std::cout << "Bonsai max depth: " << max_depth << std::endl;
+    std::cout << "       leaf nodes: " << leaf_nodes << std::endl;
+    std::cout << "       interior nodes: " << interior_nodes << std::endl;
+    for (uint32_t i = 0; i < max_prims_per_leaf; i++) {
+        std::cout << "       leaf count = " <<  i << " has " << leaf_numbers[i] << std::endl;
+    }
+    free(leaf_numbers);
 
     if (next_node != tree.count) {
         if (next_node >= tree.count) {

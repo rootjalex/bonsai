@@ -1,12 +1,10 @@
 import apps/wos/distributions;
+import apps/wos/geometry;
 import apps/wos/pde;
 import apps/wos/sample;
 import apps/wos/settings;
 import apps/wos/statistics;
 
-import apps/wos/geometry;
-
-// TODO: support!
 extern tris : set[Triangle];
 
 func closest(p : Point) = argmin(|tri| distmin(p, tri), tris);

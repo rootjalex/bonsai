@@ -41,7 +41,7 @@ bool printLogs = false; // checkbox
 bool estimateOnSlicePlane = false; // checkbox
 bool useSdfForBoundary = false;
 int nWalksForSamplePts = 1000; // slider
-int maxWalkLength = 10000; // slider
+int maxWalkLength = 20; // slider
 int stepsBeforeApplyingTikhonov = 0; // slider
 int nWalksTakenForSamplePts = 0;
 int slicePlaneResolution = 3; // slider
@@ -1131,7 +1131,8 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
                                               useCosineSamplingForDirectionalDerivatives,
                                               ignoreDirichletContribution, false,
                                               ignoreSourceContribution, printLogs);
-
+            std::cout << "nWalks: " << nWalks[0] << std::endl;
+            std::cout << "maxWalkLength: " << maxWalkLength << std::endl;
             auto start = std::chrono::high_resolution_clock::now();
             walkOnSpheres.solve(pde, walkSettings, nWalks, samplePoints, runSingleThreaded, reportProgress);
             auto end = std::chrono::high_resolution_clock::now();
@@ -1299,18 +1300,18 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
             pointCloud->addScalarQuantity("First Sphere Radii", firstSphereRadii);
             pointCloud->setPointRadiusQuantity("First Sphere Radii");
 
+            // mask out sample values close to the boundary
+            maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
+
+            // plot sample values
+            plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane, walkOnSpheresSolution);
+
             if (bonsai_solution) {
                 // mask out sample values close to the boundary
                 maskWalkOnSpheresEstimatesBonsai(boundaryDistanceMask, samplePoints, bonsai_solution);
 
                 // plot sample values
                 plotWalkOnSpheresEstimatesBonsai(bonsai_solution, samplePoints.size(), estimateOnSlicePlane, walkOnSpheresSolution);
-            } else {
-                // mask out sample values close to the boundary
-                maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
-
-                // plot sample values
-                plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane, walkOnSpheresSolution);
             }
 
 #ifdef USE_FEM
