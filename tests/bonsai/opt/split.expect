@@ -8,8 +8,25 @@ func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
   return (*_alloc0)
 }
 
-func process(n : i32, a : f32[n]) -> f32[n] {
+func _traverse_array1(n : i32, a : f32[n]) -> f32[n] {
+  alloc _alloc1 : mut f32[n]
+  forall _io in [0:(n / 7) * 7:7] {
+    forall _ii in [0:7:1] {
+      _alloc1[_io + _ii] = sqrt(a[_io + _ii])
+    }
+  }
+  forall _i_tail in [(n / 7) * 7:n:1] {
+    _alloc1[_i_tail] = sqrt(a[_i_tail])
+  }
+  return (*_alloc1)
+}
+
+func process1(n : i32, a : f32[n]) -> f32[n] {
   return _traverse_array0(n, a)
+}
+
+func process2(n : i32, a : f32[n]) -> f32[n] {
+  return _traverse_array1(n, a)
 }
 
 

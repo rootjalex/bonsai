@@ -123,28 +123,30 @@ Stmt collapse_loops(Stmt body, const std::string &io, const std::string &ii,
 
 Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 const std::string &outer, const std::string &inner,
-                const Expr &factor, const bool generate_tail, FuncMap &funcs) {
+                const Expr &factor, const std::string &tail_index,
+                FuncMap &funcs) {
     struct SplitLoop : public Mutator {
         const std::string &loop_idx;
         const std::string &outer;
         const std::string &inner;
         const Expr &factor;
-        const bool generate_tail;
+        const std::string &tail_index;
         FuncMap &funcs;
 
         SplitLoop(const std::string &loop_idx, const std::string &outer,
                   const std::string &inner, const Expr &factor,
-                  const bool generate_tail, FuncMap &funcs)
+                  const std::string &tail_index, FuncMap &funcs)
             : loop_idx(loop_idx), outer(outer), inner(inner), factor(factor),
-              generate_tail(generate_tail), funcs(funcs) {}
+              tail_index(tail_index), funcs(funcs) {}
 
         Stmt visit(const ForAll *node) override {
             if (node->index != loop_idx) {
                 return Mutator::visit(node);
             }
-            internal_assert(!generate_tail)
-                << "[unimplemented] split with tail strategy\n";
-            internal_assert(is_const_one(node->slice.stride));
+            Expr start = node->slice.begin;
+            Expr end = node->slice.end;
+            Expr stride = node->slice.stride;
+            internal_assert(is_const_one(stride)) << stride;
 
             Type index_t = node->index_type();
             Expr zero = make_zero(index_t);
@@ -158,11 +160,24 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
             // ii in [0, factor)
             body = ForAll::make(inner, ForAll::Slice{zero, factor, one},
                                 std::move(body));
+
+            Expr t_begin = (end / factor) * factor;
+            // If a tail is generated, avoid touching the same index twice.
+            Expr io_end = tail_index.empty() ? end : t_begin;
             // io in [start, end, stride = factor)
-            return ForAll::make(
-                outer,
-                ForAll::Slice{node->slice.begin, node->slice.end, factor},
-                std::move(body));
+            Stmt split_loop = ForAll::make(
+                outer, ForAll::Slice{start, io_end, factor}, std::move(body));
+            if (tail_index.empty()) {
+                return split_loop;
+            }
+
+            // ti in [(end/factor)*factor, end, 1]
+            Expr ti = Var::make(index_t, tail_index);
+            Stmt tail_body = replace({{loop_idx, ti}}, node->body);
+            Stmt tail = ForAll::make(
+                tail_index, ForAll::Slice{t_begin, end, make_one(index_t)},
+                std::move(tail_body));
+            return Sequence::make({split_loop, tail});
         }
 
         // TODO: this is hacky, need a better way.
@@ -173,7 +188,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
                 if (var->name.starts_with("_traverse_array")) {
                     funcs[var->name]->body =
                         split_loop(std::move(funcs[var->name]->body), loop_idx,
-                                   outer, inner, factor, generate_tail, funcs);
+                                   outer, inner, factor, tail_index, funcs);
                     return node;
                 }
             }
@@ -181,7 +196,7 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
         }
     };
 
-    SplitLoop splitter(loop_idx, outer, inner, factor, generate_tail, funcs);
+    SplitLoop splitter(loop_idx, outer, inner, factor, tail_index, funcs);
     return splitter.mutate(std::move(stmt));
 }
 
@@ -396,8 +411,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             }
             // Place the rest of the body in a DoWhile.
             Stmt loop = ir::Mutator::mutate(node);
-            Stmt do_while =
-                DoWhile::make(loop, ir::BoolImm::make(true));
+            Stmt do_while = DoWhile::make(loop, ir::BoolImm::make(true));
 
             // Then add the loop.
             stmts.push_back(std::move(do_while));
@@ -625,45 +639,48 @@ ir::Program LoopTransforms::run(ir::Program program,
 
         Stmt body = std::move(func->body);
         for (const auto &t : ts) {
-            std::visit(Overloaded{[&](const Defer &def) {
-                                      // no-op, should have been handled in
-                                      // Lower/Defers.cpp
-                                  },
-                                  [&](const Loopify &l) {
-                                      body =
-                                          loopify(name, std::move(body),
-                                                  l.queue_size, program.funcs);
-                                  },
-                                  [&](const MakeQueue &q) {
-                                      // no-op, should have been handled in
-                                      // Lower/Defers.cpp
-                                  },
-                                  [&](const Sort &sort) {
-                                      // no-op, should have been handled in
-                                      // Lower/Sorts.cpp
-                                  },
-                                  [&](const Split &split) {
-                                      std::string i = get_name(split.i);
-                                      std::string io = get_name(split.io);
-                                      std::string ii = get_name(split.ii);
-                                      body = split_loop(std::move(body), i, io,
-                                                        ii, split.factor,
-                                                        split.generate_tail,
-                                                        program.funcs);
-                                  },
-                                  [&](const Collapse &collapse) {
-                                      std::string io = get_name(collapse.io);
-                                      std::string ii = get_name(collapse.ii);
-                                      std::string i = get_name(collapse.i);
-                                      body = collapse_loops(std::move(body), io,
-                                                            ii, i, program);
-                                  },
-                                  [&](const Parallelize &par) {
-                                      std::string i = get_name(par.i);
-                                      body = opt::parallelize_forall(
-                                          i, std::move(body), program, options);
-                                  }},
-                       t);
+            std::visit(
+                Overloaded{[&](const Defer &def) {
+                               // no-op, should have been handled in
+                               // Lower/Defers.cpp
+                           },
+                           [&](const Loopify &l) {
+                               body = loopify(name, std::move(body),
+                                              l.queue_size, program.funcs);
+                           },
+                           [&](const MakeQueue &q) {
+                               // no-op, should have been handled in
+                               // Lower/Defers.cpp
+                           },
+                           [&](const Sort &sort) {
+                               // no-op, should have been handled in
+                               // Lower/Sorts.cpp
+                           },
+                           [&](const Split &split) {
+                               std::string i = get_name(split.i);
+                               std::string io = get_name(split.io);
+                               std::string ii = get_name(split.ii);
+                               std::string tail_index;
+                               if (split.tail_index.has_value()) {
+                                   tail_index = get_name(*split.tail_index);
+                               }
+                               body = split_loop(std::move(body), i, io, ii,
+                                                 split.factor, tail_index,
+                                                 program.funcs);
+                           },
+                           [&](const Collapse &collapse) {
+                               std::string io = get_name(collapse.io);
+                               std::string ii = get_name(collapse.ii);
+                               std::string i = get_name(collapse.i);
+                               body = collapse_loops(std::move(body), io, ii, i,
+                                                     program);
+                           },
+                           [&](const Parallelize &par) {
+                               std::string i = get_name(par.i);
+                               body = opt::parallelize_forall(
+                                   i, std::move(body), program, options);
+                           }},
+                t);
         }
         func->body = std::move(body);
     }

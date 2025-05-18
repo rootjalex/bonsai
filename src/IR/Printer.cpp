@@ -339,7 +339,11 @@ void Printer::print(const Schedule &schedule) {
                                       print(split.ii);
                                       os << ", ";
                                       print(split.factor);
-                                      os << ", " << split.generate_tail << ")";
+                                      if (split.tail_index.has_value()) {
+                                          os << ", ";
+                                          print(*split.tail_index);
+                                      }
+                                      os << ")";
                                   },
                                   [&](const Collapse &collapse) {
                                       os << "collapse(";

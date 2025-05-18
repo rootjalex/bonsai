@@ -2110,14 +2110,13 @@ struct Parser {
                 ir::Location ii = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Expr factor = parse_expr();
-                expect(Token::Type::COMMA);
-                bool generate_tail = consume(Token::Type::TRUE).has_value();
-                if (!generate_tail) {
-                    expect(Token::Type::FALSE);
+                std::optional<ir::Location> tail_index;
+                if (consume(Token::Type::COMMA)) {
+                    tail_index = parse_location();
                 }
                 schedule.func_transforms[func].emplace_back(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), generate_tail});
+                              std::move(factor), std::move(tail_index)});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

@@ -28,5 +28,5 @@ schedule {
     process2.collapse(i0, i1, i_b);
     process3.collapse(i0, i1, i_c);
     // TODO(cgyurgyik): The simplifier should catch this.
-    process4.split(i0, io, ii, 4, false).collapse(io, ii, i);
+    process4.split(i0, io, ii, 4).collapse(io, ii, i);
 }
