@@ -488,6 +488,9 @@ void run_test(const std::string &obj1_filename,
     const std::vector<fcl::Contact<S>> fcl_collisions =
         fcl::collide_test<fcl::AABB<S>>(m1, m2, verbose);
     auto fcl_t2 = clock::now();
+    auto fcl_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(fcl_t2 - fcl_t1)
+            .count();
 
     _tree_layout0 b1 = bonsai::build_tree<S>(p1, t1);
     _tree_layout0 b2 = bonsai::build_tree<S>(p2, t2);
@@ -501,6 +504,12 @@ void run_test(const std::string &obj1_filename,
     collisions(out, b1, b2);
     auto bonsai_t2 = clock::now();
     auto *bonsai_collisons = reinterpret_cast<__tuple_0 *>(out.buffer);
+    auto bonsai_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           bonsai_t2 - bonsai_t1)
+                           .count();
+    std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
+    std::cout << "[bonsai] collision detection time: " << bonsai_time
+              << " ms\n";
 
     const int64_t bonsai_count = out.size;
     const int64_t fcl_count = fcl_collisions.size();
@@ -536,16 +545,7 @@ void run_test(const std::string &obj1_filename,
     if (verbose) {
         std::cout << "unequal: " << unequal_collision_count << '\n';
     }
-
-    auto fcl_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(fcl_t2 - fcl_t1)
-            .count();
-    auto bonsai_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           bonsai_t2 - bonsai_t1)
-                           .count();
-    std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
-    std::cout << "[bonsai] collision detection time: " << bonsai_time << " ms";
-    std::cout << "\n---\n";
+    std::cout << "---\n";
 }
 } // namespace
 
