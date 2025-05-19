@@ -82,7 +82,8 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
 
 func distmin(p : Point, tri : Triangle) -> Float {
     pts = closestPointonTriangle(p, tri);
-    return norm(p.vec - pts[0].vec);
+    d = p.vec - pts[0].vec;
+    return dot(d, d); // sqdist
 }
 
 // Source: RTCD 5.1.3.1 pg. 131
@@ -97,5 +98,5 @@ func SqDistPointAABB(pt : Point, a : AABB) -> Float {
 }
 
 func distmin(pt : Point, a : AABB) -> Float {
-    return sqrt(SqDistPointAABB(pt, a));
+    return SqDistPointAABB(pt, a);  // sqdist
 }

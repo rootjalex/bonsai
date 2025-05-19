@@ -15,7 +15,7 @@ func computeDistToAbsBoundary(pt : vec3f) -> Float {
     // TODO: need idempotent accelerated min, but that fucks up parsing so bad.
     p = Point{pt};
     ctri = closest(p);
-    return distmin(p, ctri);
+    return sqrt(distmin(p, ctri)); // distmin/closest are sqdist
 }
 
 
