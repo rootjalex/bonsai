@@ -46,7 +46,6 @@ static inline vec3_float cross(const vec3_float &a, const vec3_float &b) {
                         a[0] * b[1] - a[1] * b[0]};
 }
 
-// Compute the 1D intersection interval of triangle projected onto one axis
 static void compute_interval(float v0, float v1, float v2, float d0, float d1,
                              float d2, float isect[2]) {
     if (d0 * d1 > 0.0f) {
