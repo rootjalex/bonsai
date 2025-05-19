@@ -78,15 +78,15 @@ func intersects_AABB_Triangle(a : (AABB*), b : (Triangle*)) -> bool {
   if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
     return false
   }
-  let A0 = cross(f0, (i32x3)[1,0,0]) in
-  let A1 = cross(f0, (i32x3)[0,1,0]) in
-  let A2 = cross(f0, (i32x3)[0,0,1]) in
-  let A3 = cross(f1, (i32x3)[1,0,0]) in
-  let A4 = cross(f1, (i32x3)[0,1,0]) in
-  let A5 = cross(f1, (i32x3)[0,0,1]) in
-  let A6 = cross(f2, (i32x3)[1,0,0]) in
-  let A7 = cross(f2, (i32x3)[0,1,0]) in
-  let A8 = cross(f2, (i32x3)[0,0,1]) in
+  let A0 = cross(f0, (f32x3)[1f,0f,0f]) in
+  let A1 = cross(f0, (f32x3)[0f,1f,0f]) in
+  let A2 = cross(f0, (f32x3)[0f,0f,1f]) in
+  let A3 = cross(f1, (f32x3)[1f,0f,0f]) in
+  let A4 = cross(f1, (f32x3)[0f,1f,0f]) in
+  let A5 = cross(f1, (f32x3)[0f,0f,1f]) in
+  let A6 = cross(f2, (f32x3)[1f,0f,0f]) in
+  let A7 = cross(f2, (f32x3)[0f,1f,0f]) in
+  let A8 = cross(f2, (f32x3)[0f,0f,1f]) in
   if (!axis(A0, extents, v0, v1, v2)) {
     return false
   }
@@ -197,7 +197,7 @@ func tri_tri_axis(A : f32x3, a0 : f32x3, a1 : f32x3, a2 : f32x3, b0 : f32x3, b1 
   let PB2 = dot(b2, A) in
   let bmin = min(min(PB0, PB1), PB2) in
   let bmax = max(max(PB0, PB1), PB2) in
-  return !((amax < bmin) || (bmax < amin))
+  return !((amax < bmin) | (bmax < amin))
 }
 
 
