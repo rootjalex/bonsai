@@ -213,11 +213,13 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
 
     _tree_layout0 tree;
     tree.pCount = input_triangles.size();
-    if (tree.pCount >= std::numeric_limits<uint16_t>::max()) {
-        std::cerr << "Use larger index type for primitive offsets!\n";
+    if (tree.pCount >= std::numeric_limits<uint32_t>::max()) {
+        std::cerr << "Use larger index type for primitive offsets, "
+                  << tree.pCount
+                  << " >= " << std::numeric_limits<uint32_t>::max();
         exit(-1);
     }
-    assert(tree.pCount < std::numeric_limits<uint16_t>::max());
+    assert(tree.pCount < std::numeric_limits<uint32_t>::max());
 
     auto build_triangle = [&](const uint64_t i) {
         assert(i < input_triangles.size());
@@ -253,8 +255,9 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
 
     // Upper bound for unbalanced binary tree
     tree.count = 2 * tree.pCount;
-    if (tree.count >= std::numeric_limits<uint16_t>::max()) {
-        std::cerr << "Use larger index type for references!\n";
+    if (tree.count >= std::numeric_limits<uint32_t>::max()) {
+        std::cerr << "Use larger index type for references, " << tree.count
+                  << " >= " << std::numeric_limits<uint32_t>::max();
         exit(-1);
     }
 
@@ -501,8 +504,14 @@ void run_test(const std::string &obj1_filename,
 
     const int64_t bonsai_count = out.size;
     const int64_t fcl_count = fcl_collisions.size();
-    assert(bonsai_count == fcl_count &&
-           "different collision detection counts!");
+    if (bonsai_count != fcl_count) {
+        std::cerr << "different collision detection counts, bonsai: "
+                  << bonsai_count << " vs fcl: " << fcl_count << '\n';
+        exit(-1);
+    }
+    std::cout << "collision count: " << bonsai_count << '\n';
+    // TODO(cgyurgyik): Do these need to be sorted?
+    // colliding triangle pairs that do not share the same coordinates.
     int64_t unequal_collision_count = 0;
     for (int i = 0; i < fcl_collisions.size(); ++i) {
         auto [bt1, bt2] = bonsai_collisons[i];
@@ -524,8 +533,9 @@ void run_test(const std::string &obj1_filename,
         std::cout << "[fcl]    " << ft1 << " <-> " << ft2 << "\n";
         std::cout << "\n --- \n";
     }
-    std::cout << "collision count: " << bonsai_count
-              << ", unequal: " << unequal_collision_count << '\n';
+    if (verbose) {
+        std::cout << "unequal: " << unequal_collision_count << '\n';
+    }
 
     auto fcl_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(fcl_t2 - fcl_t1)
@@ -534,12 +544,15 @@ void run_test(const std::string &obj1_filename,
                            bonsai_t2 - bonsai_t1)
                            .count();
     std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
-    std::cout << "[bonsai] collision detection time: " << bonsai_time
-              << " ms\n";
+    std::cout << "[bonsai] collision detection time: " << bonsai_time << " ms";
+    std::cout << "\n---\n";
 }
 } // namespace
 
 int main() {
     // Imported from the FCL library.
     run_test<float>("fcl/env.obj", "fcl/rob.obj", /*verbose=*/false);
+    // TODO(cgyurgyik): this is giving different counts, bonsai: 2884 and fcl:
+    // 3907
+    run_test<float>("other/dragon.obj", "other/bunny.obj", /*verbose=*/false);
 }

@@ -23,7 +23,7 @@ struct __dyn_array0 {
 typedef uint8_t vec4_uint8_t __attribute__((vector_size(4)));
 struct _tree_layout1 {
     vec3_float low;
-    uint16_t nPrims;
+    uint32_t nPrims;
     uint8_t axis;
     uint8_t pad0;
     vec3_float high;

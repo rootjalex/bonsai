@@ -145,7 +145,7 @@ schedule {
         count : u32;
         group[count] index : u32 {
             low : vec3f;
-            nPrims : u16;
+            nPrims : u32;
             axis : u8;
             8; // pad bits.
             high : vec3f;
@@ -162,7 +162,7 @@ schedule {
         count : u32;
         group[count] index : u32 {
             low : vec3f;
-            nPrims : u16;
+            nPrims : u32;
             axis : u8;
             8; // pad bits.
             high : vec3f;
