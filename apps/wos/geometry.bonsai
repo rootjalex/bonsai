@@ -97,6 +97,20 @@ func SqDistPointAABB(pt : Point, a : AABB) -> Float {
     return sum(low + high);
 }
 
+//func distmin(pt : Point, a : AABB) -> Float {
+//    return SqDistPointAABB(pt, a);  // sqdist
+//}
+
+func distmax(pt : Point, a : AABB) -> Float {
+    u = a.low - pt.vec;
+    v = pt.vec - a.high;
+    d = min(u, v);
+    return dot(d, d); // sqdist
+}
+
 func distmin(pt : Point, a : AABB) -> Float {
-    return SqDistPointAABB(pt, a);  // sqdist
+    u = a.low - pt.vec;
+    v = pt.vec - a.high;
+    d = max(max(u, v), 0.0);
+    return dot(d, d); // sqdist
 }
