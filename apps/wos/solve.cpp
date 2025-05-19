@@ -530,7 +530,7 @@ void plotWalkOnSpheresEstimates(const std::vector<zombie::SamplePoint<float, DIM
     walkLengthAvg /= nPoints;
     nSplitsAvg /= nPoints;
 
-    std::cout << "Walk on spheres" << std::endl;
+    std::cout << "Walk on spheres (zombie)" << std::endl;
     std::cout << "  solution avg: " << solutionAvg
               << " min: " << solutionMin
               << " max: " << solutionMax
@@ -695,7 +695,7 @@ void plotWalkOnSpheresEstimatesBonsai(const Statistics *bonsai_solution, const u
     walkLengthAvg /= nPoints;
     nSplitsAvg /= nPoints;
 
-    std::cout << "Walk on spheres" << std::endl;
+    std::cout << "Walk on spheres (bonsai)" << std::endl;
     std::cout << "  solution avg: " << solutionAvg
               << " min: " << solutionMin
               << " max: " << solutionMax
