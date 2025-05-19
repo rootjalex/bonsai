@@ -3,6 +3,35 @@
 #include <fcl/fcl.h>
 #include <iostream>
 
+std::ostream &operator<<(std::ostream &os, const vec3_float &v) {
+    os << '[' << v[0] << ", " << v[1] << ", " << v[2] << ']';
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Triangle &t) {
+    os << '{' << t.p0 << ',' << t.p1 << ',' << t.p2 << '}';
+    return os;
+}
+
+// https://stackoverflow.com/questions/17404513/floating-point-equality-and-tolerances
+bool nearly_equal(float a, float b, int factor = 8) {
+    float min_a =
+        a -
+        (a - std::nextafter(a, std::numeric_limits<float>::lowest())) * factor;
+    float max_a =
+        a + (std::nextafter(a, std::numeric_limits<float>::max()) - a) * factor;
+    return min_a <= b && max_a >= b;
+}
+
+bool nearly_equal(vec3_float a, vec3_float b) {
+    return nearly_equal(a[0], b[0]) && nearly_equal(a[1], b[1]) &&
+           nearly_equal(a[2], b[2]);
+}
+bool nearly_equal(Triangle a, Triangle b) {
+    return nearly_equal(a.p0, b.p0) && nearly_equal(a.p1, b.p1) &&
+           nearly_equal(a.p2, b.p2);
+}
+
 namespace fcl {
 template <typename S>
 void load_object_file(const std::string &filename,
@@ -342,20 +371,113 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
 } // namespace bonsai
 
 namespace {
+
+static inline float dot(const vec3_float &a, const vec3_float &b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+static inline vec3_float cross(const vec3_float &a, const vec3_float &b) {
+    return (vec3_float){a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+                        a[0] * b[1] - a[1] * b[0]};
+}
+
+static void compute_interval(float v0, float v1, float v2, float d0, float d1,
+                             float d2, float isect[2]) {
+    if (d0 * d1 > 0.0f) {
+        isect[0] = v2 + (v0 - v2) * d2 / (d2 - d0);
+        isect[1] = v2 + (v1 - v2) * d2 / (d2 - d1);
+    } else if (d0 * d2 > 0.0f) {
+        isect[0] = v1 + (v0 - v1) * d1 / (d1 - d0);
+        isect[1] = v1 + (v2 - v1) * d1 / (d1 - d2);
+    } else if (d1 * d2 > 0.0f) {
+        isect[0] = v0 + (v1 - v0) * d0 / (d0 - d1);
+        isect[1] = v0 + (v2 - v0) * d0 / (d0 - d2);
+    } else {
+        isect[0] = isect[1] = v0;
+    }
+}
+
+bool intersects(const Triangle &t1, const Triangle &t2) {
+    const float eps = 1e-6f;
+
+    vec3_float e1 = t1.p1 - t1.p0;
+    vec3_float e2 = t1.p2 - t1.p0;
+    vec3_float n1 = cross(e1, e2);
+    float d1 = -dot(n1, t1.p0);
+
+    float du0 = dot(n1, t2.p0) + d1;
+    float du1 = dot(n1, t2.p1) + d1;
+    float du2 = dot(n1, t2.p2) + d1;
+
+    if ((du0 > eps && du1 > eps && du2 > eps) ||
+        (du0 < -eps && du1 < -eps && du2 < -eps))
+        return false;
+
+    vec3_float f1 = t2.p1 - t2.p0;
+    vec3_float f2 = t2.p2 - t2.p0;
+    vec3_float n2 = cross(f1, f2);
+    float d2 = -dot(n2, t2.p0);
+
+    float dv0 = dot(n2, t1.p0) + d2;
+    float dv1 = dot(n2, t1.p1) + d2;
+    float dv2 = dot(n2, t1.p2) + d2;
+
+    if ((dv0 > eps && dv1 > eps && dv2 > eps) ||
+        (dv0 < -eps && dv1 < -eps && dv2 < -eps))
+        return false;
+
+    vec3_float D = cross(n1, n2);
+
+    int index = 0;
+    float absx = std::fabs(D[0]), absy = std::fabs(D[1]),
+          absz = std::fabs(D[2]);
+    if (absy > absx)
+        index = 1, absx = absy;
+    if (absz > absx)
+        index = 2;
+
+    float v1_0 = t1.p0[index], v1_1 = t1.p1[index], v1_2 = t1.p2[index];
+    float v2_0 = t2.p0[index], v2_1 = t2.p1[index], v2_2 = t2.p2[index];
+
+    float isect1[2], isect2[2];
+    compute_interval(v1_0, v1_1, v1_2, dv0, dv1, dv2, isect1);
+    compute_interval(v2_0, v2_1, v2_2, du0, du1, du2, isect2);
+
+    if (isect1[0] > isect1[1])
+        std::swap(isect1[0], isect1[1]);
+    if (isect2[0] > isect2[1])
+        std::swap(isect2[0], isect2[1]);
+
+    return !(isect1[1] < isect2[0] || isect2[1] < isect1[0]);
+}
+
+template <typename S>
+Triangle construct_triangle(const fcl::Triangle &t,
+                            const std::vector<fcl::Vector3<S>> &v) {
+    fcl::Vector3<S> x = v[t[0]];
+    fcl::Vector3<S> y = v[t[1]];
+    fcl::Vector3<S> z = v[t[2]];
+
+    auto p0 = vec3_float{x[0], x[1], x[2]};
+    auto p1 = vec3_float{y[0], y[1], y[2]};
+    auto p2 = vec3_float{z[0], z[1], z[2]};
+    return Triangle{p0, p1, p2};
+}
+
 template <typename S>
 void run_test(const std::string &obj1_filename,
               const std::string &obj2_filename, bool verbose = true) {
     using clock = std::chrono::high_resolution_clock;
-
     std::vector<fcl::Vector3<S>> p1, p2;
     std::vector<fcl::Triangle> t1, t2;
     fcl::load_object_file(obj1_filename, p1, t1);
     assert(!p1.empty());
     assert(!t1.empty());
-
+    std::cout << obj1_filename << ": " << t1.size() << " triangles\n";
     fcl::load_object_file(obj2_filename, p2, t2);
     assert(!p2.empty());
     assert(!t2.empty());
+    std::cout << obj2_filename << ": " << t2.size() << " triangles\n";
 
     fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(p1, t1);
     fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(p2, t2);
@@ -381,10 +503,29 @@ void run_test(const std::string &obj1_filename,
     const int64_t fcl_count = fcl_collisions.size();
     assert(bonsai_count == fcl_count &&
            "different collision detection counts!");
+    int64_t unequal_collision_count = 0;
     for (int i = 0; i < fcl_collisions.size(); ++i) {
-        // TODO(cgyurgyik): verify these line up.
-        // auto [t1, t2] = bonsai_collisons[i];
+        auto [bt1, bt2] = bonsai_collisons[i];
+        assert(intersects(bt1, bt2) &&
+               "found non-intersecting triangles in bonsai!");
+
+        Triangle ft1 = construct_triangle(t1[fcl_collisions[i].b1], p1);
+        Triangle ft2 = construct_triangle(t2[fcl_collisions[i].b2], p2);
+        assert(intersects(ft1, ft2) &&
+               "found non-intersecting triangles in fcl!");
+        if (nearly_equal(bt1, ft1) && nearly_equal(bt2, ft2)) {
+            continue;
+        }
+        ++unequal_collision_count;
+        if (!verbose) {
+            continue;
+        }
+        std::cout << "[bonsai] " << bt1 << " <-> " << bt2 << "\n";
+        std::cout << "[fcl]    " << ft1 << " <-> " << ft2 << "\n";
+        std::cout << "\n --- \n";
     }
+    std::cout << "collision count: " << bonsai_count
+              << ", unequal: " << unequal_collision_count << '\n';
 
     auto fcl_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(fcl_t2 - fcl_t1)
@@ -400,5 +541,5 @@ void run_test(const std::string &obj1_filename,
 
 int main() {
     // Imported from the FCL library.
-    run_test<float>("fcl/env.obj", "fcl/rob.obj");
+    run_test<float>("fcl/env.obj", "fcl/rob.obj", /*verbose=*/false);
 }
