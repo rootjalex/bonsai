@@ -39,7 +39,8 @@ class RtOP : public ir::Mutator {
         const auto &arguments = current.args;
         internal_assert(arguments.front().mutating);
         std::string identifier = arguments.front().name;
-        internal_assert(ir::equals(arguments.front().type, value.type()));
+        internal_assert(ir::equals(arguments.front().type, value.type()))
+            << arguments.front().type << " vs " << value.type();
         ir::WriteLoc location(identifier, value.type());
         return ir::Sequence::make({
             ir::Store::make(location, std::move(value)),

@@ -173,18 +173,6 @@ std::string queued_func_name(const std::string &name) {
     return "_queued_" + name;
 }
 
-std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars) {
-    os << "{";
-    for (size_t i = 0; i < vars.size(); i++) {
-        if (i > 0) {
-            os << ", ";
-        }
-        os << vars[i].name << " : " << vars[i].type;
-    }
-    os << "}";
-    return os;
-}
-
 struct ReplaceUses : public Mutator {
     const std::string &producer;
     const std::string &consumer;
