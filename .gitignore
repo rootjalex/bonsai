@@ -37,6 +37,7 @@ cmake-build-*
 .idea
 .vscode
 venv
+apps/cd/cpu/fcl/build
 
 # Assembly files
 *.asm

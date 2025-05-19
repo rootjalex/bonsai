@@ -274,8 +274,8 @@ _tree_layout0 build_tree(int64_t tree_size,
     return tree;
 }
 int main() {
-    auto t1s = build_tree(128);
-    auto t2s = build_tree(128);
+    _tree_layout0 t1s = build_tree(128);
+    _tree_layout0 t2s = build_tree(128);
     __dyn_array0 out = {
         .buffer = nullptr,
         .size = 0,
@@ -288,7 +288,7 @@ int main() {
     auto *collisions = reinterpret_cast<__tuple_0 *>(out.buffer);
     assert(collisions && "buffer is nullptr!");
     for (int i = 0; i < out.size; ++i) {
-        auto [t1, t2] = collisions[i];
+        const auto &[t1, t2] = collisions[i];
         assert(intersects(t1, t2) && "found non-colliding pair!");
     }
 
