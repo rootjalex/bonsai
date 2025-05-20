@@ -7,15 +7,14 @@ import apps/wos/statistics;
 
 extern tris : set[Triangle];
 
-func closest(p : Point) = argmin(|tri| distmin(p, tri), tris);
+func closest(p : Point) = minimum(|tri| distmin(p, tri), tris);
 
 func computeDistToAbsBoundary(pt : vec3f) -> Float {
     // Do not compute the signed distance (for WoS).
     // TODO(ajr): hope this fuses.
     // TODO: need idempotent accelerated min, but that fucks up parsing so bad.
     p = Point{pt};
-    ctri = closest(p);
-    return sqrt(distmin(p, ctri)); // distmin/closest are sqdist
+    return sqrt(closest(p)); // distmin is sqdist
 }
 
 

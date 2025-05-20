@@ -1043,6 +1043,8 @@ std::string to_string(const SetOp::OpType &op) {
     switch (op) {
     case SetOp::argmin:
         return "argmin";
+    case SetOp::minimum:
+        return "minimum";
     case SetOp::filter:
         return "filter";
     case SetOp::map:
@@ -1221,6 +1223,14 @@ void Printer::visit(const Accumulate *node) {
     switch (node->op) {
     case Accumulate::OpType::Add: {
         os << " += ";
+        break;
+    }
+    case Accumulate::OpType::Min: {
+        os << " min= ";
+        break;
+    }
+    case Accumulate::OpType::Max: {
+        os << " max= ";
         break;
     }
     case Accumulate::OpType::Mul: {

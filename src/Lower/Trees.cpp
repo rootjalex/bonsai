@@ -420,6 +420,114 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
         {std::move(header), std::move(body), std::move(footer)});
 }
 
+ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
+                      const ir::TypeMap &tree_types,
+                      const IntervalMap &intervals) {
+    struct RewriteMinimum : public Rewriter {
+        ir::Expr metric;
+        ir::WriteLoc loc;
+        const IntervalMap &intervals;
+        const bool update_from_yfs;
+
+        RewriteMinimum(ir::Expr met, ir::WriteLoc l, const IntervalMap &intervals, const bool update_from_yfs)
+            : metric(std::move(met)), loc(std::move(l)), intervals(intervals), update_from_yfs(update_from_yfs) {
+        }
+
+        size_t counter = 0;
+
+        std::string make_temp_name() {
+            return loc.base + "_temp" + std::to_string(counter++);
+        }
+
+        using ir::Mutator::visit;
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            internal_assert(!volumes.empty());
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+            internal_assert(
+                ir::equals(lambda->args[0].type, node->value.type()));
+            ir::Expr value =
+                replace(lambda->args[0].name, node->value, lambda->value);
+            return ir::Accumulate::make(loc, ir::Accumulate::Min, std::move(value));
+        }
+
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
+        }
+
+        ir::Stmt visit(const ir::Scan *node) override { internal_error << ir::Stmt(node); }
+
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            if (!update_from_yfs) {
+                return node;
+            }
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+
+            VolumeMap vols = make_volume_map(lambda->args);
+
+            Interval bounds =
+                predicate_analysis(lambda->value, vols, intervals);
+            internal_assert(bounds.max.defined())
+                << "Cannot accelerate metric: " << lambda->value
+                << " on: " << ir::Stmt(node);
+
+
+            // Best must be at most max.
+            // Epsilon only needed if subtree isn't tight / can be empty.
+            ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
+            ir::Stmt do_update = ir::Accumulate::make(loc, ir::Accumulate::Min,
+                                        std::move(value));
+            return ir::Sequence::make({std::move(do_update), node});
+        }
+    };
+
+    const ir::Lambda *lambda = metric.as<ir::Lambda>();
+    internal_assert(lambda) << "Metric is not a lambda: " << metric;
+    ir::Type metric_t = lambda->value.type();
+
+    static size_t counter = 0;
+    std::string name = "_best" + std::to_string(counter++);
+    ir::WriteLoc loc(name, metric_t);
+
+    ir::Expr init = ir::Infinity::make(metric_t);
+
+    // TODO(ajr): is stack memory ok here? it's not an array.
+    ir::Stmt header =
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
+
+    // Make return
+    ir::Expr ret_var = ir::Var::make(metric_t, std::move(name));
+    // TODO: should this be a Return?
+    ir::Stmt footer;
+    footer = ir::Yield::make(ret_var);
+
+    // No lower bound (can always get better)
+    // Upper bound is the current value (must be at least that good).
+    IntervalMap local_intervals = intervals;
+    local_intervals[ret_var] = Interval{ir::Expr(), ret_var};
+
+    // Try to build fused filter inside.
+    // TODO(ajr): scans need to be 
+    auto [fused_filter, fused] = try_fuse_filter(lambda, ret_var, inner);
+    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
+
+    body = RewriteMinimum(std::move(metric), std::move(loc), intervals, !fused)
+               .mutate(body);
+
+    return ir::Sequence::make(
+        {std::move(header), std::move(body), std::move(footer)});
+}
+
+
 ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
     struct RewriteProduct : public Rewriter {
         ir::Stmt b_body;
@@ -636,8 +744,11 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
         return build_filter(body, as_set->a, intervals);
     }
+    // Argmin/Minimum are a bit more complicated, because of filter fusion.
+    case ir::SetOp::minimum: {
+        return build_minimum(as_set->a, as_set->b, tree_types, intervals);
+    }
     case ir::SetOp::argmin: {
-        // Argmin is a bit more complicated, because of filter fusion.
         return build_argmin(as_set->a, as_set->b, tree_types, intervals,
                             expr.type());
     }

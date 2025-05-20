@@ -101,6 +101,10 @@ Expr argmin(Expr metric, Expr set) {
     return SetOp::make(SetOp::argmin, std::move(metric), std::move(set));
 }
 
+Expr minimum(Expr metric, Expr set) {
+    return SetOp::make(SetOp::minimum, std::move(metric), std::move(set));
+}
+
 Expr map(Expr func, Expr set) {
     return SetOp::make(SetOp::map, std::move(func), std::move(set));
 }

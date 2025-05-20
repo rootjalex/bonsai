@@ -40,6 +40,7 @@ Expr contains(Expr a, Expr b);
 // Sets
 Expr filter(Expr predicate, Expr set);
 Expr argmin(Expr metric, Expr set);
+Expr minimum(Expr metric, Expr set);
 Expr map(Expr func, Expr set);
 Expr product(Expr a, Expr b);
 

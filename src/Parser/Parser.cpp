@@ -111,6 +111,7 @@ struct Parser {
             "argmin",
             "filter",
             "map",
+            "minimum",
             "product",
             // Geometry operations
             "distmax",
@@ -1343,6 +1344,7 @@ struct Parser {
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
             {"map", ir::SetOp::map},
+            {"minimum", ir::SetOp::minimum},
             {"product", ir::SetOp::product},
         });
 

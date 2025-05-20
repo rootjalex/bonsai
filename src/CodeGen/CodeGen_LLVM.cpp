@@ -2285,6 +2285,9 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             equiv = load * ((ones - one_hot) + node->value * one_hot);
             break;
         }
+        case Accumulate::Max:
+        case Accumulate::Min:
+        case Accumulate::Argmax:
         case Accumulate::Argmin:
         default: {
             internal_error << "TODO: implement codegen for accumulate: "
@@ -2320,6 +2323,33 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         } else {
             acc = builder->CreateSub(current, update);
         }
+        break;
+    }
+    case Accumulate::Max:
+    case Accumulate::Min: {
+        llvm::Intrinsic::IndependentIntrinsics intrin;
+        if (node->value.type().is_int()) {
+            intrin = (node->op == Accumulate::Max) ? llvm::Intrinsic::smax : llvm::Intrinsic::smin;
+        } else if (node->value.type().is_uint()) {
+            intrin = (node->op == Accumulate::Max) ? llvm::Intrinsic::umax : llvm::Intrinsic::umin;
+        } else {
+            internal_assert(node->value.type().is_float())
+                << "Cannot lower min/max accumulate of type: " << node->value.type();
+            // Follows the IEEE-754 semantics for minNum, except for handling of
+            // signaling NaNs. This match’s the behavior of libm’s fmin.
+            // https://llvm.org/docs/LangRef.html#llvm-minnum-intrinsic
+            intrin = (node->op == Accumulate::Max) ? llvm::Intrinsic::maxnum : llvm::Intrinsic::minnum;
+        }
+
+        llvm::Type *ret_type = codegen_type(node->value.type());
+
+        std::vector<llvm::Value *> args(2);
+        args[0] = current;
+        args[1] = update;
+
+        acc = builder->CreateIntrinsic(ret_type, intrin, args);
+
+        internal_assert(acc) << "Intrinsic codegen failure: " << Stmt(node);
         break;
     }
     case Accumulate::Mul: {
