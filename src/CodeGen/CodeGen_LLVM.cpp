@@ -1422,27 +1422,21 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             llvm::Value *result =
                 builder->CreateExtractElement(pieces[0], (uint64_t)0);
 
-            // Now apply classic formula to produce [0.0, 1.0)
-            // Use random 23 mantissa bits, which gives [1.0, 2.0)
-            // Then subtract by 1.0
-            // Mask for mantissa bits (23 bits): 0x007FFFFF
-            llvm::Value *mantissa_mask =
-                llvm::ConstantInt::get(i32_t, 0x007FFFFF);
+            // Shift right by 9 bits: (value >> 9)
+            llvm::Value *shifted = builder->CreateLShr(result, llvm::ConstantInt::get(i32_t, 9));
 
-            // Bias to make exponent = 127 (1.0): 0x3F800000
-            llvm::Value *one_bits = llvm::ConstantInt::get(i32_t, 0x3F800000);
+            // OR with 0x3f800000 to set exponent = 127 (i.e., value in [1.0, 2.0))
+            llvm::Value *one_bits = llvm::ConstantInt::get(i32_t, 0x3f800000);
+            llvm::Value *float_bits = builder->CreateOr(shifted, one_bits);
 
-            // Apply bit manipulation: ((rand & mask) | one_bits)
-            llvm::Value *rand_mantissa =
-                builder->CreateAnd(result, mantissa_mask);
-            llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
+            // Bitcast i32 to float
+            llvm::Value *as_float = builder->CreateBitCast(float_bits, f32_t);
 
-            // Bitcast i32 -> float
-            llvm::Value *as_float = builder->CreateBitCast(rand_bits, f32_t);
+            // Subtract 1.0 to get value in [0.0, 1.0)
+            llvm::Value *one = llvm::ConstantFP::get(f32_t, 1.0f);
+            llvm::Value *uniform = builder->CreateFSub(as_float, one);
 
-            // Subtract 1.0 to get range [0.0, 1.0)
-            llvm::Value *float_ones = llvm::ConstantFP::get(f32_t, 1.0f);
-            value = builder->CreateFSub(as_float, float_ones);
+            value = uniform;
             return;
         }
 
@@ -1468,34 +1462,25 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             result = builder->CreateInsertElement(result, elements[i], i);
         }
 
-        // Now apply classic formula to produce [0.0, 1.0)
-        // Use random 23 mantissa bits, which gives [1.0, 2.0)
-        // Then subtract by 1.0
+
+        // Shift right by 9 bits: (value >> 9)
+        llvm::Value *shifted = builder->CreateLShr(result, broadcast_u32(9));
+
+        llvm::Value *float_bits = builder->CreateOr(shifted, broadcast_u32(0x3f800000));
+
+        // Bitcast i32 to float
         llvm::FixedVectorType *fvec_ty =
             llvm::FixedVectorType::get(f32_t, req_vals);
+        llvm::Value *as_float = builder->CreateBitCast(float_bits, fvec_ty);
 
-        // Mask for mantissa bits (23 bits): 0x007FFFFF
-        llvm::Value *mantissa_mask = llvm::ConstantVector::getSplat(
-            llvm::ElementCount::getFixed(req_vals),
-            llvm::ConstantInt::get(i32_t, 0x007FFFFF));
-
-        // Bias to make exponent = 127 (1.0): 0x3F800000
-        llvm::Value *one_bits = llvm::ConstantVector::getSplat(
-            llvm::ElementCount::getFixed(req_vals),
-            llvm::ConstantInt::get(i32_t, 0x3F800000));
-
-        // Apply bit manipulation: ((rand & mask) | one_bits)
-        llvm::Value *rand_mantissa = builder->CreateAnd(result, mantissa_mask);
-        llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
-
-        // Bitcast i32 -> float
-        llvm::Value *as_float = builder->CreateBitCast(rand_bits, fvec_ty);
-
-        // Subtract 1.0 to get range [0.0, 1.0)
+        // Subtract 1.0 to get value in [0.0, 1.0)
         llvm::Value *float_ones = llvm::ConstantVector::getSplat(
             llvm::ElementCount::getFixed(req_vals),
-            llvm::ConstantFP::get(f32_t, 1.0f));
-        value = builder->CreateFSub(as_float, float_ones);
+            llvm::ConstantFP::get(f32_t, 1.0f)
+        );
+        llvm::Value *uniform = builder->CreateFSub(as_float, float_ones);
+
+        value = uniform;
         return;
     }
     case Intrinsic::sin: {
