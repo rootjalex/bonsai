@@ -6,7 +6,6 @@ add_bonsai_tests(
     collision.bonsai
     defer-dbl-buffer.bonsai
     defer.bonsai
-    dynamic-array.bonsai
     exported-function.bonsai
     float.bonsai
     import_float.bonsai
@@ -26,6 +25,7 @@ add_bonsai_tests(
     option-dereference2.bonsai
     option-nested.bonsai
     option.bonsai
+    parse-str.bonsai
     rect_contains.bonsai
     struct_defaults.bonsai
     trace_aosoa.bonsai

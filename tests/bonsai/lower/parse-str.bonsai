@@ -1,0 +1,6 @@
+func main() -> i32 {
+	print("hello world");
+	print("hello world\n");
+	print("hello", "world");
+	return 0;
+}

@@ -13,6 +13,14 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
     if (!opt.output_file.empty()) {
         os << "-o " << opt.output_file << "\n";
     }
+    switch (opt.level) {
+    case BackendOptimizationLevel::O0:
+        os << "-O0" << "\n";
+        break;
+    case BackendOptimizationLevel::O3:
+        os << "-O3" << "\n";
+        break;
+    }
     return os;
 }
 

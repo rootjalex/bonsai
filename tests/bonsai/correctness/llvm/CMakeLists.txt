@@ -5,11 +5,13 @@ add_bonsai_tests(
     collapse.bonsai
     dce.bonsai
     defer-sum.bonsai
+    dynamic-array.bonsai
     exported-function.bonsai
     exported-recursive-function.bonsai
     function-type.bonsai
     nested-exported-function.bonsai
     option.bonsai
+    print-str.bonsai
     print.bonsai
     map-func.bonsai
     map.bonsai

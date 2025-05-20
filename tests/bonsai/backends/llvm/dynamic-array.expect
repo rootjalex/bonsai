@@ -1,0 +1,53 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.__dyn_array0 = type { ptr, i32, i32 }
+
+define i32 @main() {
+main_entry:
+  %x = alloca %struct.__dyn_array0, align 8
+  %x.buffer_untyped = tail call ptr @malloc(i64 4)
+  %x.buffer_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 0
+  store atomic ptr %x.buffer_untyped, ptr %x.buffer_ptr release, align 8
+  %x.size_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 1
+  store atomic i32 0, ptr %x.size_ptr release, align 4
+  %x.capacity_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 2
+  store atomic i32 1, ptr %x.capacity_ptr release, align 4
+  %deref_temp = load %struct.__dyn_array0, ptr %x, align 8
+  %buffer = extractvalue %struct.__dyn_array0 %deref_temp, 0
+  %x.size_ptr1 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 1
+  %x.capacity_ptr2 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 2
+  %x.ptr_to_buffer = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 0
+  %x.size = load atomic i32, ptr %x.size_ptr1 acquire, align 4
+  %x.capacity = load atomic i32, ptr %x.capacity_ptr2 acquire, align 4
+  %grow-or-continue = icmp uge i32 %x.size, %x.capacity
+  br i1 %grow-or-continue, label %grow, label %continue
+
+grow:                                             ; preds = %main_entry
+  %0 = icmp eq i32 %x.capacity, 0
+  %1 = mul i32 %x.capacity, 2
+  %x.new_capacity = select i1 %0, i32 1, i32 %1
+  %2 = zext i32 %x.new_capacity to i64
+  %3 = mul i64 %2, 4
+  %4 = call ptr @realloc(ptr %buffer, i64 %3)
+  store atomic ptr %4, ptr %x.ptr_to_buffer release, align 8
+  %5 = trunc i64 %2 to i32
+  store atomic i32 %5, ptr %x.capacity_ptr2 release, align 4
+  br label %continue
+
+continue:                                         ; preds = %grow, %main_entry
+  %x.load = load atomic ptr, ptr %x.ptr_to_buffer acquire, align 8
+  %x.size3 = load atomic i32, ptr %x.size_ptr1 acquire, align 4
+  %6 = getelementptr inbounds i32, ptr %x.load, i32 %x.size3
+  store atomic i32 0, ptr %6 release, align 4
+  %7 = atomicrmw add ptr %x.size_ptr1, i32 1 acq_rel, align 4
+  %deref_temp4 = load %struct.__dyn_array0, ptr %x, align 8
+  %buffer5 = extractvalue %struct.__dyn_array0 %deref_temp4, 0
+  %extract_ptr = getelementptr inbounds i32, ptr %buffer5, i32 0
+  %extract = load atomic i32, ptr %extract_ptr acquire, align 4
+  ret i32 %extract
+}
+
+declare noalias ptr @malloc(i64)
+
+declare ptr @realloc(ptr, i64)

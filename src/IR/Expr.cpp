@@ -159,6 +159,16 @@ Expr VecImm::make(std::vector<Expr> values) {
     return node;
 }
 
+Expr StringImm::make(std::string value) {
+    internal_assert(!value.empty())
+        << "StringImm::make() received empty string\n";
+
+    StringImm *node = new StringImm;
+    node->type = String_t::make();
+    node->value = std::move(value);
+    return node;
+}
+
 Expr Infinity::make(Type t) {
     internal_assert(t.defined() && t.is_numeric())
         << "Infinity can be made for numeric types only: " << t;
@@ -571,22 +581,24 @@ Expr Extract::make(Expr vec, Expr idx) {
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
     if (infer_types) {
         if (is_dynamic_array_struct_type(vec.type())) {
-            // Assumption: an extraction from a dynamic array is really an
-            // access to its buffer when lowered to a struct_t.
-            vec = Access::make("buffer", vec);
+            // We push the actual Extract down into the backend because we need
+            // to know when the extraction is occurring from a dynamic array
+            // (for atomic purposes).
+            type = Access::make("buffer", vec).type().element_of();
+        } else {
+            internal_assert(
+                (vec.type().is<Vector_t, Array_t, Tuple_t, DynArray_t>()))
+                << "Extract of non-aggregate: " << vec << " : " << vec.type();
+            internal_assert(idx.type().is_int_or_uint())
+                << "Extract with non-integer index: " << idx;
+            if (vec.type().is<Tuple_t>()) {
+                internal_assert(is_const(idx))
+                    << "Extract on tuple with non-constant index: " << vec
+                    << "[" << idx << "]";
+                return Extract::make(std::move(vec), *as_const_int(idx));
+            }
+            type = vec.type().element_of();
         }
-        internal_assert(
-            (vec.type().is<Vector_t, Array_t, Tuple_t, DynArray_t>()))
-            << "Extract of non-aggregate: " << vec;
-        internal_assert(idx.type().is_int_or_uint())
-            << "Extract with non-integer index: " << idx;
-        if (vec.type().is<Tuple_t>()) {
-            internal_assert(is_const(idx))
-                << "Extract on tuple with non-constant index: " << vec << "["
-                << idx << "]";
-            return Extract::make(std::move(vec), *as_const_int(idx));
-        }
-        type = vec.type().element_of();
     }
 
     Extract *node = new Extract;

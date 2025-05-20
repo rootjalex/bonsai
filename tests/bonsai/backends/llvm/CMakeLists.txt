@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS backends llvm
     FILES
+    dynamic-array.bonsai
     exported-function.bonsai
     float.bonsai
     index.bonsai

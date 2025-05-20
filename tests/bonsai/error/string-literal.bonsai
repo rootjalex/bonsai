@@ -1,5 +1,0 @@
-
-func foo() -> void {
-    // Currently, parsing is not supported for string literals.
-    x = "abc";
-}

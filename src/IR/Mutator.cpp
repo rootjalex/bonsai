@@ -70,6 +70,8 @@ Type Mutator::visit(const Float_t *node) { return node; }
 
 Type Mutator::visit(const Bool_t *node) { return node; }
 
+Type Mutator::visit(const String_t *node) { return node; }
+
 Type Mutator::visit(const Ptr_t *node) {
     Type etype = mutate(node->etype);
     if (etype.same_as(node->etype)) {
@@ -252,6 +254,8 @@ Expr Mutator::visit(const FloatImm *node) { return node; }
 Expr Mutator::visit(const BoolImm *node) { return node; }
 
 Expr Mutator::visit(const VecImm *node) { return node; }
+
+Expr Mutator::visit(const StringImm *node) { return node; }
 
 Expr Mutator::visit(const Infinity *node) { return node; }
 

@@ -98,6 +98,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Index_t *) override;
     virtual void visit(const ir::Float_t *) override;
     virtual void visit(const ir::Bool_t *) override;
+    RESTRICT_VISITOR(ir::String_t);
     virtual void visit(const ir::Ptr_t *) override;
     virtual void visit(const ir::Ref_t *) override;
     virtual void visit(const ir::Vector_t *) override;
@@ -122,6 +123,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::FloatImm *) override;
     virtual void visit(const ir::BoolImm *) override;
     virtual void visit(const ir::VecImm *) override;
+    virtual void visit(const ir::StringImm *) override;
     virtual void visit(const ir::Infinity *) override;
     virtual void visit(const ir::Var *) override;
     virtual void visit(const ir::BinOp *) override;
@@ -226,8 +228,8 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // @}
 
-    llvm::Value *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
-                                     const std::string &name);
+    llvm::LoadInst *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
+                                        const std::string &name);
     llvm::Value *create_alloca_at_entry(llvm::Type *etype,
                                         const std::string &name,
                                         llvm::Value *size = nullptr);

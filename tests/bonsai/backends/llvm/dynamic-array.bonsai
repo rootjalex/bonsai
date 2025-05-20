@@ -1,0 +1,7 @@
+//! flags: -b llvm -O0
+
+func main() -> i32 {
+    alloc x : dyn_array[i32, 1];
+    append[[x]](0);
+    return x[0];
+}

@@ -410,6 +410,12 @@ CodeGen_LLVM::compile_program(const Program &program,
 
 void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
                                    const CompilerOptions &options) {
+    switch (options.level) {
+    case BackendOptimizationLevel::O0:
+        return; // do nothing
+    case BackendOptimizationLevel::O3:
+        break;
+    }
 
     const bool do_loop_opt =
         true; // get_target().has_feature(Target::EnableLLVMLoopOpt);
@@ -616,6 +622,10 @@ void CodeGen_LLVM::visit(const BoolImm *node) {
 void CodeGen_LLVM::visit(const VecImm *node) {
     ir::Expr build = ir::Build::make(node->type, node->values);
     build.accept(this);
+}
+
+void CodeGen_LLVM::visit(const StringImm *node) {
+    internal_error << "[unimplemented] StringImm in LLVM: " << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Infinity *node) {
@@ -910,6 +920,11 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     auto indent = [&](uint32_t level) -> std::string {
         return std::string(level, ' ');
     };
+
+    if (const ir::StringImm *str_imm = node.as<ir::StringImm>()) {
+        to_print += str_imm->value;
+        return;
+    }
 
     if (auto *vtype = t.as<ir::Vector_t>()) {
         to_print += "[";
@@ -1235,18 +1250,30 @@ void CodeGen_LLVM::visit(const Ramp *node) {
 }
 
 void CodeGen_LLVM::visit(const Extract *node) {
-    llvm::Value *vec = codegen_expr(node->vec);
+    bool is_atomic = false;
+    Expr vec_expr = node->vec;
+    if (is_dynamic_array_struct_type(vec_expr.type())) {
+        // Assumption: an extraction from a dynamic array is really an
+        // access to its buffer when lowered to a struct_t.
+        vec_expr = Access::make("buffer", vec_expr);
+        is_atomic = true;
+    }
+    llvm::Value *vec = codegen_expr(vec_expr);
     llvm::Value *idx = codegen_expr(node->idx);
-    if (node->vec.type().is<Vector_t>()) {
+    if (vec_expr.type().is<Vector_t>()) {
         value = builder->CreateExtractElement(vec, idx);
-    } else if (node->vec.type().is<Array_t>()) {
-        llvm::Type *etype = codegen_type(node->vec.type().element_of());
+    } else if (vec_expr.type().is<Array_t>()) {
+        llvm::Type *etype = codegen_type(vec_expr.type().element_of());
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
-        value = create_aligned_load(etype, ptr, "extract");
+        llvm::LoadInst *load = create_aligned_load(etype, ptr, "extract");
+        if (is_atomic) {
+            load->setAtomic(llvm::AtomicOrdering::Acquire);
+        }
+        value = load;
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
-                       << node->vec.type();
+                       << vec_expr.type();
     }
 }
 
@@ -2033,15 +2060,20 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
                                         /*zero_init=*/false, name + ".buffer");
     llvm::Value *buffer_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, ptr_idx, name + ".buffer_ptr");
-    builder->CreateStore(buffer, buffer_ptr);
+    llvm::StoreInst *store_buffer = builder->CreateStore(buffer, buffer_ptr);
+    store_buffer->setAtomic(llvm::AtomicOrdering::Release);
     // Initialize the size to 0.
     llvm::Value *size_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, size_idx, name + ".size_ptr");
-    builder->CreateStore(llvm::ConstantInt::get(i32_t, 0), size_ptr);
+    llvm::StoreInst *store_size =
+        builder->CreateStore(llvm::ConstantInt::get(i32_t, 0), size_ptr);
+    store_size->setAtomic(llvm::AtomicOrdering::Release);
     // Initialize the current capacity.
     llvm::Value *capacity_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, cap_idx, name + ".capacity_ptr");
-    builder->CreateStore(capacity, capacity_ptr);
+    llvm::StoreInst *store_capacity =
+        builder->CreateStore(capacity, capacity_ptr);
+    store_capacity->setAtomic(llvm::AtomicOrdering::Release);
     return;
 }
 
@@ -2112,10 +2144,12 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
                                  base_n + ".ptr_to_buffer");
 
     // Load current size and capacity.
-    llvm::Value *current_size =
+    llvm::LoadInst *current_size =
         builder->CreateLoad(i32_t, size_ptr, base_n + ".size");
-    llvm::Value *capacity =
+    current_size->setAtomic(llvm::AtomicOrdering::Acquire);
+    llvm::LoadInst *capacity =
         builder->CreateLoad(i32_t, capacity_ptr, base_n + ".capacity");
+    capacity->setAtomic(llvm::AtomicOrdering::Acquire);
 
     // Check if we need to grow.
     llvm::Value *condition =
@@ -2156,20 +2190,26 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
         realloc, {buffer_ptr, builder->CreateMul(new_capacity, element_size)});
 
     // Update struct.ptr field
-    builder->CreateStore(new_buffer, ptr_to_buffer);
+    llvm::StoreInst *store_buffer =
+        builder->CreateStore(new_buffer, ptr_to_buffer);
+    store_buffer->setAtomic(llvm::AtomicOrdering::Release);
 
     // Update struct.capacity field
     // Truncate capacity back to i32.
     llvm::Value *truncated_capacity =
         builder->CreateTrunc(new_capacity, capacity->getType());
-    builder->CreateStore(truncated_capacity, capacity_ptr);
+    llvm::StoreInst *store_capacity =
+        builder->CreateStore(truncated_capacity, capacity_ptr);
+    store_capacity->setAtomic(llvm::AtomicOrdering::Release);
     builder->CreateBr(continue_bb);
 
     // case 2: no grow (and continuation of grow block).
     builder->SetInsertPoint(continue_bb);
     // Reload the final buffer pointer.
-    return builder->CreateLoad(element_type->getPointerTo(), ptr_to_buffer,
-                               base_n + ".load");
+    llvm::LoadInst *load_buffer = builder->CreateLoad(
+        element_type->getPointerTo(), ptr_to_buffer, base_n + ".load");
+    load_buffer->setAtomic(llvm::AtomicOrdering::Acquire);
+    return load_buffer;
 }
 
 void CodeGen_LLVM::visit(const Append *node) {
@@ -2204,13 +2244,14 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  base_n + ".capacity_ptr");
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
-    // TODO(cgyurgyik): require mutex for resize?
     buffer_ptr =
         ensure_capacity(dynamic_array, struct_t, llvm_struct_t, buffer_ptr,
                         size_ptr, capacity_ptr, element_type, base_n);
+
     // Now add the size offset.
-    llvm::Value *current_size =
+    llvm::LoadInst *current_size =
         builder->CreateLoad(i32_t, size_ptr, base_n + ".size");
+    current_size->setAtomic(llvm::AtomicOrdering::Acquire);
     buffer_ptr =
         builder->CreateInBoundsGEP(element_type, // The LLVM element type
                                    buffer_ptr,   // pointer to the buffer
@@ -2218,12 +2259,14 @@ void CodeGen_LLVM::visit(const Append *node) {
         );
 
     // Store the value at the given pointer.
-    builder->CreateStore(rhs, buffer_ptr, /*isVolatile=*/false);
-    // Update the size of the dynamic array, and then store it.
-    // TODO(cgyurgyik): Use atomic add.
-    llvm::Value *new_size = builder->CreateAdd(
-        current_size, llvm::ConstantInt::get(i32_t, 1), base_n + ".new-size");
-    builder->CreateStore(new_size, size_ptr);
+    llvm::StoreInst *store_buffer =
+        builder->CreateStore(rhs, buffer_ptr, /*isVolatile=*/false);
+    store_buffer->setAtomic(llvm::AtomicOrdering::Release);
+    // Now add the size offset.
+    llvm::Value *one = builder->getInt32(1);
+    builder->CreateAtomicRMW(
+        llvm::AtomicRMWInst::Add, size_ptr, one, llvm::MaybeAlign(),
+        llvm::AtomicOrdering::AcquireRelease, llvm::SyncScope::System);
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
@@ -2326,9 +2369,9 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     builder->CreateStore(acc, loc);
 }
 
-llvm::Value *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
-                                               llvm::Value *ptr,
-                                               const std::string &name) {
+llvm::LoadInst *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
+                                                  llvm::Value *ptr,
+                                                  const std::string &name) {
     llvm::LoadInst *load = builder->CreateLoad(etype, ptr, name);
     const llvm::DataLayout &dl = module->getDataLayout();
     unsigned align = dl.getABITypeAlign(etype).value();

@@ -72,6 +72,8 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const Bool_t *node) override { ss << "bool"; }
 
+        void visit(const String_t *node) override { ss << "std::string"; }
+
         void visit(const Ptr_t *node) override {
             node->etype.accept(this);
             ss << " *";
@@ -179,6 +181,10 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
                 node->values[i].accept(this);
             }
             ss << "}";
+        }
+
+        void visit(const StringImm *node) override {
+            print_string_imm(ss, node->value);
         }
     };
 

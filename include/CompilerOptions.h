@@ -13,6 +13,11 @@ enum class BackendTarget {
     CUDA = 4, // Generate CUDA code.
 };
 
+enum class BackendOptimizationLevel {
+    O0 = 0,
+    O3 = 1,
+};
+
 // Contains information about how the compiler should be executed.
 struct CompilerOptions {
     // The targeted backend for the compiler.
@@ -24,6 +29,9 @@ struct CompilerOptions {
 
     // Whether this should verbosely print Bonsai IR.
     bool is_verbose = false;
+
+    // The optimization level for the backend target.
+    BackendOptimizationLevel level = BackendOptimizationLevel::O3;
 
     // The input filename. This cannot be empty.
     std::string input_file;

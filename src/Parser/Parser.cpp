@@ -1258,8 +1258,9 @@ struct Parser {
             // TODO(ajr): do we want an explicit Deref IR node?
             return ir::Cast::make(std::move(etype), std::move(arg));
         } else if (peek().type == Token::Type::STRING_LITERAL) {
-            internal_error << "[unimplemented] string literals: "
-                           << peek().to_string();
+            const Token val = expect(Token::Type::STRING_LITERAL);
+            std::string str = std::get<std::string>(val.value);
+            return ir::StringImm::make(std::move(str));
         }
         Token token = consume();
         report_error() << "unexpected token: "
