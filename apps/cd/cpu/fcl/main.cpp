@@ -552,7 +552,5 @@ void run_test(const std::string &obj1_filename,
 int main() {
     // Imported from the FCL library.
     run_test<float>("fcl/env.obj", "fcl/rob.obj", /*verbose=*/false);
-    // TODO(cgyurgyik): this is giving different counts, bonsai: 2884 and fcl:
-    // 3907
     run_test<float>("other/dragon.obj", "other/bunny.obj", /*verbose=*/false);
 }
