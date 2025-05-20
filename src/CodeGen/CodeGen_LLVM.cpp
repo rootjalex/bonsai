@@ -2199,7 +2199,7 @@ llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
                                                           i8_t->getPointerTo(),
                                                           i8_t->getPointerTo(),
                                                       },
-                                                      /*isVarARg=*/false));
+                                                      /*isVarArg=*/false));
 }
 
 void CodeGen_LLVM::ensure_capacity(
