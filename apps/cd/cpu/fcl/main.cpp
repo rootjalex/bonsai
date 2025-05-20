@@ -509,4 +509,6 @@ int main() {
     run_test<float>("dragon.obj", "bunny.obj");  // [2]
     run_test<float>("teapot.obj", "bunny.obj");  // [2]
     run_test<float>("teapot.obj", "dragon.obj"); // [2]
+
+    return 0;
 }
