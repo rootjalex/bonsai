@@ -410,7 +410,7 @@ Triangle construct_triangle(const fcl::Triangle &t,
     return Triangle{p0, p1, p2};
 }
 
-// Runs an intersection test on the two OBJ files.
+// Runs an collision detection test on the two OBJ files for Bonsai and FCL.
 template <typename S>
 void run_test(const std::string &obj1_filename,
               const std::string &obj2_filename) {
