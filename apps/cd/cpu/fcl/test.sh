@@ -5,8 +5,11 @@ set -euo pipefail
 # MUST be run from this directory
 PREFIX="apps/cd/cpu/fcl"
 
+if [[ "$(pwd)" == */apps/cd/cpu/fcl ]]; then
+  cd ../../../..
+fi
+
 # build and compile bonsai
-cd ../../../../
 cmake --build build --config Debug -j
 ./build/compiler -i $PREFIX/main.bonsai -o $PREFIX/main.bir
 ./build/compiler -i $PREFIX/main.bonsai -b llvm -o $PREFIX/main.ll
