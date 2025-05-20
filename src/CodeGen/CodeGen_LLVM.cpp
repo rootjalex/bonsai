@@ -333,12 +333,13 @@ void CodeGen_LLVM::compile_function(const Function &func,
         llvm::Value *rand_vec =
             llvm::UndefValue::get(llvm::FixedVectorType::get(i64_t, lanes));
         for (uint32_t i = 0; i < lanes; ++i) {
-            llvm::Value *low = builder->CreateCall(rand_function);
-            llvm::Value *high = builder->CreateCall(rand_function);
-            llvm::Value *low64 = builder->CreateZExt(low, i64_t);
-            llvm::Value *high64 = builder->CreateZExt(high, i64_t);
-            llvm::Value *shifted = builder->CreateShl(high64, 32);
-            llvm::Value *combined = builder->CreateOr(shifted, low64);
+            // llvm::Value *low = builder->CreateCall(rand_function);
+            // llvm::Value *high = builder->CreateCall(rand_function);
+            // llvm::Value *low64 = builder->CreateZExt(low, i64_t);
+            // llvm::Value *high64 = builder->CreateZExt(high, i64_t);
+            // llvm::Value *shifted = builder->CreateShl(high64, 32);
+            // llvm::Value *combined = builder->CreateOr(shifted, low64);
+            llvm::Value *combined = llvm::ConstantInt::get(i64_t, 42);
             rand_vec = builder->CreateInsertElement(rand_vec, combined, i);
         }
 
