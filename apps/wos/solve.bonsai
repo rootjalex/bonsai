@@ -34,7 +34,7 @@ func sampleUnitSphereUniform() -> vec3f {
     z = 1.0 - 2.0 * u0;
     r = sqrt(max(0.0, 1.0 - z * z));
     phi = 2.0 * 3.14159265358979323846 * u1;
-    return vec3f{r * cos(phi), r * sin(phi), z * z};
+    return vec3f{r * cos(phi), r * sin(phi), z};
 }
 
 func computeSourceContribution(pde : PDE, s : WalkSettings, ball : HarmonicGreensBall, res : WalkResults) -> Float {
