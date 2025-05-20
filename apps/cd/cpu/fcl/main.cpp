@@ -309,7 +309,7 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
             leaf_nodes++;
             // Leaf node
             tree.group0_index[this_index].nPrims = count;
-            *reinterpret_cast<uint16_t *>(
+            *reinterpret_cast<uint32_t *>(
                 &tree.group0_index[this_index].split0on_nPrims) = low;
         } else {
             interior_nodes++;
@@ -338,7 +338,7 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
             uint32_t right = handle_range(mid, high, depth + 1);
 
             uint32_t offset = right - this_index;
-            *reinterpret_cast<uint16_t *>(
+            *reinterpret_cast<uint32_t *>(
                 &tree.group0_index[this_index].split0on_nPrims) = offset;
         }
 
@@ -364,7 +364,7 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
             tree.group0_index[i].nPrims = 0;
             tree.group0_index[i].axis = 0;
             tree.group0_index[i].pad0 = 0;
-            *reinterpret_cast<uint16_t *>(
+            *reinterpret_cast<uint32_t *>(
                 &tree.group0_index[i].split0on_nPrims) = 0;
         }
     }
@@ -481,9 +481,16 @@ void run_test(const std::string &obj1_filename,
     assert(!p2.empty());
     assert(!t2.empty());
     std::cout << obj2_filename << ": " << t2.size() << " triangles\n";
-
+    // FCL tree construction
+    auto fcl_tt1 = clock::now();
     fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(p1, t1);
     fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(p2, t2);
+    auto fcl_tt2 = clock::now();
+    auto fcl_ttime =
+        std::chrono::duration_cast<std::chrono::milliseconds>(fcl_tt2 - fcl_tt1)
+            .count();
+    std::cout << "[fcl]    tree construction time: " << fcl_ttime << " ms\n";
+    // FCL collision detection
     auto fcl_t1 = clock::now();
     const std::vector<fcl::Contact<S>> fcl_collisions =
         fcl::collide_test<fcl::AABB<S>>(m1, m2, verbose);
@@ -492,9 +499,16 @@ void run_test(const std::string &obj1_filename,
         std::chrono::duration_cast<std::chrono::milliseconds>(fcl_t2 - fcl_t1)
             .count();
 
+    // Bonsai tree construction
+    auto bonsai_tt1 = clock::now();
     _tree_layout0 b1 = bonsai::build_tree<S>(p1, t1);
     _tree_layout0 b2 = bonsai::build_tree<S>(p2, t2);
-
+    auto bonsai_tt2 = clock::now();
+    auto bonsai_ttime = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            bonsai_tt2 - bonsai_tt1)
+                            .count();
+    std::cout << "[bonsai] tree construction time: " << bonsai_ttime << " ms\n";
+    // Bonsai collision detection
     __dyn_array0 out = {
         .buffer = nullptr,
         .size = 0,
@@ -511,6 +525,7 @@ void run_test(const std::string &obj1_filename,
     std::cout << "[bonsai] collision detection time: " << bonsai_time
               << " ms\n";
 
+    // Verify outputs
     const int64_t bonsai_count = out.size;
     const int64_t fcl_count = fcl_collisions.size();
     if (bonsai_count != fcl_count) {
