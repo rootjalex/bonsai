@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(fcl REQUIRED)
 
+# The bonsai object file after compilation.
 set(BONSAI_O "${..CMAKE_BINARY_DIR}main.o")
 
 add_executable(main 
@@ -16,6 +17,6 @@ add_executable(main
 
 target_link_libraries(main
   PRIVATE
-    Eigen3::Eigen
-    fcl
+    Eigen3::Eigen # https://eigen.tuxfamily.org/index.php?title=Main_Page
+    fcl           # https://github.com/flexible-collision-library/fcl
 )

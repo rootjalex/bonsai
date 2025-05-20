@@ -89,6 +89,7 @@ extern triangles2 : set[Triangle];
 
 func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
 
+// TODO(cgyurgyik): The pCount/count can be u16 for smaller collision detection tests.
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH)

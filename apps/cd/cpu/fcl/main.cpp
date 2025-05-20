@@ -1,48 +1,26 @@
 #include "main.h"
-#include <chrono>
+
 #include <fcl/fcl.h>
+
+#include <chrono>
 #include <iostream>
 
-std::ostream &operator<<(std::ostream &os, const vec3_float &v) {
-    os << '[' << v[0] << ", " << v[1] << ", " << v[2] << ']';
-    return os;
-}
-
-std::ostream &operator<<(std::ostream &os, const Triangle &t) {
-    os << '{' << t.p0 << ',' << t.p1 << ',' << t.p2 << '}';
-    return os;
-}
-
-// https://stackoverflow.com/questions/17404513/floating-point-equality-and-tolerances
-bool nearly_equal(float a, float b, int factor = 8) {
-    float min_a =
-        a -
-        (a - std::nextafter(a, std::numeric_limits<float>::lowest())) * factor;
-    float max_a =
-        a + (std::nextafter(a, std::numeric_limits<float>::max()) - a) * factor;
-    return min_a <= b && max_a >= b;
-}
-
-bool nearly_equal(vec3_float a, vec3_float b) {
-    return nearly_equal(a[0], b[0]) && nearly_equal(a[1], b[1]) &&
-           nearly_equal(a[2], b[2]);
-}
-bool nearly_equal(Triangle a, Triangle b) {
-    return nearly_equal(a.p0, b.p0) && nearly_equal(a.p1, b.p1) &&
-           nearly_equal(a.p2, b.p2);
-}
-
+// Functions in this namespace are pulled from the FCL library to mimic their
+// collision detection setup. We refer readers to their repository:
+// https://github.com/flexible-collision-library/fcl
 namespace fcl {
+// Loads the object file at filename, and fills the points and trinagles arrays.
 template <typename S>
-void load_object_file(const std::string &filename,
+bool load_object_file(const std::string &filename,
                       std::vector<Vector3<S>> &points,
                       std::vector<Triangle> &triangles) {
     // Format is assumed to be Wavefront OBJ.
+    // The relative path from root is: `bonsai/apps/cd/cpu/fcl/objects`
     std::string path = "../objects/" + filename;
     FILE *file = fopen(path.data(), "rb");
     if (file == nullptr) {
         std::cerr << "file: " << filename << " does not exist" << std::endl;
-        return;
+        return false;
     }
 
     bool has_normal = false;
@@ -102,6 +80,7 @@ void load_object_file(const std::string &filename,
         }
         }
     }
+    return true;
 }
 
 template <typename S>
@@ -118,38 +97,10 @@ void euler_to_matrix(S a, S b, S c, Matrix3<S> &R) {
     auto s1 = std::sin(a);
     auto s2 = std::sin(b);
     auto s3 = std::sin(c);
-
     R << c1 * c2, -c2 * s1, s2, c3 * s1 + c1 * s2 * s3, c1 * c3 - s1 * s2 * s3,
         -c2 * s3, s1 * s3 - c1 * c3 * s2, c3 * s1 * s2 + c1 * s3, c2 * c3;
 }
 
-template <typename S>
-void generate_random_transforms(S extents[6],
-                                aligned_vector<Transform3<S>> &transforms,
-                                std::size_t n) {
-    transforms.resize(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        auto x = rand_interval(extents[0], extents[3]);
-        auto y = rand_interval(extents[1], extents[4]);
-        auto z = rand_interval(extents[2], extents[5]);
-
-        const auto pi = constants<S>::pi();
-        auto a = rand_interval((S)0, 2 * pi);
-        auto b = rand_interval((S)0, 2 * pi);
-        auto c = rand_interval((S)0, 2 * pi);
-
-        {
-            Matrix3<S> R;
-            euler_to_matrix(a, b, c, R);
-            Vector3<S> T(x, y, z);
-            transforms[i].setIdentity();
-            transforms[i].linear() = R;
-            transforms[i].translation() = T;
-        }
-    }
-}
-
-// TODO(cgyurgyik): Are these trees *actually* the same?
 template <typename BV>
 BVHModel<BV> build_tree(const std::vector<Vector3<typename BV::S>> &vertices,
                         const std::vector<Triangle> &triangles) {
@@ -163,8 +114,8 @@ BVHModel<BV> build_tree(const std::vector<Vector3<typename BV::S>> &vertices,
 }
 
 template <typename BV>
-std::vector<fcl::Contact<typename BV::S>>
-collide_test(BVHModel<BV> &m1, BVHModel<BV> &m2, bool verbose) {
+std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
+                                                       BVHModel<BV> &m2) {
     using S = typename BV::S;
     Transform3<S> pose1 = Transform3<S>::Identity();
     Transform3<S> pose2 = Transform3<S>::Identity();
@@ -178,7 +129,6 @@ collide_test(BVHModel<BV> &m1, BVHModel<BV> &m2, bool verbose) {
                result) &&
            "initialization error");
 
-    node.enable_statistics = verbose;
     collide(&node);
     std::vector<Contact<S>> contacts;
     result.getContacts(contacts);
@@ -187,8 +137,8 @@ collide_test(BVHModel<BV> &m1, BVHModel<BV> &m2, bool verbose) {
 
 } // namespace fcl
 
+// Functions required for Bonsai tree construction.
 namespace bonsai {
-
 inline vec3_float min(const vec3_float &a, const vec3_float &b) {
     vec3_float result;
     result[0] = std::fmin(a[0], b[0]);
@@ -208,9 +158,7 @@ inline vec3_float max(const vec3_float &a, const vec3_float &b) {
 template <typename S>
 _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
                          const std::vector<fcl::Triangle> &input_triangles,
-                         int max_prims_per_leaf = 32) {
-    constexpr uint64_t MAX_TREE_DEPTH = 64;
-
+                         int max_prims_per_leaf = 32, int max_tree_depth = 64) {
     _tree_layout0 tree;
     tree.pCount = input_triangles.size();
     if (tree.pCount >= std::numeric_limits<uint32_t>::max()) {
@@ -247,12 +195,6 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
     }
     tree.prims = triangles;
 
-    // // Leaf and internal node count
-    // const size_t leaf_count = (tree.pCount + (max_prims_per_leaf - 1)) /
-    // max_prims_per_leaf;
-    // // Upper bound for unbalanced binary tree
-    // const size_t internal_count = 2 * leaf_count - 1;
-
     // Upper bound for unbalanced binary tree
     tree.count = 2 * tree.pCount;
     if (tree.count >= std::numeric_limits<uint32_t>::max()) {
@@ -277,7 +219,7 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
     std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
         max_depth = std::max(max_depth, depth);
-        if (depth >= MAX_TREE_DEPTH) {
+        if (depth >= max_tree_depth) {
             std::cerr << "tree build surpassed max tree depth: " << depth
                       << "\n";
             exit(-1);
@@ -373,8 +315,9 @@ _tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
 
 } // namespace bonsai
 
+// Functions for verifying the correctness of the collision detection
+// algorithms and running the benchmarks.
 namespace {
-
 static inline float dot(const vec3_float &a, const vec3_float &b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -467,65 +410,69 @@ Triangle construct_triangle(const fcl::Triangle &t,
     return Triangle{p0, p1, p2};
 }
 
+// Runs an intersection test on the two OBJ files.
 template <typename S>
 void run_test(const std::string &obj1_filename,
-              const std::string &obj2_filename, bool verbose = true) {
+              const std::string &obj2_filename) {
     using clock = std::chrono::high_resolution_clock;
-    std::vector<fcl::Vector3<S>> p1, p2;
-    std::vector<fcl::Triangle> t1, t2;
-    fcl::load_object_file(obj1_filename, p1, t1);
-    assert(!p1.empty());
-    assert(!t1.empty());
-    std::cout << obj1_filename << ": " << t1.size() << " triangles\n";
-    fcl::load_object_file(obj2_filename, p2, t2);
-    assert(!p2.empty());
-    assert(!t2.empty());
-    std::cout << obj2_filename << ": " << t2.size() << " triangles\n";
-    // FCL tree construction
-    auto fcl_tt1 = clock::now();
-    fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(p1, t1);
-    fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(p2, t2);
-    auto fcl_tt2 = clock::now();
-    auto fcl_ttime =
-        std::chrono::duration_cast<std::chrono::milliseconds>(fcl_tt2 - fcl_tt1)
-            .count();
-    std::cout << "[fcl]    tree construction time: " << fcl_ttime << " ms\n";
-    // FCL collision detection
-    auto fcl_t1 = clock::now();
-    const std::vector<fcl::Contact<S>> fcl_collisions =
-        fcl::collide_test<fcl::AABB<S>>(m1, m2, verbose);
-    auto fcl_t2 = clock::now();
-    auto fcl_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(fcl_t2 - fcl_t1)
-            .count();
+    std::vector<fcl::Vector3<S>> v1, v2;
+    std::vector<fcl::Triangle> T1, T2;
+    if (!fcl::load_object_file(obj1_filename, v1, T1)) {
+        exit(-1);
+    }
+    assert(!v1.empty() && "no vertices found!");
+    assert(!T1.empty() && "no triangles found!");
+    std::cout << obj1_filename << ": " << T1.size() << " triangles\n";
+    if (!fcl::load_object_file(obj2_filename, v2, T2)) {
+        exit(-1);
+    }
+    assert(!v2.empty() && "no vertices found!");
+    assert(!T2.empty() && "no triangles found!");
+    std::cout << obj2_filename << ": " << T2.size() << " triangles\n";
 
-    // Bonsai tree construction
-    auto bonsai_tt1 = clock::now();
-    _tree_layout0 b1 = bonsai::build_tree<S>(p1, t1);
-    _tree_layout0 b2 = bonsai::build_tree<S>(p2, t2);
-    auto bonsai_tt2 = clock::now();
-    auto bonsai_ttime = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            bonsai_tt2 - bonsai_tt1)
-                            .count();
-    std::cout << "[bonsai] tree construction time: " << bonsai_ttime << " ms\n";
-    // Bonsai collision detection
+    // ---- FCL tree construction ----
+    auto t0 = clock::now();
+    fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(v1, T1);
+    fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(v2, T2);
+    auto t1 = clock::now();
+    auto fcl_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "[fcl]    tree construction time: " << fcl_time << " ms\n";
+
+    // ---- FCL collision detection ----
+    t0 = clock::now();
+    const std::vector<fcl::Contact<S>> fcl_collisions =
+        fcl::collide_test<fcl::AABB<S>>(m1, m2);
+    t1 = clock::now();
+    fcl_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
+
+    // ---- Bonsai tree construction ----
+    t0 = clock::now();
+    _tree_layout0 b1 = bonsai::build_tree<S>(v1, T1);
+    _tree_layout0 b2 = bonsai::build_tree<S>(v2, T2);
+    t1 = clock::now();
+    auto bonsai_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "[bonsai] tree construction time: " << bonsai_time << " ms\n";
+
+    // ---- Bonsai collision detection ----
+    t0 = clock::now();
     __dyn_array0 out = {
         .buffer = nullptr,
         .size = 0,
         .capacity = 0,
     };
-    auto bonsai_t1 = clock::now();
     collisions(out, b1, b2);
-    auto bonsai_t2 = clock::now();
+    t1 = clock::now();
     auto *bonsai_collisons = reinterpret_cast<__tuple_0 *>(out.buffer);
-    auto bonsai_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           bonsai_t2 - bonsai_t1)
-                           .count();
-    std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
+    bonsai_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "[bonsai] collision detection time: " << bonsai_time
               << " ms\n";
 
-    // Verify outputs
+    // Verify outputs match and are valid intersections.
     const int64_t bonsai_count = out.size;
     const int64_t fcl_count = fcl_collisions.size();
     if (bonsai_count != fcl_count) {
@@ -534,38 +481,27 @@ void run_test(const std::string &obj1_filename,
         exit(-1);
     }
     std::cout << "collision count: " << bonsai_count << '\n';
-    // TODO(cgyurgyik): Do these need to be sorted?
-    // colliding triangle pairs that do not share the same coordinates.
-    int64_t unequal_collision_count = 0;
     for (int i = 0; i < fcl_collisions.size(); ++i) {
         auto [bt1, bt2] = bonsai_collisons[i];
         assert(intersects(bt1, bt2) &&
                "found non-intersecting triangles in bonsai!");
 
-        Triangle ft1 = construct_triangle(t1[fcl_collisions[i].b1], p1);
-        Triangle ft2 = construct_triangle(t2[fcl_collisions[i].b2], p2);
+        Triangle ft1 = construct_triangle(T1[fcl_collisions[i].b1], v1);
+        Triangle ft2 = construct_triangle(T2[fcl_collisions[i].b2], v2);
         assert(intersects(ft1, ft2) &&
                "found non-intersecting triangles in fcl!");
-        if (nearly_equal(bt1, ft1) && nearly_equal(bt2, ft2)) {
-            continue;
-        }
-        ++unequal_collision_count;
-        if (!verbose) {
-            continue;
-        }
-        std::cout << "[bonsai] " << bt1 << " <-> " << bt2 << "\n";
-        std::cout << "[fcl]    " << ft1 << " <-> " << ft2 << "\n";
-        std::cout << "\n --- \n";
-    }
-    if (verbose) {
-        std::cout << "unequal: " << unequal_collision_count << '\n';
     }
     std::cout << "---\n";
 }
+
 } // namespace
 
 int main() {
-    // Imported from the FCL library.
-    run_test<float>("fcl/env.obj", "fcl/rob.obj", /*verbose=*/false);
-    run_test<float>("other/dragon.obj", "other/bunny.obj", /*verbose=*/false);
+    // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
+    // [1] https://github.com/flexible-collision-library/fcl
+    // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
+    run_test<float>("env.obj", "rob.obj");       // [1]
+    run_test<float>("dragon.obj", "bunny.obj");  // [2]
+    run_test<float>("teapot.obj", "bunny.obj");  // [2]
+    run_test<float>("teapot.obj", "dragon.obj"); // [2]
 }
