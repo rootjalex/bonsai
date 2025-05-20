@@ -414,6 +414,11 @@ Triangle construct_triangle(const fcl::Triangle &t,
 template <typename S>
 void run_test(const std::string &obj1_filename,
               const std::string &obj2_filename) {
+    if constexpr (!(std::is_floating_point_v<S> && sizeof(S) == 4)) {
+        std::cerr << "the bonsai kernel currently assumes f32 input";
+        exit(-1);
+    }
+
     using clock = std::chrono::high_resolution_clock;
     std::vector<fcl::Vector3<S>> v1, v2;
     std::vector<fcl::Triangle> T1, T2;
