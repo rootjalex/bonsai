@@ -159,6 +159,16 @@ Expr VecImm::make(std::vector<Expr> values) {
     return node;
 }
 
+Expr StringImm::make(std::string value) {
+    internal_assert(!value.empty())
+        << "StringImm::make() received empty string\n";
+
+    StringImm *node = new StringImm;
+    node->type = String_t::make();
+    node->value = std::move(value);
+    return node;
+}
+
 Expr Infinity::make(Type t) {
     internal_assert(t.defined() && t.is_numeric())
         << "Infinity can be made for numeric types only: " << t;
