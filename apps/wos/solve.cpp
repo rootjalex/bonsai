@@ -41,7 +41,7 @@ bool printLogs = false; // checkbox
 bool estimateOnSlicePlane = false; // checkbox
 bool useSdfForBoundary = false;
 int nWalksForSamplePts = 1000; // slider
-int maxWalkLength = 20; // slider
+int maxWalkLength = 10000; // slider
 int stepsBeforeApplyingTikhonov = 0; // slider
 int nWalksTakenForSamplePts = 0;
 int slicePlaneResolution = 3; // slider
@@ -1088,6 +1088,27 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
             // std::cout << "  contribution: " << samplePoints[0].contribution << "\n";
             // std::cout << "  estimateBoundaryNormalAligned: " << std::boolalpha << samplePoints[0].estimateBoundaryNormalAligned << "\n";
             // std::cout << "}\n";
+            // static constexpr size_t MAX_SIZE_FOR_TESTING = 10;
+            // if (samplePoints.size() >  MAX_SIZE_FOR_TESTING) {
+            //     std::vector<zombie::SamplePoint<float, DIM>> filteredPoints;
+            //     filteredPoints.reserve(MAX_SIZE_FOR_TESTING);
+
+            //     for (const auto& sp : samplePoints) {
+            //         if (sp.type != zombie::SampleType::OnAbsorbingBoundary) {
+            //             filteredPoints.push_back(sp);
+            //             if (filteredPoints.size() == MAX_SIZE_FOR_TESTING)
+            //                 break;
+            //         }
+            //     }
+
+            //     if (filteredPoints.size() != MAX_SIZE_FOR_TESTING) {
+            //         std::cerr << "Failed to find enough points off the absorbing boundary\n";
+            //         exit(-1);
+            //     }
+
+            //     samplePoints = std::move(filteredPoints);
+            //     nWalks.resize(MAX_SIZE_FOR_TESTING);
+            // }
 
             SamplePoint *bonsai_pts = (SamplePoint *)malloc(sizeof(SamplePoint) * samplePoints.size());
             if constexpr (DIM == 3) {
@@ -1236,6 +1257,14 @@ void guiCallback(const std::vector<Vector<DIM>>& meshPositions,
                     std::cout << "bonsai firstSphereRadius = " << first.firstSphereRadius << "\n";
                 }
             }
+
+            // for (size_t i = 0; i <  samplePoints.size(); i++) {
+            //     std::cout << "-----------------\ni = " << i << std::endl;
+            //     std::cout << "zombie: " << samplePoints[i] << std::endl;
+            //     std::cout << "bonsai: " << bonsai_pts[i] << std::endl;
+            //     std::cout << bonsai_solution[i] << std::endl;
+            //     std::cout << "-----------------\n";
+            // }
 
             // plot results
             std::vector<float> firstSphereRadii;

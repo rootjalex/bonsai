@@ -63,3 +63,73 @@ struct _tree_layout0 {
 
 Statistics * solve(const PDE& pde, const WalkSettings& s, const uint32_t n, const SamplePoint * pts, const uint32_t nWalks, const _tree_layout0& tris);
 }
+
+inline std::ostream& operator<<(std::ostream& os, const Statistics& stats) {
+    os << "Statistics {\n";
+    os << "  solMean: " << stats.solMean << "\n";
+    os << "  solVariance: " << stats.solMean2 << "\n";
+    os << "  totalFirstSourceContribution: " << stats.totalFirstSourceContribution << "\n";
+    os << "  nSolEstimates: " << stats.nSolEstimates << "\n";
+    os << "  totalWalkLength: " << stats.totalWalkLength << "\n";
+    os << "  totalSplits: " << stats.totalSplits << "\n";
+    os << "  firstSphereRadius: " << stats.firstSphereRadius << "\n";
+    os << "}";
+    return os;
+}
+
+enum class SampleType : uint8_t {
+    InDomain = 0,
+    OnAbsorbingBoundary = 1,
+    OnReflectingBoundary = 2
+};
+
+enum class EstimationQuantity : uint8_t {
+    Solution = 0,
+    SolutionAndGradient = 1,
+    None = 2
+};
+
+inline const char* to_string(SampleType type) {
+    switch (type) {
+        case SampleType::InDomain: return "InDomain";
+        case SampleType::OnAbsorbingBoundary: return "OnAbsorbingBoundary";
+        case SampleType::OnReflectingBoundary: return "OnReflectingBoundary";
+        default: return "Unknown";
+    }
+}
+
+inline const char* to_string(EstimationQuantity eq) {
+    switch (eq) {
+        case EstimationQuantity::Solution: return "Solution";
+        case EstimationQuantity::SolutionAndGradient: return "SolutionAndGradient";
+        case EstimationQuantity::None: return "None";
+        default: return "Unknown";
+    }
+}
+
+inline std::ostream& operator<<(std::ostream& os, const SamplePoint& sp) {
+    SampleType type = static_cast<SampleType>(sp.type_and_quantity & 0b00000011);              // bits 0–1
+    EstimationQuantity quantity = static_cast<EstimationQuantity>((sp.type_and_quantity >> 2) & 0b11); // bits 2–3
+    bool aligned = (sp.type_and_quantity >> 4) & 0x1;                                           // bit 4
+
+    os << "SamplePoint {\n";
+    os << "  pt: (" << sp.pt[0] << ", " << sp.pt[1] << ", " << sp.pt[2] << ")\n";
+    os << "  normal: (" << sp.normal[0] << ", " << sp.normal[1] << ", " << sp.normal[2] << ")\n";
+    os << "  pdf: " << sp.pdf << "\n";
+    os << "  distToAbsorbingBoundary: " << sp.distToAbs << "\n";
+    os << "  distToReflectingBoundary: " << sp.distToRefl << "\n";
+    os << "  type: " << to_string(type) << "\n";
+    os << "  estimationQuantity: " << to_string(quantity) << "\n";
+    os << "  estimateBoundaryNormalAligned: " << (aligned ? "true" : "false") << "\n";
+    os << "}";
+    return os;
+}
+
+extern "C" void print_u64x4(uint64_t *vec) {
+    std::cout << "Seed: [";
+    for (int i = 0; i < 4; ++i) {
+        std::cout << vec[i];
+        if (i < 3) std::cout << ", ";
+    }
+    std::cout << "]\n";
+}
