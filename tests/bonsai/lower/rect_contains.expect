@@ -9,19 +9,21 @@ extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
   | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high)
 
 func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
-  match points {
-  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
-    if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
-      scan ((points as Interior).left, (points as Interior).right)
-    } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
-      from ((points as Interior).left, (points as Interior).right)
-    }
-  | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
-    if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-      yield (points as Leaf).data
-    } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-      if (contains_AABB_Point(r, (points as Leaf).data)) {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with AABB(low, high) ->
+      if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
         yield (points as Leaf).data
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (contains_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
       }
     }
   }
