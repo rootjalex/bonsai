@@ -21,6 +21,7 @@
 #define BONSAI_CUDA
 
 #ifdef BONSAI_CUDA
+#include "convert_tree.cuh"
 #include "solve_bonsai.cuh"
 #else
 #include "build_tree.h"
@@ -1224,9 +1225,13 @@ void guiCallback(const std::vector<Vector<DIM>> &meshPositions,
 
                 std::cout << nWalksForSamplePts << " walks per pt" << std::endl;
 
+#ifdef BONSAI_CUDA
+                bonsai_solution = solve(&bonsai_pde, &bonsai_ws, nSamplePts,
+                                        bonsai_pts, nWalksForSamplePts, &tree);
+#else
                 bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts,
                                         bonsai_pts, nWalksForSamplePts, tree);
-
+#endif
                 auto end = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed = end - start;
                 std::cout << "bonsai.solve took " << elapsed.count()
@@ -1728,8 +1733,12 @@ void run() {
             std::cout << "Converting FCPW tree (good)\n";
             tree = convert_tree(bvh);
         } else {
+#ifdef BONSAI_CUDA
+            std::cerr << "TODO: implement CUDA tree build\n";
+#else
             std::cout << "Building Bonsai tree (bad)\n";
             tree = build_tree(boundaryPositions, boundaryIndices);
+#endif
         }
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -1789,7 +1798,7 @@ void run() {
     pde.freq = 10.0f / boxExtent;
 
     const auto &eigenLow = tightBoxExtents.first;
-    const auto &eigenHigh = tightBoxExtents.second; 
+    const auto &eigenHigh = tightBoxExtents.second;
 #ifdef BONSAI_CUDA
     box.low.x = eigenLow(0);
     box.low.y = eigenLow(1);
