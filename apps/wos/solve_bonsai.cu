@@ -2,11 +2,11 @@
 #include "solve_bonsai.cuh"
 
 __device__ void addSolutionEstimate(Statistics *s, float estimate) {
-    *s.nSolEstimates += 1;
+    s->nSolEstimates += 1;
     float delta = (estimate - (*s).solMean);
-    *s.solMean += (delta / (float)(*s).nSolEstimates);
+    s->solMean += (delta / (float)(*s).nSolEstimates);
     float delta2 = (estimate - (*s).solMean);
-    *s.solMean2 += (delta * delta2);
+    s->solMean2 += (delta * delta2);
     return;
 }
 
@@ -717,13 +717,13 @@ __device__ Statistics sol(const PDE *pde, const WalkSettings *s,
             *totalContribution = dirichletPDE((*p).pt, pde, s);
         }
         addSolutionEstimate(stats, (*totalContribution));
-        *stats.firstSphereRadius = 0;
+        stats->firstSphereRadius = 0;
         return (*stats);
     }
     uint32_t n = (((*p).distToAbs <= (*s).epsShellAbs) ? 1u : nWalks);
-    *stats.firstSphereRadius = (*p).distToAbs;
+    stats->firstSphereRadius = (*p).distToAbs;
     uint32_t walkLength = doWalk(pde, s, p, 0u, n, stats, 0u, tris, _rng_state);
-    *stats.totalWalkLength = walkLength;
+    stats->totalWalkLength = walkLength;
     return (*stats);
 }
 
