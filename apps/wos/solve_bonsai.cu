@@ -2,11 +2,11 @@
 #include "solve_bonsai.cuh"
 
 __device__ void addSolutionEstimate(Statistics *s, float estimate) {
-    *s += 1;
+    *s.nSolEstimates += 1;
     float delta = (estimate - (*s).solMean);
-    *s += (delta / (float)(*s).nSolEstimates);
+    *s.solMean += (delta / (float)(*s).nSolEstimates);
     float delta2 = (estimate - (*s).solMean);
-    *s += (delta * delta2);
+    *s.solMean2 += (delta * delta2);
     return;
 }
 
