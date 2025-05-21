@@ -20,6 +20,8 @@
 namespace bonsai {
 namespace lower {
 
+// #define LOG_TREE_VISITS 1
+
 namespace {
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
@@ -247,8 +249,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
     return RewriteFilter(std::move(predicate), intervals).mutate(body);
 }
 
-std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
-                         ir::Expr maybe_filter) {
+std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric,
+                                          ir::Expr best,
+                                          ir::Expr maybe_filter) {
     if (const ir::SetOp *as_set = maybe_filter.as<ir::SetOp>()) {
         if (as_set->op == ir::SetOp::filter) {
             // Can fuse!
@@ -298,9 +301,10 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
         const IntervalMap &intervals;
         const bool update_from_yfs;
 
-        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t, const IntervalMap &intervals, const bool update_from_yfs)
-            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)), intervals(intervals), update_from_yfs(update_from_yfs) {
-        }
+        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t,
+                      const IntervalMap &intervals, const bool update_from_yfs)
+            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)),
+              intervals(intervals), update_from_yfs(update_from_yfs) {}
 
         size_t counter = 0;
 
@@ -353,15 +357,15 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
                 << "Cannot accelerate metric: " << lambda->value
                 << " on: " << ir::Stmt(node);
 
-
             // Best must be at most max.
             ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
 
-            ir::Expr empty_expr = ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);
+            ir::Expr empty_expr =
+                ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);
             std::vector<ir::Expr> values = {std::move(value), empty_expr};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
-            ir::Stmt do_update = ir::Accumulate::make(loc, ir::Accumulate::Argmin,
-                                        std::move(update));
+            ir::Stmt do_update = ir::Accumulate::make(
+                loc, ir::Accumulate::Argmin, std::move(update));
             return ir::Sequence::make({std::move(do_update), node});
         }
     };
@@ -409,11 +413,12 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     local_intervals[best_metric] = Interval{ir::Expr(), best_metric};
 
     // Try to build fused filter inside.
-    // TODO(ajr): scans need to be 
+    // TODO(ajr): scans need to be
     auto [fused_filter, fused] = try_fuse_filter(lambda, best_metric, inner);
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
-    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t), intervals, !fused)
+    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t),
+                         intervals, !fused)
                .mutate(body);
 
     return ir::Sequence::make(
@@ -421,17 +426,18 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 }
 
 ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
-                      const ir::TypeMap &tree_types,
-                      const IntervalMap &intervals) {
+                       const ir::TypeMap &tree_types,
+                       const IntervalMap &intervals) {
     struct RewriteMinimum : public Rewriter {
         ir::Expr metric;
         ir::WriteLoc loc;
         const IntervalMap &intervals;
         const bool update_from_yfs;
 
-        RewriteMinimum(ir::Expr met, ir::WriteLoc l, const IntervalMap &intervals, const bool update_from_yfs)
-            : metric(std::move(met)), loc(std::move(l)), intervals(intervals), update_from_yfs(update_from_yfs) {
-        }
+        RewriteMinimum(ir::Expr met, ir::WriteLoc l,
+                       const IntervalMap &intervals, const bool update_from_yfs)
+            : metric(std::move(met)), loc(std::move(l)), intervals(intervals),
+              update_from_yfs(update_from_yfs) {}
 
         size_t counter = 0;
 
@@ -452,7 +458,8 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
                 ir::equals(lambda->args[0].type, node->value.type()));
             ir::Expr value =
                 replace(lambda->args[0].name, node->value, lambda->value);
-            return ir::Accumulate::make(loc, ir::Accumulate::Min, std::move(value));
+            return ir::Accumulate::make(loc, ir::Accumulate::Min,
+                                        std::move(value));
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {
@@ -460,7 +467,9 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
                 lower_iterate(node->value)); // lower into a concrete loop.
         }
 
-        ir::Stmt visit(const ir::Scan *node) override { internal_error << ir::Stmt(node); }
+        ir::Stmt visit(const ir::Scan *node) override {
+            internal_error << ir::Stmt(node);
+        }
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
             if (!update_from_yfs) {
@@ -480,12 +489,11 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
                 << "Cannot accelerate metric: " << lambda->value
                 << " on: " << ir::Stmt(node);
 
-
             // Best must be at most max.
             // Epsilon only needed if subtree isn't tight / can be empty.
             ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
             ir::Stmt do_update = ir::Accumulate::make(loc, ir::Accumulate::Min,
-                                        std::move(value));
+                                                      std::move(value));
             return ir::Sequence::make({std::move(do_update), node});
         }
     };
@@ -516,7 +524,7 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
     local_intervals[ret_var] = Interval{ir::Expr(), ret_var};
 
     // Try to build fused filter inside.
-    // TODO(ajr): scans need to be 
+    // TODO(ajr): scans need to be
     auto [fused_filter, fused] = try_fuse_filter(lambda, ret_var, inner);
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
@@ -526,7 +534,6 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
 }
-
 
 ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
     struct RewriteProduct : public Rewriter {
@@ -763,6 +770,93 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     }
 }
 
+#ifdef LOG_TREE_VISITS
+ir::Stmt add_tree_visit_logger(ir::Stmt stmt) {
+    struct AddLogger : public ir::Mutator {
+        const ir::WriteLoc &from_log_loc, &yield_log_loc;
+        const ir::Expr from_str = ir::StringImm::make("Nodes visited: "),
+                       yield_str = ir::StringImm::make("Primitives tested: ");
+
+        AddLogger(const ir::WriteLoc &from_log_loc,
+                  const ir::WriteLoc &yield_log_loc)
+            : from_log_loc(from_log_loc), yield_log_loc(yield_log_loc) {}
+
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            return ir::Sequence::make(
+                {ir::Accumulate::make(
+                     from_log_loc, ir::Accumulate::Add,
+                     make_const(
+                         from_log_loc.type,
+                         node->value.type().as<ir::Tuple_t>()->etypes.size())),
+                 node});
+        }
+
+        // Bleh, Yields in reductions have been rewritten to accumulates by
+        // argmins.
+
+        ir::Stmt visit(const ir::Accumulate *node) override {
+            return ir::Sequence::make({
+                ir::Accumulate::make(yield_log_loc, ir::Accumulate::Add,
+                                     make_one(yield_log_loc.type)),
+                ir::Print::make(
+                    {ir::StringImm::make("before "),
+                     ir::StringImm::make(node->loc.base),
+                     ir::Var::make(node->loc.type, node->loc.base)}),
+                node,
+                ir::Print::make(
+                    {ir::StringImm::make("updated "),
+                     ir::StringImm::make(node->loc.base),
+                     ir::Var::make(node->loc.type, node->loc.base)}),
+            });
+        }
+
+        ir::Stmt visit(const ir::IfElse *node) override {
+            const ir::BinOp *binop = node->cond.as<ir::BinOp>();
+            if (!binop || binop->op != ir::BinOp::Lt ||
+                node->then_body.is<ir::IfElse>()) {
+                return ir::Mutator::visit(node);
+            }
+            return ir::Sequence::make(
+                {ir::Print::make({binop->a, ir::StringImm::make(" less than "),
+                                  binop->b, node->cond}),
+                 ir::Mutator::visit(node)});
+        }
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            // This should print, assuming an argmin
+            ir::Expr from_log =
+                ir::Var::make(from_log_loc.type, from_log_loc.base);
+            ir::Expr yield_log =
+                ir::Var::make(yield_log_loc.type, yield_log_loc.base);
+            return ir::Sequence::make(
+                {ir::Print::make({from_str, from_log}),
+                 ir::Print::make(
+                     {yield_str,
+                      yield_log - from_log / 2}), // hacky binary assumption.
+                 node});
+        }
+    };
+
+    static uint64_t counter = 0;
+    static const ir::Type u32 = ir::UInt_t::make(32);
+
+    const std::string from_log_name = "_from_log" + std::to_string(counter);
+    ir::WriteLoc from_log_loc(from_log_name, u32);
+    const std::string yield_log_name = "_yield_log" + std::to_string(counter);
+    ir::WriteLoc yield_log_loc(yield_log_name, u32);
+    counter++;
+
+    std::vector<ir::Stmt> stmts{
+        ir::Allocate::make(from_log_loc, make_zero(u32),
+                           ir::Allocate::Memory::Stack),
+        ir::Allocate::make(yield_log_loc, make_zero(u32),
+                           ir::Allocate::Memory::Stack),
+        AddLogger(from_log_loc, yield_log_loc).mutate(stmt),
+    };
+    return ir::Sequence::make(std::move(stmts));
+}
+#endif
+
 struct LowerBVH : public ir::Mutator {
     const ir::TypeMap &tree_types;
     ir::FuncMap new_funcs;
@@ -797,6 +891,10 @@ struct LowerBVH : public ir::Mutator {
         // queries, etc?
         IntervalMap intervals;
         ir::Stmt body = build_traversal(expr, tree_types, intervals);
+
+#ifdef LOG_TREE_VISITS
+        body = add_tree_visit_logger(std::move(body));
+#endif
 
         internal_assert(body.defined());
 
