@@ -20,7 +20,6 @@ add_bonsai_tests(
     option-dereference2.bonsai
     option-dereference3.bonsai
     optional_bool.bonsai
-    string-literal.bonsai
     struct_default.bonsai
     struct_duplicate.bonsai
     struct_duplicate_default.bonsai

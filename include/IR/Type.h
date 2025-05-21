@@ -23,6 +23,7 @@ enum class IRTypeEnum {
     Index_t,
     Float_t,
     Bool_t,
+    String_t,
     Ptr_t,
     Ref_t,
     Vector_t,
@@ -181,6 +182,12 @@ struct Bool_t : TypeNode<Bool_t> {
     static Type make();
 
     static const IRTypeEnum node_type = IRTypeEnum::Bool_t;
+};
+
+struct String_t : TypeNode<String_t> {
+    static Type make();
+
+    static const IRTypeEnum node_type = IRTypeEnum::String_t;
 };
 
 struct Ptr_t : TypeNode<Ptr_t> {

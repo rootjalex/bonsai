@@ -155,6 +155,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Bool_t: {
         return Cmp::Equals;
     }
+    case IRTypeEnum::String_t: {
+        return Cmp::Equals;
+    }
     case IRTypeEnum::Ptr_t: {
         return compare_types(t0.as<Ptr_t>()->etype, t1.as<Ptr_t>()->etype);
     }
@@ -399,6 +402,10 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::VecImm: {
         return compare_lists(e0.as<VecImm>()->values, e1.as<VecImm>()->values,
                              compare_exprs);
+    }
+    case IRExprEnum::StringImm: {
+        return compare_primitives(e0.as<StringImm>()->value,
+                                  e1.as<StringImm>()->value);
     }
     case IRExprEnum::Var: {
         return compare_primitives(e0.as<Var>()->name, e1.as<Var>()->name);

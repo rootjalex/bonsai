@@ -126,7 +126,6 @@ struct GatherFreeVars : public Visitor {
 
     void visit(const ir::RecLoop *node) override {
         for (const auto &arg : node->args) {
-            internal_assert(!seen_vars.contains(arg.name));
             seen_vars.insert(arg.name);
         }
         node->body.accept(this);

@@ -25,6 +25,7 @@ add_bonsai_tests(
     option-dereference2.bonsai
     option-nested.bonsai
     option.bonsai
+    parse-str.bonsai
     rect_contains.bonsai
     struct_defaults.bonsai
     trace_aosoa.bonsai

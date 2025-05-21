@@ -1,0 +1,9 @@
+//! flags: -b llvm -e
+
+func main() -> i32 {
+	print("hello world");
+	// TODO(ajr): this should print a newline.
+	print("hello world\n");
+	print("hello", "world");
+	return 0;
+}

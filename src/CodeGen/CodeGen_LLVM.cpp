@@ -685,6 +685,10 @@ void CodeGen_LLVM::visit(const VecImm *node) {
     build.accept(this);
 }
 
+void CodeGen_LLVM::visit(const StringImm *node) {
+    internal_error << "[unimplemented] StringImm in LLVM: " << Expr(node);
+}
+
 void CodeGen_LLVM::visit(const Infinity *node) {
     llvm::Type *inf_type = codegen_type(node->type);
 
@@ -977,6 +981,11 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
     auto indent = [&](uint32_t level) -> std::string {
         return std::string(level, ' ');
     };
+
+    if (const ir::StringImm *str_imm = node.as<ir::StringImm>()) {
+        to_print += str_imm->value;
+        return;
+    }
 
     if (auto *vtype = t.as<ir::Vector_t>()) {
         to_print += "[";

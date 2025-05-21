@@ -45,6 +45,8 @@ void Visitor::visit(const Float_t *) {}
 
 void Visitor::visit(const Bool_t *) {}
 
+void Visitor::visit(const String_t *) {}
+
 void Visitor::visit(const Ptr_t *node) { node->etype.accept(this); }
 
 void Visitor::visit(const Ref_t *node) {}
@@ -104,6 +106,8 @@ void Visitor::visit(const FloatImm *) {}
 void Visitor::visit(const BoolImm *) {}
 
 void Visitor::visit(const VecImm *) {}
+
+void Visitor::visit(const StringImm *) {}
 
 void Visitor::visit(const Infinity *) {}
 
@@ -286,7 +290,7 @@ void Visitor::visit(const Append *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
 }
-  
+
 void Visitor::visit(const Name *node) {}
 
 void Visitor::visit(const Pad *node) {}
