@@ -695,10 +695,10 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
-    if (!node->loc.type.is<ir::Vector_t>()) {
+    if (node->loc.type.is<ir::Struct_t>()) {
         // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
         // TODO(cgyurgyik): Need to revisit this and fix const qualifier issues.
-        //  os << "const" << ' ';
+        os << "const" << ' ';
     }
     node->loc.type.accept(this);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
@@ -976,7 +976,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         // ->
         // curr = {min|max}(curr, update);
         os << '=' << ' ';
-        os << (node->op == Accumulate::OpType::Max ? "max" : "min") << '(';
+        os << (node->op == Accumulate::OpType::Max ? "max" : "min") << "(*";
         Var::make(current.type, current.base).accept(this);
         os << ',' << ' ';
         update.accept(this);

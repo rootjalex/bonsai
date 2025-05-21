@@ -95,7 +95,7 @@ __device__ __tuple_0 closestPointonTriangle(Point *pt, Triangle *tri) {
 }
 
 __device__ float distmin_Point_Triangle(Point *p, Triangle *tri) {
-    __tuple_0 pts = closestPointonTriangle(p, tri);
+    const __tuple_0 pts = closestPointonTriangle(p, tri);
     float3 d = ((*p).vec - pts._field0.vec);
     return dot(d, d);
 }
@@ -110,38 +110,15 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
     do {
         *_queue_count0 -= 1;
         uint16_t tris_index = _queue0[(*_queue_count0)];
-        AABB _lv24 = AABB{(*tris).group0_index[tris_index].low,
-                          (*tris).group0_index[tris_index].high};
-        if (distmin_Point_AABB(p, (&_lv24)) < (*_best0)) {
+        const AABB _lv30 = AABB{(*tris).group0_index[tris_index].low,
+                                (*tris).group0_index[tris_index].high};
+        if (distmin_Point_AABB(p, (&_lv30)) < (*_best0)) {
             if ((*tris).group0_index[tris_index].nPrims == 0u) {
-                if ((distmin_Point_AABB(
-                         p,
-                         (&AABB{(*tris).group0_index[tris_index + 1u].low,
-                                (*tris).group0_index[tris_index + 1u].high})) <
-                     (*_best0)) &&
-                    (distmin_Point_AABB(
-                         p, (&AABB{(*tris)
-                                       .group0_index
-                                           [tris_index +
-                                            bonsai_reinterpret<_tree_layout2>(
-                                                (*tris)
-                                                    .group0_index[tris_index]
-                                                    .split0on_nPrims)
-                                                .offset]
-                                       .low,
-                                   (*tris)
-                                       .group0_index
-                                           [tris_index +
-                                            bonsai_reinterpret<_tree_layout2>(
-                                                (*tris)
-                                                    .group0_index[tris_index]
-                                                    .split0on_nPrims)
-                                                .offset]
-                                       .high})) < (*_best0))) {
-                    AABB _lv0 =
-                        AABB{(*tris).group0_index[tris_index + 1u].low,
-                             (*tris).group0_index[tris_index + 1u].high};
-                    AABB _lv1 = AABB{
+                const AABB _lv27 =
+                    AABB{(*tris).group0_index[tris_index + 1u].low,
+                         (*tris).group0_index[tris_index + 1u].high};
+                if (distmin_Point_AABB(p, (&_lv27)) < (*_best0)) {
+                    const AABB _lv22 = AABB{
                         (*tris)
                             .group0_index[tris_index +
                                           bonsai_reinterpret<_tree_layout2>(
@@ -158,35 +135,11 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                                   .split0on_nPrims)
                                               .offset]
                             .high};
-                    *_best0 =
-                        min(_best0, fmaxf(distmax_Point_AABB(p, (&_lv0)),
-                                          distmax_Point_AABB(p, (&_lv1))));
-                    AABB _lv16 =
-                        AABB{(*tris).group0_index[tris_index + 1u].low,
-                             (*tris).group0_index[tris_index + 1u].high};
-                    AABB _lv17 = AABB{
-                        (*tris)
-                            .group0_index[tris_index +
-                                          bonsai_reinterpret<_tree_layout2>(
-                                              (*tris)
-                                                  .group0_index[tris_index]
-                                                  .split0on_nPrims)
-                                              .offset]
-                            .low,
-                        (*tris)
-                            .group0_index[tris_index +
-                                          bonsai_reinterpret<_tree_layout2>(
-                                              (*tris)
-                                                  .group0_index[tris_index]
-                                                  .split0on_nPrims)
-                                              .offset]
-                            .high};
-                    if (distmax_Point_AABB(p, (&_lv16)) <
-                        distmin_Point_AABB(p, (&_lv17))) {
-                        _queue0[(*_queue_count0)] = (tris_index + 1u);
-                        *_queue_count0 += 1;
-                    } else {
-                        AABB _lv14 = AABB{
+                    if (distmin_Point_AABB(p, (&_lv22)) < (*_best0)) {
+                        const AABB _lv0 =
+                            AABB{(*tris).group0_index[tris_index + 1u].low,
+                                 (*tris).group0_index[tris_index + 1u].high};
+                        const AABB _lv1 = AABB{
                             (*tris)
                                 .group0_index[tris_index +
                                               bonsai_reinterpret<_tree_layout2>(
@@ -203,23 +156,35 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                                       .split0on_nPrims)
                                                   .offset]
                                 .high};
-                        AABB _lv15 =
+                        *_best0 =
+                            min(*_best0, fmaxf(distmax_Point_AABB(p, (&_lv0)),
+                                               distmax_Point_AABB(p, (&_lv1))));
+                        const AABB _lv16 =
                             AABB{(*tris).group0_index[tris_index + 1u].low,
                                  (*tris).group0_index[tris_index + 1u].high};
-                        if (distmax_Point_AABB(p, (&_lv14)) <
-                            distmin_Point_AABB(p, (&_lv15))) {
-                            _queue0[(*_queue_count0)] =
-                                (tris_index + bonsai_reinterpret<_tree_layout2>(
+                        const AABB _lv17 = AABB{
+                            (*tris)
+                                .group0_index[tris_index +
+                                              bonsai_reinterpret<_tree_layout2>(
                                                   (*tris)
                                                       .group0_index[tris_index]
                                                       .split0on_nPrims)
-                                                  .offset);
+                                                  .offset]
+                                .low,
+                            (*tris)
+                                .group0_index[tris_index +
+                                              bonsai_reinterpret<_tree_layout2>(
+                                                  (*tris)
+                                                      .group0_index[tris_index]
+                                                      .split0on_nPrims)
+                                                  .offset]
+                                .high};
+                        if (distmax_Point_AABB(p, (&_lv16)) <
+                            distmin_Point_AABB(p, (&_lv17))) {
+                            _queue0[(*_queue_count0)] = (tris_index + 1u);
                             *_queue_count0 += 1;
                         } else {
-                            AABB _lv2 = AABB{
-                                (*tris).group0_index[tris_index + 1u].low,
-                                (*tris).group0_index[tris_index + 1u].high};
-                            AABB _lv3 =
+                            const AABB _lv14 =
                                 AABB{(*tris)
                                          .group0_index
                                              [tris_index +
@@ -238,10 +203,197 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                                       .split0on_nPrims)
                                                   .offset]
                                          .high};
-                            AABB _lv4 = AABB{
+                            const AABB _lv15 = AABB{
                                 (*tris).group0_index[tris_index + 1u].low,
                                 (*tris).group0_index[tris_index + 1u].high};
-                            AABB _lv5 =
+                            if (distmax_Point_AABB(p, (&_lv14)) <
+                                distmin_Point_AABB(p, (&_lv15))) {
+                                _queue0[(*_queue_count0)] =
+                                    (tris_index +
+                                     bonsai_reinterpret<_tree_layout2>(
+                                         (*tris)
+                                             .group0_index[tris_index]
+                                             .split0on_nPrims)
+                                         .offset);
+                                *_queue_count0 += 1;
+                            } else {
+                                const AABB _lv2 = AABB{
+                                    (*tris).group0_index[tris_index + 1u].low,
+                                    (*tris).group0_index[tris_index + 1u].high};
+                                const AABB _lv3 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                const AABB _lv4 = AABB{
+                                    (*tris).group0_index[tris_index + 1u].low,
+                                    (*tris).group0_index[tris_index + 1u].high};
+                                const AABB _lv5 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                const AABB _lv6 = AABB{
+                                    (*tris).group0_index[tris_index + 1u].low,
+                                    (*tris).group0_index[tris_index + 1u].high};
+                                const AABB _lv7 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                _queue0[(*_queue_count0)] =
+                                    (((distmin_Point_AABB(p, (&_lv2)) <
+                                       distmin_Point_AABB(p, (&_lv3))) |
+                                      ((distmin_Point_AABB(p, (&_lv4)) ==
+                                        distmin_Point_AABB(p, (&_lv5))) &
+                                       (distmax_Point_AABB(p, (&_lv6)) <
+                                        distmax_Point_AABB(p, (&_lv7)))))
+                                         ? (tris_index +
+                                            bonsai_reinterpret<_tree_layout2>(
+                                                (*tris)
+                                                    .group0_index[tris_index]
+                                                    .split0on_nPrims)
+                                                .offset)
+                                         : (tris_index + 1u));
+                                const AABB _lv8 = AABB{
+                                    (*tris).group0_index[tris_index + 1u].low,
+                                    (*tris).group0_index[tris_index + 1u].high};
+                                const AABB _lv9 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                const AABB _lv10 = AABB{
+                                    (*tris).group0_index[tris_index + 1u].low,
+                                    (*tris).group0_index[tris_index + 1u].high};
+                                const AABB _lv11 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                const AABB _lv12 = AABB{
+                                    (*tris).group0_index[tris_index + 1u].low,
+                                    (*tris).group0_index[tris_index + 1u].high};
+                                const AABB _lv13 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                _queue0[(*_queue_count0) + 1] =
+                                    (((distmin_Point_AABB(p, (&_lv8)) <
+                                       distmin_Point_AABB(p, (&_lv9))) |
+                                      ((distmin_Point_AABB(p, (&_lv10)) ==
+                                        distmin_Point_AABB(p, (&_lv11))) &
+                                       (distmax_Point_AABB(p, (&_lv12)) <
+                                        distmax_Point_AABB(p, (&_lv13)))))
+                                         ? (tris_index + 1u)
+                                         : (tris_index +
+                                            bonsai_reinterpret<_tree_layout2>(
+                                                (*tris)
+                                                    .group0_index[tris_index]
+                                                    .split0on_nPrims)
+                                                .offset));
+                                *_queue_count0 += 2;
+                            }
+                        }
+                    } else {
+                        const AABB _lv21 =
+                            AABB{(*tris).group0_index[tris_index + 1u].low,
+                                 (*tris).group0_index[tris_index + 1u].high};
+                        if (distmin_Point_AABB(p, (&_lv21)) < (*_best0)) {
+                            const AABB _lv18 = AABB{
+                                (*tris).group0_index[tris_index + 1u].low,
+                                (*tris).group0_index[tris_index + 1u].high};
+                            *_best0 =
+                                min(*_best0, distmax_Point_AABB(p, (&_lv18)));
+                            _queue0[(*_queue_count0)] = (tris_index + 1u);
+                            *_queue_count0 += 1;
+                        } else {
+                            const AABB _lv20 =
                                 AABB{(*tris)
                                          .group0_index
                                              [tris_index +
@@ -260,138 +412,52 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                                       .split0on_nPrims)
                                                   .offset]
                                          .high};
-                            AABB _lv6 = AABB{
-                                (*tris).group0_index[tris_index + 1u].low,
-                                (*tris).group0_index[tris_index + 1u].high};
-                            AABB _lv7 =
-                                AABB{(*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .low,
-                                     (*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .high};
-                            _queue0[(*_queue_count0)] =
-                                (((distmin_Point_AABB(p, (&_lv2)) <
-                                   distmin_Point_AABB(p, (&_lv3))) |
-                                  ((distmin_Point_AABB(p, (&_lv4)) ==
-                                    distmin_Point_AABB(p, (&_lv5))) &
-                                   (distmax_Point_AABB(p, (&_lv6)) <
-                                    distmax_Point_AABB(p, (&_lv7)))))
-                                     ? (tris_index +
-                                        bonsai_reinterpret<_tree_layout2>(
-                                            (*tris)
-                                                .group0_index[tris_index]
-                                                .split0on_nPrims)
-                                            .offset)
-                                     : (tris_index + 1u));
-                            AABB _lv8 = AABB{
-                                (*tris).group0_index[tris_index + 1u].low,
-                                (*tris).group0_index[tris_index + 1u].high};
-                            AABB _lv9 =
-                                AABB{(*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .low,
-                                     (*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .high};
-                            AABB _lv10 = AABB{
-                                (*tris).group0_index[tris_index + 1u].low,
-                                (*tris).group0_index[tris_index + 1u].high};
-                            AABB _lv11 =
-                                AABB{(*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .low,
-                                     (*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .high};
-                            AABB _lv12 = AABB{
-                                (*tris).group0_index[tris_index + 1u].low,
-                                (*tris).group0_index[tris_index + 1u].high};
-                            AABB _lv13 =
-                                AABB{(*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .low,
-                                     (*tris)
-                                         .group0_index
-                                             [tris_index +
-                                              bonsai_reinterpret<_tree_layout2>(
-                                                  (*tris)
-                                                      .group0_index[tris_index]
-                                                      .split0on_nPrims)
-                                                  .offset]
-                                         .high};
-                            _queue0[(*_queue_count0) + 1] =
-                                (((distmin_Point_AABB(p, (&_lv8)) <
-                                   distmin_Point_AABB(p, (&_lv9))) |
-                                  ((distmin_Point_AABB(p, (&_lv10)) ==
-                                    distmin_Point_AABB(p, (&_lv11))) &
-                                   (distmax_Point_AABB(p, (&_lv12)) <
-                                    distmax_Point_AABB(p, (&_lv13)))))
-                                     ? (tris_index + 1u)
-                                     : (tris_index +
-                                        bonsai_reinterpret<_tree_layout2>(
-                                            (*tris)
-                                                .group0_index[tris_index]
-                                                .split0on_nPrims)
-                                            .offset));
-                            *_queue_count0 += 2;
+                            if (distmin_Point_AABB(p, (&_lv20)) < (*_best0)) {
+                                const AABB _lv19 = AABB{
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .low,
+                                    (*tris)
+                                        .group0_index
+                                            [tris_index +
+                                             bonsai_reinterpret<_tree_layout2>(
+                                                 (*tris)
+                                                     .group0_index[tris_index]
+                                                     .split0on_nPrims)
+                                                 .offset]
+                                        .high};
+                                *_best0 = min(*_best0,
+                                              distmax_Point_AABB(p, (&_lv19)));
+                                _queue0[(*_queue_count0)] =
+                                    (tris_index +
+                                     bonsai_reinterpret<_tree_layout2>(
+                                         (*tris)
+                                             .group0_index[tris_index]
+                                             .split0on_nPrims)
+                                         .offset);
+                                *_queue_count0 += 1;
+                            }
                         }
                     }
                 } else {
-                    AABB _lv21 =
+                    const AABB _lv26 =
                         AABB{(*tris).group0_index[tris_index + 1u].low,
                              (*tris).group0_index[tris_index + 1u].high};
-                    if (distmin_Point_AABB(p, (&_lv21)) < (*_best0)) {
-                        AABB _lv18 =
+                    if (distmin_Point_AABB(p, (&_lv26)) < (*_best0)) {
+                        const AABB _lv23 =
                             AABB{(*tris).group0_index[tris_index + 1u].low,
                                  (*tris).group0_index[tris_index + 1u].high};
-                        *_best0 = min(_best0, distmax_Point_AABB(p, (&_lv18)));
+                        *_best0 = min(*_best0, distmax_Point_AABB(p, (&_lv23)));
                         _queue0[(*_queue_count0)] = (tris_index + 1u);
                         *_queue_count0 += 1;
                     } else {
-                        AABB _lv20 = AABB{
+                        const AABB _lv25 = AABB{
                             (*tris)
                                 .group0_index[tris_index +
                                               bonsai_reinterpret<_tree_layout2>(
@@ -408,8 +474,8 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                                       .split0on_nPrims)
                                                   .offset]
                                 .high};
-                        if (distmin_Point_AABB(p, (&_lv20)) < (*_best0)) {
-                            AABB _lv19 =
+                        if (distmin_Point_AABB(p, (&_lv25)) < (*_best0)) {
+                            const AABB _lv24 =
                                 AABB{(*tris)
                                          .group0_index
                                              [tris_index +
@@ -429,7 +495,7 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                                   .offset]
                                          .high};
                             *_best0 =
-                                min(_best0, distmax_Point_AABB(p, (&_lv19)));
+                                min(*_best0, distmax_Point_AABB(p, (&_lv24)));
                             _queue0[(*_queue_count0)] =
                                 (tris_index + bonsai_reinterpret<_tree_layout2>(
                                                   (*tris)
@@ -444,15 +510,15 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                 for (uint16_t _idx0 = 0u;
                      _idx0 < (uint16_t)(*tris).group0_index[tris_index].nPrims;
                      _idx0 += 1u) {
-                    Triangle _lv23 =
+                    const Triangle _lv29 =
                         (*tris).prims[bonsai_reinterpret<_tree_layout3>(
                                           (*tris)
                                               .group0_index[tris_index]
                                               .split0on_nPrims)
                                           .pOffset +
                                       _idx0];
-                    if (distmin_Point_Triangle(p, (&_lv23)) < (*_best0)) {
-                        Triangle _lv22 =
+                    if (distmin_Point_Triangle(p, (&_lv29)) < (*_best0)) {
+                        const Triangle _lv28 =
                             (*tris).prims[bonsai_reinterpret<_tree_layout3>(
                                               (*tris)
                                                   .group0_index[tris_index]
@@ -460,7 +526,7 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
                                               .pOffset +
                                           _idx0];
                         *_best0 =
-                            min(_best0, distmin_Point_Triangle(p, (&_lv22)));
+                            min(*_best0, distmin_Point_Triangle(p, (&_lv28)));
                     }
                 }
             }
@@ -470,7 +536,7 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
 }
 
 __device__ float computeDistToAbsBoundary(float3 pt, _tree_layout0 *tris) {
-    Point p = Point{pt};
+    const Point p = Point{pt};
     return sqrtf(_traverse_tree0((&p), tris));
 }
 
@@ -517,7 +583,7 @@ __device__ float computeSourceContribution(PDE *pde, WalkSettings *s,
                                            curandState *_rng_state) {
     if (!(((*s).flags & 64u) != 0u)) {
         float3 dir = sampleUnitSphereUniform(_rng_state);
-        __tuple_1 sample = harmonicSampleVolume(ball, dir, _rng_state);
+        const __tuple_1 sample = harmonicSampleVolume(ball, dir, _rng_state);
         float3 sourcePt = sample._field0;
         float sourceContribution =
             ((((*ball).radius * (*ball).radius) / (float)6) *
@@ -563,7 +629,7 @@ __device__ _option0 walk(PDE *pde, WalkSettings *s, WalkResults *res,
                             (*S_res).walkLength, (*S_res).distToAbs},
                 true};
         } else {
-            HarmonicGreensBall ball = HarmonicGreensBall{
+            const HarmonicGreensBall ball = HarmonicGreensBall{
                 (*S_res).pt, (*S_res).distToAbs, (float)0.0001};
             float contrib =
                 computeSourceContribution(pde, s, (&ball), S_res, _rng_state);
@@ -575,7 +641,7 @@ __device__ _option0 walk(PDE *pde, WalkSettings *s, WalkResults *res,
                 return _option0{};
             }
             float t = ((*S_res).throughput * 1);
-            __tuple_2 term = terminateWalk(s, t, _rng_state);
+            const __tuple_2 term = terminateWalk(s, t, _rng_state);
             float throughput = term._field1;
             if (term._field0) {
                 return _option0{WalkResults{pt, totalSourceContribution,
@@ -591,7 +657,7 @@ __device__ _option0 walk(PDE *pde, WalkSettings *s, WalkResults *res,
                                 true};
             }
             float distToAbs = computeDistToAbsBoundary(pt, tris);
-            WalkResults new_res = WalkResults{
+            const WalkResults new_res = WalkResults{
                 pt, totalSourceContribution, throughput, walkLength, distToAbs};
             *S_res = new_res;
             continue;
@@ -611,11 +677,11 @@ __device__ uint32_t doWalk(PDE *pde, WalkSettings *s, SamplePoint *p,
         if (nWalks <= (*S_w)) {
             return (*S_walkLength);
         }
-        WalkResults starter_res =
+        const WalkResults starter_res =
             WalkResults{(*p).pt, 0, 1, 0u, (*p).distToAbs};
-        _option0 res = walk(pde, s, (&starter_res), tris, _rng_state);
+        const _option0 res = walk(pde, s, (&starter_res), tris, _rng_state);
         if (res.set) {
-            WalkResults results = res.value;
+            const WalkResults results = res.value;
             float totalContribution = results.totalSourceContribution;
             addSolutionEstimate(stats, totalContribution);
             *S_w = ((*S_w) + 1u);
@@ -656,7 +722,7 @@ __global__ void _parfunc0(_ctx0 ctx0) {
     }
     curandState _rng_state;
     curand_init(tid, 0, 0, &_rng_state);
-    SamplePoint _lv0 = ctx0.pts[_i0];
+    const SamplePoint _lv0 = ctx0.pts[_i0];
     ctx0._alloc0[_i0] =
         sol(ctx0.pde, ctx0.s, (&_lv0), ctx0.nWalks, ctx0.tris, (&_rng_state));
     return;
