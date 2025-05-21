@@ -449,6 +449,18 @@ void CodeGen_CUDA::visit(const VectorReduce *node) {
         os << ')';
         return;
     }
+    case VectorReduce::OpType::And: {
+        os << "all" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Or: {
+        os << "any" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
     default:
         internal_error << "[unimplemented] VectorReduce CUDA codegen: "
                        << Expr(node);
@@ -964,8 +976,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         // ->
         // curr = {min|max}(curr, update);
         os << '=' << ' ';
-        os << (node->op == Accumulate::OpType::Max ? "max" : "min")
-           << '(';
+        os << (node->op == Accumulate::OpType::Max ? "max" : "min") << '(';
         Var::make(current.type, current.base).accept(this);
         os << ',' << ' ';
         update.accept(this);
@@ -1075,7 +1086,9 @@ void CodeGen_CUDA::visit(const Launch *node) {
     // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full block
     // size (1024) was causing resource launch errors.
     Expr block_size = make_const(n.type(), 512);
-    opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
+    Expr one = make_one(n.type());
+    Expr size = opt::Simplify::simplify((n + (block_size - one)) / block_size);
+    size.accept(this);
     os << ',' << ' ';
     block_size.accept(this);
     os << '>' << '>' << '>';
