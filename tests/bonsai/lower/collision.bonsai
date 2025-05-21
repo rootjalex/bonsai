@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p verify-option -p verify-layouts -p fusion -p lower-maps -p lower-trees -p lower-sorts -p lower-externs -p lower-dynamic-sets -p lower-defers2
+//! flags: -p core
 element Float = f32;
 element vec3f = vector[Float, 3];
 

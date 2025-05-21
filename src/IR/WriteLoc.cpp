@@ -23,6 +23,22 @@ void WriteLoc::add_struct_access(const std::string &field) {
     }
 }
 
+Expr WriteLoc::to_expr() {
+    Expr v = Var::make(base_type, base);
+    for (const auto &access : accesses) {
+        if (std::holds_alternative<std::string>(access)) {
+            v = Access::make(std::get<std::string>(access), v);
+            continue;
+        }
+        if (std::holds_alternative<Expr>(access)) {
+            v = Extract::make(v, std::get<Expr>(access));
+            continue;
+        }
+        internal_error << "unexpected access type!";
+    }
+    return v;
+}
+
 void WriteLoc::add_index_access(const Expr &index) {
     internal_assert(index.defined())
         << "Write location made with undefined index";
