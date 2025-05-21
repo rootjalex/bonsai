@@ -13,6 +13,7 @@
 #include "Opt/Simplify.h"
 
 #include <algorithm>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
