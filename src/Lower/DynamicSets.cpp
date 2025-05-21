@@ -84,6 +84,20 @@ class LowerDynamicSetCall : public ir::Mutator {
         return Call::make(Var::make(std::move(t), func->name), node->args);
     }
 
+    Stmt visit(const CallStmt *node) {
+        const auto *func = node->func.as<Var>();
+        if (func == nullptr) {
+            return ir::Mutator::visit(node);
+        }
+        if (!func->name.starts_with("_traverse_tree")) {
+            return ir::Mutator::visit(node);
+        }
+        const Function_t *ftype = func->type.as<Function_t>();
+        internal_assert(ftype) << func->type;
+        Type t = Function_t::make(dynamic_array_t, ftype->arg_types);
+        return CallStmt::make(Var::make(std::move(t), func->name), node->args);
+    }
+
   private:
     Type dynamic_array_t;
 };

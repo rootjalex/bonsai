@@ -2226,7 +2226,7 @@ void CodeGen_LLVM::ensure_capacity(
 
     // Check if we need to grow.
     llvm::Value *condition =
-        builder->CreateICmpUGE(index, capacity, "lock-mutex-or-continue");
+        builder->CreateICmpUGE(index, capacity, "index-ge-capacity");
     internal_assert(current_function);
     llvm::BasicBlock *lock_bb =
         llvm::BasicBlock::Create(*context, "lock-mutex", current_function);
@@ -2244,7 +2244,7 @@ void CodeGen_LLVM::ensure_capacity(
     capacity = builder->CreateLoad(i32_t, capacity_ptr, base_n + ".capacity");
 
     capacity->setAtomic(llvm::AtomicOrdering::Acquire);
-    condition = builder->CreateICmpUGE(index, capacity, "grow-or-unlock-mutex");
+    condition = builder->CreateICmpUGE(index, capacity, "index-ge-capacity");
 
     auto *zero = llvm::ConstantInt::get(i32_t, 0);
     auto *one = llvm::ConstantInt::get(i32_t, 1);

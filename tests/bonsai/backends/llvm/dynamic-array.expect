@@ -21,25 +21,25 @@ main_entry:
   %x.mutex_ptr3 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 3
   %x.buffer_ptr4 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 0
   %x.capacity = load atomic i32, ptr %x.capacity_ptr2 acquire, align 4
-  %lock-mutex-or-continue = icmp uge i32 %1, %x.capacity
-  br i1 %lock-mutex-or-continue, label %lock-mutex, label %continue
+  %index-ge-capacity = icmp uge i32 %1, %x.capacity
+  br i1 %index-ge-capacity, label %lock-mutex, label %continue
 
 lock-mutex:                                       ; preds = %main_entry
   %2 = call i32 @pthread_mutex_lock(ptr %x.mutex_ptr3)
   %x.capacity5 = load atomic i32, ptr %x.capacity_ptr2 acquire, align 4
-  %grow-or-unlock-mutex = icmp uge i32 %1, %x.capacity5
-  br i1 %grow-or-unlock-mutex, label %grow, label %unlock-mutex
+  %index-ge-capacity6 = icmp uge i32 %1, %x.capacity5
+  br i1 %index-ge-capacity6, label %grow, label %unlock-mutex
 
 continue:                                         ; preds = %unlock-mutex, %main_entry
   %3 = call i32 @pthread_mutex_lock(ptr %x.mutex_ptr3)
-  %deref_temp6 = load %struct.__dyn_array0, ptr %x, align 64
-  %buffer7 = extractvalue %struct.__dyn_array0 %deref_temp6, 0
-  %4 = getelementptr inbounds i32, ptr %buffer7, i32 %1
+  %deref_temp7 = load %struct.__dyn_array0, ptr %x, align 64
+  %buffer8 = extractvalue %struct.__dyn_array0 %deref_temp7, 0
+  %4 = getelementptr inbounds i32, ptr %buffer8, i32 %1
   store i32 0, ptr %4, align 4
   %5 = call i32 @pthread_mutex_unlock(ptr %x.mutex_ptr3)
-  %deref_temp8 = load %struct.__dyn_array0, ptr %x, align 64
-  %buffer9 = extractvalue %struct.__dyn_array0 %deref_temp8, 0
-  %extract_ptr = getelementptr inbounds i32, ptr %buffer9, i32 0
+  %deref_temp9 = load %struct.__dyn_array0, ptr %x, align 64
+  %buffer10 = extractvalue %struct.__dyn_array0 %deref_temp9, 0
+  %extract_ptr = getelementptr inbounds i32, ptr %buffer10, i32 0
   %extract = load i32, ptr %extract_ptr, align 4
   ret i32 %extract
 
