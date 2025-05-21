@@ -1,0 +1,26 @@
+import apps/wos/float;
+import apps/wos/settings;
+
+// TODO: support lambdas well enough for PDE definition
+element PDE {
+    absCoeff : Float;
+    freq : Float;
+    hasReflBoundCond : bool = false;
+}
+
+func sourcePDE(x : vec3f, p : PDE, s : WalkSettings) {
+    if ignoreSourceContribution_(s) {
+        return 0.0;
+    } else {
+        return 5.0 * sin(p.freq * x.y) * cos(p.freq * x.x);
+    }
+}
+
+func dirichletPDE(x : vec3f, p : PDE, s : WalkSettings) {
+    if (solveDoubleSided_(s) && !contains_(s.box, x)) || ignoreAbsorbingBoundaryContribution_(s) {
+        return 0.0;
+    } else {
+        return sin(p.freq * x.x) * cos(p.freq * x.y);
+    }
+}
+

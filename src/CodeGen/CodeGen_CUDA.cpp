@@ -449,6 +449,18 @@ void CodeGen_CUDA::visit(const VectorReduce *node) {
         os << ')';
         return;
     }
+    case VectorReduce::OpType::And: {
+        os << "all" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Or: {
+        os << "any" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
     default:
         internal_error << "[unimplemented] VectorReduce CUDA codegen: "
                        << Expr(node);
@@ -683,10 +695,10 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
-    if (!node->loc.type.is<ir::Vector_t>()) {
+    if (node->loc.type.is<ir::Struct_t>()) {
         // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
         // TODO(cgyurgyik): Need to revisit this and fix const qualifier issues.
-        //  os << "const" << ' ';
+        os << "const" << ' ';
     }
     node->loc.type.accept(this);
     os << ' ' << node->loc.base << ' ' << '=' << ' ';
@@ -906,19 +918,29 @@ void CodeGen_CUDA::visit(const Store *node) {
         os << ';' << '\n';
         return;
     }
-    if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
-        os << '*';
+    const auto &accesses = node->loc.accesses;
+    const bool print_ptr =
+        !base_type.is<Array_t>() && !is_context_type(base_type);
+    if (print_ptr &&
+        (accesses.empty() || std::holds_alternative<Expr>(accesses.front()))) {
+        os << "*";
     }
     os << node->loc.base;
-    const auto &accesses = node->loc.accesses;
+    bool first = true;
     for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
-            os << "." << std::get<std::string>(access);
+            if (print_ptr && first) {
+                os << "->";
+            } else {
+                os << ".";
+            }
+            os << std::get<std::string>(access);
         } else {
             os << "[";
             print_no_parens(std::get<Expr>(access));
             os << "]";
         }
+        first = false;
     }
     os << ' ' << '=' << ' ';
     value.accept(this);
@@ -929,10 +951,31 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
-    if (!node->loc.base_type.is<Array_t>()) {
-        os << '*';
+    const auto &accesses = node->loc.accesses;
+    // TODO(ajr): is this right?
+    const bool print_ptr = !current.base_type.is<Array_t>();
+    if (print_ptr &&
+        (accesses.empty() || std::holds_alternative<Expr>(accesses.front()))) {
+        os << "*";
     }
-    os << current.base << ' ';
+    os << node->loc.base;
+    bool first = true;
+    for (const auto &access : accesses) {
+        if (std::holds_alternative<std::string>(access)) {
+            if (print_ptr && first) {
+                os << "->";
+            } else {
+                os << ".";
+            }
+            os << std::get<std::string>(access);
+        } else {
+            os << "[";
+            print_no_parens(std::get<Expr>(access));
+            os << "]";
+        }
+        first = false;
+    }
+    os << " ";
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
@@ -951,6 +994,20 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         os << '=' << ' ';
         os << "arg" << (node->op == Accumulate::OpType::Argmax ? "max" : "min")
            << '(';
+        Var::make(current.type, current.base).accept(this);
+        os << ',' << ' ';
+        update.accept(this);
+        os << ')';
+        os << ';' << '\n';
+        return;
+    }
+    case Accumulate::OpType::Max: {
+    case Accumulate::OpType::Min:
+        // curr {min|max}= update;
+        // ->
+        // curr = {min|max}(curr, update);
+        os << '=' << ' ';
+        os << (node->op == Accumulate::OpType::Max ? "max" : "min") << "(*";
         Var::make(current.type, current.base).accept(this);
         os << ',' << ' ';
         update.accept(this);
@@ -1060,7 +1117,9 @@ void CodeGen_CUDA::visit(const Launch *node) {
     // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full block
     // size (1024) was causing resource launch errors.
     Expr block_size = make_const(n.type(), 512);
-    opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
+    Expr one = make_one(n.type());
+    Expr size = opt::Simplify::simplify((n + (block_size - one)) / block_size);
+    size.accept(this);
     os << ',' << ' ';
     block_size.accept(this);
     os << '>' << '>' << '>';
@@ -1199,6 +1258,10 @@ void CodeGen_CUDA::print(const Function &function) {
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
         const Function::Argument &arg = function.args[i];
+        if (arg.type.is<Ptr_t>() && arg.type.element_of().is<Struct_t>() &&
+            !arg.mutating) {
+            os << "const ";
+        }
         arg.type.accept(this);
         os << ' ' << arg.name;
         if (ir::Expr value = arg.default_value; value.defined()) {

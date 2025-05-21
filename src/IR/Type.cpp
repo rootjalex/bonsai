@@ -125,7 +125,11 @@ bool Type::is_stack_allocatable() const {
            (is<Tuple_t>() &&
             std::all_of(
                 as<Tuple_t>()->etypes.cbegin(), as<Tuple_t>()->etypes.cend(),
-                [](const auto &p) { return p.is_stack_allocatable(); }));
+                [](const auto &p) { return p.is_stack_allocatable(); })) ||
+           (is<Struct_t>() &&
+            std::all_of(
+                as<Struct_t>()->fields.cbegin(), as<Struct_t>()->fields.cend(),
+                [](const auto &p) { return p.type.is_stack_allocatable(); }));
 }
 
 bool Type::is_iterable() const { return is<Vector_t, Array_t, Set_t>(); }

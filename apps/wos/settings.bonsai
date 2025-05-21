@@ -1,0 +1,49 @@
+import apps/wos/float;
+import apps/wos/box;
+
+element WalkSettings {
+    box : Box;
+    epsShellAbs : Float;
+    epsShellRefl : Float;
+    silPrecision : Float; // TODO: need?
+    russianRouletteThreshold : Float;
+    maxWalkLength : u32;
+    stepsBeforeApplyingTikhonov : i32; // TODO: need?
+    flags : u8; // TODO: need?
+}
+
+// these NEED underscores, otherwise they conflict with global names in solve.cpp
+
+func solveDoubleSided_(w : WalkSettings) {
+    return (w.flags & 1) != 0;
+}
+
+func useGradientControlVariates_(w : WalkSettings) {
+    return (w.flags & 2) != 0;
+}
+
+func useGradientAntitheticVariates_(w : WalkSettings) {
+    return (w.flags & 4) != 0;
+}
+
+func useCosineSamplingForDerivatives_(w : WalkSettings) {
+    return (w.flags & 8) != 0;
+}
+
+func ignoreAbsorbingBoundaryContribution_(w : WalkSettings) {
+    return (w.flags & 16) != 0;
+}
+
+func ignoreReflectingBoundaryContribution_(w : WalkSettings) {
+    return (w.flags & 32) != 0;
+}
+
+func ignoreSourceContribution_(w : WalkSettings) {
+    return (w.flags & 64) != 0;
+}
+
+func printLogs_(w : WalkSettings) {
+    return (w.flags & 128) != 0;
+}
+
+

@@ -406,6 +406,7 @@ struct SetOp : ExprNode<SetOp> {
         argmin,
         filter,
         map,
+        minimum,
         product,
         // TODO: reduce
         // TODO: geometric intrinsics for lambda

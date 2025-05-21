@@ -279,7 +279,11 @@ void Printer::print(const Function &function) {
 
     os << ") -> " << function.ret_type << " {\n";
     set_indent(1);
-    function.body.accept(this);
+    if (function.body.defined()) {
+        function.body.accept(this);
+    } else {
+        os << "<undefined-function-body>" << '\n';
+    }
     os << "}";
 }
 
@@ -351,7 +355,11 @@ void Printer::print(const Schedule &schedule) {
                                       print(split.ii);
                                       os << ", ";
                                       print(split.factor);
-                                      os << ", " << split.generate_tail << ")";
+                                      if (split.tail_index.has_value()) {
+                                          os << ", ";
+                                          print(*split.tail_index);
+                                      }
+                                      os << ")";
                                   },
                                   [&](const Collapse &collapse) {
                                       os << "collapse(";
@@ -626,9 +634,20 @@ void Printer::print(const BVH_t::Node &node) {
     }
     os << ")";
 
+    bool with_printed = false;
     if (node.volume.has_value()) {
+        with_printed = true;
         os << " with ";
         print_volume(*node.volume);
+    }
+
+    for (const auto &[child, volume] : node.child_volumes) {
+        if (!with_printed) {
+            os << " with ";
+        }
+        with_printed = true;
+        print_volume(volume);
+        os << " on " << child;
     }
 }
 
@@ -1047,6 +1066,8 @@ std::string to_string(const SetOp::OpType &op) {
     switch (op) {
     case SetOp::argmin:
         return "argmin";
+    case SetOp::minimum:
+        return "minimum";
     case SetOp::filter:
         return "filter";
     case SetOp::map:
@@ -1225,6 +1246,14 @@ void Printer::visit(const Accumulate *node) {
     switch (node->op) {
     case Accumulate::OpType::Add: {
         os << " += ";
+        break;
+    }
+    case Accumulate::OpType::Min: {
+        os << " min= ";
+        break;
+    }
+    case Accumulate::OpType::Max: {
+        os << " max= ";
         break;
     }
     case Accumulate::OpType::Mul: {

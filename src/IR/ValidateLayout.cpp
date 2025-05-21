@@ -109,6 +109,11 @@ bool valid_path(const Path &path, const BVH_t::Node &node) {
                 // groups!
                 continue;
             }
+            if (!iter->second.defined()) {
+                // hack to get access to `this`
+                continue;
+            }
+            std::cout << "bad: " << param.name << std::endl;
             return false;
         }
     }

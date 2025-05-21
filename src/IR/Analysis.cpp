@@ -169,6 +169,7 @@ struct AlwaysReturns : public Visitor {
     void visit(const Store *node) override { returns = false; }
     void visit(const Accumulate *node) override { returns = false; }
     void visit(const Print *node) override { returns = false; }
+    void visit(const Continue *node) override { returns = false; }
 
     // Assume these don't always-return, otherwise
     // it should simplify.
@@ -182,7 +183,6 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(Iterate);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
-    RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
 };
 

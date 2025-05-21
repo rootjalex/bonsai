@@ -90,6 +90,11 @@ __forceinline__ bool3 operator<(int3 a, int3 b) {
 __forceinline__ bool3 operator<(uint3 a, uint3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
+__forceinline__  __host__ __device__ bool3 operator<=(float3 a, float3 b) {
+    return make_bool3(a.x <= b.x, a.y <= b.y, a.z <= b.z);
+}
+__forceinline__  __host__ __device__ bool all(bool3 a) { return a.x & a.y & a.z; }
+__forceinline__  __host__ __device__ bool any(bool3 a) { return a.x | a.y | a.z; }
 
 ////////////////////////////////////////////////////////////////////////////////
 // constructors

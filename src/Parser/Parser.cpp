@@ -111,6 +111,7 @@ struct Parser {
             "argmin",
             "filter",
             "map",
+            "minimum",
             "product",
             // Geometry operations
             "distmax",
@@ -1343,6 +1344,7 @@ struct Parser {
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
             {"map", ir::SetOp::map},
+            {"minimum", ir::SetOp::minimum},
             {"product", ir::SetOp::product},
         });
 
@@ -2111,14 +2113,13 @@ struct Parser {
                 ir::Location ii = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Expr factor = parse_expr();
-                expect(Token::Type::COMMA);
-                bool generate_tail = consume(Token::Type::TRUE).has_value();
-                if (!generate_tail) {
-                    expect(Token::Type::FALSE);
+                std::optional<ir::Location> tail_index;
+                if (consume(Token::Type::COMMA)) {
+                    tail_index = parse_location();
                 }
                 schedule.func_transforms[func].emplace_back(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), generate_tail});
+                              std::move(factor), std::move(tail_index)});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;
@@ -2136,7 +2137,10 @@ struct Parser {
         ir::Type primitive = parse_type();
         expect(Token::Type::RBRACKET);
         expect(Token::Type::RBRACKET);
-        auto [name, params, volume] = parse_node();
+        auto [name, params, volume, child_volumes] = parse_node();
+        if (!child_volumes.empty()) {
+            report_error() << "Tree cannot have child volumes: " << name;
+        }
 
         if (program.types.contains(name)) {
             report_error() << "Tree named: " << name
@@ -2158,10 +2162,11 @@ struct Parser {
         std::vector<ir::BVH_t::Node> nodes;
 
         do {
-            auto [nname, nparams, nvolume] = parse_node();
+            auto [nname, nparams, nvolume, ncvols] = parse_node();
             ir::Type struct_type =
                 ir::Struct_t::make(std::move(nname), std::move(nparams));
-            ir::BVH_t::Node node{std::move(struct_type), std::move(nvolume)};
+            ir::BVH_t::Node node{std::move(struct_type), std::move(nvolume),
+                                 std::move(ncvols)};
             nodes.emplace_back(std::move(node));
         } while (consume(Token::Type::BAR));
 
@@ -2203,7 +2208,8 @@ struct Parser {
         return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
     }
 
-    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>>
+    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>,
+               std::map<std::string, ir::BVH_t::Volume>>
     parse_node() {
         std::string name = get_id();
 
@@ -2215,11 +2221,27 @@ struct Parser {
             expect(Token::Type::RPAREN);
         }
 
+        std::map<std::string, ir::BVH_t::Volume> child_volumes;
         if (consume(Token::Type::WITH)) {
-            volume = parse_volume();
+            ir::BVH_t::Volume vol = parse_volume();
+            // handle grammar of
+            // with volume (on child (volume on child)*)?
+            if (consume(Token::Type::ON)) {
+                const std::string child = get_id();
+                child_volumes[child] = vol;
+
+                while (peek().type != Token::Type::BAR) {
+                    ir::BVH_t::Volume cvol = parse_volume();
+                    expect(Token::Type::ON);
+                    const std::string c = get_id();
+                    child_volumes[c] = cvol;
+                }
+            } else {
+                volume = vol;
+            }
         }
 
-        return {name, params, volume};
+        return {name, params, volume, child_volumes};
     }
 
     std::vector<ir::TypedVar> parse_tree_params() {
@@ -2246,7 +2268,7 @@ struct Parser {
     ir::Layout parse_top_level_layout() {
         push_frame();
 
-        // TODO: support other non-u32 indexing.
+        add_type_to_frame("this", ir::Type(), false);
         ir::Layout layout = parse_layout();
         expect(Token::Type::SEMICOL);
 
@@ -2315,8 +2337,10 @@ struct Parser {
                 expect(Token::Type::ASSIGN);
                 // TODO: insert built-ins to frame, here or somewhere?
                 ir::Expr expr = parse_expr();
-                if (!expr.defined() || !expr.type().defined() ||
-                    !expr.type().is_primitive()) {
+
+                if (!(expr.defined() && reads(expr, {"this"})) &&
+                    (!expr.defined() || !expr.type().defined() ||
+                     !expr.type().is_primitive())) {
                     report_error()
                         << "Layout received materialization of name: " << name
                         << " with non-primitive type: " << expr;

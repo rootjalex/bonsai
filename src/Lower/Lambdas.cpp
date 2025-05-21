@@ -139,6 +139,7 @@ class Blacklist : public ir::Visitor {
         switch (node->op) {
         case ir::SetOp::OpType::product:
             return;
+        case ir::SetOp::OpType::minimum:
         case ir::SetOp::OpType::argmin:
         case ir::SetOp::OpType::map:
         case ir::SetOp::OpType::filter: {

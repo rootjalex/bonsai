@@ -210,11 +210,17 @@ Type Mutator::visit(const BVH_t *node) {
 
         std::optional<BVH_t::Volume> volume = visit_volume(node.volume);
 
+        std::map<std::string, BVH_t::Volume> child_volumes;
+        for (const auto &[child, vol] : node.child_volumes) {
+            child_volumes[child] = *visit_volume(vol);
+        }
+
         if (not_changed) {
             not_changed = cache_changed;
             return node;
         }
-        return BVH_t::Node{std::move(struct_type), std::move(volume)};
+        return BVH_t::Node{std::move(struct_type), std::move(volume),
+                           std::move(child_volumes)};
     };
 
     const size_t nnodes = node->nodes.size();

@@ -95,6 +95,7 @@ uint64_t Token::size() const {
     case Token::Type::SHIFT_LEFT:
     case Token::Type::SHIFT_RIGHT:
     case Token::Type::RARROW:
+    case Token::Type::ON:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
@@ -176,6 +177,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "tree";
     case Token::Type::WITH:
         return "with";
+    case Token::Type::ON:
+        return "on";
     case Token::Type::LAYOUT:
         return "layout";
     case Token::Type::GROUP:

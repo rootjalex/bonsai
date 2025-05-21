@@ -22,6 +22,13 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/Scalar/Reassociate.h>
 #include <llvm/Transforms/Scalar/SimplifyCFG.h>
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
+#include "llvm/Transforms/IPO/ArgumentPromotion.h"
+#include "llvm/Transforms/Scalar/LoopRotation.h"
+#include "llvm/Transforms/Scalar/SimpleLoopUnswitch.h"
+#include "llvm/Transforms/Scalar/LoopUnrollPass.h"
+#include "llvm/Transforms/Vectorize/LoopVectorize.h"
+#include "llvm/Transforms/Vectorize/SLPVectorizer.h"
 
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
@@ -249,9 +256,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];
         llvm::Type *arg_t = codegen_type(arg_info.type);
-        if (!arg_info.mutating && arg_info.type.is<Struct_t>()) {
-            arg_t = arg_t->getPointerTo();
-        }
+        internal_assert(!arg_info.type.is<Struct_t>());
         arg_types[i] = arg_t;
     }
 
@@ -272,6 +277,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
 
             if (!arg_info.mutating) {
                 attrs.addAttribute(llvm::Attribute::ReadOnly);
+                attrs.addAttribute(llvm::Attribute::NoAlias); // __restrict__
             }
 
             // TODO: Add dereferenceable + alignment if we can figure that out.
@@ -325,16 +331,22 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
         // Generate i32 x lanes vector using repeated scalar rand() calls
         llvm::Value *rand_vec =
-            llvm::UndefValue::get(llvm::FixedVectorType::get(i32_t, lanes));
+            llvm::UndefValue::get(llvm::FixedVectorType::get(i64_t, lanes));
         for (uint32_t i = 0; i < lanes; ++i) {
-            llvm::Value *r = builder->CreateCall(rand_function);
-            rand_vec = builder->CreateInsertElement(rand_vec, r, i);
+            llvm::Value *low = builder->CreateCall(rand_function);
+            llvm::Value *high = builder->CreateCall(rand_function);
+            llvm::Value *low64 = builder->CreateZExt(low, i64_t);
+            llvm::Value *high64 = builder->CreateZExt(high, i64_t);
+            llvm::Value *shifted = builder->CreateShl(high64, 32);
+            llvm::Value *combined = builder->CreateOr(shifted, low64);
+            // llvm::Value *combined = llvm::ConstantInt::get(i64_t, 42);
+            rand_vec = builder->CreateInsertElement(rand_vec, combined, i);
         }
 
         // Allocate space on stack for vector (aligned to vector width)
         llvm::AllocaInst *rng_state_ptr = builder->CreateAlloca(
             rand_vec->getType(), nullptr, lower::rng_state_name);
-        rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
+        rng_state_ptr->setAlignment(llvm::Align(alignof(uint64_t) * lanes));
         builder->CreateStore(rand_vec, rng_state_ptr);
 
         frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
@@ -342,6 +354,12 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
     codegen_stmt(func.body);
     frames.pop_frame();
+
+    // If the current block has no terminator, emit unreachable
+    llvm::BasicBlock *curr_bb = builder->GetInsertBlock();
+    if (!curr_bb->getTerminator()) {
+        builder->CreateUnreachable();
+    }
 
     // Restore previous insertion point
     builder->restoreIP(here);
@@ -419,16 +437,6 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     llvm::ModuleAnalysisManager mam;
     llvm::FunctionPassManager fpm;
 
-    // TODO: add other explicit passes?
-    // Do simple "peephole" optimizations and bit-twiddling optzns.
-    fpm.addPass(llvm::InstCombinePass());
-    // Reassociate expressions.
-    fpm.addPass(llvm::ReassociatePass());
-    // Eliminate Common SubExpressions.
-    fpm.addPass(llvm::GVNPass());
-    // Simplify the control flow graph (deleting unreachable blocks, etc).
-    fpm.addPass(llvm::SimplifyCFGPass());
-
     // Register all the basic analyses with the managers.
     pb.registerModuleAnalyses(mam);
     pb.registerCGSCCAnalyses(cgam);
@@ -440,7 +448,7 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     using OptimizationLevel = llvm::OptimizationLevel;
     OptimizationLevel level = OptimizationLevel::O3;
 
-    mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
+    // mpm.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
 
     if (tm.isPositionIndependent()) {
         // Add a pass that converts lookup tables to relative lookup tables to
@@ -455,90 +463,21 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
             { mpm.addPass(llvm::RelLookupTableConverterPass()); });
     }
 
-    // get_target().has_feature(Target::SanitizerCoverage)
-    if (false) {
-        pb.registerOptimizerLastEPCallback([&](llvm::ModulePassManager &mpm,
-                                               llvm::OptimizationLevel level) {
-            llvm::SanitizerCoverageOptions sanitizercoverage_options;
-            // Mirror what -fsanitize=fuzzer-no-link would enable.
-            // See https://github.com/halide/Halide/issues/6528
-            sanitizercoverage_options.CoverageType =
-                llvm::SanitizerCoverageOptions::SCK_Edge;
-            sanitizercoverage_options.IndirectCalls = true;
-            sanitizercoverage_options.TraceCmp = true;
-            sanitizercoverage_options.Inline8bitCounters = true;
-            sanitizercoverage_options.PCTable = true;
-            // Due to TLS differences, stack depth tracking is only enabled on
-            // Linux if (get_target().os == Target::OS::Linux) {
-            // sanitizercoverage_options.StackDepth = true;
-            // }
-            mpm.addPass(llvm::SanitizerCoveragePass(sanitizercoverage_options));
-        });
-    }
-
-    // get_target().has_feature(Target::ASAN)
-    if (false) {
-        // Nothing, ASanGlobalsMetadataAnalysis no longer exists
-
-        pb.registerPipelineStartEPCallback([](llvm::ModulePassManager &mpm,
-                                              OptimizationLevel) {
-            llvm::AddressSanitizerOptions
-                asan_options;                  // default values are good...
-            asan_options.UseAfterScope = true; // ...except this one
-            constexpr bool use_global_gc = false;
-            constexpr bool use_odr_indicator = true;
-            constexpr auto destructor_kind = llvm::AsanDtorKind::Global;
-            mpm.addPass(llvm::AddressSanitizerPass(asan_options, use_global_gc,
-                                                   use_odr_indicator,
-                                                   destructor_kind));
-        });
-    }
-
-    // Target::MSAN handling is sprinkled throughout the codebase,
-    // there is no need to run MemorySanitizerPass here.
-
-    // get_target().has_feature(Target::TSAN)
-    if (false) {
-        pb.registerOptimizerLastEPCallback(
-            [](llvm::ModulePassManager &mpm, OptimizationLevel level) {
-                mpm.addPass(llvm::createModuleToFunctionPassAdaptor(
-                    llvm::ThreadSanitizerPass()));
-            });
-    }
-
-    for (auto &function : *module) {
-        if (false) { // get_target().has_feature(Target::ASAN)
-            function.addFnAttr(llvm::Attribute::SanitizeAddress);
-        }
-        if (false) { // get_target().has_feature(Target::MSAN)
-            function.addFnAttr(llvm::Attribute::SanitizeMemory);
-        }
-        if (false) { // get_target().has_feature(Target::TSAN)
-            // Do not annotate any of Halide's low-level synchronization code as
-            // it has tsan interface calls to mark its behavior and is much
-            // faster if it is not analyzed instruction by instruction. if
-            // (!(function.getName().startswith("_ZN6Halide7Runtime8Internal15Synchronization")
-            // ||
-            //       // TODO: this is a benign data race that re-initializes the
-            //       detected features;
-            //       // we should really fix it properly inside the
-            //       implementation, rather than disabling
-            //       // it here as a band-aid.
-            //       function.getName().startswith("halide_default_can_use_target_features")
-            //       || function.getName().startswith("halide_mutex_") ||
-            //       function.getName().startswith("halide_cond_"))) {
-            //     function.addFnAttr(llvm::Attribute::SanitizeThread);
-            // }
-        }
-    }
-
     tm.registerPassBuilderCallbacks(pb);
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
+
+    llvm::StringRef cpu = tm.getTargetCPU();
+    llvm::StringRef features = tm.getTargetFeatureString();
 
     for (auto &F : *module) {
         if (llvm::verifyFunction(F, &llvm::errs())) {
             F.print(llvm::errs());
             internal_error << "Invalid function IR before optimization";
+        }
+        if (F.isDeclaration()) continue;
+        F.addFnAttr("target-cpu", cpu);
+        if (!features.empty()) {
+            F.addFnAttr("target-features", features);
         }
     }
 
@@ -1422,16 +1361,24 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
                "vector width: "
             << req_vals << " with " << lanes;
         llvm::Type *vec_ty =
-            llvm::VectorType::get(i32_t, lanes, /*Scalable=*/false);
+            llvm::VectorType::get(i64_t, lanes, /*Scalable=*/false);
 
-        const uint64_t c0 = 576942909;
-        const uint64_t c1 = 1121052041;
-        const uint64_t c2 = 1040796640;
+        const uint64_t PCG32_MUL = 0x5851f42d4c957f2dULL;
 
-        auto broadcast_const = [&](uint64_t val) {
+        auto broadcast_u64 = [&](uint64_t val) {
+            return llvm::ConstantVector::getSplat(
+                llvm::ElementCount::getFixed(lanes),
+                llvm::ConstantInt::get(i64_t, val));
+        };
+
+        auto broadcast_u32 = [&](uint32_t val) {
             return llvm::ConstantVector::getSplat(
                 llvm::ElementCount::getFixed(lanes),
                 llvm::ConstantInt::get(i32_t, val));
+        };
+
+        auto cast_u32 = [&](llvm::Value *a) {
+            return builder->CreateTrunc(a, llvm::VectorType::get(i32_t, lanes, /*scalable=*/false));
         };
 
         llvm::Value *seed =
@@ -1440,25 +1387,27 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
 
         uint64_t generated = 0;
         while (generated < req_vals) {
-            llvm::Value *s = seed;
+            // uint64_t oldstate = state;
+            // state = oldstate * PCG32_MULT + inc;
+            llvm::Value *old_state = seed;
+            seed = builder->CreateMul(old_state, broadcast_u64(PCG32_MUL));
+            seed = builder->CreateAdd(seed, broadcast_u64(3)); // `inc` = 3?
 
-            // Apply the formula: (((c2 * s) + c1) * s) + c0
-            s = builder->CreateMul(broadcast_const(c2), s);
-            s = builder->CreateAdd(s, broadcast_const(c1));
-            s = builder->CreateMul(s, seed); // use original seed
-            s = builder->CreateAdd(s, broadcast_const(c0));
+            // uint32_t xorshifted = (uint32_t) (((oldstate >> 18u) ^ oldstate) >> 27u);
+            llvm::Value *xor_shifted = cast_u32(builder->CreateLShr(builder->CreateXor(builder->CreateLShr(old_state, broadcast_u64(18)), old_state), broadcast_u64(27)));
 
-            pieces.push_back(s);
+            // uint32_t rot = (uint32_t) (oldstate >> 59u);
+            llvm::Value *rot = cast_u32(builder->CreateLShr(old_state, broadcast_u64(59)));
+
+            // return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31));
+            llvm::Value *left = builder->CreateLShr(xor_shifted, rot);
+            llvm::Value *neg_rot = builder->CreateAnd(builder->CreateSub(broadcast_u32(0), rot), broadcast_u32(31));
+            llvm::Value *right = builder->CreateShl(xor_shifted, neg_rot);
+
+            llvm::Value *piece = builder->CreateOr(left, right);
+
+            pieces.push_back(piece);
             generated += lanes;
-
-            // Update seed vector: add constant increment {lanes, 2 * lanes, ...
-            // lanes * lanes}
-            std::vector<llvm::Constant *> incrs;
-            for (int i = 0; i < lanes; ++i) {
-                incrs.push_back(llvm::ConstantInt::get(i32_t, lanes * (i + 1)));
-            }
-            llvm::Value *incr = llvm::ConstantVector::get(incrs);
-            seed = builder->CreateAdd(seed, incr);
         }
 
         // Store updated seed back into RNG state
@@ -1468,27 +1417,21 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             llvm::Value *result =
                 builder->CreateExtractElement(pieces[0], (uint64_t)0);
 
-            // Now apply classic formula to produce [0.0, 1.0)
-            // Use random 23 mantissa bits, which gives [1.0, 2.0)
-            // Then subtract by 1.0
-            // Mask for mantissa bits (23 bits): 0x007FFFFF
-            llvm::Value *mantissa_mask =
-                llvm::ConstantInt::get(i32_t, 0x007FFFFF);
+            // Shift right by 9 bits: (value >> 9)
+            llvm::Value *shifted = builder->CreateLShr(result, llvm::ConstantInt::get(i32_t, 9));
 
-            // Bias to make exponent = 127 (1.0): 0x3F800000
-            llvm::Value *one_bits = llvm::ConstantInt::get(i32_t, 0x3F800000);
+            // OR with 0x3f800000 to set exponent = 127 (i.e., value in [1.0, 2.0))
+            llvm::Value *one_bits = llvm::ConstantInt::get(i32_t, 0x3f800000);
+            llvm::Value *float_bits = builder->CreateOr(shifted, one_bits);
 
-            // Apply bit manipulation: ((rand & mask) | one_bits)
-            llvm::Value *rand_mantissa =
-                builder->CreateAnd(result, mantissa_mask);
-            llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
+            // Bitcast i32 to float
+            llvm::Value *as_float = builder->CreateBitCast(float_bits, f32_t);
 
-            // Bitcast i32 -> float
-            llvm::Value *as_float = builder->CreateBitCast(rand_bits, f32_t);
+            // Subtract 1.0 to get value in [0.0, 1.0)
+            llvm::Value *one = llvm::ConstantFP::get(f32_t, 1.0f);
+            llvm::Value *uniform = builder->CreateFSub(as_float, one);
 
-            // Subtract 1.0 to get range [0.0, 1.0)
-            llvm::Value *float_ones = llvm::ConstantFP::get(f32_t, 1.0f);
-            value = builder->CreateFSub(as_float, float_ones);
+            value = uniform;
             return;
         }
 
@@ -1514,34 +1457,25 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
             result = builder->CreateInsertElement(result, elements[i], i);
         }
 
-        // Now apply classic formula to produce [0.0, 1.0)
-        // Use random 23 mantissa bits, which gives [1.0, 2.0)
-        // Then subtract by 1.0
+
+        // Shift right by 9 bits: (value >> 9)
+        llvm::Value *shifted = builder->CreateLShr(result, broadcast_u32(9));
+
+        llvm::Value *float_bits = builder->CreateOr(shifted, broadcast_u32(0x3f800000));
+
+        // Bitcast i32 to float
         llvm::FixedVectorType *fvec_ty =
             llvm::FixedVectorType::get(f32_t, req_vals);
+        llvm::Value *as_float = builder->CreateBitCast(float_bits, fvec_ty);
 
-        // Mask for mantissa bits (23 bits): 0x007FFFFF
-        llvm::Value *mantissa_mask = llvm::ConstantVector::getSplat(
-            llvm::ElementCount::getFixed(req_vals),
-            llvm::ConstantInt::get(i32_t, 0x007FFFFF));
-
-        // Bias to make exponent = 127 (1.0): 0x3F800000
-        llvm::Value *one_bits = llvm::ConstantVector::getSplat(
-            llvm::ElementCount::getFixed(req_vals),
-            llvm::ConstantInt::get(i32_t, 0x3F800000));
-
-        // Apply bit manipulation: ((rand & mask) | one_bits)
-        llvm::Value *rand_mantissa = builder->CreateAnd(result, mantissa_mask);
-        llvm::Value *rand_bits = builder->CreateOr(rand_mantissa, one_bits);
-
-        // Bitcast i32 -> float
-        llvm::Value *as_float = builder->CreateBitCast(rand_bits, fvec_ty);
-
-        // Subtract 1.0 to get range [0.0, 1.0)
+        // Subtract 1.0 to get value in [0.0, 1.0)
         llvm::Value *float_ones = llvm::ConstantVector::getSplat(
             llvm::ElementCount::getFixed(req_vals),
-            llvm::ConstantFP::get(f32_t, 1.0f));
-        value = builder->CreateFSub(as_float, float_ones);
+            llvm::ConstantFP::get(f32_t, 1.0f)
+        );
+        llvm::Value *uniform = builder->CreateFSub(as_float, float_ones);
+
+        value = uniform;
         return;
     }
     case Intrinsic::sin: {
@@ -2401,6 +2335,9 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             equiv = load * ((ones - one_hot) + node->value * one_hot);
             break;
         }
+        case Accumulate::Max:
+        case Accumulate::Min:
+        case Accumulate::Argmax:
         case Accumulate::Argmin:
         default: {
             internal_error << "TODO: implement codegen for accumulate: "
@@ -2436,6 +2373,33 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         } else {
             acc = builder->CreateSub(current, update);
         }
+        break;
+    }
+    case Accumulate::Max:
+    case Accumulate::Min: {
+        llvm::Intrinsic::IndependentIntrinsics intrin;
+        if (node->value.type().is_int()) {
+            intrin = (node->op == Accumulate::Max) ? llvm::Intrinsic::smax : llvm::Intrinsic::smin;
+        } else if (node->value.type().is_uint()) {
+            intrin = (node->op == Accumulate::Max) ? llvm::Intrinsic::umax : llvm::Intrinsic::umin;
+        } else {
+            internal_assert(node->value.type().is_float())
+                << "Cannot lower min/max accumulate of type: " << node->value.type();
+            // Follows the IEEE-754 semantics for minNum, except for handling of
+            // signaling NaNs. This match’s the behavior of libm’s fmin.
+            // https://llvm.org/docs/LangRef.html#llvm-minnum-intrinsic
+            intrin = (node->op == Accumulate::Max) ? llvm::Intrinsic::maxnum : llvm::Intrinsic::minnum;
+        }
+
+        llvm::Type *ret_type = codegen_type(node->value.type());
+
+        std::vector<llvm::Value *> args(2);
+        args[0] = current;
+        args[1] = update;
+
+        acc = builder->CreateIntrinsic(ret_type, intrin, args);
+
+        internal_assert(acc) << "Intrinsic codegen failure: " << Stmt(node);
         break;
     }
     case Accumulate::Mul: {

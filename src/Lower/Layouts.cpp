@@ -200,7 +200,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                          ir::MapStack<std::string, ir::Expr> frames,
                          const std::string &iter_name,
                          const std::string &node_type, const std::string &field,
-                         const LayoutTypeMap &ltmap) {
+                         const LayoutTypeMap &ltmap, ir::Expr group) {
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         uint32_t group_count = 0;
         uint32_t split_count = 0;
@@ -226,15 +226,15 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
                 std::string field_name = group_name(group_count++, node->name);
-                ir::Expr path = ir::Access::make(field_name, base);
+                ir::Expr push_group = ir::Access::make(field_name, base);
                 ir::Expr index =
                     ir::Var::make(node->index_t, iter_name + "_" + node->name);
-                path = ir::Extract::make(std::move(path), index);
+                ir::Expr path = ir::Extract::make(push_group, index);
                 frames.push_frame();
                 frames.add_to_frame(node->name, index);
                 ir::Expr rec =
                     field_in_layout(path, node->inner, frames, iter_name,
-                                    node_type, field, ltmap);
+                                    node_type, field, ltmap, push_group);
                 frames.pop_frame();
                 if (rec.defined()) {
                     return rec;
@@ -261,7 +261,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                         frames.push_frame();
                         ir::Expr rec =
                             field_in_layout(path, arm.layout, frames, iter_name,
-                                            node_type, field, ltmap);
+                                            node_type, field, ltmap, group);
                         frames.pop_frame();
                         if (rec.defined()) {
                             return rec;
@@ -272,7 +272,15 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             }
             case ir::IRLayoutEnum::Materialize: {
                 const ir::Materialize *node = l.as<ir::Materialize>();
-                ir::Expr mat = fill(frames, node->value);
+                ir::Expr value = node->value;
+                if (group.defined()) {
+                    frames.push_frame();
+                    frames.add_to_frame("this", group);
+                }
+                ir::Expr mat = fill(frames, value);
+                if (group.defined()) {
+                    frames.pop_frame();
+                }
                 if (node->name == field) {
                     return mat;
                 } else {
@@ -350,7 +358,8 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
                 internal_assert(pair.second.has_value());
                 ir::Expr value = field_in_layout(
                     base, layout, ir::MapStack<std::string, ir::Expr>(),
-                    obj_name, node_name, pair.first, ltmap);
+                    obj_name, node_name, pair.first, ltmap,
+                    /*outer_group=*/ir::Expr());
                 ir::Expr constant = make_const(value.type(), *pair.second);
                 // TODO: support non-eq matching? e.g. ranges?
                 ir::Expr eq = ir::BinOp::make(ir::BinOp::Eq, std::move(value),
@@ -655,7 +664,8 @@ struct LowerMatches : public ir::Mutator {
             for (const auto &field : arm.first.fields()) {
                 field_map[field.name] = field_in_layout(
                     base_struct, layout, ir::MapStack<std::string, ir::Expr>{},
-                    tree_name, branch_name, field.name, ltmap);
+                    tree_name, branch_name, field.name, ltmap,
+                    /*outer_group=*/ir::Expr());
             }
 
             // Lower these Unwraps.

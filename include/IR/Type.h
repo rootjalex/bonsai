@@ -300,6 +300,7 @@ struct BVH_t : TypeNode<BVH_t> {
     struct Node {
         Type struct_type;
         std::optional<Volume> volume;
+        std::map<std::string, Volume> child_volumes;
 
         // Useful helper functions.
         const std::string &name() const {

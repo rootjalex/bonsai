@@ -1,0 +1,50 @@
+import apps/wos/float;
+
+element SamplePoint {
+    // TODO: sampler?
+    // TODO: statistics?
+    pt : vec3f;
+    normal : vec3f;
+    // dirForDer : vec3f;
+    pdf : Float;
+    distToAbs : Float;
+    distToRefl : Float;
+    // robinCoeff : Float;
+
+    // solution : Float;
+    // normalDeriv : Float;
+    // contribution : Float;
+
+    // TODO(ajr): enums would be good.
+    type_and_quantity : u8; // see below
+    
+}
+
+func inDomain(s : SamplePoint) {
+    return (s.type_and_quantity & 3) == 0;
+}
+
+func onAbsBoundary(s : SamplePoint) {
+    return (s.type_and_quantity & 3) == 1;
+}
+
+func onReflBoundary(s : SamplePoint) {
+    return (s.type_and_quantity & 3) == 2;
+}
+
+func estimateSolution(s : SamplePoint) {
+    return (s.type_and_quantity & 12) == 0;
+}
+
+// TODO: are these needed?
+func estimateSolutionAndGradient(s : SamplePoint) {
+    return (s.type_and_quantity & 12) == 4;
+}
+
+func estimateNone(s : SamplePoint) {
+    return (s.type_and_quantity & 12) == 8;
+}
+
+func estimateBoundaryNormalAligned(s : SamplePoint) {
+    return (s.type_and_quantity & 16) != 0;
+}

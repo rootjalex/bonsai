@@ -511,7 +511,7 @@ std::string get_specifier(const ir::Type &type) {
     if (type.is_float()) {
         // C will convert float (f32) to double (f64) for variadic
         // argument functions (to include printf).
-        return "%f";
+        return "%.9e";
     }
 
     internal_error << "[unimplemented] print: " << type;
