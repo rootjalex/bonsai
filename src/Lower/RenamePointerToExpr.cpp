@@ -249,13 +249,47 @@ struct Rename : public ir::Mutator {
     }
 };
 
+struct SplitCFGs : public ir::Mutator {
+    ir::Stmt visit(const ir::IfElse *node) override {
+        // TODO: handle boolean negations?
+        const ir::BinOp *binop = node->cond.as<ir::BinOp>();
+        if (!binop) {
+            return ir::Mutator::visit(node);
+        }
+        if (!(binop->op == ir::BinOp::LAnd || binop->op == ir::BinOp::LOr)) {
+            return ir::Mutator::visit(node);
+        }
+        // Don't do this unless it's needed for RenamePtrToExpr
+        if (!ir::contains<ir::PtrTo>(node->cond)) {
+            return ir::Mutator::visit(node);
+        }
+        ir::Stmt then_body = mutate(node->then_body);
+        ir::Stmt else_body = mutate(node->else_body);
+        ir::Stmt rebuild;
+        if (binop->op == ir::BinOp::LAnd) {
+            rebuild = ir::IfElse::make(
+                binop->a, ir::IfElse::make(binop->b, then_body, else_body),
+                else_body);
+        } else {
+            internal_assert(binop->op == ir::BinOp::LOr) << ir::Stmt(node);
+            rebuild = ir::IfElse::make(
+                binop->a, then_body,
+                ir::IfElse::make(binop->b, then_body, else_body));
+        }
+        return mutate(rebuild);
+    }
+};
+
 } // namespace
 
 ir::FuncMap RenamePointerToExpr::run(ir::FuncMap functions,
                                      const CompilerOptions &options) const {
     for (auto &[_, f] : functions) {
         ExprSet s = retrieve_variables(f->body);
-        f->body = Rename(s).mutate(std::move(f->body));
+        if (!s.empty()) {
+            f->body = SplitCFGs().mutate(f->body);
+            f->body = Rename(s).mutate(f->body);
+        }
     }
     return functions;
 }
