@@ -918,19 +918,29 @@ void CodeGen_CUDA::visit(const Store *node) {
         os << ';' << '\n';
         return;
     }
-    if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
-        os << '*';
+    const auto &accesses = node->loc.accesses;
+    const bool print_ptr =
+        !base_type.is<Array_t>() && !is_context_type(base_type);
+    if (print_ptr &&
+        (accesses.empty() || std::holds_alternative<Expr>(accesses.front()))) {
+        os << "*";
     }
     os << node->loc.base;
-    const auto &accesses = node->loc.accesses;
+    bool first = true;
     for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
-            os << "." << std::get<std::string>(access);
+            if (print_ptr && first) {
+                os << "->";
+            } else {
+                os << ".";
+            }
+            os << std::get<std::string>(access);
         } else {
             os << "[";
             print_no_parens(std::get<Expr>(access));
             os << "]";
         }
+        first = false;
     }
     os << ' ' << '=' << ' ';
     value.accept(this);
@@ -941,19 +951,29 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
-    if (!node->loc.base_type.is<Array_t>()) {
+    const auto &accesses = node->loc.accesses;
+    // TODO(ajr): is this right?
+    const bool print_ptr = !current.base_type.is<Array_t>();
+    if (print_ptr &&
+        (accesses.empty() || std::holds_alternative<Expr>(accesses.front()))) {
         os << "*";
     }
-    os << current.base;
-    const auto &accesses = current.accesses;
+    os << node->loc.base;
+    bool first = true;
     for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
-            os << "." << std::get<std::string>(access);
+            if (print_ptr && first) {
+                os << "->";
+            } else {
+                os << ".";
+            }
+            os << std::get<std::string>(access);
         } else {
             os << "[";
             print_no_parens(std::get<Expr>(access));
             os << "]";
         }
+        first = false;
     }
     os << " ";
     switch (node->op) {
