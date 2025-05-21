@@ -125,5 +125,6 @@ struct _ctx0 {
     _tree_layout0 *tris;
 };
 
-Statistics *solve(PDE *pde, WalkSettings *s, uint32_t n, SamplePoint *pts,
-                  uint32_t nWalks, _tree_layout0 *tris);
+__host__ Statistics *solve(const PDE *pde, const WalkSettings *s, uint32_t n,
+                           SamplePoint *pts, uint32_t nWalks,
+                           const _tree_layout0 *tris);
