@@ -18,9 +18,15 @@
 #include "fem.h"
 #endif
 
+#define BONSAI_CUDA
+
+#ifdef BONSAI_CUDA
+#include "solve_bonsai.cuh"
+#else
 #include "build_tree.h"
 #include "convert_tree.h"
 #include "solve_bonsai.h"
+#endif
 
 std::string filename = "";
 bool flipMeshOrientation = false;                        // input
@@ -1783,15 +1789,24 @@ void run() {
     pde.freq = 10.0f / boxExtent;
 
     const auto &eigenLow = tightBoxExtents.first;
+    const auto &eigenHigh = tightBoxExtents.second; 
+#ifdef BONSAI_CUDA
+    box.low.x = eigenLow(0);
+    box.low.y = eigenLow(1);
+    box.low.z = eigenLow(2);
+
+    box.high.x = eigenHigh(0);
+    box.high.y = eigenHigh(1);
+    box.high.z = eigenHigh(2);
+#else
     box.low[0] = eigenLow(0);
     box.low[1] = eigenLow(1);
     box.low[2] = eigenLow(2);
 
-    const auto &eigenHigh = tightBoxExtents.second;
     box.high[0] = eigenHigh(0);
     box.high[1] = eigenHigh(1);
     box.high[2] = eigenHigh(2);
-
+#endif
     // visualize the scene
     visualizeScene<DIM>(meshPositions, boundaryPositions, meshIndices,
                         boundaryIndices, isBoundaryVertex, geometricQueries,

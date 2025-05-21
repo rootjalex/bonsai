@@ -1,3 +1,4 @@
+#include <cuda_runtime.h>
 
 struct AABB {
     float3 low;
