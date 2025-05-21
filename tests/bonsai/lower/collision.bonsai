@@ -172,4 +172,8 @@ schedule {
             };
         };
     };
+
+    collisions.make_queue(Q1, root, 64);
+    collisions.make_queue(Q2, root, 64);
+    // collisions.defer(collisions, root, Q1);
 }
