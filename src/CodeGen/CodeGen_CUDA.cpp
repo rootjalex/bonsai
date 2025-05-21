@@ -1227,6 +1227,10 @@ void CodeGen_CUDA::print(const Function &function) {
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
         const Function::Argument &arg = function.args[i];
+        if (arg.type.is<Ptr_t>() && arg.type.element_of().is<Struct_t>() &&
+            !arg.mutating) {
+            os << "const ";
+        }
         arg.type.accept(this);
         os << ' ' << arg.name;
         if (ir::Expr value = arg.default_value; value.defined()) {
