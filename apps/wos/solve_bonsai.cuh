@@ -1,4 +1,3 @@
-#include "helpers.h"
 
 struct AABB {
     float3 low;
