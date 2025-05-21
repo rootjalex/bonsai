@@ -309,6 +309,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 volumes != Cmp::Equals) {
                 return volumes;
             }
+            // TODO(ajr): handle child_volumes!
         }
         // return compare_volumes(b0->volume, b1->volume);
         return Cmp::Equals;
@@ -371,10 +372,17 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return *nodes_cmp;
     }
 
-    internal_assert(e0.type().defined() && e1.type().defined());
-    if (const Cmp types = compare_types(e0.type(), e1.type());
-        types != Cmp::Equals) {
-        return types;
+    if (const Cmp types_def =
+            compare_primitives(e0.type().defined(), e1.type().defined());
+        types_def != Cmp::Equals) {
+        return types_def;
+    }
+
+    if (e0.type().defined()) {
+        if (const Cmp types = compare_types(e0.type(), e1.type());
+            types != Cmp::Equals) {
+            return types;
+        }
     }
 
     // Must both be the same node type.

@@ -1,3 +1,5 @@
+
+
 #include "args.hxx"
 #include "geometrycentral/surface/halfedge_mesh.h"
 #include "geometrycentral/surface/meshio.h"
@@ -17,6 +19,8 @@
 #ifdef USE_FEM
 #include "fem.h"
 #endif
+
+#include <chrono>
 
 #include "build_tree.h"
 #include "convert_tree.h"
@@ -550,7 +554,7 @@ void plotWalkOnSpheresEstimates(
     walkLengthAvg /= nPoints;
     nSplitsAvg /= nPoints;
 
-    std::cout << "Walk on spheres" << std::endl;
+    std::cout << "Walk on spheres (zombie)" << std::endl;
     std::cout << "  solution avg: " << solutionAvg << " min: " << solutionMin
               << " max: " << solutionMax << std::endl;
     std::cout << "  solution variance avg: " << solutionVarianceAvg
@@ -1099,10 +1103,16 @@ void guiCallback(const std::vector<Vector<DIM>> &meshPositions,
         ImGui::TextUnformatted("Point Estimation");
         ImGui::Indent();
 
-        if (ImGui::SliderInt("Walks Per Sample Point", &nWalksForSamplePts, 1,
-                             10000)) {
-            std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
-        }
+        // if (ImGui::SliderInt("Walks Per Sample Point", &nWalksForSamplePts,
+        // 1, 10000)) {
+        //     std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
+        // }
+        nWalksForSamplePts = 10000;
+        std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
+        // if (ImGui::SliderInt("Walks Per Sample Point", &nWalksForSamplePts,
+        // 1, 10000)) {
+        //     std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
+        // }
         if (ImGui::Checkbox("Estimate Gradients", &estimateGradients)) {
             for (int i = 0; i < (int)samplePoints.size(); i++) {
                 samplePoints[i].estimationQuantity = getEstimationQuantity(
@@ -1113,166 +1123,383 @@ void guiCallback(const std::vector<Vector<DIM>> &meshPositions,
         }
 
         // solve with walk on spheres
-        if (ImGui::Button("Solve with Walk On Spheres")) {
-            // estimate pointwise
-            ProgressBar pb(samplePoints.size());
-            std::function<void(int, int)> reportProgress =
-                [](int i, int tid) -> void { return; };
-            // getReportProgressCallback(pb);
+        // if (ImGui::Button("Solve with Walk On Spheres")) {
+        // estimate pointwise
+        ProgressBar pb(samplePoints.size());
+        std::function<void(int, int)> reportProgress =
+            getReportProgressCallback(pb);
 
-            SamplePoint *bonsai_pts = (SamplePoint *)malloc(
-                sizeof(SamplePoint) * samplePoints.size());
-            if constexpr (DIM == 3) {
-                for (uint64_t i = 0; i < samplePoints.size(); i++) {
-                    bonsai_pts[i].pt = {samplePoints[i].pt(0),
-                                        samplePoints[i].pt(1),
-                                        samplePoints[i].pt(2)};
-                    bonsai_pts[i].normal = {samplePoints[i].normal(0),
-                                            samplePoints[i].normal(1),
-                                            samplePoints[i].normal(2)};
-                    bonsai_pts[i].pdf = samplePoints[i].pdf;
-                    bonsai_pts[i].distToAbs =
-                        samplePoints[i].distToAbsorbingBoundary;
-                    bonsai_pts[i].distToRefl =
-                        samplePoints[i].distToReflectingBoundary;
-                    bonsai_pts[i].type_and_quantity = 0;
-                    if (samplePoints[i].type == zombie::SampleType::InDomain) {
-                        bonsai_pts[i].type_and_quantity |= 0;
-                    } else if (samplePoints[i].type ==
-                               zombie::SampleType::OnAbsorbingBoundary) {
-                        bonsai_pts[i].type_and_quantity |= 1;
-                    } else if (samplePoints[i].type ==
-                               zombie::SampleType::OnReflectingBoundary) {
-                        bonsai_pts[i].type_and_quantity |= 2;
-                    }
+        // std::cout << "SamplePoint 0 = {\n";
+        // std::cout << "  pt: " << samplePoints[0].pt.transpose() << "\n";
+        // std::cout << "  normal: " << samplePoints[0].normal.transpose() <<
+        // "\n"; std::cout << "  directionForDerivative: " <<
+        // samplePoints[0].directionForDerivative.transpose() << "\n"; std::cout
+        // << "  type: " << static_cast<int>(samplePoints[0].type) << "\n";
+        // std::cout << "  estimationQuantity: " <<
+        // static_cast<int>(samplePoints[0].estimationQuantity) << "\n";
+        // std::cout << "  pdf: " << samplePoints[0].pdf << "\n";
+        // std::cout << "  distToAbsorbingBoundary: " <<
+        // samplePoints[0].distToAbsorbingBoundary << "\n"; std::cout << "
+        // distToReflectingBoundary: " <<
+        // samplePoints[0].distToReflectingBoundary << "\n"; std::cout << "
+        // firstSphereRadius: " << samplePoints[0].firstSphereRadius << "\n";
+        // std::cout << "  robinCoeff: " << samplePoints[0].robinCoeff << "\n";
+        // std::cout << "  solution: " << samplePoints[0].solution << "\n";
+        // std::cout << "  normalDerivative: " <<
+        // samplePoints[0].normalDerivative << "\n"; std::cout << "
+        // contribution: " << samplePoints[0].contribution << "\n"; std::cout <<
+        // "  estimateBoundaryNormalAligned: " << std::boolalpha <<
+        // samplePoints[0].estimateBoundaryNormalAligned << "\n"; std::cout <<
+        // "}\n";
+        // static constexpr size_t MAX_SIZE_FOR_TESTING = 1000;
+        // if (samplePoints.size() > MAX_SIZE_FOR_TESTING) {
+        //     std::vector<zombie::SamplePoint<float, DIM>> filteredPoints;
+        //     filteredPoints.reserve(MAX_SIZE_FOR_TESTING);
 
-                    if (samplePoints[i].estimationQuantity ==
-                        zombie::EstimationQuantity::Solution) {
-                        bonsai_pts[i].type_and_quantity |= 0;
-                    } else if (samplePoints[i].estimationQuantity ==
-                               zombie::EstimationQuantity::
-                                   SolutionAndGradient) {
-                        bonsai_pts[i].type_and_quantity |= 4;
-                    } else if (samplePoints[i].estimationQuantity ==
-                               zombie::EstimationQuantity::None) {
-                        bonsai_pts[i].type_and_quantity |= 8;
-                    }
+        //     for (const auto &sp : samplePoints) {
+        //         if (sp.type != zombie::SampleType::OnAbsorbingBoundary) {
+        //             filteredPoints.push_back(sp);
+        //             if (filteredPoints.size() == MAX_SIZE_FOR_TESTING)
+        //                 break;
+        //         }
+        //     }
 
-                    if (samplePoints[i].estimateBoundaryNormalAligned) {
-                        bonsai_pts[i].type_and_quantity |= 16;
-                    }
+        //     if (filteredPoints.size() != MAX_SIZE_FOR_TESTING) {
+        //         std::cerr << "Failed to find enough points off the absorbing
+        //         "
+        //                      "boundary\n";
+        //         exit(-1);
+        //     }
+
+        //     samplePoints = std::move(filteredPoints);
+        //     nWalks.resize(MAX_SIZE_FOR_TESTING);
+        // }
+
+        SamplePoint *bonsai_pts =
+            (SamplePoint *)malloc(sizeof(SamplePoint) * samplePoints.size());
+        if constexpr (DIM == 3) {
+            for (uint64_t i = 0; i < samplePoints.size(); i++) {
+                bonsai_pts[i].pt = {samplePoints[i].pt(0),
+                                    samplePoints[i].pt(1),
+                                    samplePoints[i].pt(2)};
+                bonsai_pts[i].normal = {samplePoints[i].normal(0),
+                                        samplePoints[i].normal(1),
+                                        samplePoints[i].normal(2)};
+                bonsai_pts[i].pdf = samplePoints[i].pdf;
+                bonsai_pts[i].distToAbs =
+                    samplePoints[i].distToAbsorbingBoundary;
+                bonsai_pts[i].distToRefl =
+                    samplePoints[i].distToReflectingBoundary;
+                bonsai_pts[i].type_and_quantity = 0;
+                if (samplePoints[i].type == zombie::SampleType::InDomain) {
+                    bonsai_pts[i].type_and_quantity |= 0;
+                } else if (samplePoints[i].type ==
+                           zombie::SampleType::OnAbsorbingBoundary) {
+                    bonsai_pts[i].type_and_quantity |= 1;
+                } else if (samplePoints[i].type ==
+                           zombie::SampleType::OnReflectingBoundary) {
+                    bonsai_pts[i].type_and_quantity |= 2;
+                }
+
+                if (samplePoints[i].estimationQuantity ==
+                    zombie::EstimationQuantity::Solution) {
+                    bonsai_pts[i].type_and_quantity |= 0;
+                } else if (samplePoints[i].estimationQuantity ==
+                           zombie::EstimationQuantity::SolutionAndGradient) {
+                    bonsai_pts[i].type_and_quantity |= 4;
+                } else if (samplePoints[i].estimationQuantity ==
+                           zombie::EstimationQuantity::None) {
+                    bonsai_pts[i].type_and_quantity |= 8;
+                }
+
+                if (samplePoints[i].estimateBoundaryNormalAligned) {
+                    bonsai_pts[i].type_and_quantity |= 16;
                 }
             }
+        }
 
-            // TODO(ajr): THIS IS WHAT WE NEED.
-            zombie::WalkSettings walkSettings(
-                epsilonShell, 0.0f, 0.0f, russianRouletteThreshold,
-                splittingThreshold, maxWalkLength, stepsBeforeApplyingTikhonov,
-                maxWalkLength, solveDoubleSided,
-                !disableGradientControlVariates,
-                !disableGradientAntitheticVariates,
-                useCosineSamplingForDirectionalDerivatives,
-                ignoreDirichletContribution, false, ignoreSourceContribution,
-                printLogs);
+        // TODO(ajr): THIS IS WHAT WE NEED.
+        zombie::WalkSettings walkSettings(
+            epsilonShell, 0.0f, 0.0f, russianRouletteThreshold,
+            splittingThreshold, maxWalkLength, stepsBeforeApplyingTikhonov,
+            maxWalkLength, solveDoubleSided, !disableGradientControlVariates,
+            !disableGradientAntitheticVariates,
+            useCosineSamplingForDirectionalDerivatives,
+            ignoreDirichletContribution, false, ignoreSourceContribution,
+            printLogs);
+        std::cout << "nWalks: " << nWalks[0] << std::endl;
+        std::cout << "maxWalkLength: " << maxWalkLength << std::endl;
+        auto start = std::chrono::high_resolution_clock::now();
+        walkOnSpheres.solve(pde, walkSettings, nWalks, samplePoints,
+                            runSingleThreaded, reportProgress);
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        std::cout << "walkOnSpheres.solve took " << elapsed.count()
+                  << " seconds.\n";
+        pb.finish();
+
+        if (false) {
+            std::cout << "SamplePoint 0 = {\n";
+            std::cout << "  pt: " << samplePoints[0].pt.transpose() << "\n";
+            std::cout << "  normal: " << samplePoints[0].normal.transpose()
+                      << "\n";
+            std::cout << "  directionForDerivative: "
+                      << samplePoints[0].directionForDerivative.transpose()
+                      << "\n";
+            std::cout << "  type: " << static_cast<int>(samplePoints[0].type)
+                      << "\n";
+            std::cout << "  estimationQuantity: "
+                      << static_cast<int>(samplePoints[0].estimationQuantity)
+                      << "\n";
+            std::cout << "  pdf: " << samplePoints[0].pdf << "\n";
+            std::cout << "  distToAbsorbingBoundary: "
+                      << samplePoints[0].distToAbsorbingBoundary << "\n";
+            std::cout << "  distToReflectingBoundary: "
+                      << samplePoints[0].distToReflectingBoundary << "\n";
+            std::cout << "  firstSphereRadius: "
+                      << samplePoints[0].firstSphereRadius << "\n";
+            std::cout << "  robinCoeff: " << samplePoints[0].robinCoeff << "\n";
+            std::cout << "  solution: " << samplePoints[0].solution << "\n";
+            std::cout << "  normalDerivative: "
+                      << samplePoints[0].normalDerivative << "\n";
+            std::cout << "  contribution: " << samplePoints[0].contribution
+                      << "\n";
+            std::cout << "  estimateBoundaryNormalAligned: " << std::boolalpha
+                      << samplePoints[0].estimateBoundaryNormalAligned << "\n";
+            std::cout << "}\n";
+        }
+
+        if (false) {
+            const auto &stats = samplePoints[0].statistics;
+
+            std::cout << "statistics.solutionMean = " << stats.solutionMean
+                      << "\n";
+            std::cout << "statistics.solutionM2 = " << stats.solutionM2 << "\n";
+
+            std::cout << "statistics.gradientMean = [";
+            for (size_t i = 0; i < DIM; ++i) {
+                std::cout << stats.gradientMean[i];
+                if (i + 1 < DIM)
+                    std::cout << ", ";
+            }
+            std::cout << "]\n";
+
+            std::cout << "statistics.gradientM2 = [";
+            for (size_t i = 0; i < DIM; ++i) {
+                std::cout << stats.gradientM2[i];
+                if (i + 1 < DIM)
+                    std::cout << ", ";
+            }
+            std::cout << "]\n";
+
+            std::cout << "statistics.totalFirstSourceContribution = "
+                      << stats.totalFirstSourceContribution << "\n";
+            std::cout << "statistics.totalDerivativeContribution = "
+                      << stats.totalDerivativeContribution << "\n";
+            std::cout << "statistics.nSolutionEstimates = "
+                      << stats.nSolutionEstimates << "\n";
+            std::cout << "statistics.nGradientEstimates = "
+                      << stats.nGradientEstimates << "\n";
+            std::cout << "statistics.totalWalkLength = "
+                      << stats.totalWalkLength << "\n";
+            std::cout << "statistics.totalSplits = " << stats.totalSplits
+                      << "\n";
+        }
+
+        // Now time to get my solver going.
+        Statistics *bonsai_solution = nullptr;
+        // constexpr uint64_t bonsai_fixed_count = 200;
+
+        if constexpr (DIM == 3) {
+            WalkSettings bonsai_ws;
+            bonsai_ws.box = box;
+            bonsai_ws.epsShellAbs = epsilonShell;
+            bonsai_ws.epsShellRefl = 0.0; // TODO: not used
+            bonsai_ws.silPrecision = 0.0; // TODO: not used
+            bonsai_ws.russianRouletteThreshold = russianRouletteThreshold;
+            bonsai_ws.maxWalkLength = maxWalkLength;
+            bonsai_ws.stepsBeforeApplyingTikhonov =
+                stepsBeforeApplyingTikhonov; // TODO: not used
+            bonsai_ws.flags =
+                (int)solveDoubleSided |
+                (((int)!disableGradientControlVariates) << 1) |
+                (((int)!disableGradientAntitheticVariates) << 2) |
+                (((int)useCosineSamplingForDirectionalDerivatives) << 3) |
+                (((int)ignoreDirichletContribution) << 4) |
+                // ignoreReflectingBoundaryCondition is always false?
+                (((int)ignoreSourceContribution) << 6) |
+                (((int)printLogs) << 7);
+            PDE bonsai_pde;
+            bonsai_pde.absCoeff = pde.absorptionCoeff;
+            bonsai_pde.freq = pde.freq;
+
+            const uint32_t nSamplePts = samplePoints.size();
+            // const uint64_t nSamplePts = bonsai_fixed_count;
             auto start = std::chrono::high_resolution_clock::now();
-            walkOnSpheres.solve(pde, walkSettings, nWalks, samplePoints,
-                                runSingleThreaded, reportProgress);
+            std::cout << nSamplePts << "pts" << std::endl;
+
+            std::cout << nWalksForSamplePts << " walks per pt" << std::endl;
+
+            bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts,
+                                    bonsai_pts, nWalksForSamplePts, tree);
+
             auto end = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> elapsed = end - start;
-            std::cout << "walkOnSpheres.solve took " << elapsed.count()
+            std::cout << "bonsai.solve took " << elapsed.count()
                       << " seconds.\n";
-            std::cout << "TBB max concurrency: "
-                      << tbb::this_task_arena::max_concurrency() << std::endl;
-            pb.finish();
 
-            Statistics *bonsai_solution = nullptr;
-            // constexpr uint64_t bonsai_fixed_count = 200;
+            if (false) {
+                const Statistics &first = bonsai_solution[0];
+                std::cout << "bonsai solutionMean = " << first.solMean << "\n";
+                std::cout << "bonsai solutionM2 = " << first.solMean2 << "\n";
+                std::cout << "bonsai nSolutionEstimates = "
+                          << first.nSolEstimates << "\n";
+                std::cout << "bonsai totalWalkLength = "
+                          << first.totalWalkLength << "\n";
+                std::cout << "bonsai totalSplits = " << first.totalSplits
+                          << "\n";
+                std::cout << "bonsai firstSphereRadius = "
+                          << first.firstSphereRadius << "\n";
+            }
+        }
 
-            if constexpr (DIM == 3) {
-                WalkSettings bonsai_ws;
-                bonsai_ws.box = box;
-                bonsai_ws.epsShellAbs = epsilonShell;
-                bonsai_ws.epsShellRefl = 0.0; // TODO: not used
-                bonsai_ws.silPrecision = 0.0; // TODO: not used
-                bonsai_ws.russianRouletteThreshold = russianRouletteThreshold;
-                bonsai_ws.maxWalkLength = maxWalkLength;
-                bonsai_ws.stepsBeforeApplyingTikhonov =
-                    stepsBeforeApplyingTikhonov; // TODO: not used
-                bonsai_ws.flags =
-                    (int)solveDoubleSided |
-                    (((int)!disableGradientControlVariates) << 1) |
-                    (((int)!disableGradientAntitheticVariates) << 2) |
-                    (((int)useCosineSamplingForDirectionalDerivatives) << 3) |
-                    (((int)ignoreDirichletContribution) << 4) |
-                    // ignoreReflectingBoundaryCondition is always false?
-                    (((int)ignoreSourceContribution) << 6) |
-                    (((int)printLogs) << 7);
-                PDE bonsai_pde;
-                bonsai_pde.absCoeff = pde.absorptionCoeff;
-                bonsai_pde.freq = pde.freq;
+        // for (size_t i = 0; i <  samplePoints.size(); i++) {
+        //     std::cout << "-----------------\ni = " << i << std::endl;
+        //     std::cout << "zombie: " << samplePoints[i] << std::endl;
+        //     std::cout << "bonsai: " << bonsai_pts[i] << std::endl;
+        //     std::cout << bonsai_solution[i] << std::endl;
+        //     std::cout << "-----------------\n";
+        // }
 
-                const uint32_t nSamplePts = samplePoints.size();
-                // const uint64_t nSamplePts = bonsai_fixed_count;
-                auto start = std::chrono::high_resolution_clock::now();
-                std::cout << nSamplePts << "pts" << std::endl;
-
-                std::cout << nWalksForSamplePts << " walks per pt" << std::endl;
-
-                bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts,
-                                        bonsai_pts, nWalksForSamplePts, tree);
-
-                auto end = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double> elapsed = end - start;
-                std::cout << "bonsai.solve took " << elapsed.count()
-                          << " seconds.\n";
+        // plot results
+        std::vector<float> firstSphereRadii;
+        for (int i = 0; i < (int)samplePoints.size(); i++) {
+            if (bonsai_solution) {
+                firstSphereRadii.push_back(
+                    bonsai_solution[i].firstSphereRadius);
+            } else {
+                firstSphereRadii.push_back(samplePoints[i].firstSphereRadius);
             }
 
-            // plot results
-            std::vector<float> firstSphereRadii;
-            for (int i = 0; i < (int)samplePoints.size(); i++) {
-                if (bonsai_solution) {
-                    firstSphereRadii.push_back(
-                        bonsai_solution[i].firstSphereRadius);
-                } else {
-                    firstSphereRadii.push_back(
-                        samplePoints[i].firstSphereRadius);
+            if (false) {
+                // if (bonsai_solution && i < bonsai_fixed_count) {
+                // TODO: assert within epsilon?
+                const bool equal =
+                    (samplePoints[i].firstSphereRadius ==
+                     bonsai_solution[i].firstSphereRadius) &&
+                    (samplePoints[i].statistics.solutionMean ==
+                     bonsai_solution[i].solMean) &&
+                    (samplePoints[i].statistics.solutionM2 ==
+                     bonsai_solution[i].solMean2) &&
+                    (samplePoints[i].statistics.totalFirstSourceContribution ==
+                     bonsai_solution[i].totalFirstSourceContribution) &&
+                    (samplePoints[i].statistics.nSolutionEstimates ==
+                     bonsai_solution[i].nSolEstimates) &&
+                    (samplePoints[i].statistics.totalWalkLength ==
+                     bonsai_solution[i].totalWalkLength) &&
+                    (samplePoints[i].statistics.totalSplits ==
+                     bonsai_solution[i].totalSplits) &&
+                    true;
+
+                if (!equal) {
+                    std::cerr << "Not equal at: i = " << i << std::endl;
+
+                    if (samplePoints[i].firstSphereRadius !=
+                        bonsai_solution[i].firstSphereRadius)
+                        std::cerr << " firstSphereRadius: sample="
+                                  << samplePoints[i].firstSphereRadius
+                                  << ", bonsai="
+                                  << bonsai_solution[i].firstSphereRadius
+                                  << std::endl;
+
+                    if (samplePoints[i].statistics.solutionMean !=
+                        bonsai_solution[i].solMean)
+                        std::cerr << " solutionMean: sample="
+                                  << samplePoints[i].statistics.solutionMean
+                                  << ", bonsai=" << bonsai_solution[i].solMean
+                                  << std::endl;
+
+                    if (samplePoints[i].statistics.solutionM2 !=
+                        bonsai_solution[i].solMean2)
+                        std::cerr << " solutionM2: sample="
+                                  << samplePoints[i].statistics.solutionM2
+                                  << ", bonsai=" << bonsai_solution[i].solMean2
+                                  << std::endl;
+
+                    if (samplePoints[i]
+                            .statistics.totalFirstSourceContribution !=
+                        bonsai_solution[i].totalFirstSourceContribution)
+                        std::cerr
+                            << " totalFirstSourceContribution: sample="
+                            << samplePoints[i]
+                                   .statistics.totalFirstSourceContribution
+                            << ", bonsai="
+                            << bonsai_solution[i].totalFirstSourceContribution
+                            << std::endl;
+
+                    if (samplePoints[i].statistics.nSolutionEstimates !=
+                        bonsai_solution[i].nSolEstimates)
+                        std::cerr
+                            << " nSolutionEstimates: sample="
+                            << samplePoints[i].statistics.nSolutionEstimates
+                            << ", bonsai=" << bonsai_solution[i].nSolEstimates
+                            << std::endl;
+
+                    if (samplePoints[i].statistics.totalWalkLength !=
+                        bonsai_solution[i].totalWalkLength)
+                        std::cerr
+                            << " totalWalkLength: sample="
+                            << samplePoints[i].statistics.totalWalkLength
+                            << ", bonsai=" << bonsai_solution[i].totalWalkLength
+                            << std::endl;
+
+                    if (samplePoints[i].statistics.totalSplits !=
+                        bonsai_solution[i].totalSplits)
+                        std::cerr
+                            << " totalSplits: sample="
+                            << samplePoints[i].statistics.totalSplits
+                            << ", bonsai=" << bonsai_solution[i].totalSplits
+                            << std::endl;
+                    exit(-1);
                 }
             }
+        }
 
-            auto pointCloud = polyscope::getPointCloud("Sample Points");
-            pointCloud->addScalarQuantity("First Sphere Radii",
-                                          firstSphereRadii);
-            pointCloud->setPointRadiusQuantity("First Sphere Radii");
+        auto pointCloud = polyscope::getPointCloud("Sample Points");
+        pointCloud->addScalarQuantity("First Sphere Radii", firstSphereRadii);
+        pointCloud->setPointRadiusQuantity("First Sphere Radii");
 
+        // mask out sample values close to the boundary
+        maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
+
+        // plot sample values
+        plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane,
+                                        walkOnSpheresSolution);
+
+        if (bonsai_solution) {
             // mask out sample values close to the boundary
-            maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
+            maskWalkOnSpheresEstimatesBonsai(boundaryDistanceMask, samplePoints,
+                                             bonsai_solution);
 
             // plot sample values
-            plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane,
-                                            walkOnSpheresSolution);
-
-            if (bonsai_solution) {
-                // mask out sample values close to the boundary
-                maskWalkOnSpheresEstimatesBonsai(boundaryDistanceMask,
-                                                 samplePoints, bonsai_solution);
-
-                // plot sample values
-                plotWalkOnSpheresEstimatesBonsai(
-                    bonsai_solution, samplePoints.size(), estimateOnSlicePlane,
-                    walkOnSpheresSolution);
-            }
-#ifdef USE_FEM
-            if (!estimateOnSlicePlane) {
-                plotAbsoluteDifference<DIM>(samplePoints.size(),
-                                            walkOnSpheresSolution, femSolution);
-            }
-#endif
-            nWalksTakenForSamplePts += nWalksForSamplePts;
+            plotWalkOnSpheresEstimatesBonsai(
+                bonsai_solution, samplePoints.size(), estimateOnSlicePlane,
+                walkOnSpheresSolution);
         }
+
+#ifdef USE_FEM
+        if (!estimateOnSlicePlane) {
+            plotAbsoluteDifference<DIM>(samplePoints.size(),
+                                        walkOnSpheresSolution, femSolution);
+        }
+#endif
+        nWalksTakenForSamplePts += nWalksForSamplePts;
+        // }
 
         const std::string walksTakenPerSamplePtsStr =
             "Walks Taken Per Sample Point: " +
             std::to_string(nWalksTakenForSamplePts);
+        exit(-1);
         ImGui::TextUnformatted(walksTakenPerSamplePtsStr.c_str());
 
         ImGui::Unindent();
@@ -1316,6 +1543,487 @@ void guiCallback(const std::vector<Vector<DIM>> &meshPositions,
 #endif
 
     ImGui::PopItemWidth();
+}
+
+template <size_t DIM>
+void runNoGUI(const std::vector<Vector<DIM>> &meshPositions,
+              const std::vector<bool> &isBoundaryVertex,
+              const zombie::GeometricQueries<DIM> &geometricQueries,
+              const zombie::WalkOnSpheres<float, DIM> &walkOnSpheres,
+#ifdef USE_FEM
+              zombie::FemSolver<DIM> &femSolver,
+#endif
+              zombie::PDE<float, DIM> &pde, std::vector<int> &nWalks,
+              std::vector<zombie::SamplePoint<float, DIM>> &samplePoints,
+              std::vector<float> &walkOnSpheresSolution
+#ifdef USE_FEM
+              ,
+              std::vector<float> &femSolution
+#endif
+) {
+
+    if (!domainIsOpen) {
+        if (estimateOnSlicePlane) {
+            // initialize sample points as slice plane positions
+            if (polyscope::state::slicePlanes.size() == 0) {
+                polyscope::SlicePlane *psPlane =
+                    polyscope::addSceneSlicePlane();
+                psPlane->setDrawPlane(false);
+                psPlane->setDrawWidget(false);
+                psPlane->setActive(false);
+                psPlane->setPose(glm::vec3{0., 0., 0.}, glm::vec3{0., 0, 1.});
+            }
+
+            std::vector<Vector<DIM>> slicePlanePositions;
+            std::vector<std::vector<size_t>> slicePlaneIndices;
+            glm::mat4 currentTransform =
+                polyscope::state::slicePlanes[0]->getTransform();
+            addSlicePlane<DIM>(geometricQueries.domainMin,
+                               geometricQueries.domainMax, currentTransform,
+                               slicePlaneResolution, slicePlanePositions,
+                               slicePlaneIndices);
+            addSlicePlaneSampleAndEvaluationPoints<DIM>(
+                slicePlanePositions, slicePlaneIndices, geometricQueries,
+                nWalksForSamplePts, estimateGradients, nWalks, samplePoints);
+
+            if (DIM == 2) {
+                polyscope::SurfaceMesh *mesh =
+                    polyscope::getSurfaceMesh("Mesh");
+                mesh->removeQuantity("Solution Estimate");
+                mesh->removeQuantity("Solution Variance");
+                mesh->removeQuantity("Gradient Estimate");
+                mesh->removeQuantity("Mean Walk Length");
+#ifdef USE_FEM
+                mesh->removeQuantity("Absolute Difference");
+#endif
+
+            } else if (DIM == 3) {
+                polyscope::VolumeMesh *mesh = polyscope::getVolumeMesh("Mesh");
+                mesh->removeQuantity("Solution Estimate");
+                mesh->removeQuantity("Solution Variance");
+                mesh->removeQuantity("Gradient Estimate");
+                mesh->removeQuantity("Mean Walk Length");
+#ifdef USE_FEM
+                mesh->removeQuantity("Absolute Difference");
+#endif
+            }
+
+        } else {
+            // initialize sample points as mesh positions
+            addMeshSampleAndEvaluationPoints<DIM>(
+                meshPositions, isBoundaryVertex, geometricQueries,
+                nWalksForSamplePts, estimateGradients, nWalks, samplePoints);
+
+            polyscope::removeStructure("Slice Plane", false);
+            polyscope::removeLastSceneSlicePlane();
+        }
+
+        // plotSamplePoints<DIM>(samplePoints);
+
+        nWalksTakenForSamplePts = 0;
+    }
+    // ImGui::Checkbox("Disable Gradient Control Variates",
+    // &disableGradientControlVariates); ImGui::Checkbox("Disable Gradient
+    // Antithetic Variates", &disableGradientAntitheticVariates);
+    // ImGui::Checkbox("Use Cosine Sampling For Directional Derivatives",
+    // &useCosineSamplingForDirectionalDerivatives); ImGui::Checkbox("Run Single
+    // Threaded", &runSingleThreaded); ImGui::Checkbox("Print Logs",
+    // &printLogs);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    if (!estimateOnSlicePlane || (estimateOnSlicePlane && solveDoubleSided)) {
+        // ImGui::TextUnformatted("Point Estimation");
+        // ImGui::Indent();
+
+        // if (ImGui::SliderInt("Walks Per Sample Point", &nWalksForSamplePts,
+        // 1, 10000)) {
+        //     std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
+        // }
+        nWalksForSamplePts = 1;
+        std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
+        // if (ImGui::SliderInt("Walks Per Sample Point", &nWalksForSamplePts,
+        // 1, 10000)) {
+        //     std::fill(nWalks.begin(), nWalks.end(), nWalksForSamplePts);
+        // }
+        if (estimateGradients) {
+            for (int i = 0; i < (int)samplePoints.size(); i++) {
+                samplePoints[i].estimationQuantity = getEstimationQuantity(
+                    samplePoints[i].type, estimateGradients);
+            }
+
+            clearResults<DIM>(samplePoints);
+        }
+
+        // solve with walk on spheres
+        // if (ImGui::Button("Solve with Walk On Spheres")) {
+        // estimate pointwise
+        ProgressBar pb(samplePoints.size());
+        std::function<void(int, int)> reportProgress =
+            getReportProgressCallback(pb);
+
+        // std::cout << "SamplePoint 0 = {\n";
+        // std::cout << "  pt: " << samplePoints[0].pt.transpose() << "\n";
+        // std::cout << "  normal: " << samplePoints[0].normal.transpose() <<
+        // "\n"; std::cout << "  directionForDerivative: " <<
+        // samplePoints[0].directionForDerivative.transpose() << "\n"; std::cout
+        // << "  type: " << static_cast<int>(samplePoints[0].type) << "\n";
+        // std::cout << "  estimationQuantity: " <<
+        // static_cast<int>(samplePoints[0].estimationQuantity) << "\n";
+        // std::cout << "  pdf: " << samplePoints[0].pdf << "\n";
+        // std::cout << "  distToAbsorbingBoundary: " <<
+        // samplePoints[0].distToAbsorbingBoundary << "\n"; std::cout << "
+        // distToReflectingBoundary: " <<
+        // samplePoints[0].distToReflectingBoundary << "\n"; std::cout << "
+        // firstSphereRadius: " << samplePoints[0].firstSphereRadius << "\n";
+        // std::cout << "  robinCoeff: " << samplePoints[0].robinCoeff << "\n";
+        // std::cout << "  solution: " << samplePoints[0].solution << "\n";
+        // std::cout << "  normalDerivative: " <<
+        // samplePoints[0].normalDerivative << "\n"; std::cout << "
+        // contribution: " << samplePoints[0].contribution << "\n"; std::cout <<
+        // "  estimateBoundaryNormalAligned: " << std::boolalpha <<
+        // samplePoints[0].estimateBoundaryNormalAligned << "\n"; std::cout <<
+        // "}\n"; static constexpr size_t MAX_SIZE_FOR_TESTING = 10; if
+        // (samplePoints.size() >  MAX_SIZE_FOR_TESTING) {
+        //     std::vector<zombie::SamplePoint<float, DIM>> filteredPoints;
+        //     filteredPoints.reserve(MAX_SIZE_FOR_TESTING);
+
+        //     for (const auto& sp : samplePoints) {
+        //         if (sp.type != zombie::SampleType::OnAbsorbingBoundary) {
+        //             filteredPoints.push_back(sp);
+        //             if (filteredPoints.size() == MAX_SIZE_FOR_TESTING)
+        //                 break;
+        //         }
+        //     }
+
+        //     if (filteredPoints.size() != MAX_SIZE_FOR_TESTING) {
+        //         std::cerr << "Failed to find enough points off the absorbing
+        //         boundary\n"; exit(-1);
+        //     }
+
+        //     samplePoints = std::move(filteredPoints);
+        //     nWalks.resize(MAX_SIZE_FOR_TESTING);
+        // }
+
+        SamplePoint *bonsai_pts =
+            (SamplePoint *)malloc(sizeof(SamplePoint) * samplePoints.size());
+        if constexpr (DIM == 3) {
+            for (uint64_t i = 0; i < samplePoints.size(); i++) {
+                bonsai_pts[i].pt = {samplePoints[i].pt(0),
+                                    samplePoints[i].pt(1),
+                                    samplePoints[i].pt(2)};
+                bonsai_pts[i].normal = {samplePoints[i].normal(0),
+                                        samplePoints[i].normal(1),
+                                        samplePoints[i].normal(2)};
+                bonsai_pts[i].pdf = samplePoints[i].pdf;
+                bonsai_pts[i].distToAbs =
+                    samplePoints[i].distToAbsorbingBoundary;
+                bonsai_pts[i].distToRefl =
+                    samplePoints[i].distToReflectingBoundary;
+                bonsai_pts[i].type_and_quantity = 0;
+                if (samplePoints[i].type == zombie::SampleType::InDomain) {
+                    bonsai_pts[i].type_and_quantity |= 0;
+                } else if (samplePoints[i].type ==
+                           zombie::SampleType::OnAbsorbingBoundary) {
+                    bonsai_pts[i].type_and_quantity |= 1;
+                } else if (samplePoints[i].type ==
+                           zombie::SampleType::OnReflectingBoundary) {
+                    bonsai_pts[i].type_and_quantity |= 2;
+                }
+
+                if (samplePoints[i].estimationQuantity ==
+                    zombie::EstimationQuantity::Solution) {
+                    bonsai_pts[i].type_and_quantity |= 0;
+                } else if (samplePoints[i].estimationQuantity ==
+                           zombie::EstimationQuantity::SolutionAndGradient) {
+                    bonsai_pts[i].type_and_quantity |= 4;
+                } else if (samplePoints[i].estimationQuantity ==
+                           zombie::EstimationQuantity::None) {
+                    bonsai_pts[i].type_and_quantity |= 8;
+                }
+
+                if (samplePoints[i].estimateBoundaryNormalAligned) {
+                    bonsai_pts[i].type_and_quantity |= 16;
+                }
+            }
+        }
+
+        // TODO(ajr): THIS IS WHAT WE NEED.
+        zombie::WalkSettings walkSettings(
+            epsilonShell, 0.0f, 0.0f, russianRouletteThreshold,
+            splittingThreshold, maxWalkLength, stepsBeforeApplyingTikhonov,
+            maxWalkLength, solveDoubleSided, !disableGradientControlVariates,
+            !disableGradientAntitheticVariates,
+            useCosineSamplingForDirectionalDerivatives,
+            ignoreDirichletContribution, false, ignoreSourceContribution,
+            printLogs);
+        std::cout << "nWalks: " << nWalks[0] << std::endl;
+        std::cout << "maxWalkLength: " << maxWalkLength << std::endl;
+        auto start = std::chrono::high_resolution_clock::now();
+        walkOnSpheres.solve(pde, walkSettings, nWalks, samplePoints,
+                            runSingleThreaded, reportProgress);
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        std::cout << "walkOnSpheres.solve took " << elapsed.count()
+                  << " seconds.\n";
+        pb.finish();
+
+        if (false) {
+            std::cout << "SamplePoint 0 = {\n";
+            std::cout << "  pt: " << samplePoints[0].pt.transpose() << "\n";
+            std::cout << "  normal: " << samplePoints[0].normal.transpose()
+                      << "\n";
+            std::cout << "  directionForDerivative: "
+                      << samplePoints[0].directionForDerivative.transpose()
+                      << "\n";
+            std::cout << "  type: " << static_cast<int>(samplePoints[0].type)
+                      << "\n";
+            std::cout << "  estimationQuantity: "
+                      << static_cast<int>(samplePoints[0].estimationQuantity)
+                      << "\n";
+            std::cout << "  pdf: " << samplePoints[0].pdf << "\n";
+            std::cout << "  distToAbsorbingBoundary: "
+                      << samplePoints[0].distToAbsorbingBoundary << "\n";
+            std::cout << "  distToReflectingBoundary: "
+                      << samplePoints[0].distToReflectingBoundary << "\n";
+            std::cout << "  firstSphereRadius: "
+                      << samplePoints[0].firstSphereRadius << "\n";
+            std::cout << "  robinCoeff: " << samplePoints[0].robinCoeff << "\n";
+            std::cout << "  solution: " << samplePoints[0].solution << "\n";
+            std::cout << "  normalDerivative: "
+                      << samplePoints[0].normalDerivative << "\n";
+            std::cout << "  contribution: " << samplePoints[0].contribution
+                      << "\n";
+            std::cout << "  estimateBoundaryNormalAligned: " << std::boolalpha
+                      << samplePoints[0].estimateBoundaryNormalAligned << "\n";
+            std::cout << "}\n";
+        }
+
+        if (false) {
+            const auto &stats = samplePoints[0].statistics;
+
+            std::cout << "statistics.solutionMean = " << stats.solutionMean
+                      << "\n";
+            std::cout << "statistics.solutionM2 = " << stats.solutionM2 << "\n";
+
+            std::cout << "statistics.gradientMean = [";
+            for (size_t i = 0; i < DIM; ++i) {
+                std::cout << stats.gradientMean[i];
+                if (i + 1 < DIM)
+                    std::cout << ", ";
+            }
+            std::cout << "]\n";
+
+            std::cout << "statistics.gradientM2 = [";
+            for (size_t i = 0; i < DIM; ++i) {
+                std::cout << stats.gradientM2[i];
+                if (i + 1 < DIM)
+                    std::cout << ", ";
+            }
+            std::cout << "]\n";
+
+            std::cout << "statistics.totalFirstSourceContribution = "
+                      << stats.totalFirstSourceContribution << "\n";
+            std::cout << "statistics.totalDerivativeContribution = "
+                      << stats.totalDerivativeContribution << "\n";
+            std::cout << "statistics.nSolutionEstimates = "
+                      << stats.nSolutionEstimates << "\n";
+            std::cout << "statistics.nGradientEstimates = "
+                      << stats.nGradientEstimates << "\n";
+            std::cout << "statistics.totalWalkLength = "
+                      << stats.totalWalkLength << "\n";
+            std::cout << "statistics.totalSplits = " << stats.totalSplits
+                      << "\n";
+        }
+
+        // Now time to get my solver going.
+        Statistics *bonsai_solution = nullptr;
+        // constexpr uint64_t bonsai_fixed_count = 200;
+
+        if constexpr (DIM == 3) {
+            WalkSettings bonsai_ws;
+            bonsai_ws.box = box;
+            bonsai_ws.epsShellAbs = epsilonShell;
+            bonsai_ws.epsShellRefl = 0.0; // TODO: not used
+            bonsai_ws.silPrecision = 0.0; // TODO: not used
+            bonsai_ws.russianRouletteThreshold = russianRouletteThreshold;
+            bonsai_ws.maxWalkLength = maxWalkLength;
+            bonsai_ws.stepsBeforeApplyingTikhonov =
+                stepsBeforeApplyingTikhonov; // TODO: not used
+            bonsai_ws.flags =
+                (int)solveDoubleSided |
+                (((int)!disableGradientControlVariates) << 1) |
+                (((int)!disableGradientAntitheticVariates) << 2) |
+                (((int)useCosineSamplingForDirectionalDerivatives) << 3) |
+                (((int)ignoreDirichletContribution) << 4) |
+                // ignoreReflectingBoundaryCondition is always false?
+                (((int)ignoreSourceContribution) << 6) |
+                (((int)printLogs) << 7);
+            PDE bonsai_pde;
+            bonsai_pde.absCoeff = pde.absorptionCoeff;
+            bonsai_pde.freq = pde.freq;
+
+            const uint32_t nSamplePts = samplePoints.size();
+            // const uint64_t nSamplePts = bonsai_fixed_count;
+            auto start = std::chrono::high_resolution_clock::now();
+            std::cout << nSamplePts << "pts" << std::endl;
+
+            std::cout << nWalksForSamplePts << " walks per pt" << std::endl;
+
+            bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts,
+                                    bonsai_pts, nWalksForSamplePts, tree);
+
+            auto end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> elapsed = end - start;
+            std::cout << "bonsai.solve took " << elapsed.count()
+                      << " seconds.\n";
+
+            if (false) {
+                const Statistics &first = bonsai_solution[0];
+                std::cout << "bonsai solutionMean = " << first.solMean << "\n";
+                std::cout << "bonsai solutionM2 = " << first.solMean2 << "\n";
+                std::cout << "bonsai nSolutionEstimates = "
+                          << first.nSolEstimates << "\n";
+                std::cout << "bonsai totalWalkLength = "
+                          << first.totalWalkLength << "\n";
+                std::cout << "bonsai totalSplits = " << first.totalSplits
+                          << "\n";
+                std::cout << "bonsai firstSphereRadius = "
+                          << first.firstSphereRadius << "\n";
+            }
+        }
+
+        // for (size_t i = 0; i <  samplePoints.size(); i++) {
+        //     std::cout << "-----------------\ni = " << i << std::endl;
+        //     std::cout << "zombie: " << samplePoints[i] << std::endl;
+        //     std::cout << "bonsai: " << bonsai_pts[i] << std::endl;
+        //     std::cout << bonsai_solution[i] << std::endl;
+        //     std::cout << "-----------------\n";
+        // }
+
+        // plot results
+        std::vector<float> firstSphereRadii;
+        for (int i = 0; i < (int)samplePoints.size(); i++) {
+            if (bonsai_solution) {
+                firstSphereRadii.push_back(
+                    bonsai_solution[i].firstSphereRadius);
+            } else {
+                firstSphereRadii.push_back(samplePoints[i].firstSphereRadius);
+            }
+
+            if (false) {
+                // if (bonsai_solution && i < bonsai_fixed_count) {
+                // TODO: assert within epsilon?
+                const bool equal =
+                    (samplePoints[i].firstSphereRadius ==
+                     bonsai_solution[i].firstSphereRadius) &&
+                    (samplePoints[i].statistics.solutionMean ==
+                     bonsai_solution[i].solMean) &&
+                    (samplePoints[i].statistics.solutionM2 ==
+                     bonsai_solution[i].solMean2) &&
+                    (samplePoints[i].statistics.totalFirstSourceContribution ==
+                     bonsai_solution[i].totalFirstSourceContribution) &&
+                    (samplePoints[i].statistics.nSolutionEstimates ==
+                     bonsai_solution[i].nSolEstimates) &&
+                    (samplePoints[i].statistics.totalWalkLength ==
+                     bonsai_solution[i].totalWalkLength) &&
+                    (samplePoints[i].statistics.totalSplits ==
+                     bonsai_solution[i].totalSplits) &&
+                    true;
+
+                if (!equal) {
+                    std::cerr << "Not equal at: i = " << i << std::endl;
+
+                    if (samplePoints[i].firstSphereRadius !=
+                        bonsai_solution[i].firstSphereRadius)
+                        std::cerr << " firstSphereRadius: sample="
+                                  << samplePoints[i].firstSphereRadius
+                                  << ", bonsai="
+                                  << bonsai_solution[i].firstSphereRadius
+                                  << std::endl;
+
+                    if (samplePoints[i].statistics.solutionMean !=
+                        bonsai_solution[i].solMean)
+                        std::cerr << " solutionMean: sample="
+                                  << samplePoints[i].statistics.solutionMean
+                                  << ", bonsai=" << bonsai_solution[i].solMean
+                                  << std::endl;
+
+                    if (samplePoints[i].statistics.solutionM2 !=
+                        bonsai_solution[i].solMean2)
+                        std::cerr << " solutionM2: sample="
+                                  << samplePoints[i].statistics.solutionM2
+                                  << ", bonsai=" << bonsai_solution[i].solMean2
+                                  << std::endl;
+
+                    if (samplePoints[i]
+                            .statistics.totalFirstSourceContribution !=
+                        bonsai_solution[i].totalFirstSourceContribution)
+                        std::cerr
+                            << " totalFirstSourceContribution: sample="
+                            << samplePoints[i]
+                                   .statistics.totalFirstSourceContribution
+                            << ", bonsai="
+                            << bonsai_solution[i].totalFirstSourceContribution
+                            << std::endl;
+
+                    if (samplePoints[i].statistics.nSolutionEstimates !=
+                        bonsai_solution[i].nSolEstimates)
+                        std::cerr
+                            << " nSolutionEstimates: sample="
+                            << samplePoints[i].statistics.nSolutionEstimates
+                            << ", bonsai=" << bonsai_solution[i].nSolEstimates
+                            << std::endl;
+
+                    if (samplePoints[i].statistics.totalWalkLength !=
+                        bonsai_solution[i].totalWalkLength)
+                        std::cerr
+                            << " totalWalkLength: sample="
+                            << samplePoints[i].statistics.totalWalkLength
+                            << ", bonsai=" << bonsai_solution[i].totalWalkLength
+                            << std::endl;
+
+                    if (samplePoints[i].statistics.totalSplits !=
+                        bonsai_solution[i].totalSplits)
+                        std::cerr
+                            << " totalSplits: sample="
+                            << samplePoints[i].statistics.totalSplits
+                            << ", bonsai=" << bonsai_solution[i].totalSplits
+                            << std::endl;
+                    exit(-1);
+                }
+            }
+        }
+
+        auto pointCloud = polyscope::getPointCloud("Sample Points");
+        pointCloud->addScalarQuantity("First Sphere Radii", firstSphereRadii);
+        pointCloud->setPointRadiusQuantity("First Sphere Radii");
+
+        // mask out sample values close to the boundary
+        maskWalkOnSpheresEstimates(boundaryDistanceMask, samplePoints);
+
+        // plot sample values
+        plotWalkOnSpheresEstimates<DIM>(samplePoints, estimateOnSlicePlane,
+                                        walkOnSpheresSolution);
+
+        if (bonsai_solution) {
+            // mask out sample values close to the boundary
+            maskWalkOnSpheresEstimatesBonsai(boundaryDistanceMask, samplePoints,
+                                             bonsai_solution);
+
+            // plot sample values
+            plotWalkOnSpheresEstimatesBonsai(
+                bonsai_solution, samplePoints.size(), estimateOnSlicePlane,
+                walkOnSpheresSolution);
+        }
+
+        nWalksTakenForSamplePts += nWalksForSamplePts;
+        // }
+
+        const std::string walksTakenPerSamplePtsStr =
+            "Walks Taken Per Sample Point: " +
+            std::to_string(nWalksTakenForSamplePts);
+        exit(-1);
+    }
 }
 
 template <size_t DIM>
@@ -1406,8 +2114,12 @@ void visualizeScene(const std::vector<Vector<DIM>> &meshPositions,
                   std::ref(samplePoints), std::ref(walkOnSpheresSolution));
 #endif
 
-    // give control to polyscope gui
-    polyscope::show();
+    //     // give control to polyscope gui
+    //     polyscope::show();
+    // runNoGUI<DIM>(std::cref(meshPositions), std::cref(isBoundaryVertex),
+    //               std::cref(geometricQueries), std::cref(walkOnSpheres),
+    //               std::ref(pde), std::ref(nWalks), std::ref(samplePoints),
+    //               std::ref(walkOnSpheresSolution));
 }
 
 template <size_t DIM>
@@ -1462,6 +2174,7 @@ void run() {
     boundaryHandler.buildAccelerationStructure(boundaryPositions,
                                                boundaryIndices);
 
+    // TODO(ajr): also build Bonsai aggregate
     if constexpr (DIM == 3) {
         auto start = std::chrono::high_resolution_clock::now();
         fcpw::Aggregate<DIM> *aggregate =

@@ -89,6 +89,19 @@ struct Rewriter : public ir::Mutator {
     std::vector<ir::Expr> volumes;
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
+    // Any child-named volumes
+    std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
+
+    ir::Expr make_volume(const ir::Expr &tree,
+                         const ir::BVH_t::Volume &volume) {
+        const size_t n_args = volume.initializers.size();
+        std::vector<ir::Expr> args(n_args);
+        for (size_t j = 0; j < n_args; j++) {
+            const auto &name = volume.initializers[j];
+            args[j] = ir::Access::make(name, tree);
+        }
+        return ir::Build::make(volume.struct_type, args);
+    }
 
     ir::Stmt visit(const ir::Match *node) final override {
         const ir::Var *var = node->loc.as<ir::Var>();
@@ -100,19 +113,18 @@ struct Rewriter : public ir::Mutator {
         for (size_t i = 0; i < n; i++) {
             ir::Expr tree = ir::Unwrap::make(i, node->loc);
             if (node->arms[i].first.volume.has_value()) {
-                const size_t n_args =
-                    node->arms[i].first.volume->initializers.size();
-                std::vector<ir::Expr> args(n_args);
-                for (size_t j = 0; j < n_args; j++) {
-                    const auto &name =
-                        node->arms[i].first.volume->initializers[j];
-                    args[j] = ir::Access::make(name, tree);
-                }
-                ir::Expr vol = ir::Build::make(
-                    node->arms[i].first.volume->struct_type, args);
+                ir::Expr vol = make_volume(tree, *node->arms[i].first.volume);
                 volumes.emplace_back(std::move(vol));
             } else {
                 volumes.emplace_back(); // undef volume
+            }
+            if (!node->arms[i].first.child_volumes.empty()) {
+                std::map<std::string, ir::Expr> built_child_volumes;
+                for (const auto &[name, volume] :
+                     node->arms[i].first.child_volumes) {
+                    built_child_volumes[name] = make_volume(tree, volume);
+                }
+                child_volumes[var->name] = std::move(built_child_volumes);
             }
             ir::Stmt stmt = mutate(node->arms[i].second);
             volumes.pop_back();
@@ -133,6 +145,35 @@ struct Rewriter : public ir::Mutator {
             // Even if a volume is undefined, needs to be added so
             // predicate analysis knows it's non-varying.
             vols[args[i].name] = volumes[i];
+        }
+        return vols;
+    }
+
+    VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
+                              const ir::Expr &value) const {
+        auto get_volume = [&](const ir::Expr &e) {
+            const ir::Access *access = e.as<ir::Access>();
+            internal_assert(access) << e;
+            const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
+            internal_assert(unwrap) << e;
+            const ir::Var *var = unwrap->value.as<ir::Var>();
+            internal_assert(var) << e;
+            const auto &iter = child_volumes.find(var->name);
+            internal_assert(iter != child_volumes.cend()) << e;
+            const auto &citer = iter->second.find(access->field);
+            internal_assert(citer != iter->second.cend()) << e;
+            return citer->second;
+        };
+        VolumeMap vols;
+        if (args.size() == 1) {
+            vols[args[0].name] = get_volume(value);
+        } else {
+            const auto values = break_tuple(value);
+            internal_assert(args.size() == values.size()) << value;
+            for (size_t i = 0; i < args.size(); i++) {
+                // TODO(ajr): this doesn't work with mismatching BVHs.
+                vols[args[i].name] = get_volume(values[i]);
+            }
         }
         return vols;
     }
@@ -220,12 +261,44 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
                 << "Cannot accelerate predicate: " << predicate
                 << " on: " << ir::Stmt(node);
 
+            ir::Stmt body;
+
+            // if any of these values have a volume wrap, try to filter it out.
+            // ajr: this is some of the hackiest shit I have ever done, but I
+            // think it works...
+            if (!child_volumes.empty()) {
+                auto as = break_tuple(node->value);
+                std::vector<ir::Expr> upper_bounds;
+                for (const auto &a : as) {
+                    VolumeMap cvols = make_volume_map(lambda->args, a);
+                    Interval cbounds =
+                        predicate_analysis(lambda->value, cvols, intervals);
+                    internal_assert(is_const_zero(cbounds.min) &&
+                                    cbounds.max.defined())
+                        << cbounds.min << " and " << cbounds.max;
+                    upper_bounds.push_back(std::move(cbounds.max));
+                }
+                internal_assert(as.size() == 2)
+                    << "[unimplemented] generalized decision tree for child "
+                       "volume optimization";
+
+                ir::Expr both_good = upper_bounds[0] && upper_bounds[1];
+                ir::Stmt singletons = ir::IfElse::make(
+                    upper_bounds[0], ir::YieldFrom::make(make_tuple({as[0]})),
+                    ir::IfElse::make(upper_bounds[1],
+                                     ir::YieldFrom::make(make_tuple({as[1]}))));
+                body = ir::IfElse::make(std::move(both_good),
+                                        ir::YieldFrom::make(node->value),
+                                        std::move(singletons));
+            } else {
+                body = ir::YieldFrom::make(node->value);
+            }
+
             // Make a recursive call
             // TODO: this should be wrapped in a filter, for cases with
             // simplified predicates. This is required for proper predicate
             // analysis of conjunctions/disjunctions. ir::Stmt body =
             // ir::YieldFrom::make(ir::filter(predicate, node->value));
-            ir::Stmt body = ir::YieldFrom::make(node->value);
             // Add the maybe case -> recursive call
             body = ir::IfElse::make(std::move(bounds.max), std::move(body));
 
@@ -481,20 +554,65 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
-            VolumeMap vols = make_volume_map(lambda->args);
+            ir::Expr upper_bound;
+            ir::Stmt body = node;
 
-            Interval bounds =
-                predicate_analysis(lambda->value, vols, intervals);
-            internal_assert(bounds.max.defined())
-                << "Cannot accelerate metric: " << lambda->value
-                << " on: " << ir::Stmt(node);
+            // if any of these values have a volume wrap, use it to tighten the
+            // bound. ajr: this is some of the hackiest shit I have ever done,
+            // but I think it works...
+            if (!child_volumes.empty()) {
+                auto as = break_tuple(node->value);
+                std::vector<ir::Expr> upper_bounds;
+                std::vector<ir::Expr> lower_bounds;
+                for (const auto &a : as) {
+                    VolumeMap cvols = make_volume_map(lambda->args, a);
+                    Interval cbounds =
+                        predicate_analysis(lambda->value, cvols, intervals);
+                    internal_assert(cbounds.min.defined() &&
+                                    cbounds.max.defined())
+                        << cbounds.min << " and " << cbounds.max;
+                    upper_bounds.push_back(std::move(cbounds.max));
+                    lower_bounds.push_back(std::move(cbounds.min));
+                }
 
-            // Best must be at most max.
-            // Epsilon only needed if subtree isn't tight / can be empty.
-            ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
+                upper_bound = upper_bounds[0];
+                for (size_t i = 1; i < as.size(); i++) {
+                    upper_bound = max(std::move(upper_bound), upper_bounds[i]);
+                }
+                if (as.size() >= 2) {
+                    internal_assert(as.size() == 2) << ir::Stmt(node); // TODO
+                    // If a is strictly better than b, only include it
+                    ir::Expr a_winner = upper_bounds[0] < lower_bounds[1];
+                    ir::Expr b_winner = upper_bounds[1] < lower_bounds[0];
+                    // If their a has a better lb *or* eq lb and better ub
+                    ir::Expr a_closer = (lower_bounds[0] < lower_bounds[1]) |
+                                        (lower_bounds[0] == lower_bounds[1]) &
+                                            (upper_bounds[0] < upper_bounds[1]);
+                    body = ir::IfElse::make(
+                        a_winner, ir::YieldFrom::make(make_tuple({as[0]})),
+                        ir::IfElse::make(
+                            b_winner, ir::YieldFrom::make(make_tuple({as[1]})),
+                            ir::YieldFrom::make(
+                                make_tuple({select(a_closer, as[1], as[0]),
+                                            select(a_closer, as[0], as[1])}))));
+                }
+            } else {
+                VolumeMap vols = make_volume_map(lambda->args);
+
+                Interval bounds =
+                    predicate_analysis(lambda->value, vols, intervals);
+                internal_assert(bounds.max.defined())
+                    << "Cannot accelerate metric: " << lambda->value
+                    << " on: " << ir::Stmt(node);
+
+                // Best must be at most max.
+                // Epsilon only needed if subtree isn't tight / can be empty.
+                upper_bound = bounds.max;
+            }
+
             ir::Stmt do_update = ir::Accumulate::make(loc, ir::Accumulate::Min,
-                                                      std::move(value));
-            return ir::Sequence::make({std::move(do_update), node});
+                                                      std::move(upper_bound));
+            return ir::Sequence::make({std::move(do_update), std::move(body)});
         }
     };
 

@@ -179,7 +179,8 @@ func [[export]] solve(pde : PDE, s : WalkSettings, n : u32, pts : array[SamplePo
 
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Interior(left : TriangleBVH, right : TriangleBVH, ll lr hl hr : vec3f)
+      with AABB(ll, hl) on left AABB(lr, hr) on right
     | Leaf(data : array[Triangle]);
 
     tris : TriangleBVH;
@@ -194,15 +195,15 @@ schedule {
             high : vec3f;
             axis : u16; // axis + pad bits.
             switch nPrims {
-                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; ll = this[left].low; lr = this[right].low; hl = this[left].high; hr = this[right].high; };
                 _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
             };
         };
     };
 
     // TODO: schedule.
-    // solve.split(i0, io, ii, 256u, it).cpu_thread(io);
-    closest.sort(tris.Interior, |i : u8| 1 - i);
+    solve.split(i0, io, ii, 405u, it).cpu_thread(io); // TODO(ajr): debug .cpu_thread(it);
+    // closest.sort(tris.Interior, |i : u8| 1 - i);
     doWalk.loopify();
     walk.loopify();
     closest.loopify(16);

@@ -30,6 +30,8 @@ Expr operator~(Expr a);
 Expr operator-(Expr a);
 
 Expr select(Expr c, Expr t, Expr f);
+Expr max(Expr a, Expr b);
+Expr min(Expr a, Expr b);
 
 // Geometric
 Expr distmax(Expr a, Expr b);

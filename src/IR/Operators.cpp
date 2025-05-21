@@ -77,6 +77,14 @@ Expr select(Expr c, Expr t, Expr f) {
     return Select::make(std::move(c), std::move(t), std::move(f));
 }
 
+Expr min(Expr a, Expr b) {
+    return Intrinsic::make(Intrinsic::min, {std::move(a), std::move(b)});
+}
+
+Expr max(Expr a, Expr b) {
+    return Intrinsic::make(Intrinsic::max, {std::move(a), std::move(b)});
+}
+
 Expr distmax(Expr a, Expr b) {
     return GeomOp::make(GeomOp::distmax, std::move(a), std::move(b));
 }

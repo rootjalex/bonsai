@@ -622,9 +622,20 @@ void Printer::print(const BVH_t::Node &node) {
     }
     os << ")";
 
+    bool with_printed = false;
     if (node.volume.has_value()) {
+        with_printed = true;
         os << " with ";
         print_volume(*node.volume);
+    }
+
+    for (const auto &[child, volume] : node.child_volumes) {
+        if (!with_printed) {
+            os << " with ";
+        }
+        with_printed = true;
+        print_volume(volume);
+        os << " on " << child;
     }
 }
 
