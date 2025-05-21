@@ -1600,6 +1600,9 @@ void visualizeScene(const std::vector<Vector<DIM>> &meshPositions,
     polyscope::options::usePrefsFile = false;
     polyscope::options::autocenterStructures = false;
 
+    //polyscope::options::allowHeadless = true;           // <-- allow headless
+    polyscope::options::allowHeadlessBackends = true;   // <-- crucial for EGL fallback
+
     // initialize polyscope
     polyscope::init();
 
