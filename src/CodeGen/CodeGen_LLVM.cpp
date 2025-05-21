@@ -2308,6 +2308,7 @@ void CodeGen_LLVM::ensure_capacity(
     builder->SetInsertPoint(continue_bb);
 }
 
+// TODO(bonsai/issues/200): add test for parallel appends.
 void CodeGen_LLVM::visit(const Append *node) {
     llvm::Value *dynamic_array = codegen_write_loc(node->loc);
     std::string base_n = node->loc.base;
