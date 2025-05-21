@@ -190,10 +190,9 @@ schedule {
         count : u32;
         group[count] index : u16 {
             low : vec3f;
-            32; // pad bits
+            nPrims : u32;
             high : vec3f;
-            nPrims : u8;
-            axis : u8;
+            axis : u16; // axis + pad bits.
             switch nPrims {
                 0 => Interior { offset : u16; left = index + 1; right = index + offset; };
                 _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
@@ -203,6 +202,7 @@ schedule {
 
     // TODO: schedule.
     // solve.split(i0, io, ii, 256u, it).cpu_thread(io);
+    closest.sort(tris.Interior, |i : u8| 1 - i);
     doWalk.loopify();
     walk.loopify();
     closest.loopify(16);

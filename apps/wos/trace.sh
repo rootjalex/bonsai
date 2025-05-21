@@ -1,6 +1,6 @@
 xcrun xctrace record \
   --template 'Time Profiler' \
-  --output myprofile.trace \
+  --output myprofile-nogui.trace \
   --target-stdout output.txt \
   --launch -- ./test_wos_bonsai \
     --dim=3 \

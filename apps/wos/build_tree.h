@@ -104,7 +104,7 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
         }
         tree.group0_index[this_index].low = aabb_min;
         tree.group0_index[this_index].high = aabb_max;
-        tree.group0_index[this_index].pad0 = 0;
+        // tree.group0_index[this_index].pad0 = 0;
 
         if (count <= max_prims_per_leaf) {
             leaf_numbers[count]++;
@@ -163,7 +163,7 @@ _tree_layout0 build_tree(const std::vector<Vector<3>> &boundaryPositions,
             tree.group0_index[i].high = {std::numeric_limits<float>::min(), std::numeric_limits<float>::min(), std::numeric_limits<float>::min()};
             tree.group0_index[i].nPrims = 0;
             tree.group0_index[i].axis = 0;
-            tree.group0_index[i].pad0 = 0;
+            // tree.group0_index[i].pad0 = 0;
             *reinterpret_cast<uint16_t *>(&tree.group0_index[i].split0on_nPrims) = 0;
         }
     }
