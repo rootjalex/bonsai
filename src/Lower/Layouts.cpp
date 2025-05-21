@@ -604,7 +604,6 @@ struct LowerMatches : public ir::Mutator {
         : layouts(layouts), structs(structs), ltmap(ltmap) {}
 
     std::map<std::string, ir::Type> ref_types;
-    size_t n_matches = 0;
     IndexTList index_list;
     std::set<std::string> matched_objects;
     std::map<std::string, ir::Expr> references;
@@ -613,6 +612,15 @@ struct LowerMatches : public ir::Mutator {
 
     std::string get_unique_loop_label() {
         return "_loop" + std::to_string(counter++);
+    }
+
+    ir::Stmt visit(const ir::RecLoop *node) override {
+        // Should not be in a match right now.
+        internal_assert(references.empty()) << ir::Stmt(node);
+        ir::Stmt body = mutate(node->body);
+        body = flatten_yield_froms(index_list, std::move(body), references);
+        references.clear();
+        return ir::RecLoop::make(std::move(index_list), std::move(body));
     }
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -659,6 +667,7 @@ struct LowerMatches : public ir::Mutator {
                        .mutate(std::move(body));
         }
 
+        // First time we see a tree, add it's type to the type parameters list.
         if (!matched_objects.contains(tree_name)) {
             IndexTList node_index_list = get_index_type(layout);
             std::reverse(node_index_list.begin(), node_index_list.end());
@@ -676,20 +685,7 @@ struct LowerMatches : public ir::Mutator {
         matched_objects.insert(tree_name);
 
         // Now recursively mutate the body, for nested matches.
-        n_matches++;
-        body = mutate(body);
-        n_matches--;
-
-        // The outermost match is a recursive while loop.
-        // To find the types, grab the recursive types from
-        // YieldFroms.
-
-        if (n_matches == 0) {
-            body = flatten_yield_froms(index_list, std::move(body), references);
-            references.clear();
-            return ir::RecLoop::make(std::move(index_list), std::move(body));
-        }
-        return body;
+        return mutate(body);
     }
 
     ir::Expr visit(const ir::Var *node) override {

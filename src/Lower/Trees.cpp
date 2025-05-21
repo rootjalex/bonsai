@@ -856,6 +856,17 @@ ir::Stmt add_tree_visit_logger(ir::Stmt stmt) {
     return ir::Sequence::make(std::move(stmts));
 }
 #endif
+// Wrap the first Match seen in a recursive loop on all trees seen in the body.
+struct WrapMatchInRecLoop : public ir::Mutator {
+    std::vector<ir::TypedVar> trees;
+
+    WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
+        : trees(std::move(trees)) {}
+
+    ir::Stmt visit(const ir::Match *node) override {
+        return ir::RecLoop::make(std::move(trees), node);
+    }
+};
 
 struct LowerBVH : public ir::Mutator {
     const ir::TypeMap &tree_types;
@@ -876,14 +887,22 @@ struct LowerBVH : public ir::Mutator {
         const std::string func = new_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
 
-        bool found = false;
+        std::vector<ir::TypedVar> trees;
+        std::vector<ir::Function::Argument> func_args;
+        func_args.reserve(free_vars.size());
         for (const auto &var : free_vars) {
-            if (tree_types.contains(var.name)) {
-                found = true;
-                break;
+            if (const auto &iter = tree_types.find(var.name);
+                iter != tree_types.cend()) {
+                trees.push_back({var.name, iter->second});
+                func_args.emplace_back(var.name, iter->second);
+            } else {
+                // TODO: mutability? only if the free vars are mutated in the
+                // traversal somehow... That shouldn't happen, I think?
+                func_args.emplace_back(var.name, var.type);
             }
         }
-        internal_assert(found)
+        // TODO(ajr): relax this, when we lower trees before arrays.
+        internal_assert(!trees.empty())
             << "Lowering of: " << expr << " does not contain any tree types.";
 
         // TODO(ajr): is there more we can do with intervals?
@@ -891,23 +910,12 @@ struct LowerBVH : public ir::Mutator {
         // queries, etc?
         IntervalMap intervals;
         ir::Stmt body = build_traversal(expr, tree_types, intervals);
-
 #ifdef LOG_TREE_VISITS
         body = add_tree_visit_logger(std::move(body));
 #endif
-
         internal_assert(body.defined());
-
-        std::vector<ir::Function::Argument> func_args;
-        std::transform(free_vars.cbegin(), free_vars.cend(),
-                       std::back_inserter(func_args), [&](const auto &var) {
-                           const auto &iter = this->tree_types.find(var.name);
-                           if (iter != this->tree_types.cend()) {
-                               return ir::Function::Argument(var.name,
-                                                             iter->second);
-                           }
-                           return ir::Function::Argument(var.name, var.type);
-                       });
+        // Now wrap in a recursive loop on any trees.
+        body = WrapMatchInRecLoop(std::move(trees)).mutate(body);
 
         // When should this type be concretized into e.g. a list?
         ir::Type ret_type = expr.type();
