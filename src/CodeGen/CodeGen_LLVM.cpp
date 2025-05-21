@@ -2191,8 +2191,6 @@ llvm::FunctionCallee CodeGen_LLVM::get_pthread_unlock() {
                                 /*isVarArg=*/false));
 }
 llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
-    llvm::Type *i32_t = builder->getInt32Ty();
-    llvm::Type *i8_t = builder->getInt8Ty();
     return module->getOrInsertFunction(
         "pthread_mutex_init", llvm::FunctionType::get(i32_t,
                                                       {
