@@ -942,9 +942,20 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     ir::Expr update = node->value;
     os << get_indent();
     if (!node->loc.base_type.is<Array_t>()) {
-        os << '*';
+        os << "*";
     }
-    os << current.base << ' ';
+    os << current.base;
+    const auto &accesses = current.accesses;
+    for (const auto &access : accesses) {
+        if (std::holds_alternative<std::string>(access)) {
+            os << "." << std::get<std::string>(access);
+        } else {
+            os << "[";
+            print_no_parens(std::get<Expr>(access));
+            os << "]";
+        }
+    }
+    os << " ";
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
