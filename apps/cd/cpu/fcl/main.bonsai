@@ -1,0 +1,134 @@
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element Triangle {
+    p0, p1, p2 : vec3f;
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+func project6(ax: vec3f, p1: vec3f, p2: vec3f, p3: vec3f, q1: vec3f, q2: vec3f, q3: vec3f) -> bool {
+    P1 = dot(ax, p1);
+    P2 = dot(ax, p2);
+    P3 = dot(ax, p3);
+    Q1 = dot(ax, q1);
+    Q2 = dot(ax, q2);
+    Q3 = dot(ax, q3);
+
+    mn1 = min(min(P1, P2), P3);
+    mx2 = max(max(Q1, Q2), Q3);
+    if (mn1 > mx2) { return false; }
+
+    mx1 = max(max(P1, P2), P3);
+    mn2 = min(min(Q1, Q2), Q3);
+
+    if (mn2 > mx1) { return false; }
+    return true;
+}
+
+// Derived from FCL
+func intersects(a: Triangle, b: Triangle) -> bool {
+    p1 = a.p0; p2 = a.p1; p3 = a.p2;
+    q1 = b.p0; q2 = b.p1; q3 = b.p2;
+
+    e1 = p2 - p1;
+    e2 = p3 - p2;
+    e3 = p1 - p3;
+
+    f1 = q2 - q1;
+    f2 = q3 - q2;
+    f3 = q1 - q3;
+
+    n1 = cross(e1, e2);
+    if (!project6(n1, p1, p2, p3, q1, q2, q3)) return false;
+    m1 = cross(f1, f2);
+    if (!project6(m1, p1, p2, p3, q1, q2, q3)) return false;
+
+    if (!project6(cross(e1, f1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e1, f2), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e1, f3), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e2, f1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e2, f2), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e2, f3), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e3, f1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e3, f2), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e3, f3), p1, p2, p3, q1, q2, q3)) return false;
+
+    if (!project6(cross(e1, n1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e2, n1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(e3, n1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(f1, m1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(f2, m1), p1, p2, p3, q1, q2, q3)) return false;
+    if (!project6(cross(f3, m1), p1, p2, p3, q1, q2, q3)) return false;
+
+    return true;
+}
+
+func axis(A: vec3f, extents: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> bool {
+    R = dot(extents, abs(A));
+    P0 = dot(v0, A);
+    P1 = dot(v1, A);
+    P2 = dot(v2, A);
+    Pmin = min(min(P0, P1), P2);
+    Pmax = max(max(P0, P1), P2);
+    
+    return Pmax >= -R & Pmin <= R;
+}
+
+
+func intersects(a : AABB, b : AABB) -> bool {
+    low = max(a.low, b.low);
+    high = min(a.high, b.high);
+    return all(low <= high);
+}
+
+extern triangles1 : set[Triangle];
+extern triangles2 : set[Triangle];
+
+func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
+
+// TODO(cgyurgyik): The pCount/count can be u16 for smaller collision detection tests.
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH)
+    | Leaf(data : array[Triangle]);
+
+    triangles1 : TriangleBVH;
+    triangles2 : TriangleBVH;
+
+    layout triangles1 {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low : vec3f;
+            nPrims : u32;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    layout triangles2 {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low : vec3f;
+            nPrims : u32;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

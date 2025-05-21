@@ -93,9 +93,8 @@ void emit_type(std::ostream &ss, Type type) {
         RESTRICT_VISITOR(Tuple_t);
 
         void visit(const Array_t *node) override {
-            internal_assert(!is_const(node->size));
             node->etype.accept(this);
-            ss << " *";
+            ss << "*";
         }
 
         RESTRICT_VISITOR(Option_t);
@@ -200,7 +199,11 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         for (const auto &[name, child] : struct_t->fields) {
             ss << indent;
             if (const Array_t *array_t = child.as<Array_t>();
-                array_t && is_const(array_t->size)) {
+                array_t && is_const(array_t->size) &&
+                // The buffer field of dynamic arrays should always be treated
+                // as a pointers, since its capacity may be resized.
+                !is_dynamic_array_struct_type(type)) {
+
                 emit_type(ss, array_t->etype);
                 std::optional<uint64_t> size =
                     get_constant_value(array_t->size);

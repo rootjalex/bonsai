@@ -65,14 +65,48 @@ class LowerDynamicSetImpl : public ir::Mutator {
     bool entry = true;
 };
 
+class LowerDynamicSetCall : public ir::Mutator {
+  public:
+    LowerDynamicSetCall(Type dynamic_array_t)
+        : dynamic_array_t(std::move(dynamic_array_t)) {}
+
+    Expr visit(const Call *node) {
+        const auto *func = node->func.as<Var>();
+        if (func == nullptr) {
+            return ir::Mutator::visit(node);
+        }
+        if (!func->name.starts_with("_traverse_tree")) {
+            return ir::Mutator::visit(node);
+        }
+        const Function_t *ftype = func->type.as<Function_t>();
+        internal_assert(ftype) << func->type;
+        Type t = Function_t::make(dynamic_array_t, ftype->arg_types);
+        return Call::make(Var::make(std::move(t), func->name), node->args);
+    }
+
+    Stmt visit(const CallStmt *node) {
+        const auto *func = node->func.as<Var>();
+        if (func == nullptr) {
+            return ir::Mutator::visit(node);
+        }
+        if (!func->name.starts_with("_traverse_tree")) {
+            return ir::Mutator::visit(node);
+        }
+        const Function_t *ftype = func->type.as<Function_t>();
+        internal_assert(ftype) << func->type;
+        Type t = Function_t::make(dynamic_array_t, ftype->arg_types);
+        return CallStmt::make(Var::make(std::move(t), func->name), node->args);
+    }
+
+  private:
+    Type dynamic_array_t;
+};
+
 } // namespace
 
 Program LowerDynamicSets::run(Program program,
                               const CompilerOptions &options) const {
-    std::vector<std::string> topological_order =
-        func_topological_order(program.funcs);
-    for (const std::string &name : topological_order) {
-        auto &func = program.funcs[name];
+    for (auto &[name, func] : program.funcs) {
         const auto *set_t = func->ret_type.as<Set_t>();
         if (set_t == nullptr) {
             continue;
@@ -80,11 +114,13 @@ Program LowerDynamicSets::run(Program program,
         // TODO(cgyurgyik): Add schedule support for dynamic array size.
         Type dynamic_array_t = DynArray_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;
+        LowerDynamicSetCall lower(dynamic_array_t);
+        func->body = lower.mutate(std::move(func->body));
         if (name.starts_with("_traverse_tree")) {
             LowerDynamicSetImpl lower(dynamic_array_t);
             // Canonicalize this into a sequence so we only need to handle a
             // single case.
-            func->body = lower.mutate(func->body);
+            func->body = lower.mutate(std::move(func->body));
         }
     }
     return program;

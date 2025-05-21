@@ -107,6 +107,18 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
     return os;
 }
 
+std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars) {
+    os << "{";
+    for (size_t i = 0; i < vars.size(); i++) {
+        if (i > 0) {
+            os << ", ";
+        }
+        os << vars[i].name << " : " << vars[i].type;
+    }
+    os << "}";
+    return os;
+}
+
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
     printer.print(func);

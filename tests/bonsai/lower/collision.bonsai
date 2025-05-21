@@ -29,16 +29,16 @@ func tri_tri_axis(A: vec3f, a0: vec3f, a1: vec3f, a2: vec3f, b0: vec3f, b1: vec3
     bmin = min(min(PB0, PB1), PB2); 
     bmax = max(max(PB0, PB1), PB2);
     
-    return !(amax < bmin || bmax < amin);
+    return !(amax < bmin | bmax < amin);
 }
 
 func intersects(a: AABB, b: Triangle) -> bool {
     center  = (a.low + a.high) * 0.5;
     extents = (a.high - a.low) * 0.5;
 
-    v0 = b.p0 - center;
-    v1 = b.p1 - center;
-    v2 = b.p2 - center;
+    v0: vec3f = b.p0 - center;
+    v1: vec3f = b.p1 - center;
+    v2: vec3f = b.p2 - center;
 
     f0 = v1 - v0;
     f1 = v2 - v1;
@@ -48,9 +48,9 @@ func intersects(a: AABB, b: Triangle) -> bool {
     tri_max = max(max(v0, v1), v2);
     if (!all(tri_min <= extents & tri_max >= -extents)) { return false; }
 
-    X: vec3f  = {1,0,0};
-    Y: vec3f  = {0,1,0};
-    Z: vec3f  = {0,0,1};
+    X: vec3f  = {1.0,0.0,0.0};
+    Y: vec3f  = {0.0,1.0,0.0};
+    Z: vec3f  = {0.0,0.0,1.0};
 
     A0 = cross(f0, X);
     A1 = cross(f0, Y);
@@ -129,7 +129,7 @@ func intersects(a : AABB, b : AABB) -> bool {
 extern triangles1 : set[Triangle];
 extern triangles2 : set[Triangle];
 
-func collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
+func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
 
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
@@ -172,8 +172,7 @@ schedule {
             };
         };
     };
-
-    collisions.make_queue(Q1, root, 64);
-    collisions.make_queue(Q2, root, 64);
+    // collisions.make_queue(Q1, root, 64);
+    // collisions.make_queue(Q2, root, 64);
     // collisions.defer(collisions, root, Q1);
 }

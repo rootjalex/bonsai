@@ -1311,13 +1311,11 @@ void CodeGen_LLVM::visit(const Ramp *node) {
 }
 
 void CodeGen_LLVM::visit(const Extract *node) {
-    bool is_atomic = false;
     Expr vec_expr = node->vec;
     if (is_dynamic_array_struct_type(vec_expr.type())) {
         // Assumption: an extraction from a dynamic array is really an
         // access to its buffer when lowered to a struct_t.
         vec_expr = Access::make("buffer", vec_expr);
-        is_atomic = true;
     }
     llvm::Value *vec = codegen_expr(vec_expr);
     llvm::Value *idx = codegen_expr(node->idx);
@@ -1328,9 +1326,6 @@ void CodeGen_LLVM::visit(const Extract *node) {
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
         llvm::LoadInst *load = create_aligned_load(etype, ptr, "extract");
-        if (is_atomic) {
-            load->setAtomic(llvm::AtomicOrdering::Acquire);
-        }
         value = load;
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
@@ -2097,6 +2092,7 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     int ptr_idx = find_struct_index("buffer", dynamic_array_t->fields);
     int cap_idx = find_struct_index("capacity", dynamic_array_t->fields);
     int size_idx = find_struct_index("size", dynamic_array_t->fields);
+    int mtx_idx = find_struct_index("mutex", dynamic_array_t->fields);
     // Retrieve element type and capacity.
     // Dynamic arrays are always mutable, so stored as pointers to the
     // underlying struct type. Need to dereference that pointer to load buffer.
@@ -2111,20 +2107,31 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
                                         /*zero_init=*/false, name + ".buffer");
     llvm::Value *buffer_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, ptr_idx, name + ".buffer_ptr");
-    llvm::StoreInst *store_buffer = builder->CreateStore(buffer, buffer_ptr);
-    store_buffer->setAtomic(llvm::AtomicOrdering::Release);
+    // The buffer is protected behind a mutex for concurrent writes.
+    builder->CreateStore(buffer, buffer_ptr);
     // Initialize the size to 0.
     llvm::Value *size_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, size_idx, name + ".size_ptr");
     llvm::StoreInst *store_size =
         builder->CreateStore(llvm::ConstantInt::get(i32_t, 0), size_ptr);
     store_size->setAtomic(llvm::AtomicOrdering::Release);
-    // Initialize the current capacity.
+    // Initialize the current capacity. Technically this only changes behind the
+    // mutex as well, but perhaps we can avoid some no-op mutex acquisitions by
+    // atomically reading this.
     llvm::Value *capacity_ptr = builder->CreateStructGEP(
         struct_type, struct_ptr, cap_idx, name + ".capacity_ptr");
     llvm::StoreInst *store_capacity =
         builder->CreateStore(capacity, capacity_ptr);
     store_capacity->setAtomic(llvm::AtomicOrdering::Release);
+
+    // Lastly, allocate a mutex for this dynamic vector.
+    llvm::Value *mutex_ptr = builder->CreateStructGEP(
+        struct_type, struct_ptr, mtx_idx, name + ".mutex_ptr");
+    // Initialize the mutex.
+    llvm::Type *i8_t = builder->getInt8Ty();
+    builder->CreateCall(
+        get_pthread_init(),
+        {mutex_ptr, llvm::ConstantPointerNull::get(i8_t->getPointerTo())});
     return;
 }
 
@@ -2175,54 +2182,93 @@ void CodeGen_LLVM::visit(const Store *node) {
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
-llvm::Value *CodeGen_LLVM::ensure_capacity(
-    llvm::Value *dynamic_array, const Struct_t *struct_t,
-    llvm::Type *llvm_struct_t, llvm::Value *buffer_ptr, llvm::Value *size_ptr,
-    llvm::Value *capacity_ptr, llvm::Type *element_type,
+llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {
+    return module->getOrInsertFunction(
+        "pthread_mutex_lock",
+        // int pthread_mutex_lock(pthread_mutex_t *);
+        llvm::FunctionType::get(builder->getInt32Ty(),
+                                {builder->getInt8Ty()->getPointerTo()},
+                                /*isVarArg=*/false));
+}
+
+llvm::FunctionCallee CodeGen_LLVM::get_pthread_unlock() {
+    return module->getOrInsertFunction(
+        "pthread_mutex_unlock",
+        // int pthread_mutex_unlock(pthread_mutex_t *);
+        llvm::FunctionType::get(builder->getInt32Ty(),
+                                {builder->getInt8Ty()->getPointerTo()},
+                                /*isVarArg=*/false));
+}
+llvm::FunctionCallee CodeGen_LLVM::get_pthread_init() {
+    return module->getOrInsertFunction(
+        "pthread_mutex_init", llvm::FunctionType::get(i32_t,
+                                                      {
+                                                          i8_t->getPointerTo(),
+                                                          i8_t->getPointerTo(),
+                                                      },
+                                                      /*isVarArg=*/false));
+}
+
+void CodeGen_LLVM::ensure_capacity(
+    Expr ptr, llvm::Value *index, llvm::Value *dynamic_array,
+    const Struct_t *struct_t, llvm::Type *llvm_struct_t, llvm::Value *size_ptr,
+    llvm::Value *capacity_ptr, llvm::Value *mutex, llvm::Type *element_type,
     const std::string &base_n) {
     internal_assert(dynamic_array);
     internal_assert(struct_t);
-    internal_assert(buffer_ptr);
     internal_assert(size_ptr);
     internal_assert(capacity_ptr);
+    internal_assert(mutex);
     internal_assert(element_type);
 
     int ptr_idx = find_struct_index("buffer", struct_t->fields);
-    llvm::Value *ptr_to_buffer =
+    llvm::Value *buffer_ptr =
         builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
                                  dynamic_array, // The pointer to the struct
                                  ptr_idx,       // The field index
-                                 base_n + ".ptr_to_buffer");
+                                 base_n + ".buffer_ptr");
 
-    // Load current size and capacity.
-    llvm::LoadInst *current_size =
-        builder->CreateLoad(i32_t, size_ptr, base_n + ".size");
-    current_size->setAtomic(llvm::AtomicOrdering::Acquire);
+    // Load current capacity.
     llvm::LoadInst *capacity =
         builder->CreateLoad(i32_t, capacity_ptr, base_n + ".capacity");
     capacity->setAtomic(llvm::AtomicOrdering::Acquire);
 
     // Check if we need to grow.
     llvm::Value *condition =
-        builder->CreateICmpUGE(current_size, capacity, "grow-or-continue");
-
+        builder->CreateICmpUGE(index, capacity, "index-ge-capacity");
     internal_assert(current_function);
-    llvm::BasicBlock *grow_bb =
-        llvm::BasicBlock::Create(*context, "grow", current_function);
+    llvm::BasicBlock *lock_bb =
+        llvm::BasicBlock::Create(*context, "lock-mutex", current_function);
     llvm::BasicBlock *continue_bb =
         llvm::BasicBlock::Create(*context, "continue", current_function);
-    builder->CreateCondBr(condition, grow_bb, continue_bb);
+    builder->CreateCondBr(condition, lock_bb, continue_bb);
     // case 1: we need to grow
-    builder->SetInsertPoint(grow_bb);
+    builder->SetInsertPoint(lock_bb);
+
+    // Lock the mutex.
+    builder->CreateCall(get_pthread_lock(), {mutex});
+
+    //  The lock has been acquired. Now double check to make sure another thread
+    //  hasn't updated this.
+    capacity = builder->CreateLoad(i32_t, capacity_ptr, base_n + ".capacity");
+
+    capacity->setAtomic(llvm::AtomicOrdering::Acquire);
+    condition = builder->CreateICmpUGE(index, capacity, "index-ge-capacity");
+
     auto *zero = llvm::ConstantInt::get(i32_t, 0);
     auto *one = llvm::ConstantInt::get(i32_t, 1);
     auto *two = llvm::ConstantInt::get(i32_t, 2);
+    llvm::BasicBlock *grow_bb =
+        llvm::BasicBlock::Create(*context, "grow", current_function);
+    llvm::BasicBlock *unlock_bb =
+        llvm::BasicBlock::Create(*context, "unlock-mutex", current_function);
+    builder->CreateCondBr(condition, grow_bb, unlock_bb);
+
+    builder->SetInsertPoint(grow_bb);
     // Handle the zero capacity case.
     llvm::Value *new_capacity = builder->CreateSelect(
         builder->CreateICmpEQ(capacity, zero), one,
-        builder->CreateMul(capacity, two), base_n + ".new_capacity");
-
-    // Allocate the new buffer.
+        builder->CreateMul(capacity, two), base_n + ".new-capacity");
     const llvm::DataLayout &layout = module->getDataLayout();
     llvm::Type *i8_t = llvm::Type::getInt8Ty(*context);
     llvm::Type *s_t = layout.getIntPtrType(*context);
@@ -2237,13 +2283,12 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
         realloc = llvm::Function::Create(type, llvm::Function::ExternalLinkage,
                                          "realloc", module.get());
     }
+    llvm::Value *old_buffer = codegen_expr(ptr);
     llvm::Value *new_buffer = builder->CreateCall(
-        realloc, {buffer_ptr, builder->CreateMul(new_capacity, element_size)});
+        realloc, {old_buffer, builder->CreateMul(new_capacity, element_size)});
 
     // Update struct.ptr field
-    llvm::StoreInst *store_buffer =
-        builder->CreateStore(new_buffer, ptr_to_buffer);
-    store_buffer->setAtomic(llvm::AtomicOrdering::Release);
+    builder->CreateStore(new_buffer, buffer_ptr);
 
     // Update struct.capacity field
     // Truncate capacity back to i32.
@@ -2252,17 +2297,18 @@ llvm::Value *CodeGen_LLVM::ensure_capacity(
     llvm::StoreInst *store_capacity =
         builder->CreateStore(truncated_capacity, capacity_ptr);
     store_capacity->setAtomic(llvm::AtomicOrdering::Release);
+    // Jump to mutex unlock.
+    builder->CreateBr(unlock_bb);
+
+    builder->SetInsertPoint(unlock_bb);
+    builder->CreateCall(get_pthread_unlock(), {mutex});
     builder->CreateBr(continue_bb);
 
     // case 2: no grow (and continuation of grow block).
     builder->SetInsertPoint(continue_bb);
-    // Reload the final buffer pointer.
-    llvm::LoadInst *load_buffer = builder->CreateLoad(
-        element_type->getPointerTo(), ptr_to_buffer, base_n + ".load");
-    load_buffer->setAtomic(llvm::AtomicOrdering::Acquire);
-    return load_buffer;
 }
 
+// TODO(bonsai/issues/200): add test for parallel appends.
 void CodeGen_LLVM::visit(const Append *node) {
     llvm::Value *dynamic_array = codegen_write_loc(node->loc);
     std::string base_n = node->loc.base;
@@ -2278,7 +2324,6 @@ void CodeGen_LLVM::visit(const Append *node) {
     Expr ptr = Access::make("buffer", base_v);
     const auto *array_t = ptr.type().as<Array_t>();
     internal_assert(array_t) << ptr.type();
-    llvm::Value *buffer_ptr = codegen_expr(ptr);
     // Pointer to the "current size" of the array.
     int32_t size_idx = find_struct_index("size", struct_t->fields);
     llvm::Value *size_ptr =
@@ -2286,6 +2331,11 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  dynamic_array, // The pointer to the struct
                                  size_idx,      // The field index
                                  base_n + ".size_ptr");
+    // Get a unique index for this thread.
+    llvm::Value *one = builder->getInt32(1);
+    llvm::Value *index = builder->CreateAtomicRMW(
+        llvm::AtomicRMWInst::Add, size_ptr, one, llvm::MaybeAlign(),
+        llvm::AtomicOrdering::AcquireRelease, llvm::SyncScope::System);
     // Pointer to the capacity of the array.
     int32_t capacity_idx = find_struct_index("capacity", struct_t->fields);
     llvm::Value *capacity_ptr =
@@ -2293,31 +2343,31 @@ void CodeGen_LLVM::visit(const Append *node) {
                                  dynamic_array, // The pointer to the struct
                                  capacity_idx,  // The field index
                                  base_n + ".capacity_ptr");
+    // Pointer to the mutex of the array.
+    int32_t mutex_idx = find_struct_index("mutex", struct_t->fields);
+    llvm::Value *mutex =
+        builder->CreateStructGEP(llvm_struct_t, // The LLVM type of the struct
+                                 dynamic_array, // The pointer to the struct
+                                 mutex_idx,     // The field index
+                                 base_n + ".mutex_ptr");
     // Perform resize if necessary.
     llvm::Type *element_type = codegen_type(array_t->etype);
-    buffer_ptr =
-        ensure_capacity(dynamic_array, struct_t, llvm_struct_t, buffer_ptr,
-                        size_ptr, capacity_ptr, element_type, base_n);
+    ensure_capacity(ptr, index, dynamic_array, struct_t, llvm_struct_t,
+                    size_ptr, capacity_ptr, mutex, element_type, base_n);
 
-    // Now add the size offset.
-    llvm::LoadInst *current_size =
-        builder->CreateLoad(i32_t, size_ptr, base_n + ".size");
-    current_size->setAtomic(llvm::AtomicOrdering::Acquire);
-    buffer_ptr =
+    // TODO(cgyurgyik): Any stores to the buffer are currently locked behind a
+    // mutex as well. Ideally, we would only need to lock when regrowing.
+    builder->CreateCall(get_pthread_lock(), {mutex}); // LOCK
+    // Load the buffer pointer.
+    llvm::Value *buffer_ptr = codegen_expr(ptr);
+    // Store the value at the given offset.
+    llvm::Value *offset_in_buffer_ptr =
         builder->CreateInBoundsGEP(element_type, // The LLVM element type
                                    buffer_ptr,   // pointer to the buffer
-                                   current_size  // offset
+                                   index         // offset
         );
-
-    // Store the value at the given pointer.
-    llvm::StoreInst *store_buffer =
-        builder->CreateStore(rhs, buffer_ptr, /*isVolatile=*/false);
-    store_buffer->setAtomic(llvm::AtomicOrdering::Release);
-    // Now add the size offset.
-    llvm::Value *one = builder->getInt32(1);
-    builder->CreateAtomicRMW(
-        llvm::AtomicRMWInst::Add, size_ptr, one, llvm::MaybeAlign(),
-        llvm::AtomicOrdering::AcquireRelease, llvm::SyncScope::System);
+    builder->CreateStore(rhs, offset_in_buffer_ptr, /*isVolatile=*/false);
+    builder->CreateCall(get_pthread_unlock(), {mutex}); // UNLOCK
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
