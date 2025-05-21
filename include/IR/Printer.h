@@ -49,6 +49,9 @@ std::string to_string(const Generator::OpType &op);
 std::string to_string(const GeomOp::OpType &op);
 std::string to_string(const SetOp::OpType &op);
 
+std::string from_string_imm(const std::string &value);
+void print_string_imm(std::ostream &os, const std::string &value);
+
 struct Indentation {
     int indent;
 };
@@ -82,6 +85,7 @@ struct Printer : public Visitor {
     void visit(const Index_t *) override;
     void visit(const Float_t *) override;
     void visit(const Bool_t *) override;
+    void visit(const String_t *) override;
     void visit(const Ptr_t *) override;
     void visit(const Ref_t *) override;
     void visit(const Vector_t *) override;
@@ -105,6 +109,7 @@ struct Printer : public Visitor {
     void visit(const FloatImm *) override;
     void visit(const BoolImm *) override;
     void visit(const VecImm *) override;
+    void visit(const StringImm *) override;
     void visit(const Infinity *) override;
     void visit(const Var *) override;
     void print(const BinOp::OpType &op);

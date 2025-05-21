@@ -293,6 +293,11 @@ Type Bool_t::make() {
     return global_bool;
 }
 
+Type String_t::make() {
+    static Type global_str = new String_t;
+    return global_str;
+}
+
 Type Ptr_t::make(Type etype) {
     internal_assert(etype.defined()) << "Ptr_t::make received undefined etype";
     Ptr_t *node = new Ptr_t;

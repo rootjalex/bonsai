@@ -468,6 +468,8 @@ void Printer::visit(const Float_t *node) {
 
 void Printer::visit(const Bool_t *node) { os << "bool"; }
 
+void Printer::visit(const String_t *node) { os << "string"; }
+
 void Printer::visit(const Ptr_t *node) {
     os << "(";
     print(node->etype);
@@ -707,6 +709,50 @@ void Printer::visit(const VecImm *node) {
         os << ",";
     }
     os << "]";
+}
+
+std::string from_string_imm(const std::string &value) {
+    std::ostringstream oss;
+    print_string_imm(oss, value);
+    return oss.str();
+}
+
+void print_string_imm(std::ostream &os, const std::string &value) {
+    // Taken directly from Halide's IRPrinter:
+    // https://github.com/halide/Halide/blob/b7991c181a7215f74fbe45ebfcb8491006f0f6f4/src/IRPrinter.cpp#L621
+    os << "\"";
+    for (unsigned char c : value) {
+        if (c >= ' ' && c <= '~' && c != '\\' && c != '"') {
+            os << c;
+        } else {
+            os << "\\";
+            switch (c) {
+            case '"':
+                os << "\"";
+                break;
+            case '\\':
+                os << "\\";
+                break;
+            case '\t':
+                os << "t";
+                break;
+            case '\r':
+                os << "r";
+                break;
+            case '\n':
+                os << "n";
+                break;
+            default:
+                std::string hex_digits = "0123456789ABCDEF";
+                os << "x" << hex_digits[c >> 4] << hex_digits[c & 0xf];
+            }
+        }
+    }
+    os << "\"";
+}
+
+void Printer::visit(const StringImm *node) {
+    print_string_imm(os, node->value);
 }
 
 void Printer::visit(const Infinity *node) {

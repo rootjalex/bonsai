@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/Expr.cpp:330
+[internal] Error: src/IR/Expr.cpp:340
 
 --> a.type().is_numeric() || a.type().is_bool()
 BinOp of non-number or boolean types: fib[[T -> T]](i - 1) : T + fib[[T -> T]](i - 2) : T

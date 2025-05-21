@@ -11,6 +11,7 @@ add_bonsai_tests(
     function-type.bonsai
     nested-exported-function.bonsai
     option.bonsai
+    print-str.bonsai
     print.bonsai
     map-func.bonsai
     map.bonsai

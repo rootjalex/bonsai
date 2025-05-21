@@ -352,6 +352,10 @@ void CodeGen_CUDA::visit(const VecImm *node) {
     os << ')';
 }
 
+void CodeGen_CUDA::visit(const StringImm *node) {
+    print_string_imm(os, node->value);
+}
+
 void CodeGen_CUDA::visit(const Infinity *node) { os << "INFINITY"; }
 
 void CodeGen_CUDA::visit(const Cast *node) {
