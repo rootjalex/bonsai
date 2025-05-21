@@ -1,7 +1,7 @@
 #include "helpers.h"
 #include "solve_bonsai.cuh"
 
-__device__ float dirichletPDE(float3 x, PDE *p, WalkSettings *s) {
+__device__ float dirichletPDE(float3 x, const PDE *p, const WalkSettings *s) {
     if (((((*s).flags & 1u) != 0u) &&
          !(all(((*s).box.low <= x)) & all((x <= (*s).box.high)))) ||
         (((*s).flags & 16u) != 0u)) {
@@ -11,21 +11,22 @@ __device__ float dirichletPDE(float3 x, PDE *p, WalkSettings *s) {
     }
 }
 
-__device__ float distmax_Point_AABB(Point *pt, AABB *a) {
+__device__ float distmax_Point_AABB(const Point *pt, const AABB *a) {
     float3 u = ((*a).low - (*pt).vec);
     float3 v = ((*pt).vec - (*a).high);
     float3 d = min(u, v);
     return dot(d, d);
 }
 
-__device__ float distmin_Point_AABB(Point *pt, AABB *a) {
+__device__ float distmin_Point_AABB(const Point *pt, const AABB *a) {
     float3 u = ((*a).low - (*pt).vec);
     float3 v = ((*pt).vec - (*a).high);
     float3 d = max(max(u, v), make_float3(0));
     return dot(d, d);
 }
 
-__device__ __tuple_0 closestPointonTriangle(Point *pt, Triangle *tri) {
+__device__ __tuple_0 closestPointonTriangle(const Point *pt,
+                                            const Triangle *tri) {
     float3 p = (*pt).vec;
     float3 a = (*tri).p0;
     float3 b = (*tri).p1;
@@ -94,13 +95,13 @@ __device__ __tuple_0 closestPointonTriangle(Point *pt, Triangle *tri) {
                      Point{float3{u, v, w}}};
 }
 
-__device__ float distmin_Point_Triangle(Point *p, Triangle *tri) {
+__device__ float distmin_Point_Triangle(const Point *p, const Triangle *tri) {
     const __tuple_0 pts = closestPointonTriangle(p, tri);
     float3 d = ((*p).vec - pts._field0.vec);
     return dot(d, d);
 }
 
-__device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
+__device__ float _traverse_tree0(const Point *p, const _tree_layout0 *tris) {
     float __best0 = INFINITY;
     float *_best0 = &__best0;
     int32_t __queue_count0 = 1;
@@ -535,13 +536,14 @@ __device__ float _traverse_tree0(Point *p, _tree_layout0 *tris) {
     return (*_best0);
 }
 
-__device__ float computeDistToAbsBoundary(float3 pt, _tree_layout0 *tris) {
+__device__ float computeDistToAbsBoundary(float3 pt,
+                                          const _tree_layout0 *tris) {
     const Point p = Point{pt};
     return sqrtf(_traverse_tree0((&p), tris));
 }
 
-__device__ __tuple_1 harmonicSampleVolume(HarmonicGreensBall *h, float3 dir,
-                                          curandState *_rng_state) {
+__device__ __tuple_1 harmonicSampleVolume(const HarmonicGreensBall *h,
+                                          float3 dir, curandState *_rng_state) {
     float u1 = curand_uniform(_rng_state);
     float u2 = curand_uniform(_rng_state);
     float phi = (((float)2 * (float)3.14159) * u2);
@@ -569,7 +571,7 @@ __device__ float3 sampleUnitSphereUniform(curandState *_rng_state) {
     return float3{r * cosf(phi), r * sinf(phi), z};
 }
 
-__device__ float sourcePDE(float3 x, PDE *p, WalkSettings *s) {
+__device__ float sourcePDE(float3 x, const PDE *p, const WalkSettings *s) {
     if (((*s).flags & 64u) != 0u) {
         return 0;
     } else {
@@ -577,9 +579,10 @@ __device__ float sourcePDE(float3 x, PDE *p, WalkSettings *s) {
     }
 }
 
-__device__ float computeSourceContribution(PDE *pde, WalkSettings *s,
-                                           HarmonicGreensBall *ball,
-                                           WalkResults *res,
+__device__ float computeSourceContribution(const PDE *pde,
+                                           const WalkSettings *s,
+                                           const HarmonicGreensBall *ball,
+                                           const WalkResults *res,
                                            curandState *_rng_state) {
     if (!(((*s).flags & 64u) != 0u)) {
         float3 dir = sampleUnitSphereUniform(_rng_state);
@@ -593,8 +596,8 @@ __device__ float computeSourceContribution(PDE *pde, WalkSettings *s,
     return 0;
 }
 
-__device__ float getTerminalContribution(PDE *pde, WalkSettings *s,
-                                         WalkResults *res) {
+__device__ float getTerminalContribution(const PDE *pde, const WalkSettings *s,
+                                         const WalkResults *res) {
     if (!(((*s).flags & 16u) != 0u)) {
         return dirichletPDE((*res).pt, pde, s);
     } else {
@@ -602,7 +605,7 @@ __device__ float getTerminalContribution(PDE *pde, WalkSettings *s,
     }
 }
 
-__device__ __tuple_2 terminateWalk(WalkSettings *s, float throughput,
+__device__ __tuple_2 terminateWalk(const WalkSettings *s, float throughput,
                                    curandState *_rng_state) {
     if (throughput < (*s).russianRouletteThreshold) {
         float survivalProb = (throughput / (*s).russianRouletteThreshold);
@@ -614,8 +617,9 @@ __device__ __tuple_2 terminateWalk(WalkSettings *s, float throughput,
     return __tuple_2{false, throughput};
 }
 
-__device__ _option0 walk(PDE *pde, WalkSettings *s, WalkResults *res,
-                         _tree_layout0 *tris, curandState *_rng_state) {
+__device__ _option0 walk(const PDE *pde, const WalkSettings *s,
+                         const WalkResults *res, const _tree_layout0 *tris,
+                         curandState *_rng_state) {
     WalkResults _S_res = (*res);
     WalkResults *S_res = &_S_res;
     do {
@@ -665,10 +669,10 @@ __device__ _option0 walk(PDE *pde, WalkSettings *s, WalkResults *res,
     } while (true);
 }
 
-__device__ uint32_t doWalk(PDE *pde, WalkSettings *s, SamplePoint *p,
-                           uint32_t w, uint32_t nWalks, Statistics *stats,
-                           uint32_t walkLength, _tree_layout0 *tris,
-                           curandState *_rng_state) {
+__device__ uint32_t doWalk(const PDE *pde, const WalkSettings *s,
+                           const SamplePoint *p, uint32_t w, uint32_t nWalks,
+                           Statistics *stats, uint32_t walkLength,
+                           const _tree_layout0 *tris, curandState *_rng_state) {
     uint32_t _S_w = w;
     uint32_t *S_w = &_S_w;
     uint32_t _S_walkLength = walkLength;
@@ -692,9 +696,9 @@ __device__ uint32_t doWalk(PDE *pde, WalkSettings *s, SamplePoint *p,
     } while (true);
 }
 
-__device__ Statistics sol(PDE *pde, WalkSettings *s, SamplePoint *p,
-                          uint32_t nWalks, _tree_layout0 *tris,
-                          curandState *_rng_state) {
+__device__ Statistics sol(const PDE *pde, const WalkSettings *s,
+                          const SamplePoint *p, uint32_t nWalks,
+                          const _tree_layout0 *tris, curandState *_rng_state) {
     Statistics _stats = Statistics{0, 0, 0, 0u, 0u, 0u, 0};
     Statistics *stats = &_stats;
     if (((*p).type_and_quantity & 3u) == 1u) {
@@ -728,9 +732,10 @@ __global__ void _parfunc0(_ctx0 ctx0) {
     return;
 }
 
-__host__ Statistics *_traverse_array0(PDE *pde, WalkSettings *s,
+__host__ Statistics *_traverse_array0(const PDE *pde, const WalkSettings *s,
                                       uint32_t nWalks, uint32_t n,
-                                      SamplePoint *pts, _tree_layout0 *tris) {
+                                      SamplePoint *pts,
+                                      const _tree_layout0 *tris) {
     Statistics *_alloc0;
     (void)cudaMalloc((void **)&_alloc0, n * sizeof(Statistics));
     PDE *d_pde;
@@ -767,8 +772,8 @@ __host__ Statistics *_traverse_array0(PDE *pde, WalkSettings *s,
     return _alloc0;
 }
 
-__host__ Statistics *solve(PDE *pde, WalkSettings *s, uint32_t n,
+__host__ Statistics *solve(const PDE *pde, const WalkSettings *s, uint32_t n,
                            SamplePoint *pts, uint32_t nWalks,
-                           _tree_layout0 *tris) {
+                           const _tree_layout0 *tris) {
     return _traverse_array0(pde, s, nWalks, n, pts, tris);
 }
