@@ -120,6 +120,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must always run after LowerTrees and before LowerLayouts
     core.push_back(std::make_unique<LowerSorts>());
     core.push_back(std::make_unique<LowerDefers2>());
+    // TODO(cgyurgyik): update this ordering too if we go down this route.
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
@@ -158,8 +159,11 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     d.push_back(std::make_unique<LowerSorts>());
-    d.push_back(std::make_unique<LowerDefers2>());
+    // TODO(cgyurgyik): I lazily moved lower-externs here because of some
+    // error I was getting from free variables; investigate this.
     d.push_back(std::make_unique<LowerExterns>());
+    d.push_back(std::make_unique<LowerDynamicSets>());
+    d.push_back(std::make_unique<LowerDefers2>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
@@ -168,7 +172,6 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must *always* go after parallelization,
     // and before Mutability
     d.push_back(std::make_unique<LowerRandom>());
-    d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
