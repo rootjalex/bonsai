@@ -765,7 +765,27 @@ __host__ Statistics *_traverse_array0(const PDE *pde, const WalkSettings *s,
     _tree_layout0 *d_tris;
     cudaMallocAndCopyToDevice((void **)&d_tris, &h_tris, sizeof(_tree_layout0));
     _ctx0 ctx = _ctx0{n, _alloc0, d_pde, d_s, d_pts, nWalks, d_tris};
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
     _parfunc0<<<((n + 511u) / 512u), 512u>>>(ctx);
+    // Record stop event right after kernel launch
+    cudaEventRecord(stop);
+
+    // Wait for the stop event to complete (synchronization)
+    cudaEventSynchronize(stop);
+
+    // Calculate elapsed time in milliseconds
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    printf("Kernel execution time: %f ms\n", milliseconds);
+
+    // Cleanup
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
     cudaDeviceSynchronize();
     Statistics *h__alloc0;
     mallocAndCopyFromDevice((void **)&h__alloc0, _alloc0,
