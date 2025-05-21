@@ -1,6 +1,15 @@
 #include "helpers.h"
 #include "solve_bonsai.cuh"
 
+__device__ void addSolutionEstimate(Statistics *s, float estimate) {
+    *s += 1;
+    float delta = (estimate - (*s).solMean);
+    *s += (delta / (float)(*s).nSolEstimates);
+    float delta2 = (estimate - (*s).solMean);
+    *s += (delta * delta2);
+    return;
+}
+
 __device__ float dirichletPDE(float3 x, const PDE *p, const WalkSettings *s) {
     if (((((*s).flags & 1u) != 0u) &&
          !(all(((*s).box.low <= x)) & all((x <= (*s).box.high)))) ||

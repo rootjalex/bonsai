@@ -1225,9 +1225,15 @@ void guiCallback(const std::vector<Vector<DIM>> &meshPositions,
 
                 std::cout << nWalksForSamplePts << " walks per pt" << std::endl;
 
+#ifdef BONSAI_CUDA
+                std::cerr << "cannot run bonsai cuda with GUI on Redwood\n";
+                exit(-1);
+                bonsai_solution = solve(&bonsai_pde, &bonsai_ws, nSamplePts,
+                                        bonsai_pts, nWalksForSamplePts, &tree);
+#else
                 bonsai_solution = solve(bonsai_pde, bonsai_ws, nSamplePts,
                                         bonsai_pts, nWalksForSamplePts, tree);
-
+#endif
                 auto end = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed = end - start;
                 std::cout << "bonsai.solve took " << elapsed.count()
