@@ -56,6 +56,7 @@ void defer_simple(const std::string &location, const std::string &queue,
             }
 
             for (int i = 0, e = values.size(); i < e; ++i) {
+                // TODO(cgyurgyik): turn into an atomic accumulate?
                 stmts.push_back(Store::make(bq_stack, values[i]));
                 stmts.push_back(Accumulate::make(bq_count,
                                                  Accumulate::OpType::Add,
@@ -87,6 +88,7 @@ void defer_simple(const std::string &location, const std::string &queue,
             // Allocate the queues.
             WriteLoc loc(queue_name, queue_type);
             std::vector<Stmt> stmts;
+            // TODO(cgyurgyik): need to add a build for LLVM codegen?
             stmts.push_back(Allocate::make(loc));
             stmts.push_back(Allocate::make(WriteLoc(buffer_name, queue_type)));
 
