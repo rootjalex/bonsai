@@ -2,51 +2,67 @@ type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type Float = f32
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
-type queue = struct queue{ count : u64 = 0; stack : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }, struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 })[64] }
+type __dyn_array0 = struct __dyn_array0{ buffer : struct __tuple_1{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
+type __tuple_0 = struct __tuple_0{ _field0 : u32; _field1 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type queue = struct queue{ count : u64 = 0; stack : struct __tuple_0{ _field0 : u32; _field1 : u32 }[64] }
 type vec3f = f32x3
 
-extern triangles1 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriangleBVH
-  | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high)
-  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high)
-extern triangles2 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriangleBVH
-  | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high)
-  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high)
+extern triangles1 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+extern triangles2 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 
-func _traverse_tree0(triangles1 : tree[[Triangle]] TriangleBVH, triangles2 : tree[[Triangle]] TriangleBVH, __a : (Triangle, Triangle){16}) -> void {
-  alloc _dyn_alloc : mut (Triangle, Triangle){16}
-  rec(triangles1 : tree[[Triangle]] TriangleBVH, triangles2 : tree[[Triangle]] TriangleBVH) {
-    match triangles1 {
-    | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
-      match triangles2 {
-      | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
-        if (intersects_AABB_AABB(build<AABB>((triangles1 as Interior).low, (triangles1 as Interior).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-          from (((triangles1 as Interior).left, (triangles2 as Interior).left), ((triangles1 as Interior).left, (triangles2 as Interior).right), ((triangles1 as Interior).right, (triangles2 as Interior).left), ((triangles1 as Interior).right, (triangles2 as Interior).right))
-        }
-      | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high) ->
-        if (intersects_AABB_AABB(build<AABB>((triangles1 as Interior).low, (triangles1 as Interior).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
-          from (((triangles1 as Interior).left, triangles2), ((triangles1 as Interior).right, triangles2))
-        }
-      }
-    | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high) ->
-      match triangles2 {
-      | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
-        if (intersects_AABB_AABB(build<AABB>((triangles1 as Leaf).low, (triangles1 as Leaf).high), build<AABB>((triangles2 as Interior).low, (triangles2 as Interior).high))) {
-          from ((triangles1, (triangles2 as Interior).left), (triangles1, (triangles2 as Interior).right))
-        }
-      | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high) ->
-        foreach _iter0 in (triangles1 as Leaf).data {
-          foreach _iter1 in (triangles2 as Leaf).data {
-            if (intersects_AABB_AABB(build<AABB>((triangles1 as Leaf).low, (triangles1 as Leaf).high), build<AABB>((triangles2 as Leaf).low, (triangles2 as Leaf).high))) {
-              if (intersects_Triangle_Triangle(_iter0, _iter1)) {
-                append<__a>((_iter0, _iter1))
+func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
+  alloc _dyn_alloc : mut __dyn_array0
+  alloc Q : mut queue
+  alloc Q_buffer : mut queue
+  Q.stack[0u] = build<__tuple_0>(0u, 0u)
+  Q.count += 1u
+  do {
+    forall q in [0u:(*Q).count:1u] {
+      let triangles1_index = (*Q).stack[q]._field0 in
+      let triangles2_index = (*Q).stack[q]._field1 in
+      if (intersects_AABB_AABB((&build<AABB>((*triangles1).group0_index[triangles1_index].low, (*triangles1).group0_index[triangles1_index].high)), (&build<AABB>((*triangles2).group0_index[triangles2_index].low, (*triangles2).group0_index[triangles2_index].high)))) {
+        if ((*triangles1).group0_index[triangles1_index].nPrims == 0u) {
+          if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+            Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index + 1u, triangles2_index + 1u)
+            Q_buffer.count += 1u
+            Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset)
+            Q_buffer.count += 1u
+            Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u)
+            Q_buffer.count += 1u
+            Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset)
+            Q_buffer.count += 1u
+          } else {
+            Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index + 1u, triangles2_index)
+            Q_buffer.count += 1u
+            Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index)
+            Q_buffer.count += 1u
+          }
+        } else if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+          Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index, triangles2_index + 1u)
+          Q_buffer.count += 1u
+          Q_buffer.stack[(*Q_buffer).count] = build<__tuple_0>(triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset)
+          Q_buffer.count += 1u
+        } else {
+          forall _idx0 in [0u:cast<u32>((*triangles1).group0_index[triangles1_index].nPrims):1u] {
+            forall _idx1 in [0u:cast<u32>((*triangles2).group0_index[triangles2_index].nPrims):1u] {
+              if (intersects_Triangle_Triangle((&(*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0]), (&(*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))) {
+                append<_dyn_alloc>(build<__tuple_1>((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
               }
             }
           }
         }
       }
     }
-  }
-  return
+    Q.count = (*Q_buffer).count
+    Q.stack = (*Q_buffer).stack
+    Q_buffer.count = 0u
+  } while ((*Q).count != 0u)
+  return (*_dyn_alloc)
 }
 
 func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> bool {
@@ -55,35 +71,22 @@ func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> boo
   return reduce<all>((P <= f32x3(R)) & (f32x3(-R) <= P))
 }
 
-func collisions(triangles1 : tree[[Triangle]] TriangleBVH, triangles2 : tree[[Triangle]] TriangleBVH) -> (Triangle, Triangle){16} {
-  alloc __a : mut (Triangle, Triangle){16}
-  alloc Q : mut queue
-  alloc Q_buffer : mut queue
-  Q.stack[0u] = (triangles1, triangles2)
-  Q.count += 1u
-  do {
-    forall q in [0u:Q.count:1u] {
-      _traverse_tree0(Q.stack[q][0], Q.stack[q][1], __a)
-    }
-    Q.count = Q_buffer.count
-    Q.stack = Q_buffer.stack
-    Q_buffer.count = 0u
-  } while (Q.count != 0u)
-  return __a
+func collisions(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
+  return _traverse_tree0(triangles1, triangles2)
 }
 
-func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
-  let low = max(a.low, b.low) in
-  let high = min(a.high, b.high) in
+func intersects_AABB_AABB(a : (AABB*), b : (AABB*)) -> bool {
+  let low = max((*a).low, (*b).low) in
+  let high = min((*a).high, (*b).high) in
   return reduce<all>(low <= high)
 }
 
-func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
-  let center = (a.low + a.high) * f32x3(0.5f) in
-  let extents = (a.high - a.low) * f32x3(0.5f) in
-  let v0 = b.p0 - center in
-  let v1 = b.p1 - center in
-  let v2 = b.p2 - center in
+func intersects_AABB_Triangle(a : (AABB*), b : (Triangle*)) -> bool {
+  let center = ((*a).low + (*a).high) * f32x3(0.5f) in
+  let extents = ((*a).high - (*a).low) * f32x3(0.5f) in
+  let v0 = (*b).p0 - center in
+  let v1 = (*b).p1 - center in
+  let v2 = (*b).p2 - center in
   let f0 = v1 - v0 in
   let f1 = v2 - v1 in
   let f2 = v0 - v2 in
@@ -92,9 +95,6 @@ func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
   if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
     return false
   }
-  let X = (f32x3)[1f,0f,0f] in
-  let Y = (f32x3)[0f,1f,0f] in
-  let Z = (f32x3)[0f,0f,1f] in
   let A0 = cross(f0, (f32x3)[1f,0f,0f]) in
   let A1 = cross(f0, (f32x3)[0f,1f,0f]) in
   let A2 = cross(f0, (f32x3)[0f,0f,1f]) in
@@ -140,21 +140,21 @@ func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
   return true
 }
 
-func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
-  let eA0 = a.p1 - a.p0 in
-  let eA1 = a.p2 - a.p1 in
-  let eA2 = a.p0 - a.p2 in
-  let eB0 = b.p1 - b.p0 in
-  let eB1 = b.p2 - b.p1 in
-  let eB2 = b.p0 - b.p2 in
+func intersects_Triangle_Triangle(a : (Triangle*), b : (Triangle*)) -> bool {
+  let eA0 = (*a).p1 - (*a).p0 in
+  let eA1 = (*a).p2 - (*a).p1 in
+  let eA2 = (*a).p0 - (*a).p2 in
+  let eB0 = (*b).p1 - (*b).p0 in
+  let eB1 = (*b).p2 - (*b).p1 in
+  let eB2 = (*b).p0 - (*b).p2 in
   let N0 = cross(eA0, eA1) in
   let N1 = cross(eB0, eB1) in
-  let a0 = a.p0 in
-  let a1 = a.p1 in
-  let a2 = a.p2 in
-  let b0 = b.p0 in
-  let b1 = b.p1 in
-  let b2 = b.p2 in
+  let a0 = (*a).p0 in
+  let a1 = (*a).p1 in
+  let a2 = (*a).p2 in
+  let b0 = (*b).p0 in
+  let b1 = (*b).p1 in
+  let b2 = (*b).p2 in
   if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
     return false
   }
@@ -219,61 +219,5 @@ func tri_tri_axis(A : f32x3, a0 : f32x3, a1 : f32x3, a2 : f32x3, b0 : f32x3, b1 
 
 
 schedule host {
-    triangles1 :       {
-        pCount : u32;
-        prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount];
-        count : u32;
-        group[count] index : u32
-        {
-          low : f32x3;
-          nPrims : u16;
-          axis : u8;
-          8;
-          high : f32x3;
-          switch nPrims {
-          0 => Interior
-            {
-              offset : u32;
-              left = index + (u32)1;
-              right = index + offset;
-            };
-          _ => Leaf
-            {
-              pOffset : u32;
-              data = range(prims, pOffset, cast<u32>(nPrims));
-            };
-          };
-        };
-      };
-
-    triangles2 :       {
-        pCount : u32;
-        prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount];
-        count : u32;
-        group[count] index : u32
-        {
-          low : f32x3;
-          nPrims : u16;
-          axis : u8;
-          8;
-          high : f32x3;
-          switch nPrims {
-          0 => Interior
-            {
-              offset : u32;
-              left = index + (u32)1;
-              right = index + offset;
-            };
-          _ => Leaf
-            {
-              pOffset : u32;
-              data = range(prims, pOffset, cast<u32>(nPrims));
-            };
-          };
-        };
-      };
-
-    collisions.make_queue(Q, root, (i32)64)
-              .defer(collisions, collisions.root, Q)
 
 }

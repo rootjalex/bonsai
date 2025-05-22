@@ -45,51 +45,17 @@ namespace {
 void defer_simple(const std::string &location, const std::string &queue,
                   const std::map<std::string, Expr> &queue_sizes,
                   Program &program) {
-    struct ModifyTraverseTree : ir::Mutator {
-        ModifyTraverseTree(const std::string &allocation_name,
-                           const Type &dynamic_array_type)
-            : allocation_name(allocation_name),
-              dynamic_array_type(dynamic_array_type) {}
-
-        Expr visit(const Var *node) {
-            if (!ir::equals(node->type, dynamic_array_type)) {
-                return ir::Mutator::visit(node);
-            }
-            return Var::make(node->type, allocation_name);
-        }
-
-        Stmt visit(const Return *node) {
-            internal_assert(ir::equals(node->value.type(), dynamic_array_type));
-            return Return::make();
-        }
-
-        Stmt visit(const Append *node) {
-            internal_assert(
-                ir::equals(node->loc.base_type, dynamic_array_type));
-            WriteLoc loc(allocation_name, dynamic_array_type);
-            return Append::make(std::move(loc),
-                                ir::Mutator::mutate(node->value));
-        }
-
-      private:
-        const std::string &allocation_name;
-        const Type &dynamic_array_type;
-    };
     struct DeferImpl : ir::Mutator {
         DeferImpl(const std::string &queue_name, const Expr &queue_size,
-                  const Type &return_type, const std::string &allocation_name,
-                  const std::vector<Function::Argument> &arguments,
                   Program &program)
             : buffer_name(queue_name + "_buffer"), queue_name(queue_name),
-              queue_size(queue_size), allocation_name(allocation_name),
-              return_type(return_type), arguments(arguments), program(program) {
-        }
+              queue_size(queue_size), program(program) {}
 
         Stmt visit(const YieldFrom *node) override {
             std::vector<Stmt> stmts;
-            // stmts.push_back(Allocate::make())
             // Update `from` to append to queues (and increment index).
-            WriteLoc bq(buffer_name, return_type.element_of());
+            internal_assert(queue_type.defined());
+            WriteLoc bq(buffer_name, queue_type);
             WriteLoc bq_stack = bq;
             bq_stack.add_struct_access("stack");
 
@@ -112,72 +78,17 @@ void defer_simple(const std::string &location, const std::string &queue,
             return Sequence::make(std::move(stmts));
         }
 
-        Stmt visit(const Return *node) override {
-
-            if (!node->value.defined()) {
-                return node;
-            }
-            const auto *call = node->value.as<Call>();
-            if (call == nullptr) {
-                return ir::Mutator::visit(node);
-            }
-            const auto *func = call->func.as<Var>();
-            if (func == nullptr || !func->name.starts_with("_traverse_tree")) {
-                return ir::Mutator::visit(node);
-            }
-            std::vector<Stmt> stmts;
-            // Update `rec` loop to respective do while.
-            std::string idx = "q";
-            internal_assert(queue_type.defined());
-            Expr q = Var::make(queue_type, queue_name);
-            Expr count_q = Access::make("count", q);
-            Expr stack_q = Access::make("stack", q);
-            Expr bq = Var::make(queue_type, buffer_name);
-            Expr count_bq = Access::make("count", bq);
-            Expr stack_bq = Access::make("stack", bq);
-            Type i_type = count_q.type();
-            Type q_type = stack_q.type();
-
-            ForAll::Slice slice{
-                .begin = make_zero(i_type),
-                .end = count_q,
-                .stride = make_one(i_type),
-            };
-
+        Stmt visit(const RecLoop *node) override {
             std::vector<Expr> args;
-            std::vector<Function_t::ArgSig> types;
-            Expr top = Extract::make(stack_q, Var::make(i_type, idx));
-
-            for (int i = 0, e = call->args.size(); i < e; ++i) {
-                Expr v = Extract::make(top, i);
-                args.push_back(v);
-                types.push_back(
-                    Function_t::ArgSig{.type = v.type(), .is_mutable = false});
+            std::vector<Type> types;
+            for (int i = 0, e = node->args.size(); i < e; ++i) {
+                TypedVar v = node->args[i];
+                args.push_back(make_zero(v.type));
+                types.push_back(v.type);
             }
-            // Add the current allocation as well.
-            args.push_back(ir::Var::make(return_type, allocation_name));
-            types.push_back(
-                Function_t::ArgSig{.type = return_type, .is_mutable = true});
-            // Make a new call signature with the appended argument.
-            Expr c = Var::make(
-                Function_t::make(Void_t::make(), std::move(types)), func->name);
-            Stmt loop =
-                ForAll::make(idx, slice, CallStmt::make(c, std::move(args)));
-            Stmt swap = queue_swap(q, bq);
-            Stmt body = Sequence::make({loop, swap});
-            Expr cond = count_q != make_zero(i_type);
-            return DoWhile::make(std::move(body), std::move(cond));
-        }
-
-        Stmt mutate(const Stmt &stmt) override {
-            if (!entry) {
-                return ir::Mutator::mutate(stmt);
-            }
-            entry = false;
-            std::vector<Stmt> stmts;
             // Add queues to initial function body with counters.
             static const Type count_t = UInt_t::make(64);
-            Type array_t = Array_t::make(return_type.element_of(), queue_size);
+            Type array_t = Array_t::make(Tuple_t::make(types), queue_size);
             queue_type = Struct_t::make("queue",
                                         {
                                             {"count", count_t},
@@ -187,23 +98,22 @@ void defer_simple(const std::string &location, const std::string &queue,
             const auto [_, inserted] =
                 program.types.emplace("queue", queue_type);
             internal_assert(inserted);
-            // Allocate the array in this function.
-            stmts.push_back(
-                Allocate::make(WriteLoc(allocation_name, return_type)));
             // Allocate the queues.
             WriteLoc loc(queue_name, queue_type);
+            std::vector<Stmt> stmts;
             stmts.push_back(Allocate::make(loc));
             stmts.push_back(Allocate::make(WriteLoc(buffer_name, queue_type)));
 
+            // Update `rec` loop to respective do while.
+            std::string idx = "q";
             Expr q = Var::make(queue_type, queue_name);
             Expr count_q = Access::make("count", q);
             Expr stack_q = Access::make("stack", q);
-            std::vector<Expr> args;
-            std::vector<Type> types;
-            for (int i = 0, e = arguments.size(); i < e; ++i) {
-                types.push_back(arguments[i].type);
-                args.push_back(Var::make(arguments[i].type, arguments[i].name));
-            }
+            Expr bq = Var::make(queue_type, buffer_name);
+            Expr count_bq = Access::make("count", bq);
+            Expr stack_bq = Access::make("stack", bq);
+            Type i_type = count_q.type();
+            Type q_type = stack_q.type();
 
             // Push the top of the tree.
             WriteLoc head = loc;
@@ -215,23 +125,36 @@ void defer_simple(const std::string &location, const std::string &queue,
             WriteLoc count = loc;
             count.add_struct_access("count");
             stmts.push_back(Accumulate::make(count, Accumulate::OpType::Add,
-                                             make_one(count_t)));
-            stmts.push_back(ir::Mutator::mutate(stmt));
-            stmts.push_back(
-                Return::make(Var::make(return_type, allocation_name)));
+                                             make_one(i_type)));
+            std::vector<Stmt> loop_body;
+            WriteLoc current = loc;
+            current.add_struct_access("stack");
+            current.add_index_access(Var::make(i_type, idx));
+            for (int i = 0, e = node->args.size(); i < e; ++i) {
+                WriteLoc loc(node->args[i].name, node->args[i].type);
+                loop_body.push_back(
+                    LetStmt::make(loc, Extract::make(current.to_expr(), i)));
+            }
+            loop_body.push_back(Mutator::mutate(node->body));
+            Stmt loop = ForAll::make(idx,
+                                     ForAll::Slice{
+                                         .begin = make_zero(i_type),
+                                         .end = count_q,
+                                         .stride = make_one(i_type),
+                                     },
+                                     Sequence::make(loop_body));
+            Stmt swap = queue_swap(q, bq);
+            Stmt body = Sequence::make({loop, swap});
+            Expr cond = count_q != make_zero(i_type);
+            stmts.push_back(DoWhile::make(std::move(body), std::move(cond)));
             return Sequence::make(std::move(stmts));
         }
 
       private:
-        bool entry = true;
+        ir::Type queue_type;
         std::string buffer_name;
-        Type queue_type;
-
         const std::string &queue_name;
         const Expr &queue_size;
-        const std::string &allocation_name;
-        Type return_type;
-        const std::vector<Function::Argument> &arguments;
         Program &program;
 
         // Analagous to:
@@ -264,28 +187,22 @@ void defer_simple(const std::string &location, const std::string &queue,
     // Find the queue size.
     auto qit = queue_sizes.find(location + "." + queue);
     internal_assert(qit != queue_sizes.end()) << queue;
-    auto fit = program.funcs.find(location);
-    internal_assert(fit != program.funcs.end()) << location;
-    auto &function = fit->second;
     CallGraph call_graph = build_call_graph(program.funcs);
-    std::string allocation_name = "__a";
+    std::string target;
     for (const std::string &call : call_graph[location]) {
         if (!call.starts_with("_traverse_tree")) {
             continue;
         }
-        auto &function = program.funcs[call];
-        function->args.push_back(
-            Function::Argument(allocation_name, function->ret_type));
-        ir::Type dynamic_array_type = function->ret_type;
-        function->ret_type = Void_t::make();
-        ModifyTraverseTree lower(allocation_name, dynamic_array_type);
-        function->body = lower.mutate(std::move(function->body));
+        internal_assert(target.empty());
+        target = call;
     }
+
+    auto fit = program.funcs.find(target);
+    internal_assert(fit != program.funcs.end()) << location;
+    auto &function = fit->second;
     DeferImpl defer(/*queue_name=*/queue,
                     /*queue_size=*/qit->second,
-                    /*return_type=*/function->ret_type,
-                    /*allocation_name=*/allocation_name, function->args,
-                    program);
+                    /*program=*/program);
     function->body = defer.mutate(function->body);
 }
 

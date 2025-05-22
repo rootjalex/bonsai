@@ -82,12 +82,12 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerSorts>();
-    manager.register_pass<LowerDynamicSets>();
-    // manager.register_pass<LowerDefers>();
+    manager.register_pass<LowerDefers>();
     manager.register_pass<LowerDefers2>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerMaps>();
+    manager.register_pass<LowerDynamicSets>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
     manager.register_pass<LowerTuples>();
@@ -119,18 +119,18 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     core.push_back(std::make_unique<LowerSorts>());
+    // core.push_back(std::make_unique<LowerDefers>());
     core.push_back(std::make_unique<LowerExterns>());
-    core.push_back(std::make_unique<LowerDynamicSets>());
-    // manager.register_pass<LowerDefers>();
-    core.push_back(std::make_unique<LowerDefers2>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
+    core.push_back(std::make_unique<LowerDefers2>());
     core.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
     // and before Mutability
     core.push_back(std::make_unique<LowerRandom>());
+    core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
@@ -159,19 +159,18 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     d.push_back(std::make_unique<LowerSorts>());
-    // TODO(cgyurgyik): I lazily moved lower-externs here because of some
-    // error I was getting from free variables; investigate this.
+    // d.push_back(std::make_unique<LowerDefers>());
     d.push_back(std::make_unique<LowerExterns>());
-    d.push_back(std::make_unique<LowerDynamicSets>());
-    d.push_back(std::make_unique<LowerDefers2>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
+    d.push_back(std::make_unique<LowerDefers2>());
     d.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
     // and before Mutability
     d.push_back(std::make_unique<LowerRandom>());
+    d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
