@@ -132,5 +132,5 @@ schedule {
         };
     };
 
-    collisions.make_queue(Q, root, 100000).defer(collisions, collisions.root, Q);
+    collisions.make_queue(Q, root, 10000).defer(collisions, collisions.root, Q);
 }

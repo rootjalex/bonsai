@@ -89,6 +89,7 @@ void defer_simple(const std::string &location, const std::string &queue,
             // Allocate the queue stacks.
             std::string a = queue_name + "_a";
             std::string a_b = buffer_name + "_a";
+            std::string t_name = queue_name + "_t";
             stmts.push_back(Allocate::make(WriteLoc(a, array_t)));
             stmts.push_back(Allocate::make(WriteLoc(a_b, array_t)));
             // Allocate the queues.
@@ -101,6 +102,10 @@ void defer_simple(const std::string &location, const std::string &queue,
                 /*loc=*/WriteLoc(buffer_name, queue_type),
                 /*value=*/Build::make(queue_type, {Var::make(array_t, a_b)}),
                 /*memory=*/Allocate::Memory::Stack));
+            // Temporary stack for swapping.
+            // TODO(cgyurgyik): This should just be a pointer!
+            WriteLoc t_stack(t_name, array_t);
+            stmts.push_back(Allocate::make(t_stack));
 
             // Update `rec` loop to respective do while.
             std::string idx = "q";
@@ -172,9 +177,15 @@ void defer_simple(const std::string &location, const std::string &queue,
             WriteLoc q2w_stack = q2w;
             q2w_stack.add_struct_access("stack");
 
+            // t = q1;
+            WriteLoc t_stack(queue_name + "_t", q1w_stack.type);
+            stmts.push_back(Store::make(t_stack, q1w_stack.to_expr()));
+
             // q1 = q2;
             stmts.push_back(Store::make(q1w_count, q2w_count.to_expr()));
             stmts.push_back(Store::make(q1w_stack, q2w_stack.to_expr()));
+            // q2 = t;
+            stmts.push_back(Store::make(q2w_stack, t_stack.to_expr()));
             // clear q2
             stmts.push_back(Store::make(q2w_count, make_zero(q2w_count.type)));
             // For now we just assume the array will be written over.
