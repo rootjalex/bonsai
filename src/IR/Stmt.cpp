@@ -275,7 +275,8 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
         << "Undefined Slice.end in ForAll::make";
     internal_assert(slice.stride.defined())
         << "Undefined Slice.stride in ForAll::make";
-    internal_assert(body.defined()) << "Undefined body in ForAll::make";
+    internal_assert(body.defined())
+        << "Undefined body in ForAll::make" << " with index: " << index;
     internal_assert(equals(slice.begin.type(), slice.end.type()));
     internal_assert(equals(slice.begin.type(), slice.stride.type()));
     node->index = std::move(index);

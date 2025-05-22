@@ -323,7 +323,11 @@ Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
             : loop_idx(loop_idx), options(options), program(program) {}
 
         Stmt visit(const ForAll *node) override {
-            if (node->index != loop_idx) {
+            std::string index = node->index;
+            if (!index.starts_with("_")) {
+                index = "_" + index;
+            }
+            if (loop_idx != index) {
                 return Mutator::visit(node);
             }
 

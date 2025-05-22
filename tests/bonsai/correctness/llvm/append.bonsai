@@ -1,0 +1,26 @@
+//! flags: -b llvm
+
+
+func p_(x: dyn_array[i32, 1], n: i32) -> void {
+    forall i in [0:n:1] {
+        append[[x]](1);
+    }
+    return; 
+}
+
+func main() -> i32 {
+    alloc x : dyn_array[i32, 1];
+    n: i32 = 100000000;
+    p_(x, n);
+
+    v: mut i32 = 0;
+    forall j in [0:n:1] {
+        v += x[j];
+    }
+    print(v);
+    return 0;
+}
+
+schedule {
+  p_.cpu_thread(i);
+}
