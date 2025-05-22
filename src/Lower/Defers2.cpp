@@ -98,8 +98,9 @@ void defer_simple(const std::string &location, const std::string &queue,
                 /*loc=*/loc,
                 /*value=*/Build::make(queue_type, {Var::make(array_t, a)}),
                 /*memory=*/Allocate::Memory::Stack));
+            WriteLoc buffer_loc(buffer_name, queue_type);
             stmts.push_back(Allocate::make(
-                /*loc=*/WriteLoc(buffer_name, queue_type),
+                /*loc=*/buffer_loc,
                 /*value=*/Build::make(queue_type, {Var::make(array_t, a_b)}),
                 /*memory=*/Allocate::Memory::Stack));
             // Temporary stack for swapping.
@@ -146,8 +147,14 @@ void defer_simple(const std::string &location, const std::string &queue,
                                          .stride = make_one(i_type),
                                      },
                                      Sequence::make(loop_body));
-            Stmt swap = queue_swap(q, bq);
-            Stmt body = Sequence::make({loop, swap});
+
+            loc.add_struct_access("stack");
+            buffer_loc.add_struct_access("stack");
+            Stmt body = Sequence::make({
+                loop,
+                Swap::make(loc, buffer_loc),
+                queue_swap_counts(q, bq),
+            });
             Expr cond = count_q != make_zero(i_type);
             stmts.push_back(DoWhile::make(std::move(body), std::move(cond)));
             return Sequence::make(std::move(stmts));
@@ -162,30 +169,18 @@ void defer_simple(const std::string &location, const std::string &queue,
 
         // Analagous to:
         // swap(q1, q2); clear(q2);
-        Stmt queue_swap(Expr q1, Expr q2) {
+        Stmt queue_swap_counts(Expr q1, Expr q2) {
             std::vector<Stmt> stmts;
             internal_assert(ir::equals(q1.type(), q2.type()));
             WriteLoc q1w(queue_name, q1.type());
             WriteLoc q1w_count = q1w;
             q1w_count.add_struct_access("count");
-            WriteLoc q1w_stack = q1w;
-            q1w_stack.add_struct_access("stack");
 
             WriteLoc q2w(buffer_name, q2.type());
             WriteLoc q2w_count = q2w;
             q2w_count.add_struct_access("count");
-            WriteLoc q2w_stack = q2w;
-            q2w_stack.add_struct_access("stack");
-
-            // t = q1;
-            WriteLoc t_stack(queue_name + "_t", q1w_stack.type);
-            stmts.push_back(Store::make(t_stack, q1w_stack.to_expr()));
-
             // q1 = q2;
             stmts.push_back(Store::make(q1w_count, q2w_count.to_expr()));
-            stmts.push_back(Store::make(q1w_stack, q2w_stack.to_expr()));
-            // q2 = t;
-            stmts.push_back(Store::make(q2w_stack, t_stack.to_expr()));
             // clear q2
             stmts.push_back(Store::make(q2w_count, make_zero(q2w_count.type)));
             // For now we just assume the array will be written over.

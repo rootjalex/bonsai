@@ -30,7 +30,7 @@ struct WriteLoc {
     void add_index_access(const Expr &index);
 
     // Returns the expression version of this write location.
-    Expr to_expr();
+    Expr to_expr() const;
 
     // After type inference, re-build with a defined base type.
     WriteLoc rebuild_with_base_type(Type _type) const;

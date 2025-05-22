@@ -21,7 +21,6 @@ func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*
   alloc Q_buffer_a : mut __tuple_0[64]
   Q : mut queue := build<queue>(0u, (*Q_a))
   Q_buffer : mut queue := build<queue>(0u, (*Q_buffer_a))
-  alloc Q_t : mut __tuple_0[64]
   Q.stack[0u] = build<__tuple_0>(0u, 0u)
   Q.count += 1u
   do {
@@ -61,10 +60,8 @@ func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*
         }
       }
     }
-    Q_t = (*Q).stack
+    swap(Q.stack, Q_buffer.stack)
     Q.count = (*Q_buffer).count
-    Q.stack = (*Q_buffer).stack
-    Q_buffer.stack = (*Q_t)
     Q_buffer.count = 0u
   } while ((*Q).count != 0u)
   return (*_dyn_alloc)

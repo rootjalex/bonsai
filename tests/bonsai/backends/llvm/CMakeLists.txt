@@ -18,6 +18,7 @@ add_bonsai_tests(
     short-circuit.bonsai
     simple.bonsai
     struct_defaults.bonsai
+    swap.bonsai
     tail-call.bonsai
     type_coercion_primitive.bonsai
 )

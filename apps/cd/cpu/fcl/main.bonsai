@@ -131,6 +131,6 @@ schedule {
             };
         };
     };
-
-    collisions.make_queue(Q, root, 10000).defer(collisions, collisions.root, Q);
+    // TODO(cgyurgyik): this should be a dynamic array.
+    collisions.make_queue(Q, root, 8192).defer(collisions, collisions.root, Q);
 }

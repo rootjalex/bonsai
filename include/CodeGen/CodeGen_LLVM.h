@@ -159,6 +159,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Allocate *) override;
     virtual void visit(const ir::Store *) override;
+    virtual void visit(const ir::Swap *) override;
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
     virtual void visit(const ir::Append *) override;

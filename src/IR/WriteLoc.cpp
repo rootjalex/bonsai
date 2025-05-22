@@ -23,7 +23,7 @@ void WriteLoc::add_struct_access(const std::string &field) {
     }
 }
 
-Expr WriteLoc::to_expr() {
+Expr WriteLoc::to_expr() const {
     Expr v = Var::make(base_type, base);
     for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
