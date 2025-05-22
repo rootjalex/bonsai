@@ -3,7 +3,6 @@
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/TopologicalOrder.h"
 
-#include "Opt/Inline.h"
 #include "Opt/Simplify.h"
 
 #include "IR/Analysis.h"
