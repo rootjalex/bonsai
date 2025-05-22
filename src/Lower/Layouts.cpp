@@ -704,7 +704,8 @@ struct LowerMatches : public ir::Mutator {
     MutatedArgSig mutate_call(const ir::Function_t *func_t,
                               const std::vector<ir::Expr> &args) {
         const size_t n = args.size();
-        internal_assert(n == func_t->arg_types.size());
+        internal_assert(n == func_t->arg_types.size())
+            << n << " vs " << func_t->arg_types.size();
 
         bool changed = false;
         std::vector<ir::Expr> ret_args(n);

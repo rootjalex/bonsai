@@ -1219,6 +1219,14 @@ void Printer::visit(const Store *node) {
     os << "\n";
 }
 
+void Printer::visit(const Swap *node) {
+    os << get_indent() << "swap(";
+    print(node->a);
+    os << ", ";
+    print(node->b);
+    os << ")\n";
+}
+
 void Printer::visit(const Accumulate *node) {
     os << get_indent();
     print(node->loc);

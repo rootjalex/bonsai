@@ -149,6 +149,7 @@ struct Printer : public Visitor {
     void visit(const Allocate *) override;
     void visit(const Free *) override;
     void visit(const Store *) override;
+    void visit(const Swap *) override;
     void visit(const Accumulate *) override;
     void visit(const Label *) override;
     void visit(const RecLoop *) override;

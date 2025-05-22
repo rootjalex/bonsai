@@ -770,7 +770,11 @@ Program LowerDefers::run(Program program,
                 internal_assert(def.queue.names.size() == 1)
                     << "TODO: Multi-location in defer() queue: " << def.queue;
                 const std::string &queue = def.queue.names.front();
-
+                if (consumer == producer && consumer == responsible &&
+                    loop_idx == "root") {
+                    // Handled in Defers2.
+                    continue;
+                }
                 defer_call(consumer, producer, responsible, loop_idx, queue,
                            program, queue_sizes);
             } else if (std::holds_alternative<MakeQueue>(t)) {

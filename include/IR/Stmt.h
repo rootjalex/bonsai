@@ -26,6 +26,7 @@ enum class IRStmtEnum {
     Allocate,
     Free,
     Store,
+    Swap,
     Accumulate,
     Label,
 
@@ -177,6 +178,18 @@ struct Store : StmtNode<Store> {
     static Stmt make(WriteLoc loc, Expr value);
 
     static const IRStmtEnum node_type = IRStmtEnum::Store;
+};
+
+// t = a;
+// a = b;
+// b = t;
+struct Swap : StmtNode<Swap> {
+    WriteLoc a;
+    WriteLoc b;
+
+    static Stmt make(WriteLoc a, WriteLoc b);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Swap;
 };
 
 struct Accumulate : StmtNode<Accumulate> {

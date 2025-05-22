@@ -549,6 +549,16 @@ Stmt Mutator::visit(const Store *node) {
     return Store::make(std::move(loc), std::move(value));
 }
 
+Stmt Mutator::visit(const Swap *node) {
+    auto [a, not_changed1] = mutate_writeloc(node->a);
+    auto [b, not_changed2] = mutate_writeloc(node->b);
+    if (not_changed1 && not_changed2) {
+        return node;
+    }
+
+    return Swap::make(std::move(a), std::move(b));
+}
+
 Stmt Mutator::visit(const Accumulate *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);

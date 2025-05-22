@@ -111,6 +111,7 @@ Program LowerDynamicSets::run(Program program,
         if (set_t == nullptr) {
             continue;
         }
+
         // TODO(cgyurgyik): Add schedule support for dynamic array size.
         Type dynamic_array_t = DynArray_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;

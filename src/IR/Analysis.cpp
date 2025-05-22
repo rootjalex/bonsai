@@ -167,6 +167,7 @@ struct AlwaysReturns : public Visitor {
     void visit(const LetStmt *node) override { returns = false; }
     void visit(const Allocate *node) override { returns = false; }
     void visit(const Store *node) override { returns = false; }
+    void visit(const Swap *node) override { returns = false; }
     void visit(const Accumulate *node) override { returns = false; }
     void visit(const Print *node) override { returns = false; }
 

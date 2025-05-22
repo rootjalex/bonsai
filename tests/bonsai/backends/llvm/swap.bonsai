@@ -1,0 +1,19 @@
+//! flags: -b llvm -e
+
+element Q {
+    stack: array[i32, 1];
+}
+
+func main() -> i32 {
+    alloc s1 : array [i32, 1];
+    q1 : mut Q = {s1};
+    q1.stack[0] = 1;
+    
+    alloc s2 : array [i32, 1];
+    q2 : mut Q = {s2};
+    q2.stack[0] = 43;
+    
+    swap(q1.stack, q2.stack);
+    print(q1.stack[0] - q2.stack[0]);
+    return 0;
+}

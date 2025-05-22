@@ -239,6 +239,11 @@ void Visitor::visit(const Store *node) {
     node->value.accept(this);
 }
 
+void Visitor::visit(const Swap *node) {
+    visit_writeloc(this, node->a);
+    visit_writeloc(this, node->b);
+}
+
 void Visitor::visit(const Accumulate *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);

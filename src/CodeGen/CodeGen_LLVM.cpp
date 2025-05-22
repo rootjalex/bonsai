@@ -2182,6 +2182,23 @@ void CodeGen_LLVM::visit(const Store *node) {
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
 
+void CodeGen_LLVM::visit(const Swap *node) {
+    llvm::Value *loc_a = codegen_write_loc(node->a);
+    llvm::Value *loc_b = codegen_write_loc(node->b);
+    internal_assert(loc_a->getType()->isPointerTy());
+    internal_assert(loc_b->getType()->isPointerTy());
+
+    internal_assert(node->a.type.is<Array_t>());
+    internal_assert(node->b.type.is<Array_t>());
+    llvm::Type *element_type = codegen_type(node->a.type.element_of());
+    internal_assert(element_type == codegen_type(node->b.type.element_of()));
+
+    llvm::Value *val_a = builder->CreateLoad(element_type, loc_a, "swap.a");
+    llvm::Value *val_b = builder->CreateLoad(element_type, loc_b, "swap.b");
+    builder->CreateStore(val_b, loc_a);
+    builder->CreateStore(val_a, loc_b);
+}
+
 llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {
     return module->getOrInsertFunction(
         "pthread_mutex_lock",

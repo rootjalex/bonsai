@@ -868,6 +868,15 @@ struct Parser {
                 expect(Token::Type::SEMICOL);
                 return ir::Allocate::make(loc);
             }
+            if (id == "swap") {
+                expect(Token::Type::LPAREN);
+                ir::WriteLoc a = parse_write_loc(get_id());
+                expect(Token::Type::COMMA);
+                ir::WriteLoc b = parse_write_loc(get_id());
+                expect(Token::Type::RPAREN);
+                expect(Token::Type::SEMICOL);
+                return ir::Swap::make(std::move(a), std::move(b));
+            }
             // TODO(cgyurgyik): This assumes that functions are declared before
             // they're called. This isn't the only place this constraint holds,
             // we should eventual support mutual recursion.

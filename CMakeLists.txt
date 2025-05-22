@@ -97,6 +97,7 @@ target_sources(
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
     src/Lower/Defers.cpp
+    src/Lower/Defers2.cpp
     src/Lower/DynamicArrays.cpp
     src/Lower/DynamicSets.cpp
     src/Lower/Externs.cpp
@@ -181,6 +182,7 @@ target_sources(
     include/LLVMIncl.h
     include/Lower/Canonicalize.h
     include/Lower/Defers.h
+    include/Lower/Defers2.h
     include/Lower/DynamicArrays.h
     include/Lower/DynamicSets.h
     include/Lower/Externs.h

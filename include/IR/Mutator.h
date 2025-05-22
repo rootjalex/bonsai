@@ -82,6 +82,7 @@ struct Mutator {
     virtual Stmt visit(const Allocate *);
     virtual Stmt visit(const Free *);
     virtual Stmt visit(const Store *);
+    virtual Stmt visit(const Swap *);
     virtual Stmt visit(const Accumulate *);
     virtual Stmt visit(const Label *);
     virtual Stmt visit(const RecLoop *);
