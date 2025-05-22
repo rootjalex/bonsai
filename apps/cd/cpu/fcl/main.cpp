@@ -471,7 +471,7 @@ void run_test(const std::string &obj1_filename,
     };
     collisions(out, b1, b2);
     t1 = clock::now();
-    auto *bonsai_collisons = reinterpret_cast<__tuple_0 *>(out.buffer);
+    auto *bonsai_collisons = reinterpret_cast<__tuple_1 *>(out.buffer);
     bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "[bonsai] collision detection time: " << bonsai_time

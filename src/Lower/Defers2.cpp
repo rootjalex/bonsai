@@ -81,16 +81,26 @@ void defer_simple(const std::string &location, const std::string &queue,
                                             {"count", count_t},
                                             {"stack", array_t},
                                         },
-                                        {{"count", Expr(0)}});
+                                        {{"count", make_zero(count_t)}});
             const auto [_, inserted] =
                 program.types.emplace("queue", queue_type);
             internal_assert(inserted);
+            std::vector<Stmt> stmts;
+            // Allocate the queue stacks.
+            std::string a = queue_name + "_a";
+            std::string a_b = buffer_name + "_a";
+            stmts.push_back(Allocate::make(WriteLoc(a, array_t)));
+            stmts.push_back(Allocate::make(WriteLoc(a_b, array_t)));
             // Allocate the queues.
             WriteLoc loc(queue_name, queue_type);
-            std::vector<Stmt> stmts;
-            // TODO(cgyurgyik): need to add a build for LLVM codegen?
-            stmts.push_back(Allocate::make(loc));
-            stmts.push_back(Allocate::make(WriteLoc(buffer_name, queue_type)));
+            stmts.push_back(Allocate::make(
+                /*loc=*/loc,
+                /*value=*/Build::make(queue_type, {Var::make(array_t, a)}),
+                /*memory=*/Allocate::Memory::Stack));
+            stmts.push_back(Allocate::make(
+                /*loc=*/WriteLoc(buffer_name, queue_type),
+                /*value=*/Build::make(queue_type, {Var::make(array_t, a_b)}),
+                /*memory=*/Allocate::Memory::Stack));
 
             // Update `rec` loop to respective do while.
             std::string idx = "q";
