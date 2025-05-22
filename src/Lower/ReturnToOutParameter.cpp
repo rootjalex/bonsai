@@ -65,6 +65,32 @@ struct ReplaceExportedCalls : public ir::Mutator {
 
 } // namespace
 
+/* static */ void ReturnToOutParameter::run(std::string name,
+                                            ir::FuncMap &functions) {
+    auto it = functions.find(name);
+    internal_assert(it != functions.end()) << name;
+    auto &function = it->second;
+    // Update function arguments with additional mutable argument that
+    // signifies the returned value.
+    const auto &function_arguments = function->args;
+    std::string argument_name =
+        std::string(PARAMETER_NAME) + std::to_string(counter++);
+    std::vector<ir::Function::Argument> arguments = {
+        ir::Function::Argument(
+            /*name=*/argument_name,
+            /*type=*/function->ret_type,
+            /*default_value=*/ir::Expr(),
+            /*mutating=*/true),
+    };
+    arguments.insert(arguments.end(), function_arguments.begin(),
+                     function_arguments.end());
+    functions[name] = std::make_shared<ir::Function>(
+        name, arguments, ir::Void_t::make(), function->body,
+        function->interfaces, function->attributes);
+
+    function->body = RtOP(*function).mutate(std::move(function->body));
+}
+
 ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
                                       const CompilerOptions &options) const {
     ir::FuncMap new_functions;

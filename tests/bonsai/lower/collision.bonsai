@@ -1,4 +1,4 @@
-//! flags: -p core
+//! flags: -p canonicalize -p verify-option -p verify-layouts -p fusion -p lower-maps -p lower-trees -p lower-sorts -p lower-externs -p lower-dynamic-sets -p lower-defers2 -p lower-geometrics 
 element Float = f32;
 element vec3f = vector[Float, 3];
 
@@ -130,7 +130,7 @@ func intersects(a : AABB, b : AABB) -> bool {
 extern triangles1 : set[Triangle];
 extern triangles2 : set[Triangle];
 
-func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
+func collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
 
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
