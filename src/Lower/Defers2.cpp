@@ -277,7 +277,6 @@ Program LowerDefers2::run(Program program,
                     defer_simple(consumer, queue, queue_sizes, program);
                     continue;
                 }
-                internal_error << "unsupported defer scheduling!";
             }
         }
     }
