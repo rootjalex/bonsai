@@ -28,20 +28,6 @@ namespace {
 
 // Defers the simple case where `location` = consumer = producer = responsible,
 // and the loop_index = "root".
-//
-// func collisions() -> set<(Triangle, Triangle)> {
-//     Q1: Queue<(Triangle, Triangle)> = (triangles1, triangles2);
-//     Q2: Queue<(Triangle, Triangle)> = {};
-//     out: dyn_array<(Triangle, Triangle)>;
-//     do {
-//         for all (t1, t2) in Q1 {
-//           rec(t1, t2);
-//         }
-//         swap(Q1, Q2);
-//         Q2.clear();
-//     } while (!Q1.empty());
-//     return out;
-// }
 void defer_simple(const std::string &location, const std::string &queue,
                   const std::map<std::string, Expr> &queue_sizes,
                   Program &program) {

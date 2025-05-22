@@ -26,8 +26,6 @@ class ReturnToOutParameter : public Pass {
   public:
     const std::string name() const override { return "rtop"; }
 
-    static void run(std::string name, ir::FuncMap &functions);
-
     ir::FuncMap run(ir::FuncMap functions,
                     const CompilerOptions &options) const override;
 };

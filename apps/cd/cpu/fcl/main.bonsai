@@ -131,4 +131,6 @@ schedule {
             };
         };
     };
+
+    collisions.make_queue(Q, root, 100000).defer(collisions, collisions.root, Q);
 }
