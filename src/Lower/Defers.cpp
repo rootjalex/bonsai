@@ -646,7 +646,11 @@ void defer_call(const std::string &consumer, const std::string &producer,
                 const std::string &queue, Program &program,
                 const std::map<std::string, Expr> &queue_sizes) {
     // Find map from consumers to producers.
+    if (consumer == producer && consumer == responsible) {
+        return; // Handled in Defers2.
+    }
     CallGraph consumer_to_producer = build_call_graph(program.funcs);
+
     internal_assert(consumer_to_producer[consumer].contains(producer))
         << producer << " is not called by " << consumer
         << "; it cannot be defered";
