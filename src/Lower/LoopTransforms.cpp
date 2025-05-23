@@ -473,15 +473,15 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
 }
 
 Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
-             FuncMap &funcs) {
+             Program &program) {
     struct LoopifyImpl : public Mutator {
         std::optional<Expr> queue_size;
-        FuncMap &funcs;
+        Program &program;
 
         bool in_recloop = false;
 
-        LoopifyImpl(std::optional<Expr> queue_size, FuncMap &funcs)
-            : queue_size(std::move(queue_size)), funcs(funcs) {}
+        LoopifyImpl(std::optional<Expr> queue_size, Program &program)
+            : queue_size(std::move(queue_size)), program(program) {}
 
         Stmt visit(const RecLoop *node) override {
             const size_t unique_id = get_unique_counter();
@@ -490,14 +490,12 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
             if (node->args.size() == 1) {
                 queue_etype = node->args[0].type;
             } else {
-                // TODO: pack?
                 constexpr auto P = Struct_t::Attribute::packed;
-                // TODO: need to add this to program.types
-                queue_etype = ir::Struct_t::make(unique_struct_name(unique_id),
-                                                 node->args, {P});
-                internal_error
-                    << "Need to add packed queue_etype to program.types"
-                    << queue_etype;
+                std::string name = unique_struct_name(unique_id);
+                queue_etype = ir::Struct_t::make(name, node->args, {P});
+                auto [_, inserted] =
+                    program.types.try_emplace(name, queue_etype);
+                internal_assert(inserted) << name;
             }
 
             std::vector<Stmt> stmts;
@@ -567,8 +565,9 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 // TODO(ajr): hope to God it's impossible to have
                 // self-recursion in these.
                 if (name.starts_with("_traverse_tree")) {
-                    funcs[name]->body = loopify(
-                        name, std::move(funcs[name]->body), queue_size, funcs);
+                    program.funcs[name]->body =
+                        loopify(name, std::move(program.funcs[name]->body),
+                                queue_size, program);
                     return node;
                 }
             }
@@ -577,14 +576,14 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
     };
 
     if (!queue_size.has_value()) {
-        auto it = funcs.find(name);
-        internal_assert(it != funcs.end()) << name;
+        auto it = program.funcs.find(name);
+        internal_assert(it != program.funcs.end()) << name;
         const Function &func = *it->second;
         verify_valid_tail_recursion(stmt, func);
         return handle_tail_recursion(std::move(stmt), func);
     }
 
-    LoopifyImpl rewriter(std::move(queue_size), funcs);
+    LoopifyImpl rewriter(std::move(queue_size), program);
     return rewriter.mutate(std::move(stmt));
 }
 
@@ -628,9 +627,8 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // Lower/Defers.cpp
                                   },
                                   [&](const Loopify &l) {
-                                      body =
-                                          loopify(name, std::move(body),
-                                                  l.queue_size, program.funcs);
+                                      body = loopify(name, std::move(body),
+                                                     l.queue_size, program);
                                   },
                                   [&](const MakeQueue &q) {
                                       // no-op, should have been handled in

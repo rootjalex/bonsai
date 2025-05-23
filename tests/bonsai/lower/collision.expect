@@ -4,7 +4,7 @@ type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type __dyn_array0 = struct __dyn_array0{ buffer : struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
 type __tuple_0 = struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
-type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : u32 }
+type _queue_struct0 = [[packed]] struct _queue_struct0{ triangles1_index : u32; triangles2_index : u32 }
 type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
@@ -14,37 +14,44 @@ type vec3f = f32x3
 extern triangles1 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 extern triangles2 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 
-func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*), _dyn_alloc : (__dyn_array0*)) -> void {
-  if (intersects_AABB_AABB((&build<AABB>((*triangles1).group0_index[triangles1_index].low, (*triangles1).group0_index[triangles1_index].high)), (&build<AABB>((*triangles2).group0_index[triangles2_index].low, (*triangles2).group0_index[triangles2_index].high)))) {
-    if ((*triangles1).group0_index[triangles1_index].nPrims == 0u) {
-      if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
-        _recloop_func0(triangles1_index + 1u, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
+  alloc _dyn_alloc : mut __dyn_array0
+  _queue_count0 : mut i32 := 1
+  _queue0 : mut _queue_struct0[64]
+  _queue0[0] = build<_queue_struct0>(0u, 0u)
+  let _queue_top0 = (*_queue0)[(*_queue_count0)] in
+  do {
+    _queue_count0 -= 1
+    let triangles1_index = _queue_top0.triangles1_index in
+    let triangles2_index = _queue_top0.triangles2_index in
+    if (intersects_AABB_AABB((&build<AABB>((*triangles1).group0_index[triangles1_index].low, (*triangles1).group0_index[triangles1_index].high)), (&build<AABB>((*triangles2).group0_index[triangles2_index].low, (*triangles2).group0_index[triangles2_index].high)))) {
+      if ((*triangles1).group0_index[triangles1_index].nPrims == 0u) {
+        if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+          _queue0[(*_queue_count0)] = build<_queue_struct0>(triangles1_index + 1u, triangles2_index + 1u)
+          _queue0[(*_queue_count0) + 1] = build<_queue_struct0>(triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset)
+          _queue0[(*_queue_count0) + 2] = build<_queue_struct0>(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u)
+          _queue0[(*_queue_count0) + 3] = build<_queue_struct0>(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset)
+          _queue_count0 += 4
+        } else {
+          _queue0[(*_queue_count0)] = build<_queue_struct0>(triangles1_index + 1u, triangles2_index)
+          _queue0[(*_queue_count0) + 1] = build<_queue_struct0>(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index)
+          _queue_count0 += 2
+        }
+      } else if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+        _queue0[(*_queue_count0)] = build<_queue_struct0>(triangles1_index, triangles2_index + 1u)
+        _queue0[(*_queue_count0) + 1] = build<_queue_struct0>(triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset)
+        _queue_count0 += 2
       } else {
-        _recloop_func0(triangles1_index + 1u, triangles2_index, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index, triangles1, triangles2, _dyn_alloc)
-      }
-    } else if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
-      _recloop_func0(triangles1_index, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
-      _recloop_func0(triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
-    } else {
-      forall _idx0 in [0u:cast<u32>((*triangles1).group0_index[triangles1_index].nPrims):1u] {
-        forall _idx1 in [0u:cast<u32>((*triangles2).group0_index[triangles2_index].nPrims):1u] {
-          if (intersects_Triangle_Triangle((&(*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0]), (&(*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))) {
-            append<_dyn_alloc>(build<__tuple_0>((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
+        forall _idx0 in [0u:cast<u32>((*triangles1).group0_index[triangles1_index].nPrims):1u] {
+          forall _idx1 in [0u:cast<u32>((*triangles2).group0_index[triangles2_index].nPrims):1u] {
+            if (intersects_Triangle_Triangle((&(*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0]), (&(*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))) {
+              append<_dyn_alloc>(build<__tuple_0>((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
+            }
           }
         }
       }
     }
-  }
-  return
-}
-
-func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
-  alloc _dyn_alloc : mut __dyn_array0
-  _recloop_func0(0u, 0u, triangles1, triangles2, _dyn_alloc)
+  } while ((*_queue_count0) != 0)
   return (*_dyn_alloc)
 }
 
