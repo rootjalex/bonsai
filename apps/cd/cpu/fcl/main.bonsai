@@ -131,4 +131,6 @@ schedule {
             };
         };
     };
+
+    collisions.loopify(10000);
 }

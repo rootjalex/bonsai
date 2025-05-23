@@ -172,5 +172,5 @@ schedule {
             };
         };
     };
-    collisions.make_queue(Q, root, 64).defer(collisions, collisions.root, Q);
+    collisions.loopify(64);
 }
