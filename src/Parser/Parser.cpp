@@ -2310,7 +2310,7 @@ struct Parser {
                                    << " with non-primitive type: " << type;
                 }
                 add_type_to_frame(name, type, /* mutable=*/false);
-                return ir::Name::make(std::move(name), std::move(type));
+                return ir::Field::make(std::move(name), std::move(type));
             } else {
                 expect(Token::Type::ASSIGN);
                 // TODO: insert built-ins to frame, here or somewhere?

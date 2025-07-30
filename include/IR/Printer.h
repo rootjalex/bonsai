@@ -163,7 +163,7 @@ struct Printer : public Visitor {
     void visit(const Launch *) override;
     void visit(const Append *) override;
     // Layouts
-    void visit(const Name *) override;
+    void visit(const Field *) override;
     void visit(const Pad *) override;
     void visit(const Switch *) override;
     void visit(const Chain *) override;

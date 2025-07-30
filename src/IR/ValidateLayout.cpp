@@ -19,7 +19,7 @@ std::vector<Path> get_paths(const Layout &layout) {
     struct GetPaths : public Visitor {
         std::vector<Path> paths = {{}}; // start with one empty path.
 
-        void visit(const Name *node) override {
+        void visit(const Field *node) override {
             for (auto &path : paths) {
                 const auto [_, inserted] =
                     path.try_emplace(node->name, node->type);
@@ -116,7 +116,7 @@ bool valid_path(const Path &path, const BVH_t::Node &node) {
 }
 
 struct ValidateSwitchs : public Visitor {
-    // void visit(const Name *node) override {}
+    // void visit(const Field *node) override {}
     // void visit(const Pad *node) override {}
     TypeMap defined;
 
@@ -137,16 +137,16 @@ struct ValidateSwitchs : public Visitor {
         // Two pass: gather all fields, then check nested layouts.
         TypeMap parent = defined;
         for (const auto &layout : node->layouts) {
-            if (const Name *name = layout.as<Name>()) {
+            if (const Field *name = layout.as<Field>()) {
                 const auto [_, inserted] =
                     defined.try_emplace(name->name, name->type);
                 internal_assert(inserted)
-                    << "Name: " << name->name << " is duplicated in layout";
+                    << "Field: " << name->name << " is duplicated in layout";
             } else if (const Materialize *mat = layout.as<Materialize>()) {
                 const auto [_, inserted] =
                     defined.try_emplace(mat->name, mat->value.type());
                 internal_assert(inserted)
-                    << "Name: " << name->name << " is duplicated in layout";
+                    << "Field: " << name->name << " is duplicated in layout";
             }
         }
 

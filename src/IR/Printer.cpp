@@ -1374,7 +1374,7 @@ void Printer::visit(const Append *node) {
     os << ")\n";
 }
 
-void Printer::visit(const Name *node) {
+void Printer::visit(const Field *node) {
     os << get_indent();
     os << node->name;
     os << " : ";

@@ -291,7 +291,7 @@ void Visitor::visit(const Append *node) {
     node->value.accept(this);
 }
 
-void Visitor::visit(const Name *node) {}
+void Visitor::visit(const Field *node) {}
 
 void Visitor::visit(const Pad *node) {}
 

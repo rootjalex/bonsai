@@ -10,8 +10,8 @@ namespace ir {
 
 uint64_t Layout::bits() const {
     switch (node_type()) {
-    case IRLayoutEnum::Name: {
-        return as<Name>()->type.bits();
+    case IRLayoutEnum::Field: {
+        return as<Field>()->type.bits();
     }
     case IRLayoutEnum::Pad: {
         return as<Pad>()->bits;
@@ -64,15 +64,15 @@ Layout Pad::make(uint32_t bits) {
     return node;
 }
 
-Layout Name::make(std::string name, Type type) {
+Layout Field::make(std::string name, Type type) {
     internal_assert(!name.empty())
-        << "empty name in Name::make with Type: " << type;
+        << "empty name in Field::make with Type: " << type;
     internal_assert(type.defined())
-        << "Undefined type in Name::make with name: " << name;
+        << "Undefined type in Field::make with name: " << name;
     internal_assert(type.is_primitive())
-        << "Non-primitive type in Name::make: " << type;
+        << "Non-primitive type in Field::make: " << type;
 
-    Name *node = new Name;
+    Field *node = new Field;
     node->name = std::move(name);
     node->type = std::move(type);
     return node;

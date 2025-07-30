@@ -1,4 +1,4 @@
-#include "Lower/Layouts.h"
+#include "Lower/Layouts2.h"
 
 #include "IR/Equality.h"
 #include "IR/Frame.h"
@@ -781,8 +781,8 @@ struct LowerMatches : public ir::Mutator {
 
 } // namespace
 
-ir::Program LowerLayouts::run(ir::Program program,
-                              const CompilerOptions &options) const {
+ir::Program LowerLayouts2::run(ir::Program program,
+                               const CompilerOptions &options) const {
     if (program.schedules.empty()) {
         return program;
     }

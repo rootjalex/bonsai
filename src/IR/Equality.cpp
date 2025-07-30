@@ -618,9 +618,9 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
     }
 
     switch (l0.node_type()) {
-    case IRLayoutEnum::Name: {
-        const Name *n0 = l0.as<Name>();
-        const Name *n1 = l1.as<Name>();
+    case IRLayoutEnum::Field: {
+        const Field *n0 = l0.as<Field>();
+        const Field *n1 = l1.as<Field>();
         if (const Cmp cmp = compare_primitives(n0->name, n1->name);
             cmp != Cmp::Equals) {
             return cmp;

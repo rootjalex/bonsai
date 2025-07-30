@@ -17,7 +17,7 @@ namespace ir {
 struct Layout;
 
 enum class IRLayoutEnum {
-    Name,
+    Field,
     Pad,
     Switch,
     Chain,
@@ -66,13 +66,13 @@ struct Layout : public IRHandle<IRLayoutNode> {
 //     return m->visit((const T *)this);
 // }
 
-struct Name : LayoutNode<Name> {
+struct Field : LayoutNode<Field> {
     std::string name;
     Type type; // primitive type.
 
     static Layout make(std::string name, Type type);
 
-    static const IRLayoutEnum node_type = IRLayoutEnum::Name;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Field;
 };
 
 struct Pad : LayoutNode<Pad> {
