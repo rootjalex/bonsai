@@ -125,12 +125,16 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::TREE;
     if (token == "with")
         return Token::Type::WITH;
+    if (token == "by")
+        return Token::Type::BY;
     if (token == "layout")
         return Token::Type::LAYOUT;
     if (token == "group")
         return Token::Type::GROUP;
-    if (token == "switch")
-        return Token::Type::SWITCH;
+    if (token == "indirect")
+        return Token::Type::INDIRECT;
+    if (token == "split")
+        return Token::Type::SPLIT;
     if (token == "for")
         return Token::Type::FOR;
     if (token == "if")

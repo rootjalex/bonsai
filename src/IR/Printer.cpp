@@ -151,18 +151,18 @@ std::ostream &operator<<(std::ostream &os, const Location &loc) {
     return os;
 }
 
-std::string to_string(const Layout &layout) {
+std::string to_string(const Member &member) {
     std::ostringstream oss;
-    oss << layout;
+    oss << member;
     return oss.str();
 }
 
-std::ostream &operator<<(std::ostream &os, const Layout &layout) {
-    if (layout.defined()) {
+std::ostream &operator<<(std::ostream &os, const Member &member) {
+    if (member.defined()) {
         Printer printer(os);
-        printer.print(layout);
+        printer.print(member);
     } else {
-        os << "(undef-layout)";
+        os << "(undef-member)";
     }
     return os;
 }
@@ -292,10 +292,10 @@ void Printer::print(const Schedule &schedule) {
         os << '\n';
     }
 
-    for (const auto &[name, layout] : schedule.tree_layouts) {
+    for (const auto &[name, member] : schedule.tree_layouts) {
         os << get_indent() << name << " : ";
         indent++;
-        print(layout);
+        print(member);
         indent--;
         os << '\n';
     }
@@ -342,7 +342,7 @@ void Printer::print(const Schedule &schedule) {
                                       print(sort.lambda);
                                       os << ")";
                                   },
-                                  [&](const Split &split) {
+                                  [&](const LoopSplit &split) {
                                       os << "split(";
                                       print(split.i);
                                       os << ", ";
@@ -390,6 +390,10 @@ void Printer::print(const Schedule &schedule) {
         os << "\n";
     }
     // TODO: the rest of the schedule.
+}
+
+void Printer::print(const Layout &member) {
+    os << '(' << member.root << ')' << member.body;
 }
 
 void Printer::print(const Location &loc) {
@@ -458,7 +462,7 @@ void Printer::print(const WriteLoc &loc) {
     }
 }
 
-void Printer::print(const Layout &layout) { layout->accept(this); }
+void Printer::print(const Member &member) { member->accept(this); }
 
 void Printer::visit(const Void_t *node) { os << "void"; }
 
@@ -935,6 +939,17 @@ void Printer::visit(const Extract *node) {
     os << "]";
 }
 
+void Printer::visit(const Slice *node) {
+    print(node->value);
+    os << "[";
+    print_no_parens(node->begin);
+    os << " : ";
+    print_no_parens(node->end);
+    os << " : ";
+    print_no_parens(node->step);
+    os << "]";
+}
+
 void Printer::visit(const Build *node) {
     if (!node->type.is<Tuple_t>()) {
         os << "build<";
@@ -1388,23 +1403,37 @@ void Printer::visit(const Pad *node) {
     os << ";\n";
 }
 
-void Printer::visit(const Switch *node) {
+void Printer::visit(const Split *node) {
     os << get_indent();
-    os << "switch " << node->field << " {\n";
-    for (const auto &[value, name, layout] : node->arms) {
+    os << "split " << node->field << " {\n";
+    for (const auto &[comparator, value, name, member] : node->arms) {
         os << get_indent();
+        switch (comparator) {
+        case Arm::Comparator::LT:
+            os << "< ";
+        case Arm::Comparator::LE:
+            os << "<= ";
+        case Arm::Comparator::GT:
+            os << "> ";
+        case Arm::Comparator::GE:
+            os << ">= ";
+        case Arm::Comparator::NE:
+            os << "~";
+        case Arm::Comparator::EQ:
+            break;
+        }
         if (value.has_value()) {
             os << *value;
         } else {
             os << "_";
         }
-        os << " => ";
+        os << " -> ";
         if (name.has_value()) {
             os << *name;
         }
         os << "\n";
         indent++;
-        layout.accept(this);
+        member.accept(this);
         indent--;
     }
     os << get_indent() << "};\n";
@@ -1413,8 +1442,8 @@ void Printer::visit(const Switch *node) {
 void Printer::visit(const Chain *node) {
     os << get_indent() << "{\n";
     indent++;
-    for (const auto &layout : node->layouts) {
-        print(layout);
+    for (const auto &member : node->members) {
+        print(member);
     }
     indent--;
     os << get_indent() << "};\n";
@@ -1428,7 +1457,7 @@ void Printer::visit(const Group *node) {
     if (!node->name.empty()) {
         os << " " << node->name;
         os << " : ";
-        print(node->index_t);
+        print(node->index);
     }
     os << "\n";
     print(node->inner);

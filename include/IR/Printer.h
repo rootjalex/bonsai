@@ -40,7 +40,9 @@ std::ostream &operator<<(std::ostream &os, const Location &loc);
 std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars);
 
 std::string to_string(const Layout &layout);
+std::string to_string(const Member &member);
 std::ostream &operator<<(std::ostream &os, const Layout &layout);
+std::ostream &operator<<(std::ostream &os, const Member &member);
 
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
@@ -78,6 +80,7 @@ struct Printer : public Visitor {
     void print(const WriteLoc &loc);
     void print(const BVH_t::Node &node);
     void print(const Layout &layout);
+    void print(const Member &member);
 
     // Types
     void visit(const Void_t *) override;
@@ -125,6 +128,7 @@ struct Printer : public Visitor {
     void visit(const VectorShuffle *) override;
     void visit(const Ramp *) override;
     void visit(const Extract *) override;
+    void visit(const Slice *) override;
     void visit(const Build *) override;
     void visit(const Access *) override;
     void visit(const Unwrap *) override;
@@ -165,7 +169,7 @@ struct Printer : public Visitor {
     // Layouts
     void visit(const Field *) override;
     void visit(const Pad *) override;
-    void visit(const Switch *) override;
+    void visit(const Split *) override;
     void visit(const Chain *) override;
     void visit(const Group *) override;
     void visit(const Materialize *) override;

@@ -19,8 +19,8 @@ namespace lower {
 namespace {
 
 struct LayoutTypeMap {
-    std::map<ir::Layout, ir::Type, ir::LayoutLessThan> layout_to_type;
-    std::map<ir::Layout, std::string, ir::LayoutLessThan> layout_to_name;
+    std::map<ir::Layout, ir::Type, ir::MemberLessThan> layout_to_type;
+    std::map<ir::Layout, std::string, ir::MemberLessThan> layout_to_name;
     uint64_t counter = 0;
 };
 
@@ -50,8 +50,8 @@ IndexTList get_index_type(const ir::Layout &layout) {
                 index_ts.push_back({node->name, node->index_t});
                 break;
             }
-            case ir::IRLayoutEnum::Switch: {
-                const ir::Switch *node = l.as<ir::Switch>();
+            case ir::IRLayoutEnum::Split: {
+                const ir::Split *node = l.as<ir::Split>();
                 for (const auto &arm : node->arms) {
                     auto rec = get_index_type(arm.layout);
                     internal_assert(rec.empty())
@@ -155,13 +155,13 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 fields.emplace_back(std::move(field_name), std::move(group_t));
                 break;
             }
-            case ir::IRLayoutEnum::Switch: {
-                const ir::Switch *node = l.as<ir::Switch>();
+            case ir::IRLayoutEnum::Split: {
+                const ir::Split *node = l.as<ir::Split>();
                 // Store as vector of bytes, load and reinterpret to proper
                 // type.
                 const uint64_t bits = l.bits();
                 internal_assert(bits % 8 == 0)
-                    << "Switch is not byte-aligned: " << l;
+                    << "Split is not byte-aligned: " << l;
                 static const ir::Type u8 = ir::UInt_t::make(8);
                 ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
                 std::string name = split_name(split_count++, node->field);
@@ -241,8 +241,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                 }
                 break;
             }
-            case ir::IRLayoutEnum::Switch: {
-                const ir::Switch *node = l.as<ir::Switch>();
+            case ir::IRLayoutEnum::Split: {
+                const ir::Split *node = l.as<ir::Split>();
                 // Stored as vector of bytes, load and reinterpret to proper
                 // type.
                 for (const auto &arm : node->arms) {
@@ -253,7 +253,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                             ir::Access::make(std::move(field_name), base);
                         auto iter = ltmap.layout_to_type.find(arm.layout);
                         internal_assert(iter != ltmap.layout_to_type.cend())
-                            << "Unseen Switch arm layout: " << ir::Layout(node)
+                            << "Unseen Split arm layout: " << ir::Layout(node)
                             << " at " << arm.layout;
                         ir::Type reinterpret_type = iter->second;
                         path = ir::Cast::make(reinterpret_type, path,
@@ -301,7 +301,7 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
         Path current;
         std::map<std::string, Path> paths;
 
-        void visit(const ir::Switch *node) override {
+        void visit(const ir::Split *node) override {
             for (const auto &arm : node->arms) {
                 current.emplace_back(node->field, arm.value);
                 if (arm.name.has_value()) {

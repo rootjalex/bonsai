@@ -30,6 +30,7 @@ add_bonsai_tests(
     struct_defaults.bonsai
     trace_aosoa.bonsai
     trace.bonsai
+    trace-layout.bonsai
     trees.bonsai
     type_coercion_primitive.bonsai
     unswitch.bonsai

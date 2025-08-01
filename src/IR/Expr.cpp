@@ -273,26 +273,24 @@ void try_match_types(Expr &a, Expr &b) {
             return;
         }
 
-        internal_assert(is_const(a) || is_const(b))
-            << "Implicit casting of types: " << a << " is not the same type as "
-            << b << ": " << a.type() << " versus " << b.type();
         if (is_const(a)) {
             a = constant_cast(b.type(), a);
-        } else {
+            return;
+        } else if (is_const(b)) {
             b = constant_cast(a.type(), b);
+            return;
         }
-        // // TODO: is this right?
-        // // Cast to the larger bitwidth
-        // if (a.type().bits() > b.type().bits()) {
-        //     b = constant_cast(a.type(), b);
-        // } else if (b.type().bits() > a.type().bits()) {
-        //     a = constant_cast(b.type(), a);
-        // } else {
-        //     internal_error << "Same bitwidth, not sure how to cast: " << a <<
-        //     " and " << b
-        //                    << " are types " << a.type() << " and " <<
-        //                    b.type();
-        // }
+        // Cast to the larger bitwidth
+        if (a.type().bits() > b.type().bits()) {
+            b = cast_to(a.type(), b);
+            return;
+        }
+        if (b.type().bits() > a.type().bits()) {
+            a = cast_to(b.type(), a);
+            return;
+        }
+        internal_error << "same bitwidth, unsure how to cast: " << a << " and "
+                       << b << " are types " << a.type() << " and " << b.type();
     } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
         internal_assert(!a.type().is<Option_t>());
         b = constant_cast(a.type(), b);
@@ -605,6 +603,21 @@ Expr Extract::make(Expr vec, Expr idx) {
     node->type = std::move(type);
     node->vec = std::move(vec);
     node->idx = std::move(idx);
+    return node;
+}
+
+Expr Slice::make(Expr value, Expr begin, Expr end, Expr step) {
+    internal_assert(value.defined()) << "Slice of undefined value";
+    internal_assert(begin.defined());
+    internal_assert(end.defined());
+    internal_assert(step.defined());
+
+    Slice *node = new Slice;
+    node->type = value.type();
+    node->value = std::move(value);
+    node->begin = std::move(begin);
+    node->end = std::move(end);
+    node->step = std::move(step);
     return node;
 }
 

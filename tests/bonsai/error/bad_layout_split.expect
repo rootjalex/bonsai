@@ -4,4 +4,4 @@
 [internal] Error: src/IR/ValidateLayout.cpp:125
 
 --> iter != defined.cend()
-Switch does not have access to field: offset
+Split does not have access to field: offset

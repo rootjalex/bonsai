@@ -8,7 +8,7 @@
 namespace bonsai {
 namespace ir {
 
-uint64_t Layout::bits() const {
+uint64_t Member::bits() const {
     switch (node_type()) {
     case IRLayoutEnum::Field: {
         return as<Field>()->type.bits();
@@ -16,16 +16,16 @@ uint64_t Layout::bits() const {
     case IRLayoutEnum::Pad: {
         return as<Pad>()->bits;
     }
-    case IRLayoutEnum::Switch: {
+    case IRLayoutEnum::Split: {
         uint64_t bits = 0;
-        for (const auto &arm : as<Switch>()->arms) {
-            bits = std::max(bits, arm.layout.bits());
+        for (const auto &arm : as<Split>()->arms) {
+            bits = std::max(bits, arm.member.bits());
         }
         return bits;
     }
     case IRLayoutEnum::Chain: {
         uint64_t bits = 0;
-        for (const auto &l : as<Chain>()->layouts) {
+        for (const auto &l : as<Chain>()->members) {
             bits += l.bits();
         }
         return bits;
@@ -40,10 +40,10 @@ uint64_t Layout::bits() const {
         return 0; // computed field, not stored.
     }
     }
-    internal_error << "TODO: Layout::bits()";
+    internal_error << "TODO: Member::bits()";
 }
 
-Expr Layout::count() const {
+Expr Member::count() const {
     if (const Group *node = as<Group>()) {
         ir::Expr icount = node->inner.count();
         if (!is_const_one(icount)) {
@@ -57,14 +57,14 @@ Expr Layout::count() const {
     return u64_1;
 }
 
-Layout Pad::make(uint32_t bits) {
+Member Pad::make(uint32_t bits) {
     internal_assert(bits > 0) << "0 bits in Pad::make";
     Pad *node = new Pad;
     node->bits = bits;
     return node;
 }
 
-Layout Field::make(std::string name, Type type) {
+Member Field::make(std::string name, Type type) {
     internal_assert(!name.empty())
         << "empty name in Field::make with Type: " << type;
     internal_assert(type.defined())
@@ -78,56 +78,51 @@ Layout Field::make(std::string name, Type type) {
     return node;
 }
 
-// Layout Star::make(Layout inner) {
-//     internal_assert(inner.defined()) << "empty layout in Star::make";
-
-//     Star *node = new Star;
-//     node->inner = std::move(inner);
-//     node->count = 0; // all
-//     return node;
-// }
-
-Layout Switch::make(std::string field, std::vector<Switch::Arm> arms) {
-    internal_assert(!field.empty()) << "empty field in Switch::make";
+Member Split::make(Member field, std::vector<ir::Arm> arms) {
+    internal_assert(field.defined()) << "empty field in Split::make";
     internal_assert(!arms.empty())
-        << "empty arms in Switch::make for field: " << field;
+        << "empty arms in Split::make for field: " << field;
 
-    Switch *node = new Switch;
+    Split *node = new Split;
     node->field = std::move(field);
     node->arms = std::move(arms);
     return node;
 }
 
-Layout Chain::make(std::vector<Layout> layouts) {
-    internal_assert(!layouts.empty()) << "Empty layouts in Chain::make";
-    for (const auto &l : layouts) {
-        internal_assert(l.defined()) << "Undefined layout in Chain::make";
+std::string Split::field_name() const {
+    const ir::Field *field = this->field.as<ir::Field>();
+    internal_assert(field);
+    return field->name;
+}
+
+Member Chain::make(std::vector<Member> members) {
+    internal_assert(!members.empty()) << "Empty members in Chain::make";
+    for (const auto &l : members) {
+        internal_assert(l.defined()) << "Undefined member in Chain::make";
     }
     Chain *node = new Chain;
-    node->layouts = std::move(layouts);
+    node->members = std::move(members);
     return node;
 }
 
-Layout Group::make(Expr size, std::string name, Type index_t, Layout inner) {
+Member Group::make(std::string name, Expr size, Expr index, Member inner,
+                   Group::Type type) {
     internal_assert(size.defined())
         << "Cannot make Group with undefined size, named: " << name;
-    // Groups can have no label, name can be empty and index_t can be undefined
-    // (default: u32).
-    internal_assert(name.empty() != index_t.defined())
-        << "Cannot have name without index_t and vice versa: " << name << " : "
-        << index_t;
-    internal_assert(inner.defined())
-        << "Cannot make Group with undefined inner, named: " << name;
+    internal_assert(!name.empty());
+    // internal_assert(index.defined());
+    internal_assert(inner.defined());
 
     Group *node = new Group;
     node->size = std::move(size);
     node->name = std::move(name);
-    node->index_t = std::move(index_t);
+    node->index = std::move(index);
     node->inner = std::move(inner);
+    node->type = type;
     return node;
 }
 
-Layout Materialize::make(std::string name, Expr value) {
+Member Materialize::make(std::string name, Expr value) {
     internal_assert(!name.empty()) << "Materialize::make received empty name";
     internal_assert(value.defined())
         << "Materialize::make received undefined value for name: " << name;

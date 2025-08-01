@@ -95,6 +95,7 @@ uint64_t Token::size() const {
     case Token::Type::SHIFT_LEFT:
     case Token::Type::SHIFT_RIGHT:
     case Token::Type::RARROW:
+    case Token::Type::BY:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
@@ -109,15 +110,16 @@ uint64_t Token::size() const {
     case Token::Type::GROUP:
     case Token::Type::PRINT:
     case Token::Type::FALSE:
+    case Token::Type::SPLIT:
         return 5;
     case Token::Type::LAYOUT:
-    case Token::Type::SWITCH:
     case Token::Type::RETURN:
     case Token::Type::EXTERN:
     case Token::Type::IMPORT:
         return 6;
     case Token::Type::ELEMENT:
         return 7;
+    case Token::Type::INDIRECT:
     case Token::Type::SCHEDULE:
         return 8;
     case Token::Type::INTERFACE:
@@ -180,8 +182,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "layout";
     case Token::Type::GROUP:
         return "group";
-    case Token::Type::SWITCH:
-        return "switch";
+    case Token::Type::SPLIT:
+        return "split";
     case Token::Type::FOR:
         return "for";
     case Token::Type::IN:

@@ -90,7 +90,7 @@ struct Sort {
 // if generate_tail is set, no tail strategy is generated
 // if it is not set, a tail for-loop `i` with
 // start=(i.end / factor) * factor, end=i.end stride=1 is generated.
-struct Split {
+struct LoopSplit {
     Location i;
     Location io;
     Location ii;
@@ -98,8 +98,8 @@ struct Split {
     bool generate_tail;
 };
 
-using Transform =
-    std::variant<Collapse, Defer, Loopify, MakeQueue, Parallelize, Split, Sort>;
+using Transform = std::variant<Collapse, Defer, Loopify, MakeQueue, Parallelize,
+                               LoopSplit, Sort>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

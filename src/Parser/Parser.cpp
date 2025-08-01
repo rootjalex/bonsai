@@ -16,6 +16,7 @@
 #include <iostream>
 #include <regex>
 #include <set>
+#include <source_location>
 #include <span>
 #include <sstream>
 #include <tuple>
@@ -33,9 +34,9 @@ namespace {
 class ParseErrorReport {
   public:
     ParseErrorReport(std::string back_trace, std::string file_name,
-                     Token current)
+                     Token current, std::source_location call_site)
         : back_trace(back_trace), file_name(file_name),
-          current(std::move(current)) {}
+          current(std::move(current)), call_site(std::move(call_site)) {}
 
     [[noreturn]] ~ParseErrorReport() noexcept(false) {
         const uint64_t begin_line = current.line_begin(),
@@ -47,6 +48,16 @@ class ParseErrorReport {
         }
 
         std::stringstream ss;
+        constexpr std::string_view ROOT_DIRECTORY = "bonsai";
+        std::string file_name(call_site.file_name());
+
+        if (size_t pos = file_name.rfind(ROOT_DIRECTORY);
+            pos != std::string::npos) {
+            file_name = file_name.substr(pos + ROOT_DIRECTORY.length() + 1);
+        }
+        ss << "-> " << file_name << ":" << call_site.line() << ":"
+           << call_site.column() << " \n";
+
         ss << back_trace << ":" << begin_line << ":" << begin_column
            << ": [parse error] " << os.str() << "\n"
            << "\n";
@@ -70,8 +81,29 @@ class ParseErrorReport {
     std::string back_trace;
     std::string file_name;
     Token current;
+    std::source_location call_site;
     std::ostringstream os;
 };
+
+ir::Arm::Comparator token_to_comparator(Token::Type type) {
+    switch (type) {
+    case Token::Type::LEQ:
+        return ir::Arm::Comparator::LE;
+    case Token::Type::GEQ:
+        return ir::Arm::Comparator::GE;
+    case Token::Type::GT:
+        return ir::Arm::Comparator::GT;
+    case Token::Type::LT:
+        return ir::Arm::Comparator::LT;
+    case Token::Type::EQ:
+        return ir::Arm::Comparator::EQ;
+    case Token::Type::NEQ:
+        return ir::Arm::Comparator::NE;
+    default:
+        internal_error << "unexpected token: "
+                       << Token::token_type_string(type);
+    }
+}
 
 /*
 program := program_element*
@@ -183,10 +215,17 @@ struct Parser {
 
     // Reports the error with relevant token location information. This will
     // always point at the last consumed token.
-    inline ParseErrorReport report_error() const {
-        return ParseErrorReport{back_trace(), file_name(),
-                                tokens().current_token()};
+    inline ParseErrorReport
+    report_error_impl(std::source_location location) const {
+        return ParseErrorReport{
+            back_trace(),
+            file_name(),
+            tokens().current_token(),
+            location,
+        };
     }
+// Required to lazily capture the call site.
+#define report_error() report_error_impl(std::source_location::current())
 
     ir::Type get_type_from_frame(const std::string &name) const {
         std::optional<FunctionVariable> variable_type =
@@ -1155,21 +1194,43 @@ struct Parser {
     ir::Expr parse_fields_expr() {
         ir::Expr base = parse_base_expr();
 
-        while (true) {
+        for (;;) {
             if (consume(Token::Type::PERIOD)) {
                 // Field access.
                 std::string field = get_id();
                 base = ir::Access::make(std::move(field), std::move(base));
-            } else if (consume(Token::Type::LBRACKET)) {
-                // Can have multiple indexes in one `[` `]`
-                std::vector<ir::Expr> idxs =
-                    parse_expr_list_until(Token::Type::RBRACKET);
-                for (auto &idx : idxs) {
-                    base = ir::Extract::make(std::move(base), std::move(idx));
-                }
-            } else {
-                break;
+                continue;
             }
+            if (consume(Token::Type::LBRACKET)) {
+                // TODO(cgyurgyik): just use [i]* syntax. I probably broke
+                // something here. Can have multiple indexes in one `[` `]`
+                std::vector<ir::Expr> indexes = parse_expr_list_until(
+                    /*token=*/Token::Type::RBRACKET,
+                    /*separator=*/Token::Type::COL);
+                internal_assert(!indexes.empty());
+                switch (indexes.size()) {
+                case 1:
+                    base = ir::Extract::make(std::move(base),
+                                             std::move(indexes[0]));
+                    continue;
+                case 2:
+                    base = ir::Slice::make(base,
+                                           /*begin=*/std::move(indexes[0]),
+                                           /*end=*/std::move(indexes[1]));
+                    continue;
+                case 3:
+                    base = ir::Slice::make(base,
+                                           /*begin=*/std::move(indexes[0]),
+                                           /*end=*/std::move(indexes[1]),
+                                           /*step=*/std::move(indexes[2]));
+                    continue;
+                default:
+                    internal_error
+                        << "unexpected number of indices in a slice: "
+                        << indexes.size();
+                }
+            }
+            break;
         }
         return base;
     }
@@ -1648,7 +1709,9 @@ struct Parser {
         return ir::Call::make(std::move(f), std::move(args));
     }
 
-    std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {
+    std::vector<ir::Expr>
+    parse_expr_list_until(const Token::Type &token,
+                          Token::Type separator = Token::Type::COMMA) {
         std::vector<ir::Expr> exprs;
         if (consume(token)) {
             return exprs;
@@ -1656,7 +1719,7 @@ struct Parser {
         do {
             ir::Expr expr = parse_expr();
             exprs.emplace_back(std::move(expr));
-        } while (consume(Token::Type::COMMA));
+        } while (consume(separator));
         expect(token);
         return exprs;
     }
@@ -1672,6 +1735,27 @@ struct Parser {
         } while (consume(Token::Type::COMMA));
         expect(token);
         return types;
+    }
+
+    std::vector<ir::TypedVar> parse_layout_args() {
+        std::vector<ir::TypedVar> args;
+        expect(Token::Type::LPAREN);
+        do {
+            auto def = parse_name_def<false, true>(false);
+            internal_assert(!def.value.defined())
+                << "Lambdas cannot have default function values! " << def.name
+                << " assigned default: " << def.value;
+            internal_assert(!def.mut)
+                << "TODO: support mutable arguments in lambdas. Argument: "
+                << def.name << " marked as mutable.";
+            args.push_back({std::move(def.name), std::move(def.type)});
+        } while (consume(Token::Type::COMMA));
+        expect(Token::Type::RPAREN);
+
+        for (const ir::TypedVar &arg : args) {
+            add_type_to_frame(arg.name, arg.type, /*mutable=*/false);
+        }
+        return args;
     }
 
     std::vector<ir::TypedVar> parse_lambda_args() {
@@ -1938,15 +2022,15 @@ struct Parser {
 
         ir::Schedule schedule;
 
-        ir::TypeMap trees;
+        ir::TypeMap trees, declaration_to_tree_type;
         do {
             switch (peek().type) {
             case Token::Type::TREE: {
                 ir::Type tree = parse_tree();
-                internal_assert(tree.is<ir::BVH_t>());
-                internal_assert(!trees.contains(tree.as<ir::BVH_t>()->name));
-                // Would std::move() but I think rhs is evaluated before lhs.
-                trees[tree.as<ir::BVH_t>()->name] = tree;
+                const auto *bvh_t = tree.as<ir::BVH_t>();
+                internal_assert(bvh_t);
+                internal_assert(!trees.contains(bvh_t->name));
+                trees[bvh_t->name] = tree;
                 break;
             }
             case Token::Type::IDENTIFIER: {
@@ -1959,50 +2043,60 @@ struct Parser {
                 }
 
                 // Otherwise, must be tree label on set extern.
-                const auto extern_iter = std::find_if(
+                const auto extern_it = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
                     [&name](const auto &p) { return p.name == name; });
-                if (extern_iter != program.externs.cend()) {
-                    // name : tree_type;
-                    if (!extern_iter->type.is<ir::Set_t>()) {
-                        report_error() << "Extern: " << name
-                                       << " is not a set, cannot be "
-                                          "type-reassigned in a schedule.";
-                    }
-
-                    expect(Token::Type::COL);
-                    const std::string tree_name = get_id();
-                    expect(Token::Type::SEMICOL);
-
-                    const auto tree_iter = trees.find(tree_name);
-
-                    if (tree_iter == trees.cend()) {
-                        report_error() << "Assigning extern: " << name
-                                       << " to non-tree type: " << tree_name;
-                    }
-
-                    // TODO: assert Set[Primitive] matches Tree type!
-                    schedule.tree_types[name] = tree_iter->second;
-                } else {
+                if (extern_it == program.externs.cend()) {
                     // TODO: support func schedule parsing.
                     report_error()
                         << "Schedule name: " << name << " is not an extern.";
                 }
+                // name : tree_type;
+                if (!extern_it->type.is<ir::Set_t>()) {
+                    report_error() << "Extern: " << name
+                                   << " is not a set, cannot be "
+                                      "type-reassigned in a schedule.";
+                }
+
+                expect(Token::Type::COL);
+                const std::string tree_type = get_id();
+                expect(Token::Type::SEMICOL);
+
+                auto it = trees.find(tree_type);
+                if (it == trees.cend()) {
+                    report_error() << "Assigning extern: " << name
+                                   << " to non-tree type: " << tree_type;
+                }
+                // TODO: assert Set[Primitive] matches Tree type!
+                schedule.tree_types[name] = it->second;
+                const auto [_, inserted] =
+                    declaration_to_tree_type.emplace(name, it->second);
+                if (!inserted)
+                    report_error()
+                        << "declaration: " << name
+                        << "already exists, with type: " << tree_type;
+
                 break;
             }
             case Token::Type::LAYOUT: {
                 expect(Token::Type::LAYOUT);
                 std::string name = get_id();
-                const auto extern_iter = std::find_if(
-                    program.externs.cbegin(), program.externs.cend(),
-                    [&name](const auto &p) { return p.name == name; });
-
-                if (extern_iter == program.externs.cend()) {
-                    report_error()
-                        << "Layout name: " << name << " is not an extern.";
+                {
+                    const auto it = std::find_if(
+                        program.externs.cbegin(), program.externs.cend(),
+                        [&name](const auto &p) { return p.name == name; });
+                    if (it == program.externs.cend()) {
+                        report_error()
+                            << "Layout name: " << name << " is not an extern.";
+                    }
                 }
+                auto it = declaration_to_tree_type.find(name);
+                if (it == declaration_to_tree_type.end()) {
+                    report_error() << "Layout name: " << name
+                                   << " is not associated with an ADT.";
+                }
+                ir::Layout layout = parse_top_level_layout(name, it->second);
 
-                ir::Layout layout = parse_top_level_layout();
                 const auto [_, inserted] =
                     schedule.tree_layouts.emplace(name, std::move(layout));
                 if (!inserted) {
@@ -2117,8 +2211,8 @@ struct Parser {
                     expect(Token::Type::FALSE);
                 }
                 schedule.func_transforms[func].emplace_back(
-                    ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), generate_tail});
+                    ir::LoopSplit{std::move(i), std::move(io), std::move(ii),
+                                  std::move(factor), generate_tail});
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;
@@ -2242,71 +2336,125 @@ struct Parser {
         return args;
     }
 
-    // Wrapper that adds built-ins into scope and then calls parse_layout()
-    ir::Layout parse_top_level_layout() {
+    // Wrapper that adds built-ins into scope and then calls
+    // parse_member()
+    ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
         push_frame();
 
-        // TODO: support other non-u32 indexing.
-        ir::Layout layout = parse_layout();
+        std::vector<ir::TypedVar> root = parse_layout_args();
+        ir::Member member = parse_member();
         expect(Token::Type::SEMICOL);
 
         pop_frame();
-        return layout;
+
+        return ir::Layout{
+            .name = std::move(name),
+            .type = std::move(type),
+            .root = std::move(root),
+            .body = std::move(member),
+        };
     }
 
-    ir::Layout parse_layout() {
+    ir::Arm parse_arm() {
+        std::optional<int64_t> value;
+        ir::Arm::Comparator comparator = ir::Arm::Comparator::EQ;
+        switch (peek().type) {
+        case Token::Type::LT:
+        case Token::Type::GT:
+        case Token::Type::GEQ:
+        case Token::Type::LEQ:
+        case Token::Type::NEQ: {
+            comparator = token_to_comparator(consume().type);
+            [[fallthrough]];
+        }
+        case Token::Type::INT_LITERAL: {
+            value = parse_int_literal();
+            break;
+        }
+        case Token::Type::IDENTIFIER: {
+            if (const std::string id = get_id(); id != "_") {
+                report_error() << "Unknown switch parameter id: " << id;
+            }
+            break;
+        }
+        default: {
+            report_error() << "Unknown switch parameter." << peek();
+        }
+        }
+        expect(Token::Type::RARROW);
+        std::optional<std::string> node_name;
+        if (peek().type == Token::Type::IDENTIFIER &&
+            peek(1).type == Token::Type::LSQUIGGLE) {
+            // named split.
+            node_name = get_id();
+        }
+        ir::Member body = parse_member();
+        expect(Token::Type::SEMICOL);
+        return ir::Arm{
+            .comparator = comparator,
+            .value = value,
+            .name = std::move(node_name),
+            .member = std::move(body),
+        };
+    }
+
+    ir::Member parse_member() {
         // Default.
-        static ir::Expr count = ir::Var::make(u32, "count");
+        ir::Group::Type group_type = ir::Group::Type::Direct;
         switch (peek().type) {
         case Token::Type::LSQUIGGLE: {
             consume();
-            std::vector<ir::Layout> layouts;
+            std::vector<ir::Member> members;
             push_frame();
             do {
-                layouts.emplace_back(parse_layout());
+                members.emplace_back(parse_member());
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
             pop_frame();
-            return ir::Chain::make(std::move(layouts));
+            return ir::Chain::make(std::move(members));
+        }
+        case Token::Type::INDIRECT: {
+            group_type = ir::Group::Type::Indirect;
+            consume();
+            [[fallthrough]];
         }
         case Token::Type::GROUP: {
+            // group <name>[<size>] by <index> { <layout> }
             consume();
+            std::string name;
+            if (peek().type == Token::Type::IDENTIFIER) {
+                name = get_id();
+            }
             ir::Expr size;
             if (consume(Token::Type::LBRACKET)) {
                 size = parse_expr();
                 expect(Token::Type::RBRACKET);
             }
-            std::string name;
-            ir::Type index_t;
-            if (peek().type == Token::Type::IDENTIFIER) {
-                name = get_id();
-                expect(Token::Type::COL);
-                index_t = parse_type();
-                if (!index_t.is_int_or_uint()) {
-                    report_error()
-                        << "Group index type must be integer: " << name
-                        << " is labelled " << index_t;
-                }
-                add_type_to_frame(name, index_t, /* mutable=*/false);
+
+            ir::Expr index;
+            switch (group_type) {
+            case ir::Group::Type::Direct: {
+                expect(Token::Type::BY);
+                std::string index_name = get_id();
+                index =
+                    ir::Var::make(get_type_from_frame(index_name), index_name);
+                break;
             }
-            ir::Layout inner = parse_layout();
-            if (!size.defined()) {
-                ir::Expr isize = inner.count();
-                if (!isize.defined() || !is_const(isize)) {
-                    report_error() << "Cannot infer size of doubly-nested "
-                                      "dynamic-sized layout groups";
-                }
-                size = (count + (isize - make_one(isize.type()))) / isize;
+            case ir::Group::Type::Indirect:
+                break;
             }
-            return ir::Group::make(std::move(size), std::move(name),
-                                   std::move(index_t), std::move(inner));
+
+            ir::Member body = parse_member();
+            return ir::Group::make(std::move(name), std::move(size),
+                                   std::move(index), std::move(body),
+                                   group_type);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();
             if (consume(Token::Type::COL)) {
                 ir::Type type = parse_type();
                 if (!type.is_primitive()) {
-                    report_error() << "Layout received name: " << name
+                    report_error() << "Layout member received name: " << name
                                    << " with non-primitive type: " << type;
                 }
                 add_type_to_frame(name, type, /* mutable=*/false);
@@ -2329,53 +2477,18 @@ struct Parser {
             const int64_t value = parse_int_literal();
             return ir::Pad::make(value);
         }
-        case Token::Type::SWITCH: {
+        case Token::Type::SPLIT: {
             consume();
             std::string name = get_id();
             expect(Token::Type::LSQUIGGLE);
 
-            std::vector<ir::Switch::Arm> arms;
+            std::vector<ir::Arm> arms;
             do {
-                std::optional<int64_t> value;
-                switch (peek().type) {
-                case Token::Type::INT_LITERAL: {
-                    value = parse_int_literal();
-                    break;
-                }
-                case Token::Type::IDENTIFIER: {
-                    const std::string id = get_id();
-                    if (id != "_") {
-                        report_error() << "Unknown switch parameter id: " << id;
-                    }
-                    break;
-                }
-                default: {
-                    // internal_error << "Unknown switch parameter." <<
-                    // tokens();
-                    report_error() << "Unknown switch parameter." << peek();
-                }
-                }
-                if (std::any_of(arms.begin(), arms.end(), [&](const auto &arm) {
-                        return arm.value == value;
-                    })) {
-                    report_error()
-                        << "Duplicate switch parameter: "
-                        << (value.has_value() ? std::to_string(*value) : "_");
-                }
-                expect(Token::Type::ASSIGN);
-                expect(Token::Type::GT);
-                std::optional<std::string> node_name;
-                if (peek().type == Token::Type::IDENTIFIER &&
-                    peek(1).type == Token::Type::LSQUIGGLE) {
-                    // named split.
-                    node_name = get_id();
-                }
-                ir::Layout inner = parse_layout();
-                expect(Token::Type::SEMICOL);
-                arms.push_back(
-                    {std::move(value), std::move(node_name), std::move(inner)});
+                arms.push_back(parse_arm());
             } while (!consume(Token::Type::RSQUIGGLE));
-            return ir::Switch::make(std::move(name), std::move(arms));
+            return ir::Split::make(
+                ir::Field::make(name, get_type_from_frame(name)),
+                std::move(arms));
         }
         default: {
             internal_error << "TODO: " << tokens();

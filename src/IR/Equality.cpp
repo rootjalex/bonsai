@@ -495,6 +495,23 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_exprs(v0->idx, v1->idx);
     }
+    case IRExprEnum::Slice: {
+        const Slice *v0 = e0.as<Slice>();
+        const Slice *v1 = e1.as<Slice>();
+        if (const Cmp base = compare_exprs(v0->value, v1->value);
+            base != Cmp::Equals) {
+            return base;
+        }
+        if (const Cmp base = compare_exprs(v0->begin, v1->begin);
+            base != Cmp::Equals) {
+            return base;
+        }
+        if (const Cmp base = compare_exprs(v0->end, v1->end);
+            base != Cmp::Equals) {
+            return base;
+        }
+        return compare_exprs(v0->step, v1->step);
+    }
     case IRExprEnum::Build: {
         const Build *v0 = e0.as<Build>();
         const Build *v1 = e1.as<Build>();
@@ -612,7 +629,7 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     }
 }
 
-Cmp compare_layouts(const Layout &l0, const Layout &l1) {
+Cmp compare_members(const Member &l0, const Member &l1) {
     if (std::optional<Cmp> nodes_cmp = compare_node_types(l0, l1)) {
         return *nodes_cmp;
     }
@@ -632,10 +649,10 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
         const Pad *p1 = l1.as<Pad>();
         return compare_primitives(p0->bits, p1->bits);
     }
-    case IRLayoutEnum::Switch: {
-        const Switch *s0 = l0.as<Switch>();
-        const Switch *s1 = l1.as<Switch>();
-        if (Cmp cmp = compare_primitives(s0->field, s1->field);
+    case IRLayoutEnum::Split: {
+        const Split *s0 = l0.as<Split>();
+        const Split *s1 = l1.as<Split>();
+        if (Cmp cmp = compare_members(s0->field, s1->field);
             cmp != Cmp::Equals) {
             return cmp;
         }
@@ -654,7 +671,7 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
                 cmp != Cmp::Equals) {
                 return cmp;
             }
-            if (Cmp cmp = compare_layouts(a0.layout, a1.layout);
+            if (Cmp cmp = compare_members(a0.member, a1.member);
                 cmp != Cmp::Equals) {
                 return cmp;
             }
@@ -665,12 +682,12 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
         const Chain *c0 = l0.as<Chain>();
         const Chain *c1 = l1.as<Chain>();
         if (Cmp cmp =
-                compare_primitives(c0->layouts.size(), c1->layouts.size());
+                compare_primitives(c0->members.size(), c1->members.size());
             cmp != Cmp::Equals) {
             return cmp;
         }
-        for (size_t i = 0; i < c0->layouts.size(); ++i) {
-            if (Cmp cmp = compare_layouts(c0->layouts[i], c1->layouts[i]);
+        for (size_t i = 0; i < c0->members.size(); ++i) {
+            if (Cmp cmp = compare_members(c0->members[i], c1->members[i]);
                 cmp != Cmp::Equals) {
                 return cmp;
             }
@@ -687,11 +704,10 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
             cmp != Cmp::Equals) {
             return cmp;
         }
-        if (Cmp cmp = compare_types(g0->index_t, g1->index_t);
-            cmp != Cmp::Equals) {
+        if (Cmp cmp = compare_exprs(g0->index, g1->index); cmp != Cmp::Equals) {
             return cmp;
         }
-        return compare_layouts(g0->inner, g1->inner);
+        return compare_members(g0->inner, g1->inner);
     }
     case IRLayoutEnum::Materialize: {
         const Materialize *m0 = l0.as<Materialize>();
@@ -723,12 +739,12 @@ bool ExprLessThan::operator()(const Expr &e0, const Expr &e1) const {
     return compare_exprs(e0, e1) == Cmp::Less;
 }
 
-bool equals(const Layout &l0, const Layout &l1) {
-    return compare_layouts(l0, l1) == Cmp::Equals;
+bool equals(const Member &l0, const Member &l1) {
+    return compare_members(l0, l1) == Cmp::Equals;
 }
 
-bool LayoutLessThan::operator()(const Layout &l0, const Layout &l1) const {
-    return compare_layouts(l0, l1) == Cmp::Less;
+bool MemberLessThan::operator()(const Member &l0, const Member &l1) const {
+    return compare_members(l0, l1) == Cmp::Less;
 }
 
 bool WriteLocLessThan::operator()(const WriteLoc &w0,

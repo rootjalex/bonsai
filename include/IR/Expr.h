@@ -29,6 +29,7 @@ enum class IRExprEnum {
     UnOp,
     Select,
     Cast,
+    Slice,
     // Vector ops
     Broadcast,
     VectorReduce,
@@ -289,6 +290,15 @@ struct Extract : ExprNode<Extract> {
     static Expr make(Expr vec, Expr idx);
 
     static const IRExprEnum node_type = IRExprEnum::Extract;
+};
+
+struct Slice : ExprNode<Slice> {
+    Expr value;
+    Expr begin, end, step;
+
+    static Expr make(Expr vec, Expr begin, Expr end, Expr step = Expr(1));
+
+    static const IRExprEnum node_type = IRExprEnum::Slice;
 };
 
 // Construct a value of a Type (e.g. Vector_t or Struct_t)

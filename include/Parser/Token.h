@@ -38,12 +38,14 @@ class Token {
         RETURN, // return
         PRINT,  // print
 
-        // Data structure specification related keywords
-        TREE,   // tree
-        WITH,   // with
-        LAYOUT, // layout
-        GROUP,  // group
-        SWITCH, // switch
+        // Layout specification keywords
+        TREE,     // tree
+        WITH,     // with
+        BY,       // by
+        LAYOUT,   // layout
+        INDIRECT, // indirect
+        GROUP,    // group
+        SPLIT,    // split
 
         // WHILE, // while
         FOR,   // for

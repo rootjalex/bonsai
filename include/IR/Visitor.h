@@ -49,6 +49,7 @@ struct Visitor {
     virtual void visit(const VectorShuffle *);
     virtual void visit(const Ramp *);
     virtual void visit(const Extract *);
+    virtual void visit(const Slice *);
     virtual void visit(const Build *);
     virtual void visit(const Access *);
     virtual void visit(const Unwrap *);
@@ -89,7 +90,7 @@ struct Visitor {
     // Layouts
     virtual void visit(const Field *);
     virtual void visit(const Pad *);
-    virtual void visit(const Switch *);
+    virtual void visit(const Split *);
     virtual void visit(const Chain *);
     virtual void visit(const Group *);
     virtual void visit(const Materialize *);

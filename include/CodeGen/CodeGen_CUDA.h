@@ -69,6 +69,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Intrinsic *) override;
     void visit(const ir::Access *) override;
     void visit(const ir::Extract *) override;
+    RESTRICT_VISITOR(ir::Slice); // TODO: support
     RESTRICT_VISITOR(ir::Unwrap);
     RESTRICT_VISITOR(ir::Generator);
     RESTRICT_VISITOR(ir::Lambda);

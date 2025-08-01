@@ -51,6 +51,7 @@ struct VectorReduce;
 struct VectorShuffle;
 struct Ramp;
 struct Extract;
+struct Slice;
 struct Build;
 struct Access;
 struct Unwrap;
@@ -96,7 +97,7 @@ struct Append;
 // Layouts
 struct Field;
 struct Pad;
-struct Switch;
+struct Split;
 struct Chain;
 struct Group;
 struct Materialize;

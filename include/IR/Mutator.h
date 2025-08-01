@@ -58,6 +58,7 @@ struct Mutator {
     virtual Expr visit(const VectorShuffle *);
     virtual Expr visit(const Ramp *);
     virtual Expr visit(const Extract *);
+    virtual Expr visit(const Slice *);
     virtual Expr visit(const Build *);
     virtual Expr visit(const Access *);
     virtual Expr visit(const Unwrap *);

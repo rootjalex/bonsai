@@ -150,6 +150,13 @@ void Visitor::visit(const Extract *node) {
     node->idx.accept(this);
 }
 
+void Visitor::visit(const Slice *node) {
+    node->value.accept(this);
+    node->begin.accept(this);
+    node->end.accept(this);
+    node->step.accept(this);
+}
+
 void Visitor::visit(const Build *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const Access *node) { node->value.accept(this); }
@@ -295,13 +302,13 @@ void Visitor::visit(const Field *node) {}
 
 void Visitor::visit(const Pad *node) {}
 
-void Visitor::visit(const Switch *node) {
-    for (const auto &[_, __, layout] : node->arms) {
-        layout.accept(this);
+void Visitor::visit(const Split *node) {
+    for (const auto &[_, __, ___, member] : node->arms) {
+        member.accept(this);
     }
 }
 
-void Visitor::visit(const Chain *node) { visit_list(this, node->layouts); }
+void Visitor::visit(const Chain *node) { visit_list(this, node->members); }
 
 void Visitor::visit(const Group *node) { node->inner.accept(this); }
 

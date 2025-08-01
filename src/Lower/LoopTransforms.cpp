@@ -640,7 +640,7 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // no-op, should have been handled in
                                       // Lower/Sorts.cpp
                                   },
-                                  [&](const Split &split) {
+                                  [&](const LoopSplit &split) {
                                       std::string i = get_name(split.i);
                                       std::string io = get_name(split.io);
                                       std::string ii = get_name(split.ii);

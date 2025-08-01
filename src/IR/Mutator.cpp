@@ -341,6 +341,19 @@ Expr Mutator::visit(const Extract *node) {
     return Extract::make(std::move(vec), std::move(idx));
 }
 
+Expr Mutator::visit(const Slice *node) {
+    Expr value = mutate(node->value);
+    Expr begin = mutate(node->begin);
+    Expr end = mutate(node->end);
+    Expr step = mutate(node->step);
+    if (value.same_as(node->value) && begin.same_as(node->begin) &&
+        end.same_as(node->end) && step.same_as(node->step)) {
+        return node;
+    }
+    return Slice::make(std::move(value), std::move(begin), std::move(end),
+                       std::move(step));
+}
+
 Expr Mutator::visit(const Build *node) {
     auto [values, not_changed] = visit_list(this, node->values);
     if (not_changed) {
