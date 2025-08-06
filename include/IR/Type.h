@@ -83,6 +83,8 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_iterable() const;
     bool is_func() const;
 
+    Expr size() const;
+
     // Type casts
     // Rewrites (through vectors) to boolean base.
     Type to_bool() const;
@@ -295,9 +297,15 @@ struct BVH_t : TypeNode<BVH_t> {
     struct Volume {
         Type struct_type;
         std::vector<std::string> initializers;
+
+        enum class BoundType {
+            Enclosing, // One bounding volume enclosing all children.
+            Childwise  // Separate bounding volumes for each child.
+        };
+        BoundType bound_type;
     };
-    // A Node is a Struct_t of typed fields with an optional bounding volume.
-    struct Node {
+    // A variant is a Struct_t of typed fields with an optional bounding volume.
+    struct Variant {
         Type struct_type;
         std::optional<Volume> volume;
 
@@ -313,20 +321,20 @@ struct BVH_t : TypeNode<BVH_t> {
     ir::Type primitive;
     std::string name;
     // TODO: do we ever want a root Volume or root Params?
-    // Params every Node has.
+    // Params every Variant has.
     // std::vector<Param> params;
     // All possible node types.
-    std::vector<Node> nodes;
-    // BV for every node, unless specified in the Node type.
+    std::vector<Variant> variants;
+    // BV for every node, unless specified in the Variant type.
     // std::optional<Volume> volume;
 
     // Each node should have a volume set, or are un-optimized.
     static Type make(ir::Type primitive, std::string name,
-                     std::vector<Node> nodes);
+                     std::vector<Variant> variants);
     // All nodes share the same volume type unless otherwise specified.
     static Type make(ir::Type primitive, std::string name,
                      const std::vector<TypedVar> &globals,
-                     std::vector<Node> nodes, Volume volume);
+                     std::vector<Variant> variants, Volume volume);
 
     static const IRTypeEnum node_type = IRTypeEnum::BVH_t;
 };

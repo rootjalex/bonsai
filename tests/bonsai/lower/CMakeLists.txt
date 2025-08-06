@@ -14,6 +14,8 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    layout-embree-hair.bonsai
+    layout-pbrt.bonsai
     logical-operation.bonsai
     map-func.bonsai
     multiple-options.bonsai
@@ -30,7 +32,6 @@ add_bonsai_tests(
     struct_defaults.bonsai
     trace_aosoa.bonsai
     trace.bonsai
-    trace-layout.bonsai
     trees.bonsai
     type_coercion_primitive.bonsai
     unswitch.bonsai

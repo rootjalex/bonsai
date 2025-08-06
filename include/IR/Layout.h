@@ -23,6 +23,7 @@ enum class IRLayoutEnum {
     Chain,
     Group,
     Materialize,
+    Lookup,
 };
 
 using IRLayoutMember = IRNode<Member, IRLayoutEnum>;
@@ -109,10 +110,10 @@ struct Arm {
 
 // split from https://dl.acm.org/doi/pdf/10.1145/3607858
 struct Split : LayoutMember<Split> {
-    Member field; // split parameter
+    Expr expr; // split parameter
     std::vector<Arm> arms;
 
-    static Member make(Member field, std::vector<Arm> arms);
+    static Member make(Expr expr, std::vector<Arm> arms);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Split;
 
@@ -150,6 +151,15 @@ struct Materialize : LayoutMember<Materialize> {
     static Member make(std::string name, Expr value);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Materialize;
+};
+
+struct Lookup : LayoutMember<Lookup> {
+    std::string group_name;
+    Expr index;
+
+    static Member make(std::string group_name, Expr index);
+
+    static const IRLayoutEnum node_type = IRLayoutEnum::Lookup;
 };
 
 using LayoutMap = std::map<std::string, Layout>;

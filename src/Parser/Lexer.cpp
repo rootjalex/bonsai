@@ -127,6 +127,10 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::WITH;
     if (token == "by")
         return Token::Type::BY;
+    if (token == "on")
+        return Token::Type::ON;
+    if (token == "from")
+        return Token::Type::FROM;
     if (token == "layout")
         return Token::Type::LAYOUT;
     if (token == "group")

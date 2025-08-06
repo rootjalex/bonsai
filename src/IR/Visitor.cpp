@@ -81,7 +81,7 @@ void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
 void Visitor::visit(const BVH_t *node) {
     node->primitive.accept(this);
     // Recursively visit Volume types and Param types.
-    for (const auto &subnode : node->nodes) {
+    for (const auto &subnode : node->variants) {
         subnode.struct_type.accept(this);
         if (subnode.volume.has_value()) {
             subnode.volume->struct_type.accept(this);
@@ -303,7 +303,7 @@ void Visitor::visit(const Field *node) {}
 void Visitor::visit(const Pad *node) {}
 
 void Visitor::visit(const Split *node) {
-    for (const auto &[_, __, ___, member] : node->arms) {
+    for (const auto &[x, y, z, member] : node->arms) {
         member.accept(this);
     }
 }
@@ -312,7 +312,9 @@ void Visitor::visit(const Chain *node) { visit_list(this, node->members); }
 
 void Visitor::visit(const Group *node) { node->inner.accept(this); }
 
+// TODO(cgyurgyik): This should visit the Bonsai expression members...?
 void Visitor::visit(const Materialize *node) {}
+void Visitor::visit(const Lookup *node) {}
 
 } // namespace ir
 } // namespace bonsai

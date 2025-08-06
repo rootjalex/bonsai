@@ -381,7 +381,8 @@ size_t find_struct_index(const std::string &field,
             return i;
         }
     }
-    internal_error << "find_struct_index did not find field " << field;
+    internal_error << "find_struct_index did not find field " << field
+                   << " in fields: " << fields;
 }
 
 uint32_t vector_field_lane(const std::string &field) {

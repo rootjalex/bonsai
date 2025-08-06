@@ -154,6 +154,7 @@ target_sources(
     include/CodeGen/JIT.h
     include/CompilerOptions.h
     include/Error.h
+    include/Log.h
     include/IR/Analysis.h
     include/IR/Equality.h
     include/IR/Expr.h

@@ -96,6 +96,7 @@ uint64_t Token::size() const {
     case Token::Type::SHIFT_RIGHT:
     case Token::Type::RARROW:
     case Token::Type::BY:
+    case Token::Type::ON:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
@@ -106,6 +107,7 @@ uint64_t Token::size() const {
     case Token::Type::FUNC:
     case Token::Type::TREE:
     case Token::Type::WITH:
+    case Token::Type::FROM:
         return 4;
     case Token::Type::GROUP:
     case Token::Type::PRINT:

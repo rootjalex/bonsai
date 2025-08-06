@@ -61,10 +61,9 @@ IndexTList get_index_type(const ir::Member &member) {
                 break;
             }
             case ir::IRLayoutEnum::Field:
-                break;
             case ir::IRLayoutEnum::Pad:
-                break;
             case ir::IRLayoutEnum::Materialize:
+            case ir::IRLayoutEnum::Lookup:
                 break;
             case ir::IRLayoutEnum::Chain: {
                 internal_error << "[unimplemented] nested chains: " << member;

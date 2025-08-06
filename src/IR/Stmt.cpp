@@ -201,13 +201,15 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     const BVH_t *bvh = loc.type().as<BVH_t>();
     internal_assert(bvh) << "Match is only implemented for BVH_t, received: "
                          << loc;
-    internal_assert(bvh->nodes.size() == arms.size())
+    internal_assert(bvh->variants.size() == arms.size())
         << "Incorrect number of match arms for BVH type: " << loc.type()
-        << " with " << arms.size() << " arms.";
+        << " (requiring size: " << bvh->variants.size() << "), received "
+        << arms.size() << " arm(s):\n"
+        << arms;
     // Make sure all match arms exist.
-    const size_t n = bvh->nodes.size();
+    const size_t n = bvh->variants.size();
     for (size_t i = 0; i < n; i++) {
-        std::string_view name = bvh->nodes[i].name();
+        std::string_view name = bvh->variants[i].name();
         const bool found =
             arms.cend() !=
             std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) {

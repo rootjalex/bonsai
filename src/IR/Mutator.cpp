@@ -202,32 +202,33 @@ Type Mutator::visit(const BVH_t *node) {
         not_changed = false;
         return BVH_t::Volume{std::move(type), volume->initializers};
     };
-    const auto visit_node = [&](const BVH_t::Node &node) {
+    const auto visit_node = [&](const BVH_t::Variant &variant) {
         bool cache_changed = not_changed;
 
-        Type struct_type = mutate(node.struct_type);
-        not_changed = struct_type.same_as(node.struct_type);
+        Type struct_type = mutate(variant.struct_type);
+        not_changed = struct_type.same_as(variant.struct_type);
 
-        std::optional<BVH_t::Volume> volume = visit_volume(node.volume);
+        std::optional<BVH_t::Volume> volume = visit_volume(variant.volume);
 
         if (not_changed) {
             not_changed = cache_changed;
-            return node;
+            return variant;
         }
-        return BVH_t::Node{std::move(struct_type), std::move(volume)};
+        return BVH_t::Variant{std::move(struct_type), std::move(volume)};
     };
 
-    const size_t nnodes = node->nodes.size();
-    std::vector<BVH_t::Node> nodes(nnodes);
+    const size_t nvariants = node->variants.size();
+    std::vector<BVH_t::Variant> variants(nvariants);
 
-    for (size_t i = 0; i < nnodes; i++) {
-        nodes[i] = visit_node(node->nodes[i]);
+    for (size_t i = 0; i < nvariants; i++) {
+        variants[i] = visit_node(node->variants[i]);
     }
 
     if (not_changed) {
         return node;
     } else {
-        return BVH_t::make(std::move(primitive), node->name, std::move(nodes));
+        return BVH_t::make(std::move(primitive), node->name,
+                           std::move(variants));
     }
 }
 

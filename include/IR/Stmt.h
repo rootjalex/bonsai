@@ -225,7 +225,8 @@ struct RecLoop : StmtNode<RecLoop> {
 };
 
 struct Match : StmtNode<Match> {
-    using Arms = std::vector<std::pair<BVH_t::Node, Stmt>>;
+    // TODO(cgyurgyik): replace this with named fields...
+    using Arms = std::vector<std::pair<BVH_t::Variant, Stmt>>;
     Expr loc; // Of type BVH_t
     Arms arms;
 

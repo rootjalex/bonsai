@@ -291,14 +291,14 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             };
 
         // Compare node types.
-        if (b0->nodes.size() != b1->nodes.size()) {
-            return compare_primitives(b0->nodes.size(), b1->nodes.size());
+        if (b0->variants.size() != b1->variants.size()) {
+            return compare_primitives(b0->variants.size(), b1->variants.size());
         }
 
-        const size_t n = b0->nodes.size();
+        const size_t n = b0->variants.size();
         for (size_t i = 0; i < n; i++) {
-            const auto &node0 = b0->nodes[i];
-            const auto &node1 = b1->nodes[i];
+            const auto &node0 = b0->variants[i];
+            const auto &node1 = b1->variants[i];
             if (const Cmp rec =
                     compare_types(node0.struct_type, node1.struct_type);
                 rec != Cmp::Equals) {
@@ -652,8 +652,7 @@ Cmp compare_members(const Member &l0, const Member &l1) {
     case IRLayoutEnum::Split: {
         const Split *s0 = l0.as<Split>();
         const Split *s1 = l1.as<Split>();
-        if (Cmp cmp = compare_members(s0->field, s1->field);
-            cmp != Cmp::Equals) {
+        if (Cmp cmp = compare_exprs(s0->expr, s1->expr); cmp != Cmp::Equals) {
             return cmp;
         }
         if (Cmp cmp = compare_primitives(s0->arms.size(), s1->arms.size());
@@ -717,6 +716,15 @@ Cmp compare_members(const Member &l0, const Member &l1) {
             return cmp;
         }
         return compare_exprs(m0->value, m1->value);
+    }
+    case IRLayoutEnum::Lookup: {
+        const Lookup *m0 = l0.as<Lookup>();
+        const Lookup *m1 = l1.as<Lookup>();
+        if (Cmp cmp = compare_primitives(m0->group_name, m1->group_name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_exprs(m0->index, m1->index);
     }
     }
 }

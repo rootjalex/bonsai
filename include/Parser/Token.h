@@ -46,6 +46,8 @@ class Token {
         INDIRECT, // indirect
         GROUP,    // group
         SPLIT,    // split
+        ON,       // on
+        FROM,     // from
 
         // WHILE, // while
         FOR,   // for

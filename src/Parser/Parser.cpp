@@ -224,7 +224,7 @@ struct Parser {
             location,
         };
     }
-// Required to lazily capture the call site.
+// Required to lazily capture the call site of the error reporter.
 #define report_error() report_error_impl(std::source_location::current())
 
     ir::Type get_type_from_frame(const std::string &name) const {
@@ -313,15 +313,18 @@ struct Parser {
 
     // Consumes the next token in the stream if the expected type
     //  is met, and reports an error otherwise.
-    Token expect(Token::Type type) {
+    Token expect_impl(Token::Type type, std::source_location location) {
         if (std::optional<Token> token = consume(type)) {
             return *token;
         }
         Token current = consume();
-        report_error() << "expected: " << Token::token_type_string(type)
-                       << ", received: "
-                       << Token::token_type_string(current.type);
+        report_error_impl(location)
+            << "expected: " << Token::token_type_string(type)
+            << ", received: " << Token::token_type_string(current.type);
     }
+
+// Required to lazily capture the call site of the expect.
+#define expect(token) expect_impl(token, std::source_location::current())
 
     std::string get_id() {
         const Token token = expect(Token::Type::IDENTIFIER);
@@ -1204,6 +1207,9 @@ struct Parser {
             if (consume(Token::Type::LBRACKET)) {
                 // TODO(cgyurgyik): just use [i]* syntax. I probably broke
                 // something here. Can have multiple indexes in one `[` `]`
+                //
+                // TODO(cgyurgyik): This is incorrect for open/close-ended
+                // slices.
                 std::vector<ir::Expr> indexes = parse_expr_list_until(
                     /*token=*/Token::Type::RBRACKET,
                     /*separator=*/Token::Type::COL);
@@ -1323,9 +1329,7 @@ struct Parser {
             std::string str = std::get<std::string>(val.value);
             return ir::StringImm::make(std::move(str));
         }
-        Token token = consume();
-        report_error() << "unexpected token: "
-                       << Token::token_type_string(token);
+        report_error() << "unexpected token: " << peek();
     }
 
     template <typename OpType, typename Container>
@@ -1508,7 +1512,6 @@ struct Parser {
             auto args = parse_expr_list_until(Token::Type::RSQUIGGLE);
             return ir::Build::make(std::move(type), std::move(args));
         }
-
         ir::Type var_type = get_type_from_frame(name); // never undefined.
         ir::Expr expr = ir::Var::make(var_type, name);
         return expr;
@@ -1709,6 +1712,33 @@ struct Parser {
         return ir::Call::make(std::move(f), std::move(args));
     }
 
+    std::vector<ir::Expr> parse_slice() {
+        if (consume(Token::Type::RBRACKET)) {
+            return {};
+        }
+
+        std::vector<ir::Expr> indices;
+        if (peek().type != Token::Type::COL) {
+            indices.emplace_back(parse_expr());
+        } else {
+            indices.emplace_back(ir::Expr()); // empty expression
+        }
+
+        // Parse additional expressions separated by colons
+        while (consume(Token::Type::COL)) {
+            if (peek().type == Token::Type::COL ||
+                peek().type == Token::Type::RBRACKET) {
+                // Empty expression between colons or at end
+                indices.emplace_back(ir::Expr());
+            } else {
+                indices.emplace_back(parse_expr());
+            }
+        }
+
+        expect(Token::Type::RBRACKET);
+        return indices;
+    }
+
     std::vector<ir::Expr>
     parse_expr_list_until(const Token::Type &token,
                           Token::Type separator = Token::Type::COMMA) {
@@ -1717,8 +1747,7 @@ struct Parser {
             return exprs;
         }
         do {
-            ir::Expr expr = parse_expr();
-            exprs.emplace_back(std::move(expr));
+            exprs.emplace_back(parse_expr());
         } while (consume(separator));
         expect(token);
         return exprs;
@@ -2026,11 +2055,13 @@ struct Parser {
         do {
             switch (peek().type) {
             case Token::Type::TREE: {
-                ir::Type tree = parse_tree();
+                push_frame();
+                ir::Type tree = parse_adt();
                 const auto *bvh_t = tree.as<ir::BVH_t>();
                 internal_assert(bvh_t);
                 internal_assert(!trees.contains(bvh_t->name));
                 trees[bvh_t->name] = tree;
+                pop_frame();
                 break;
             }
             case Token::Type::IDENTIFIER: {
@@ -2071,11 +2102,11 @@ struct Parser {
                 schedule.tree_types[name] = it->second;
                 const auto [_, inserted] =
                     declaration_to_tree_type.emplace(name, it->second);
-                if (!inserted)
+                if (!inserted) {
                     report_error()
                         << "declaration: " << name
                         << "already exists, with type: " << tree_type;
-
+                }
                 break;
             }
             case Token::Type::LAYOUT: {
@@ -2222,62 +2253,73 @@ struct Parser {
         } while (!consume(Token::Type::SEMICOL));
     }
 
-    // tree := `tree` name = (`|` adt_node (`with` volume)?)+
-    ir::Type parse_tree() {
+    ir::Type parse_adt() {
+        // First, parse the signature.
         expect(Token::Type::TREE);
         expect(Token::Type::LBRACKET);
         expect(Token::Type::LBRACKET);
         ir::Type primitive = parse_type();
         expect(Token::Type::RBRACKET);
         expect(Token::Type::RBRACKET);
-        auto [name, params, volume] = parse_node();
 
+        std::string name = get_id();
         if (program.types.contains(name)) {
             report_error() << "Tree named: " << name
                            << " conflicts with existing type: "
                            << program.types[name];
         }
+        // The ADT signature may contain fields, which is syntactic sugar for
+        // each variant having these fields, e.g.,
+        // tree T(x: i32) =
+        // | T1(y: i32)
+        // | T2(y: i32)
+        //
+        // <=>
+        //
+        // tree T =
+        // | T1(x: i32, y: i32)
+        // | T2(x: i32, y: i32)
+        std::vector<ir::TypedVar> fields;
+        if (consume(Token::Type::LPAREN)) {
+            fields = parse_adt_variant_fields();
+            expect(Token::Type::RPAREN);
+        }
+        // Similarly, if each variant is bounded by the same ADT, it can be
+        // declared in the ADT signature.
+        std::optional<ir::BVH_t::Volume> volume;
+        if (consume(Token::Type::WITH)) {
+            volume = parse_adt_variant_volume();
+        }
 
-        if (volume.has_value() != !params.empty()) {
+        if (volume.has_value() != !fields.empty()) {
             report_error() << "Parsing of tree " << name
                            << " has incompatible volume and params";
         }
-
-        expect(Token::Type::ASSIGN);
-        expect(Token::Type::BAR);
-
         // Empty reference for now.
         program.types[name] = ir::Ref_t::make(name);
 
-        std::vector<ir::BVH_t::Node> nodes;
-
+        expect(Token::Type::ASSIGN);
+        std::vector<ir::BVH_t::Variant> variants;
         do {
-            auto [nname, nparams, nvolume] = parse_node();
+            auto [nname, nparams, nvolume] = parse_adt_variant();
             ir::Type struct_type =
                 ir::Struct_t::make(std::move(nname), std::move(nparams));
-            ir::BVH_t::Node node{std::move(struct_type), std::move(nvolume)};
-            nodes.emplace_back(std::move(node));
+            variants.emplace_back(ir::BVH_t::Variant{
+                .struct_type = std::move(struct_type),
+                .volume = std::move(nvolume),
+            });
         } while (consume(Token::Type::BAR));
 
         expect(Token::Type::SEMICOL);
-
-        // TODO: assert that all volumes only have initializers from
-        // parent.params or node.params BVH_t::make asserts this. we should
-        // catch that failure, and report a backtrace.
-        ir::Type type;
-        if (volume.has_value()) {
-            type = ir::BVH_t::make(std::move(primitive), std::move(name),
-                                   std::move(params), std::move(nodes),
-                                   std::move(*volume));
-        } else {
-            type = ir::BVH_t::make(std::move(primitive), std::move(name),
-                                   std::move(nodes));
-        }
-
-        return type;
+        return volume.has_value()
+                   ? ir::BVH_t::make(std::move(primitive), std::move(name),
+                                     std::move(fields), std::move(variants),
+                                     std::move(*volume))
+                   : ir::BVH_t::make(std::move(primitive), std::move(name),
+                                     std::move(variants));
     }
 
-    ir::BVH_t::Volume parse_volume() {
+    ir::BVH_t::Volume parse_adt_variant_volume() {
         std::string name = get_id();
 
         internal_assert(program.types.contains(name))
@@ -2294,29 +2336,54 @@ struct Parser {
 
         expect(Token::Type::RPAREN);
 
-        return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
+        std::optional<std::string> boundee;
+        if (consume(Token::Type::ON)) {
+            boundee = get_id();
+        }
+
+        return ir::BVH_t::Volume{
+            .struct_type = std::move(type),
+            .initializers = std::move(initializers),
+            .bound_type = boundee.has_value()
+                              ? ir::BVH_t::Volume::BoundType::Childwise
+                              : ir::BVH_t::Volume::BoundType::Enclosing,
+        };
     }
 
-    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>>
-    parse_node() {
+    struct AdtVariant {
+        // The name of the ADT variant type.
+        std::string name;
+
+        // The fields of the ADT variant.
+        ir::Struct_t::Map fields;
+
+        // an ADT variant may optionally specify its own bounding volume.
+        std::optional<ir::BVH_t::Volume> volume;
+    };
+
+    AdtVariant parse_adt_variant() {
         std::string name = get_id();
 
-        std::vector<ir::TypedVar> params;
+        std::vector<ir::TypedVar> fields;
         std::optional<ir::BVH_t::Volume> volume;
 
         if (consume(Token::Type::LPAREN)) {
-            params = parse_tree_params();
+            fields = parse_adt_variant_fields();
             expect(Token::Type::RPAREN);
         }
 
         if (consume(Token::Type::WITH)) {
-            volume = parse_volume();
+            volume = parse_adt_variant_volume();
         }
 
-        return {name, params, volume};
+        return AdtVariant{
+            .name = name,
+            .fields = fields,
+            .volume = volume,
+        };
     }
 
-    std::vector<ir::TypedVar> parse_tree_params() {
+    std::vector<ir::TypedVar> parse_adt_variant_fields() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
         // no mutability allowed.
@@ -2328,7 +2395,8 @@ struct Parser {
             } while (!consume(Token::Type::COL));
 
             ir::Type type = parse_type();
-
+            std::string name = names.back();
+            add_type_to_frame(name, type, /*mut=*/false);
             for (auto &name : names) {
                 args.push_back({std::move(name), type});
             }
@@ -2383,11 +2451,22 @@ struct Parser {
         }
         expect(Token::Type::RARROW);
         std::optional<std::string> node_name;
-        if (peek().type == Token::Type::IDENTIFIER &&
-            peek(1).type == Token::Type::LSQUIGGLE) {
-            // named split.
-            node_name = get_id();
+        node_name = get_id();
+
+        if (consume(Token::Type::FROM)) {
+            std::string group_name = get_id();
+            expect(Token::Type::LBRACKET);
+            ir::Expr index = parse_expr();
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::SEMICOL);
+            return ir::Arm{
+                .comparator = comparator,
+                .value = value,
+                .name = std::move(node_name),
+                .member = ir::Lookup::make(group_name, index),
+            };
         }
+
         ir::Member body = parse_member();
         expect(Token::Type::SEMICOL);
         return ir::Arm{
@@ -2478,17 +2557,15 @@ struct Parser {
             return ir::Pad::make(value);
         }
         case Token::Type::SPLIT: {
-            consume();
-            std::string name = get_id();
+            consume(Token::Type::SPLIT);
+            ir::Expr expr = parse_expr();
             expect(Token::Type::LSQUIGGLE);
 
             std::vector<ir::Arm> arms;
             do {
                 arms.push_back(parse_arm());
             } while (!consume(Token::Type::RSQUIGGLE));
-            return ir::Split::make(
-                ir::Field::make(name, get_type_from_frame(name)),
-                std::move(arms));
+            return ir::Split::make(expr, std::move(arms));
         }
         default: {
             internal_error << "TODO: " << tokens();

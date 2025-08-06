@@ -159,6 +159,8 @@ struct Var : ExprNode<Var> {
 
     static Expr make(Type t, const std::string &name);
 
+    static Expr from(const TypedVar &typed_variable);
+
     static const IRExprEnum node_type = IRExprEnum::Var;
 };
 
@@ -286,7 +288,7 @@ struct Ramp : ExprNode<Ramp> {
 struct Extract : ExprNode<Extract> {
     Expr vec, idx;
 
-    static Expr make(Expr vec, int idx);
+    static Expr make(Expr vec, int32_t idx);
     static Expr make(Expr vec, Expr idx);
 
     static const IRExprEnum node_type = IRExprEnum::Extract;

@@ -8,6 +8,7 @@
 #include "IR/Operators.h"
 
 #include "Error.h"
+#include "Log.h"
 #include "Utils.h"
 
 #include "Opt/Simplify.h"
@@ -29,22 +30,54 @@ static size_t counter = 0;
 
 std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
 
-// returns has_data, has_children
-std::pair<std::vector<ir::TypedVar>, std::vector<ir::TypedVar>>
-analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
-    std::vector<ir::TypedVar> data, children;
-    for (const auto &param : node.fields()) {
-        if (ir::equals(prim_t, param.type) ||
-            (param.type.is<ir::Array_t>() &&
-             ir::equals(prim_t, param.type.as<ir::Array_t>()->etype))) {
-            data.push_back(param);
-        } else if (param.type.is<ir::Ref_t>()) { // TODO: and is ref to
-                                                 // current tree type?
-            children.push_back(param);
+struct VariantData {
+    std::vector<ir::TypedVar> payload;
+
+    struct ChildAccess {
+        ir::TypedVar child;
+        std::optional<uint32_t> index = {};
+    };
+    std::vector<ChildAccess> children;
+};
+
+VariantData analyze_node(const ir::BVH_t::Variant &variant,
+                         const ir::Type &primitive_type) {
+    std::vector<ir::TypedVar> payload;
+    std::vector<VariantData::ChildAccess> children;
+    for (const auto &parameter : variant.fields()) {
+        ir::Type parameter_type = parameter.type;
+        if (ir::equals(parameter_type, primitive_type) ||
+            (parameter_type.is_iterable() &&
+             ir::equals(primitive_type, parameter_type.element_of()))) {
+            payload.push_back(parameter);
+            continue;
+        }
+        // TODO(cgyurgyik): need to verify this is actually a reference to the
+        // current tree type, not just a reference in general.
+        if (parameter_type.is<ir::Ref_t>()) {
+            children.emplace_back(VariantData::ChildAccess{.child = parameter});
+            continue;
+        }
+        if (parameter_type.is_iterable() &&
+            parameter_type.element_of().is<ir::Ref_t>()) {
+            //
+            std::optional<uint32_t> size =
+                get_constant_value(parameter_type.size());
+            internal_assert(size.has_value()) << parameter_type;
+            for (int i = 0, e = *size; i < e; ++i) {
+                children.push_back(VariantData::ChildAccess{
+                    .child = parameter,
+                    .index = i,
+                });
+            }
+            continue;
         }
     }
 
-    return {data, children};
+    return VariantData{
+        .payload = payload,
+        .children = children,
+    };
 }
 
 struct RewriteYields : public ir::Mutator {
@@ -83,7 +116,7 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 }
 
 struct Rewriter : public ir::Mutator {
-    // The list of volumes for the currently match arms.
+    // The list of volumes for the current match arms.
     std::vector<ir::Expr> volumes;
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
@@ -93,28 +126,37 @@ struct Rewriter : public ir::Mutator {
         internal_assert(var) << "TODO: handle Match on non-Var";
         locs.push_back(node->loc);
 
-        const size_t n = node->arms.size();
-        ir::Match::Arms new_arms(n);
-        for (size_t i = 0; i < n; i++) {
+        ir::Match::Arms new_arms;
+        for (size_t i = 0, e = node->arms.size(); i < e; ++i) {
             ir::Expr tree = ir::Unwrap::make(i, node->loc);
-            if (node->arms[i].first.volume.has_value()) {
-                const size_t n_args =
-                    node->arms[i].first.volume->initializers.size();
-                std::vector<ir::Expr> args(n_args);
-                for (size_t j = 0; j < n_args; j++) {
-                    const auto &name =
-                        node->arms[i].first.volume->initializers[j];
-                    args[j] = ir::Access::make(name, tree);
+            auto [variant, statement] = node->arms[i];
+            if (std::optional<ir::BVH_t::Volume> volume = variant.volume;
+                volume.has_value()) {
+                const size_t n_args = variant.volume->initializers.size();
+                switch (volume->bound_type) {
+                case ir::BVH_t::Volume::BoundType::Enclosing: {
+                    std::vector<ir::Expr> args;
+                    args.reserve(n_args);
+                    for (size_t j = 0; j < n_args; ++j) {
+                        const std::string &name = volume->initializers[j];
+                        args.push_back(ir::Access::make(name, tree));
+                    }
+                    volumes.emplace_back(
+                        ir::Build::make(volume->struct_type, args));
+                    statement = mutate(statement);
+                    volumes.pop_back();
+                    new_arms.push_back({
+                        std::move(variant),
+                        std::move(statement),
+                    });
+                } break;
+                case ir::BVH_t::Volume::BoundType::Childwise: {
+                    break;
                 }
-                ir::Expr vol = ir::Build::make(
-                    node->arms[i].first.volume->struct_type, args);
-                volumes.emplace_back(std::move(vol));
+                }
             } else {
-                volumes.emplace_back(); // undef volume
+                volumes.emplace_back(); // undefined volume
             }
-            ir::Stmt stmt = mutate(node->arms[i].second);
-            volumes.pop_back();
-            new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
 
@@ -542,7 +584,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                          const IntervalMap &intervals) {
     // TODO: not necessarily always a Var, could be e.g. an Access.
-    if (auto as_var = expr.as<ir::Var>()) {
+    if (const auto *as_var = expr.as<ir::Var>()) {
         internal_assert(as_var->type.is<ir::Set_t>())
             << "Cannot build traversal for non-set: " << expr;
         const auto &iter = tree_types.find(as_var->name);
@@ -554,41 +596,44 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
 
         ir::Expr bvh_expr = ir::Var::make(tree, as_var->name);
 
-        const size_t n_nodes = bvh->nodes.size();
+        const size_t n_nodes = bvh->variants.size();
         ir::Match::Arms arms(n_nodes);
         for (size_t i = 0; i < n_nodes; i++) {
             ir::Expr node = ir::Unwrap::make(i, bvh_expr);
-            const auto [data, children] =
-                analyze_node(bvh->nodes[i], as_var->type.element_of());
+            const auto [payload, children] =
+                analyze_node(bvh->variants[i], as_var->type.element_of());
 
-            std::vector<ir::Stmt> stmts(data.size() + !children.empty());
+            std::vector<ir::Stmt> statements;
             // TODO: visit order should be scheduable?
-            for (size_t i = 0; i < data.size(); i++) {
-                ir::Expr access = ir::Access::make(data[i].name, node);
-                if (data[i].type.is_iterable()) {
-                    // forall d in data: yield d
-                    stmts[i] = ir::Iterate::make(std::move(access));
-                } else {
-                    // yield d
-                    stmts[i] = ir::Yield::make(std::move(access));
-                }
+            for (size_t i = 0; i < payload.size(); i++) {
+                ir::Expr access = ir::Access::make(payload[i].name, node);
+                statements.push_back(payload[i].type.is_iterable()
+                                         // forall d in data: yield d
+                                         ? ir::Iterate::make(std::move(access))
+                                         // yield d
+                                         : ir::Yield::make(std::move(access)));
             }
             if (!children.empty()) {
-                std::vector<ir::Expr> cs;
-                cs.reserve(children.size());
-                for (const auto &c : children) {
-                    cs.push_back(ir::Access::make(c.name, node));
+                std::vector<ir::Expr> accesses;
+                accesses.reserve(children.size());
+                for (const auto &[child, index] : children) {
+                    ir::Expr access = ir::Access::make(child.name, node);
+                    if (index.has_value()) {
+                        access = ir::Extract::make(
+                            access,
+                            ir::UIntImm::make(ir::UInt_t::make(32), *index));
+                    }
+                    accesses.push_back(access);
                 }
-                stmts.back() = ir::Scan::make(make_tuple(cs));
+                statements.push_back(ir::Scan::make(make_tuple(accesses)));
             }
 
-            arms[i].first = bvh->nodes[i];
-            internal_assert(!stmts.empty());
-            if (stmts.size() == 1) {
-                // Special case.
-                arms[i].second = stmts[0];
+            arms[i].first = bvh->variants[i];
+            internal_assert(!statements.empty());
+            if (statements.size() == 1) {
+                arms[i].second = statements.front(); // Special case.
             } else {
-                arms[i].second = ir::Sequence::make(std::move(stmts));
+                arms[i].second = ir::Sequence::make(std::move(statements));
             }
         }
         ir::Expr var = ir::Var::make(tree, as_var->name);

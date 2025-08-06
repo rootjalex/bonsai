@@ -189,6 +189,10 @@ Expr Var::make(Type type, const std::string &name) {
     return node;
 }
 
+Expr Var::from(const TypedVar &typed_variable) {
+    return Var::make(typed_variable.type, typed_variable.name);
+}
+
 bool BinOp::is_numeric_op(const BinOp::OpType &op) {
     switch (op) {
     // Technically, And, Or, BwAnd, BwOr, and Xor keep the type of the operands.
@@ -828,12 +832,12 @@ Expr Access::make(std::string field, Expr value) {
 Expr Unwrap::make(size_t index, Expr value) {
     internal_assert(value.defined() && value.type().is<BVH_t>())
         << "Bad Unwrap parameters: " << value;
-    internal_assert(index < value.type().as<BVH_t>()->nodes.size())
+    internal_assert(index < value.type().as<BVH_t>()->variants.size())
         << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 
     Unwrap *node = new Unwrap;
 
-    Type type = value.type().as<BVH_t>()->nodes[index].struct_type;
+    Type type = value.type().as<BVH_t>()->variants[index].struct_type;
     internal_assert(type.defined());
 
     node->type = std::move(type);

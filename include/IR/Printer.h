@@ -39,10 +39,17 @@ std::ostream &operator<<(std::ostream &os, const Schedule &schedule);
 std::ostream &operator<<(std::ostream &os, const Location &loc);
 std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars);
 
-std::string to_string(const Layout &layout);
-std::string to_string(const Member &member);
+std::ostream &operator<<(std::ostream &os, const TypeMap &map);
+std::ostream &operator<<(std::ostream &os, const Match::Arms &arms);
+
+// ADT language
+std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant);
+std::ostream &operator<<(std::ostream &os, const BVH_t::Volume &volume);
+
+// Layout language
 std::ostream &operator<<(std::ostream &os, const Layout &layout);
 std::ostream &operator<<(std::ostream &os, const Member &member);
+std::ostream &operator<<(std::ostream &os, const ir::Arm &arm);
 
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
@@ -78,7 +85,8 @@ struct Printer : public Visitor {
     void print_expr_list(const std::vector<Expr> &exprs);
     void print(const Stmt &stmt);
     void print(const WriteLoc &loc);
-    void print(const BVH_t::Node &node);
+    void print(const BVH_t::Volume &volume);
+    void print(const BVH_t::Variant &variant);
     void print(const Layout &layout);
     void print(const Member &member);
 
@@ -173,6 +181,7 @@ struct Printer : public Visitor {
     void visit(const Chain *) override;
     void visit(const Group *) override;
     void visit(const Materialize *) override;
+    void visit(const Lookup *) override;
 
   protected:
     void set_indent(int _indent) { indent = _indent; }

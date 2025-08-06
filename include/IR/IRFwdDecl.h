@@ -101,6 +101,7 @@ struct Split;
 struct Chain;
 struct Group;
 struct Materialize;
+struct Lookup;
 
 struct WriteLoc;
 

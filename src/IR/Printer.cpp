@@ -108,14 +108,43 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 }
 
 std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars) {
-    os << "{";
     for (size_t i = 0; i < vars.size(); i++) {
         if (i > 0) {
             os << ", ";
         }
         os << vars[i].name << " : " << vars[i].type;
     }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const TypeMap &map) {
+    auto it = map.begin();
+    os << "{";
+    for (int i = 0, e = map.size(); i < e; ++i) {
+        auto current = it++;
+        auto [name, type] = *current;
+        os << "(" << name << " : " << type << ")";
+        if (i + 1 == e) {
+            continue;
+        }
+        os << ", ";
+    }
     os << "}";
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Match::Arms &arms) {
+    auto it = arms.begin();
+    for (int i = 0, e = arms.size(); i < e; ++i) {
+        os << "[arm " << i << "] ";
+        auto current = it++;
+        auto [variant, statement] = *current;
+        os << variant << " =>\n  " << statement;
+        if (i + 1 == e) {
+            continue;
+        }
+        os << "\n";
+    }
     return os;
 }
 
@@ -151,12 +180,6 @@ std::ostream &operator<<(std::ostream &os, const Location &loc) {
     return os;
 }
 
-std::string to_string(const Member &member) {
-    std::ostringstream oss;
-    oss << member;
-    return oss.str();
-}
-
 std::ostream &operator<<(std::ostream &os, const Member &member) {
     if (member.defined()) {
         Printer printer(os);
@@ -164,6 +187,53 @@ std::ostream &operator<<(std::ostream &os, const Member &member) {
     } else {
         os << "(undef-member)";
     }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Layout &layout) {
+    Printer printer(os);
+    printer.print(layout);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Arm &arm) {
+    switch (arm.comparator) {
+    case Arm::Comparator::LT:
+        os << "< ";
+    case Arm::Comparator::LE:
+        os << "<= ";
+    case Arm::Comparator::GT:
+        os << "> ";
+    case Arm::Comparator::GE:
+        os << ">= ";
+    case Arm::Comparator::NE:
+        os << "~";
+    case Arm::Comparator::EQ:
+        break;
+    }
+    if (arm.value.has_value()) {
+        os << *arm.value;
+    } else {
+        os << "_";
+    }
+    os << " -> ";
+    if (arm.name.has_value()) {
+        os << *arm.name;
+    }
+    os << "\n";
+    os << arm.member;
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant) {
+    Printer printer(os);
+    printer.print(variant);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BVH_t::Volume &volume) {
+    Printer printer(os);
+    printer.print(volume);
     return os;
 }
 
@@ -392,8 +462,9 @@ void Printer::print(const Schedule &schedule) {
     // TODO: the rest of the schedule.
 }
 
-void Printer::print(const Layout &member) {
-    os << '(' << member.root << ')' << member.body;
+void Printer::print(const Layout &layout) {
+    os << "layout" << ' ' << layout.name << '(' << layout.root << ')'
+       << layout.body << '\n';
 }
 
 void Printer::print(const Location &loc) {
@@ -601,22 +672,22 @@ void Printer::visit(const Generic_t *node) {
     }
 }
 
-void Printer::print(const BVH_t::Node &node) {
-    const auto print_volume = [&](const BVH_t::Volume &volume) {
-        internal_assert(volume.struct_type.is<Struct_t>());
-        os << volume.struct_type.as<Struct_t>()->name;
-        internal_assert(!volume.initializers.empty());
-        os << "(";
-        for (size_t i = 0; i < volume.initializers.size(); i++) {
-            if (i != 0) {
-                os << ", ";
-            }
-            os << volume.initializers[i];
+void Printer::print(const BVH_t::Volume &volume) {
+    internal_assert(volume.struct_type.is<Struct_t>());
+    os << volume.struct_type.as<Struct_t>()->name;
+    internal_assert(!volume.initializers.empty());
+    os << "(";
+    for (size_t i = 0; i < volume.initializers.size(); i++) {
+        if (i != 0) {
+            os << ", ";
         }
-        os << ")";
-    };
+        os << volume.initializers[i];
+    }
+    os << ")";
+}
 
-    const Struct_t *as_struct = node.struct_type.as<Struct_t>();
+void Printer::print(const BVH_t::Variant &variant) {
+    const Struct_t *as_struct = variant.struct_type.as<Struct_t>();
     internal_assert(as_struct);
 
     os << as_struct->name;
@@ -630,9 +701,9 @@ void Printer::print(const BVH_t::Node &node) {
     }
     os << ")";
 
-    if (node.volume.has_value()) {
+    if (variant.volume.has_value()) {
         os << " with ";
-        print_volume(*node.volume);
+        print(*variant.volume);
     }
 }
 
@@ -645,10 +716,10 @@ void Printer::visit(const BVH_t *node) {
         return;
     }
 
-    internal_assert(!node->nodes.empty());
-    for (size_t i = 0; i < node->nodes.size(); i++) {
+    internal_assert(!node->variants.empty());
+    for (size_t i = 0; i < node->variants.size(); i++) {
         os << "\n  | ";
-        print(node->nodes[i]);
+        print(node->variants[i]);
     }
 }
 
@@ -943,10 +1014,13 @@ void Printer::visit(const Slice *node) {
     print(node->value);
     os << "[";
     print_no_parens(node->begin);
-    os << " : ";
+    os << ":";
     print_no_parens(node->end);
-    os << " : ";
-    print_no_parens(node->step);
+    if (auto v = get_constant_value<uint64_t>(node->step); v != 1) {
+        os << ":";
+        print_no_parens(node->step);
+    }
+
     os << "]";
 }
 
@@ -1405,9 +1479,9 @@ void Printer::visit(const Pad *node) {
 
 void Printer::visit(const Split *node) {
     os << get_indent();
-    os << "split " << node->field << " {\n";
+    os << "split " << node->expr << " {\n";
     for (const auto &[comparator, value, name, member] : node->arms) {
-        os << get_indent();
+        os << get_indent() << "  ";
         switch (comparator) {
         case Arm::Comparator::LT:
             os << "< ";
@@ -1431,7 +1505,6 @@ void Printer::visit(const Split *node) {
         if (name.has_value()) {
             os << *name;
         }
-        os << "\n";
         indent++;
         member.accept(this);
         indent--;
@@ -1440,7 +1513,7 @@ void Printer::visit(const Split *node) {
 }
 
 void Printer::visit(const Chain *node) {
-    os << get_indent() << "{\n";
+    os << " {\n";
     indent++;
     for (const auto &member : node->members) {
         print(member);
@@ -1451,15 +1524,25 @@ void Printer::visit(const Chain *node) {
 
 void Printer::visit(const Group *node) {
     os << get_indent();
-    os << "group[";
-    print_no_parens(node->size);
-    os << "]";
+    switch (node->type) {
+    case Group::Type::Direct:
+        break;
+    case Group::Type::Indirect:
+        os << "indirect ";
+    }
+    os << "group";
     if (!node->name.empty()) {
         os << " " << node->name;
-        os << " : ";
+    }
+    if (node->size.defined()) {
+        os << "[";
+        print_no_parens(node->size);
+        os << "]";
+    }
+    if (node->index.defined()) {
+        os << " by ";
         print(node->index);
     }
-    os << "\n";
     print(node->inner);
 }
 
@@ -1469,6 +1552,13 @@ void Printer::visit(const Materialize *node) {
     os << " = ";
     print_no_parens(node->value);
     os << ";\n";
+}
+
+void Printer::visit(const Lookup *node) {
+    os << " from " << node->group_name;
+    os << "[";
+    print_no_parens(node->index);
+    os << "];\n";
 }
 
 } // namespace ir

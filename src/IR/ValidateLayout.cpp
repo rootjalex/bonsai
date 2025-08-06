@@ -5,47 +5,62 @@
 #include "IR/Visitor.h"
 
 #include "Error.h"
+#include "Log.h"
 
 #include <set>
 
 namespace bonsai {
 namespace ir {
-
-std::ostream &operator<<(std::ostream &os, const Path &path) {
-    for (const auto &[name, type] : path) {
-        os << "  " << name << " : " << type << "\n";
-    }
-    return os;
-}
-
 namespace {
+// A map from group name to Group.
+using GroupMap = std::map<std::string, Member>;
 
-std::vector<Path> get_paths(const Member &member) {
-    struct GetPaths : public Visitor {
+// TODO: assert that all volumes only have initializers from
+// parent.params or node.params BVH_t::make asserts this. we should
+// catch that failure, and report a backtrace.
+std::vector<Path> get_paths(const Member &member, const GroupMap &group_map) {
+    class GetPaths : public Visitor {
+      public:
+        GetPaths(const GroupMap &group_map) : group_map(group_map) {}
+
+        std::vector<Path> get_paths() const { return paths; }
+
+      private:
+        const GroupMap &group_map;
         std::vector<Path> paths = {{}}; // start with one empty path.
 
         void visit(const Field *node) override {
             for (auto &path : paths) {
-                const auto [_, inserted] =
+                const auto &[_, inserted] =
                     path.try_emplace(node->name, node->type);
                 internal_assert(inserted)
                     << "field found twice in the same path: " << node->name
-                    << " : " << node->type;
+                    << " : " << node->type << "\n"
+                    << path;
             }
         }
 
         void visit(const Pad *node) override {}
 
+        void visit(const Lookup *node) override {
+            auto it = group_map.find(node->group_name);
+            internal_assert(it != group_map.end())
+                << "lookup to non-existent group: " << node->group_name;
+            const ir::Group *group = (it->second).as<Group>();
+            internal_assert(group);
+            internal_assert(group->type == Group::Type::Indirect)
+                << "unexpected lookup in direct group: " << it->second;
+            group->inner.accept(this);
+        }
+
         void visit(const Split *node) override {
-            // All paths are split.
-            std::vector<Path> split_paths, old_paths = std::move(paths);
+            std::vector<Path> old_paths = std::move(paths);
+            std::vector<Path> split_paths; // All paths are split.
             for (const auto &arm : node->arms) {
                 paths = {{}};
                 arm.member.accept(this);
                 std::vector<Path> new_paths = std::move(paths);
-
-                // Yes, this is exponential explosion.
-                // As expected for nested splits.
+                // This is an (expected) exponential explosion.
                 for (const auto &old_path : old_paths) {
                     for (const auto &new_path : new_paths) {
                         Path together = old_path;
@@ -63,9 +78,15 @@ std::vector<Path> get_paths(const Member &member) {
             paths = std::move(split_paths);
         }
 
-        // default behavior is good.
-        // void visit(const Chain *node) override {}
-        // void visit(const Group *node) override {}
+        void visit(const Group *node) override {
+            switch (node->type) {
+            case Group::Type::Direct:
+                node->inner.accept(this);
+                break;
+            case Group::Type::Indirect:
+                break; // This can only be accessed via a lookup.
+            }
+        }
 
         void visit(const Materialize *node) override {
             for (auto &path : paths) {
@@ -75,11 +96,14 @@ std::vector<Path> get_paths(const Member &member) {
                                            // duplicate field in path.
             }
         }
+
+        // default behavior is good.
+        // void visit(const Chain *node) override {}
     };
 
-    GetPaths getter;
+    GetPaths getter(group_map);
     member.accept(&getter);
-    return getter.paths;
+    return getter.get_paths();
 }
 
 // Returns whether these are equivalent paths.
@@ -93,26 +117,41 @@ bool equal_paths(const Path &p0, const Path &p1) {
         });
 }
 
-bool valid_path(const Path &path, const BVH_t::Node &node) {
-    for (const auto &param : node.fields()) {
-        const auto &iter = path.find(param.name);
-        if (iter == path.cend()) {
+// Returns whether this path is valid for each of the variant's parameters.
+bool is_valid_path(const Path &path, const BVH_t::Variant &variant) {
+    for (auto &parameter : variant.fields()) {
+        Type parameter_type = parameter.type;
+        const auto &it = path.find(parameter.name);
+        if (it == path.cend()) {
             return false;
         }
-        if (!equals(param.type, iter->second)) {
-            if (param.type.is<ir::Ref_t>() && (iter->second.is_int_or_uint() ||
-                                               iter->second.is_int_tuple())) {
-                // TODO: figure out how to validate references as indexes into
-                // groups!
+        const Type &concrete_type = it->second;
+        if (equals(parameter_type, concrete_type)) {
+            continue;
+        }
+        if (parameter_type.is_iterable()) {
+            if (!concrete_type.is_iterable()) {
+                continue; // Type mismatch.
+            }
+            if (!ir::equals(parameter_type.size(), concrete_type.size())) {
+                continue; // Size mismatch.
+            }
+            parameter_type = parameter_type.element_of();
+        }
+        if (parameter_type.is<ir::Ref_t>()) {
+            if (concrete_type.is_int_or_uint() ||
+                concrete_type.is_int_tuple()) {
+                // References to children in the variant may be represented by a
+                // unique index into an array.
                 continue;
             }
-            return false;
         }
+        return false;
     }
     return true;
 }
 
-// Represents a range [min, max].
+// Represents the range [min, max].
 template <typename T>
 struct Range {
     T min;
@@ -152,8 +191,6 @@ std::ostream &operator<<(std::ostream &os,
 template <typename T>
 std::vector<Range<T>> arm_to_ranges(const Arm &arm) {
     if (!arm.value.has_value()) {
-        // TODO(cgyurgyik): if a wildcard is provided, the range must not be
-        // exhaustive.
         return {};
     }
 
@@ -162,13 +199,14 @@ std::vector<Range<T>> arm_to_ranges(const Arm &arm) {
     T val = static_cast<T>(*arm.value);
     switch (arm.comparator) {
     case Arm::Comparator::EQ:
-        if (val >= type_min && val <= type_max) {
+        if (type_min <= val && val <= type_max) {
             return {Range(val, val)};
         }
-        return {}; // Empty - value is outside type bounds
+        // value is outside the given bounds.
+        return {};
 
     case Arm::Comparator::NE: {
-        // Everything except the specific value
+        // Everything except the specific value.
         std::vector<Range<T>> ranges;
         if (val > type_min) {
             ranges.emplace_back(type_min, val - 1);
@@ -206,8 +244,8 @@ std::vector<Range<T>> arm_to_ranges(const Arm &arm) {
 
 template <typename T>
 bool is_exclusive(const std::vector<std::vector<Range<T>>> &ranges) {
-    for (size_t i = 0; i < ranges.size(); ++i) {
-        for (size_t j = i + 1; j < ranges.size(); ++j) {
+    for (size_t i = 0, e = ranges.size(); i < e; ++i) {
+        for (size_t j = i + 1; j < e; ++j) {
             for (const Range<T> &r1 : ranges[i]) {
                 for (const Range<T> &r2 : ranges[j]) {
                     if (!r1.overlaps(r2)) {
@@ -270,9 +308,8 @@ void validate_arms(const Split &split) {
         std::count_if(arms.begin(), arms.end(),
                       [](const Arm &arm) { return arm.is_wildcard(); }) <= 1)
         << "[unexpected] two or more wildcard arms";
-
-    const T type_min = std::numeric_limits<T>::min();
-    const T type_max = std::numeric_limits<T>::max();
+    const T type_min = std::numeric_limits<T>::min(),
+            type_max = std::numeric_limits<T>::max();
 
     std::vector<std::vector<Range<T>>> arm_ranges;
     std::vector<Range<T>> all_ranges;
@@ -285,32 +322,31 @@ void validate_arms(const Split &split) {
 
     // Check mutual exclusivity first.
     internal_assert(is_exclusive(arm_ranges));
-
     // Merge all ranges and check exhaustiveness.
-    std::vector<Range<T>> merged = merge_ranges<T>(all_ranges);
-    bool exhaustive =
-        merged.size() == 1 && is_exhaustive(merged.front(), type_min, type_max);
+    std::vector<Range<T>> merged_ranges = merge_ranges<T>(all_ranges);
+    bool exhaustive = merged_ranges.size() == 1 &&
+                      is_exhaustive(merged_ranges.front(), type_min, type_max);
     if (exhaustive && contains_wildcard(arms)) {
         internal_error
             << "[unexpected] exhaustive range provided with a wildcard.";
     }
     if (!exhaustive && !contains_wildcard(arms)) {
         internal_error << "split arms are not collectively exhaustive: "
-                       << merged;
+                       << merged_ranges;
     }
 }
 
+// TODO(cgyurgyik): This needs to handle arbitrary nesting.
 struct ValidateSplits : public Visitor {
     // void visit(const Field *node) override {}
     // void visit(const Pad *node) override {}
     TypeMap defined;
 
     void visit(const Split *node) override {
-        const auto *field = node->field.as<Field>();
-        Type field_type = field->type;
-        internal_assert(field_type.is_scalar()) << field_type;
-        if (field_type.is<Int_t>()) {
-            switch (field_type.bits()) {
+        ir::Expr expr = node->expr;
+        internal_assert(expr.type().is_scalar()) << expr.type();
+        if (expr.type().is<Int_t>()) {
+            switch (expr.type().bits()) {
             case 16:
                 validate_arms<int16_t>(*node);
                 break;
@@ -322,10 +358,10 @@ struct ValidateSplits : public Visitor {
                 break;
             default:
                 internal_error << "[unimplemented] split field count: "
-                               << field_type;
+                               << expr.type();
             }
-        } else if (field_type.is<UInt_t>()) {
-            switch (field_type.bits()) {
+        } else if (expr.type().is<UInt_t>()) {
+            switch (expr.type().bits()) {
             case 16:
                 validate_arms<uint16_t>(*node);
                 break;
@@ -337,17 +373,18 @@ struct ValidateSplits : public Visitor {
                 break;
             default:
                 internal_error << "[unimplemented] split field bit count: "
-                               << field_type;
+                               << expr.type();
             }
         } else {
             internal_error << "[unimplemented] split field type: "
-                           << field_type;
+                           << expr.type();
         }
+
         auto it = defined.find(node->field_name());
         internal_assert(it != defined.cend())
-            << "Split does not have access to field: " << node->field;
-        internal_assert(it->second.is_int_or_uint())
-            << "Split on non-integer field: " << node->field;
+            << "Split does not have access to field: `" << node->expr
+            << "`. Currently defined fields:\n"
+            << defined;
         TypeMap parent = defined;
         for (const auto &arm : node->arms) {
             arm.member.accept(this);
@@ -378,7 +415,18 @@ struct ValidateSplits : public Visitor {
 
         defined = parent;
     }
-    // void visit(const Group *node) override {}
+    void visit(const Group *node) override {
+        if (node->index.defined()) {
+            const auto *v = node->index.as<ir::Var>();
+            internal_assert(v) << node->index;
+            const auto [_, inserted] = defined.insert({v->name, v->type});
+            internal_assert(inserted) << node->index << " is a duplicate";
+        }
+
+        TypeMap parent = defined;
+        node->inner.accept(this);
+        defined = std::move(parent);
+    }
     // void visit(const Materialize *node) override {}
 };
 
@@ -387,7 +435,38 @@ void validate_splits(const Member &member) {
     member.accept(&validator);
 }
 
+GroupMap get_group_map(const Layout &layout) {
+    struct GetGroupMap : Visitor {
+        void visit(const Group *node) override {
+            const auto [_, inserted] = map.insert({node->name, node});
+            internal_assert(inserted)
+                << "unexpected duplicate group name: " << node->name;
+
+            // visit nested groups.
+            node->inner.accept(this);
+        };
+        GroupMap map;
+    };
+
+    GetGroupMap ggm;
+    layout.body.accept(&ggm);
+    return ggm.map;
+}
+
 } // namespace
+
+std::ostream &operator<<(std::ostream &os, const std::vector<Path> &paths) {
+    os << "\n[";
+    for (int i = 0, e = paths.size(); i < e; ++i) {
+        os << paths[i];
+        if (i + 1 == e) {
+            continue;
+        }
+        os << ",\n";
+    }
+    os << "]\n";
+    return os;
+}
 
 std::map<std::string, Path> validate_layout(const Layout &layout) {
     const Member &body = layout.body;
@@ -402,11 +481,12 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
     // Assert all Split fields are accessible at Split level.
     validate_splits(body);
 
-    std::vector<Path> paths = get_paths(body);
-    internal_assert(paths.size() == bvh_node->nodes.size())
+    GroupMap group_map = get_group_map(layout);
+    std::vector<Path> paths = get_paths(body, group_map);
+    internal_assert(paths.size() == bvh_node->variants.size())
         << "Layout body: " << body << "\nhas " << paths.size()
-        << " paths. BVH type: " << bvh_t << "\nhas " << bvh_node->nodes.size()
-        << " node options.";
+        << " paths. BVH type: " << bvh_t << "\nhas "
+        << bvh_node->variants.size() << " node options.";
 
     // Check paths are unique.
     for (size_t i = 0; i < paths.size(); ++i) {
@@ -419,24 +499,25 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
     }
 
     // TODO(ajr): use Arm::name.
-
-    std::map<std::string, Path> pathmap;
-    // Check each node has one equivalent path!
-    for (const auto &node : bvh_node->nodes) {
-        Path node_path;
+    std::map<std::string, Path> map;
+    // Verify each node has one equivalent path.
+    for (const BVH_t::Variant &variant : bvh_node->variants) {
+        Path path_to_variant;
         for (auto &path : paths) {
-            if (!path.empty() && valid_path(path, node)) {
-                internal_assert(node_path.empty())
-                    << "Ambiguous path for node: " << node.name()
-                    << " in body: " << body;
-                node_path = std::move(path);
+            if (!path.empty() && is_valid_path(path, variant)) {
+                internal_assert(path_to_variant.empty())
+                    << "ambiguous path for node: " << variant.name()
+                    << ", in layout:" << '\n'
+                    << layout;
+                path_to_variant = std::move(path);
             }
         }
-        internal_assert(!node_path.empty())
-            << "No path for node: " << node.name() << " in body: " << body;
-        pathmap[node.name()] = std::move(node_path);
+        internal_assert(!path_to_variant.empty())
+            << "no path for node: " << variant.name() << ", in layout:" << '\n'
+            << layout;
+        map[variant.name()] = std::move(path_to_variant);
     }
-    return pathmap;
+    return map;
 }
 
 } // namespace ir

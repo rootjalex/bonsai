@@ -7,7 +7,9 @@ namespace bonsai {
 namespace ir {
 
 using Path = std::map<std::string, Type>;
-std::ostream &operator<<(std::ostream &os, const Path &path);
+
+[[maybe_unused]] std::ostream &operator<<(std::ostream &os,
+                                          const std::vector<Path> &paths);
 
 // internal_asserts or internal_errors if `layout` does not implement `type`
 // assumes `type` is a BVH_t

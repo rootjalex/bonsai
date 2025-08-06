@@ -9,11 +9,11 @@ extern triangles : set[Triangle];
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 schedule {
-    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
-    | Leaf(data : array[Triangle]);
+    tree[[Triangle]] BVH(low high : vec3f) with AABB(low, high) 
+      = Interior(left : BVH, right : BVH, axis : u8)
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
-    triangles : TriangleBVH;
+    triangles : BVH;
 
     layout triangles(index: u32) {
         primitive_count : u32;
@@ -26,12 +26,12 @@ schedule {
             8;
             high : vec3f;
             split nprims {
-                > 32 -> Interior { 
+                0 -> Interior { 
                     offset : u32; 
                     left = index + 1; 
                     right = index + offset; 
                 };
-                < 23 -> Leaf { 
+                _ -> Leaf { 
                     poffset : u32; 
                     data = primitives[poffset : poffset + nprims]; 
                 };

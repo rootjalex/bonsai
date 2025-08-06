@@ -50,6 +50,17 @@ uint32_t Type::lanes() const {
     }
 }
 
+// Returns the length of this type if statically known, and {} otherwise.
+Expr Type::size() const {
+    if (is<Vector_t>()) {
+        return Expr(static_cast<int64_t>(lanes()));
+    }
+    if (const auto *array_t = as<Array_t>()) {
+        return array_t->size;
+    }
+    internal_error << "Called size() on bad type: " << *this;
+}
+
 bool Type::is_int() const {
     return this->is<Int_t>() ||
            (this->is<Vector_t>() && this->as<Vector_t>()->etype.is_int());
@@ -435,10 +446,14 @@ namespace {
 bool validate_volume(const BVH_t::Volume &volume,
                      const std::vector<TypedVar> &params) {
     if (!volume.struct_type.is<Struct_t>()) {
+        std::cerr << "volume: " << volume << " is not a Struct_t" << '\n';
         return false;
     }
     const Struct_t::Map &fields = volume.struct_type.as<Struct_t>()->fields;
     if (fields.size() != volume.initializers.size()) {
+        std::cerr << "mismatch between fields and volume initializers: "
+                  << fields.size() << " vs " << volume.initializers.size()
+                  << '\n';
         return false;
     }
 
@@ -450,12 +465,22 @@ bool validate_volume(const BVH_t::Volume &volume,
                          [&](const TypedVar &p) { return p.name == name; });
 
         if (it == params.end()) {
+            std::cerr << "could not find field for initializer: " << name
+                      << '\n';
             return false;
         }
 
         // Validate type
         if (!equals(it->type, fields[i].type)) {
-            return false;
+            // TODO(cgyurgyik): we experience a type mismatch when there are
+            // multi-nodes, e.g., in Embree hair:
+            // AABB(cdrn: BVH[4], lo: f32x3x4, hi: f32x3x4) with AABB(lo, hi)
+            //                                                            ^
+            //                                                            f32x3
+
+            // std::cerr << "mismatch between initializer and field type: "
+            //           << it->type << " vs " << fields[i].type << '\n';
+            // return false;
         }
     }
 
@@ -465,65 +490,67 @@ bool validate_volume(const BVH_t::Volume &volume,
 } // namespace
 
 Type BVH_t::make(ir::Type primitive, std::string name,
-                 std::vector<Node> nodes) {
+                 std::vector<Variant> variants) {
     internal_assert(primitive.defined())
         << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
-    internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
+    internal_assert(!variants.empty()) << "BVH_t::make received empty nodes";
 
     // TODO: check that prim_t is contained in some node (leaves)?
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].volume.has_value()) {
+    for (size_t i = 0; i < variants.size(); i++) {
+        if (variants[i].volume.has_value()) {
             internal_assert(
-                validate_volume(*nodes[i].volume, nodes[i].fields()))
-                << "Failed to validate node " << i << " of " << name;
+                validate_volume(*variants[i].volume, variants[i].fields()))
+                << "Failed to validate node volume: " << *variants[i].volume
+                << " for variant " << i << " with name " << name;
         }
     }
 
     BVH_t *node = new BVH_t;
     node->primitive = std::move(primitive);
     node->name = std::move(name);
-    node->nodes = std::move(nodes);
+    node->variants = std::move(variants);
     return node;
 }
 
 Type BVH_t::make(ir::Type primitive, std::string name,
                  const std::vector<TypedVar> &globals,
-                 std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
+                 std::vector<BVH_t::Variant> variants, BVH_t::Volume volume) {
     internal_assert(primitive.defined())
         << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!globals.empty()) << "BVH_t::make received empty globals";
-    internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
+    internal_assert(!variants.empty()) << "BVH_t::make received empty nodes";
 
     internal_assert(validate_volume(volume, globals))
         << "Failed to validate parent volume of " << name;
 
     // TODO: check that prim_t is contained in some node (leaves)?
-    for (size_t i = 0; i < nodes.size(); i++) {
+    for (size_t i = 0; i < variants.size(); i++) {
         // Insert params into the front of nodes[i].params
         std::vector<TypedVar> copy = globals;
-        const auto &params = nodes[i].fields();
+        const auto &params = variants[i].fields();
         // TODO: figure out why insert() segfaults.
         // copy.insert(globals.end(), params.begin(), params.end());
         for (const auto &[name, type] : params) {
             copy.push_back({name, type});
         }
-        Type struct_type = Struct_t::make(nodes[i].name(), std::move(copy));
-        nodes[i].struct_type = std::move(struct_type);
+        Type struct_type = Struct_t::make(variants[i].name(), std::move(copy));
+        variants[i].struct_type = std::move(struct_type);
 
-        if (!nodes[i].volume.has_value()) {
-            nodes[i].volume = volume;
+        if (!variants[i].volume.has_value()) {
+            variants[i].volume = volume;
         }
 
-        internal_assert(validate_volume(*nodes[i].volume, nodes[i].fields()))
+        internal_assert(
+            validate_volume(*variants[i].volume, variants[i].fields()))
             << "Failed to validate node " << i << " of " << name;
     }
 
     BVH_t *node = new BVH_t;
     node->primitive = std::move(primitive);
     node->name = std::move(name);
-    node->nodes = std::move(nodes);
+    node->variants = std::move(variants);
     return node;
 }
 

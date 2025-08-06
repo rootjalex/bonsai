@@ -36,6 +36,7 @@ uint64_t Member::bits() const {
             << "TODO: should a constant-sized group be inlined? " << *this;
         return 64; // pointer
     }
+    case IRLayoutEnum::Lookup:
     case IRLayoutEnum::Materialize: {
         return 0; // computed field, not stored.
     }
@@ -78,22 +79,42 @@ Member Field::make(std::string name, Type type) {
     return node;
 }
 
-Member Split::make(Member field, std::vector<ir::Arm> arms) {
-    internal_assert(field.defined()) << "empty field in Split::make";
+Member Split::make(ir::Expr expr, std::vector<ir::Arm> arms) {
+    internal_assert(expr.defined()) << "empty expr in Split::make";
     internal_assert(!arms.empty())
-        << "empty arms in Split::make for field: " << field;
+        << "empty arms in Split::make for expr: " << expr;
 
     Split *node = new Split;
-    node->field = std::move(field);
+    node->expr = std::move(expr);
     node->arms = std::move(arms);
     return node;
 }
 
-std::string Split::field_name() const {
-    const ir::Field *field = this->field.as<ir::Field>();
-    internal_assert(field);
-    return field->name;
+namespace {
+std::string get_field_name(ir::Expr e) {
+    if (const auto *v = e.as<ir::Var>()) {
+        return v->name;
+    }
+    if (const auto *s = e.as<ir::Slice>()) {
+        return get_field_name(s->value);
+    }
+    if (const auto *ex = e.as<ir::Extract>()) {
+        return get_field_name(ex->vec);
+    }
+    if (const auto *bo = e.as<ir::BinOp>()) {
+        internal_assert(is_const(bo->a) ^ is_const(bo->b));
+        if (is_const(bo->a)) {
+            return get_field_name(bo->b);
+        }
+        if (is_const(bo->b)) {
+            return get_field_name(bo->a);
+        }
+    }
+    internal_error << "failed to get field name from: " << e;
 }
+} // namespace
+
+std::string Split::field_name() const { return get_field_name(this->expr); }
 
 Member Chain::make(std::vector<Member> members) {
     internal_assert(!members.empty()) << "Empty members in Chain::make";
@@ -107,11 +128,15 @@ Member Chain::make(std::vector<Member> members) {
 
 Member Group::make(std::string name, Expr size, Expr index, Member inner,
                    Group::Type type) {
-    internal_assert(size.defined())
-        << "Cannot make Group with undefined size, named: " << name;
-    internal_assert(!name.empty());
-    // internal_assert(index.defined());
-    internal_assert(inner.defined());
+    switch (type) {
+    case Group::Type::Indirect:
+        break;
+    case Group::Type::Direct:
+        internal_assert(index.defined())
+            << "Cannot make direct Group: " << name << " with undefined index";
+    }
+    internal_assert(inner.defined())
+        << "Cannot make Group: " << name << " with undefined body";
 
     Group *node = new Group;
     node->size = std::move(size);
@@ -130,6 +155,18 @@ Member Materialize::make(std::string name, Expr value) {
     Materialize *node = new Materialize;
     node->name = std::move(name);
     node->value = std::move(value);
+    return node;
+}
+
+Member Lookup::make(std::string group_name, Expr index) {
+    internal_assert(!group_name.empty()) << "Lookup::make received empty name";
+    internal_assert(index.defined())
+        << "Lookup::make received undefined index for group name: "
+        << group_name;
+
+    Lookup *node = new Lookup;
+    node->group_name = std::move(group_name);
+    node->index = std::move(index);
     return node;
 }
 
