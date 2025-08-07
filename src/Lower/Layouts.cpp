@@ -270,6 +270,7 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutMap &lmap) {
                 group_name(group_count++, node->name, node->type);
             lmap.insert_group_layout(m, field_name, group_t);
             fields.emplace_back(std::move(field_name), std::move(group_t));
+
             continue;
         }
         case ir::IRLayoutEnum::Split: {
@@ -308,13 +309,6 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                          const std::string &node_type, const std::string &field,
                          const LayoutMap &lmap, const ir::Layout &layout,
                          const ir::Expr &root, bool is_lookup = false) {
-    if (auto it = std::find_if(
-            layout.root.begin(), layout.root.end(),
-            [&](const ir::TypedVar &v) { return v.name == field; });
-        it != layout.root.end()) {
-        return ir::Var::from(*it);
-    }
-
     uint32_t group_count = 0, split_count = 0;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
@@ -372,6 +366,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             const ir::Split *node = m.as<ir::Split>();
             // Stored as vector of bytes, load and reinterpret to proper
             // type.
+            if (field == node->field_name()) {
+                return node->expr;
+            }
             for (const ir::Arm &arm : node->arms) {
                 if (const std::optional<std::string> &name = arm.name;
                     !name.has_value() || *name != node_type) {
@@ -462,8 +459,8 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
     // TODO: should this be scheduable...?
     // TODO: we want to insert likely() for non-leaves, I think?
     std::vector<std::string> order;
-    for (const auto &pair : finder.paths) {
-        order.push_back(pair.first);
+    for (const auto &[field_name, _] : finder.paths) {
+        order.push_back(field_name);
     }
     std::sort(order.begin(), order.end(),
               [&](const std::string &a, const std::string &b) {
@@ -479,41 +476,43 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
               });
 
     ir::Stmt if_chain;
-    for (const auto &node_name : std::views::reverse(order)) {
+    for (const std::string &node_type : std::views::reverse(order)) {
         // Make a hole for the body of this node type.
-        ir::Stmt body = ir::Label::make(node_name, ir::Stmt());
+        ir::Stmt body = ir::Label::make(node_type, ir::Stmt());
 
-        if (if_chain.defined()) {
-            ir::Expr cond;
-            internal_assert(finder.paths.contains(node_name));
-            const FindPaths::Path &path = finder.paths.at(node_name);
-
-            for (const auto &pair : path) {
-                internal_assert(pair.second.has_value());
-                ir::Expr value = field_in_layout(
-                    base, member, ir::MapStack<std::string, ir::Expr>(),
-                    obj_name, node_name, pair.first, lmap, layout, root);
-                ir::Expr constant = make_const(value.type(), *pair.second);
-                // TODO: support non-eq matching? e.g. ranges?
-                ir::Expr eq = ir::BinOp::make(ir::BinOp::Eq, std::move(value),
-                                              std::move(constant));
-                if (cond.defined()) {
-                    cond = ir::BinOp::make(ir::BinOp::LAnd, std::move(cond),
-                                           std::move(eq));
-                } else {
-                    cond = std::move(eq);
-                }
-            }
-
-            internal_assert(cond.defined());
-
-            if_chain = ir::IfElse::make(std::move(cond), std::move(body),
-                                        std::move(if_chain));
-        } else {
+        if (!if_chain.defined()) {
             // TODO: this doesn't work if it's possible to have fully NULL
             // reprs.
             if_chain = std::move(body);
+            continue;
         }
+        ir::Expr cond;
+        internal_assert(finder.paths.contains(node_type)) << node_type;
+        const FindPaths::Path &path = finder.paths.at(node_type);
+
+        for (const auto &[field_name, field_value] : path) {
+            internal_assert(field_value.has_value());
+            ir::Expr value = field_in_layout(
+                /*base=*/base,
+                /*member=*/member,
+                /*frames=*/{},
+                /*iter_name=*/obj_name,
+                /*node_type=*/node_type,
+                /*field=*/field_name,
+                /*lmap=*/lmap,
+                /*layout=*/layout,
+                /*root=*/root);
+
+            // TODO: support non-eq matching? e.g. ranges?
+            ir::Expr constant = make_const(value.type(), *field_value);
+            ir::Expr equals = std::move(value) == std::move(constant);
+            cond = !cond.defined() ? std::move(equals)
+                                   : std::move(cond) && std::move(equals);
+        }
+
+        internal_assert(cond.defined());
+        if_chain = ir::IfElse::make(std::move(cond), std::move(body),
+                                    std::move(if_chain));
     }
     internal_assert(if_chain.defined());
     return if_chain;
@@ -826,11 +825,10 @@ struct LowerMatches : public ir::Mutator {
             IndexTList node_index_list = get_index_type(member);
             std::reverse(node_index_list.begin(), node_index_list.end());
             std::vector<ir::Expr> idxs;
-            idxs.reserve(node_index_list.size());
-            for (auto &it : node_index_list) {
-                it.name = tree_name + "_" + it.name;
-                idxs.push_back(ir::Var::make(it.type, it.name));
-            }
+            std::transform(node_index_list.begin(), node_index_list.end(),
+                           std::back_inserter(idxs),
+                           [](const auto &it) { return ir::Var::from(it); });
+
             references[tree_name] = make_tuple(std::move(idxs));
             index_list.insert(index_list.end(),
                               std::make_move_iterator(node_index_list.begin()),
@@ -1003,14 +1001,7 @@ ir::Program LowerLayouts::run(ir::Program program,
                 arg.type = types.at(arg.name);
             }
         }
-        bool match = contains<ir::Match>(func->body);
-        if (match) {
-            LOG_INFO << "before: " << func->body;
-        }
         func->body = lower.mutate(func->body);
-        if (match) {
-            LOG_INFO << "after: " << func->body;
-        }
     }
     return program;
 }

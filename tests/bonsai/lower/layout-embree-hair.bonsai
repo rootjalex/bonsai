@@ -29,7 +29,6 @@ schedule {
             high: f32x3x4;
             children: u64x4;
         };
-
         group by index {
             split index[0:2] {
                 2 -> AABBNode from AABBs[index[4:63]];
