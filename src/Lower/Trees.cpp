@@ -6,9 +6,11 @@
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
+#include "IR/Printer.h"
 
 #include "Error.h"
 #include "Log.h"
+
 #include "Utils.h"
 
 #include "Opt/Simplify.h"
@@ -117,7 +119,7 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the current match arms.
-    std::vector<ir::Expr> volumes;
+    mutable std::vector<ir::Expr> volumes;
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
 
@@ -143,38 +145,49 @@ struct Rewriter : public ir::Mutator {
                     }
                     volumes.emplace_back(
                         ir::Build::make(volume->struct_type, args));
-                    statement = mutate(statement);
-                    volumes.pop_back();
-                    new_arms.push_back({
-                        std::move(variant),
-                        std::move(statement),
-                    });
                 } break;
                 case ir::BVH_t::Volume::BoundType::Childwise: {
-                    break;
+                    // TODO(cgyurgyik): hard-coded for now, should we be able to
+                    // infer this or require it to be stated in the layout
+                    // language?
+                    for (int i = 0; i < 4; ++i) {
+                        std::vector<ir::Expr> args;
+                        args.reserve(n_args);
+                        for (size_t j = 0; j < n_args; ++j) {
+                            const std::string &name = volume->initializers[j];
+                            args.push_back(ir::Extract::make(
+                                ir::Access::make(name, tree), ir::Expr(i)));
+                        }
+                        volumes.emplace_back(
+                            ir::Build::make(volume->struct_type, args));
+                    }
+                    std::reverse(volumes.begin(), volumes.end());
                 }
                 }
             } else {
                 volumes.emplace_back(); // undefined volume
             }
+            statement = mutate(statement);
+            new_arms.push_back({
+                std::move(variant),
+                std::move(statement),
+            });
         }
         locs.pop_back();
 
-        return ir::Match::make(node->loc, std::move(new_arms));
+        ir::Stmt after = ir::Match::make(node->loc, std::move(new_arms));
+        return after;
     }
 
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
-        VolumeMap vols;
-        const size_t n = volumes.size();
-        internal_assert(n == args.size())
-            << "Making volume map with incorrect number of arguments: "
-            << args.size() << " vs. " << n;
-        for (size_t i = 0; i < n; i++) {
+        VolumeMap volume_map;
+        for (size_t i = 0, n = args.size(); i < n; ++i) {
             // Even if a volume is undefined, needs to be added so
             // predicate analysis knows it's non-varying.
-            vols[args[i].name] = volumes[i];
+            volume_map[args[i].name] = volumes.back();
+            volumes.pop_back();
         }
-        return vols;
+        return volume_map;
     }
 
     using ir::Mutator::visit;
@@ -250,8 +263,6 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
-
             VolumeMap vols = make_volume_map(lambda->args);
 
             Interval bounds =
@@ -614,27 +625,39 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                                          : ir::Yield::make(std::move(access)));
             }
             if (!children.empty()) {
-                std::vector<ir::Expr> accesses;
-                accesses.reserve(children.size());
-                for (const auto &[child, index] : children) {
-                    ir::Expr access = ir::Access::make(child.name, node);
-                    if (index.has_value()) {
+                const std::optional<ir::BVH_t::Volume> &volume =
+                    bvh->variants[i].volume;
+                internal_assert(volume.has_value())
+                    << "[unexpected] no bounding volume: " << bvh->variants[i];
+                switch (volume->bound_type) {
+                case ir::BVH_t::Volume::BoundType::Enclosing: {
+                    // Since the bounding volume encloses all children, we have
+                    // a single scan encompassing all accesses.
+                    std::vector<ir::Expr> accesses;
+                    accesses.reserve(children.size());
+                    for (const auto &[child, index] : children) {
+                        ir::Expr access = ir::Access::make(child.name, node);
+                        internal_assert(!index.has_value());
+                        accesses.push_back(access);
+                    }
+                    statements.push_back(ir::Scan::make(make_tuple(accesses)));
+                } break;
+                case ir::BVH_t::Volume::BoundType::Childwise: {
+                    for (const auto &[child, index] : children) {
+                        ir::Expr access = ir::Access::make(child.name, node);
+                        internal_assert(index.has_value());
                         access = ir::Extract::make(
                             access,
                             ir::UIntImm::make(ir::UInt_t::make(32), *index));
+                        statements.push_back(ir::Scan::make(access));
                     }
-                    accesses.push_back(access);
+                } break;
                 }
-                statements.push_back(ir::Scan::make(make_tuple(accesses)));
             }
 
             arms[i].first = bvh->variants[i];
             internal_assert(!statements.empty());
-            if (statements.size() == 1) {
-                arms[i].second = statements.front(); // Special case.
-            } else {
-                arms[i].second = ir::Sequence::make(std::move(statements));
-            }
+            arms[i].second = ir::Sequence::make(std::move(statements));
         }
         ir::Expr var = ir::Var::make(tree, as_var->name);
         return ir::Match::make(std::move(var), std::move(arms));

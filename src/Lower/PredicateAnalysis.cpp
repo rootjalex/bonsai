@@ -20,6 +20,29 @@ bool Interval::has_upper_bound() const { return max.defined(); }
 
 bool Interval::has_lower_bound() const { return min.defined(); }
 
+std::ostream &operator<<(std::ostream &os, const Interval &interval) {
+    os << "[" << interval.min << ", " << interval.max << "]";
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const VolumeMap &volume_map) {
+    os << "VolumeMap [\n";
+    for (const auto &[name, expr] : volume_map) {
+        os << "  " << name << " : " << expr << "\n";
+    }
+    os << "]\n";
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const IntervalMap &interval_map) {
+    os << "IntervalMap [\n";
+    for (const auto &[expr, interval] : interval_map) {
+        os << "  " << expr << " : " << interval << "\n";
+    }
+    os << "]\n";
+    return os;
+}
+
 namespace {
 
 struct PredicateAnalysis : public ir::Visitor {
@@ -179,9 +202,14 @@ struct PredicateAnalysis : public ir::Visitor {
         internal_assert(!a_vol.has_value() || a_vol->defined())
             << "LHS of geom op is varying but has no bounding volume: "
             << ir::Expr(node);
-        internal_assert(!b_vol.has_value() || b_vol->defined())
-            << "RHS of geom op is varying but has no bounding volume: "
-            << ir::Expr(node);
+        // TODO(cgyurgyik): Leaf node in embree has no bounding volume.
+        //
+        // internal_assert(!b_vol.has_value() || b_vol->defined())
+        //     << "RHS of geom op is varying but has no bounding volume: "
+        //     << ir::Expr(node);
+        if (!(!b_vol.has_value() || b_vol->defined())) {
+            return;
+        }
 
         const bool a_varying = a_vol.has_value();
         const bool b_varying = b_vol.has_value();

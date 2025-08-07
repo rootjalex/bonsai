@@ -20,6 +20,10 @@ struct Interval {
 using VolumeMap = std::map<std::string, ir::Expr>;
 using IntervalMap = std::map<ir::Expr, Interval, ir::ExprLessThan>;
 
+std::ostream &operator<<(std::ostream &os, const Interval &interval);
+std::ostream &operator<<(std::ostream &os, const VolumeMap &volume_map);
+std::ostream &operator<<(std::ostream &os, const IntervalMap &interval_map);
+
 Interval predicate_analysis(const ir::Expr &expr, const VolumeMap &bounds,
                             const IntervalMap &intervals = {});
 

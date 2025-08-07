@@ -590,7 +590,8 @@ Expr Extract::make(Expr vec, Expr idx) {
         } else {
             internal_assert(
                 (vec.type().is<Vector_t, Array_t, Tuple_t, DynArray_t>()))
-                << "Extract of non-aggregate: " << vec << " : " << vec.type();
+                << "Extract of non-aggregate: " << vec << " at index: " << idx
+                << ", with type: " << vec.type();
             internal_assert(idx.type().is_int_or_uint())
                 << "Extract with non-integer index: " << idx;
             if (vec.type().is<Tuple_t>()) {

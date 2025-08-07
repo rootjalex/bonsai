@@ -6,7 +6,7 @@ import stdlib/triangle;
 
 extern triangles : set[Triangle];
 
-func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
 element f32x3x4 = vector[vector[f32, 3], 4];
 element f32x9 = vector[f32, 9];

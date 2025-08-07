@@ -496,6 +496,18 @@ void Printer::print(const Expr &expr) {
     print_annotation(expr, os);
 }
 
+std::ostream &operator<<(std::ostream &os, const std::vector<Expr> &exprs) {
+    os << "[";
+    for (int i = 0, e = exprs.size(); i < e; ++i) {
+        os << exprs[i];
+        if (i + 1 == e)
+            continue;
+        os << ", ";
+    }
+    os << "]\n";
+    return os;
+}
+
 void Printer::print_no_parens(const Expr &expr) {
     ScopedValue<bool> old(implicit_parens, true);
     expr.accept(this);

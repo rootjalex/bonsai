@@ -1,8 +1,10 @@
 #include "Lower/Canonicalize.h"
 
-#include "Error.h"
 #include "IR/Analysis.h"
 #include "IR/Mutator.h"
+
+#include "Error.h"
+#include "Log.h"
 #include "Utils.h"
 
 #include <algorithm>

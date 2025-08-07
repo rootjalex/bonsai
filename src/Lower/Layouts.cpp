@@ -1,5 +1,6 @@
 #include "Lower/Layouts.h"
 
+#include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Frame.h"
 #include "IR/Mutator.h"
@@ -9,6 +10,7 @@
 #include "IR/Visitor.h"
 
 #include "Error.h"
+#include "Log.h"
 #include "Utils.h"
 
 #include <ranges>
@@ -24,10 +26,32 @@ struct LayoutTypeMap {
     uint64_t counter = 0;
 };
 
+[[maybe_unused]] std::ostream &operator<<(std::ostream &os,
+                                          const LayoutTypeMap &map) {
+    os << "layout -> type {\n";
+    for (const auto &[member, type] : map.layout_to_type) {
+        os << member << " : " << type << "\n";
+    }
+    os << "}\n";
+
+    os << "layout -> name {\n";
+    for (const auto &[member, name] : map.layout_to_name) {
+        os << member << " : " << name << "\n";
+    }
+    os << "}\n";
+    return os;
+}
+
 std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
 
-std::string group_name(uint32_t count, const std::string &index) {
-    return "group" + std::to_string(count) + "_" + index;
+std::string group_name(uint32_t count, const std::string &index,
+                       ir::Group::Type type) {
+    std::string name;
+    if (type == ir::Group::Type::Indirect) {
+        name += "indirect_";
+    }
+    name += "group_" + index + std::to_string(count);
+    return name;
 }
 
 std::string split_name(uint32_t count, const std::string &field) {
@@ -146,24 +170,24 @@ ir::Type layout_to_structs(const ir::Member &member, LayoutTypeMap &ltmap) {
             case ir::IRLayoutEnum::Field: {
                 const ir::Field *node = l.as<ir::Field>();
                 fields.emplace_back(node->name, node->type);
-                break;
+                continue;
             }
             case ir::IRLayoutEnum::Pad: {
                 const ir::Pad *node = l.as<ir::Pad>();
                 ir::Type pad_type = ir::UInt_t::make(node->bits);
                 fields.emplace_back(pad_name(pad_count++), std::move(pad_type));
-                break;
+                continue;
             }
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
                 ir::Type base_t = layout_to_structs(node->inner, ltmap);
                 ir::Type group_t =
                     ir::Array_t::make(std::move(base_t), node->size);
-                internal_assert(!node->name.empty());
-                std::string field_name = group_name(group_count++, node->name);
+                std::string field_name =
+                    group_name(group_count++, node->name, node->type);
                 // push back new field type.
                 fields.emplace_back(std::move(field_name), std::move(group_t));
-                break;
+                continue;
             }
             case ir::IRLayoutEnum::Split: {
                 const ir::Split *node = l.as<ir::Split>();
@@ -178,15 +202,14 @@ ir::Type layout_to_structs(const ir::Member &member, LayoutTypeMap &ltmap) {
                     split_name(split_count++, node->field_name());
                 fields.emplace_back(std::move(name), std::move(byte_vec));
                 // Cache the struct-type of each arm.
-                // TODO(ajr): this fails if an arm is ever not a Chain, can that
-                // happen?
-                for (const auto &arm : node->arms) {
+                for (const ir::Arm &arm : node->arms) {
                     layout_to_structs(arm.member, ltmap);
                 }
-                break;
+                continue;
             }
             case ir::IRLayoutEnum::Materialize:
-                break;
+                continue;
+            case ir::IRLayoutEnum::Lookup:
             default: {
                 internal_error << "Handle member in Chain lowering: " << l;
             }
@@ -197,12 +220,18 @@ ir::Type layout_to_structs(const ir::Member &member, LayoutTypeMap &ltmap) {
             auto [_, inserted] = ltmap.layout_to_name.try_emplace(member, name);
             internal_assert(inserted) << member;
         }
-        constexpr auto P = ir::Struct_t::Attribute::packed;
         ir::Type struct_t =
-            ir::Struct_t::make(std::move(name), std::move(fields), {P});
+            ir::Struct_t::make(std::move(name), std::move(fields),
+                               {ir::Struct_t::Attribute::packed});
         auto [_, inserted] = ltmap.layout_to_type.try_emplace(member, struct_t);
         internal_assert(inserted) << member << " already in cache\n";
         return struct_t;
+    }
+    if (const auto *lookup = member.as<ir::Lookup>()) {
+        ir::Type lookup_t = lookup->index.type();
+        auto [_, inserted] = ltmap.layout_to_type.try_emplace(member, lookup_t);
+        internal_assert(inserted) << member << " already in cache\n";
+        return lookup_t;
     }
     internal_error << "Handle member conversion for: " << member;
 }
@@ -236,22 +265,40 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             }
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
-                std::string field_name = group_name(group_count++, node->name);
-                ir::Expr path = ir::Access::make(field_name, base);
-                ir::Expr index = ir::Var::make(node->index.type(),
-                                               iter_name + "_" + node->name);
-                path = ir::Extract::make(std::move(path), index);
-                frames.push_frame();
-                frames.add_to_frame(node->name, index);
-                ir::Expr rec =
-                    field_in_layout(path, node->inner, frames, iter_name,
-                                    node_type, field, ltmap, layout);
-                frames.pop_frame();
-                if (rec.defined()) {
-                    return rec;
+                switch (node->type) {
+                case ir::Group::Type::Direct: {
+                    std::string field_name =
+                        group_name(group_count++, node->name, node->type);
+                    ir::Expr path = ir::Access::make(field_name, base);
+                    ir::Expr index = ir::Var::make(
+                        node->index.type(), iter_name + "_" + node->name);
+                    path = ir::Extract::make(std::move(path), index);
+                    frames.push_frame();
+                    frames.add_to_frame(node->name, index);
+                    ir::Expr rec =
+                        field_in_layout(path, node->inner, frames, iter_name,
+                                        node_type, field, ltmap, layout);
+                    frames.pop_frame();
+                    if (rec.defined()) {
+                        return rec;
+                    }
+                }
+                case ir::Group::Type::Indirect: {
+                    std::string field_name =
+                        group_name(group_count++, node->name, node->type);
+                    ir::Expr path = ir::Access::make(field_name, base);
+                    frames.push_frame();
+                    ir::Expr rec =
+                        field_in_layout(path, node->inner, frames, iter_name,
+                                        node_type, field, ltmap, layout);
+                    frames.pop_frame();
+                    if (rec.defined()) {
+                        return rec;
+                    }
+                }
                 }
                 break;
-            }
+            } break;
             case ir::IRLayoutEnum::Split: {
                 const ir::Split *node = l.as<ir::Split>();
                 // Stored as vector of bytes, load and reinterpret to proper
@@ -262,11 +309,11 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                             split_name(split_count++, node->field_name());
                         ir::Expr path =
                             ir::Access::make(std::move(field_name), base);
-                        auto iter = ltmap.layout_to_type.find(arm.member);
-                        internal_assert(iter != ltmap.layout_to_type.cend())
-                            << "Unseen Split arm member: " << ir::Member(node)
-                            << " at " << arm.member;
-                        ir::Type reinterpret_type = iter->second;
+                        auto it = ltmap.layout_to_type.find(arm.member);
+                        internal_assert(it != ltmap.layout_to_type.cend())
+                            << ir::Member(node)
+                            << " has unseen arm: " << arm.member;
+                        ir::Type reinterpret_type = it->second;
                         path = ir::Cast::make(reinterpret_type, path,
                                               ir::Cast::Mode::Reinterpret);
                         frames.push_frame();
@@ -299,6 +346,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             }
         }
         return ir::Expr();
+    } else if (const auto *lookup = member.as<ir::Lookup>()) {
+        return lookup->index;
     }
     internal_error << "Handle member field grab for: " << member;
 }
@@ -834,14 +883,16 @@ ir::Program LowerLayouts::run(ir::Program program,
         internal_assert(found)
             << "Extern " << name << " has member but not found.\n";
 
-        for (const auto &[member, type] : ltmap.layout_to_type) {
-            internal_assert(type.is<ir::Struct_t>());
-            program.types[type.as<ir::Struct_t>()->name] = type;
+        for (const auto &[_, type] : ltmap.layout_to_type) {
+            if (const auto *struct_t = type.as<ir::Struct_t>()) {
+                program.types[struct_t->name] = type;
+            }
         }
     }
+    LOG_INFO << ltmap;
 
     // lower all `Access`es on `Unwrap`s
-    LowerMatches lowerer(tree_layouts, types, ltmap);
+    LowerMatches lower(tree_layouts, types, ltmap);
 
     for (auto &[fname, func] : program.funcs) {
         for (auto &arg : func->args) {
@@ -849,9 +900,15 @@ ir::Program LowerLayouts::run(ir::Program program,
                 arg.type = types.at(arg.name);
             }
         }
-        func->body = lowerer.mutate(func->body);
+        bool match = contains<ir::Match>(func->body);
+        if (match) {
+            LOG_INFO << "before: " << func->body;
+        }
+        func->body = lower.mutate(func->body);
+        if (match) {
+            LOG_INFO << "after: " << func->body;
+        }
     }
-
     return program;
 }
 

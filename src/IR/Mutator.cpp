@@ -5,6 +5,8 @@
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 
+#include "Log.h"
+
 namespace bonsai {
 namespace ir {
 

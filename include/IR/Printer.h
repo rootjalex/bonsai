@@ -20,6 +20,7 @@ std::ostream &operator<<(std::ostream &os, const Program &program);
 
 std::string to_string(const Expr &expr);
 std::ostream &operator<<(std::ostream &os, const Expr &expr);
+std::ostream &operator<<(std::ostream &os, const std::vector<Expr> &exprs);
 
 std::string to_string(const Interface &interface);
 std::ostream &operator<<(std::ostream &os, const Interface &interface);
