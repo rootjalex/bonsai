@@ -568,7 +568,8 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
             }
         }
         internal_error << "Failed to find field: " << field
-                       << " in struct type: " << struct_type;
+                       << " in struct type: " << struct_type << " {"
+                       << as_struct->fields << "}";
     } else if (const Vector_t *as_vec = struct_type.as<Vector_t>()) {
         internal_assert((field == "x" && as_vec->lanes > 0) ||
                         (field == "y" && as_vec->lanes > 1) ||

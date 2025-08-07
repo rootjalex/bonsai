@@ -166,8 +166,12 @@ Expr make_tuple(std::vector<Expr> exprs) {
 std::vector<Expr> break_tuple(Expr expr) {
     // TODO(ajr): this may someday need to handle expr being a `Sort`
     const Build *build = expr.as<Build>();
-    internal_assert(build && build->type.is<Tuple_t>())
-        << "Expected Tuple build: " << expr;
+    if (build == nullptr) {
+        internal_assert(!expr.type().is_iterable());
+        return {expr};
+    }
+    internal_assert(build->type.is<Tuple_t>())
+        << "expected tuple build: " << expr << " : " << expr.type();
     return build->values;
 }
 

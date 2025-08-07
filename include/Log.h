@@ -8,23 +8,23 @@
 namespace bonsai {
 
 namespace {
-enum class LogLevel {
+enum class LogType {
     INFO = 0,
     WARN = 1,
     ERROR = 2,
     DEBUG = 3,
 };
 
-inline std::string log_level_to_string(LogLevel level) {
+inline std::string log_level_to_string(LogType level) {
     switch (level) {
-    case LogLevel::INFO:
-        return "I";
-    case LogLevel::WARN:
-        return "W";
-    case LogLevel::ERROR:
-        return "E";
-    case LogLevel::DEBUG:
-        return "D";
+    case LogType::INFO:
+        return "INFO";
+    case LogType::WARN:
+        return "WARN";
+    case LogType::ERROR:
+        return "ERROR";
+    case LogType::DEBUG:
+        return "DEBUG";
     }
 }
 } // namespace
@@ -32,7 +32,7 @@ inline std::string log_level_to_string(LogLevel level) {
 // TODO(cgyurgyik): verbosity levels is probably nice to have as well.
 class LogStream {
   public:
-    LogStream(std::ostream &out, LogLevel level, std::source_location location)
+    LogStream(std::ostream &out, LogType level, std::source_location location)
         : out(out), level(level), location(location) {}
 
     ~LogStream() {
@@ -58,16 +58,16 @@ class LogStream {
 
   private:
     std::ostream &out;
-    LogLevel level;
+    LogType level;
     std::source_location location;
     std::ostringstream stream;
 };
 
 #define LOG_ERROR                                                              \
-    LogStream(std::cerr, LogLevel::ERROR, std::source_location::current())
+    LogStream(std::cerr, LogType::ERROR, std::source_location::current())
 #define LOG_WARN                                                               \
-    LogStream(std::cerr, LogLevel::WARN, std::source_location::current())
+    LogStream(std::cerr, LogType::WARN, std::source_location::current())
 #define LOG_INFO                                                               \
-    LogStream(std::cerr, LogLevel::INFO, std::source_location::current())
+    LogStream(std::cerr, LogType::INFO, std::source_location::current())
 
 } // namespace bonsai

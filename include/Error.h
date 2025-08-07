@@ -11,6 +11,8 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 
+#include "Log.h"
+
 namespace bonsai {
 
 class Error final : public std::runtime_error {
@@ -19,13 +21,19 @@ class Error final : public std::runtime_error {
 
 class StackTraceCollector {
   public:
+    // Collects the stack traces for macos, skipping the first `skip_frames`
+    // symbols.
     static std::vector<std::string> collect_stack_trace(int skip_frames) {
         std::vector<std::string> trace;
 
-        const int max_frames = 128;
+        const int max_frames = 64;
         void *buffer[max_frames];
 
         int frame_count = backtrace(buffer, max_frames);
+        if (frame_count == max_frames) {
+            LOG_WARN << "Maximum capacity for frame count saturated: "
+                     << frame_count << ". This may result in missing symbols.";
+        }
         char **symbols = backtrace_symbols(buffer, frame_count);
         if (symbols == nullptr) {
             return trace;
@@ -33,9 +41,10 @@ class StackTraceCollector {
 
         for (int i = skip_frames; i < frame_count; ++i) {
             std::string frame = demangle_symbol(symbols[i]);
-            if (!frame.empty()) {
-                trace.push_back(frame);
+            if (frame.empty()) {
+                continue;
             }
+            trace.push_back(frame);
         }
         free(symbols);
         return trace;
@@ -59,9 +68,9 @@ class StackTraceCollector {
         if (name_start == std::string::npos) {
             return result;
         }
-        // Skip the space.
-        ++name_start;
-        // Find the end of the mangled name, `+|\n`
+        ++name_start; // ...and skip it.
+
+        // Find the end of the mangled name.
         size_t name_end = result.find(" + ", name_start);
         if (name_end == std::string::npos) {
             name_end = result.length();
@@ -69,7 +78,6 @@ class StackTraceCollector {
 
         std::string mangled_name =
             result.substr(name_start, name_end - name_start);
-
         // Remove any trailing whitespace.
         size_t last_nonspace = mangled_name.find_last_not_of(" \t\n\r");
         if (last_nonspace != std::string::npos) {
@@ -113,7 +121,6 @@ class ErrorReport {
         if (cond_str) {
             stream << "\n--> " << cond_str << "\n";
         }
-        add_stack_trace();
     }
 
     ErrorReport &ref() { return *this; }
@@ -130,6 +137,7 @@ class ErrorReport {
         // TODO: debug mode should do this.
         // std::cerr << stream.str();
         // abort();
+        add_stack_trace();
         throw Error(stream.str());
     }
 
@@ -137,13 +145,14 @@ class ErrorReport {
     std::ostringstream stream;
 
     void add_stack_trace() {
-        // Skip ErrorReport constructor and other unnecessary frames.
+        // Skip redundant error-reporting symbols.
         auto stack_trace =
             StackTraceCollector::collect_stack_trace(/*skip_frames=*/4);
         if (!stack_trace.empty()) {
             stream << "\n";
             for (size_t i = 0; i < stack_trace.size(); ++i) {
-                stream << "  #" << i << ": " << stack_trace[i] << "\n";
+                size_t index = stack_trace.size() - (i + 1);
+                stream << "  #" << index << ": " << stack_trace[i] << "\n";
             }
         }
     }
