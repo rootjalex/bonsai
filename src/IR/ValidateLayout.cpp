@@ -484,9 +484,9 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
     GroupMap group_map = get_group_map(layout);
     std::vector<Path> paths = get_paths(body, group_map);
     internal_assert(paths.size() == bvh_node->variants.size())
-        << "Layout body: " << body << "\nhas " << paths.size()
-        << " paths. BVH type: " << bvh_t << "\nhas "
-        << bvh_node->variants.size() << " node options.";
+        << "layout `" << layout.name << "` has " << paths.size()
+        << " paths, while the BVH ADT " << bvh_t << " has "
+        << bvh_node->variants.size() << " node variants.";
 
     // Check paths are unique.
     for (size_t i = 0; i < paths.size(); ++i) {

@@ -435,21 +435,21 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                            const std::string &obj_name, const LayoutMap &lmap,
                            const ir::Layout &layout, const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
-        using Path =
-            std::vector<std::pair<std::string, std::optional<int64_t>>>;
+        // Incorrect: this should use the node->arm.
+        using Path = std::vector<std::pair<std::string, ir::Arm>>;
         Path current;
         std::map<std::string, Path> paths;
 
         void visit(const ir::Split *node) override {
             for (const auto &arm : node->arms) {
-                current.emplace_back(node->field_name(), arm.value);
-                if (arm.name.has_value()) {
-                    internal_assert(!paths.contains(*arm.name))
-                        << "Duplicate path for: " << *arm.name;
-                    paths[*arm.name] = current;
-                } else {
-                    arm.member.accept(this); // check for deeper splits.
+                current.emplace_back(node->field_name(), arm);
+                if (!arm.name.has_value()) {
+                    arm.member.accept(this); // Check for deeper splits.
+                    continue;
                 }
+                auto [_, inserted] = paths.try_emplace(*arm.name, current);
+                internal_assert(inserted)
+                    << "duplicate path found for: " << *arm.name;
             }
         }
     };
@@ -459,22 +459,25 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
     // TODO: should this be scheduable...?
     // TODO: we want to insert likely() for non-leaves, I think?
     std::vector<std::string> order;
-    for (const auto &[field_name, _] : finder.paths) {
-        order.push_back(field_name);
+    for (const auto &[node_type, _] : finder.paths) {
+        order.push_back(node_type);
     }
-    std::sort(order.begin(), order.end(),
-              [&](const std::string &a, const std::string &b) {
-                  // TODO: caching this would make this faster,
-                  // but we probably never have a large number.
-                  auto count_non_null = [](const FindPaths::Path &path) {
-                      return std::count_if(
-                          path.begin(), path.end(),
-                          [](const auto &p) { return p.second.has_value(); });
-                  };
-                  return count_non_null(finder.paths[a]) <
-                         count_non_null(finder.paths[b]);
-              });
 
+    // std::sort(order.begin(), order.end(),
+    //           [&](const std::string &a, const std::string &b) {
+    //               // TODO: caching this would make this faster,
+    //               // but we probably never have a large number.
+    //               auto count_non_null = [](const FindPaths::Path &path) {
+    //                   return std::count_if(
+    //                       path.begin(), path.end(),
+    //                       [](const auto &p) { return p.second.has_value();
+    //                       });
+    //               };
+    //               return count_non_null(finder.paths[a]) <
+    //                      count_non_null(finder.paths[b]);
+    //           });
+
+    // TODO(cgyurgyik): there is a mismatch between if condition and if body.
     ir::Stmt if_chain;
     for (const std::string &node_type : std::views::reverse(order)) {
         // Make a hole for the body of this node type.
@@ -486,12 +489,10 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
             if_chain = std::move(body);
             continue;
         }
-        ir::Expr cond;
+        ir::Expr condition;
         internal_assert(finder.paths.contains(node_type)) << node_type;
         const FindPaths::Path &path = finder.paths.at(node_type);
-
-        for (const auto &[field_name, field_value] : path) {
-            internal_assert(field_value.has_value());
+        for (const auto &[field_name, arm] : path) {
             ir::Expr value = field_in_layout(
                 /*base=*/base,
                 /*member=*/member,
@@ -503,15 +504,21 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                 /*layout=*/layout,
                 /*root=*/root);
 
-            // TODO: support non-eq matching? e.g. ranges?
-            ir::Expr constant = make_const(value.type(), *field_value);
-            ir::Expr equals = std::move(value) == std::move(constant);
-            cond = !cond.defined() ? std::move(equals)
-                                   : std::move(cond) && std::move(equals);
+            if (arm.value.has_value()) {
+                internal_assert(arm.comparator == ir::Arm::Comparator::EQ)
+                    << "[unimplemented] non-equality matching";
+                ir::Expr constant = make_const(value.type(), *arm.value);
+                condition = std::move(value) == std::move(constant);
+                continue;
+            }
+            // This is a wildcard.
+            if (!condition.defined()) {
+                condition = ir::BoolImm::make(true);
+            }
         }
 
-        internal_assert(cond.defined());
-        if_chain = ir::IfElse::make(std::move(cond), std::move(body),
+        internal_assert(condition.defined());
+        if_chain = ir::IfElse::make(std::move(condition), std::move(body),
                                     std::move(if_chain));
     }
     internal_assert(if_chain.defined());
