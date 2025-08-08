@@ -435,10 +435,9 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                            const std::string &obj_name, const LayoutMap &lmap,
                            const ir::Layout &layout, const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
-        // Incorrect: this should use the node->arm.
         using Path = std::vector<std::pair<std::string, ir::Arm>>;
         Path current;
-        std::map<std::string, Path> paths;
+        std::vector<std::pair<std::string, Path>> paths;
 
         void visit(const ir::Split *node) override {
             for (const auto &arm : node->arms) {
@@ -447,9 +446,12 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                     arm.member.accept(this); // Check for deeper splits.
                     continue;
                 }
-                auto [_, inserted] = paths.try_emplace(*arm.name, current);
-                internal_assert(inserted)
-                    << "duplicate path found for: " << *arm.name;
+                internal_assert(std::find_if(paths.begin(), paths.end(),
+                                             [&](const auto &p) {
+                                                 return p.first == *arm.name;
+                                             }) == paths.end())
+                    << "unexpected duplicate variant: " << *arm.name;
+                paths.emplace_back(*arm.name, current);
             }
         }
     };
@@ -477,7 +479,6 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
     //                      count_non_null(finder.paths[b]);
     //           });
 
-    // TODO(cgyurgyik): there is a mismatch between if condition and if body.
     ir::Stmt if_chain;
     for (const std::string &node_type : std::views::reverse(order)) {
         // Make a hole for the body of this node type.
@@ -490,8 +491,11 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
             continue;
         }
         ir::Expr condition;
-        internal_assert(finder.paths.contains(node_type)) << node_type;
-        const FindPaths::Path &path = finder.paths.at(node_type);
+        auto it =
+            std::find_if(finder.paths.begin(), finder.paths.end(),
+                         [&](const auto &p) { return p.first == node_type; });
+        internal_assert(it != finder.paths.end()) << node_type;
+        const FindPaths::Path &path = it->second;
         for (const auto &[field_name, arm] : path) {
             ir::Expr value = field_in_layout(
                 /*base=*/base,
@@ -822,7 +826,6 @@ struct LowerMatches : public ir::Mutator {
             ir::Stmt branch_body =
                 LowerUnwrapAccesses(tree_name, branch_name, field_map)
                     .mutate(statement);
-
             body = FillHole(branch_name, std::move(branch_body))
                        .mutate(std::move(body));
         }
