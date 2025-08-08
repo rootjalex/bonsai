@@ -9,6 +9,9 @@
 
 #include <set>
 
+// TODO(cgyurgyik): verify indirect groups are defined a root level.
+// TODO(cgyurgyik): verify that if a variant is bounded childwise, the field
+// counts are sensical, e.g., 4 children should have 4 bounding volumes.
 namespace bonsai {
 namespace ir {
 namespace {
@@ -56,13 +59,13 @@ std::vector<Path> get_paths(const Member &member, const GroupMap &group_map) {
         void visit(const Split *node) override {
             std::vector<Path> old_paths = std::move(paths);
             std::vector<Path> split_paths; // All paths are split.
-            for (const auto &arm : node->arms) {
+            for (const ir::Arm &arm : node->arms) {
                 paths = {{}};
                 arm.member.accept(this);
                 std::vector<Path> new_paths = std::move(paths);
                 // This is an (expected) exponential explosion.
-                for (const auto &old_path : old_paths) {
-                    for (const auto &new_path : new_paths) {
+                for (const Path &old_path : old_paths) {
+                    for (const Path &new_path : new_paths) {
                         Path together = old_path;
                         for (const auto &[name, type] : new_path) {
                             const auto [_, inserted] =
@@ -386,7 +389,7 @@ struct ValidateSplits : public Visitor {
             << "`. Currently defined fields:\n"
             << defined;
         TypeMap parent = defined;
-        for (const auto &arm : node->arms) {
+        for (const ir::Arm &arm : node->arms) {
             arm.member.accept(this);
             defined = parent; // erase arm scope.
         }
@@ -396,23 +399,24 @@ struct ValidateSplits : public Visitor {
         // Two pass: gather all fields, then check nested members.
         TypeMap parent = defined;
         for (const auto &member : node->members) {
-            if (const Field *name = member.as<Field>()) {
+            if (const Field *field = member.as<Field>()) {
                 const auto [_, inserted] =
-                    defined.try_emplace(name->name, name->type);
+                    defined.try_emplace(field->name, field->type);
                 internal_assert(inserted)
-                    << "Field: " << name->name << " is duplicated in member";
-            } else if (const Materialize *mat = member.as<Materialize>()) {
-                const auto [_, inserted] =
-                    defined.try_emplace(mat->name, mat->value.type());
+                    << "field: " << field->name << " is duplicated in member";
+            } else if (const Materialize *materialization =
+                           member.as<Materialize>()) {
+                const auto [_, inserted] = defined.try_emplace(
+                    materialization->name, materialization->value.type());
                 internal_assert(inserted)
-                    << "Field: " << name->name << " is duplicated in member";
+                    << "materialization: " << materialization->name
+                    << " is duplicated in member";
             }
         }
 
         for (const auto &member : node->members) {
             member.accept(this);
         }
-
         defined = parent;
     }
     void visit(const Group *node) override {
@@ -493,8 +497,9 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
         const Path &pi = paths[i];
         for (size_t j = i + 1; j < paths.size(); ++j) {
             const Path &pj = paths[j];
-            internal_assert(
-                !equal_paths(pi, pj)); // TODO: error message for equal paths?
+            internal_assert(!equal_paths(pi, pj))
+                << "unexpected equal paths for " << layout << ": " << pi
+                << " vs " << pj;
         }
     }
 

@@ -43,10 +43,14 @@ struct VariantData {
 };
 
 VariantData analyze_node(const ir::BVH_t::Variant &variant,
-                         const ir::Type &primitive_type) {
+                         const ir::Type &primitive_type,
+                         const ir::Type &tree_type) {
+    const ir::BVH_t *bvh = tree_type.as<ir::BVH_t>();
+    internal_assert(bvh) << tree_type;
+    ir::Type tree_reference = ir::Ref_t::make(bvh->name);
     std::vector<ir::TypedVar> payload;
     std::vector<VariantData::ChildAccess> children;
-    for (const auto &parameter : variant.fields()) {
+    for (const ir::TypedVar &parameter : variant.fields()) {
         ir::Type parameter_type = parameter.type;
         if (ir::equals(parameter_type, primitive_type) ||
             (parameter_type.is_iterable() &&
@@ -54,15 +58,13 @@ VariantData analyze_node(const ir::BVH_t::Variant &variant,
             payload.push_back(parameter);
             continue;
         }
-        // TODO(cgyurgyik): need to verify this is actually a reference to the
-        // current tree type, not just a reference in general.
         if (parameter_type.is<ir::Ref_t>()) {
             children.emplace_back(VariantData::ChildAccess{.child = parameter});
             continue;
         }
         if (parameter_type.is_iterable() &&
-            parameter_type.element_of().is<ir::Ref_t>()) {
-            //
+            parameter_type.element_of().is<ir::Ref_t>() &&
+            ir::equals(parameter_type.element_of(), tree_reference)) {
             std::optional<uint32_t> size =
                 get_constant_value(parameter_type.size());
             internal_assert(size.has_value()) << parameter_type;
@@ -80,6 +82,30 @@ VariantData analyze_node(const ir::BVH_t::Variant &variant,
         .payload = payload,
         .children = children,
     };
+}
+
+int64_t get_child_reference_count(const ir::BVH_t::Variant &variant,
+                                  const ir::Type tree) {
+    const ir::BVH_t *bvh = tree.as<ir::BVH_t>();
+    internal_assert(bvh) << tree;
+    ir::Type tree_reference = ir::Ref_t::make(bvh->name);
+
+    int64_t count = 0;
+    for (const auto &[_, type] : variant.fields()) {
+        if (type.is<ir::Ref_t>() &&
+            ir::equals(type.element_of(), tree_reference)) {
+            ++count;
+            continue;
+        }
+        if (type.is_iterable() && type.element_of().is<ir::Ref_t>() &&
+            ir::equals(type.element_of(), tree_reference)) {
+            std::optional<uint32_t> size = get_constant_value(type.size());
+            internal_assert(size.has_value()) << type;
+            count += *size;
+            continue;
+        }
+    }
+    return count;
 }
 
 struct RewriteYields : public ir::Mutator {
@@ -147,16 +173,27 @@ struct Rewriter : public ir::Mutator {
                         ir::Build::make(volume->struct_type, args));
                 } break;
                 case ir::BVH_t::Volume::BoundType::Childwise: {
-                    // TODO(cgyurgyik): hard-coded for now, should we be able to
-                    // infer this or require it to be stated in the layout
-                    // language?
-                    for (int i = 0; i < 4; ++i) {
+                    std::optional<ir::BVH_t::Volume> volume = variant.volume;
+                    internal_assert(volume.has_value())
+                        << "[unexpected] variant with no volume for childwise "
+                           "bounding: "
+                        << variant;
+                    int child_count =
+                        get_child_reference_count(variant, node->loc.type());
+                    for (int i = 0; i < child_count; ++i) {
                         std::vector<ir::Expr> args;
                         args.reserve(n_args);
+                        const auto *struct_t =
+                            volume->struct_type.as<ir::Struct_t>();
+                        internal_assert(struct_t);
                         for (size_t j = 0; j < n_args; ++j) {
                             const std::string &name = volume->initializers[j];
-                            args.push_back(ir::Extract::make(
-                                ir::Access::make(name, tree), ir::Expr(i)));
+                            ir::Expr arg = ir::Access::make(name, tree);
+                            if (!ir::equals(arg.type(),
+                                            struct_t->fields[j].type)) {
+                                arg = ir::Extract::make(arg, ir::Expr(i));
+                            }
+                            args.push_back(arg);
                         }
                         volumes.emplace_back(
                             ir::Build::make(volume->struct_type, args));
@@ -175,8 +212,7 @@ struct Rewriter : public ir::Mutator {
         }
         locs.pop_back();
 
-        ir::Stmt after = ir::Match::make(node->loc, std::move(new_arms));
-        return after;
+        return ir::Match::make(node->loc, std::move(new_arms));
     }
 
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
@@ -209,7 +245,8 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volumes.size() == lambda->args.size())
+                << volumes.size() << " vs " << lambda->args.size();
             const size_t n_args = lambda->args.size();
 
             std::map<std::string, ir::Expr> repls;
@@ -612,7 +649,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         for (size_t i = 0; i < n_nodes; i++) {
             ir::Expr node = ir::Unwrap::make(i, bvh_expr);
             const auto [payload, children] =
-                analyze_node(bvh->variants[i], as_var->type.element_of());
+                analyze_node(bvh->variants[i], as_var->type.element_of(), tree);
 
             std::vector<ir::Stmt> statements;
             // TODO: visit order should be scheduable?
@@ -789,7 +826,7 @@ ir::Program LowerTrees::run(ir::Program program,
     ir::TypeMap tree_types =
         std::move(program.schedules[ir::Target::Host].tree_types);
 
-    LowerBVH converter(tree_types);
+    LowerBVH lower(tree_types);
 
     // Remap externs.
     for (auto &[name, type] : program.externs) {
@@ -800,10 +837,10 @@ ir::Program LowerTrees::run(ir::Program program,
     }
 
     for (auto &[_, f] : program.funcs) {
-        f->body = converter.mutate(f->body);
+        f->body = lower.mutate(f->body);
     }
 
-    for (auto &[name, f] : converter.new_funcs) {
+    for (auto &[name, f] : lower.new_funcs) {
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(name), std::move(f));
         internal_assert(inserted);
