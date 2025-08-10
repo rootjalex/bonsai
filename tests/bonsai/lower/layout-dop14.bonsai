@@ -1,0 +1,52 @@
+//! flags: -p verify-layouts -p lower-trees -p lower-layouts
+
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+element f32x3 = vector[f32, 3];
+element f32x4 = vector[f32, 4];
+
+func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+
+element DOP14 { lo1: f32x3; hi1: f32x3; lo2: f32x4; hi2: f32x4; early_exit: u1; }
+
+schedule {
+    // 14-dop in https://dl.acm.org/doi/pdf/10.1145/3675391#page=7.35
+    tree[[Triangle]] BVH(lo1: f32x3, hi1: f32x3, lo2: f32x4, hi2: f32x4, ee: u1) with DOP14(lo1, hi1, lo2, hi2, ee)
+    = Interior(left: BVH, right: BVH)
+    | Leaf(leaf_size: u4, data: array[Triangle, leaf_size]);
+
+    triangles : BVH;
+    
+    layout triangles(index: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        
+        node_count : u32;
+        group nodes[node_count] by index {
+            lo1: f32x3; // planes 0-2
+            hi1: f32x3; // planes 0-2
+            ee: u1; // whether to early exit per section 4.4
+            is_leaf_flag: u1;
+            30;
+            right: u32;
+            split is_leaf_flag {
+                0 -> Interior {
+                    left: u32;
+                };
+                1 -> Leaf {
+                    leaf_size: u4;
+                    tri_address: u28;
+                    data = primitives[tri_address : tri_address + leaf_size];
+                };
+            };
+        };
+        group dop[node_count] by index {
+            lo2: f32x4; // planes 3-6
+            hi2: f32x4; // planes 3-6
+        };
+    };
+}

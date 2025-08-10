@@ -348,8 +348,12 @@ struct ValidateSplits : public Visitor {
     void visit(const Split *node) override {
         ir::Expr expr = node->expr;
         internal_assert(expr.type().is_scalar()) << expr.type();
+        // TODO(cgyurgyik): generalize this for n-bit fields.
         if (expr.type().is<Int_t>()) {
             switch (expr.type().bits()) {
+            case 1:
+                validate_arms<bool>(*node);
+                break;
             case 16:
                 validate_arms<int16_t>(*node);
                 break;
@@ -365,6 +369,9 @@ struct ValidateSplits : public Visitor {
             }
         } else if (expr.type().is<UInt_t>()) {
             switch (expr.type().bits()) {
+            case 1:
+                validate_arms<bool>(*node);
+                break;
             case 16:
                 validate_arms<uint16_t>(*node);
                 break;

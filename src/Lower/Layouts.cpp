@@ -277,7 +277,7 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutMap &lmap) {
             // type.
             if (uint64_t bits = m.bits(); bits > 0) {
                 internal_assert(bits % 8 == 0)
-                    << "Split is not byte-aligned: " << m;
+                    << "Split is not byte-aligned (" << bits << "): " << m;
                 static const ir::Type u8 = ir::UInt_t::make(8);
                 ir::Type byte_vector = ir::Vector_t::make(u8, bits / 8);
                 std::string name =
@@ -433,6 +433,7 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                            const std::string &obj_name, const LayoutMap &lmap,
                            const ir::Layout &layout, const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
+        // TODO(cgyurgyik): enable ADTs to have same children name.
         using Path = std::vector<std::pair<std::string, ir::Arm>>;
         Path current;
         std::vector<std::pair<std::string, Path>> paths;
