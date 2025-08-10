@@ -14,6 +14,7 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    layout-soa.bonsai
     layout-embree-hair.bonsai
     layout-pbrt.bonsai
     logical-operation.bonsai

@@ -1766,27 +1766,6 @@ struct Parser {
         return types;
     }
 
-    std::vector<ir::TypedVar> parse_layout_args() {
-        std::vector<ir::TypedVar> args;
-        expect(Token::Type::LPAREN);
-        do {
-            auto def = parse_name_def<false, true>(false);
-            internal_assert(!def.value.defined())
-                << "Lambdas cannot have default function values! " << def.name
-                << " assigned default: " << def.value;
-            internal_assert(!def.mut)
-                << "TODO: support mutable arguments in lambdas. Argument: "
-                << def.name << " marked as mutable.";
-            args.push_back({std::move(def.name), std::move(def.type)});
-        } while (consume(Token::Type::COMMA));
-        expect(Token::Type::RPAREN);
-
-        for (const ir::TypedVar &arg : args) {
-            add_type_to_frame(arg.name, arg.type, /*mutable=*/false);
-        }
-        return args;
-    }
-
     std::vector<ir::TypedVar> parse_lambda_args() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
@@ -2408,11 +2387,9 @@ struct Parser {
     // parse_member()
     ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
         push_frame();
-
-        std::vector<ir::TypedVar> root = parse_layout_args();
+        std::vector<ir::Function::Argument> root = parse_func_args();
         ir::Member member = parse_member();
         expect(Token::Type::SEMICOL);
-
         pop_frame();
 
         return ir::Layout{

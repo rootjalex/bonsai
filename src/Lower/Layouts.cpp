@@ -126,7 +126,6 @@ std::string split_name(uint32_t count, const std::string &field) {
 
 // TODO(cgyurgyik): there is an underlying assumption that every layout is a
 // chain. This seems in general brittle, and breaks for arms with lookups.
-//
 // https://www.youtube.com/watch?v=C6ZnwuhqALY&ab_channel=2ChainzVEVO
 const ir::Chain *to_chainz(const ir::Member &member) {
     const ir::Chain *chain = member.as<ir::Chain>();
@@ -148,8 +147,6 @@ IndexTList get_index_type(const ir::Member &member) {
             switch (m.node_type()) {
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = m.as<ir::Group>();
-                internal_assert(index_ts.empty())
-                    << "[unimplemented] adjacent groups in member: " << member;
                 if (!node->index.defined()) {
                     continue;
                 }
@@ -222,9 +219,10 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             }
             std::optional<ir::Expr> expr = frames.from_frames(var->name);
             if (!expr.has_value()) {
-                auto it = std::find_if(
-                    layout.root.begin(), layout.root.end(),
-                    [&](const ir::TypedVar &v) { return v.name == var->name; });
+                auto it = std::find_if(layout.root.begin(), layout.root.end(),
+                                       [&](const ir::Function::Argument &arg) {
+                                           return arg.name == var->name;
+                                       });
                 if (it != layout.root.end()) {
                     expr = ir::Var::make(it->type, it->name);
                 }
@@ -335,8 +333,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             case ir::Group::Type::Direct: {
                 ir::Expr path = ir::Access::make(field_name, base);
                 frames.push_frame();
-                ir::Expr index = ir::Var::make(node->index.type(),
-                                               iter_name + "_" + node->name);
+                internal_assert(node->index.defined()) << m;
+                ir::Expr index = node->index;
                 path = ir::Extract::make(std::move(path), index);
                 frames.add_to_frame(node->name, index);
                 ir::Expr recurse =
@@ -509,10 +507,28 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                 /*root=*/root);
 
             if (arm.value.has_value()) {
-                internal_assert(arm.comparator == ir::Arm::Comparator::EQ)
-                    << "[unimplemented] non-equality matching";
                 ir::Expr constant = make_const(value.type(), *arm.value);
-                condition = std::move(value) == std::move(constant);
+
+                switch (arm.comparator) {
+                case ir::Arm::Comparator::EQ:
+                    condition = std::move(value) == std::move(constant);
+                    break;
+                case ir::Arm::Comparator::GT:
+                    condition = std::move(value) > std::move(constant);
+                    break;
+                case ir::Arm::Comparator::LT:
+                    condition = std::move(value) < std::move(constant);
+                    break;
+                case ir::Arm::Comparator::GE:
+                    condition = std::move(value) >= std::move(constant);
+                    break;
+                case ir::Arm::Comparator::LE:
+                    condition = std::move(value) <= std::move(constant);
+                    break;
+                case ir::Arm::Comparator::NE:
+                    condition = std::move(value) != std::move(constant);
+                    break;
+                }
                 continue;
             }
             // This is a wildcard.

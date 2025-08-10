@@ -463,8 +463,27 @@ void Printer::print(const Schedule &schedule) {
 }
 
 void Printer::print(const Layout &layout) {
-    os << "layout" << ' ' << layout.name << '(' << layout.root << ')'
-       << layout.body << '\n';
+    os << "layout" << ' ' << layout.name << '(';
+    bool first = true;
+    for (const ir::Function::Argument &arg : layout.root) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+
+        os << arg.name;
+        if (arg.type.defined()) {
+            os << ": ";
+            if (arg.mutating) {
+                os << "mut ";
+            }
+            os << arg.type;
+        }
+        if (arg.default_value.defined()) {
+            os << " = " << arg.default_value;
+        }
+    }
+    os << ')' << layout.body << '\n';
 }
 
 void Printer::print(const Location &loc) {

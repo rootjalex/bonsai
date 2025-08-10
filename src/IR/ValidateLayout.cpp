@@ -423,8 +423,8 @@ struct ValidateSplits : public Visitor {
         if (node->index.defined()) {
             const auto *v = node->index.as<ir::Var>();
             internal_assert(v) << node->index;
-            const auto [_, inserted] = defined.insert({v->name, v->type});
-            internal_assert(inserted) << node->index << " is a duplicate";
+            // (duplicate index use is fine, e.g., in the case of SoA).
+            defined.insert({v->name, v->type});
         }
 
         TypeMap parent = defined;

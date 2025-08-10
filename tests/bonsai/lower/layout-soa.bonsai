@@ -19,21 +19,23 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group nodes[node_count] by index {
+        group aabbs[node_count] by index {
             low : vec3f;
             high : vec3f;
+        };
+        group nodes[node_count] by index {
             nprims : u16;
             axis : u8;
             8;
             split nprims {
-                0 -> Interior { 
+                > 0 -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
+                _ -> Interior { 
                     offset : u32; 
                     left = index + 1; 
                     right = index + offset; 
-                };
-                _ -> Leaf { 
-                    poffset : u32; 
-                    data = primitives[poffset : poffset + nprims]; 
                 };
             };
         };
