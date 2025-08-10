@@ -44,7 +44,7 @@ schedule {
                 };
             };
         };
-        group dop[node_count] by index {
+        group dop36[node_count] by index {
             lo2: f32x4; // planes 3-6
             hi2: f32x4; // planes 3-6
         };

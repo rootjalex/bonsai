@@ -15,21 +15,21 @@ type tl0 = [[packed]] struct tl0{ left : u32 }
 type tl1 = [[packed]] struct tl1{ leaf_size : u4; tri_address : u28 }
 type tl2 = [[packed]] struct tl2{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }
 type tl3 = [[packed]] struct tl3{ lo2 : f32x4; hi2 : f32x4 }
-type tl4 = [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl2{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count]; group_dop1 : [[packed]] struct tl3{ lo2 : f32x4; hi2 : f32x4 }[node_count] }
+type tl4 = [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl2{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count]; group_dop361 : [[packed]] struct tl3{ lo2 : f32x4; hi2 : f32x4 }[node_count] }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern triangles : [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl2{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count]; group_dop1 : [[packed]] struct tl3{ lo2 : f32x4; hi2 : f32x4 }[node_count] }
+extern triangles : [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl2{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count]; group_dop361 : [[packed]] struct tl3{ lo2 : f32x4; hi2 : f32x4 }[node_count] }
 
 func _traverse_tree0(ray : Ray, triangles : tl4) -> set<Triangle> {
   rec(index : u32) {
     if (triangles.group_nodes0[index].is_leaf_flag == 0u) {
-      if (intersects(ray, build<DOP14>(triangles.group_nodes0[index].lo1, triangles.group_nodes0[index].hi1, triangles.group_dop1[index].lo2, triangles.group_dop1[index].hi2, triangles.group_nodes0[index].ee))) {
+      if (intersects(ray, build<DOP14>(triangles.group_nodes0[index].lo1, triangles.group_nodes0[index].hi1, triangles.group_dop361[index].lo2, triangles.group_dop361[index].hi2, triangles.group_nodes0[index].ee))) {
         from (reinterpret_cast<tl0>(triangles.group_nodes0[index]).left, triangles.group_nodes0[index].right)
       }
     } else {
       foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index]).tri_address:reinterpret_cast<tl1>(triangles.group_nodes0[index]).tri_address + cast<u28>(reinterpret_cast<tl1>(triangles.group_nodes0[index]).leaf_size)] {
-        if (intersects(ray, build<DOP14>(triangles.group_nodes0[index].lo1, triangles.group_nodes0[index].hi1, triangles.group_dop1[index].lo2, triangles.group_dop1[index].hi2, triangles.group_nodes0[index].ee))) {
+        if (intersects(ray, build<DOP14>(triangles.group_nodes0[index].lo1, triangles.group_nodes0[index].hi1, triangles.group_dop361[index].lo2, triangles.group_dop361[index].hi2, triangles.group_nodes0[index].ee))) {
           if (intersects(ray, _iter0)) {
             yield _iter0
           }
