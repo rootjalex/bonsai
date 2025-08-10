@@ -104,6 +104,7 @@ struct Materialize;
 struct Lookup;
 
 struct WriteLoc;
+struct Argument;
 
 } // namespace ir
 } // namespace bonsai

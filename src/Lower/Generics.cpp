@@ -199,13 +199,12 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
         const auto &func = generics[name];
         for (const auto &[type, _types] : _map) {
             const size_t n_args = func->args.size();
-            std::vector<Function::Argument> args(n_args);
+            std::vector<ir::Argument> args(n_args);
             for (size_t i = 0; i < n_args; i++) {
                 ir::Type new_type = replace(_types, func->args[i].type);
                 internal_assert(!contains_generics(new_type));
-                const ir::Function::Argument &before = func->args[i];
-                args[i] =
-                    Function::Argument(before.name, std::move(new_type),
+                const ir::Argument &before = func->args[i];
+                args[i] = ir::Argument(before.name, std::move(new_type),
                                        before.default_value, before.mutating);
             }
 

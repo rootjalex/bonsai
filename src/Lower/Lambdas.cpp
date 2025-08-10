@@ -80,12 +80,9 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
         // Convert lambda arguments to function arguments.
         const std::vector<ir::TypedVar> &before = lambda->args;
-        std::vector<ir::Function::Argument> arguments;
+        std::vector<ir::Argument> arguments;
         std::transform(before.begin(), before.end(),
-                       std::back_inserter(arguments),
-                       [](const ir::TypedVar &a) {
-                           return ir::Function::Argument(a.name, a.type);
-                       });
+                       std::back_inserter(arguments), ir::Argument::from);
 
         ir::Type type = lambda->value.type();
         auto [it, succeeded] = lambda_metadata.try_emplace(lambda, Metadata{});

@@ -274,7 +274,7 @@ class BonsaiToCpp {
         ss << ' ' << func.name;
         ss << '(';
         for (int i = 0, e = func.args.size(); i < e; ++i) {
-            const Function::Argument &arg = func.args[i];
+            const Argument &arg = func.args[i];
             emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
             ss << ' ' << arg.name;
             if (i + 1 == e) {

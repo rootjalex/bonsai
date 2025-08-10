@@ -1,8 +1,8 @@
 #pragma once
 
+#include "Argument.h"
 #include "Error.h"
 #include "Expr.h"
-#include "Function.h"
 #include "IRHandle.h"
 #include "IRNode.h"
 #include "IntrusivePtr.h"
@@ -68,7 +68,7 @@ struct Member : public IRHandle<IRLayoutMember> {
 struct Layout {
     std::string name;
     Type type; // The algebraic data type associated with this layout.
-    std::vector<ir::Function::Argument> root;
+    std::vector<ir::Argument> root;
     Member body;
 };
 

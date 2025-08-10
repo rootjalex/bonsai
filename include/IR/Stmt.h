@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "Argument.h"
 #include "Expr.h"
 #include "IRHandle.h"
 #include "IRNode.h"
@@ -216,10 +217,10 @@ struct Label : StmtNode<Label> {
 // A (currently inlined) recursive loop
 // Contains `From` nodes that match the args list.
 struct RecLoop : StmtNode<RecLoop> {
-    std::vector<TypedVar> args;
+    std::vector<ir::Argument> args;
     Stmt body;
 
-    static Stmt make(std::vector<TypedVar> args, Stmt body);
+    static Stmt make(std::vector<ir::Argument> args, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::RecLoop;
 };

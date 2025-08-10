@@ -4,6 +4,7 @@
 #include "Parser/Token.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Frame.h"
 #include "IR/Layout.h"
@@ -529,9 +530,9 @@ struct Parser {
         program.externs.emplace_back(name, std::move(type));
     }
 
-    std::vector<ir::Function::Argument> parse_func_args() {
+    std::vector<ir::Argument> parse_func_args() {
         expect(Token::Type::LPAREN);
-        std::vector<ir::Function::Argument> args;
+        std::vector<ir::Argument> args;
         if (peek().type != Token::Type::RPAREN) {
             // parse arg list
             do {
@@ -561,7 +562,7 @@ struct Parser {
                 }
 
                 add_type_to_frame(arg_name, type, mutating);
-                args.push_back(ir::Function::Argument{
+                args.push_back(ir::Argument{
                     std::move(arg_name),
                     std::move(type),
                     std::move(default_value),
@@ -602,7 +603,7 @@ struct Parser {
     void parse_geometric_intrinsic(const std::string &name) {
         // TODO: support generics for geometric intrinsics.
         push_frame();
-        std::vector<ir::Function::Argument> args = parse_func_args();
+        std::vector<ir::Argument> args = parse_func_args();
 
         // Build a unique identifier, because all function names are unique.
         std::string typed_name = name;
@@ -728,7 +729,7 @@ struct Parser {
 
         ir::Function::InterfaceList interfaces = parse_func_interfaces();
         push_frame();
-        std::vector<ir::Function::Argument> args = parse_func_args();
+        std::vector<ir::Argument> args = parse_func_args();
 
         // Optional RARROW with return_type: otherwise, requires type inference!
         ir::Type ret_type;
@@ -2387,7 +2388,7 @@ struct Parser {
     // parse_member()
     ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
         push_frame();
-        std::vector<ir::Function::Argument> root = parse_func_args();
+        std::vector<ir::Argument> root = parse_func_args();
         ir::Member member = parse_member();
         expect(Token::Type::SEMICOL);
         pop_frame();

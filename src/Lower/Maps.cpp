@@ -228,16 +228,14 @@ struct LowerMapsImpl : public Mutator {
     template <typename T>
     Expr build_func(const T *node) {
         const std::string func = new_func_name();
-        const auto free_vars = gather_free_vars(node);
+        const std::vector<ir::TypedVar> free_vars = gather_free_vars(node);
 
         Stmt body = build_traversal(node, funcs);
         internal_assert(body.defined());
 
-        std::vector<Function::Argument> func_args;
+        std::vector<Argument> func_args;
         std::transform(free_vars.cbegin(), free_vars.cend(),
-                       std::back_inserter(func_args), [&](const auto &var) {
-                           return Function::Argument(var.name, var.type);
-                       });
+                       std::back_inserter(func_args), Argument::from);
 
         Type ret_type = node->type;
 

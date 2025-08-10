@@ -179,14 +179,15 @@ Stmt Label::make(std::string name, Stmt body) {
     return node;
 }
 
-Stmt RecLoop::make(std::vector<TypedVar> args, Stmt body) {
+Stmt RecLoop::make(std::vector<ir::Argument> args, Stmt body) {
     internal_assert(body.defined()) << "RecLoop::make received undefined body";
 
-    for (const auto &arg : args) {
+    for (const ir::Argument &arg : args) {
         internal_assert(!arg.name.empty())
             << "RecLoop::make received empty arg name";
         internal_assert(arg.type.defined())
-            << "RecLoop::make received undefined arg type: " << arg.name;
+            << "RecLoop::make received undefined arg type with name: "
+            << arg.name;
     }
 
     RecLoop *node = new RecLoop;

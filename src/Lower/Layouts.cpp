@@ -220,7 +220,7 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             std::optional<ir::Expr> expr = frames.from_frames(var->name);
             if (!expr.has_value()) {
                 auto it = std::find_if(layout.root.begin(), layout.root.end(),
-                                       [&](const ir::Function::Argument &arg) {
+                                       [&](const ir::Argument &arg) {
                                            return arg.name == var->name;
                                        });
                 if (it != layout.root.end()) {
@@ -769,6 +769,7 @@ struct LowerMatches : public ir::Mutator {
     const ir::LayoutMap &members;
     const ir::TypeMap &structs;
     const LayoutMap &lmap;
+    ir::Layout layout;
 
     LowerMatches(const ir::LayoutMap &members, const ir::TypeMap &structs,
                  const LayoutMap &lmap)
@@ -791,7 +792,17 @@ struct LowerMatches : public ir::Mutator {
         ir::Stmt body = mutate(node->body);
         body = flatten_yield_froms(index_list, std::move(body), references);
         references.clear();
-        return ir::RecLoop::make(std::move(index_list), std::move(body));
+        std::vector<ir::Argument> args = layout.root;
+        for (int i = 0, e = index_list.size(); i < e; ++i) {
+            auto it = std::find_if(args.begin(), args.end(),
+                                   [&](const ir::Argument &arg) {
+                                       return arg.name == index_list[i].name;
+                                   });
+            if (it == args.end()) {
+                args.push_back(ir::Argument::from(index_list[i]));
+            }
+        }
+        return ir::RecLoop::make(std::move(args), std::move(body));
     }
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -808,14 +819,13 @@ struct LowerMatches : public ir::Mutator {
             return iter->second.body;
         }();
 
-        // ew
-        ir::Layout layout = [&]() {
+        {
             const auto &iter = members.find(tree_name);
             internal_assert(iter != members.cend())
                 << "Failed to find member of: " << tree_name
                 << " for Match lowering: " << ir::Stmt(node);
-            return iter->second;
-        }();
+            layout = iter->second;
+        }
 
         ir::Type struct_type = [&]() {
             const auto &iter = structs.find(tree_name);
@@ -994,10 +1004,10 @@ ir::Program LowerLayouts::run(ir::Program program,
 
     ir::TypeMap types;
     LayoutMap lmap;
-    for (const auto &[name, member] : tree_layouts) {
-        lmap.update_group_map(get_group_map(member));
+    for (const auto &[name, layout] : tree_layouts) {
+        lmap.update_group_map(get_group_map(layout));
 
-        ir::Type struct_t = layout_to_struct(member.body, lmap);
+        ir::Type struct_t = layout_to_struct(layout.body, lmap);
         types[name] = struct_t;
 
         bool found = false;

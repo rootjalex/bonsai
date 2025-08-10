@@ -26,7 +26,7 @@ type vec3h = f16x3
 extern triangles : [[packed]] struct tl6{ primitive_count : u64; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; indirect_group_AABBs0 : [[packed]] struct tl0{ aabb_low : f32x3x4; aabb_high : f32x3x4; aabb_children : u64x4 }[]; indirect_group_OBBs1 : [[packed]] struct tl1{ obb_low : f32x3x4; obb_high : f32x3x4; orientation : f32x9; obb_children : u64x4 }[]; group_2 : [[packed]] struct tl5{  }[] }
 
 func _traverse_tree0(ray : Ray, triangles : tl6) -> set<Triangle> {
-  rec(index : u64) {
+  rec(index : u64 = 2) {
     if (index[0:2] == 2u) {
       if (intersects(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[0], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[0]))) {
         from (triangles.indirect_group_AABBs0[index[4:63]].aabb_children[0u])

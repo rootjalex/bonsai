@@ -1,6 +1,7 @@
 #include "Opt/Inline.h"
 
 #include "Error.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
@@ -35,7 +36,7 @@ class Inliner : public ir::Mutator {
         auto f = functions.find(function_name);
         internal_assert(f != functions.end());
         std::vector<std::string> argument_names;
-        const std::vector<ir::Function::Argument> &args = f->second->args;
+        const std::vector<ir::Argument> &args = f->second->args;
         std::transform(args.begin(), args.end(),
                        std::back_inserter(argument_names),
                        [](const auto &a) { return a.name; });

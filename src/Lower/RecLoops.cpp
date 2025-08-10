@@ -1,6 +1,7 @@
 #include "Lower/RecLoops.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Mutator.h"
 
 #include "Error.h"
@@ -28,7 +29,7 @@ struct LowerRecLoopsImpl : public Mutator {
 
     Stmt visit(const RecLoop *node) override {
         std::vector<Expr> call_args(node->args.size());
-        std::vector<Function::Argument> f_args(node->args.size());
+        std::vector<Argument> f_args(node->args.size());
         for (size_t i = 0; i < node->args.size(); i++) {
             call_args[i] = make_zero(node->args[i].type);
             f_args[i].name = node->args[i].name;

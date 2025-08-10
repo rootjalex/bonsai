@@ -1,6 +1,7 @@
 #include "Lower/Options.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 
@@ -194,10 +195,10 @@ ir::Program LowerOptions::run(ir::Program program,
     }
 
     for (auto &[f, func] : program.funcs) {
-        std::vector<ir::Function::Argument> args(func->args.size());
+        std::vector<ir::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{
+            args[i] = ir::Argument{
                 arg.name,
                 rewriter.mutate(arg.type),
                 rewriter.mutate(arg.default_value),

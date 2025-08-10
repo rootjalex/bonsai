@@ -3,6 +3,7 @@
 #include "Lower/PredicateAnalysis.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
@@ -728,9 +729,9 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
 
 // Wrap the first Match seen in a recursive loop on all trees seen in the body.
 struct WrapMatchInRecLoop : public ir::Mutator {
-    std::vector<ir::TypedVar> trees;
+    std::vector<ir::Argument> trees;
 
-    WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
+    WrapMatchInRecLoop(std::vector<ir::Argument> trees)
         : trees(std::move(trees)) {}
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -757,13 +758,13 @@ struct LowerBVH : public ir::Mutator {
         const std::string func = new_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
 
-        std::vector<ir::TypedVar> trees;
-        std::vector<ir::Function::Argument> func_args;
+        std::vector<ir::Argument> trees;
+        std::vector<ir::Argument> func_args;
         func_args.reserve(free_vars.size());
         for (const auto &var : free_vars) {
             if (const auto &iter = tree_types.find(var.name);
                 iter != tree_types.cend()) {
-                trees.push_back({var.name, iter->second});
+                trees.push_back(ir::Argument(var.name, iter->second));
                 func_args.emplace_back(var.name, iter->second);
             } else {
                 // TODO: mutability? only if the free vars are mutated in the

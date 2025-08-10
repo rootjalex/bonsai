@@ -5,6 +5,7 @@
 #include "Opt/Simplify.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
@@ -218,7 +219,7 @@ struct ReplaceUses : public Mutator {
         internal_assert(old_iter != funcs.end()) << old_name;
         // Build a new function with the same initial args + write args
         // + the queue. The new function is a void return type.
-        std::vector<Function::Argument> args = old_iter->second->args;
+        std::vector<Argument> args = old_iter->second->args;
         std::vector<TypedVar> new_write_types;
         bool first = true;
         for (const auto &[name, type] : old_write_types) {

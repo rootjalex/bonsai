@@ -2,6 +2,7 @@
 
 #include "CodeGen/CPP.h"
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Expr.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -1198,7 +1199,7 @@ void CodeGen_CUDA::print(const Function &function) {
     function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
-        const Function::Argument &arg = function.args[i];
+        const Argument &arg = function.args[i];
         arg.type.accept(this);
         os << ' ' << arg.name;
         if (ir::Expr value = arg.default_value; value.defined()) {

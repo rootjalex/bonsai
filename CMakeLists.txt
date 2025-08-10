@@ -156,6 +156,7 @@ target_sources(
     include/Error.h
     include/Log.h
     include/IR/Analysis.h
+    include/IR/Argument.h
     include/IR/Equality.h
     include/IR/Expr.h
     include/IR/Float16.h

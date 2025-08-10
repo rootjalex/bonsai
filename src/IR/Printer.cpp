@@ -1,6 +1,8 @@
 #include "IR/Printer.h"
 
+#include "IR/Argument.h"
 #include "IR/Expr.h"
+#include "IR/Function.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 #include "Utils.h"
@@ -18,6 +20,30 @@ void print_annotation(const IRNode &node, std::ostream &os) {
         os << ' ' << '\"' << ann << '\"';
     }
 }
+
+void print_function_arguments(const std::vector<ir::Argument> &arguments,
+                              std::ostream &os) {
+    bool first = true;
+    for (const ir::Argument &arg : arguments) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+
+        os << arg.name;
+        if (arg.type.defined()) {
+            os << " : ";
+            if (arg.mutating) {
+                os << "mut ";
+            }
+            os << arg.type;
+        }
+        if (arg.default_value.defined()) {
+            os << " = " << arg.default_value;
+        }
+    }
+}
+
 } // namespace
 
 std::ostream &operator<<(std::ostream &os, const Program &program) {
@@ -327,26 +353,7 @@ void Printer::print(const Function &function) {
         os << ">";
     }
     os << "(";
-    bool first = true;
-    for (const auto &arg : function.args) {
-        if (!first) {
-            os << ", ";
-        }
-        first = false;
-
-        os << arg.name;
-        if (arg.type.defined()) {
-            os << " : ";
-            if (arg.mutating) {
-                os << "mut ";
-            }
-            os << arg.type;
-        }
-        if (arg.default_value.defined()) {
-            os << " = " << arg.default_value;
-        }
-    }
-
+    print_function_arguments(function.args, os);
     os << ") -> " << function.ret_type << " {\n";
     set_indent(1);
     function.body.accept(this);
@@ -464,25 +471,7 @@ void Printer::print(const Schedule &schedule) {
 
 void Printer::print(const Layout &layout) {
     os << "layout" << ' ' << layout.name << '(';
-    bool first = true;
-    for (const ir::Function::Argument &arg : layout.root) {
-        if (!first) {
-            os << ", ";
-        }
-        first = false;
-
-        os << arg.name;
-        if (arg.type.defined()) {
-            os << ": ";
-            if (arg.mutating) {
-                os << "mut ";
-            }
-            os << arg.type;
-        }
-        if (arg.default_value.defined()) {
-            os << " = " << arg.default_value;
-        }
-    }
+    print_function_arguments(layout.root, os);
     os << ')' << layout.body << '\n';
 }
 
@@ -1384,16 +1373,7 @@ void Printer::visit(const Label *node) {
 
 void Printer::visit(const RecLoop *node) {
     os << get_indent() << "rec(";
-
-    const size_t n = node->args.size();
-    for (size_t i = 0; i < n; i++) {
-        os << node->args[i].name;
-        os << " : ";
-        print(node->args[i].type);
-        if (i < n - 1) {
-            os << ", ";
-        }
-    }
+    print_function_arguments(node->args, os);
     os << ") {\n";
     indent++;
     print(node->body);

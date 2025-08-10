@@ -309,9 +309,9 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
         const Function &function;
     };
 
-    std::vector<Function::Argument> args = function.args;
+    std::vector<Argument> args = function.args;
     for (int i = 0, e = args.size(); i < e; i++) {
-        const Function::Argument &farg = function.args[i];
+        const Argument &farg = function.args[i];
         // Right now we conservatively assume that tail recursion does
         // not have mutating arguments.
         internal_assert(!farg.mutating)
@@ -358,7 +358,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             }
             std::vector<Expr> args = node->args;
             for (int i = 0, e = args.size(); i < e; i++) {
-                const Function::Argument &farg = function.args[i];
+                const Argument &farg = function.args[i];
                 const auto *v = args[i].as<Var>();
                 if (v == nullptr || v->name != farg.name) {
                     arguments.insert(farg.name);
@@ -382,7 +382,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             entry = false;
             std::vector<Stmt> stmts;
             // Save state variables locally on the stack.
-            for (const ir::Function::Argument &arg : function.args) {
+            for (const ir::Argument &arg : function.args) {
                 if (!requires_stack.contains(arg.name)) {
                     continue;
                 }
@@ -493,8 +493,12 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 // TODO: pack?
                 constexpr auto P = Struct_t::Attribute::packed;
                 // TODO: need to add this to program.types
+                std::vector<ir::TypedVar> args;
+                for (const ir::Argument &arg : node->args) {
+                    args.push_back(ir::TypedVar(arg.name, arg.type));
+                }
                 queue_etype = ir::Struct_t::make(unique_struct_name(unique_id),
-                                                 node->args, {P});
+                                                 std::move(args), {P});
                 internal_error
                     << "Need to add packed queue_etype to program.types"
                     << queue_etype;

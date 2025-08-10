@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Argument.h"
 #include "Stmt.h"
 #include "Type.h"
 
@@ -14,25 +15,6 @@ namespace ir {
 
 struct Function {
     std::string name;
-    struct Argument {
-        std::string name;
-        Type type;
-        Expr default_value;
-        bool mutating = false;
-
-        Argument() {}
-
-        Argument(std::string name, Type type, Expr default_value = Expr(),
-                 bool mutating = false)
-            : name(std::move(name)), type(std::move(type)),
-              default_value(std::move(default_value)), mutating(mutating) {}
-
-        Argument(const Argument &) = default;
-        Argument(Argument &&) noexcept = default;
-        Argument &operator=(const Argument &) = default;
-        Argument &operator=(Argument &&) noexcept = default;
-        ~Argument() = default;
-    };
 
     std::vector<Argument> args;
     Type ret_type;
@@ -88,7 +70,7 @@ struct Function {
     std::vector<Function_t::ArgSig> argument_types() const {
         std::vector<Function_t::ArgSig> types;
         std::transform(args.begin(), args.end(), std::back_inserter(types),
-                       [](const Function::Argument &argument) {
+                       [](const Argument &argument) {
                            return Function_t::ArgSig{argument.type,
                                                      argument.mutating};
                        });

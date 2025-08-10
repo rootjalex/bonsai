@@ -9,7 +9,7 @@
 
 #include <set>
 
-// TODO(cgyurgyik): verify indirect groups are defined a root level.
+// TODO(cgyurgyik): verify indirect groups are defined at root level.
 // TODO(cgyurgyik): verify that if a variant is bounded childwise, the field
 // counts are sensical, e.g., 4 children should have 4 bounding volumes.
 namespace bonsai {
