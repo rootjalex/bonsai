@@ -149,7 +149,7 @@ class ErrorReport {
         auto stack_trace =
             StackTraceCollector::collect_stack_trace(/*skip_frames=*/4);
         if (!stack_trace.empty()) {
-            stream << "\n";
+            stream << "[stack trace]\n";
             for (size_t i = 0; i < stack_trace.size(); ++i) {
                 size_t index = stack_trace.size() - (i + 1);
                 stream << "  #" << index << ": " << stack_trace[i] << "\n";

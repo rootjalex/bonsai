@@ -242,7 +242,7 @@ struct Parser {
         if (auto it = program.funcs.find(name); it != program.funcs.end()) {
             return it->second->call_type();
         }
-        report_error() << "Cannot check type of unknown var: " << name;
+        report_error() << "cannot check type of unknown var: " << name;
     }
 
     bool name_in_scope(const std::string &name) const {

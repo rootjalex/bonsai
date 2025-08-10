@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 
+#include "Argument.h"
 #include "CompilerOptions.h"
 #include "Expr.h"
 #include "Function.h"
@@ -34,6 +35,10 @@ std::ostream &operator<<(std::ostream &os, const Stmt &stmt);
 std::ostream &operator<<(std::ostream &os, const WriteLoc &loc);
 
 std::ostream &operator<<(std::ostream &os, const Function &func);
+
+std::ostream &operator<<(std::ostream &os, const Argument &argument);
+std::ostream &operator<<(std::ostream &os,
+                         const std::vector<Argument> &arguments);
 
 std::ostream &operator<<(std::ostream &os, const Target &target);
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule);

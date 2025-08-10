@@ -21,29 +21,6 @@ void print_annotation(const IRNode &node, std::ostream &os) {
     }
 }
 
-void print_function_arguments(const std::vector<ir::Argument> &arguments,
-                              std::ostream &os) {
-    bool first = true;
-    for (const ir::Argument &arg : arguments) {
-        if (!first) {
-            os << ", ";
-        }
-        first = false;
-
-        os << arg.name;
-        if (arg.type.defined()) {
-            os << " : ";
-            if (arg.mutating) {
-                os << "mut ";
-            }
-            os << arg.type;
-        }
-        if (arg.default_value.defined()) {
-            os << " = " << arg.default_value;
-        }
-    }
-}
-
 } // namespace
 
 std::ostream &operator<<(std::ostream &os, const Program &program) {
@@ -177,6 +154,34 @@ std::ostream &operator<<(std::ostream &os, const Match::Arms &arms) {
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
     printer.print(func);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Argument &argument) {
+    os << argument.name;
+    if (argument.type.defined()) {
+        os << " : ";
+        if (argument.mutating) {
+            os << "mut ";
+        }
+        os << argument.type;
+    }
+    if (argument.default_value.defined()) {
+        os << " = " << argument.default_value;
+    }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os,
+                         const std::vector<ir::Argument> &arguments) {
+    bool first = true;
+    for (const ir::Argument &argument : arguments) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << argument;
+    }
     return os;
 }
 
@@ -353,7 +358,7 @@ void Printer::print(const Function &function) {
         os << ">";
     }
     os << "(";
-    print_function_arguments(function.args, os);
+    os << function.args;
     os << ") -> " << function.ret_type << " {\n";
     set_indent(1);
     function.body.accept(this);
@@ -471,7 +476,7 @@ void Printer::print(const Schedule &schedule) {
 
 void Printer::print(const Layout &layout) {
     os << "layout" << ' ' << layout.name << '(';
-    print_function_arguments(layout.root, os);
+    os << layout.root;
     os << ')' << layout.body << '\n';
 }
 
@@ -1373,7 +1378,7 @@ void Printer::visit(const Label *node) {
 
 void Printer::visit(const RecLoop *node) {
     os << get_indent() << "rec(";
-    print_function_arguments(node->args, os);
+    os << node->args;
     os << ") {\n";
     indent++;
     print(node->body);

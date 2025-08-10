@@ -8,8 +8,8 @@
 #include <sstream>
 #include <thread>
 
-#include <unistd.h>
 #include <filesystem>
+#include <unistd.h>
 
 // TODO: port to MSVC
 
@@ -208,6 +208,15 @@ void run_commands(const std::vector<std::string> &commands) {
     }
 }
 
+// Remove the stack trace to reduce verbosity.
+std::string cutoff_stack_trace(const std::string &input) {
+    size_t pos = input.find("[stack trace]");
+    if (pos != std::string::npos) {
+        return input.substr(0, pos);
+    }
+    return input; // Return original string if "[stack trace]" not found
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -248,6 +257,7 @@ int main(int argc, char *argv[]) {
         output << "---CODE---\n" << code << "\n";
     }
     if (!stderr_s.empty()) {
+        stderr_s = cutoff_stack_trace(stderr_s);
         output << "---STDERR---\n" << stderr_s;
         if (!stderr_s.ends_with('\n')) {
             output << '\n';

@@ -8,8 +8,8 @@
 #include "Log.h"
 
 #include <set>
+#include <unordered_set>
 
-// TODO(cgyurgyik): verify indirect groups are defined at root level.
 // TODO(cgyurgyik): verify that if a variant is bounded childwise, the field
 // counts are sensical, e.g., 4 children should have 4 bounding volumes.
 namespace bonsai {
@@ -472,9 +472,89 @@ std::ostream &operator<<(std::ostream &os, const std::vector<Path> &paths) {
     return os;
 }
 
+// Validates all indirect groups are defined at the root.
+void validate_indirect_groups(const Layout &layout) {
+    // Collect all indirect groups defined anywhere in the layout.
+    struct GetAllIndirectGroups : public Visitor {
+        std::set<std::string> indirect_groups;
+        void visit(const Group *node) override {
+            if (node->type == Group::Type::Indirect) {
+                indirect_groups.insert(node->name);
+            }
+            node->inner.accept(this);
+        }
+
+        void visit(const Chain *node) override {
+            for (const auto &member : node->members) {
+                member.accept(this);
+            }
+        }
+        void visit(const Split *node) override {
+            for (const ir::Arm &arm : node->arms) {
+                arm.member.accept(this);
+            }
+        }
+    };
+
+    struct GetRootIndirectGroups : public Visitor {
+        std::set<std::string> indirect_groups;
+        bool at_root_level = true;
+
+        void visit(const Group *node) override {
+            if (node->type == Group::Type::Indirect && at_root_level) {
+                indirect_groups.insert(node->name);
+            }
+            bool was_at_root = at_root_level;
+            at_root_level = false;
+            node->inner.accept(this);
+            at_root_level = was_at_root;
+        }
+        void visit(const Chain *node) override {
+            for (const ir::Member &member : node->members) {
+                member.accept(this);
+            }
+        }
+
+        void visit(const Split *node) override {
+            bool was_at_root = at_root_level;
+            at_root_level = false;
+            for (const ir::Arm &arm : node->arms) {
+                arm.member.accept(this);
+            }
+            at_root_level = was_at_root;
+        }
+    };
+
+    GetAllIndirectGroups all;
+    layout.body.accept(&all);
+
+    GetRootIndirectGroups root;
+    layout.body.accept(&root);
+
+    // Assert that all indirect groups are defined at root level.
+    for (const std::string &indirect_group : all.indirect_groups) {
+        internal_assert(root.indirect_groups.contains(indirect_group))
+            << "indirect group: `" << indirect_group
+            << "` is not defined at root level in layout `" << layout.name
+            << "`";
+    }
+}
+
+void validate_root(const Layout &layout) {
+    std::unordered_set<std::string> names;
+    for (const ir::Argument &arg : layout.root) {
+        internal_assert(!names.contains(arg.name))
+            << "unexpected duplicate argument name in root: " << layout.root;
+        names.insert(arg.name);
+        internal_assert(!arg.mutating)
+            << "unexpected mutable argument in root: " << arg;
+    }
+}
+
 std::map<std::string, Path> validate_layout(const Layout &layout) {
     const Member &body = layout.body;
     const Type &bvh_t = layout.type;
+
     internal_assert(body.defined() && bvh_t.defined())
         << "Cannot validate with undefined member or bvh_t: " << body << "\n"
         << bvh_t;
@@ -482,8 +562,12 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
     internal_assert(bvh_node)
         << "Cannot validate member of non-BVH_t: " << bvh_t;
 
+    // Assert root is well-formed.
+    validate_root(layout);
     // Assert all Split fields are accessible at Split level.
     validate_splits(body);
+    // Assert all Indirect groups are defined at root level.
+    validate_indirect_groups(layout);
 
     GroupMap group_map = get_group_map(layout);
     std::vector<Path> paths = get_paths(body, group_map);
@@ -512,14 +596,13 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
             if (!path.empty() && is_valid_path(path, variant)) {
                 internal_assert(path_to_variant.empty())
                     << "ambiguous path for node: " << variant.name()
-                    << ", in layout:" << '\n'
-                    << layout;
+                    << " in layout: `" << layout.name << "`";
                 path_to_variant = std::move(path);
             }
         }
         internal_assert(!path_to_variant.empty())
-            << "no path for node: " << variant.name() << ", in layout:" << '\n'
-            << layout;
+            << "no path for node: " << variant.name() << " in layout: `"
+            << layout.name << "`";
         map[variant.name()] = std::move(path_to_variant);
     }
     return map;
