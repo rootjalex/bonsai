@@ -10,8 +10,11 @@ add_bonsai_tests(
     invalid_name.bonsai
     lambda-empty-body.bonsai
     lambda-no-arguments.bonsai
+    layout-bad-indirect-group.bonsai
     layout-bad-path.bonsai
+    layout-bad-root.bonsai
     layout-bad-split.bonsai
+    layout-bad-volume.bonsai
     mismatched_types.bonsai
     mutability.bonsai
     negate-unsigned.bonsai

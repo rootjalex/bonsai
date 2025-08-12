@@ -496,7 +496,6 @@ Type BVH_t::make(ir::Type primitive, std::string name,
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!variants.empty()) << "BVH_t::make received empty nodes";
 
-    // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < variants.size(); i++) {
         if (variants[i].volume.has_value()) {
             internal_assert(

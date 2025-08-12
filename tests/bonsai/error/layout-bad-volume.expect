@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/IR/ValidateLayout.cpp:705
+
+--> field_count == child_count
+mismatch in child count: 4 and field count: 8 for volume field: `low`, initialized by variant field: `aabb_low`

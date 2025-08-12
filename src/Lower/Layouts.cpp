@@ -433,9 +433,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
     return ir::Expr();
 }
 
-class UpdateParentAccess : public ir::Visitor {
+class GatherTreeCarriedDependencies : public ir::Visitor {
   public:
-    explicit UpdateParentAccess() {}
+    explicit GatherTreeCarriedDependencies() {}
 
     void visit(const ir::Materialize *node) override {
         node->value.accept(this);
@@ -461,8 +461,7 @@ class UpdateParentAccess : public ir::Visitor {
     std::vector<std::pair<std::string, ir::Expr>> parent_updates;
 };
 
-ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
-                           const std::string &obj_name,
+ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
                            const LayoutTypeMap &lmap, const ir::Layout &layout,
                            const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
@@ -496,7 +495,6 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
     for (const auto &[node_type, _] : finder.paths) {
         order.push_back(node_type);
     }
-
     // std::sort(order.begin(), order.end(),
     //           [&](const std::string &a, const std::string &b) {
     //               // TODO: caching this would make this faster,
@@ -515,10 +513,7 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
     for (const std::string &node_type : std::views::reverse(order)) {
         // Make a hole for the body of this node type.
         ir::Stmt body = ir::Label::make(node_type, ir::Stmt());
-
         if (!if_chain.defined()) {
-            // TODO: this doesn't work if it's possible to have fully NULL
-            // reprs.
             if_chain = std::move(body);
             continue;
         }
@@ -530,7 +525,7 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
         const FindPaths::Path &path = it->second;
         for (const auto &[field_name, arm] : path) {
             ir::Expr value = field_in_layout(
-                /*base=*/base,
+                /*base=*/root,
                 /*member=*/member,
                 /*frames=*/{},
                 /*iter_name=*/obj_name,
@@ -540,9 +535,11 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                 /*layout=*/layout,
                 /*root=*/root);
 
-            if (arm.value.has_value()) {
+            if (!arm.value.has_value()) {
+                // This is a wildcard.
+                condition = ir::BoolImm::make(true);
+            } else {
                 ir::Expr constant = make_const(value.type(), *arm.value);
-
                 switch (arm.comparator) {
                 case ir::Arm::Comparator::EQ:
                     condition = std::move(value) == std::move(constant);
@@ -563,11 +560,6 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
                     condition = std::move(value) != std::move(constant);
                     break;
                 }
-                continue;
-            }
-            // This is a wildcard.
-            if (!condition.defined()) {
-                condition = ir::BoolImm::make(true);
             }
         }
 
@@ -881,8 +873,8 @@ struct LowerMatches : public ir::Mutator {
         ir::Layout layout = get_layout(tree_name);
 
         ir::Expr root = ir::Var::make(struct_type, tree_name);
-        ir::Stmt body = lower_switch_tree(member, root, tree_name,
-                                          layout_type_map, layout, root);
+        ir::Stmt body =
+            lower_switch_tree(member, tree_name, layout_type_map, layout, root);
         if (!body.defined()) {
             // Even the tagged representation is implicitly represented.
             std::vector<ir::Stmt> stmts;
@@ -894,11 +886,13 @@ struct LowerMatches : public ir::Mutator {
                     return ir::Label::make(variant.name(), ir::Stmt());
                 });
             body = ir::Sequence::make(std::move(stmts));
-            UpdateParentAccess upa;
-            layout.body.accept(&upa);
-            for (const auto &[name, expr] : upa.updates()) {
-                references.insert({name, expr});
-            }
+        }
+        // tree-carried dependencies need to be added to the references for
+        // further processing when visiting YieldFrom.
+        GatherTreeCarriedDependencies gtcd;
+        layout.body.accept(&gtcd);
+        for (const auto &[name, expr] : gtcd.updates()) {
+            references.insert({name, expr});
         }
 
         for (const auto &[variant, statement] : node->arms) {

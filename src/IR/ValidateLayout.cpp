@@ -54,6 +54,7 @@ std::vector<Path> get_paths(const ir::Layout &layout,
                     << path;
             }
         }
+
         void visit(const Pad *node) override {}
 
         void visit(const Lookup *node) override {
@@ -117,17 +118,6 @@ std::vector<Path> get_paths(const ir::Layout &layout,
     return gp.get_paths();
 }
 
-// Returns whether these are equivalent paths.
-bool equal_paths(const Path &p0, const Path &p1) {
-    if (p0.size() != p1.size()) {
-        return false;
-    }
-    return std::equal(
-        p0.begin(), p0.end(), p1.begin(), [](const auto &a, const auto &b) {
-            return a.first == b.first && equals(a.second, b.second);
-        });
-}
-
 // Returns whether this path is valid for each of the variant's parameters.
 bool is_valid_path(const Path &path, const BVH_t::Variant &variant) {
     for (auto &parameter : variant.fields()) {
@@ -176,6 +166,17 @@ GroupMap get_group_map(const Layout &layout) {
     GetGroupMap ggm;
     layout.body.accept(&ggm);
     return ggm.map;
+}
+
+// Returns whether these are equivalent paths.
+bool equal_paths(const Path &p0, const Path &p1) {
+    if (p0.size() != p1.size()) {
+        return false;
+    }
+    return std::equal(
+        p0.begin(), p0.end(), p1.begin(), [](const auto &a, const auto &b) {
+            return a.first == b.first && equals(a.second, b.second);
+        });
 }
 
 std::map<std::string, Path> get_unambiguous_paths(const ir::Layout &layout) {
@@ -260,12 +261,12 @@ std::vector<Range<T>> arm_to_ranges(const Arm &arm) {
         return {};
     }
 
-    const T type_min = std::numeric_limits<T>::min();
-    const T type_max = std::numeric_limits<T>::max();
+    const T tmin = std::numeric_limits<T>::min();
+    const T tmax = std::numeric_limits<T>::max();
     T val = static_cast<T>(*arm.value);
     switch (arm.comparator) {
     case Arm::Comparator::EQ:
-        if (type_min <= val && val <= type_max) {
+        if (tmin <= val && val <= tmax) {
             return {Range(val, val)};
         }
         // value is outside the given bounds.
@@ -274,35 +275,35 @@ std::vector<Range<T>> arm_to_ranges(const Arm &arm) {
     case Arm::Comparator::NE: {
         // Everything except the specific value.
         std::vector<Range<T>> ranges;
-        if (val > type_min) {
-            ranges.emplace_back(type_min, val - 1);
+        if (val > tmin) {
+            ranges.emplace_back(tmin, val - 1);
         }
-        if (val < type_max) {
-            ranges.emplace_back(val + 1, type_max);
+        if (val < tmax) {
+            ranges.emplace_back(val + 1, tmax);
         }
         return ranges;
     }
     case Arm::Comparator::GT:
-        if (val < type_max) {
-            return {Range(std::max<T>(val + 1, type_min), type_max)};
+        if (val < tmax) {
+            return {Range(std::max<T>(val + 1, tmin), tmax)};
         }
         return {};
 
     case Arm::Comparator::GE:
-        if (val <= type_max) {
-            return {Range(std::max(val, type_min), type_max)};
+        if (val <= tmax) {
+            return {Range(std::max(val, tmin), tmax)};
         }
         return {};
 
     case Arm::Comparator::LT:
-        if (val > type_min) {
-            return {Range(type_min, std::min<T>(val - 1, type_max))};
+        if (val > tmin) {
+            return {Range(tmin, std::min<T>(val - 1, tmax))};
         }
         return {};
 
     case Arm::Comparator::LE:
-        if (val >= type_min) {
-            return {Range(type_min, std::min(val, type_max))};
+        if (val >= tmin) {
+            return {Range(tmin, std::min(val, tmax))};
         }
         return {};
     }
@@ -327,8 +328,8 @@ bool is_exclusive(const std::vector<std::vector<Range<T>>> &ranges) {
 }
 
 template <typename T>
-bool is_exhaustive(const Range<T> &range, T type_min, T type_max) {
-    return range.min == type_min && range.max == type_max;
+bool is_exhaustive(const Range<T> &range, T tmin, T tmax) {
+    return range.min == tmin && range.max == tmax;
 }
 
 template <typename T>
@@ -374,8 +375,8 @@ void validate_arms(const Split &split) {
         std::count_if(arms.begin(), arms.end(),
                       [](const Arm &arm) { return arm.is_wildcard(); }) <= 1)
         << "[unexpected] two or more wildcard arms";
-    const T type_min = std::numeric_limits<T>::min(),
-            type_max = std::numeric_limits<T>::max();
+    const T tmin = std::numeric_limits<T>::min(),
+            tmax = std::numeric_limits<T>::max();
 
     std::vector<std::vector<Range<T>>> arm_ranges;
     std::vector<Range<T>> all_ranges;
@@ -391,7 +392,7 @@ void validate_arms(const Split &split) {
     // Merge all ranges and check exhaustiveness.
     std::vector<Range<T>> merged_ranges = merge_ranges<T>(all_ranges);
     bool exhaustive = merged_ranges.size() == 1 &&
-                      is_exhaustive(merged_ranges.front(), type_min, type_max);
+                      is_exhaustive(merged_ranges.front(), tmin, tmax);
     if (exhaustive && contains_wildcard(arms)) {
         internal_error
             << "[unexpected] exhaustive range provided with a wildcard.";
@@ -512,9 +513,9 @@ void validate_splits(const ir::Layout &layout) {
 }
 
 // Validates all indirect groups are defined at the root.
-void validate_indirect_groups(const Layout &layout) {
+void validate_indirect_groups(const ir::Layout &layout) {
     // Collect all indirect groups defined anywhere in the layout.
-    struct GetAllIndirectGroups : public Visitor {
+    struct CollectAllIndirectGroups : public Visitor {
         std::set<std::string> indirect_groups;
         void visit(const Group *node) override {
             if (node->type == Group::Type::Indirect) {
@@ -534,8 +535,7 @@ void validate_indirect_groups(const Layout &layout) {
             }
         }
     };
-
-    struct GetRootIndirectGroups : public Visitor {
+    struct CollectRootIndirectGroups : public Visitor {
         std::set<std::string> indirect_groups;
         bool at_root_level = true;
 
@@ -564,10 +564,9 @@ void validate_indirect_groups(const Layout &layout) {
         }
     };
 
-    GetAllIndirectGroups all;
+    CollectAllIndirectGroups all;
     layout.body.accept(&all);
-
-    GetRootIndirectGroups root;
+    CollectRootIndirectGroups root;
     layout.body.accept(&root);
 
     // Assert that all indirect groups are defined at root level.
@@ -613,8 +612,8 @@ void validate_tcd(const ir::Layout &layout) {
             continue;
         }
         internal_assert(arg.default_value.defined())
-            << "tree-carried dependency: " << arg.name
-            << " must define a base case";
+            << "tree-carried dependency: `" << arg.name
+            << "` must define a base case";
     }
 }
 
@@ -705,11 +704,33 @@ void validate_volumes(const ir::Layout &layout) {
                 count_variant_fields(variant, volume, child_count, i);
             internal_assert(field_count == child_count)
                 << "mismatch in child count: " << child_count
-                << " and field count: " << field_count << " for volume field "
-                << volume_t->fields[i]
-                << " , initialized by: " << volume.initializers[i];
+                << " and field count: " << field_count << " for volume field: `"
+                << volume_t->fields[i] << "`, initialized by variant field: `"
+                << volume.initializers[i] << '`';
         }
     }
+}
+
+void validate_type(const ir::Layout &layout) {
+    const ir::Type &type = layout.type;
+    const auto *bvh_t = type.as<ir::BVH_t>();
+    internal_assert(bvh_t) << "expected ADT type for `" << layout.name
+                           << "`, received: " << type;
+    internal_assert(std::any_of(
+        bvh_t->variants.begin(), bvh_t->variants.end(),
+        [&](const BVH_t::Variant &variant) {
+            return std::find_if(
+                       variant.fields().begin(), variant.fields().end(),
+                       [&](const ir::TypedVar &v) {
+                           return ir::equals(v.type, bvh_t->primitive) ||
+                                  (v.type.is_iterable() &&
+                                   ir::equals(v.type.element_of(),
+                                              bvh_t->primitive));
+                       }) != variant.fields().end();
+        }))
+        << "primitive type: `" << bvh_t->primitive
+        << "` not found in BVH type: " << type;
+    ;
 }
 
 } // namespace
@@ -717,12 +738,12 @@ void validate_volumes(const ir::Layout &layout) {
 // Performs well-formedness checks of the layout, and returns a mapping from
 // variant name to path for each variant in the layout type.
 std::map<std::string, Path> validate_layout(const ir::Layout &layout) {
-    internal_assert(layout.body.defined()) << "undefined body: " << layout.name;
-    internal_assert(layout.type.defined()) << "undefined type: " << layout.name;
-    internal_assert(layout.type.is<BVH_t>())
-        << "expected ADT type for " << layout.name
-        << ", received: " << layout.type;
+    internal_assert(layout.body.defined())
+        << "undefined body in layout: `" << layout.name << "`";
+    internal_assert(layout.type.defined())
+        << "undefined type in layout: `" << layout.name << "`";
 
+    validate_type(layout);
     validate_root(layout);
     validate_tcd(layout);
     validate_volumes(layout);
