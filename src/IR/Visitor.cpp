@@ -312,9 +312,8 @@ void Visitor::visit(const Chain *node) { visit_list(this, node->members); }
 
 void Visitor::visit(const Group *node) { node->inner.accept(this); }
 
-// TODO(cgyurgyik): This should visit the Bonsai expression members...?
-void Visitor::visit(const Materialize *node) {}
-void Visitor::visit(const Lookup *node) {}
+void Visitor::visit(const Materialize *node) { node->value.accept(this); }
+void Visitor::visit(const Lookup *node) { node->index.accept(this); }
 
 } // namespace ir
 } // namespace bonsai

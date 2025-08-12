@@ -13,7 +13,6 @@ type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 
 type f32x3 = f32x3
 type tl0 = [[packed]] struct tl0{  }
 type tl1 = [[packed]] struct tl1{ count : u32; primitives : struct Tri{ vs : f32x3 }[count]; group_0 : [[packed]] struct tl0{  }[count] }
-type u32x2 = u32x2
 type vec3f = f32x3
 type vec3h = f16x3
 

@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/ValidateLayout.cpp:614
+[internal] Error: src/IR/ValidateLayout.cpp:212
 
 --> !path_to_variant.empty()
-no path for node: Interior in layout: `triangles`
+no path found for variant: Interior in layout: `triangles`

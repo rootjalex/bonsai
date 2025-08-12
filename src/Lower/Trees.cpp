@@ -59,12 +59,11 @@ VariantData analyze_node(const ir::BVH_t::Variant &variant,
             payload.push_back(parameter);
             continue;
         }
-        if (parameter_type.is<ir::Ref_t>()) {
+        if (ir::equals(parameter_type, tree_reference)) {
             children.emplace_back(VariantData::ChildAccess{.child = parameter});
             continue;
         }
         if (parameter_type.is_iterable() &&
-            parameter_type.element_of().is<ir::Ref_t>() &&
             ir::equals(parameter_type.element_of(), tree_reference)) {
             std::optional<uint32_t> size =
                 get_constant_value(parameter_type.size());

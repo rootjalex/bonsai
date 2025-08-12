@@ -4,7 +4,6 @@ import stdlib/distance;
 import stdlib/intersects;
 
 element f32x3 = vector[f32, 3];
-element u32x2 = vector[u32, 2];
 element Tri { vs : f32x3; }
 element SLAB { lo: f32; hi: f32; }
 
@@ -13,8 +12,8 @@ extern triangles : set[Tri];
 func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
 schedule {
-    // NMH in https://graphics.tu-bs.de/upload/publications/Eisemann11NMH.pdf
-    tree[[Tri]] BVH(lo: f32, hi: f32) with SLAB(lo, hi)
+    // Algorithm 2 in https://graphics.tu-bs.de/upload/publications/Eisemann11NMH.pdf
+    tree[[Tri]] BVH(min_slab: f32, max_slab: f32) with SLAB(min_slab, max_slab)
     = Interior(left: BVH, right: BVH) 
     | Leaf(data: array[Tri, 2]);
 
@@ -25,11 +24,14 @@ schedule {
         primitives : array[Tri, count];
         
         group[count] by index {
-            lo = select(index < count, 
+            // TODO(cgyurgyik): since the variants are also implicit, the only way we can say "stop visiting"
+            // is checking if `index < count`. We can do this by just having the SLAB test fail with degenerate 
+            // values, e.g., [0.0, 0.0] and hopefully the compiler can optimize this away.
+            min_slab = select(index < count, 
               min(primitives[index+0].vs[parent.axis], primitives[index+1].vs[parent.axis]), 
               0.0
             );
-            hi = select(index < count, 
+            max_slab = select(index < count, 
               max(primitives[index+0].vs[parent.axis], primitives[index+1].vs[parent.axis]), 
               0.0
             );

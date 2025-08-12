@@ -6,24 +6,34 @@
 
 #include "Error.h"
 #include "Log.h"
+#include "Utils.h"
 
 #include <set>
 #include <unordered_set>
 
-// TODO(cgyurgyik): verify that if a variant is bounded childwise, the field
-// counts are sensical, e.g., 4 children should have 4 bounding volumes.
-
-// TODO(cgyurgyik): parent variables must be defined in the root.
 namespace bonsai {
 namespace ir {
+
+std::ostream &operator<<(std::ostream &os, const std::vector<Path> &paths) {
+    os << "\n[";
+    for (int i = 0, e = paths.size(); i < e; ++i) {
+        os << paths[i];
+        if (i + 1 == e) {
+            continue;
+        }
+        os << ",\n";
+    }
+    os << "]\n";
+    return os;
+}
+
 namespace {
+
 // A map from group name to Group.
 using GroupMap = std::map<std::string, Member>;
 
-// TODO: assert that all volumes only have initializers from
-// parent.params or variant.params BVH_t::make asserts this. we should
-// catch that failure, and report a backtrace.
-std::vector<Path> get_paths(const Member &member, const GroupMap &group_map) {
+std::vector<Path> get_paths(const ir::Layout &layout,
+                            const GroupMap &group_map) {
     class GetPaths : public Visitor {
       public:
         GetPaths(const GroupMap &group_map) : group_map(group_map) {}
@@ -44,7 +54,6 @@ std::vector<Path> get_paths(const Member &member, const GroupMap &group_map) {
                     << path;
             }
         }
-
         void visit(const Pad *node) override {}
 
         void visit(const Lookup *node) override {
@@ -97,18 +106,15 @@ std::vector<Path> get_paths(const Member &member, const GroupMap &group_map) {
             for (auto &path : paths) {
                 const auto [_, inserted] =
                     path.try_emplace(node->name, node->value.type());
-                internal_assert(inserted); // TODO: descriptive error message of
-                                           // duplicate field in path.
+                internal_assert(inserted)
+                    << "field found twice in same path: " << node->name;
             }
         }
-
-        // default behavior is good.
-        // void visit(const Chain *node) override {}
     };
 
-    GetPaths getter(group_map);
-    member.accept(&getter);
-    return getter.get_paths();
+    GetPaths gp(group_map);
+    layout.body.accept(&gp);
+    return gp.get_paths();
 }
 
 // Returns whether these are equivalent paths.
@@ -154,6 +160,61 @@ bool is_valid_path(const Path &path, const BVH_t::Variant &variant) {
         return false;
     }
     return true;
+}
+
+GroupMap get_group_map(const Layout &layout) {
+    struct GetGroupMap : Visitor {
+        void visit(const Group *node) override {
+            const auto [_, inserted] = map.insert({node->name, node});
+            internal_assert(inserted)
+                << "unexpected duplicate group name: " << node->name;
+            node->inner.accept(this); // visit nested groups.
+        };
+        GroupMap map;
+    };
+
+    GetGroupMap ggm;
+    layout.body.accept(&ggm);
+    return ggm.map;
+}
+
+std::map<std::string, Path> get_unambiguous_paths(const ir::Layout &layout) {
+    GroupMap group_map = get_group_map(layout);
+    std::vector<Path> paths = get_paths(layout, group_map);
+
+    // Check paths are unique.
+    for (size_t i = 0; i < paths.size(); ++i) {
+        const Path &pi = paths[i];
+        for (size_t j = i + 1; j < paths.size(); ++j) {
+            const Path &pj = paths[j];
+            internal_assert(!equal_paths(pi, pj))
+                << "unexpected equal paths for " << layout.name << ": " << pi
+                << " vs " << pj;
+        }
+    }
+
+    const BVH_t *bvh_t = layout.type.as<BVH_t>();
+    internal_assert(bvh_t) << layout.type;
+
+    std::map<std::string, Path> map;
+    // Verify each node has one equivalent path.
+    for (const BVH_t::Variant &variant : bvh_t->variants) {
+        const std::string &variant_name = variant.name();
+        Path path_to_variant;
+        for (const Path &path : paths) {
+            if (!path.empty() && is_valid_path(path, variant)) {
+                internal_assert(path_to_variant.empty())
+                    << "two or more paths found for variant: " << variant_name
+                    << " in layout: `" << layout.name << "`";
+                path_to_variant = path;
+            }
+        }
+        internal_assert(!path_to_variant.empty())
+            << "no path found for variant: " << variant_name << " in layout: `"
+            << layout.name << "`";
+        map[variant_name] = std::move(path_to_variant);
+    }
+    return map;
 }
 
 // Represents the range [min, max].
@@ -445,42 +506,9 @@ struct ValidateSplits : public Visitor {
     // void visit(const Materialize *node) override {}
 };
 
-void validate_splits(const Member &member) {
+void validate_splits(const ir::Layout &layout) {
     ValidateSplits validator;
-    member.accept(&validator);
-}
-
-GroupMap get_group_map(const Layout &layout) {
-    struct GetGroupMap : Visitor {
-        void visit(const Group *node) override {
-            const auto [_, inserted] = map.insert({node->name, node});
-            internal_assert(inserted)
-                << "unexpected duplicate group name: " << node->name;
-
-            // visit nested groups.
-            node->inner.accept(this);
-        };
-        GroupMap map;
-    };
-
-    GetGroupMap ggm;
-    layout.body.accept(&ggm);
-    return ggm.map;
-}
-
-} // namespace
-
-std::ostream &operator<<(std::ostream &os, const std::vector<Path> &paths) {
-    os << "\n[";
-    for (int i = 0, e = paths.size(); i < e; ++i) {
-        os << paths[i];
-        if (i + 1 == e) {
-            continue;
-        }
-        os << ",\n";
-    }
-    os << "]\n";
-    return os;
+    layout.body.accept(&validator);
 }
 
 // Validates all indirect groups are defined at the root.
@@ -562,61 +590,145 @@ void validate_root(const Layout &layout) {
     }
 }
 
-std::map<std::string, Path> validate_layout(const Layout &layout) {
-    const Member &body = layout.body;
-    const Type &bvh_t = layout.type;
-
-    internal_assert(body.defined() && bvh_t.defined())
-        << "Cannot validate with undefined member or bvh_t: " << body << "\n"
-        << bvh_t;
-    const BVH_t *bvh_node = bvh_t.as<BVH_t>();
-    internal_assert(bvh_node)
-        << "Cannot validate member of non-BVH_t: " << bvh_t;
-
-    // Assert root is well-formed.
-    validate_root(layout);
-    // Assert all Split fields are accessible at Split level.
-    validate_splits(body);
-    // Assert all Indirect groups are defined at root level.
-    validate_indirect_groups(layout);
-
-    GroupMap group_map = get_group_map(layout);
-    std::vector<Path> paths = get_paths(body, group_map);
-    // internal_assert(paths.size() == bvh_node->variants.size())
-    //     << "layout `" << layout.name << "` has " << paths.size()
-    //     << " paths, while the BVH ADT " << bvh_t << " has "
-    //     << bvh_node->variants.size() << " node variants.";
-
-    // Check paths are unique.
-    for (size_t i = 0; i < paths.size(); ++i) {
-        const Path &pi = paths[i];
-        for (size_t j = i + 1; j < paths.size(); ++j) {
-            const Path &pj = paths[j];
-            internal_assert(!equal_paths(pi, pj))
-                << "unexpected equal paths for " << layout << ": " << pi
-                << " vs " << pj;
-        }
-    }
-
-    // TODO(ajr): use Arm::name.
-    std::map<std::string, Path> map;
-    // Verify each node has one equivalent path.
-    for (const BVH_t::Variant &variant : bvh_node->variants) {
-        Path path_to_variant;
-        for (const auto &path : paths) {
-            if (!path.empty() && is_valid_path(path, variant)) {
-                internal_assert(path_to_variant.empty())
-                    << "ambiguous path for variant: " << variant.name()
-                    << " in layout: `" << layout.name << "`";
-                path_to_variant = path;
+void validate_tcd(const ir::Layout &layout) {
+    struct ParentFieldCollector : public Visitor {
+        void visit(const Access *node) override {
+            if (const Struct_t *struct_type =
+                    node->value.type().as<Struct_t>()) {
+                if (struct_type->name == "parent_t") {
+                    parent_fields.insert(node->field);
+                }
             }
         }
-        internal_assert(!path_to_variant.empty())
-            << "no path for variant: " << variant.name() << " in layout: `"
-            << layout.name << "`";
-        map[variant.name()] = std::move(path_to_variant);
+
+        std::set<std::string> parent_fields;
+    };
+
+    ParentFieldCollector pfc;
+    layout.body.accept(&pfc);
+    for (const ir::Argument &arg : layout.root) {
+        if (!pfc.parent_fields.contains(arg.name)) {
+            // Root arguments may also be indexes used by groups.
+            // We can safely ignore these.
+            continue;
+        }
+        internal_assert(arg.default_value.defined())
+            << "tree-carried dependency: " << arg.name
+            << " must define a base case";
     }
-    return map;
+}
+
+int32_t count_children(const ir::Layout &layout,
+                       const BVH_t::Variant &variant) {
+    const ir::BVH_t *bvh = layout.type.as<ir::BVH_t>();
+    internal_assert(bvh) << layout.type;
+    ir::Type tree_reference = ir::Ref_t::make(bvh->name);
+
+    int32_t count = 0;
+    for (const ir::TypedVar &field : variant.fields()) {
+        const Type &field_type = field.type;
+        if (ir::equals(field_type, tree_reference)) {
+            ++count;
+            continue;
+        }
+        if (field_type.is_iterable() &&
+            ir::equals(field_type.element_of(), tree_reference)) {
+            std::optional<uint32_t> size =
+                get_constant_value(field_type.size());
+            internal_assert(size.has_value())
+                << "cannot determine children count for "
+                   "non-constant array size in field: "
+                << field.name << " : " << field_type;
+            count += *size;
+        }
+    }
+    return count;
+}
+
+int32_t count_variant_fields(const ir::BVH_t::Variant &variant,
+                             const BVH_t::Volume &volume, int32_t child_count,
+                             uint32_t index) {
+    const auto *volume_t = volume.struct_type.as<ir::Struct_t>();
+    const std::string &initializer = volume.initializers[index];
+    ir::Type volume_type = volume_t->fields[index].type;
+    ir::Type variant_type =
+        ir::Access::make(initializer,
+                         ir::Var::make(variant.struct_type, variant.name()))
+            .type();
+
+    if (ir::equals(volume_type, variant_type)) {
+        return child_count;
+    }
+    if (variant_type.is_iterable() &&
+        equals(variant_type.element_of(), volume_type)) {
+        std::optional<uint32_t> size = get_constant_value(variant_type.size());
+        internal_assert(size.has_value()) << variant_type.size();
+        return *size;
+    }
+    internal_error << "[unimplemented] variant fields that aren't T or T[]: "
+                   << variant_type;
+}
+
+void validate_volumes(const ir::Layout &layout) {
+    const BVH_t *bvh_t = layout.type.as<BVH_t>();
+    internal_assert(bvh_t) << layout.type;
+    for (uint32_t i = 0; i < bvh_t->variants.size(); i++) {
+        const BVH_t::Variant &variant = bvh_t->variants[i];
+        if (!variant.volume.has_value()) {
+            continue;
+        }
+        const BVH_t::Volume &volume = *variant.volume;
+        // Verify initializers can actually be traced back to the variants.
+        for (size_t i = 0, e = volume.initializers.size(); i < e; ++i) {
+            const std::string &name = volume.initializers[i];
+            auto it = std::find_if(
+                variant.fields().begin(), variant.fields().end(),
+                [&](const ir::TypedVar &p) { return p.name == name; });
+            internal_assert(it != variant.fields().end())
+                << "could not find field for initializer: " << name << '\n';
+        }
+
+        switch (volume.bound_type) {
+        case BVH_t::Volume::BoundType::Enclosing:
+            continue; // skip
+        case BVH_t::Volume::BoundType::Childwise:
+            break;
+        }
+        const int32_t child_count = count_children(layout, variant);
+        if (child_count == 0) {
+            continue;
+        }
+        const Struct_t *volume_t = volume.struct_type.as<Struct_t>();
+        internal_assert(volume_t) << volume.struct_type;
+        for (uint32_t i = 0, e = volume_t->fields.size(); i < e; ++i) {
+            int32_t field_count =
+                count_variant_fields(variant, volume, child_count, i);
+            internal_assert(field_count == child_count)
+                << "mismatch in child count: " << child_count
+                << " and field count: " << field_count << " for volume field "
+                << volume_t->fields[i]
+                << " , initialized by: " << volume.initializers[i];
+        }
+    }
+}
+
+} // namespace
+
+// Performs well-formedness checks of the layout, and returns a mapping from
+// variant name to path for each variant in the layout type.
+std::map<std::string, Path> validate_layout(const ir::Layout &layout) {
+    internal_assert(layout.body.defined()) << "undefined body: " << layout.name;
+    internal_assert(layout.type.defined()) << "undefined type: " << layout.name;
+    internal_assert(layout.type.is<BVH_t>())
+        << "expected ADT type for " << layout.name
+        << ", received: " << layout.type;
+
+    validate_root(layout);
+    validate_tcd(layout);
+    validate_volumes(layout);
+    validate_splits(layout);
+    validate_indirect_groups(layout);
+    return get_unambiguous_paths(layout);
 }
 
 } // namespace ir
