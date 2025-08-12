@@ -1,6 +1,7 @@
 #include "IR/Mutator.h"
 
 #include "IR/Expr.h"
+#include "IR/Layout.h"
 #include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
@@ -42,6 +43,10 @@ Expr Mutator::mutate(const Expr &expr) {
 
 Stmt Mutator::mutate(const Stmt &stmt) {
     return stmt.defined() ? stmt.get()->mutate_stmt(this) : Stmt();
+}
+
+Member Mutator::mutate(const Member &member) {
+    return member.defined() ? member.get()->mutate_member(this) : Member();
 }
 
 std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
@@ -687,6 +692,44 @@ Stmt Mutator::visit(const Append *node) {
         return node;
     }
     return Append::make(std::move(loc), std::move(value));
+}
+
+Member Mutator::visit(const Field *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Pad *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Split *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Chain *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+    auto [members, not_changed] = visit_list(this, node->members);
+    if (not_changed) {
+        return node;
+    }
+    return Chain::make(std::move(members));
+}
+
+Member Mutator::visit(const Group *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Materialize *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+    ir::Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return Materialize::make(node->name, std::move(value));
+}
+Member Mutator::visit(const Lookup *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+    return node;
 }
 
 } // namespace ir

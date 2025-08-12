@@ -3,6 +3,7 @@
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Frame.h"
+#include "IR/Layout.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -20,7 +21,7 @@ namespace lower {
 
 namespace {
 
-class LayoutMap {
+class LayoutTypeMap {
   public:
     ir::Type insert_struct_layout(const ir::Member &member,
                                   const std::string &name,
@@ -99,7 +100,7 @@ class LayoutMap {
 };
 
 [[maybe_unused]] std::ostream &operator<<(std::ostream &os,
-                                          const LayoutMap &map) {
+                                          const LayoutTypeMap &map) {
     os << "layout -> type {\n";
     for (const auto &[member, type] : map.types()) {
         os << member << " : " << type << "\n";
@@ -227,6 +228,9 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
                     expr = ir::Var::make(it->type, it->name);
                 }
             }
+            if (var->name == "parent") {
+                return var;
+            }
             internal_assert(expr.has_value())
                 << "Materialization fill cannot find: " << var->name;
             return *expr;
@@ -237,7 +241,7 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
 
 // Returns the struct equivalent for this layout member, and updates the layout
 // type map respectively.
-ir::Type layout_to_struct(const ir::Member &member, LayoutMap &lmap) {
+ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &lmap) {
     if (auto it = lmap.types().find(member); it != lmap.types().cend()) {
         return it->second;
     }
@@ -305,7 +309,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                          ir::MapStack<std::string, ir::Expr> frames,
                          const std::string &iter_name,
                          const std::string &node_type, const std::string &field,
-                         const LayoutMap &lmap, const ir::Layout &layout,
+                         const LayoutTypeMap &lmap, const ir::Layout &layout,
                          const ir::Expr &root, bool is_lookup = false) {
     uint32_t group_count = 0, split_count = 0;
     const ir::Chain *chain = to_chainz(member);
@@ -429,9 +433,38 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
     return ir::Expr();
 }
 
+class UpdateParentAccess : public ir::Visitor {
+  public:
+    explicit UpdateParentAccess() {}
+
+    void visit(const ir::Materialize *node) override {
+        node->value.accept(this);
+        if (parent_accesses.contains(node->name)) {
+            parent_updates.push_back({node->name, node->value});
+        }
+    }
+
+    void visit(const ir::Access *node) override {
+        if (const ir::Struct_t *struct_t =
+                node->value.type().as<ir::Struct_t>();
+            struct_t && struct_t->name == "parent_t") {
+            parent_accesses.insert(node->field);
+        }
+    }
+
+    std::vector<std::pair<std::string, ir::Expr>> updates() {
+        return parent_updates;
+    }
+
+  private:
+    std::set<std::string> parent_accesses;
+    std::vector<std::pair<std::string, ir::Expr>> parent_updates;
+};
+
 ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
-                           const std::string &obj_name, const LayoutMap &lmap,
-                           const ir::Layout &layout, const ir::Expr &root) {
+                           const std::string &obj_name,
+                           const LayoutTypeMap &lmap, const ir::Layout &layout,
+                           const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
         // TODO(cgyurgyik): enable ADTs to have same children name.
         using Path = std::vector<std::pair<std::string, ir::Arm>>;
@@ -542,7 +575,6 @@ ir::Stmt lower_switch_tree(ir::Member member, ir::Expr base,
         if_chain = ir::IfElse::make(std::move(condition), std::move(body),
                                     std::move(if_chain));
     }
-    internal_assert(if_chain.defined());
     return if_chain;
 }
 
@@ -736,29 +768,40 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
                         << "Mismatching YieldFroms, expected type: "
                         << index_list[0].type << " but found type: " << type
                         << " in: " << ir::Stmt(node);
-                } else {
-                    const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
-                    internal_assert(tuple &&
-                                    tuple->etypes.size() == index_list.size())
-                        << "Expected " << index_list.size()
-                        << " values, but found: " << type
-                        << " in recursive function of: " << ir::Stmt(node)
-                        << "\n with type: " << type
-                        << " of flattened id: " << id;
-
-                    for (size_t i = 0; i < index_list.size(); i++) {
-                        internal_assert(
-                            ir::equals(index_list[i].type, tuple->etypes[i]))
-                            << "Mismatching YieldFroms, expected type: "
-                            << index_list[i].type
-                            << " but found type: " << tuple->etypes[i]
-                            << " at index: " << i << " in: " << ir::Stmt(node);
-                    }
+                    flat_ids.push_back(std::move(value));
+                    continue;
                 }
-                flat_ids.push_back(std::move(value));
+                // TODO(cgyurgyik): brittle
+                std::vector<ir::Expr> vs = {id};
+                for (uint32_t i = 1, e = index_list.size(); i < e; ++i) {
+                    const ir::TypedVar &var = index_list[i];
+                    auto it = references.find(var.name);
+                    internal_assert(it != references.end()) << var;
+                    vs.push_back(it->second);
+                }
+                flat_ids.push_back(make_tuple(std::move(vs)));
+
+                // const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
+                // internal_assert(tuple &&
+                //                 tuple->etypes.size() ==
+                //                 index_list.size())
+                //     << "Expected " << index_list.size()
+                //     << " values, but found: " << type
+                //     << " in recursive function of: " << ir::Stmt(node)
+                //     << "\n with type: " << type
+                //     << " of flattened id: " << id;
+
+                // for (size_t i = 0; i < index_list.size(); i++) {
+                //     internal_assert(
+                //         ir::equals(index_list[i].type, tuple->etypes[i]))
+                //         << "Mismatching YieldFroms, expected type: "
+                //         << index_list[i].type
+                //         << " but found type: " << tuple->etypes[i]
+                //         << " at index: " << i << " in: " <<
+                //         ir::Stmt(node);
+                // }
             }
-            ir::Expr value = make_tuple(std::move(flat_ids));
-            return ir::YieldFrom::make(std::move(value));
+            return ir::YieldFrom::make(make_tuple(std::move(flat_ids)));
         }
     };
 
@@ -767,20 +810,41 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
 }
 
 struct LowerMatches : public ir::Mutator {
-    const ir::LayoutMap &members;
+    const ir::LayoutMap &layout_map;
     const ir::TypeMap &structs;
-    const LayoutMap &lmap;
-    ir::Layout layout;
+    const LayoutTypeMap &layout_type_map;
 
-    LowerMatches(const ir::LayoutMap &members, const ir::TypeMap &structs,
-                 const LayoutMap &lmap)
-        : members(members), structs(structs), lmap(lmap) {}
+    LowerMatches(const ir::LayoutMap &layout_map, const ir::TypeMap &structs,
+                 const LayoutTypeMap &layout_type_map)
+        : layout_map(layout_map), structs(structs),
+          layout_type_map(layout_type_map) {}
+
+    ir::Member get_member(const std::string &tree_name) {
+        const auto &iter = layout_map.find(tree_name);
+        internal_assert(iter != layout_map.cend())
+            << "Failed to find member of: " << tree_name;
+        return iter->second.body;
+    }
+
+    ir::Layout get_layout(const std::string &tree_name) {
+        const auto &iter = layout_map.find(tree_name);
+        internal_assert(iter != layout_map.cend())
+            << "Failed to find layout of: " << tree_name;
+        return iter->second;
+    }
+
+    ir::Type get_struct_type(const std::string &tree_name) {
+        const auto &iter = structs.find(tree_name);
+        internal_assert(iter != structs.cend())
+            << "Failed to find type of: " << tree_name;
+        return iter->second;
+    }
 
     std::map<std::string, ir::Type> ref_types;
     IndexTList index_list;
     std::set<std::string> matched_objects;
     std::map<std::string, ir::Expr> references;
-
+    std::string tree_name;
     size_t counter = 0;
 
     std::string get_unique_loop_label() {
@@ -792,8 +856,9 @@ struct LowerMatches : public ir::Mutator {
         internal_assert(references.empty()) << ir::Stmt(node);
         ir::Stmt body = mutate(node->body);
         body = flatten_yield_froms(index_list, std::move(body), references);
+
         references.clear();
-        std::vector<ir::Argument> args = layout.root;
+        std::vector<ir::Argument> args = get_layout(tree_name).root;
         for (int i = 0, e = index_list.size(); i < e; ++i) {
             auto it = std::find_if(args.begin(), args.end(),
                                    [&](const ir::Argument &arg) {
@@ -809,36 +874,32 @@ struct LowerMatches : public ir::Mutator {
     ir::Stmt visit(const ir::Match *node) override {
         internal_assert(node->loc.is<ir::Var>())
             << "[unimplemented] Match on non-Var: " << ir::Stmt(node);
-        const std::string tree_name = node->loc.as<ir::Var>()->name;
+        tree_name = node->loc.as<ir::Var>()->name;
 
-        // Now, based on member, form switch-tree.
-        ir::Member member = [&]() {
-            const auto &iter = members.find(tree_name);
-            internal_assert(iter != members.cend())
-                << "Failed to find member of: " << tree_name
-                << " for Match lowering: " << ir::Stmt(node);
-            return iter->second.body;
-        }();
-
-        {
-            const auto &iter = members.find(tree_name);
-            internal_assert(iter != members.cend())
-                << "Failed to find member of: " << tree_name
-                << " for Match lowering: " << ir::Stmt(node);
-            layout = iter->second;
-        }
-
-        ir::Type struct_type = [&]() {
-            const auto &iter = structs.find(tree_name);
-            internal_assert(iter != structs.cend())
-                << "Failed to find type of: " << tree_name
-                << " for Match lowering: " << ir::Stmt(node);
-            return iter->second;
-        }();
+        ir::Type struct_type = get_struct_type(tree_name);
+        ir::Member member = get_member(tree_name);
+        ir::Layout layout = get_layout(tree_name);
 
         ir::Expr root = ir::Var::make(struct_type, tree_name);
-        ir::Stmt body =
-            lower_switch_tree(member, root, tree_name, lmap, layout, root);
+        ir::Stmt body = lower_switch_tree(member, root, tree_name,
+                                          layout_type_map, layout, root);
+        if (!body.defined()) {
+            // Even the tagged representation is implicitly represented.
+            std::vector<ir::Stmt> stmts;
+            const std::vector<ir::BVH_t::Variant> variants = layout.variants();
+            stmts.reserve(variants.size());
+            std::transform(
+                variants.begin(), variants.end(), std::back_inserter(stmts),
+                [](const ir::BVH_t::Variant &variant) {
+                    return ir::Label::make(variant.name(), ir::Stmt());
+                });
+            body = ir::Sequence::make(std::move(stmts));
+            UpdateParentAccess upa;
+            layout.body.accept(&upa);
+            for (const auto &[name, expr] : upa.updates()) {
+                references.insert({name, expr});
+            }
+        }
 
         for (const auto &[variant, statement] : node->arms) {
             std::map<std::string, ir::Expr> field_map;
@@ -846,7 +907,7 @@ struct LowerMatches : public ir::Mutator {
             for (const auto &field : variant.fields()) {
                 field_map[field.name] = field_in_layout(
                     root, member, /*frames=*/{}, tree_name, branch_name,
-                    field.name, lmap, layout, root);
+                    field.name, layout_type_map, layout, root);
             }
 
             // Lower these Unwraps.
@@ -870,8 +931,16 @@ struct LowerMatches : public ir::Mutator {
             index_list.insert(index_list.end(),
                               std::make_move_iterator(node_index_list.begin()),
                               std::make_move_iterator(node_index_list.end()));
+            matched_objects.insert(tree_name);
         }
-        matched_objects.insert(tree_name);
+        for (const ir::Argument &arg : layout.root) {
+            auto it = std::find_if(
+                index_list.begin(), index_list.end(),
+                [&](const ir::TypedVar &v) { return arg.name == v.name; });
+            if (it == index_list.end()) {
+                index_list.push_back(ir::TypedVar(arg.name, arg.type));
+            }
+        }
 
         // Now recursively mutate the body, for nested matches.
         return mutate(body);
@@ -1004,7 +1073,7 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     ir::TypeMap types;
-    LayoutMap lmap;
+    LayoutTypeMap lmap;
     for (const auto &[name, layout] : tree_layouts) {
         lmap.update_group_map(get_group_map(layout));
 

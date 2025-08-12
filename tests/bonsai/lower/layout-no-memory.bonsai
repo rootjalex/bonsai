@@ -1,0 +1,42 @@
+//! flags: -p verify-layouts -p lower-trees -p lower-layouts
+
+import stdlib/distance;
+import stdlib/intersects;
+
+element f32x3 = vector[f32, 3];
+element u32x2 = vector[u32, 2];
+element Tri { vs : f32x3; }
+element SLAB { lo: f32; hi: f32; }
+
+extern triangles : set[Tri];
+
+func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+
+schedule {
+    // NMH in https://graphics.tu-bs.de/upload/publications/Eisemann11NMH.pdf
+    tree[[Tri]] BVH(lo: f32, hi: f32) with SLAB(lo, hi)
+    = Interior(left: BVH, right: BVH) 
+    | Leaf(data: array[Tri, 2]);
+
+    triangles : BVH;
+    
+    layout triangles(index: u32 = 0, axis: u32 = 0) {
+        count : u32;
+        primitives : array[Tri, count];
+        
+        group[count] by index {
+            lo = select(index < count, 
+              min(primitives[index+0].vs[parent.axis], primitives[index+1].vs[parent.axis]), 
+              0.0
+            );
+            hi = select(index < count, 
+              max(primitives[index+0].vs[parent.axis], primitives[index+1].vs[parent.axis]), 
+              0.0
+            );
+            axis = (parent.axis + 1) % 3;
+            left = index * 2 + 2;
+            right = (index * 2 + 2) + 1;
+            data = primitives[index : index + 2];
+        };
+    };
+}

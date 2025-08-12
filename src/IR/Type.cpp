@@ -594,10 +594,22 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         return as_tuple->etypes[position];
     } else if (const Ptr_t *as_ptr = struct_type.as<Ptr_t>()) {
         return get_field_type(as_ptr->etype, field);
-    } else {
-        internal_error << "Failed to find field: " << field
-                       << " in non-(struct | vec) type: " << struct_type;
+    } else if (const BVH_t *as_bvh = struct_type.as<BVH_t>()) {
+        for (const ir::BVH_t::Variant &variant : as_bvh->variants) {
+            // TODO(cgyurgyik): different variants may share the same field
+            // name, so this is not necessarily always correct. (Although,
+            // they will also likely share the same type too).
+            auto it = std::find_if(
+                variant.fields().begin(), variant.fields().end(),
+                [&](const ir::TypedVar &v) { return v.name == field; });
+            if (it == variant.fields().end()) {
+                continue;
+            }
+            return it->type;
+        }
     }
+    internal_error << "Failed to find field: " << field
+                   << " in non-(struct | vec) type: " << struct_type;
 }
 
 bool satisfies(const Type &type, const Interface &interface) {

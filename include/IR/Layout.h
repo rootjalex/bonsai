@@ -32,13 +32,13 @@ using IRLayoutMember = IRNode<Member, IRLayoutEnum>;
 /* This is necessary to get mutate() to work properly... */
 struct BaseLayoutMember : public IRLayoutMember {
     BaseLayoutMember(IRLayoutEnum t) : IRLayoutMember(t) {}
-    // virtual Member mutate_layout(Mutator *m) const = 0;
+    virtual Member mutate_member(Mutator *m) const = 0;
 };
 
 template <typename T>
 struct LayoutMember : public BaseLayoutMember {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
-    // Member mutate_layout(Mutator *m) const override;
+    Member mutate_member(Mutator *m) const override;
     LayoutMember() : BaseLayoutMember(T::node_type) {}
     ~LayoutMember() override = default;
 };
@@ -65,12 +65,10 @@ struct Member : public IRHandle<IRLayoutMember> {
     // TODO: implement copy/move semantics!
 };
 
-struct Layout {
-    std::string name;
-    Type type; // The algebraic data type associated with this layout.
-    std::vector<ir::Argument> root;
-    Member body;
-};
+template <typename T>
+Member LayoutMember<T>::mutate_member(Mutator *m) const {
+    return m->visit((const T *)this);
+}
 
 struct Field : LayoutMember<Field> {
     std::string name;
@@ -163,7 +161,40 @@ struct Lookup : LayoutMember<Lookup> {
     static const IRLayoutEnum node_type = IRLayoutEnum::Lookup;
 };
 
+struct Layout {
+    std::string name;
+    Type type; // The algebraic data type associated with this layout.
+    std::vector<ir::Argument> root;
+    Member body;
+
+    std::vector<ir::BVH_t::Variant> variants() {
+        const BVH_t *bvh_t = type.as<BVH_t>();
+        internal_assert(bvh_t);
+        return bvh_t->variants;
+    }
+
+    std::vector<ir::Member> find_direct_groups() {
+        if (const ir::Group *group = body.as<ir::Group>()) {
+            if (group->type == ir::Group::Type::Direct) {
+                return {group};
+            }
+        }
+        std::vector<ir::Member> direct_groups;
+        if (const ir::Chain *chain = body.as<ir::Chain>()) {
+            for (const ir::Member &member : chain->members) {
+                if (const ir::Group *group = member.as<ir::Group>()) {
+                    if (group->type == ir::Group::Type::Direct) {
+                        direct_groups.push_back(group);
+                    }
+                }
+            }
+        }
+        return direct_groups;
+    }
+};
+
 using LayoutMap = std::map<std::string, Layout>;
+std::ostream &operator<<(std::ostream &os, const LayoutMap &map);
 
 } // namespace ir
 

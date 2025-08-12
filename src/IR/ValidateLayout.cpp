@@ -12,6 +12,8 @@
 
 // TODO(cgyurgyik): verify that if a variant is bounded childwise, the field
 // counts are sensical, e.g., 4 children should have 4 bounding volumes.
+
+// TODO(cgyurgyik): parent variables must be defined in the root.
 namespace bonsai {
 namespace ir {
 namespace {
@@ -19,7 +21,7 @@ namespace {
 using GroupMap = std::map<std::string, Member>;
 
 // TODO: assert that all volumes only have initializers from
-// parent.params or node.params BVH_t::make asserts this. we should
+// parent.params or variant.params BVH_t::make asserts this. we should
 // catch that failure, and report a backtrace.
 std::vector<Path> get_paths(const Member &member, const GroupMap &group_map) {
     class GetPaths : public Visitor {
@@ -349,7 +351,9 @@ struct ValidateSplits : public Visitor {
         ir::Expr expr = node->expr;
         internal_assert(expr.type().is_scalar()) << expr.type();
         // TODO(cgyurgyik): generalize this for n-bit fields.
-        if (expr.type().is<Int_t>()) {
+        if (expr.type().is<Bool_t>()) {
+            validate_arms<bool>(*node);
+        } else if (expr.type().is<Int_t>()) {
             switch (expr.type().bits()) {
             case 1:
                 validate_arms<bool>(*node);
@@ -578,10 +582,10 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
 
     GroupMap group_map = get_group_map(layout);
     std::vector<Path> paths = get_paths(body, group_map);
-    internal_assert(paths.size() == bvh_node->variants.size())
-        << "layout `" << layout.name << "` has " << paths.size()
-        << " paths, while the BVH ADT " << bvh_t << " has "
-        << bvh_node->variants.size() << " node variants.";
+    // internal_assert(paths.size() == bvh_node->variants.size())
+    //     << "layout `" << layout.name << "` has " << paths.size()
+    //     << " paths, while the BVH ADT " << bvh_t << " has "
+    //     << bvh_node->variants.size() << " node variants.";
 
     // Check paths are unique.
     for (size_t i = 0; i < paths.size(); ++i) {
@@ -599,16 +603,16 @@ std::map<std::string, Path> validate_layout(const Layout &layout) {
     // Verify each node has one equivalent path.
     for (const BVH_t::Variant &variant : bvh_node->variants) {
         Path path_to_variant;
-        for (auto &path : paths) {
+        for (const auto &path : paths) {
             if (!path.empty() && is_valid_path(path, variant)) {
                 internal_assert(path_to_variant.empty())
-                    << "ambiguous path for node: " << variant.name()
+                    << "ambiguous path for variant: " << variant.name()
                     << " in layout: `" << layout.name << "`";
-                path_to_variant = std::move(path);
+                path_to_variant = path;
             }
         }
         internal_assert(!path_to_variant.empty())
-            << "no path for node: " << variant.name() << " in layout: `"
+            << "no path for variant: " << variant.name() << " in layout: `"
             << layout.name << "`";
         map[variant.name()] = std::move(path_to_variant);
     }

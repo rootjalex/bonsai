@@ -12,6 +12,7 @@ struct Mutator {
     virtual Interface mutate(const Interface &interface);
     virtual Expr mutate(const Expr &expr);
     virtual Stmt mutate(const Stmt &stmt);
+    virtual Member mutate(const Member &member);
 
     virtual std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc);
     // protected:
@@ -96,6 +97,14 @@ struct Mutator {
     virtual Stmt visit(const Continue *);
     virtual Stmt visit(const Launch *);
     virtual Stmt visit(const Append *);
+    // Layouts
+    virtual Member visit(const Field *);
+    virtual Member visit(const Pad *);
+    virtual Member visit(const Split *);
+    virtual Member visit(const Chain *);
+    virtual Member visit(const Group *);
+    virtual Member visit(const Materialize *);
+    virtual Member visit(const Lookup *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

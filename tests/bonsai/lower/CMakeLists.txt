@@ -16,6 +16,7 @@ add_bonsai_tests(
     lambda-simple.bonsai
     layout-dop14.bonsai
     layout-embree-hair.bonsai
+    layout-no-memory.bonsai
     layout-pbrt.bonsai
     logical-operation.bonsai
     map-func.bonsai

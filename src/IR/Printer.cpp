@@ -67,6 +67,18 @@ std::string to_string(const Type &type) {
     return oss.str();
 }
 
+std::ostream &operator<<(std::ostream &os, const std::vector<Type> &types) {
+    os << "[";
+    for (int i = 0, e = types.size(); i < e; ++i) {
+        os << types[i];
+        if (i + 1 == e)
+            continue;
+        os << ", ";
+    }
+    os << "]\n";
+    return os;
+}
+
 std::ostream &operator<<(std::ostream &os, const Type &type) {
     if (type.defined()) {
         Printer printer(os);
@@ -1070,7 +1082,14 @@ void Printer::visit(const Unwrap *node) {
     // TODO: parens?
     os << "(";
     print_no_parens(node->value);
-    os << " as " << node->type.as<Struct_t>()->name << ")";
+
+    os << " as ";
+    if (const auto *struct_t = node->type.as<Struct_t>()) {
+        os << struct_t->name;
+    } else {
+        os << node->type;
+    }
+    os << ")";
 }
 
 std::string to_string(const Intrinsic::OpType &op) {

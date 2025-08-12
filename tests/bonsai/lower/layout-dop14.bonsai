@@ -11,6 +11,8 @@ element f32x4 = vector[f32, 4];
 
 func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
 
+// TODO(cgyurgyik): we want to maek sure that lo2, hi2 are not loaded unelss lo1, hi1 fail
+//                  i.e., we need load-sinking.
 element DOP14 { lo1: f32x3; hi1: f32x3; lo2: f32x4; hi2: f32x4; early_exit: u1; }
 
 schedule {

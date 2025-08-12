@@ -170,5 +170,15 @@ Member Lookup::make(std::string group_name, Expr index) {
     return node;
 }
 
+[[maybe_unused]] std::ostream &operator<<(std::ostream &os,
+                                          const LayoutMap &map) {
+    os << "name -> layout {\n";
+    for (const auto &[member, type] : map) {
+        os << member << " : " << type << "\n";
+    }
+    os << "}\n";
+    return os;
+}
+
 } // namespace ir
 } // namespace bonsai

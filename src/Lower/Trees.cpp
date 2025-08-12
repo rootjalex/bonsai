@@ -648,7 +648,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         const size_t n_nodes = bvh->variants.size();
         ir::Match::Arms arms(n_nodes);
         for (size_t i = 0; i < n_nodes; i++) {
-            ir::Expr node = ir::Unwrap::make(i, bvh_expr);
+            ir::Expr node = ir::Unwrap::make(/*unwrap_index=*/i, bvh_expr);
             const auto [payload, children] =
                 analyze_node(bvh->variants[i], as_var->type.element_of(), tree);
 
@@ -694,6 +694,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
             }
 
             arms[i].first = bvh->variants[i];
+
             internal_assert(!statements.empty());
             arms[i].second = ir::Sequence::make(std::move(statements));
         }

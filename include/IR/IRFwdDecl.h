@@ -95,6 +95,7 @@ struct Launch;
 struct Append;
 
 // Layouts
+struct Member;
 struct Field;
 struct Pad;
 struct Split;

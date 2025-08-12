@@ -28,6 +28,7 @@ std::ostream &operator<<(std::ostream &os, const Interface &interface);
 
 std::string to_string(const Type &type);
 std::ostream &operator<<(std::ostream &os, const Type &type);
+std::ostream &operator<<(std::ostream &os, const std::vector<Type> &types);
 
 std::string to_string(const Stmt &stmt);
 std::ostream &operator<<(std::ostream &os, const Stmt &stmt);

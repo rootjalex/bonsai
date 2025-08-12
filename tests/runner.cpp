@@ -257,7 +257,8 @@ int main(int argc, char *argv[]) {
         output << "---CODE---\n" << code << "\n";
     }
     if (!stderr_s.empty()) {
-        stderr_s = cutoff_stack_trace(stderr_s);
+        // TODO(cgyurgyik): optionally capture.
+        // stderr_s = cutoff_stack_trace(stderr_s);
         output << "---STDERR---\n" << stderr_s;
         if (!stderr_s.ends_with('\n')) {
             output << '\n';

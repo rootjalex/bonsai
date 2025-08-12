@@ -26,7 +26,7 @@ class StackTraceCollector {
     static std::vector<std::string> collect_stack_trace(int skip_frames) {
         std::vector<std::string> trace;
 
-        const int max_frames = 64;
+        const int max_frames = 128;
         void *buffer[max_frames];
 
         int frame_count = backtrace(buffer, max_frames);

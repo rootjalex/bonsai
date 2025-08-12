@@ -227,7 +227,6 @@ struct Parser {
     }
 // Required to lazily capture the call site of the error reporter.
 #define report_error() report_error_impl(std::source_location::current())
-
     ir::Type get_type_from_frame(const std::string &name) const {
         std::optional<FunctionVariable> variable_type =
             frames.from_frames(name);
@@ -270,6 +269,9 @@ struct Parser {
     }
 
     void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
+        if (frames.contains(name)) {
+            return;
+        }
         frames.add_to_frame(name, FunctionVariable{
                                       .type = type,
                                       .mutating = mut,
@@ -1207,7 +1209,8 @@ struct Parser {
             }
             if (consume(Token::Type::LBRACKET)) {
                 // TODO(cgyurgyik): just use [i]* syntax. I probably broke
-                // something here. Can have multiple indexes in one `[` `]`
+                // something here. Previously, you could have multiple indexes
+                // in one `[` `]`.
                 //
                 // TODO(cgyurgyik): This is incorrect for open/close-ended
                 // slices.
@@ -1290,7 +1293,7 @@ struct Parser {
             std::vector<ir::TypedVar> args = parse_lambda_args();
             push_frame();
             for (const auto &arg : args) {
-                add_type_to_frame(arg.name, arg.type, /* mutable */ false);
+                add_type_to_frame(arg.name, arg.type, /*mutable=*/false);
             }
             // Optionally allow squiggles for lambda expression body.
             const bool has_squiggles =
@@ -2376,7 +2379,7 @@ struct Parser {
 
             ir::Type type = parse_type();
             std::string name = names.back();
-            add_type_to_frame(name, type, /*mut=*/false);
+            add_type_to_frame(name, type, /*mutable=*/false);
             for (auto &name : names) {
                 args.push_back({std::move(name), type});
             }
@@ -2388,7 +2391,22 @@ struct Parser {
     // parse_member()
     ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
         push_frame();
+
         std::vector<ir::Argument> root = parse_func_args();
+        {
+            std::vector<ir::TypedVar> fields;
+            std::map<std::string, ir::Expr> defaults;
+            for (const ir::Argument &arg : root) {
+                fields.push_back(ir::TypedVar(arg.name, arg.type));
+                if (!arg.default_value.defined()) {
+                    continue;
+                }
+                defaults.emplace(arg.name, arg.default_value);
+            }
+            ir::Type parent_type =
+                ir::Struct_t::make("parent_t", fields, defaults);
+            add_type_to_frame("parent", parent_type, /*mutable=*/false);
+        }
         ir::Member member = parse_member();
         expect(Token::Type::SEMICOL);
         pop_frame();
@@ -2514,7 +2532,7 @@ struct Parser {
                     report_error() << "Layout member received name: " << name
                                    << " with non-primitive type: " << type;
                 }
-                add_type_to_frame(name, type, /* mutable=*/false);
+                add_type_to_frame(name, type, /*mutable=*/false);
                 return ir::Field::make(std::move(name), std::move(type));
             } else {
                 expect(Token::Type::ASSIGN);
@@ -2526,7 +2544,7 @@ struct Parser {
                         << "Layout received materialization of name: " << name
                         << " with non-primitive type: " << expr;
                 }
-                add_type_to_frame(name, expr.type(), /* mutable=*/false);
+                add_type_to_frame(name, expr.type(), /*mutable=*/false);
                 return ir::Materialize::make(std::move(name), std::move(expr));
             }
         }
