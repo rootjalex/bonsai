@@ -1333,6 +1333,7 @@ struct Parser {
             std::string str = std::get<std::string>(val.value);
             return ir::StringImm::make(std::move(str));
         }
+        consume();
         report_error() << "unexpected token: " << peek();
     }
 
@@ -2211,7 +2212,7 @@ struct Parser {
                     << lambda;
                 schedule.func_transforms[func].emplace_back(
                     ir::Sort{std::move(loc), std::move(lambda)});
-            } else if (rewrite == "split") {
+            } else if (rewrite == "loop_split") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Location io = parse_location();
@@ -2228,8 +2229,8 @@ struct Parser {
                     ir::LoopSplit{std::move(i), std::move(io), std::move(ii),
                                   std::move(factor), generate_tail});
             } else {
-                report_error()
-                    << "Unknown rewrite: " << rewrite << " on func: " << func;
+                report_error() << "Unknown rewrite: `" << rewrite
+                               << "` on func: `" << func << "`";
             }
 
             expect(Token::Type::RPAREN);

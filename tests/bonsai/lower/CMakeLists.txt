@@ -2,7 +2,6 @@ add_bonsai_tests(
     LABELS lower
     FILES
     array.bonsai
-    bvh.bonsai
     collision.bonsai
     defer-dbl-buffer.bonsai
     defer.bonsai
@@ -18,6 +17,7 @@ add_bonsai_tests(
     layout-embree-hair.bonsai
     layout-no-memory.bonsai
     layout-pbrt.bonsai
+    layout-tree.bonsai
     logical-operation.bonsai
     map-func.bonsai
     multiple-options.bonsai

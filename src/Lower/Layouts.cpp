@@ -93,7 +93,6 @@ class LayoutTypeMap {
   private:
     uint64_t counter = 0;
     std::map<ir::Member, ir::Type, ir::MemberLessThan> layout_to_type;
-    // TODO(cgyurgyik): This can also just be pulled from the struct types.
     std::map<ir::Member, std::string, ir::MemberLessThan> layout_to_name;
 
     std::map<std::string, ir::Member> group_map;
@@ -465,7 +464,6 @@ ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
                            const LayoutTypeMap &lmap, const ir::Layout &layout,
                            const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
-        // TODO(cgyurgyik): enable ADTs to have same children name.
         using Path = std::vector<std::pair<std::string, ir::Arm>>;
         Path current;
         std::vector<std::pair<std::string, Path>> paths;

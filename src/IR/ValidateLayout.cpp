@@ -405,14 +405,11 @@ void validate_arms(const Split &split) {
 
 // TODO(cgyurgyik): This needs to handle arbitrary nesting.
 struct ValidateSplits : public Visitor {
-    // void visit(const Field *node) override {}
-    // void visit(const Pad *node) override {}
     TypeMap defined;
 
     void visit(const Split *node) override {
         ir::Expr expr = node->expr;
         internal_assert(expr.type().is_scalar()) << expr.type();
-        // TODO(cgyurgyik): generalize this for n-bit fields.
         if (expr.type().is<Bool_t>()) {
             validate_arms<bool>(*node);
         } else if (expr.type().is<Int_t>()) {

@@ -16,6 +16,7 @@ element u64x4 = vector[u64, 4];
 element OBB { obb_low: f32x3; obb_high: f32x3; orientation: f32x9; }
 
 schedule {
+    // TODO(cgyurgyik): enable different variants to have fields with the same name.
     tree[[Triangle]] BVH 
       = AABBNode(aabb_children: array[BVH, 4], aabb_low: f32x3x4, aabb_high: f32x3x4) with AABB(aabb_low, aabb_high) on aabb_children
       | OBBNode(obb_children: array[BVH, 4], orientation: f32x9, obb_low: f32x3x4, obb_high: f32x3x4) with OBB(obb_low, obb_high, orientation) on obb_children

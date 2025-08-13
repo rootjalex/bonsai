@@ -293,8 +293,8 @@ void try_match_types(Expr &a, Expr &b) {
             a = cast_to(b.type(), a);
             return;
         }
-        internal_error << "same bitwidth, unsure how to cast: " << a << " and "
-                       << b << " are types " << a.type() << " and " << b.type();
+        internal_error << "[unexpected] unsure how to cast " << a << " : "
+                       << a.type() << " to " << b << " : " << b.type();
     } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
         internal_assert(!a.type().is<Option_t>());
         b = constant_cast(a.type(), b);
@@ -831,8 +831,9 @@ Expr Access::make(std::string field, Expr value) {
 }
 
 Expr Unwrap::make(size_t index, Expr value) {
-    internal_assert(value.defined() && value.type().is<BVH_t>())
-        << "Bad Unwrap parameters: " << value;
+    internal_assert(value.defined());
+    internal_assert(value.type().is<BVH_t>())
+        << "bad Unwrap parameters: " << value << " : " << value.type();
     internal_assert(index < value.type().as<BVH_t>()->variants.size())
         << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 

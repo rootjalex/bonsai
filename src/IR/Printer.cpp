@@ -522,12 +522,10 @@ void Printer::print(const Expr &expr) {
 }
 
 std::ostream &operator<<(std::ostream &os, const std::vector<Expr> &exprs) {
-    os << "[";
+    os << "[\n";
     for (int i = 0, e = exprs.size(); i < e; ++i) {
-        os << exprs[i];
-        if (i + 1 == e)
-            continue;
-        os << ", ";
+        os << "  " << exprs[i];
+        os << ",\n";
     }
     os << "]\n";
     return os;
