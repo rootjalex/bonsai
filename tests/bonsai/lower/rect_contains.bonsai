@@ -31,8 +31,8 @@ func query(r : AABB) = filter(|p| contains(r, p), points);
 
 schedule {
     // TODO: generic over primitive types!
-    tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : PointBVH, right : PointBVH)
+    tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high)
+    = Interior(left : PointBVH, right : PointBVH)
     | Leaf(data : Point);
 
     points : PointBVH;

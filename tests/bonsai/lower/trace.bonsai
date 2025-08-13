@@ -12,25 +12,32 @@ func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r
 
 schedule {
     // TODO: generic over primitive types!
-    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high)
+    = Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
     | Leaf(data : array[Triangle]);
 
     triangles : TriangleBVH;
 
-    layout triangles {
+    layout triangles(index: u32) {
         pCount : u32;
-        prims : array[Triangle, pCount];
+        primitives : array[Triangle, pCount];
         count : u32;
-        group[count] index : u32 {
+        group nodes[count] by index {
             low : vec3f;
             nPrims : u16;
             axis : u8;
-            8; // pad bits.
+            8;
             high : vec3f;
-            switch nPrims {
-                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            split nPrims {
+                0 -> Interior { 
+                    offset : u32; 
+                    left = index + 1; 
+                    right = index + offset; 
+                };
+                _ -> Leaf { 
+                    pOffset : u32; 
+                    data = primitives[pOffset : pOffset + nPrims]; 
+                };
             };
         };
     };
