@@ -761,11 +761,13 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
                     flat_ids.push_back(std::move(value));
                     continue;
                 }
-                // TODO(cgyurgyik): brittle
+                // TODO(cgyurgyik): FIX ME.
                 std::vector<ir::Expr> vs = {id};
                 for (uint32_t i = 1, e = index_list.size(); i < e; ++i) {
                     const ir::TypedVar &var = index_list[i];
                     auto it = references.find(var.name);
+                    if (it == references.end())
+                        continue;
                     internal_assert(it != references.end()) << var;
                     vs.push_back(it->second);
                 }
