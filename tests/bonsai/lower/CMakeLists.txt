@@ -13,6 +13,7 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    layout-childwise-product.bonsai
     layout-dop14.bonsai
     layout-embree-hair.bonsai
     layout-no-memory.bonsai

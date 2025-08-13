@@ -192,7 +192,6 @@ struct Rewriter : public ir::Mutator {
             internal_assert(!children.empty());
             const std::string &argument_name = args[i].name;
             volume_map[argument_name] = children.back();
-            // TODO(cgyurgyik): will this work with product on childwise...?
             if (children.size() > 1) {
                 children.pop_back();
             }
@@ -296,10 +295,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
 
             // if (predicate) yield data
             ir::Stmt body = ir::IfElse::make(std::move(cond), node);
-            VolumeMap vols = make_volume_map(lambda->args);
-
+            VolumeMap volume_map = make_volume_map(lambda->args);
             Interval bounds =
-                predicate_analysis(lambda->value, vols, intervals);
+                predicate_analysis(lambda->value, volume_map, intervals);
             if (bounds.max.defined()) {
                 // Maybe true.
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
@@ -323,10 +321,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            VolumeMap vols = make_volume_map(lambda->args);
-
+            VolumeMap volume_map = make_volume_map(lambda->args);
             Interval bounds =
-                predicate_analysis(lambda->value, vols, intervals);
+                predicate_analysis(lambda->value, volume_map, intervals);
             internal_assert(bounds.max.defined())
                 << "Cannot accelerate predicate: " << predicate
                 << " with bounds: [" << bounds.min << ", " << bounds.max
@@ -707,6 +704,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                     statements.push_back(ir::Scan::make(make_tuple(accesses)));
                 } break;
                 case ir::BVH_t::Volume::BoundType::Childwise: {
+                    // Otherwise, we have a scan per child.
                     for (const auto &[child, index] : children) {
                         ir::Expr access = ir::Access::make(child.name, node);
                         internal_assert(index.has_value());
