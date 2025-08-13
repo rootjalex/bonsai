@@ -11,6 +11,7 @@ extern triangles1 : set[Triangle];
 extern triangles2 : set[Triangle];
 
 // TODO(cgyurgyik): broken
+// https://gist.github.com/cgyurgyik/eefcdfac0866ec7d5b6a7d7e694f6937
 func collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
 
 schedule {
