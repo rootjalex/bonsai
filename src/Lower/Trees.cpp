@@ -148,7 +148,11 @@ struct Rewriter : public ir::Mutator {
     // zero or more volumes. It is zero in the case this arm has no volumes, one
     // when the bounding type is enclosing, and one or more if the bounding type
     // is childwise.
-    mutable std::vector<std::vector<ir::Expr>> volumes;
+    struct VolumeMetadata {
+        std::vector<ir::Expr> volumes;
+        ir::BVH_t::Volume::BoundType type;
+    };
+    mutable std::vector<VolumeMetadata> volume_metadata;
     // The list of variants for the current matches.
     std::vector<ir::Expr> locs;
 
@@ -165,7 +169,7 @@ struct Rewriter : public ir::Mutator {
             auto [variant, statement] = node->arms[i];
             update_volumes(variant, unwrap, tree.type());
             statement = mutate(statement);
-            volumes.pop_back();
+            volume_metadata.pop_back();
             new_arms.push_back({
                 std::move(variant),
                 std::move(statement),
@@ -178,21 +182,21 @@ struct Rewriter : public ir::Mutator {
 
   protected:
     // Creates a mapping from lambda argument in a given geometric operation to
-    // its respective bounding volume. If there are
+    // its respective bounding volume.
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
         VolumeMap volume_map;
-        const size_t n = volumes.size(), m = args.size();
+        const size_t n = volume_metadata.size(), m = args.size();
         internal_assert(n == m)
             << "volume map with incorrect number of arguments: " << m << " vs "
             << n;
         for (size_t i = 0; i < n; i++) {
-            std::vector<ir::Expr> &children = volumes[i];
+            auto &[children, type] = volume_metadata[i];
             // Even if a volume is undefined, it needs to be added so
             // predicate analysis knows it's non-varying.
             internal_assert(!children.empty());
             const std::string &argument_name = args[i].name;
             volume_map[argument_name] = children.back();
-            if (children.size() > 1) {
+            if (type == ir::BVH_t::Volume::BoundType::Childwise) {
                 children.pop_back();
             }
         }
@@ -206,7 +210,10 @@ struct Rewriter : public ir::Mutator {
                         const ir::Expr &unwrap, const ir::Type &tree_type) {
         std::optional<ir::BVH_t::Volume> volume = variant.volume;
         if (!volume.has_value()) {
-            volumes.push_back({ir::Expr()});
+            volume_metadata.push_back(VolumeMetadata{
+                {ir::Expr()},
+                ir::BVH_t::Volume::BoundType::Enclosing,
+            });
             return;
         }
         const size_t n_args = variant.volume->initializers.size();
@@ -218,7 +225,10 @@ struct Rewriter : public ir::Mutator {
                 const std::string &name = volume->initializers[j];
                 args.push_back(ir::Access::make(name, unwrap));
             }
-            volumes.push_back({ir::Build::make(volume->struct_type, args)});
+            volume_metadata.push_back(VolumeMetadata{
+                .volumes = {ir::Build::make(volume->struct_type, args)},
+                .type = volume->bound_type,
+            });
             return;
         }
         case ir::BVH_t::Volume::BoundType::Childwise: {
@@ -247,7 +257,10 @@ struct Rewriter : public ir::Mutator {
             }
             // Reverse it, since we'll be popping from the back.
             std::reverse(child_volumes.begin(), child_volumes.end());
-            volumes.push_back(std::move(child_volumes));
+            volume_metadata.push_back(VolumeMetadata{
+                .volumes = std::move(child_volumes),
+                .type = volume->bound_type,
+            });
             return;
         }
         }
@@ -266,7 +279,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         using ir::Mutator::visit;
 
         ir::Stmt visit(const ir::Yield *node) override {
-            internal_assert(!volumes.empty());
+            internal_assert(!volume_metadata.empty());
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
@@ -317,7 +330,6 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
-            internal_assert(!volumes.empty());
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
@@ -420,11 +432,8 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
         using ir::Mutator::visit;
 
         ir::Stmt visit(const ir::Yield *node) override {
-            internal_assert(!volumes.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            // internal_assert(volumes.size() == lambda->args.size())
-            //     << volumes.size() << " vs " << lambda->args.size();
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
             internal_assert(
