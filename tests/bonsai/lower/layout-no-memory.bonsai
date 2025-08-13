@@ -26,7 +26,7 @@ schedule {
         group[count] by index {
             // TODO(cgyurgyik): since the variants are also implicit, the only way we can say "stop visiting"
             // is checking if `index < count`. We can do this by just having the SLAB test fail with degenerate 
-            // values, e.g., [0.0, 0.0] and hopefully the compiler can optimize this away.
+            // values (e.g., [0.0, 0.0] used below) and hopefully the compiler can optimize this away.
             min_slab = select(index < count, 
               min(primitives[index+0].vs[parent.axis], primitives[index+1].vs[parent.axis]), 
               0.0
