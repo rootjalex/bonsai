@@ -16,6 +16,7 @@ add_bonsai_tests(
     layout-childwise-product.bonsai
     layout-dop14.bonsai
     layout-embree-hair.bonsai
+    layout-inner-group.bonsai
     layout-no-memory.bonsai
     layout-pbrt.bonsai
     layout-tree.bonsai

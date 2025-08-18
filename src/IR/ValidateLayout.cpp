@@ -119,11 +119,23 @@ std::vector<Path> get_paths(const ir::Layout &layout,
 }
 
 // Returns whether this path is valid for each of the variant's parameters.
-bool is_valid_path(const Path &path, const BVH_t::Variant &variant) {
+bool is_valid_path(const Path &path, const BVH_t::Variant &variant,
+                   const ir::Layout &layout) {
     for (auto &parameter : variant.fields()) {
         Type parameter_type = parameter.type;
         const auto &it = path.find(parameter.name);
         if (it == path.cend()) {
+            // If no path is found for this parameter, check to see if the
+            // parameter exists in the root.
+            auto it =
+                std::find_if(layout.root.begin(), layout.root.end(),
+                             [&](const ir::Argument &arg) {
+                                 return arg.name == parameter.name &&
+                                        ir::equals(arg.type, parameter_type);
+                             });
+            if (it != layout.root.end()) {
+                continue;
+            }
             return false;
         }
         const Type &concrete_type = it->second;
@@ -203,7 +215,7 @@ std::map<std::string, Path> get_unambiguous_paths(const ir::Layout &layout) {
         const std::string &variant_name = variant.name();
         Path path_to_variant;
         for (const Path &path : paths) {
-            if (!path.empty() && is_valid_path(path, variant)) {
+            if (!path.empty() && is_valid_path(path, variant, layout)) {
                 internal_assert(path_to_variant.empty())
                     << "two or more paths found for variant: " << variant_name
                     << " in layout: `" << layout.name << "`";

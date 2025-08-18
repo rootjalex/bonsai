@@ -137,10 +137,10 @@ const ir::Chain *to_chainz(const ir::Member &member) {
     return chain;
 }
 
-using IndexTList = std::vector<ir::TypedVar>;
+using RootList = std::vector<ir::Argument>;
 
-IndexTList get_index_type(const ir::Member &member) {
-    IndexTList index_ts;
+RootList get_index_type(const ir::Member &member) {
+    RootList index_ts;
     if (const ir::Chain *chain = to_chainz(member)) {
         ir::Struct_t::Map fields;
         for (const auto &m : chain->members) {
@@ -735,15 +735,15 @@ ir::Expr flatten_tuple(ir::Expr expr,
 }
 
 ir::Stmt
-flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
+flatten_yield_froms(const RootList &root_list, ir::Stmt body,
                     const std::map<std::string, ir::Expr> &references) {
     struct FlattenYieldFroms : public ir::Mutator {
-        const IndexTList &index_list;
+        const RootList &root_list;
         const std::map<std::string, ir::Expr> &references;
 
-        FlattenYieldFroms(const IndexTList &index_list,
+        FlattenYieldFroms(const RootList &root_list,
                           const std::map<std::string, ir::Expr> &references)
-            : index_list(index_list), references(references) {}
+            : root_list(root_list), references(references) {}
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
             std::vector<ir::Expr> ids = break_tuple(node->value);
@@ -752,52 +752,34 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
 
             for (ir::Expr &id : ids) {
                 ir::Expr value = flatten_tuple(id, references);
-                ir::Type type = value.type();
-                if (index_list.size() == 1) {
-                    internal_assert(ir::equals(type, index_list[0].type))
-                        << "Mismatching YieldFroms, expected type: "
-                        << index_list[0].type << " but found type: " << type
-                        << " in: " << ir::Stmt(node);
-                    flat_ids.push_back(std::move(value));
+                if (!value.type().is<ir::Tuple_t>()) {
+                    flat_ids.push_back(value);
                     continue;
                 }
-                // TODO(cgyurgyik): FIX ME.
-                std::vector<ir::Expr> vs = {id};
-                for (uint32_t i = 1, e = index_list.size(); i < e; ++i) {
-                    const ir::TypedVar &var = index_list[i];
-                    auto it = references.find(var.name);
-                    if (it == references.end())
-                        continue;
-                    internal_assert(it != references.end()) << var;
-                    vs.push_back(it->second);
+                const ir::Tuple_t *tuple = value.type().as<ir::Tuple_t>();
+                internal_assert(tuple &&
+                                tuple->etypes.size() == root_list.size())
+                    << "Expected " << root_list.size()
+                    << " value(s), but found: " << value.type()
+                    << " in recursive function of: " << ir::Stmt(node)
+                    << "\n with type: " << value.type()
+                    << " of flattened id: " << id;
+
+                for (size_t i = 0; i < root_list.size(); i++) {
+                    internal_assert(
+                        ir::equals(root_list[i].type, tuple->etypes[i]))
+                        << "Mismatching YieldFroms, expected type: "
+                        << root_list[i].type
+                        << " but found type: " << tuple->etypes[i]
+                        << " at index: " << i << " in: " << ir::Stmt(node);
                 }
-                flat_ids.push_back(make_tuple(std::move(vs)));
-
-                // const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
-                // internal_assert(tuple &&
-                //                 tuple->etypes.size() ==
-                //                 index_list.size())
-                //     << "Expected " << index_list.size()
-                //     << " values, but found: " << type
-                //     << " in recursive function of: " << ir::Stmt(node)
-                //     << "\n with type: " << type
-                //     << " of flattened id: " << id;
-
-                // for (size_t i = 0; i < index_list.size(); i++) {
-                //     internal_assert(
-                //         ir::equals(index_list[i].type, tuple->etypes[i]))
-                //         << "Mismatching YieldFroms, expected type: "
-                //         << index_list[i].type
-                //         << " but found type: " << tuple->etypes[i]
-                //         << " at index: " << i << " in: " <<
-                //         ir::Stmt(node);
-                // }
+                flat_ids.push_back(value);
             }
             return ir::YieldFrom::make(make_tuple(std::move(flat_ids)));
         }
     };
 
-    FlattenYieldFroms f(index_list, references);
+    FlattenYieldFroms f(root_list, references);
     return f.mutate(std::move(body));
 }
 
@@ -833,7 +815,7 @@ struct LowerMatches : public ir::Mutator {
     }
 
     std::map<std::string, ir::Type> ref_types;
-    IndexTList index_list;
+    RootList root_list;
     std::set<std::string> matched_objects;
     std::map<std::string, ir::Expr> references;
     std::string tree_name;
@@ -847,20 +829,10 @@ struct LowerMatches : public ir::Mutator {
         // Should not be in a match right now.
         internal_assert(references.empty()) << ir::Stmt(node);
         ir::Stmt body = mutate(node->body);
-        body = flatten_yield_froms(index_list, std::move(body), references);
+        body = flatten_yield_froms(root_list, std::move(body), references);
 
         references.clear();
-        std::vector<ir::Argument> args = get_layout(tree_name).root;
-        for (int i = 0, e = index_list.size(); i < e; ++i) {
-            auto it = std::find_if(args.begin(), args.end(),
-                                   [&](const ir::Argument &arg) {
-                                       return arg.name == index_list[i].name;
-                                   });
-            if (it == args.end()) {
-                args.push_back(ir::Argument::from(index_list[i]));
-            }
-        }
-        return ir::RecLoop::make(std::move(args), std::move(body));
+        return ir::RecLoop::make(std::move(root_list), std::move(body));
     }
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -914,26 +886,10 @@ struct LowerMatches : public ir::Mutator {
 
         // First time we see a tree, add it's type to the type parameters list.
         if (!matched_objects.contains(tree_name)) {
-            IndexTList node_index_list = get_index_type(member);
-            std::reverse(node_index_list.begin(), node_index_list.end());
             std::vector<ir::Expr> idxs;
-            std::transform(node_index_list.begin(), node_index_list.end(),
-                           std::back_inserter(idxs),
-                           [](const auto &it) { return ir::Var::from(it); });
-
             references[tree_name] = make_tuple(std::move(idxs));
-            index_list.insert(index_list.end(),
-                              std::make_move_iterator(node_index_list.begin()),
-                              std::make_move_iterator(node_index_list.end()));
+            root_list = layout.root;
             matched_objects.insert(tree_name);
-        }
-        for (const ir::Argument &arg : layout.root) {
-            auto it = std::find_if(
-                index_list.begin(), index_list.end(),
-                [&](const ir::TypedVar &v) { return arg.name == v.name; });
-            if (it == index_list.end()) {
-                index_list.push_back(ir::TypedVar(arg.name, arg.type));
-            }
         }
 
         // Now recursively mutate the body, for nested matches.

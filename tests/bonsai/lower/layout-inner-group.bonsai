@@ -1,0 +1,53 @@
+//! flags: -p verify-layouts -p lower-trees -p lower-layouts
+
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+
+element f32x3 = vector[f32, 3];
+element f16x3 = vector[f16, 3];
+
+schedule {
+    tree[[Triangle]] BVH(low high : vec3f) with AABB(low, high)
+    = Interior(left : BVH, right : BVH)
+    | Leaf(nprims: u16, data: array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(index: u32, bit: u1) {
+        primitive_count: u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group nodes[node_count] by index {
+            low_32 : f32x3; 
+            high_32 : f32x3;
+
+            group[2] by bit {
+                low_16 : f16x3;
+                low = low_32 + cast[[f32x3]](low_16);
+                high_16 : f16x3;
+                high = high_32 + cast[[f32x3]](high_16);
+                nprims : u16;
+                axis : u8;
+                8;
+                split nprims {
+                    0 -> Interior {
+                        offset : u32;
+                        left = (offset, cast[[u1]](0));
+                        right = (offset, cast[[u1]](1));
+                    };
+                    _ -> Leaf {
+                        poffset : u32;
+                        data = primitives[poffset : poffset + nprims]; 
+                    };
+                };
+            };
+        };
+    };
+}
+
+
