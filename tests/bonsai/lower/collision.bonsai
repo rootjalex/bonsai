@@ -139,35 +139,35 @@ schedule {
     triangles1 : TriangleBVH;
     triangles2 : TriangleBVH;
 
-    layout triangles1(index: u32) {
+    layout triangles1(t1_index: u32) {
         pCount : u32;
         prims : array[Triangle, pCount];
         count : u32;
-        group[count] by index {
+        group[count] by t1_index {
             low : vec3f;
             nPrims : u16;
             axis : u8;
             8; // pad bits.
             high : vec3f;
             split nPrims {
-                0 -> Interior { offset : u32; left = index + 1; right = index + offset; };
+                0 -> Interior { offset : u32; left = t1_index + 1; right = t1_index + offset; };
                 _ -> Leaf { pOffset : u32; data = prims[pOffset : pOffset + cast[[u32]](nPrims)]; };
             };
         };
     };
 
-    layout triangles2(index: u32) {
+    layout triangles2(t2_index: u32) {
         pCount : u32;
         prims : array[Triangle, pCount];
         count : u32;
-        group[count] by index {
+        group[count] by t2_index {
             low : vec3f;
             nPrims : u16;
             axis : u8;
             8; // pad bits.
             high : vec3f;
             split nPrims {
-                0 -> Interior { offset : u32; left = index + 1; right = index + offset; };
+                0 -> Interior { offset : u32; left = t2_index + 1; right = t2_index + offset; };
                 _ -> Leaf { pOffset : u32; data = prims[pOffset : pOffset + cast[[u32]](nPrims)]; };
             };
         };

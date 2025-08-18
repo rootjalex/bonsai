@@ -137,48 +137,6 @@ const ir::Chain *to_chainz(const ir::Member &member) {
     return chain;
 }
 
-using RootList = std::vector<ir::Argument>;
-
-RootList get_index_type(const ir::Member &member) {
-    RootList index_ts;
-    if (const ir::Chain *chain = to_chainz(member)) {
-        ir::Struct_t::Map fields;
-        for (const auto &m : chain->members) {
-            switch (m.node_type()) {
-            case ir::IRLayoutEnum::Group: {
-                const ir::Group *node = m.as<ir::Group>();
-                if (!node->index.defined()) {
-                    continue;
-                }
-                index_ts = get_index_type(node->inner);
-                auto *index = node->index.as<ir::Var>();
-                index_ts.push_back({index->name, index->type});
-                break;
-            }
-            case ir::IRLayoutEnum::Split: {
-                const ir::Split *node = m.as<ir::Split>();
-                for (const auto &arm : node->arms) {
-                    auto rec = get_index_type(arm.member);
-                    internal_assert(rec.empty())
-                        << "[unimplemented] groups inside splits: " << member;
-                }
-                break;
-            }
-            case ir::IRLayoutEnum::Field:
-            case ir::IRLayoutEnum::Pad:
-            case ir::IRLayoutEnum::Materialize:
-            case ir::IRLayoutEnum::Lookup:
-                break;
-            case ir::IRLayoutEnum::Chain: {
-                internal_error << "[unimplemented] nested chains: " << member;
-            }
-            }
-        }
-        return index_ts;
-    }
-    internal_error << "[unimplemented] handle get_index_type for: " << member;
-}
-
 struct FindFromType : public ir::Visitor {
     ir::Type from_type;
 
@@ -735,13 +693,13 @@ ir::Expr flatten_tuple(ir::Expr expr,
 }
 
 ir::Stmt
-flatten_yield_froms(const RootList &root_list, ir::Stmt body,
+flatten_yield_froms(ir::Stmt body, const std::vector<ir::Argument> &root_list,
                     const std::map<std::string, ir::Expr> &references) {
     struct FlattenYieldFroms : public ir::Mutator {
-        const RootList &root_list;
+        const std::vector<ir::Argument> &root_list;
         const std::map<std::string, ir::Expr> &references;
 
-        FlattenYieldFroms(const RootList &root_list,
+        FlattenYieldFroms(const std::vector<ir::Argument> &root_list,
                           const std::map<std::string, ir::Expr> &references)
             : root_list(root_list), references(references) {}
 
@@ -761,9 +719,7 @@ flatten_yield_froms(const RootList &root_list, ir::Stmt body,
                                 tuple->etypes.size() == root_list.size())
                     << "Expected " << root_list.size()
                     << " value(s), but found: " << value.type()
-                    << " in recursive function of: " << ir::Stmt(node)
-                    << "\n with type: " << value.type()
-                    << " of flattened id: " << id;
+                    << " in: " << ir::Stmt(node) << " of flattened id: " << id;
 
                 for (size_t i = 0; i < root_list.size(); i++) {
                     internal_assert(
@@ -815,7 +771,7 @@ struct LowerMatches : public ir::Mutator {
     }
 
     std::map<std::string, ir::Type> ref_types;
-    RootList root_list;
+    std::vector<ir::Argument> root_list;
     std::set<std::string> matched_objects;
     std::map<std::string, ir::Expr> references;
     std::string tree_name;
@@ -829,7 +785,7 @@ struct LowerMatches : public ir::Mutator {
         // Should not be in a match right now.
         internal_assert(references.empty()) << ir::Stmt(node);
         ir::Stmt body = mutate(node->body);
-        body = flatten_yield_froms(root_list, std::move(body), references);
+        body = flatten_yield_froms(std::move(body), root_list, references);
 
         references.clear();
         return ir::RecLoop::make(std::move(root_list), std::move(body));
