@@ -202,7 +202,7 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
 // and lookups.
 void add_fields(const ir::Expr &base, const ir::Member &member,
                 ir::MapStack<std::string, ir::Expr> &frames,
-                const LayoutTypeMap &lmap, const ir::Layout &layout) {
+                const LayoutTypeMap &ltmap, const ir::Layout &layout) {
     uint32_t group_count = 0;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
@@ -224,7 +224,7 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
                 ir::Expr index = node->index;
                 path = ir::Extract::make(std::move(path), index);
                 frames.maybe_add_to_frame(node->name, index);
-                add_fields(path, node->inner, frames, lmap, layout);
+                add_fields(path, node->inner, frames, ltmap, layout);
                 break;
             }
             default:
@@ -251,8 +251,8 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
 
 // Returns the struct equivalent for this layout member, and updates the layout
 // type map respectively.
-ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &lmap) {
-    if (auto it = lmap.types().find(member); it != lmap.types().cend()) {
+ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &ltmap) {
+    if (auto it = ltmap.types().find(member); it != ltmap.types().cend()) {
         return it->second;
     }
 
@@ -276,11 +276,11 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &lmap) {
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            ir::Type base_t = layout_to_struct(node->inner, lmap);
+            ir::Type base_t = layout_to_struct(node->inner, ltmap);
             ir::Type group_t = ir::Array_t::make(std::move(base_t), node->size);
             std::string field_name =
                 group_name(group_count++, node->name, node->type);
-            lmap.insert_group_layout(m, field_name, group_t);
+            ltmap.insert_group_layout(m, field_name, group_t);
             fields.emplace_back(std::move(field_name), std::move(group_t));
 
             continue;
@@ -300,7 +300,7 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &lmap) {
             }
             // Cache the struct-type of each arm.
             for (const ir::Arm &arm : node->arms) {
-                layout_to_struct(arm.member, lmap);
+                layout_to_struct(arm.member, ltmap);
             }
             continue;
         }
@@ -311,15 +311,15 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &lmap) {
             internal_error << "[unimplemented] member in struct lowering: ";
         }
     }
-    std::string name = lmap.get_unique_name();
-    return lmap.insert_struct_layout(member, name, std::move(fields));
+    std::string name = ltmap.get_unique_name();
+    return ltmap.insert_struct_layout(member, name, std::move(fields));
 }
 
 ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                          ir::MapStack<std::string, ir::Expr> frames,
                          const std::string &iter_name,
                          const std::string &node_type, const std::string &field,
-                         const LayoutTypeMap &lmap, const ir::Layout &layout,
+                         const LayoutTypeMap &ltmap, const ir::Layout &layout,
                          const ir::Expr &root, bool is_lookup = false) {
     uint32_t group_count = 0, split_count = 0;
     const ir::Chain *chain = to_chainz(member);
@@ -353,7 +353,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                 frames.maybe_add_to_frame(node->name, index);
                 ir::Expr recurse =
                     field_in_layout(path, node->inner, frames, iter_name,
-                                    node_type, field, lmap, layout, root);
+                                    node_type, field, ltmap, layout, root);
                 // frames.pop_frame();
                 if (recurse.defined()) {
                     return recurse;
@@ -365,7 +365,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                     // frames.push_frame();
                     ir::Expr recurse =
                         field_in_layout(base, node->inner, frames, iter_name,
-                                        node_type, field, lmap, layout, root);
+                                        node_type, field, ltmap, layout, root);
                     // frames.pop_frame();
                     internal_assert(recurse.defined());
                     return recurse;
@@ -392,14 +392,14 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                         split_name(split_count++, node->field_name());
                     path = ir::Access::make(std::move(field_name), path);
                 }
-                ir::Type reinterpret_type = lmap.type(arm.member);
+                ir::Type reinterpret_type = ltmap.type(arm.member);
                 path = ir::Cast::make(reinterpret_type, path,
                                       ir::Cast::Mode::Reinterpret);
 
                 frames.push_frame();
                 ir::Expr recurse =
                     field_in_layout(path, arm.member, frames, iter_name,
-                                    node_type, field, lmap, layout, root);
+                                    node_type, field, ltmap, layout, root);
                 frames.pop_frame();
                 if (recurse.defined()) {
                     return recurse;
@@ -410,14 +410,14 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
         case ir::IRLayoutEnum::Lookup: {
             const ir::Lookup *node = m.as<ir::Lookup>();
             // from <group_name>[<index>]
-            ir::Member group = lmap.group(node->group_name);
-            std::string concretized_name = lmap.concrete_name(group);
+            ir::Member group = ltmap.group(node->group_name);
+            std::string concretized_name = ltmap.concrete_name(group);
             ir::Expr path = ir::Access::make(concretized_name, root);
             path = ir::Extract::make(path, node->index);
             frames.push_frame();
             ir::Expr recurse =
                 field_in_layout(path, group, frames, iter_name, node_type,
-                                field, lmap, layout, root, /*is_lookup=*/true);
+                                field, ltmap, layout, root, /*is_lookup=*/true);
             frames.pop_frame();
             internal_assert(recurse.defined());
             return recurse;
@@ -472,7 +472,7 @@ class GatherTreeCarriedDependencies : public ir::Visitor {
 };
 
 ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
-                           const LayoutTypeMap &lmap, const ir::Layout &layout,
+                           const LayoutTypeMap &ltmap, const ir::Layout &layout,
                            const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
         using Path = std::vector<std::pair<std::string, ir::Arm>>;
@@ -540,7 +540,7 @@ ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
                 /*iter_name=*/obj_name,
                 /*node_type=*/node_type,
                 /*field=*/field_name,
-                /*lmap=*/lmap,
+                /*ltmap=*/ltmap,
                 /*layout=*/layout,
                 /*root=*/root);
 
@@ -1034,11 +1034,11 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     ir::TypeMap types;
-    LayoutTypeMap lmap;
+    LayoutTypeMap ltmap;
     for (const auto &[name, layout] : tree_layouts) {
-        lmap.update_group_map(get_group_map(layout));
+        ltmap.update_group_map(get_group_map(layout));
 
-        ir::Type struct_t = layout_to_struct(layout.body, lmap);
+        ir::Type struct_t = layout_to_struct(layout.body, ltmap);
         types[name] = struct_t;
 
         bool found = false;
@@ -1052,7 +1052,7 @@ ir::Program LowerLayouts::run(ir::Program program,
         internal_assert(found)
             << "extern " << name << " has member but not found.\n";
 
-        for (const auto &[_, type] : lmap.types()) {
+        for (const auto &[_, type] : ltmap.types()) {
             if (const auto *struct_t = type.as<ir::Struct_t>()) {
                 program.types[struct_t->name] = type;
             }
@@ -1060,7 +1060,7 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     // lower all `Access`es on `Unwrap`s
-    LowerMatches lower(tree_layouts, types, lmap);
+    LowerMatches lower(tree_layouts, types, ltmap);
 
     for (auto &[fname, func] : program.funcs) {
         for (auto &arg : func->args) {
