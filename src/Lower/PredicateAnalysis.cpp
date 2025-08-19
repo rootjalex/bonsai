@@ -103,6 +103,14 @@ struct PredicateAnalysis : public ir::Visitor {
     void visit(const ir::Var *node) override { set(node); }
 
     ir::Expr make_and(ir::Expr a, ir::Expr b) {
+        internal_assert(a.defined() || b.defined());
+        if (!a.defined()) {
+            return b;
+        }
+        if (!b.defined()) {
+            return a;
+        }
+
         if (is_const_one(a)) {
             return b;
         }

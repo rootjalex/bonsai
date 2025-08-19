@@ -9,7 +9,7 @@ element SLAB { lo: f32; hi: f32; }
 
 extern triangles : set[Tri];
 
-func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 schedule {
     // Algorithm 2 in https://graphics.tu-bs.de/upload/publications/Eisemann11NMH.pdf

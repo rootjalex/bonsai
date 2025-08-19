@@ -209,7 +209,7 @@ void run_commands(const std::vector<std::string> &commands) {
 }
 
 // Remove the stack trace to reduce verbosity.
-std::string cutoff_stack_trace(const std::string &input) {
+[[maybe_unused]] std::string cutoff_stack_trace(const std::string &input) {
     size_t pos = input.find("[stack trace]");
     if (pos != std::string::npos) {
         return input.substr(0, pos);

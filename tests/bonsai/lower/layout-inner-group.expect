@@ -20,22 +20,24 @@ type vec3h = f16x3
 
 extern triangles : [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl3{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct tl2{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }[node_count] }
 
-func _traverse_tree0(ray : Ray, triangles : tl4) -> set<Triangle> {
+func _traverse_tree0(ray : Ray, triangles : tl4) -> option<Triangle> {
+  _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
   rec(index : u32, bit : u1) {
     if (triangles.group_nodes0[index].group_0[bit].nprims == 0u) {
-      if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16)))) {
+      if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) && (distmin(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) < _best0[0])) {
         from ((reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(0)), (reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(1)))
       }
     } else {
       foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset:reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset + cast<u32>(triangles.group_nodes0[index].group_0[bit].nprims)] {
-        if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16)))) {
-          if (intersects(ray, _iter0)) {
-            yield _iter0
+        if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) && (distmin(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) < _best0[0])) {
+          if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
+            _best0 argmin= (distmin(ray, _iter0), _iter0)
           }
         }
       }
     }
   }
+  yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
 }
 
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
@@ -125,7 +127,7 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return cast<bool>(intersectsp_ray_tri(ray, tri))
 }
 
-func [[export]] trace(ray : Ray) -> set<Triangle> {
+func [[export]] trace(ray : Ray) -> option<Triangle> {
   return _traverse_tree0(ray, triangles)
 }
 
