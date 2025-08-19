@@ -145,9 +145,9 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the current match arm. Each match arm may contain
-    // zero or more volumes. It is zero in the case this arm has no volumes, one
-    // when the bounding type is enclosing, and one or more if the bounding type
-    // is childwise.
+    // zero or more volumes. It is one in the case this arm has no volumes
+    // (i.e., an undefined expression), one when the bounding type is enclosing,
+    // and one or more if the bounding type is childwise.
     struct VolumeMetadata {
         std::vector<ir::Expr> volumes;
         ir::BVH_t::Volume::BoundType type;
