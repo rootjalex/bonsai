@@ -456,34 +456,7 @@ bool validate_volume(const BVH_t::Volume &volume,
                   << '\n';
         return false;
     }
-
-    for (size_t i = 0; i < fields.size(); i++) {
-        const std::string &name = volume.initializers[i];
-
-        auto it =
-            std::find_if(params.begin(), params.end(),
-                         [&](const TypedVar &p) { return p.name == name; });
-
-        if (it == params.end()) {
-            std::cerr << "could not find field for initializer: " << name
-                      << '\n';
-            return false;
-        }
-
-        // Validate type
-        if (!equals(it->type, fields[i].type)) {
-            // TODO(cgyurgyik): we experience a type mismatch when there are
-            // multi-nodes, e.g., in Embree hair:
-            // AABB(cdrn: BVH[4], lo: f32x3x4, hi: f32x3x4) with AABB(lo, hi)
-            //                                                            ^
-            //                                                            f32x3
-
-            // std::cerr << "mismatch between initializer and field type: "
-            //           << it->type << " vs " << fields[i].type << '\n';
-            // return false;
-        }
-    }
-
+    // (Type checking of volumes is done during layout validation).
     return true;
 }
 
@@ -595,9 +568,6 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         return get_field_type(as_ptr->etype, field);
     } else if (const BVH_t *as_bvh = struct_type.as<BVH_t>()) {
         for (const ir::BVH_t::Variant &variant : as_bvh->variants) {
-            // TODO(cgyurgyik): different variants may share the same field
-            // name, so this is not necessarily always correct. (Although,
-            // they will also likely share the same type too).
             auto it = std::find_if(
                 variant.fields().begin(), variant.fields().end(),
                 [&](const ir::TypedVar &v) { return v.name == field; });

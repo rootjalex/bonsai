@@ -197,6 +197,18 @@ struct Rewriter : public ir::Mutator {
             const std::string &argument_name = args[i].name;
             volume_map[argument_name] = children.back();
             if (type == ir::BVH_t::Volume::BoundType::Childwise) {
+                // TODO(cgyurgyik): the issue here is we actually want to reuse
+                // volumes when doing the cross product of two trees's
+                // variants. A simple solution would just store a map from
+                // an Unwrap -> Volume, e.g.,
+                // `(triangles1 as AABBNode).children[0]` -> `AABB`
+                //
+                // ...but what about `triangles2` in the code below:
+                // from (((triangles1 as AABBNode).children[0], triangles2),
+                //                                              ^^^^^^^^^^
+                // what is the AABB stored for this...?
+                // code reference:
+                // https://gist.github.com/cgyurgyik/eefcdfac0866ec7d5b6a7d7e694f6937
                 children.pop_back();
             }
         }

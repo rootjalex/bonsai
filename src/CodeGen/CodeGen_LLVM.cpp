@@ -1382,16 +1382,6 @@ void CodeGen_LLVM::visit(const Slice *node) {
         }
         return;
     }
-    if (node->value.type().is<Array_t>()) {
-        // TODO(cgyurgyik): I think this is incorrect, a slice is equivalent to
-        // a begin + length.
-        llvm::Value *begin = codegen_expr(node->begin);
-        llvm::Type *element_type =
-            codegen_type(node->value.type().element_of());
-        value =
-            builder->CreateInBoundsGEP(element_type, v, begin, "sliced-ptr");
-        return;
-    }
     internal_error << "Slice operation not supported for type: "
                    << node->value.type();
 }
