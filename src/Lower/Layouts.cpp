@@ -163,37 +163,90 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             : frames(frames), layout(layout) {}
 
         ir::Expr visit(const ir::Var *var) override {
-            if (var->name == "range" && var->type.is<ir::Function_t>()) {
-                const ir::Function_t *func = var->type.as<ir::Function_t>();
-                internal_assert(func->ret_type.is<ir::Array_t>());
-                const ir::Array_t *array = func->ret_type.as<ir::Array_t>();
-                ir::Expr size = array->size;
-                size = mutate(size);
-                ir::Type ret_type =
-                    ir::Array_t::make(array->etype, std::move(size));
-                return ir::Var::make(
-                    ir::Function_t::make(std::move(ret_type), func->arg_types),
-                    var->name);
-            }
-            std::optional<ir::Expr> expr = frames.from_frames(var->name);
-            if (!expr.has_value()) {
-                auto it = std::find_if(layout.root.begin(), layout.root.end(),
-                                       [&](const ir::Argument &arg) {
-                                           return arg.name == var->name;
-                                       });
-                if (it != layout.root.end()) {
-                    expr = ir::Var::make(it->type, it->name);
-                }
-            }
+            // check if this is a tree-carried dependency.
             if (var->name == "parent") {
                 return var;
             }
-            internal_assert(expr.has_value())
-                << "Materialization fill cannot find: " << var->name;
-            return *expr;
+            // check if this already exists in this scope.
+            if (std::optional<ir::Expr> e = frames.from_frames(var->name);
+                e.has_value()) {
+                return *e;
+            }
+            // check if this is a root variable.
+            if (auto it = std::find_if(layout.root.begin(), layout.root.end(),
+                                       [&](const ir::Argument &arg) {
+                                           return arg.name == var->name;
+                                       });
+                it != layout.root.end()) {
+                return ir::Var::make(it->type, it->name);
+            }
+
+            LOG_INFO << "[\n";
+            for (const auto &map : frames.get_frames()) {
+                LOG_INFO << "  {";
+                for (const auto &[k, v] : map) {
+                    LOG_INFO << "  " << k << " : " << v << ", ";
+                }
+                LOG_INFO << "  }";
+            }
+            LOG_INFO << "\n]";
+            internal_error << "materialization fill cannot find: " << var->name;
         }
     };
     return Rewrite(frames, layout).mutate(expr);
+}
+
+// Groups may be interdependent. This builds fields for the outer layout so that
+// materializations can references fields in other groups.
+// TODO(cgyurgyik): this is incomplete, e.g., it doesn't support visiting splits
+// and lookups.
+void add_fields(const ir::Expr &base, const ir::Member &member,
+                ir::MapStack<std::string, ir::Expr> &frames,
+                const LayoutTypeMap &lmap, const ir::Layout &layout) {
+    uint32_t group_count = 0;
+    const ir::Chain *chain = to_chainz(member);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field: {
+            const ir::Field *node = m.as<ir::Field>();
+            frames.maybe_add_to_frame(node->name,
+                                      ir::Access::make(node->name, base));
+            continue;
+        }
+        case ir::IRLayoutEnum::Group: {
+            const ir::Group *node = m.as<ir::Group>();
+            std::string field_name =
+                group_name(group_count++, node->name, node->type);
+            switch (node->type) {
+            case ir::Group::Type::Direct: {
+                ir::Expr path = ir::Access::make(field_name, base);
+                internal_assert(node->index.defined()) << m;
+                ir::Expr index = node->index;
+                path = ir::Extract::make(std::move(path), index);
+                frames.maybe_add_to_frame(node->name, index);
+                add_fields(path, node->inner, frames, lmap, layout);
+                break;
+            }
+            default:
+                break;
+            }
+            continue;
+        }
+        case ir::IRLayoutEnum::Materialize: {
+            const ir::Materialize *node = m.as<ir::Materialize>();
+            ir::Expr materialization = fill(frames, node->value, layout);
+            frames.maybe_add_to_frame(node->name, std::move(materialization));
+            continue;
+        }
+        case ir::IRLayoutEnum::Lookup:
+        case ir::IRLayoutEnum::Split:
+        case ir::IRLayoutEnum::Pad: {
+            continue;
+        }
+        default:
+            internal_error << "[unimplemented] member: " << m;
+        }
+    }
 }
 
 // Returns the struct equivalent for this layout member, and updates the layout
@@ -276,13 +329,12 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             const ir::Field *node = m.as<ir::Field>();
             ir::Expr load = ir::Access::make(node->name, base);
             if (node->name == field) {
-                // Found it!
-                // Just return a read from the current path.
+                // Found it! Just return a read from the current path.
                 return load;
             } else {
-                // Otherwise insert into current frame,
-                // might be used in materialization.
-                frames.add_to_frame(node->name, std::move(load));
+                // Otherwise insert into the current frame (it may be used in
+                // materialization).
+                frames.maybe_add_to_frame(node->name, std::move(load));
             }
             continue;
         }
@@ -293,15 +345,16 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = ir::Access::make(field_name, base);
-                frames.push_frame();
+                // TODO(cgyurgyik): can groups access fields from other groups?
+                // frames.push_frame();
                 internal_assert(node->index.defined()) << m;
                 ir::Expr index = node->index;
                 path = ir::Extract::make(std::move(path), index);
-                frames.add_to_frame(node->name, index);
+                frames.maybe_add_to_frame(node->name, index);
                 ir::Expr recurse =
                     field_in_layout(path, node->inner, frames, iter_name,
                                     node_type, field, lmap, layout, root);
-                frames.pop_frame();
+                // frames.pop_frame();
                 if (recurse.defined()) {
                     return recurse;
                 }
@@ -309,11 +362,11 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             }
             case ir::Group::Type::Indirect:
                 if (is_lookup) {
-                    frames.push_frame();
+                    // frames.push_frame();
                     ir::Expr recurse =
                         field_in_layout(base, node->inner, frames, iter_name,
                                         node_type, field, lmap, layout, root);
-                    frames.pop_frame();
+                    // frames.pop_frame();
                     internal_assert(recurse.defined());
                     return recurse;
                 }
@@ -375,7 +428,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             if (node->name == field) {
                 return materialization;
             } else {
-                frames.add_to_frame(node->name, std::move(materialization));
+                frames.maybe_add_to_frame(node->name,
+                                          std::move(materialization));
             }
             continue;
         }
@@ -554,7 +608,7 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             return ir::LetStmt::make(node->loc, std::move(value));
         }
         ir::WriteLoc new_loc(node->loc.base, value.type());
-        type_repls.add_to_frame(node->loc.base, value.type());
+        type_repls.maybe_add_to_frame(node->loc.base, value.type());
         return ir::LetStmt::make(std::move(new_loc), std::move(value));
     }
 
@@ -570,7 +624,7 @@ struct LowerUnwrapAccesses : public ir::Mutator {
                                       node->memory);
         }
         ir::WriteLoc new_loc(node->loc.base, value.type());
-        type_repls.add_to_frame(node->loc.base, value.type());
+        type_repls.maybe_add_to_frame(node->loc.base, value.type());
         return ir::Allocate::make(std::move(new_loc), std::move(value),
                                   node->memory);
     }
@@ -826,9 +880,11 @@ struct LowerMatches : public ir::Mutator {
             std::map<std::string, ir::Expr> field_map;
             const std::string &branch_name = variant.name();
             for (const auto &field : variant.fields()) {
+                ir::MapStack<std::string, ir::Expr> frames;
+                add_fields(root, member, frames, layout_type_map, layout);
                 field_map[field.name] = field_in_layout(
-                    root, member, /*frames=*/{}, tree_name, branch_name,
-                    field.name, layout_type_map, layout, root);
+                    root, member, frames, tree_name, branch_name, field.name,
+                    layout_type_map, layout, root);
             }
 
             // Lower these Unwraps.

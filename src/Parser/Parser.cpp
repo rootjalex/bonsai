@@ -2481,12 +2481,13 @@ struct Parser {
         case Token::Type::LSQUIGGLE: {
             consume();
             std::vector<ir::Member> members;
-            push_frame();
+            // TODO(cgyurgyik): can groups access fields from other groups?
+            // push_frame();
             do {
                 members.emplace_back(parse_member());
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
-            pop_frame();
+            // pop_frame();
             return ir::Chain::make(std::move(members));
         }
         case Token::Type::INDIRECT: {
