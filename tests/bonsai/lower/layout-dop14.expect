@@ -1,6 +1,6 @@
 type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type BVH = (const BVH&)
-type DOP14 = struct DOP14{ low : f32x7; high : f32x7; early_exit : u1 }
+type DOP14 = struct DOP14{ early_exit : u1; low : f32x7; high : f32x7 }
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
@@ -25,12 +25,12 @@ extern triangles : [[packed]] struct tl4{ primitive_count : u32; primitives : st
 func _traverse_tree0(ray : Ray, triangles : tl4) -> set<Triangle> {
   rec(index : u32) {
     if (triangles.group_nodes1[index].is_leaf_flag == 0u) {
-      if (intersects(ray, build<DOP14>(build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]), triangles.group_nodes1[index].ee))) {
+      if (intersects(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3])))) {
         from (reinterpret_cast<tl1>(triangles.group_nodes1[index].split0on_is_leaf_flag).left, triangles.group_nodes1[index].right)
       }
     } else {
       foreach _iter0 in triangles.primitives[reinterpret_cast<tl2>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address:reinterpret_cast<tl2>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address + cast<u28>(reinterpret_cast<tl2>(triangles.group_nodes1[index].split0on_is_leaf_flag).leaf_size)] {
-        if (intersects(ray, build<DOP14>(build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]), triangles.group_nodes1[index].ee))) {
+        if (intersects(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3])))) {
           if (intersects(ray, _iter0)) {
             yield _iter0
           }
