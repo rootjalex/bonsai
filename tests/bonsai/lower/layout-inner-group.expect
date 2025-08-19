@@ -24,10 +24,10 @@ func _traverse_tree0(ray : Ray, triangles : tl4) -> set<Triangle> {
   rec(index : u32, bit : u1) {
     if (triangles.group_nodes0[index].group_0[bit].nprims == 0u) {
       if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16)))) {
-        from ((reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit]).offset, cast<u1>(0)), (reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit]).offset, cast<u1>(1)))
+        from ((reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(0)), (reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(1)))
       }
     } else {
-      foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit]).poffset:reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit]).poffset + cast<u32>(triangles.group_nodes0[index].group_0[bit].nprims)] {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset:reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset + cast<u32>(triangles.group_nodes0[index].group_0[bit].nprims)] {
         if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16)))) {
           if (intersects(ray, _iter0)) {
             yield _iter0

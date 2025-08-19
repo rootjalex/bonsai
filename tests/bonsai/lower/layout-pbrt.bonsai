@@ -6,7 +6,7 @@ import stdlib/triangle;
 
 extern triangles : set[Triangle];
 
-func [[export]] trace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 schedule {
     tree[[Triangle]] BVH(low high : vec3f) with AABB(low, high) 

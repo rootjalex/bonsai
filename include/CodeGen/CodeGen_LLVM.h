@@ -135,7 +135,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::VectorShuffle *) override;
     virtual void visit(const ir::Ramp *) override;
     virtual void visit(const ir::Extract *) override;
-    RESTRICT_VISITOR(ir::Slice); // TODO: support
+    virtual void visit(const ir::Slice *) override;
     virtual void visit(const ir::Build *) override;
     virtual void visit(const ir::Access *) override;
     virtual void visit(const ir::Unwrap *) override;

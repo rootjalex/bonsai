@@ -25,10 +25,10 @@ func _traverse_tree0(ray : Ray, triangles : tl4) -> set<Triangle> {
   rec(index : u32) {
     if (triangles.group_nodes0[index].is_leaf_flag == 0u) {
       if (intersects(ray, build<DOP14>(triangles.group_nodes0[index].lo1, triangles.group_nodes0[index].hi1, triangles.group_dop361[index].lo2, triangles.group_dop361[index].hi2, triangles.group_nodes0[index].ee))) {
-        from (reinterpret_cast<tl0>(triangles.group_nodes0[index]).left, triangles.group_nodes0[index].right)
+        from (reinterpret_cast<tl0>(triangles.group_nodes0[index].split0on_is_leaf_flag).left, triangles.group_nodes0[index].right)
       }
     } else {
-      foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index]).tri_address:reinterpret_cast<tl1>(triangles.group_nodes0[index]).tri_address + cast<u28>(reinterpret_cast<tl1>(triangles.group_nodes0[index]).leaf_size)] {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index].split0on_is_leaf_flag).tri_address:reinterpret_cast<tl1>(triangles.group_nodes0[index].split0on_is_leaf_flag).tri_address + cast<u28>(reinterpret_cast<tl1>(triangles.group_nodes0[index].split0on_is_leaf_flag).leaf_size)] {
         if (intersects(ray, build<DOP14>(triangles.group_nodes0[index].lo1, triangles.group_nodes0[index].hi1, triangles.group_dop361[index].lo2, triangles.group_dop361[index].hi2, triangles.group_nodes0[index].ee))) {
           if (intersects(ray, _iter0)) {
             yield _iter0

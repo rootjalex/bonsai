@@ -337,8 +337,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
                 if (m.bits() > 0) {
                     std::string field_name =
                         split_name(split_count++, node->field_name());
-                    ir::Expr path =
-                        ir::Access::make(std::move(field_name), base);
+                    path = ir::Access::make(std::move(field_name), path);
                 }
                 ir::Type reinterpret_type = lmap.type(arm.member);
                 path = ir::Cast::make(reinterpret_type, path,

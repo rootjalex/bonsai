@@ -1333,6 +1333,69 @@ void CodeGen_LLVM::visit(const Extract *node) {
     }
 }
 
+void CodeGen_LLVM::visit(const Slice *node) {
+    llvm::Value *v = codegen_expr(node->value);
+
+    if (node->value.type().is_scalar()) {
+        internal_assert(node->value.type().is_int_or_uint())
+            << "bit slicing only supported for integral types: "
+            << node->value.type();
+        internal_assert(is_const(node->begin) && is_const(node->end))
+            << "bit slicing requires constant indices: slice(" << node->begin
+            << ", " << node->end << ")" << " : " << node->value.type();
+
+        const int64_t begin = *get_constant_value(node->begin);
+        const int64_t end = *get_constant_value(node->end);
+        const int64_t width = node->value.type().bits();
+
+        internal_assert(begin >= 0 && end > begin && end <= width)
+            << "invalid bit slice range: [" << begin << ", " << end << ") for "
+            << width << "-bit type";
+        const int64_t slice_width = end - begin;
+
+        // Implement: (x >> begin) & ((1U << (end - begin)) - 1)
+        llvm::Type *src_type = v->getType();
+        llvm::Type *result_type = llvm::Type::getIntNTy(*context, slice_width);
+
+        if (begin == 0 && end == width) {
+            // full width: x
+            value = v;
+        } else if (begin == 0) {
+            // truncation: (x & ((1U << end) - 1))
+            uint64_t mask = (1ULL << slice_width) - 1;
+            llvm::Value *masked =
+                builder->CreateAnd(v, llvm::ConstantInt::get(src_type, mask));
+            value = builder->CreateTrunc(masked, result_type);
+        } else {
+            // general case: (x >> begin) & ((1U << (end - begin)) - 1)
+            llvm::Value *shift_amount = llvm::ConstantInt::get(src_type, begin);
+            llvm::Value *shifted = builder->CreateLShr(v, shift_amount);
+            if (slice_width == width - begin) {
+                // No need to mask if we're taking all remaining bits
+                value = builder->CreateTrunc(shifted, result_type);
+            } else {
+                uint64_t mask = (1ULL << slice_width) - 1;
+                llvm::Value *masked = builder->CreateAnd(
+                    shifted, llvm::ConstantInt::get(src_type, mask));
+                value = builder->CreateTrunc(masked, result_type);
+            }
+        }
+        return;
+    }
+    if (node->value.type().is<Array_t>()) {
+        // TODO(cgyurgyik): I think this is incorrect, a slice is equivalent to
+        // a begin + length.
+        llvm::Value *begin = codegen_expr(node->begin);
+        llvm::Type *element_type =
+            codegen_type(node->value.type().element_of());
+        value =
+            builder->CreateInBoundsGEP(element_type, v, begin, "sliced-ptr");
+        return;
+    }
+    internal_error << "Slice operation not supported for type: "
+                   << node->value.type();
+}
+
 void CodeGen_LLVM::visit(const Intrinsic *node) {
     llvm::Intrinsic::IndependentIntrinsics intrin;
     // llvm.abs for integers requires passing a constant `false` to it.
