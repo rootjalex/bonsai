@@ -22,6 +22,9 @@ bool is_range_call(const ir::Expr &expr) {
     if (!expr.type().is<ir::Array_t>()) {
         return false;
     }
+    if (expr.is<ir::Slice>()) {
+        return true;
+    }
     const ir::Generator *call = expr.as<ir::Generator>();
     if (call == nullptr) {
         return false;
@@ -31,6 +34,9 @@ bool is_range_call(const ir::Expr &expr) {
 
 ir::Expr get_range_offset(const ir::Expr &expr) {
     internal_assert(expr.type().is<ir::Array_t>());
+    if (const auto *slice = expr.as<ir::Slice>()) {
+        return slice->begin;
+    }
     const ir::Generator *call = expr.as<ir::Generator>();
     internal_assert(call);
     internal_assert(call->op == ir::Generator::range);
@@ -40,6 +46,9 @@ ir::Expr get_range_offset(const ir::Expr &expr) {
 
 ir::Expr get_range_iterable(const ir::Expr &expr) {
     internal_assert(expr.type().is<ir::Array_t>());
+    if (const auto *slice = expr.as<ir::Slice>()) {
+        return slice->value;
+    }
     const ir::Generator *call = expr.as<ir::Generator>();
     internal_assert(call);
     internal_assert(call->op == ir::Generator::range);

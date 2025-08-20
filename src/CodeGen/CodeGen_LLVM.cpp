@@ -307,7 +307,6 @@ void CodeGen_LLVM::compile_function(const Function &func,
         internal_assert(!arg_info.type.is<Struct_t>());
 
         // TODO(ajr): lift loads from immutable ptr args.
-
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
     }
@@ -368,7 +367,6 @@ CodeGen_LLVM::compile_program(const Program &program,
     declare_struct_types(struct_types);
 
     frames.push_frame();
-    // TODO: add program.externs to the global frame.
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
         func_map[fname] = this->declare_function(*func);
@@ -1295,7 +1293,6 @@ void CodeGen_LLVM::visit(const VectorShuffle *node) {
             load_index = builder->CreateZExtOrTrunc(load_index, i32_t);
         }
 
-        // llvm::errs() << *_value << " and " << *load_index << "\n";
         llvm::Value *element =
             builder->CreateExtractElement(_value, load_index);
 

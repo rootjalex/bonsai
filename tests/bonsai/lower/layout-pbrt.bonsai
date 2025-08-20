@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p verify-layouts -p lower-trees -p lower-layouts
+//! flags: -b cpp
 
 import stdlib/distance;
 import stdlib/intersects;
