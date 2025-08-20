@@ -80,6 +80,7 @@ target_sources(
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
+    src/IR/Build.cpp
     src/IR/Equality.cpp
     src/IR/Expr.cpp
     src/IR/Float16.cpp
@@ -157,6 +158,7 @@ target_sources(
     include/Log.h
     include/IR/Analysis.h
     include/IR/Argument.h
+    include/IR/Build.h
     include/IR/Equality.h
     include/IR/Expr.h
     include/IR/Float16.h

@@ -42,16 +42,16 @@ func _traverse_tree0(ray : (Ray*), triangles : (tl3*)) -> _option0 {
       if (distmin_Ray_AABB(ray, (&build<AABB>((*triangles).group_nodes0[index].low, (*triangles).group_nodes0[index].high))) < (*_best0)._field0) {
         if ((*triangles).group_nodes0[index].nPrims == 0u) {
           let _sort_cmp0 = cast<u8>(!((f32x3(1f) / (*ray).d)[(*triangles).group_nodes0[index].axis] < 0f)) < cast<u8>((f32x3(1f) / (*ray).d)[(*triangles).group_nodes0[index].axis] < 0f) in
-          let _sort_tmp0 = select(_sort_cmp0, index + 1u, index + reinterpret_cast<tl0>((*triangles).group_nodes0[index]).offset) in
-          let _sort_tmp1 = select(_sort_cmp0, index + reinterpret_cast<tl0>((*triangles).group_nodes0[index]).offset, index + 1u) in
+          let _sort_tmp0 = select(_sort_cmp0, index + 1u, index + reinterpret_cast<tl0>((*triangles).group_nodes0[index].split0on_nPrims).offset) in
+          let _sort_tmp1 = select(_sort_cmp0, index + reinterpret_cast<tl0>((*triangles).group_nodes0[index].split0on_nPrims).offset, index + 1u) in
           _queue0[(*_queue_count0)] = _sort_tmp0
           _queue0[(*_queue_count0) + 1] = _sort_tmp1
           _queue_count0 += 2
         } else {
-          forall _idx0 in [0u:pCount:1u] {
-            if (intersectsp_ray_tri(ray, (&(*triangles).primitives[reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset:reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset + cast<u32>((*triangles).group_nodes0[index].nPrims)][_idx0])).set) {
-              if (distmin_Ray_Triangle(ray, (&(*triangles).primitives[reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset:reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset + cast<u32>((*triangles).group_nodes0[index].nPrims)][_idx0])) < (*_best0)._field0) {
-                _best0 argmin= build<__tuple_0>(distmin_Ray_Triangle(ray, (&(*triangles).primitives[reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset:reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset + cast<u32>((*triangles).group_nodes0[index].nPrims)][_idx0])), (*triangles).primitives[reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset:reinterpret_cast<tl1>((*triangles).group_nodes0[index]).pOffset + cast<u32>((*triangles).group_nodes0[index].nPrims)][_idx0])
+          forall _idx0 in [reinterpret_cast<tl1>((*triangles).group_nodes0[index].split0on_nPrims).pOffset:reinterpret_cast<tl1>((*triangles).group_nodes0[index].split0on_nPrims).pOffset + cast<u32>((*triangles).group_nodes0[index].nPrims):1u] {
+            if (intersectsp_ray_tri(ray, (&(*triangles).primitives[_idx0])).set) {
+              if (distmin_Ray_Triangle(ray, (&(*triangles).primitives[_idx0])) < (*_best0)._field0) {
+                _best0 argmin= build<__tuple_0>(distmin_Ray_Triangle(ray, (&(*triangles).primitives[_idx0])), (*triangles).primitives[_idx0])
               }
             }
           }
