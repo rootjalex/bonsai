@@ -64,6 +64,11 @@ void emit_type(std::ostream &ss, Type type) {
                 internal_assert(type->is_ieee754());
                 ss << "float";
                 break;
+            case 16:
+                internal_assert(type->is_ieee754());
+                // https://clang.llvm.org/docs/LanguageExtensions.html#half-precision-floating-point
+                ss << "_Float16";
+                break;
             default:
                 internal_error << "unimplemented: e" << type->exponent << "m"
                                << type->mantissa;
