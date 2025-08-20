@@ -113,9 +113,11 @@ uint64_t Token::size() const {
     case Token::Type::PRINT:
     case Token::Type::FALSE:
     case Token::Type::SPLIT:
+    case Token::Type::BUILD:
         return 5;
     case Token::Type::LAYOUT:
     case Token::Type::RETURN:
+    case Token::Type::RECURSE:
     case Token::Type::EXTERN:
     case Token::Type::IMPORT:
         return 6;
@@ -180,6 +182,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "tree";
     case Token::Type::WITH:
         return "with";
+    case Token::Type::BUILD:
+        return "build";
     case Token::Type::LAYOUT:
         return "layout";
     case Token::Type::GROUP:

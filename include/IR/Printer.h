@@ -58,6 +58,11 @@ std::ostream &operator<<(std::ostream &os, const Layout &layout);
 std::ostream &operator<<(std::ostream &os, const Member &member);
 std::ostream &operator<<(std::ostream &os, const ir::Arm &arm);
 
+// Build language
+std::ostream &operator<<(std::ostream &os, const BuildLayout &layout);
+std::ostream &operator<<(std::ostream &os, const BuildFunction &function);
+std::ostream &operator<<(std::ostream &os, const BuildIR &ir);
+
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
 std::string to_string(const VectorReduce::OpType &op);
@@ -94,8 +99,13 @@ struct Printer : public Visitor {
     void print(const WriteLoc &loc);
     void print(const BVH_t::Volume &volume);
     void print(const BVH_t::Variant &variant);
+    // Layouts
     void print(const Layout &layout);
     void print(const Member &member);
+    // Build
+    void print(const BuildLayout &layout);
+    void print(const BuildFunction &function);
+    void print(const BuildIR &ir);
 
     // Types
     void visit(const Void_t *) override;
@@ -189,6 +199,11 @@ struct Printer : public Visitor {
     void visit(const Group *) override;
     void visit(const Materialize *) override;
     void visit(const Lookup *) override;
+    // Build
+    void visit(const BuildRecurse *) override;
+    void visit(const BuildReturn *) override;
+    void visit(const BuildRule *) override;
+    void visit(const BuildSequence *) override;
 
   protected:
     void set_indent(int _indent) { indent = _indent; }

@@ -105,6 +105,11 @@ struct Mutator {
     virtual Member visit(const Group *);
     virtual Member visit(const Materialize *);
     virtual Member visit(const Lookup *);
+    // Build
+    virtual BuildIR visit(const BuildRecurse *);
+    virtual BuildIR visit(const BuildReturn *);
+    virtual BuildIR visit(const BuildRule *);
+    virtual BuildIR visit(const BuildSequence *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

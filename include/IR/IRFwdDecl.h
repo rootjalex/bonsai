@@ -104,6 +104,13 @@ struct Group;
 struct Materialize;
 struct Lookup;
 
+// Build
+struct BuildIR;
+struct BuildRecurse;
+struct BuildReturn;
+struct BuildRule;
+struct BuildSequence;
+
 struct WriteLoc;
 struct Argument;
 

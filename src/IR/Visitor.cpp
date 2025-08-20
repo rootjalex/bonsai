@@ -1,6 +1,8 @@
 #include "IR/Visitor.h"
 
+#include "IR/Build.h"
 #include "IR/Expr.h"
+#include "IR/Layout.h"
 #include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
@@ -313,7 +315,22 @@ void Visitor::visit(const Chain *node) { visit_list(this, node->members); }
 void Visitor::visit(const Group *node) { node->inner.accept(this); }
 
 void Visitor::visit(const Materialize *node) { node->value.accept(this); }
+
 void Visitor::visit(const Lookup *node) { node->index.accept(this); }
+
+void Visitor::visit(const BuildRecurse *node) {}
+
+void Visitor::visit(const BuildReturn *node) { node->expr.accept(this); }
+
+void Visitor::visit(const BuildRule *node) {
+    if (node->expr.defined()) {
+        node->expr.accept(this);
+    }
+}
+
+void Visitor::visit(const BuildSequence *node) {
+    visit_list(this, node->sequence);
+}
 
 } // namespace ir
 } // namespace bonsai

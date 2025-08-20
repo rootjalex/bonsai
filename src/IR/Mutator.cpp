@@ -1,5 +1,6 @@
 #include "IR/Mutator.h"
 
+#include "IR/Build.h"
 #include "IR/Expr.h"
 #include "IR/Layout.h"
 #include "IR/Printer.h"
@@ -729,6 +730,24 @@ Member Mutator::visit(const Materialize *node) {
 }
 Member Mutator::visit(const Lookup *node) {
     internal_error << "[unimplemented] mutate " << ir::Member(node);
+    return node;
+}
+
+// Build
+BuildIR Mutator::visit(const BuildRecurse *node) {
+    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
+    return node;
+}
+BuildIR Mutator::visit(const BuildReturn *node) {
+    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
+    return node;
+}
+BuildIR Mutator::visit(const BuildRule *node) {
+    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
+    return node;
+}
+BuildIR Mutator::visit(const BuildSequence *node) {
+    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
     return node;
 }
 

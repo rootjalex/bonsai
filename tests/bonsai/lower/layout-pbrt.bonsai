@@ -8,8 +8,10 @@ extern triangles : set[Triangle];
 
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
+element f32x3 = vector[f32, 3];
+
 schedule {
-    tree[[Triangle]] BVH(low high : vec3f) with AABB(low, high) 
+    tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high) 
       = Interior(left : BVH, right : BVH, axis : u8)
       | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
@@ -20,8 +22,8 @@ schedule {
         primitives : array[Triangle, primitive_count];
         node_count : u32;
         group nodes[node_count] by index {
-            low : vec3f;
-            high : vec3f;
+            low : f32x3;
+            high : f32x3;
             nprims : u16;
             axis : u8;
             8;
@@ -37,5 +39,18 @@ schedule {
                 };
             };
         };
+    };
+
+    build triangles {
+      build Interior(lo: f32x3, hi: f32x3, left: BVH, right: BVH) {
+        build lo;
+        build hi;
+        build nprims = 0;
+        build axis = argmax(hi - lo);
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
     };
 }

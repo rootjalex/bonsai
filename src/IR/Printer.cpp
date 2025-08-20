@@ -268,6 +268,28 @@ std::ostream &operator<<(std::ostream &os, const Arm &arm) {
     return os;
 }
 
+std::ostream &operator<<(std::ostream &os, const BuildIR &ir) {
+    if (ir.defined()) {
+        Printer printer(os);
+        printer.print(ir);
+    } else {
+        os << "(undef-build)";
+    }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BuildLayout &layout) {
+    Printer printer(os);
+    printer.print(layout);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BuildFunction &function) {
+    Printer printer(os);
+    printer.print(function);
+    return os;
+}
+
 std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant) {
     Printer printer(os);
     printer.print(variant);
@@ -500,6 +522,21 @@ void Printer::print(const Location &loc) {
         os << loc.names[i];
     }
 }
+
+void Printer::print(const BuildLayout &layout) {
+    os << get_indent() << "build" << ' ' << layout.name << '{' << '\n';
+    for (const BuildFunction &function : layout.functions) {
+        set_indent(1);
+        os << get_indent() << function;
+    }
+    os << '}';
+}
+
+void Printer::print(const BuildFunction &function) {
+    os << "build" << ' ' << function.variant.name() << '(';
+    os << function.arguments << ')' << function.body;
+}
+void Printer::print(const BuildIR &ir) { ir.accept(this); }
 
 void Printer::print(const Interface &interface) {
     internal_assert(interface.defined());
@@ -1094,6 +1131,8 @@ std::string to_string(const Intrinsic::OpType &op) {
     switch (op) {
     case Intrinsic::abs:
         return "abs";
+    case Intrinsic::argmax:
+        return "argmax";
     case Intrinsic::cos:
         return "cos";
     case Intrinsic::cross:
@@ -1592,6 +1631,32 @@ void Printer::visit(const Lookup *node) {
     os << "[";
     print_no_parens(node->index);
     os << "];\n";
+}
+
+void Printer::visit(const BuildRecurse *node) {
+    os << "recurse " << node->field << ";\n";
+}
+
+void Printer::visit(const BuildReturn *node) {
+    os << "return " << node->expr << ";\n";
+}
+
+void Printer::visit(const BuildRule *node) {
+    os << "build " << node->field;
+    if (node->expr.defined()) {
+        os << " = " << node->expr;
+    }
+    os << ";\n";
+}
+
+void Printer::visit(const BuildSequence *node) {
+    os << " {\n";
+    ++indent;
+    for (const BuildIR &ir : node->sequence) {
+        print(ir);
+    }
+    --indent;
+    os << get_indent() << "};\n";
 }
 
 } // namespace ir

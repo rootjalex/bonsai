@@ -28,6 +28,12 @@ uint32_t Type::bits() const {
     if (this->is<Bool_t>()) {
         return 1;
     }
+    // TODO(cgyurgyik): we need this for some type checking completed during the
+    // Build language. Can we just turn off type checking when Build is being
+    // parsed...?
+    if (this->is<Ref_t>()) {
+        return 0;
+    }
     internal_error << "Called bits() on bad type: " << *this;
 }
 

@@ -8,6 +8,7 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type f32x3 = f32x3
 type tl0 = [[packed]] struct tl0{ offset : u32 }
 type tl1 = [[packed]] struct tl1{ poffset : u32 }
 type tl2 = [[packed]] struct tl2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }

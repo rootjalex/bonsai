@@ -339,7 +339,9 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
                 node->type = a.type();
             }
         } else {
-            internal_assert(a.type().is_numeric() || a.type().is_bool())
+            // TODO(cgyurgyik): for build language
+            internal_assert(a.type().is_numeric() || a.type().is_bool() ||
+                            a.type().is<Ref_t>())
                 << "BinOp of non-number or boolean types: " << a << " : "
                 << a.type() << " " << to_string(op) << " " << b << " : "
                 << b.type();

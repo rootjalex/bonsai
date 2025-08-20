@@ -346,6 +346,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
         cross,
         dot,
         fma,
+        argmax,
         max,
         min,
         norm,

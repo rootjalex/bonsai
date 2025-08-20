@@ -49,6 +49,10 @@ class Token {
         ON,       // on
         FROM,     // from
 
+        // Build specification keywords
+        BUILD,   // build
+        RECURSE, // recurse
+
         // WHILE, // while
         FOR,   // for
         IN,    // in

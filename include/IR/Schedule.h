@@ -4,6 +4,8 @@
 #include <string>
 #include <variant>
 
+#include "Build.h"
+#include "Expr.h"
 #include "Layout.h"
 #include "Type.h"
 
@@ -115,6 +117,7 @@ Overloaded(Ts...) -> Overloaded<Ts...>;
 struct Schedule {
     TypeMap tree_types;
     LayoutMap tree_layouts;
+    BuildMap tree_builds;
     TransformMap func_transforms;
 };
 

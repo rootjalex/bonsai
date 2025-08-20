@@ -95,6 +95,11 @@ struct Visitor {
     virtual void visit(const Group *);
     virtual void visit(const Materialize *);
     virtual void visit(const Lookup *);
+    // Build
+    virtual void visit(const BuildRecurse *);
+    virtual void visit(const BuildReturn *);
+    virtual void visit(const BuildRule *);
+    virtual void visit(const BuildSequence *);
 };
 
 #define RESTRICT_VISITOR(IRNODE)                                               \
