@@ -75,6 +75,31 @@ struct LowerToForAll : public ir::Mutator {
 
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iterable = node->iter;
+        if (const auto *slice = iterable.as<ir::Slice>()) {
+            ir::Expr begin = slice->begin;
+            ir::Expr end = slice->end;
+            ir::Expr step = slice->step;
+            std::string index_name = unique_idx_name();
+
+            ir::Expr idx = ir::Var::make(end.type(), index_name);
+            ir::Expr load = ir::Extract::make(slice->value, idx);
+            // `var = iterable[idx]`
+            auto [_, inserted] = repls.try_emplace(node->name, load);
+            internal_assert(inserted)
+                << "Lowering ForEach encountered duplicate variable: "
+                << node->name;
+
+            ir::Stmt body = mutate(node->body);
+
+            repls.erase(node->name);
+            return ir::ForAll::make(index_name,
+                                    ir::ForAll::Slice{
+                                        std::move(begin),
+                                        std::move(end),
+                                        std::move(step),
+                                    },
+                                    std::move(body));
+        }
 
         const ir::Array_t *array_t = iterable.type().as<ir::Array_t>();
         internal_assert(array_t)
@@ -118,7 +143,7 @@ ir::FuncMap LowerForEachs::run(ir::FuncMap funcs,
                                const CompilerOptions &options) const {
     LowerToForAll convert_fa;
     for (auto &[_, f] : funcs) {
-        f->body = convert_fa.mutate(f->body);
+        f->body = convert_fa.mutate(std::move(f->body));
     }
     return funcs;
 }

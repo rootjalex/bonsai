@@ -279,8 +279,10 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
     internal_assert(slice.stride.defined())
         << "Undefined Slice.stride in ForAll::make";
     internal_assert(body.defined()) << "Undefined body in ForAll::make";
-    internal_assert(equals(slice.begin.type(), slice.end.type()));
-    internal_assert(equals(slice.begin.type(), slice.stride.type()));
+    internal_assert(equals(slice.begin.type(), slice.end.type()))
+        << slice.begin.type() << " vs " << slice.end.type();
+    internal_assert(equals(slice.begin.type(), slice.stride.type()))
+        << slice.begin.type() << " vs " << slice.stride.type();
     node->index = std::move(index);
     node->slice = std::move(slice);
     node->body = std::move(body);

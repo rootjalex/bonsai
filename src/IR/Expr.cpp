@@ -620,9 +620,9 @@ Expr Slice::make(Expr value, Expr begin, Expr end, Expr step) {
     Slice *node = new Slice;
     node->type = value.type();
     node->value = std::move(value);
+    node->step = cast_to(begin.type(), std::move(step));
     node->begin = std::move(begin);
     node->end = std::move(end);
-    node->step = std::move(step);
     return node;
 }
 

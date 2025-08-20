@@ -2121,7 +2121,7 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     // Following statements should write to end_bb
     builder->SetInsertPoint(end_bb);
 
-    // Pop for-loop local scope names.
+    // Pop do-while local scope names.
     frames.pop_frame();
 }
 

@@ -96,7 +96,7 @@ ir::FuncMap LowerRecLoops::run(ir::FuncMap funcs,
     }
 
     for (auto &[name, func] : lowerer.new_funcs) {
-        auto [_, inserted] = funcs.try_emplace(name, std::move(func));
+        auto [_, inserted] = funcs.try_emplace(name, func);
         internal_assert(inserted)
             << "Failed to insert recursive lowering: " << name;
     }

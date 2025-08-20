@@ -181,15 +181,6 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
                 return ir::Var::make(it->type, it->name);
             }
 
-            LOG_INFO << "[\n";
-            for (const auto &map : frames.get_frames()) {
-                LOG_INFO << "  {";
-                for (const auto &[k, v] : map) {
-                    LOG_INFO << "  " << k << " : " << v << ", ";
-                }
-                LOG_INFO << "  }";
-            }
-            LOG_INFO << "\n]";
             internal_error << "materialization fill cannot find: " << var->name;
         }
     };
