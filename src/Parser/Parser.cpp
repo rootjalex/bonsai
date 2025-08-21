@@ -2420,9 +2420,8 @@ struct Parser {
     }
 
     ir::BuildIR parse_build() {
-        switch (peek_type()) {
+        switch (Token token = consume(); token.type) {
         case Token::Type::LSQUIGGLE: {
-            consume();
             std::vector<ir::BuildIR> ir;
             do {
                 ir.emplace_back(parse_build());
@@ -2431,17 +2430,14 @@ struct Parser {
             return ir::BuildSequence::make(std::move(ir));
         }
         case Token::Type::RECURSE: {
-            consume();
             std::string field = get_id();
             return ir::BuildRecurse::make(std::move(field));
         }
         case Token::Type::RETURN: {
-            consume();
             ir::Expr expr = parse_expr();
             return ir::BuildReturn::make(std::move(expr));
         }
         case Token::Type::BUILD: {
-            consume();
             std::string field = get_id();
             ir::Expr expr;
             if (consume(Token::Type::ASSIGN)) {
@@ -2450,12 +2446,11 @@ struct Parser {
             return ir::BuildRule::make(std::move(field), std::move(expr));
         }
         default:
-            internal_error << "[unexpected] build " << tokens();
+            internal_error << "[unexpected] token: " << token;
         }
     }
 
     ir::BuildLayout parse_top_level_build(std::string name, ir::Type type) {
-        // ir::global_disable_type_enforcement();
         expect(Token::Type::LSQUIGGLE);
         std::vector<ir::BuildFunction> functions;
         push_frame();
@@ -2487,7 +2482,6 @@ struct Parser {
         expect(Token::Type::SEMICOL);
 
         pop_frame();
-        // ir::global_enable_type_enforcement();
         return ir::BuildLayout{
             .name = std::move(name),
             .type = std::move(type),
