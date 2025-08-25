@@ -201,7 +201,7 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";
     const BVH_t *bvh = loc.type().as<BVH_t>();
     internal_assert(bvh) << "Match is only implemented for BVH_t, received: "
-                         << loc;
+                         << loc << " : " << loc.type();
     internal_assert(bvh->variants.size() == arms.size())
         << "Incorrect number of match arms for BVH type: " << loc.type()
         << " (requiring size: " << bvh->variants.size() << "), received "
@@ -280,9 +280,11 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
         << "Undefined Slice.stride in ForAll::make";
     internal_assert(body.defined()) << "Undefined body in ForAll::make";
     internal_assert(equals(slice.begin.type(), slice.end.type()))
-        << slice.begin.type() << " vs " << slice.end.type();
+        << slice.begin.type() << " vs " << slice.end.type()
+        << ", with index: " << index;
     internal_assert(equals(slice.begin.type(), slice.stride.type()))
-        << slice.begin.type() << " vs " << slice.stride.type();
+        << slice.begin.type() << " vs " << slice.stride.type()
+        << ", with index: " << index;
     node->index = std::move(index);
     node->slice = std::move(slice);
     node->body = std::move(body);
@@ -321,13 +323,14 @@ Stmt Launch::make(std::string func, Expr n, std::vector<Expr> args) {
     return node;
 }
 
-Stmt Append::make(WriteLoc loc, Expr value) {
+Stmt AppendStmt::make(WriteLoc loc, Expr value) {
     internal_assert(!loc.base.empty())
-        << "Append::make received empty allocation name";
+        << "AppendStmt::make received empty allocation name";
     internal_assert(loc.type.defined())
-        << "Append::make received untyped allocation";
-    internal_assert(value.defined()) << "Append::make received undefined value";
-    Append *node = new Append;
+        << "AppendStmt::make received untyped allocation";
+    internal_assert(value.defined())
+        << "AppendStmt::make received undefined value";
+    AppendStmt *node = new AppendStmt;
     node->loc = std::move(loc);
     node->value = std::move(value);
     return node;

@@ -91,7 +91,8 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::ForAll *) override;
     void visit(const ir::Continue *) override;
     void visit(const ir::Launch *) override;
-    RESTRICT_VISITOR(ir::Append); // TODO
+    RESTRICT_VISITOR(ir::Append);     // TODO
+    RESTRICT_VISITOR(ir::AppendStmt); // TODO
     RESTRICT_VISITOR(ir::ForEach);
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);

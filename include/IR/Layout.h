@@ -62,6 +62,9 @@ struct Member : public IRHandle<IRLayoutMember> {
     // Number of elements this layout represents.
     Expr count() const;
 
+    // The name of this member, if it exists.
+    std::string name() const;
+
     // TODO: implement copy/move semantics!
 };
 
@@ -167,30 +170,17 @@ struct Layout {
     std::vector<ir::Argument> root;
     Member body;
 
-    std::vector<ir::BVH_t::Variant> variants() {
-        const BVH_t *bvh_t = type.as<BVH_t>();
-        internal_assert(bvh_t);
-        return bvh_t->variants;
-    }
+    std::vector<ir::BVH_t::Variant> variants() const;
 
-    std::vector<ir::Member> find_direct_groups() {
-        if (const ir::Group *group = body.as<ir::Group>()) {
-            if (group->type == ir::Group::Type::Direct) {
-                return {group};
-            }
-        }
-        std::vector<ir::Member> direct_groups;
-        if (const ir::Chain *chain = body.as<ir::Chain>()) {
-            for (const ir::Member &member : chain->members) {
-                if (const ir::Group *group = member.as<ir::Group>()) {
-                    if (group->type == ir::Group::Type::Direct) {
-                        direct_groups.push_back(group);
-                    }
-                }
-            }
-        }
-        return direct_groups;
-    }
+    std::vector<ir::Member> find_all_groups() const;
+
+    std::vector<ir::Member> find_direct_groups() const;
+
+    ir::Type get_index_type() const;
+
+    ir::Member find_primitives_group() const;
+
+    ir::Member find_group_for(const std::string &field_name) const;
 };
 
 using LayoutMap = std::map<std::string, Layout>;

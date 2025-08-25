@@ -42,7 +42,7 @@ class LowerDynamicSetImpl : public ir::Mutator {
 
     Stmt visit(const Yield *node) override {
         WriteLoc loc(DYNAMIC_ALLOCATION, dynamic_array_t);
-        return Append::make(std::move(loc), node->value);
+        return AppendStmt::make(std::move(loc), node->value);
     }
 
     Stmt mutate(const Stmt &stmt) override {

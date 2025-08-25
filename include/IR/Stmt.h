@@ -40,7 +40,7 @@ enum class IRStmtEnum {
     ForEach,
     Continue,
     Launch,
-    Append,
+    AppendStmt,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -316,12 +316,12 @@ struct Launch : StmtNode<Launch> {
     static const IRStmtEnum node_type = IRStmtEnum::Launch;
 };
 
-struct Append : StmtNode<Append> {
+struct AppendStmt : StmtNode<AppendStmt> {
     WriteLoc loc;
     Expr value;
     static Stmt make(WriteLoc loc, Expr value);
 
-    static const IRStmtEnum node_type = IRStmtEnum::Append;
+    static const IRStmtEnum node_type = IRStmtEnum::AppendStmt;
 };
 
 } // namespace ir

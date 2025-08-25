@@ -169,6 +169,11 @@ void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Generator *node) { visit_list(this, node->args); }
 
+void Visitor::visit(const Append *node) {
+    node->input.accept(this);
+    node->size.accept(this);
+}
+
 void Visitor::visit(const Lambda *node) { node->value.accept(this); }
 
 void Visitor::visit(const GeomOp *node) {
@@ -295,7 +300,7 @@ void Visitor::visit(const Launch *node) {
     visit_list(this, node->args);
 }
 
-void Visitor::visit(const Append *node) {
+void Visitor::visit(const AppendStmt *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
 }

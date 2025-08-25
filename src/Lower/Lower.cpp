@@ -1,6 +1,7 @@
 #include "Lower/Lower.h"
 
 #include "IR/Mutator.h"
+#include "Lower/Builds.h"
 #include "Lower/Canonicalize.h"
 #include "Lower/Defers.h"
 #include "Lower/DynamicArrays.h"
@@ -88,6 +89,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerDynamicSets>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
+    manager.register_pass<LowerBuilds>();
     manager.register_pass<LowerTuples>();
     manager.register_pass<LowerDynamicArrays>();
     manager.register_pass<LowerYields>();
@@ -121,6 +123,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
+    core.push_back(std::make_unique<LowerBuilds>());
     core.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
@@ -160,6 +163,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
+    d.push_back(std::make_unique<LowerBuilds>());
     d.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());

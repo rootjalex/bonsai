@@ -166,6 +166,8 @@ struct Parser {
             "select",
             "range",
             "iter",
+            // Build language
+            "append",
         };
     }
 
@@ -906,7 +908,7 @@ struct Parser {
                 ir::Expr value = parse_expr();
                 expect(Token::Type::RPAREN);
                 expect(Token::Type::SEMICOL);
-                return ir::Append::make(std::move(loc), std::move(value));
+                return ir::AppendStmt::make(std::move(loc), std::move(value));
             }
             if (id == "alloc") {
                 id = get_id();
@@ -1638,6 +1640,10 @@ struct Parser {
             } else if (name == "iter") {
                 return ir::Generator::make(ir::Generator::iter,
                                            std::move(args));
+            } else if (name == "append") {
+                internal_assert(args.size() == 2)
+                    << "append takes 2 arguments, received: " << args.size();
+                return ir::Append::make(args.front(), args.back());
             }
             report_error() << "Unknown builtin: " << name;
         }

@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS lower
     FILES
     array.bonsai
+    build-pbrt.bonsai
     collision.bonsai
     defer-dbl-buffer.bonsai
     defer.bonsai

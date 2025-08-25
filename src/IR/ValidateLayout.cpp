@@ -11,6 +11,8 @@
 #include <set>
 #include <unordered_set>
 
+// TODO(cgyurgyik): add pre-process step that uniquely names all layout members.
+// This will simplify a lot of crud later on.
 namespace bonsai {
 namespace ir {
 

@@ -159,6 +159,7 @@ struct Printer : public Visitor {
     void visit(const Unwrap *) override;
     void visit(const Intrinsic *) override;
     void visit(const Generator *) override;
+    void visit(const Append *) override;
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;
     void visit(const SetOp *) override;
@@ -190,7 +191,7 @@ struct Printer : public Visitor {
     void visit(const ForEach *) override;
     void visit(const Continue *) override;
     void visit(const Launch *) override;
-    void visit(const Append *) override;
+    void visit(const AppendStmt *) override;
     // Layouts
     void visit(const Field *) override;
     void visit(const Pad *) override;

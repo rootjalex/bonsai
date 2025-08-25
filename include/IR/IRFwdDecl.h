@@ -57,6 +57,7 @@ struct Access;
 struct Unwrap;
 struct Intrinsic;
 struct Generator;
+struct Append;
 struct Lambda;
 struct GeomOp;
 struct SetOp;
@@ -92,7 +93,7 @@ struct ForAll;
 struct ForEach;
 struct Continue;
 struct Launch;
-struct Append;
+struct AppendStmt;
 
 // Layouts
 struct Member;

@@ -83,15 +83,11 @@ class LayoutTypeMap {
         return it->second;
     }
 
-    // Returns a unique name for this mapping. `tl` is short for "tree layout."
-    std::string get_unique_name() { return "tl" + std::to_string(counter++); }
-
     void update_group_map(std::map<std::string, ir::Member> group_map) {
         this->group_map = std::move(group_map);
     }
 
   private:
-    uint64_t counter = 0;
     std::map<ir::Member, ir::Type, ir::MemberLessThan> layout_to_type;
     std::map<ir::Member, std::string, ir::MemberLessThan> layout_to_name;
 
@@ -242,7 +238,8 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
 
 // Returns the struct equivalent for this layout member, and updates the layout
 // type map respectively.
-ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &ltmap) {
+ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
+                          LayoutTypeMap &ltmap) {
     if (auto it = ltmap.types().find(member); it != ltmap.types().cend()) {
         return it->second;
     }
@@ -267,7 +264,7 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &ltmap) {
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            ir::Type base_t = layout_to_struct(node->inner, ltmap);
+            ir::Type base_t = layout_to_struct(node->name, node->inner, ltmap);
             ir::Type group_t = ir::Array_t::make(std::move(base_t), node->size);
             std::string field_name =
                 group_name(group_count++, node->name, node->type);
@@ -291,7 +288,11 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &ltmap) {
             }
             // Cache the struct-type of each arm.
             for (const ir::Arm &arm : node->arms) {
-                layout_to_struct(arm.member, ltmap);
+                std::string name = "arm_";
+                if (arm.name.has_value()) {
+                    name += *arm.name;
+                }
+                layout_to_struct(name, arm.member, ltmap);
             }
             continue;
         }
@@ -302,7 +303,6 @@ ir::Type layout_to_struct(const ir::Member &member, LayoutTypeMap &ltmap) {
             internal_error << "[unimplemented] member in struct lowering: ";
         }
     }
-    std::string name = ltmap.get_unique_name();
     return ltmap.insert_struct_layout(member, name, std::move(fields));
 }
 
@@ -353,11 +353,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             }
             case ir::Group::Type::Indirect:
                 if (is_lookup) {
-                    // frames.push_frame();
                     ir::Expr recurse =
                         field_in_layout(base, node->inner, frames, iter_name,
                                         node_type, field, ltmap, layout, root);
-                    // frames.pop_frame();
                     internal_assert(recurse.defined());
                     return recurse;
                 }
@@ -1017,8 +1015,8 @@ ir::Program LowerLayouts::run(ir::Program program,
     internal_assert(program.schedules.size() == 1)
         << "TODO: support selecting a schedule target!\n";
 
-    ir::LayoutMap tree_layouts =
-        std::move(program.schedules[ir::Target::Host].tree_layouts);
+    const ir::LayoutMap &tree_layouts =
+        program.schedules[ir::Target::Host].tree_layouts;
 
     if (tree_layouts.empty()) {
         return program;
@@ -1029,8 +1027,9 @@ ir::Program LowerLayouts::run(ir::Program program,
     for (const auto &[name, layout] : tree_layouts) {
         ltmap.update_group_map(get_group_map(layout));
 
-        ir::Type struct_t = layout_to_struct(layout.body, ltmap);
+        ir::Type struct_t = layout_to_struct(name, layout.body, ltmap);
         types[name] = struct_t;
+        program.types.emplace(name, struct_t);
 
         bool found = false;
         for (auto &[ename, etype] : program.externs) {

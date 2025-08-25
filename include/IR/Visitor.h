@@ -55,6 +55,7 @@ struct Visitor {
     virtual void visit(const Unwrap *);
     virtual void visit(const Intrinsic *);
     virtual void visit(const Generator *);
+    virtual void visit(const Append *);
     virtual void visit(const Lambda *);
     virtual void visit(const GeomOp *);
     virtual void visit(const SetOp *);
@@ -86,7 +87,7 @@ struct Visitor {
     virtual void visit(const ForEach *);
     virtual void visit(const Continue *);
     virtual void visit(const Launch *);
-    virtual void visit(const Append *);
+    virtual void visit(const AppendStmt *);
     // Layouts
     virtual void visit(const Field *);
     virtual void visit(const Pad *);

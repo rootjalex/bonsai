@@ -77,5 +77,17 @@ WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
     return rebuilt;
 }
 
+ir::Expr WriteLoc::to_expr() {
+    ir::Expr expr = ir::Var::make(base_type, base);
+    for (const auto &value : this->accesses) {
+        if (std::holds_alternative<std::string>(value)) {
+            expr = Access::make(std::get<std::string>(value), expr);
+        } else {
+            expr = Extract::make(std::get<ir::Expr>(value), expr);
+        }
+    }
+    return expr;
+}
+
 } // namespace ir
 } // namespace bonsai

@@ -1182,6 +1182,11 @@ void Printer::visit(const Generator *node) {
     os << ")";
 }
 
+void Printer::visit(const Append *node) {
+    os << "append(";
+    os << node->input << ", " << node->size << ")";
+}
+
 // TODO: work on syntax?
 void Printer::visit(const Lambda *node) {
     os << "|";
@@ -1527,7 +1532,7 @@ void Printer::visit(const Launch *node) {
     os << ")\n";
 }
 
-void Printer::visit(const Append *node) {
+void Printer::visit(const AppendStmt *node) {
     os << get_indent() << "append<";
     os << node->loc;
     os << ">(";

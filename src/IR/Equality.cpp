@@ -553,6 +553,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_lists(v0->args, v1->args, compare_exprs);
     }
+    case IRExprEnum::Append: {
+        const Append *v0 = e0.as<Append>();
+        const Append *v1 = e1.as<Append>();
+        if (const Cmp op = compare_exprs(v0->input, v1->input);
+            op != Cmp::Equals) {
+            return op;
+        }
+        return compare_exprs(v0->size, v1->size);
+    }
     case IRExprEnum::Lambda: {
         const Lambda *v0 = e0.as<Lambda>();
         const Lambda *v1 = e1.as<Lambda>();

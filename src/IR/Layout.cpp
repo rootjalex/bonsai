@@ -1,5 +1,6 @@
 #include "IR/Layout.h"
 
+#include "IR/Equality.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
 
@@ -7,6 +8,45 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+
+// TODO(cgyurgyik): there is an underlying assumption that every layout is a
+// chain. This seems in general brittle, and breaks for arms with lookups.
+// https://www.youtube.com/watch?v=C6ZnwuhqALY&ab_channel=2ChainzVEVO
+const ir::Chain *to_chainz(const ir::Member &member) {
+    const ir::Chain *chain = member.as<ir::Chain>();
+    if (chain == nullptr) {
+        static ir::Chain *m = new ir::Chain;
+        m->members = {member};
+        return m;
+    }
+    return chain;
+}
+
+bool contains_field(const std::string &field_name, const ir::Member &member) {
+    const ir::Chain *chain = to_chainz(member);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field: {
+            const auto *field = m.as<ir::Field>();
+            if (field->name == field_name) {
+                return true;
+            }
+            continue;
+        }
+        // TODO(cgyurgyik): Handle nested groups.
+        case ir::IRLayoutEnum::Group: {
+            const auto *group = m.as<ir::Group>();
+            return contains_field(field_name, group->inner);
+        }
+        default:
+            continue;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 uint64_t Member::bits() const {
     switch (node_type()) {
@@ -56,6 +96,16 @@ Expr Member::count() const {
     // TODO: should this always be a u64?
     static Expr u64_1 = UIntImm::make(UInt_t::make(64), 1);
     return u64_1;
+}
+
+std::string Member::name() const {
+    if (const auto *field = as<ir::Field>()) {
+        return field->name;
+    }
+    if (const auto *group = as<ir::Group>()) {
+        return group->name;
+    }
+    internal_error << "[unimplemented] name: " << *this;
 }
 
 Member Pad::make(uint32_t bits) {
@@ -178,6 +228,115 @@ Member Lookup::make(std::string group_name, Expr index) {
     }
     os << "}\n";
     return os;
+}
+
+std::vector<ir::BVH_t::Variant> Layout::variants() const {
+    const BVH_t *bvh_t = type.as<BVH_t>();
+    internal_assert(bvh_t);
+    return bvh_t->variants;
+}
+
+std::vector<ir::Member> Layout::find_all_groups() const {
+    if (const ir::Group *group = body.as<ir::Group>()) {
+        return {group};
+    }
+    std::vector<ir::Member> groups;
+    if (const ir::Chain *chain = body.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            if (const ir::Field *field = member.as<ir::Field>()) {
+                if (field->type.is<ir::Array_t>()) {
+                    // An array is syntactic sugar for an indirect group.
+                    groups.push_back(field);
+                }
+            } else if (const ir::Group *group = member.as<ir::Group>()) {
+                groups.push_back(group);
+            }
+        }
+    }
+    return groups;
+}
+
+std::vector<ir::Member> Layout::find_direct_groups() const {
+    if (const ir::Group *group = body.as<ir::Group>()) {
+        if (group->type == ir::Group::Type::Direct) {
+            return {group};
+        }
+    }
+    std::vector<ir::Member> direct_groups;
+    if (const ir::Chain *chain = body.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            if (const ir::Group *group = member.as<ir::Group>()) {
+                if (group->type == ir::Group::Type::Direct) {
+                    direct_groups.push_back(group);
+                }
+            }
+        }
+    }
+    return direct_groups;
+}
+
+ir::Type Layout::get_index_type() const {
+    std::set<ir::Expr, ir::ExprLessThan> indexes;
+    std::vector<ir::Member> groups = find_direct_groups();
+    for (const ir::Member &member : groups) {
+        const auto *group = member.as<ir::Group>();
+        internal_assert(group) << member;
+        indexes.insert(group->index);
+    }
+    internal_assert(indexes.size() == 1)
+        << "[unexpected] multiple indexes, expected 1 but found: "
+        << indexes.size();
+    auto it = indexes.begin();
+    return it->type();
+}
+
+ir::Member Layout::find_primitives_group() const {
+    const auto *bvh_t = type.as<ir::BVH_t>();
+    internal_assert(bvh_t);
+    ir::Type primitive_type = bvh_t->primitive;
+    const ir::Chain *chain = to_chainz(body);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field: {
+            const auto *field = m.as<ir::Field>();
+            if (!field->type.is_iterable()) {
+                continue;
+            }
+            if (!ir::equals(field->type.element_of(), bvh_t->primitive)) {
+                continue;
+            }
+            return field;
+        }
+        case ir::IRLayoutEnum::Group: {
+            // TODO(cgyurgyik): a group may contain the primitives too!
+        }
+        default:
+            continue;
+        }
+    }
+    return ir::Member();
+}
+
+ir::Member Layout::find_group_for(const std::string &field_name) const {
+    const auto *bvh_t = type.as<ir::BVH_t>();
+    internal_assert(bvh_t);
+    ir::Type primitive_type = bvh_t->primitive;
+    const ir::Chain *chain = to_chainz(body);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field:
+            // TODO(cgyurgyik): what about members in the base layout?
+            continue;
+        case ir::IRLayoutEnum::Group:
+            if (contains_field(field_name, m)) {
+                return m;
+            }
+            [[fallthrough]];
+        default:
+            continue;
+        }
+    }
+    return ir::Member();
 }
 
 } // namespace ir

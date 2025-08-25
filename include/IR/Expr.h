@@ -48,6 +48,7 @@ enum class IRExprEnum {
     SetOp,
     Call,
     Instantiate,
+    Append,
     // Pointer operations
     PtrTo,
     Deref,
@@ -475,6 +476,18 @@ struct AtomicAdd : ExprNode<AtomicAdd> {
     static Expr make(Expr ptr, Expr value);
 
     static const IRExprEnum node_type = IRExprEnum::AtomicAdd;
+};
+
+// (Layout language construct). Appends the input with the respective size. The
+// write location can be automatically inferred during lowering. The output of
+// an `append` is the initial index in the collection before appending occurs.
+struct Append : ExprNode<Append> {
+    ir::Expr input;
+    ir::Expr size;
+
+    static Expr make(ir::Expr input, ir::Expr size);
+
+    static const IRExprEnum node_type = IRExprEnum::Append;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary

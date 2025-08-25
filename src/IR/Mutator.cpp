@@ -50,6 +50,10 @@ Member Mutator::mutate(const Member &member) {
     return member.defined() ? member.get()->mutate_member(this) : Member();
 }
 
+BuildIR Mutator::mutate(const BuildIR &ir) {
+    return ir.defined() ? ir.get()->mutate_build(this) : BuildIR();
+}
+
 std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
     WriteLoc new_loc(loc.base, loc.base_type);
     bool not_changed = true;
@@ -405,6 +409,15 @@ Expr Mutator::visit(const Generator *node) {
     return Generator::make(node->op, std::move(args));
 }
 
+Expr Mutator::visit(const Append *node) {
+    ir::Expr input = mutate(node->input);
+    ir::Expr size = mutate(node->size);
+    if (input.same_as(node->input) && size.same_as(node->size)) {
+        return node;
+    }
+    return ir::Append::make(std::move(input), std::move(size));
+}
+
 Expr Mutator::visit(const Lambda *node) {
     Expr value = mutate(node->value);
     if (value.same_as(node->value)) {
@@ -686,13 +699,13 @@ Stmt Mutator::visit(const Launch *node) {
     return Launch::make(node->func, std::move(n), std::move(args));
 }
 
-Stmt Mutator::visit(const Append *node) {
+Stmt Mutator::visit(const AppendStmt *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
     if (not_changed && value.same_as(node->value)) {
         return node;
     }
-    return Append::make(std::move(loc), std::move(value));
+    return AppendStmt::make(std::move(loc), std::move(value));
 }
 
 Member Mutator::visit(const Field *node) {
@@ -734,21 +747,29 @@ Member Mutator::visit(const Lookup *node) {
 }
 
 // Build
-BuildIR Mutator::visit(const BuildRecurse *node) {
-    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
-    return node;
-}
+BuildIR Mutator::visit(const BuildRecurse *node) { return node; }
+
 BuildIR Mutator::visit(const BuildReturn *node) {
-    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
-    return node;
+    ir::Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return BuildReturn::make(std::move(expr));
 }
+
 BuildIR Mutator::visit(const BuildRule *node) {
-    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
-    return node;
+    ir::Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return BuildRule::make(node->field, std::move(expr));
 }
 BuildIR Mutator::visit(const BuildSequence *node) {
-    internal_error << "[unimplemented] mutate " << ir::BuildIR(node);
-    return node;
+    auto [ir, not_changed] = visit_list(this, node->sequence);
+    if (not_changed) {
+        return node;
+    }
+    return BuildSequence::make(std::move(ir));
 }
 
 } // namespace ir

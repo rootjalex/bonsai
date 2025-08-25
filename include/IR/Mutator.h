@@ -13,6 +13,7 @@ struct Mutator {
     virtual Expr mutate(const Expr &expr);
     virtual Stmt mutate(const Stmt &stmt);
     virtual Member mutate(const Member &member);
+    virtual BuildIR mutate(const BuildIR &ir);
 
     virtual std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc);
     // protected:
@@ -65,6 +66,7 @@ struct Mutator {
     virtual Expr visit(const Unwrap *);
     virtual Expr visit(const Intrinsic *);
     virtual Expr visit(const Generator *);
+    virtual Expr visit(const Append *);
     virtual Expr visit(const Lambda *);
     virtual Expr visit(const GeomOp *);
     virtual Expr visit(const SetOp *);
@@ -96,7 +98,7 @@ struct Mutator {
     virtual Stmt visit(const ForEach *);
     virtual Stmt visit(const Continue *);
     virtual Stmt visit(const Launch *);
-    virtual Stmt visit(const Append *);
+    virtual Stmt visit(const AppendStmt *);
     // Layouts
     virtual Member visit(const Field *);
     virtual Member visit(const Pad *);

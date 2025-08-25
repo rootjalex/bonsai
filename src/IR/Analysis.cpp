@@ -56,7 +56,7 @@ struct GatherFreeVars : public Visitor {
         }
     }
 
-    void visit(const Append *node) override {
+    void visit(const AppendStmt *node) override {
         seen_vars.insert(node->loc.base);
         free_vars.push_back({node->loc.base, node->loc.base_type});
         node->value.accept(this);
@@ -162,7 +162,7 @@ struct AlwaysReturns : public Visitor {
         node->stmts.back().accept(this);
     }
 
-    void visit(const Append *node) override { returns = false; }
+    void visit(const AppendStmt *node) override { returns = false; }
     void visit(const CallStmt *node) override { returns = false; }
     void visit(const LetStmt *node) override { returns = false; }
     void visit(const Allocate *node) override { returns = false; }
@@ -206,7 +206,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(Append);
+    RESTRICT_VISITOR(AppendStmt);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);
@@ -315,6 +315,13 @@ struct HasSideEffects : ir::Visitor {
     }
 
     void visit(const ir::Append *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
+
+    void visit(const ir::AppendStmt *node) override {
         if (found) {
             return;
         }

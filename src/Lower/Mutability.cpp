@@ -158,13 +158,13 @@ struct RewriteMutables : public ir::Mutator {
         return ir::Mutator::visit(node);
     }
 
-    ir::Stmt visit(const ir::Append *node) override {
+    ir::Stmt visit(const ir::AppendStmt *node) override {
         auto [loc, not_changed] = mutate_writeloc(node->loc);
         ir::Expr value = mutate(node->value);
         if (not_changed && value.same_as(node->value)) {
             return node;
         }
-        return ir::Append::make(loc, std::move(value));
+        return ir::AppendStmt::make(loc, std::move(value));
     }
 
     ir::Type visit(const ir::Array_t *node) override {

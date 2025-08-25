@@ -549,12 +549,12 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
                        << " in struct type: " << struct_type << " {"
                        << as_struct->fields << "}";
     } else if (const Vector_t *as_vec = struct_type.as<Vector_t>()) {
-        internal_assert((field == "x" && as_vec->lanes > 0) ||
-                        (field == "y" && as_vec->lanes > 1) ||
-                        (field == "z" && as_vec->lanes > 2) ||
-                        (field == "w" && as_vec->lanes > 3))
-            << "Vector access of bad field: " << field
-            << " of type: " << struct_type;
+        // internal_assert((field == "x" && as_vec->lanes > 0) ||
+        //                 (field == "y" && as_vec->lanes > 1) ||
+        //                 (field == "z" && as_vec->lanes > 2) ||
+        //                 (field == "w" && as_vec->lanes > 3))
+        //     << "Vector access of bad field: " << field
+        //     << " of type: " << struct_type;
         return as_vec->etype;
     } else if (const Array_t *as_array = struct_type.as<Array_t>()) {
         return as_array->etype;

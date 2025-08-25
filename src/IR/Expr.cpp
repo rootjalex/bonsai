@@ -987,6 +987,21 @@ Expr Generator::make(OpType op, std::vector<Expr> args) {
     return node;
 }
 
+Expr Append::make(ir::Expr input, ir::Expr size) {
+    internal_assert(input.defined());
+    internal_assert(size.defined());
+
+    internal_assert(input.type().is_iterable())
+        << input << " : " << input.type();
+    internal_assert(size.type().is_scalar()) << size << " : " << size.type();
+
+    Append *node = new Append;
+    node->input = std::move(input);
+    node->size = std::move(size);
+    node->type = ir::Index_t::make();
+    return node;
+}
+
 Expr Lambda::make(std::vector<TypedVar> args, Expr value) {
     internal_assert(value.defined()) << "Lambda::make received undefined value";
     for (const auto &arg : args) {
