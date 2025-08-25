@@ -16,7 +16,9 @@ namespace bonsai {
 namespace ir {
 namespace {} // namespace
 
-void validate_build(const ir::BuildLayout &build) {}
+void validate_build(const ir::BuildLayout &build) {
+    // TODO(cgyurgyik): do something
+}
 
 } // namespace ir
 } // namespace bonsai
