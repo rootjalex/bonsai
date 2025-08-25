@@ -92,6 +92,7 @@ target_sources(
     src/IR/Stmt.cpp
     src/IR/Type.cpp
     src/IR/TypeEnforcement.cpp
+    src/IR/ValidateBuild.cpp
     src/IR/ValidateLayout.cpp
     src/IR/Visitor.cpp
     src/IR/WriteLoc.cpp
@@ -126,6 +127,7 @@ target_sources(
     src/Lower/Tuples.cpp
     src/Lower/TopologicalOrder.cpp
     src/Lower/TypeInference.cpp
+    src/Lower/VerifyBuilds.cpp
     src/Lower/VerifyLayouts.cpp
     src/Lower/VerifyOptions.cpp
     src/Lower/Yields.cpp
@@ -179,6 +181,7 @@ target_sources(
     include/IR/Target.h
     include/IR/Type.h
     include/IR/TypeEnforcement.h
+    include/IR/ValidateBuild.h
     include/IR/ValidateLayout.h
     include/IR/Visitor.h
     include/IR/WriteLoc.h
@@ -214,6 +217,7 @@ target_sources(
     include/Lower/Tuples.h
     include/Lower/TopologicalOrder.h
     include/Lower/TypeInference.h
+    include/Lower/VerifyBuilds.h
     include/Lower/VerifyLayouts.h
     include/Lower/VerifyOptions.h
     include/Lower/Yields.h

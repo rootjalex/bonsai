@@ -24,6 +24,7 @@
 #include "Lower/Sorts.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
+#include "Lower/VerifyBuilds.h"
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Lower/Yields.h"
@@ -79,6 +80,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerOptions>();
     manager.register_pass<VerifyOptions>();
     manager.register_pass<LowerGenerics>();
+    manager.register_pass<VerifyBuilds>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerSorts>();
@@ -113,6 +115,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<VerifyOptions>());
     core.push_back(std::make_unique<VerifyLayouts>());
+    core.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     core.push_back(std::make_unique<opt::Fusion>());
     core.push_back(std::make_unique<LowerMaps>());
@@ -152,7 +155,7 @@ PassManager register_passes(const CompilerOptions &options) {
     std::vector<std::unique_ptr<Pass>> d;
     d.push_back(std::make_unique<Canonicalize>());
     d.push_back(std::make_unique<VerifyOptions>());
-    d.push_back(std::make_unique<VerifyLayouts>());
+    d.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     d.push_back(std::make_unique<opt::Fusion>());
     d.push_back(std::make_unique<LowerMaps>());
