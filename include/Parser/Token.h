@@ -52,6 +52,7 @@ class Token {
         // Build specification keywords
         BUILD,   // build
         RECURSE, // recurse
+        LET,     // let
 
         // WHILE, // while
         FOR,   // for

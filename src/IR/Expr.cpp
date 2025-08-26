@@ -86,6 +86,14 @@ Expr UIntImm::make(Type t, uint64_t value) {
     return node;
 }
 
+Expr IdxImm::make(uint64_t value) {
+
+    IdxImm *node = new IdxImm;
+    node->type = ir::Index_t::make();
+    node->value = value;
+    return node;
+}
+
 Expr FloatImm::make(Type t, double value) {
     // internal_assert(t.is_float() && t.is_scalar())
     //     << "FloatImm must be a scalar Float\n";
@@ -253,6 +261,9 @@ void try_match_types(Expr &a, Expr &b) {
         if (equals(a.type(), b.type())) {
             return;
         }
+        if (a.type().is<Ref_t>() || b.type().is<Ref_t>()) {
+            return; // For the build language.
+        }
         if (a.type().is<Option_t>() && b.type().is_bool()) {
             a = Cast::make(Bool_t::make(), a);
         } else if (b.type().is<Option_t>() && a.type().is_bool()) {
@@ -319,7 +330,8 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
     const bool infer_types = type_enforcement_enabled() ||
                              (a.type().defined() && b.type().defined());
     if (infer_types) {
-        internal_assert(equals(a.type(), b.type()))
+        // TODO(cgyurgyik): for the build language.
+        internal_assert(a.type().is<Ref_t>() || equals(a.type(), b.type()))
             << "BinOp of mismatched types: " << a << " : " << a.type() << " "
             << to_string(op) << " " << b << " : " << b.type();
 

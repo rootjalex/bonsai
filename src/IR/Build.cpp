@@ -12,14 +12,25 @@
 namespace bonsai {
 namespace ir {
 
-/* static */ BuildIR BuildRule::make(std::string field, bonsai::ir::Expr expr) {
-    internal_assert(!field.empty()) << "BuildRule::make received empty field";
+/* static */ BuildIR BuildLet::make(ir::Stmt stmt) {
+    internal_assert(stmt.defined()) << "BuildLet::make received empty stmt";
+    internal_assert(stmt.is<ir::LetStmt>());
+
+    BuildLet *node = new BuildLet;
+    node->stmt = std::move(stmt);
+    return node;
+}
+
+/* static */ BuildIR BuildRule::make(ir::Expr field, ir::Expr expr) {
+    internal_assert(field.defined())
+        << "BuildRule::make received undefined field";
 
     BuildRule *node = new BuildRule;
     node->field = std::move(field);
     node->expr = std::move(expr);
     return node;
 }
+
 /* static */ BuildIR BuildSequence::make(std::vector<BuildIR> sequence) {
     internal_assert(!sequence.empty())
         << "BuildSequence::make received empty sequence";
@@ -28,8 +39,9 @@ namespace ir {
     node->sequence = std::move(sequence);
     return node;
 }
-/* static */ BuildIR BuildRecurse::make(std::string field) {
-    internal_assert(!field.empty())
+
+/* static */ BuildIR BuildRecurse::make(ir::Expr field) {
+    internal_assert(field.defined())
         << "BuildRecurse::make received empty field";
 
     BuildRecurse *node = new BuildRecurse;

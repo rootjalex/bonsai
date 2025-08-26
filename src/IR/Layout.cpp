@@ -46,6 +46,25 @@ bool contains_field(const std::string &field_name, const ir::Member &member) {
     return false;
 }
 
+void collect_fields(const ir::Member &member, std::vector<ir::Member> &fields) {
+    if (const ir::Field *field = member.as<ir::Field>()) {
+        fields.push_back(field);
+    }
+    if (const ir::Chain *chain = member.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            collect_fields(member, fields);
+        }
+    }
+    if (const ir::Group *group = member.as<ir::Group>()) {
+        collect_fields(group->inner, fields);
+    }
+    if (const ir::Split *split = member.as<ir::Split>()) {
+        for (const auto &arm : split->arms) {
+            collect_fields(arm.member, fields);
+        }
+    }
+}
+
 } // namespace
 
 uint64_t Member::bits() const {
@@ -74,6 +93,9 @@ uint64_t Member::bits() const {
         const Group *node = as<Group>();
         internal_assert(!node->size.defined() || !is_const(node->size))
             << "TODO: should a constant-sized group be inlined? " << *this;
+        if (node->inner.bits() == 0) {
+            return 0;
+        }
         return 64; // pointer
     }
     case IRLayoutEnum::Lookup:
@@ -254,6 +276,12 @@ std::vector<ir::Member> Layout::find_all_groups() const {
         }
     }
     return groups;
+}
+
+std::vector<ir::Member> Layout::find_all_fields() const {
+    std::vector<ir::Member> fields;
+    collect_fields(body, fields);
+    return fields;
 }
 
 std::vector<ir::Member> Layout::find_direct_groups() const {

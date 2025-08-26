@@ -2116,13 +2116,7 @@ struct Parser {
                             << "Build name: " << name << " is not an extern.";
                     }
                 }
-                auto it = declaration_to_tree_type.find(name);
-                if (it == declaration_to_tree_type.end()) {
-                    report_error() << "Build name: " << name
-                                   << " is not associated with an ADT.";
-                }
-                ir::BuildLayout layout =
-                    parse_top_level_build(name, it->second);
+                ir::BuildLayout layout = parse_top_level_build(name, schedule);
                 const auto [_, inserted] =
                     schedule.tree_builds.emplace(name, std::move(layout));
                 if (!inserted) {
@@ -2431,39 +2425,58 @@ struct Parser {
             std::vector<ir::BuildIR> ir;
             do {
                 ir.emplace_back(parse_build());
-                expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
             return ir::BuildSequence::make(std::move(ir));
         }
         case Token::Type::RECURSE: {
-            std::string field = get_id();
+            ir::Expr field = parse_expr();
+            expect(Token::Type::SEMICOL);
+            LOG_INFO << field << " : " << field.type();
             return ir::BuildRecurse::make(std::move(field));
         }
         case Token::Type::RETURN: {
             ir::Expr expr = parse_expr();
+            expect(Token::Type::SEMICOL);
             return ir::BuildReturn::make(std::move(expr));
         }
         case Token::Type::BUILD: {
-            std::string field = get_id();
+            ir::Expr field = parse_expr();
             ir::Expr expr;
             if (consume(Token::Type::ASSIGN)) {
                 expr = parse_expr();
             }
+            expect(Token::Type::SEMICOL);
             return ir::BuildRule::make(std::move(field), std::move(expr));
+        }
+        case Token::Type::LET: {
+            std::string id = get_id();
+            ir::WriteLoc loc = parse_write_loc(std::move(id));
+            return ir::BuildLet::make(parse_name_decl(std::move(loc)));
         }
         default:
             internal_error << "[unexpected] token: " << token;
         }
     }
 
-    ir::BuildLayout parse_top_level_build(std::string name, ir::Type type) {
+    ir::BuildLayout parse_top_level_build(std::string name,
+                                          const ir::Schedule &schedule) {
         expect(Token::Type::LSQUIGGLE);
-        std::vector<ir::BuildFunction> functions;
-        push_frame();
-        const auto *bvh_t = type.as<ir::BVH_t>();
-        internal_assert(bvh_t) << type;
-        add_type_to_frame("this", ir::Ref_t::make(bvh_t->name), /*mut=*/false);
 
+        auto it = schedule.tree_layouts.find(name);
+        internal_assert(it != schedule.tree_layouts.end()) << name;
+        const ir::Layout &tree_layout = it->second;
+        push_frame();
+        const auto *bvh_t = tree_layout.type.as<ir::BVH_t>();
+        internal_assert(bvh_t) << tree_layout.type;
+        add_type_to_frame("this", ir::Ref_t::make(bvh_t->name), /*mut=*/false);
+        // Add layout fields to the scope for type checking purposes.
+        for (const ir::Member &member : tree_layout.find_all_fields()) {
+            const auto *field = member.as<ir::Field>();
+            internal_assert(field);
+            add_type_to_frame(field->name, field->type, /*mut=*/false);
+        }
+
+        std::vector<ir::BuildFunction> functions;
         do {
             push_frame();
             expect(Token::Type::BUILD);
@@ -2473,7 +2486,7 @@ struct Parser {
                 [&](const ir::BVH_t::Variant &v) { return v.name() == name; });
             if (it == bvh_t->variants.end()) {
                 report_error() << "build for nonexistent variant: " << name
-                               << " for ADT: " << type;
+                               << " for ADT: " << tree_layout.type;
             }
             std::vector<ir::Argument> arguments = parse_func_args();
             ir::BuildIR body = parse_build();
@@ -2490,7 +2503,7 @@ struct Parser {
         pop_frame();
         return ir::BuildLayout{
             .name = std::move(name),
-            .type = std::move(type),
+            .type = tree_layout.type,
             .functions = std::move(functions),
         };
     }

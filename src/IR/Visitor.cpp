@@ -103,6 +103,8 @@ void Visitor::visit(const IntImm *) {}
 
 void Visitor::visit(const UIntImm *) {}
 
+void Visitor::visit(const IdxImm *) {}
+
 void Visitor::visit(const FloatImm *) {}
 
 void Visitor::visit(const BoolImm *) {}
@@ -323,11 +325,14 @@ void Visitor::visit(const Materialize *node) { node->value.accept(this); }
 
 void Visitor::visit(const Lookup *node) { node->index.accept(this); }
 
-void Visitor::visit(const BuildRecurse *node) {}
+void Visitor::visit(const BuildLet *node) { node->stmt.accept(this); }
+
+void Visitor::visit(const BuildRecurse *node) { node->field.accept(this); }
 
 void Visitor::visit(const BuildReturn *node) { node->expr.accept(this); }
 
 void Visitor::visit(const BuildRule *node) {
+    node->field.accept(this);
     if (node->expr.defined()) {
         node->expr.accept(this);
     }

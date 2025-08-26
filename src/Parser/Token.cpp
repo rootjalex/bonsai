@@ -100,6 +100,7 @@ uint64_t Token::size() const {
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
+    case Token::Type::LET:
         return 3;
     case Token::Type::ELIF:
     case Token::Type::ELSE:

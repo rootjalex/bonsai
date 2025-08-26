@@ -262,6 +262,8 @@ Expr Mutator::visit(const IntImm *node) { return node; }
 
 Expr Mutator::visit(const UIntImm *node) { return node; }
 
+Expr Mutator::visit(const IdxImm *node) { return node; }
+
 Expr Mutator::visit(const FloatImm *node) { return node; }
 
 Expr Mutator::visit(const BoolImm *node) { return node; }
@@ -747,7 +749,21 @@ Member Mutator::visit(const Lookup *node) {
 }
 
 // Build
-BuildIR Mutator::visit(const BuildRecurse *node) { return node; }
+BuildIR Mutator::visit(const BuildLet *node) {
+    ir::Stmt stmt = mutate(node->stmt);
+    if (stmt.same_as(node->stmt)) {
+        return node;
+    }
+    return BuildLet::make(std::move(stmt));
+}
+
+BuildIR Mutator::visit(const BuildRecurse *node) {
+    ir::Expr field = mutate(node->field);
+    if (field.same_as(node->field)) {
+        return node;
+    }
+    return BuildRecurse::make(std::move(field));
+}
 
 BuildIR Mutator::visit(const BuildReturn *node) {
     ir::Expr expr = mutate(node->expr);
@@ -758,11 +774,12 @@ BuildIR Mutator::visit(const BuildReturn *node) {
 }
 
 BuildIR Mutator::visit(const BuildRule *node) {
+    ir::Expr field = mutate(node->field);
     ir::Expr expr = mutate(node->expr);
-    if (expr.same_as(node->expr)) {
+    if (expr.same_as(node->expr) && field.same_as(node->field)) {
         return node;
     }
-    return BuildRule::make(node->field, std::move(expr));
+    return BuildRule::make(std::move(field), std::move(expr));
 }
 BuildIR Mutator::visit(const BuildSequence *node) {
     auto [ir, not_changed] = visit_list(this, node->sequence);

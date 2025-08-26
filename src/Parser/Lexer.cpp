@@ -137,6 +137,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::BUILD;
     if (token == "recurse")
         return Token::Type::RECURSE;
+    if (token == "let")
+        return Token::Type::LET;
     if (token == "group")
         return Token::Type::GROUP;
     if (token == "indirect")

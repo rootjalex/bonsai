@@ -36,6 +36,7 @@ struct IVector;
 struct Expr;
 struct IntImm;
 struct UIntImm;
+struct IdxImm;
 struct FloatImm;
 struct BoolImm;
 struct VecImm;
@@ -107,6 +108,7 @@ struct Lookup;
 
 // Build
 struct BuildIR;
+struct BuildLet;
 struct BuildRecurse;
 struct BuildReturn;
 struct BuildRule;

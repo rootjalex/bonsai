@@ -45,6 +45,7 @@ struct Mutator {
     // Exprs
     virtual Expr visit(const IntImm *);
     virtual Expr visit(const UIntImm *);
+    virtual Expr visit(const IdxImm *);
     virtual Expr visit(const FloatImm *);
     virtual Expr visit(const BoolImm *);
     virtual Expr visit(const VecImm *);
@@ -108,6 +109,7 @@ struct Mutator {
     virtual Member visit(const Materialize *);
     virtual Member visit(const Lookup *);
     // Build
+    virtual BuildIR visit(const BuildLet *);
     virtual BuildIR visit(const BuildRecurse *);
     virtual BuildIR visit(const BuildReturn *);
     virtual BuildIR visit(const BuildRule *);

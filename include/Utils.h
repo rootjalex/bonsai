@@ -94,6 +94,8 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
         return ir::IntImm::make(t, (int64_t)v);
     } else if (t.is<ir::UInt_t>()) {
         return ir::UIntImm::make(t, (uint64_t)v);
+    } else if (t.is<ir::Index_t>()) {
+        return ir::IdxImm::make((int64_t)v);
     } else if (t.is<ir::Bool_t>()) {
         return ir::BoolImm::make((bool)v);
     } else if (t.is<ir::Float_t>()) {

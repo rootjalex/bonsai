@@ -25,6 +25,9 @@ uint32_t Type::bits() const {
     if (auto *as_float = this->as<Float_t>()) {
         return as_float->bits();
     }
+    if (auto *as_vector = this->as<Vector_t>()) {
+        return as_vector->lanes * as_vector->etype.bits();
+    }
     if (this->is<Bool_t>()) {
         return 1;
     }
@@ -33,6 +36,9 @@ uint32_t Type::bits() const {
     // parsed...?
     if (this->is<Ref_t>()) {
         return 0;
+    }
+    if (this->is<Index_t>()) {
+        return 64; // probably true on most systems
     }
     internal_error << "Called bits() on bad type: " << *this;
 }
@@ -549,6 +555,8 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
                        << " in struct type: " << struct_type << " {"
                        << as_struct->fields << "}";
     } else if (const Vector_t *as_vec = struct_type.as<Vector_t>()) {
+        // TODO(cgyurgyik): this was breaking something, figure out what.
+
         // internal_assert((field == "x" && as_vec->lanes > 0) ||
         //                 (field == "y" && as_vec->lanes > 1) ||
         //                 (field == "z" && as_vec->lanes > 2) ||

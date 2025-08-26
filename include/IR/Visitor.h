@@ -34,6 +34,7 @@ struct Visitor {
     // Exprs
     virtual void visit(const IntImm *);
     virtual void visit(const UIntImm *);
+    virtual void visit(const IdxImm *);
     virtual void visit(const FloatImm *);
     virtual void visit(const BoolImm *);
     virtual void visit(const VecImm *);
@@ -97,6 +98,7 @@ struct Visitor {
     virtual void visit(const Materialize *);
     virtual void visit(const Lookup *);
     // Build
+    virtual void visit(const BuildLet *);
     virtual void visit(const BuildRecurse *);
     virtual void visit(const BuildReturn *);
     virtual void visit(const BuildRule *);

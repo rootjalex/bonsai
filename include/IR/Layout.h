@@ -174,6 +174,8 @@ struct Layout {
 
     std::vector<ir::Member> find_all_groups() const;
 
+    std::vector<ir::Member> find_all_fields() const;
+
     std::vector<ir::Member> find_direct_groups() const;
 
     ir::Type get_index_type() const;

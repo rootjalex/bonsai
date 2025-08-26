@@ -829,6 +829,16 @@ void Printer::visit(const UIntImm *node) {
     os << node->value << 'u';
 }
 
+void Printer::visit(const IdxImm *node) {
+    if (verbose) {
+        os << "(";
+        print(node->type);
+        os << ")" << node->value;
+        return;
+    }
+    os << node->value;
+}
+
 void Printer::visit(const FloatImm *node) {
     if (verbose) {
         os << "(";
@@ -1636,6 +1646,10 @@ void Printer::visit(const Lookup *node) {
     os << "[";
     print_no_parens(node->index);
     os << "];\n";
+}
+
+void Printer::visit(const BuildLet *node) {
+    os << "build " << node->stmt << ";\n";
 }
 
 void Printer::visit(const BuildRecurse *node) {

@@ -30,8 +30,20 @@ ir::Expr self(const ir::Layout &layout) {
 
 std::string build_name(std::string name) { return "build_" + name; }
 std::string count_name(std::string name) { return "count_" + name; }
+std::string size_name(std::string name) { return "size_" + name; }
 
 std::string get_index_name(const std::string &name) { return name + "_index"; }
+std::string get_index_name(const ir::Expr &expr) {
+    if (const auto *v = expr.as<ir::Var>()) {
+        return get_index_name(v->name);
+    }
+    if (const auto *a = expr.as<ir::Extract>()) {
+        std::optional<uint64_t> idx = get_constant_value(a->idx);
+        internal_assert(idx.has_value()) << a->idx;
+        return get_index_name(a->vec) + std::to_string(*idx);
+    }
+    internal_error << "unexpected expression: " << expr;
+}
 
 ir::Type get_layout_reference_type(const ir::Layout &layout) {
     const auto *bvh_t = layout.type.as<ir::BVH_t>();
@@ -227,6 +239,9 @@ class ConcretizeIndex : public ir::Mutator {
         return ir::Var::make(layout.get_index_type(),
                              get_index_name(node->name));
     }
+
+    // skip
+    ir::BuildIR visit(const ir::BuildRecurse *node) override { return node; }
 };
 
 // Adds an access to the node if the value is retrieved from it, e.g., `high` ->
@@ -278,7 +293,7 @@ class ConstructBuild : public ir::Visitor {
 
     std::vector<ir::Stmt> statements() { return stmts; }
 
-    std::unordered_map<std::string, std::vector<const ir::Group *>>
+    std::map<ir::Expr, std::vector<const ir::Group *>, ir::ExprLessThan>
     groups_by_field() {
         return groups;
     }
@@ -289,7 +304,7 @@ class ConstructBuild : public ir::Visitor {
     const ir::Type &concretized_type;
     const ir::Program &program;
     std::vector<ir::Stmt> stmts;
-    std::unordered_map<std::string, std::vector<const ir::Group *>> groups;
+    std::map<ir::Expr, std::vector<const ir::Group *>, ir::ExprLessThan> groups;
 
     ir::Type get_field_type(const std::string &field) {
         const auto &fields = variant.fields();
@@ -334,9 +349,18 @@ class ConstructBuild : public ir::Visitor {
     }
 
     void visit(const ir::BuildRecurse *node) {
-        ir::WriteLoc loc(get_index_name(node->field), layout.get_index_type());
-        stmts.push_back(
-            ir::LetStmt::make(std::move(loc), call_recurse(node->field)));
+        ir::Expr field = node->field;
+        std::string name = get_field_name(field);
+        ir::WriteLoc let(get_index_name(name), layout.get_index_type());
+        stmts.push_back(ir::LetStmt::make(let, call_recurse(field)));
+
+        ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
+        std::vector<const ir::Group *> visited_groups;
+        if (loc = get_write_loc(loc, layout.body, name, variant, layout,
+                                visited_groups);
+            loc.defined()) {
+            stmts.push_back(ir::LetStmt::make(std::move(loc), let.to_expr()));
+        }
     }
 
     void visit(const ir::BuildReturn *node) {
@@ -344,25 +368,23 @@ class ConstructBuild : public ir::Visitor {
         node->expr.accept(this);
     }
 
+    void visit(const ir::BuildLet *node) { stmts.push_back(node->stmt); }
+
     void visit(const ir::BuildRule *node) {
         ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
         std::vector<const ir::Group *> visited_groups;
-        loc = get_write_loc(loc, layout.body, node->field, variant, layout,
+        ir::Expr field = node->field;
+        std::string field_name = get_field_name(field);
+        loc = get_write_loc(loc, layout.body, field_name, variant, layout,
                             visited_groups);
         internal_assert(loc.defined())
-            << "did not find concretized location for field: `" << node->field
-            << "`";
-        internal_assert(!groups.contains(node->field)) << node->field;
-        groups[node->field] = visited_groups;
+            << "did not find concretized location for field: `" << field << "`";
+        internal_assert(!groups.contains(field)) << field;
+        groups[field] = visited_groups;
         ir::Expr expr = node->expr;
         if (!expr.defined()) {
             // This should just retrieve the field from this node.
-            ir::Type type = get_field_type(node->field);
-            internal_assert(type.defined())
-                << "[unexpected] no expr provided for a build rule that isn't "
-                   "an exact match with a variant field: "
-                << ir::BuildIR(node);
-            expr = ir::Var::make(type, node->field);
+            expr = node->field;
         }
         stmts.push_back(ir::LetStmt::make(std::move(loc), expr));
         expr.accept(this);
@@ -374,13 +396,20 @@ class ConstructBuild : public ir::Visitor {
         }
     }
 
-    ir::Expr call_recurse(const std::string &field) {
+    ir::Expr call_recurse(const ir::Expr &field) {
         ir::Type function_t = get_recursive_build_function_type(layout);
         ir::Expr func = ir::Var::make(function_t, "build");
-        ir::Type type = get_field_type(field);
-        internal_assert(type.defined());
-        ir::Expr arg = ir::Var::make(type, field);
-        return ir::Call::make(func, {arg});
+        return ir::Call::make(func, {field});
+    }
+
+    std::string get_field_name(const ir::Expr &field) {
+        if (const auto *v = field.as<ir::Var>()) {
+            return v->name;
+        }
+        if (const auto *e = field.as<ir::Extract>()) {
+            return get_field_name(e->vec);
+        }
+        internal_error << "[unexpected] expression: " << field;
     }
 };
 
@@ -394,7 +423,7 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
     ConstructBuild visitor(layout, function.variant, concretized_type, program);
     body.accept(&visitor);
 
-    std::vector<ir::Stmt> statements;
+    std::vector<ir::Stmt> stmts;
     std::set<std::string> groups_visited;
     // There is one unique index per element in a collection; we only need
     // to define it once.
@@ -407,7 +436,6 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
         internal_assert(groups.size() == 1)
             << "[unimplemented] nested groups: " << groups.size();
         const ir::Group *group = groups.front();
-        internal_assert(group->index.defined()) << group->name;
         internal_assert(!group->name.empty())
             << "[unexpected] empty group name (at this point, each group "
                "should have a name, whether it be user-provided or "
@@ -417,14 +445,14 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
         }
         groups_visited.insert(group->name);
 
-        ir::Type index_type = group->index.type();
-        internal_assert(index_type.defined()) << group->name;
+        ir::Type index_type =
+            group->index.defined() ? group->index.type() : ir::Index_t::make();
         std::string group_name = group->name;
         if (!this_index_defined) {
             // In the case of SoA, we just refer to the first group we come
             // across (they all share the same index in the collection.)
             ir::WriteLoc assign(get_index_name("this"), index_type);
-            statements.push_back(ir::LetStmt::make(
+            stmts.push_back(ir::LetStmt::make(
                 std::move(assign),
                 ir::Var::make(index_type, get_index_name(group_name))));
             this_index_defined = true;
@@ -433,15 +461,14 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
         // Preemptively increment the unique index for the next element in
         // the collection.
         ir::WriteLoc increment(get_index_name(group_name), index_type);
-        statements.push_back(ir::Accumulate::make(
+        stmts.push_back(ir::Accumulate::make(
             std::move(increment), ir::Accumulate::Add, make_one(index_type)));
     }
 
-    std::vector<ir::Stmt> visitor_statements = visitor.statements();
-    statements.insert(statements.end(), visitor_statements.begin(),
-                      visitor_statements.end());
+    std::vector<ir::Stmt> visitor_stmts = visitor.statements();
+    stmts.insert(stmts.end(), visitor_stmts.begin(), visitor_stmts.end());
 
-    ir::Stmt sequence = ir::Sequence::make(std::move(statements));
+    ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = ConcretizeAppend(layout).mutate(std::move(sequence));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
     return sequence;
@@ -495,7 +522,6 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
     std::vector<ir::Stmt> stmts;
     std::set<std::string> counts_updated;
     for (const ir::Argument &argument : function.arguments) {
-
         if (argument.type.is_iterable() &&
             ir::equals(argument.type.element_of(), bvh_t->primitive)) {
             ir::Expr count = argument.type.size();
@@ -528,7 +554,26 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
         if (argument.type.is_iterable() &&
             ir::equals(argument.type.element_of(),
                        get_layout_reference_type(layout))) {
-            internal_error << "unsupported: array of BVHs!";
+            std::string index_name = "__r";
+            ir::Expr i = ir::Var::make(ir::Index_t::make(), index_name);
+
+            ir::Type function_t =
+                get_recursive_count_function_type(layout, concretized_type);
+            std::string name = get_recursive_count_function_name(build);
+            ir::Expr func = ir::Var::make(function_t, name);
+            ir::Expr arg1 = ir::Access::make(argument.name, self(layout));
+            arg1 = ir::Extract::make(arg1, i);
+            ir::Expr arg2 = ir::Var::make(concretized_type, SPECIALIZED_TREE);
+            ir::Stmt body = ir::CallStmt::make(func, {arg1, arg2});
+            ir::Expr size = argument.type.size();
+            stmts.push_back(
+                ir::ForAll::make(index_name,
+                                 ir::ForAll::Slice{
+                                     .begin = make_zero(size.type()),
+                                     .end = size,
+                                     .stride = make_one(size.type()),
+                                 },
+                                 std::move(body)));
         }
         ir::Member group = layout.find_group_for(argument.name);
         if (!group.defined()) {
@@ -540,6 +585,15 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
         }
         counts_updated.insert(name);
         ir::Expr size = get_member_size(group);
+        if (!size.defined()) {
+            // Some groups may not include a size field. We need to include one
+            // for malloc'ing the correct count.
+            ir::WriteLoc base(size_name(group.name()), ir::Index_t::make());
+            stmts.push_back(ir::Accumulate::make(
+                std::move(base), ir::Accumulate::OpType::Add,
+                make_one(ir::Index_t::make())));
+            continue;
+        }
         if (is_const(size)) {
             continue;
         }
@@ -591,10 +645,11 @@ construct_build_full(const ir::Type &concretized_type,
                      const ir::BuildLayout &build, const ir::Layout &layout,
                      const ir::Program &program) {
 
-    std::vector<ir::Stmt> statements;
+    std::vector<ir::Stmt> stmts;
+    std::vector<ir::Stmt> stack;
     // 1. Initialize the specialized tree.
     ir::WriteLoc specialized_tree(SPECIALIZED_TREE, concretized_type);
-    statements.push_back(
+    stack.push_back(
         ir::Allocate::make(specialized_tree, ir::Allocate::Memory::Stack));
 
     // 2. Pre-process: call to function gathering counts for each group.
@@ -605,7 +660,7 @@ construct_build_full(const ir::Type &concretized_type,
         ir::Expr func = ir::Var::make(type, name);
         ir::Expr arg1 = ir::Var::make(layout.type, CANONICAL_TREE);
         ir::Expr arg2 = ir::Var::make(concretized_type, SPECIALIZED_TREE);
-        statements.push_back(ir::CallStmt::make(func, {arg1, arg2}));
+        stmts.push_back(ir::CallStmt::make(func, {arg1, arg2}));
     }
 
     // 3. malloc all groups (to include arrays) with the given counts.
@@ -625,24 +680,41 @@ construct_build_full(const ir::Type &concretized_type,
                 field->name, ir::Array_t::make(field->type.element_of(), size));
             ir::WriteLoc write_to =
                 get_write_loc(specialized_tree, field->name, build, layout);
-            statements.push_back(ir::Allocate::make(location));
-            statements.push_back(
+            stmts.push_back(ir::Allocate::make(location));
+            stmts.push_back(
                 ir::LetStmt::make(std::move(write_to), location.to_expr()));
 
             // Allocate indexes.
-            ir::WriteLoc index(get_index_name(field->name),
-                               ir::Index_t::make());
-            statements.push_back(
-                ir::Allocate::make(index, ir::Allocate::Memory::Stack));
+            stack.push_back(ir::Allocate::make(
+                /*loc=*/ir::WriteLoc(get_index_name(field->name),
+                                     ir::Index_t::make()),
+                /*memory=*/ir::Allocate::Memory::Stack));
             continue;
         }
         if (const ir::Group *group = member.as<ir::Group>()) {
+            if (member.bits() == 0) {
+                continue;
+            }
             ir::WriteLoc write_to =
                 get_write_loc(specialized_tree, group->name, build, layout);
             auto it = program.types.find(group->name);
             internal_assert(it != program.types.end())
                 << "no type found for: `" << group->name << "`";
             ir::Expr size = group->size;
+            if (!size.defined()) {
+                // Not all indirect groups may have a size. We write to a local
+                // variable in this case for element counting.
+                ir::WriteLoc index(size_name(member.name()),
+                                   ir::Index_t::make());
+                stack.push_back(ir::Allocate::make(index, ir::Allocate::Stack));
+                size = index.to_expr();
+                ir::WriteLoc location(group->name,
+                                      ir::Array_t::make(it->second, size));
+                stmts.push_back(ir::Allocate::make(location));
+                stmts.push_back(
+                    ir::LetStmt::make(std::move(write_to), location.to_expr()));
+                continue;
+            }
             if (const auto *size_variable = size.as<ir::Var>()) {
                 ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
                 ir::WriteLoc location =
@@ -652,13 +724,13 @@ construct_build_full(const ir::Type &concretized_type,
             }
             ir::WriteLoc location(group->name,
                                   ir::Array_t::make(it->second, size));
-            statements.push_back(ir::Allocate::make(location));
-            statements.push_back(
+            stmts.push_back(ir::Allocate::make(location));
+            stmts.push_back(
                 ir::LetStmt::make(std::move(write_to), location.to_expr()));
 
             ir::WriteLoc index(get_index_name(group->name),
                                ir::Index_t::make());
-            statements.push_back(
+            stack.push_back(
                 ir::Allocate::make(index, ir::Allocate::Memory::Stack));
             continue;
         }
@@ -670,7 +742,7 @@ construct_build_full(const ir::Type &concretized_type,
     {
         ir::Type function_t = get_recursive_build_function_type(layout);
         std::string name = get_recursive_build_function_name(build);
-        statements.push_back(ir::CallStmt::make(
+        stmts.push_back(ir::CallStmt::make(
             ir::Var::make(function_t, name),
             {
                 ir::Var::make(get_layout_reference_type(layout),
@@ -679,13 +751,16 @@ construct_build_full(const ir::Type &concretized_type,
     }
 
     // 5. Return `ST`
-    statements.push_back(
+    stmts.push_back(
         ir::Return::make(ir::Var::make(concretized_type, SPECIALIZED_TREE)));
 
     std::vector<ir::Argument> args = {
         ir::Argument(CANONICAL_TREE, get_layout_reference_type(layout)),
     };
-    ir::Stmt body = ir::Sequence::make(std::move(statements));
+    // Place stack allocations at the beginning; these will be filled by the
+    // recursive `count` function.
+    stmts.insert(stmts.begin(), stack.begin(), stack.end());
+    ir::Stmt body = ir::Sequence::make(std::move(stmts));
     std::string name = build_name(build.name);
     ir::Function::InterfaceList interfaces;
     std::vector<ir::Function::Attribute> attributes;

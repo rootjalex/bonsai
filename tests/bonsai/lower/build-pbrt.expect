@@ -40,13 +40,13 @@ func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
 
 func build_triangles(CT : (const BVH&)) -> triangles {
   ST : mut triangles
+  primitives_index : mut idx
+  nodes_index : mut idx
   rec_count_triangles(CT, ST)
   alloc primitives : mut Triangle[ST.primitive_count]
   let ST.primitives = primitives in
-  primitives_index : mut idx
   alloc nodes : mut nodes[ST.node_count]
   let ST.group_nodes0 = nodes in
-  nodes_index : mut idx
   rec_build_triangles(CT)
   return ST
 }

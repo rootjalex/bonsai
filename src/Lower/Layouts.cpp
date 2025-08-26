@@ -1044,6 +1044,9 @@ ir::Program LowerLayouts::run(ir::Program program,
 
         for (const auto &[_, type] : ltmap.types()) {
             if (const auto *struct_t = type.as<ir::Struct_t>()) {
+                if (struct_t->fields.empty()) {
+                    continue;
+                }
                 program.types[struct_t->name] = type;
             }
         }

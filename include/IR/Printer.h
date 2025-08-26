@@ -135,6 +135,7 @@ struct Printer : public Visitor {
     // Exprs
     void visit(const IntImm *) override;
     void visit(const UIntImm *) override;
+    void visit(const IdxImm *) override;
     void visit(const FloatImm *) override;
     void visit(const BoolImm *) override;
     void visit(const VecImm *) override;
@@ -201,6 +202,7 @@ struct Printer : public Visitor {
     void visit(const Materialize *) override;
     void visit(const Lookup *) override;
     // Build
+    void visit(const BuildLet *) override;
     void visit(const BuildRecurse *) override;
     void visit(const BuildReturn *) override;
     void visit(const BuildRule *) override;
