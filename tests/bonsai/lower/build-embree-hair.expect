@@ -1,0 +1,225 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type AABBs = [[packed]] struct AABBs{ aabb_low : f32x3x4; aabb_high : f32x3x4; aabb_children : u64x4 }
+type BVH = (const BVH&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type OBB = struct OBB{ obb_low : f32x3; obb_high : f32x3; orientation : f32x9 }
+type OBBs = [[packed]] struct OBBs{ obb_low : f32x3x4; obb_high : f32x3x4; orientation : f32x9; obb_children : u64x4 }
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type f32x3 = f32x3
+type f32x3x4 = f32x3x4
+type f32x9 = f32x9
+type triangles = [[packed]] struct triangles{ primitive_count : u64; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; indirect_group_AABBs0 : [[packed]] struct AABBs{ aabb_low : f32x3x4; aabb_high : f32x3x4; aabb_children : u64x4 }[]; indirect_group_OBBs1 : [[packed]] struct OBBs{ obb_low : f32x3x4; obb_high : f32x3x4; orientation : f32x9; obb_children : u64x4 }[]; group__2 : [[packed]] struct _{  }[] }
+type u64x4 = u64x4
+type vec3f = f32x3
+type vec3h = f16x3
+
+extern triangles : [[packed]] struct triangles{ primitive_count : u64; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; indirect_group_AABBs0 : [[packed]] struct AABBs{ aabb_low : f32x3x4; aabb_high : f32x3x4; aabb_children : u64x4 }[]; indirect_group_OBBs1 : [[packed]] struct OBBs{ obb_low : f32x3x4; obb_high : f32x3x4; orientation : f32x9; obb_children : u64x4 }[]; group__2 : [[packed]] struct _{  }[] }
+
+func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
+  _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
+  rec(index : u64 = 2) {
+    if (index[0:2] == 2u) {
+      if (intersects(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[0], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[0])) && (distmin(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[0], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[0])) < _best0[0])) {
+        from (triangles.indirect_group_AABBs0[index[4:63]].aabb_children[0u])
+      }
+      if (intersects(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[1], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[1])) && (distmin(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[1], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[1])) < _best0[0])) {
+        from (triangles.indirect_group_AABBs0[index[4:63]].aabb_children[1u])
+      }
+      if (intersects(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[2], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[2])) && (distmin(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[2], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[2])) < _best0[0])) {
+        from (triangles.indirect_group_AABBs0[index[4:63]].aabb_children[2u])
+      }
+      if (intersects(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[3], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[3])) && (distmin(ray, build<AABB>(triangles.indirect_group_AABBs0[index[4:63]].aabb_low[3], triangles.indirect_group_AABBs0[index[4:63]].aabb_high[3])) < _best0[0])) {
+        from (triangles.indirect_group_AABBs0[index[4:63]].aabb_children[3u])
+      }
+    } else if (index[0:2] == 3u) {
+      if (intersects(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[0], triangles.indirect_group_OBBs1[index[4:63]].obb_high[0], triangles.indirect_group_OBBs1[index[4:63]].orientation)) && (distmin(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[0], triangles.indirect_group_OBBs1[index[4:63]].obb_high[0], triangles.indirect_group_OBBs1[index[4:63]].orientation)) < _best0[0])) {
+        from (triangles.indirect_group_OBBs1[index[4:63]].obb_children[0u])
+      }
+      if (intersects(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[1], triangles.indirect_group_OBBs1[index[4:63]].obb_high[1], triangles.indirect_group_OBBs1[index[4:63]].orientation)) && (distmin(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[1], triangles.indirect_group_OBBs1[index[4:63]].obb_high[1], triangles.indirect_group_OBBs1[index[4:63]].orientation)) < _best0[0])) {
+        from (triangles.indirect_group_OBBs1[index[4:63]].obb_children[1u])
+      }
+      if (intersects(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[2], triangles.indirect_group_OBBs1[index[4:63]].obb_high[2], triangles.indirect_group_OBBs1[index[4:63]].orientation)) && (distmin(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[2], triangles.indirect_group_OBBs1[index[4:63]].obb_high[2], triangles.indirect_group_OBBs1[index[4:63]].orientation)) < _best0[0])) {
+        from (triangles.indirect_group_OBBs1[index[4:63]].obb_children[2u])
+      }
+      if (intersects(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[3], triangles.indirect_group_OBBs1[index[4:63]].obb_high[3], triangles.indirect_group_OBBs1[index[4:63]].orientation)) && (distmin(ray, build<OBB>(triangles.indirect_group_OBBs1[index[4:63]].obb_low[3], triangles.indirect_group_OBBs1[index[4:63]].obb_high[3], triangles.indirect_group_OBBs1[index[4:63]].orientation)) < _best0[0])) {
+        from (triangles.indirect_group_OBBs1[index[4:63]].obb_children[3u])
+      }
+    } else {
+      foreach _iter0 in triangles.primitives[index[4:63]:index[4:63] + cast<u64>(cast<u8>(index[1:4] + 1u))] {
+        if (true) {
+          if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
+            _best0 argmin= (distmin(ray, _iter0), _iter0)
+          }
+        }
+      }
+    }
+  }
+  yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
+}
+
+func build_triangles(CT : (const BVH&)) -> triangles {
+  ST : mut triangles
+  primitives_index : mut idx
+  size_AABBs : mut idx
+  size_OBBs : mut idx
+  rec_count_triangles(CT, ST)
+  alloc primitives : mut Triangle[ST.primitive_count]
+  let ST.primitives = primitives in
+  alloc AABBs : mut AABBs[size_AABBs]
+  let ST.indirect_group_AABBs0 = AABBs in
+  alloc OBBs : mut OBBs[size_OBBs]
+  let ST.indirect_group_OBBs1 = OBBs in
+  rec_build_triangles(CT)
+  return ST
+}
+
+func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return -(f32)inf
+  }
+}
+
+func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
+  let pts = closestPointonTriangle(p, tri) in
+  return norm(p.vec - pts[0].vec)
+}
+
+func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return (f32)inf
+  }
+}
+
+func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < r.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
+  let interval = intersectsp_ray_sphere(ray, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < ray.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
+  return cast<bool>(intersectsp_ray_tri(ray, tri))
+}
+
+func rec_build_triangles(node : (const BVH&)) -> u64 {
+  match node {
+  | AABBNode(aabb_children : (const BVH&)[4], aabb_low : f32x3x4, aabb_high : f32x3x4) with AABB(aabb_low, aabb_high) ->
+    let this_index = AABBs_index in
+    AABBs_index += 1
+    let ST.indirect_group_AABBs0[this_index].aabb_low = node.aabb_low in
+    let ST.indirect_group_AABBs0[this_index].aabb_high = node.aabb_high in
+    let aabb_children_index0 = build(node.aabb_children[0]) in
+    let ST.indirect_group_AABBs0[this_index].aabb_children[0] = aabb_children_index0 in
+    let aabb_children_index1 = build(node.aabb_children[1]) in
+    let ST.indirect_group_AABBs0[this_index].aabb_children[1] = aabb_children_index1 in
+    let aabb_children_index2 = build(node.aabb_children[2]) in
+    let ST.indirect_group_AABBs0[this_index].aabb_children[2] = aabb_children_index2 in
+    let aabb_children_index3 = build(node.aabb_children[3]) in
+    let ST.indirect_group_AABBs0[this_index].aabb_children[3] = aabb_children_index3 in
+    return (this_index << 4u) | 2u
+  | OBBNode(obb_children : (const BVH&)[4], orientation : f32x9, obb_low : f32x3x4, obb_high : f32x3x4) with OBB(obb_low, obb_high, orientation) ->
+    let this_index = OBBs_index in
+    OBBs_index += 1
+    let ST.indirect_group_OBBs1[this_index].obb_low = node.obb_low in
+    let ST.indirect_group_OBBs1[this_index].obb_high = node.obb_high in
+    forall __r in [0:4:1] {
+      let obb_children_index = build(node.obb_children[__r]) in
+      let ST.indirect_group_OBBs1[this_index].obb_children[__r] = obb_children_index in
+    }
+    return (this_index << 4u) | 3u
+  | Leaf(nprims : u8, data : Triangle[nprims]) ->
+    let poffset = primitives_index in
+    return (poffset << 4u) | cast<u64>(node.nprims << 2u)
+  }
+}
+
+func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
+  match node {
+  | AABBNode(aabb_children : (const BVH&)[4], aabb_low : f32x3x4, aabb_high : f32x3x4) with AABB(aabb_low, aabb_high) ->
+    forall __r in [0:4:1] {
+      rec_count_triangles(node.aabb_children[__r], ST)
+    }
+    size_AABBs += 1
+  | OBBNode(obb_children : (const BVH&)[4], orientation : f32x9, obb_low : f32x3x4, obb_high : f32x3x4) with OBB(obb_low, obb_high, orientation) ->
+    forall __r in [0:4:1] {
+      rec_count_triangles(node.obb_children[__r], ST)
+    }
+    size_OBBs += 1
+  | Leaf(nprims : u8, data : Triangle[nprims]) ->
+    ST.primitive_count += node.nprims
+  }
+}
+
+func [[export]] trace(ray : Ray) -> option<Triangle> {
+  return _traverse_tree0(ray, triangles)
+}
+
+
+schedule host {
+
+}

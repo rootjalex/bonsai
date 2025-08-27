@@ -45,6 +45,13 @@ std::string get_index_name(const ir::Expr &expr) {
     internal_error << "unexpected expression: " << expr;
 }
 
+ir::Expr get_index(const ir::Expr &expr) {
+    if (const auto *a = expr.as<ir::Extract>()) {
+        return a->idx;
+    }
+    return ir::Expr();
+}
+
 ir::Type get_layout_reference_type(const ir::Layout &layout) {
     const auto *bvh_t = layout.type.as<ir::BVH_t>();
     internal_assert(bvh_t) << "expected ADT, received: " << layout.type;
@@ -350,15 +357,54 @@ class ConstructBuild : public ir::Visitor {
 
     void visit(const ir::BuildRecurse *node) {
         ir::Expr field = node->field;
-        std::string name = get_field_name(field);
-        ir::WriteLoc let(get_index_name(name), layout.get_index_type());
+        if (field.type().is_iterable()) {
+            // f(a: T[n]) { recurse a; }
+            // ...is syntactic sugar for:
+            //
+            // for i in 0..n { recurse a[i]; }
+            std::string index_name = "__r";
+            ir::WriteLoc let(get_index_name(node->field),
+                             layout.get_index_type());
+            ir::Expr size = field.type().size();
+            ir::Expr index = ir::Var::make(size.type(), index_name);
+
+            std::vector<ir::Stmt> body;
+            // Call the recursive function.
+            body.push_back(ir::LetStmt::make(
+                let, call_recurse(ir::Extract::make(field, index))));
+            // Then, update the specialized tree's respective field (...if the
+            // field exists).
+            ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
+            std::string name = get_field_name(field);
+            std::vector<const ir::Group *> _;
+            if (loc = get_write_loc(loc, layout.body, name, variant, layout, _);
+                loc.defined()) {
+                loc.add_index_access(std::move(index));
+                body.push_back(
+                    ir::LetStmt::make(std::move(loc), let.to_expr()));
+            }
+            stmts.push_back(
+                ir::ForAll::make(index_name,
+                                 ir::ForAll::Slice{
+                                     .begin = make_zero(size.type()),
+                                     .end = size,
+                                     .stride = make_one(size.type()),
+                                 },
+                                 ir::Sequence::make(std::move(body))));
+            return;
+        }
+
+        ir::WriteLoc let(get_index_name(node->field), layout.get_index_type());
         stmts.push_back(ir::LetStmt::make(let, call_recurse(field)));
+        std::string name = get_field_name(field);
 
         ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
-        std::vector<const ir::Group *> visited_groups;
-        if (loc = get_write_loc(loc, layout.body, name, variant, layout,
-                                visited_groups);
+        std::vector<const ir::Group *> _;
+        if (loc = get_write_loc(loc, layout.body, name, variant, layout, _);
             loc.defined()) {
+            if (ir::Expr index = get_index(node->field); index.defined()) {
+                loc.add_index_access(std::move(index));
+            }
             stmts.push_back(ir::LetStmt::make(std::move(loc), let.to_expr()));
         }
     }

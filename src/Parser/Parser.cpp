@@ -2431,7 +2431,6 @@ struct Parser {
         case Token::Type::RECURSE: {
             ir::Expr field = parse_expr();
             expect(Token::Type::SEMICOL);
-            LOG_INFO << field << " : " << field.type();
             return ir::BuildRecurse::make(std::move(field));
         }
         case Token::Type::RETURN: {
@@ -2469,12 +2468,6 @@ struct Parser {
         const auto *bvh_t = tree_layout.type.as<ir::BVH_t>();
         internal_assert(bvh_t) << tree_layout.type;
         add_type_to_frame("this", ir::Ref_t::make(bvh_t->name), /*mut=*/false);
-        // Add layout fields to the scope for type checking purposes.
-        for (const ir::Member &member : tree_layout.find_all_fields()) {
-            const auto *field = member.as<ir::Field>();
-            internal_assert(field);
-            add_type_to_frame(field->name, field->type, /*mut=*/false);
-        }
 
         std::vector<ir::BuildFunction> functions;
         do {
@@ -2488,7 +2481,27 @@ struct Parser {
                 report_error() << "build for nonexistent variant: " << name
                                << " for ADT: " << tree_layout.type;
             }
+            const std::vector<ir::Member> fields =
+                tree_layout.find_all_fields();
             std::vector<ir::Argument> arguments = parse_func_args();
+            for (const ir::Argument &arg : arguments) {
+                add_type_to_frame(arg.name, arg.type, /*mut=*/false);
+            }
+            // Add layout fields to the scope for type checking purposes. An
+            // example where this is necessary is in PBRT, where we need to set
+            // `nprims` to zero for the `Interior` variant. Note, this is done
+            // *after* the build function arguments are added to the scope so
+            // their type is not overwritten, e.g., a layout BVH type may just
+            // be a u32 type but the canonical tree argument should be a
+            // reference type for the purposes of tree building.
+            for (const ir::Member &member : fields) {
+                const auto *field = member.as<ir::Field>();
+                internal_assert(field) << member;
+                if (frames.contains(field->name)) {
+                    continue;
+                }
+                add_type_to_frame(field->name, field->type, /*mut=*/false);
+            }
             ir::BuildIR body = parse_build();
             expect(Token::Type::SEMICOL);
             functions.push_back(ir::BuildFunction{
