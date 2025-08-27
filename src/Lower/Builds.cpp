@@ -863,7 +863,7 @@ ir::Program LowerBuilds::run(ir::Program program,
                 << "function: `" << name << "` already exists in program";
         }
 
-        // Now, construct the necessary pieces of the prologue and epilogue.
+        // Now, construct the final build algorithm.
         {
             std::shared_ptr<ir::Function> fn = construct_build_full(
                 concretized_type, build, it->second, program);
