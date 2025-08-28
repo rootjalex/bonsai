@@ -1,0 +1,78 @@
+//! flags: -p verify-layouts -p lower-trees -p lower-layouts -p lower-builds
+
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+element f32x3 = vector[f32, 3];
+element f32x4 = vector[f32, 4];
+element f32x7 = vector[f32, 7];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+// TODO(cgyurgyik): can we do load-sinking with this?
+element DOP14 { early_exit: u1; low: f32x7; high: f32x7; }
+
+schedule {
+    // 14-dop in https://dl.acm.org/doi/pdf/10.1145/3675391#page=7.35
+
+    tree[[Triangle]] BVH(lo: f32x7, hi: f32x7, ee: u1) with DOP14(ee, lo, hi)
+    = Interior(left: BVH, right: BVH)
+    | Leaf(leaf_size: u4, data: array[Triangle, leaf_size]);
+
+    triangles : BVH;
+    
+    layout triangles(index: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group dop36[node_count] by index {
+            lo2: f32x4; // planes 3-6
+            hi2: f32x4; // planes 3-6
+        };
+        group nodes[node_count] by index {
+            lo1: f32x3; // planes 0-2
+            hi1: f32x3; // planes 0-2
+            ee: u1; // whether to early exit per section 4.4
+            is_leaf_flag: u1;
+            30;
+            right: u32;
+            lo = f32x7{ lo1[0], lo1[1], lo1[2], lo2[0], lo2[1], lo2[2], lo2[3] };
+            hi = f32x7{ hi1[0], hi1[1], hi1[2], hi2[0], hi2[1], hi2[2], hi2[3] };
+            split is_leaf_flag {
+                0 -> Interior {
+                    left: u32;
+                };
+                1 -> Leaf {
+                    leaf_size: u4;
+                    tri_address: u28;
+                    data = primitives[tri_address : tri_address + leaf_size];
+                };
+            };
+        };
+    };
+
+
+   build triangles {
+      build Interior(lo: f32x7, hi: f32x7, ee: u1, left: BVH, right: BVH) {
+        build lo1 = f32x3 {lo[0], lo[1], lo[2] };
+        build hi1 = f32x3 {hi[0], hi[1], hi[2] };
+        build lo2 = f32x4 {lo[3], lo[4], lo[5], lo[6] };
+        build hi2 = f32x4 {hi[3], hi[4], hi[5], hi[6] };
+        // TODO(cgyurgyik): can this be inferred, or must it be a build argument? Check the paper.
+        build ee; 
+        build is_leaf_flag = 0;
+        recurse left;
+        recurse right;
+        return this;
+      };
+      build Leaf(lo: f32x7, hi: f32x7, ee: u1, leaf_size: u4, data: array[Triangle, leaf_size]) {
+        build is_leaf_flag = 1;
+        build ee;
+        build tri_address = append(data, leaf_size);
+        return this;
+      };
+    };
+}

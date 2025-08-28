@@ -1,0 +1,198 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH = (const BVH&)
+type DOP14 = struct DOP14{ early_exit : u1; low : f32x7; high : f32x7 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type arm_Interior = [[packed]] struct arm_Interior{ left : u32 }
+type arm_Leaf = [[packed]] struct arm_Leaf{ leaf_size : u4; tri_address : u28 }
+type dop36 = [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }
+type f32x3 = f32x3
+type f32x4 = f32x4
+type f32x7 = f32x7
+type nodes = [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }
+type triangles = [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_dop360 : [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }[node_count]; group_nodes1 : [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
+type vec3f = f32x3
+type vec3h = f16x3
+
+extern triangles : [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_dop360 : [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }[node_count]; group_nodes1 : [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
+
+func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
+  _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
+  rec(index : u32) {
+    if (triangles.group_nodes1[index].is_leaf_flag == 0u) {
+      if (intersects(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) && (distmin(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) < _best0[0])) {
+        from (reinterpret_cast<arm_Interior>(triangles.group_nodes1[index].split0on_is_leaf_flag).left, triangles.group_nodes1[index].right)
+      }
+    } else {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<arm_Leaf>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address:reinterpret_cast<arm_Leaf>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address + cast<u28>(reinterpret_cast<arm_Leaf>(triangles.group_nodes1[index].split0on_is_leaf_flag).leaf_size)] {
+        if (intersects(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) && (distmin(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) < _best0[0])) {
+          if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
+            _best0 argmin= (distmin(ray, _iter0), _iter0)
+          }
+        }
+      }
+    }
+  }
+  yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
+}
+
+func build_triangles(CT : (const BVH&)) -> triangles {
+  ST : mut triangles
+  primitives_index : mut idx
+  dop36_index : mut idx
+  nodes_index : mut idx
+  rec_count_triangles(CT, ST)
+  alloc primitives : mut Triangle[ST.primitive_count]
+  let ST.primitives = primitives in
+  alloc dop36 : mut dop36[ST.node_count]
+  let ST.group_dop360 = dop36 in
+  alloc nodes : mut nodes[ST.node_count]
+  let ST.group_nodes1 = nodes in
+  rec_build_triangles(CT)
+  return ST
+}
+
+func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return -(f32)inf
+  }
+}
+
+func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
+  let pts = closestPointonTriangle(p, tri) in
+  return norm(p.vec - pts[0].vec)
+}
+
+func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return (f32)inf
+  }
+}
+
+func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < r.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
+  let interval = intersectsp_ray_sphere(ray, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < ray.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
+  return cast<bool>(intersectsp_ray_tri(ray, tri))
+}
+
+func rec_build_triangles(node : (const BVH&)) -> u32 {
+  match node {
+  | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    dop36_index += 1u
+    let ST.group_nodes1[this_index].lo1 = build<f32x3>(node.lo[0], node.lo[1], node.lo[2]) in
+    let ST.group_nodes1[this_index].hi1 = build<f32x3>(node.hi[0], node.hi[1], node.hi[2]) in
+    let ST.group_dop360[this_index].lo2 = build<f32x4>(node.lo[3], node.lo[4], node.lo[5], node.lo[6]) in
+    let ST.group_dop360[this_index].hi2 = build<f32x4>(node.hi[3], node.hi[4], node.hi[5], node.hi[6]) in
+    let ST.group_nodes1[this_index].ee = node.ee in
+    let ST.group_nodes1[this_index].is_leaf_flag = 0 in
+    let left_index = build(node.left) in
+    let ST.group_nodes1[this_index].split0on_is_leaf_flag.left = left_index in
+    let right_index = build(node.right) in
+    let ST.group_nodes1[this_index].right = right_index in
+    return this_index
+  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    let ST.group_nodes1[this_index].is_leaf_flag = 1 in
+    let ST.group_nodes1[this_index].ee = node.ee in
+    let ST.group_nodes1[this_index].split0on_is_leaf_flag.tri_address = primitives_index in
+    forall __p in [0u:node.leaf_size:1u] {
+      let primitives[__p + primitives_index] = node.data[__p] in
+    }
+    primitives_index += node.leaf_size
+    return this_index
+  }
+}
+
+func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
+  match node {
+  | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
+    ST.node_count += 1u
+    rec_count_triangles(node.left, ST)
+    rec_count_triangles(node.right, ST)
+  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
+    ST.node_count += 1u
+    ST.primitive_count += node.leaf_size
+  }
+}
+
+func [[export]] trace(ray : Ray) -> option<Triangle> {
+  return _traverse_tree0(ray, triangles)
+}
+
+
+schedule host {
+
+}

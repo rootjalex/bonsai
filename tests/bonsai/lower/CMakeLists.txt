@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS lower
     FILES
     array.bonsai
+    build-dop14.bonsai
     build-embree-hair.bonsai
     build-pbrt.bonsai
     collision.bonsai
