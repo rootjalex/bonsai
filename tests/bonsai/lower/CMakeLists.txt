@@ -4,6 +4,7 @@ add_bonsai_tests(
     array.bonsai
     build-dop14.bonsai
     build-embree-hair.bonsai
+    build-no-memory.bonsai
     build-pbrt.bonsai
     collision.bonsai
     defer-dbl-buffer.bonsai

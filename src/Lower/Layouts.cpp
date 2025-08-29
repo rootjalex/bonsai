@@ -303,7 +303,8 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             internal_error << "[unimplemented] member in struct lowering: ";
         }
     }
-    return ltmap.insert_struct_layout(member, name, std::move(fields));
+    return ltmap.insert_struct_layout(member, name.empty() ? "unit" : name,
+                                      std::move(fields));
 }
 
 ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,

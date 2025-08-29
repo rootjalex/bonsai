@@ -414,7 +414,10 @@ class ConstructBuild : public ir::Visitor {
         node->expr.accept(this);
     }
 
-    void visit(const ir::BuildLet *node) { stmts.push_back(node->stmt); }
+    void visit(const ir::BuildLet *node) {
+        node->stmt.accept(this);
+        stmts.push_back(node->stmt);
+    }
 
     void visit(const ir::BuildRule *node) {
         ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
@@ -652,6 +655,13 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
         stmts.push_back(ir::Accumulate::make(std::move(loc),
                                              ir::Accumulate::OpType::Add,
                                              make_one(size_variable->type)));
+    }
+    if (stmts.empty()) {
+        // Add some dead code that will later be eliminated since an
+        // ir::Sequence cannot have zero statements.
+        stmts.push_back(
+            ir::LetStmt::make(ir::WriteLoc("dce", ir::Int_t::make(32)),
+                              make_one(ir::Int_t::make(32))));
     }
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
