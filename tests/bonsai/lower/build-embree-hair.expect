@@ -193,6 +193,10 @@ func rec_build_triangles(node : (const BVH&)) -> u64 {
     }
     return (this_index << 4u) | 3u
   | Leaf(nprims : u8, data : Triangle[nprims]) ->
+    forall __p in [0u:node.nprims:1u] {
+      let primitives[__p + primitives_index] = node.data[__p] in
+    }
+    primitives_index += node.nprims
     let poffset = primitives_index in
     return (poffset << 4u) | cast<u64>(node.nprims << 2u)
   }

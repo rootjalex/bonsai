@@ -1,0 +1,165 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH = (const BVH&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type SLAB = struct SLAB{ lo : f32; hi : f32 }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Tri = struct Tri{ vs : f32x3 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type f32x3 = f32x3
+type triangles = [[packed]] struct triangles{ count : u32; primitives : struct Tri{ vs : f32x3 }[count]; group_0 : [[packed]] struct unit{  }[count] }
+type vec3f = f32x3
+type vec3h = f16x3
+
+extern triangles : [[packed]] struct triangles{ count : u32; primitives : struct Tri{ vs : f32x3 }[count]; group_0 : [[packed]] struct unit{  }[count] }
+
+func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Tri> {
+  _best0 : mut (f32, Tri) := ((f32)inf, build<Tri>())
+  rec(index : u32 = 0, axis : u32 = 0) {
+    if (intersects(ray, build<SLAB>(select(index < triangles.count, min(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f), select(index < triangles.count, max(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f))) && (distmin(ray, build<SLAB>(select(index < triangles.count, min(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f), select(index < triangles.count, max(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f))) < _best0[0])) {
+      from (((index * 2u) + 2u, (parent.axis + 1u) % 3u), (((index * 2u) + 2u) + 1u, (parent.axis + 1u) % 3u))
+    }
+    foreach _iter0 in triangles.primitives[index:index + 2u] {
+      if (intersects(ray, build<SLAB>(select(index < triangles.count, min(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f), select(index < triangles.count, max(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f))) && (distmin(ray, build<SLAB>(select(index < triangles.count, min(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f), select(index < triangles.count, max(triangles.primitives[index + 0u].vs[parent.axis], triangles.primitives[index + 1u].vs[parent.axis]), 0f))) < _best0[0])) {
+        if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
+          _best0 argmin= (distmin(ray, _iter0), _iter0)
+        }
+      }
+    }
+  }
+  yield select(_best0[0] != (f32)inf, build<option<Tri>>(_best0[1]), build<option<Tri>>())
+}
+
+func build_triangles(CT : (const BVH&)) -> triangles {
+  ST : mut triangles
+  primitives_index : mut idx
+  rec_count_triangles(CT, ST)
+  alloc primitives : mut Tri[ST.count]
+  let ST.primitives = primitives in
+  rec_build_triangles(CT)
+  return ST
+}
+
+func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return -(f32)inf
+  }
+}
+
+func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
+  let pts = closestPointonTriangle(p, tri) in
+  return norm(p.vec - pts[0].vec)
+}
+
+func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return (f32)inf
+  }
+}
+
+func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < r.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
+  let interval = intersectsp_ray_sphere(ray, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < ray.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
+  return cast<bool>(intersectsp_ray_tri(ray, tri))
+}
+
+func rec_build_triangles(node : (const BVH&)) -> u32 {
+  match node {
+  | Interior(min_slab : f32, max_slab : f32, left : (const BVH&), right : (const BVH&), axis : u32) with SLAB(min_slab, max_slab) ->
+    return this_index
+  | Leaf(min_slab : f32, max_slab : f32, data : Tri[2]) with SLAB(min_slab, max_slab) ->
+    forall __p in [0:2:1] {
+      let primitives[__p + primitives_index] = node.data[__p] in
+    }
+    primitives_index += 2
+    let _ = primitives_index in
+    return this_index
+  }
+}
+
+func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
+  match node {
+  | Interior(min_slab : f32, max_slab : f32, left : (const BVH&), right : (const BVH&), axis : u32) with SLAB(min_slab, max_slab) ->
+    rec_count_triangles(node.left, ST)
+    rec_count_triangles(node.right, ST)
+  | Leaf(min_slab : f32, max_slab : f32, data : Tri[2]) with SLAB(min_slab, max_slab) ->
+    let dce = 1 in
+  }
+}
+
+func [[export]] trace(ray : Ray) -> option<Tri> {
+  return _traverse_tree0(ray, triangles)
+}
+
+
+schedule host {
+
+}
