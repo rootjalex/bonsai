@@ -1149,8 +1149,20 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "cross";
     case Intrinsic::dot:
         return "dot";
+    case Intrinsic::fadd_rd:
+        return "fadd_rd";
+    case Intrinsic::fadd_ru:
+        return "fadd_ru";
     case Intrinsic::fma:
         return "fma";
+    case Intrinsic::fmul_rd:
+        return "fmul_rd";
+    case Intrinsic::fmul_ru:
+        return "fmul_ru";
+    case Intrinsic::fsub_rd:
+        return "fsub_rd";
+    case Intrinsic::fsub_ru:
+        return "fsub_ru";
     case Intrinsic::max:
         return "max";
     case Intrinsic::min:

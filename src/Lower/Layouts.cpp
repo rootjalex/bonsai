@@ -179,7 +179,16 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
 
             internal_error << "materialization fill cannot find: " << var->name;
         }
+
+        ir::Expr visit(const ir::Call *node) override {
+            std::vector<ir::Expr> args = node->args;
+            for (ir::Expr &arg : args) {
+                arg = mutate(arg);
+            }
+            return ir::Call::make(node->func, std::move(args));
+        }
     };
+
     return Rewrite(frames, layout).mutate(expr);
 }
 
