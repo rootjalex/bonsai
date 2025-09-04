@@ -331,6 +331,8 @@ void Visitor::visit(const BuildRecurse *node) { node->field.accept(this); }
 
 void Visitor::visit(const BuildReturn *node) { node->expr.accept(this); }
 
+void Visitor::visit(const BuildRoot *node) { node->rules.accept(this); }
+
 void Visitor::visit(const BuildRule *node) {
     node->field.accept(this);
     if (node->expr.defined()) {

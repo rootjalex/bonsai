@@ -773,6 +773,14 @@ BuildIR Mutator::visit(const BuildReturn *node) {
     return BuildReturn::make(std::move(expr));
 }
 
+BuildIR Mutator::visit(const BuildRoot *node) {
+    ir::BuildIR rules = mutate(node->rules);
+    if (rules.same_as(node->rules)) {
+        return node;
+    }
+    return BuildRoot::make(std::move(rules));
+}
+
 BuildIR Mutator::visit(const BuildRule *node) {
     ir::Expr field = mutate(node->field);
     ir::Expr expr = mutate(node->expr);
@@ -781,6 +789,7 @@ BuildIR Mutator::visit(const BuildRule *node) {
     }
     return BuildRule::make(std::move(field), std::move(expr));
 }
+
 BuildIR Mutator::visit(const BuildSequence *node) {
     auto [ir, not_changed] = visit_list(this, node->sequence);
     if (not_changed) {

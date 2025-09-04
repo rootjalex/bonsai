@@ -1689,6 +1689,10 @@ void Printer::visit(const BuildRule *node) {
     os << ";\n";
 }
 
+void Printer::visit(const BuildRoot *node) {
+    os << "build root " << node->rules;
+}
+
 void Printer::visit(const BuildSequence *node) {
     os << " {\n";
     ++indent;

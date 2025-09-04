@@ -111,6 +111,7 @@ struct BuildIR;
 struct BuildLet;
 struct BuildRecurse;
 struct BuildReturn;
+struct BuildRoot;
 struct BuildRule;
 struct BuildSequence;
 

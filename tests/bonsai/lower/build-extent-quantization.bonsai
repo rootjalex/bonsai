@@ -27,13 +27,14 @@ func build_bins_inverse(low: f32x3, high: f32x3) -> f32x3 {
 
 // build tree bins.
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L123
-func build_bins(bins_inverse: f32x3) -> f32x3 {
+func build_bins(low: f32x3, high: f32x3) -> f32x3 {
+  bins_inverse: f32x3 = build_bins_inverse(low, high);
   return f32x3 {frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
 }
 
 // quantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L100-L103
-func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) {
+func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) -> i30 {
     // const unsigned int lo_bin3 = (lo_bin.x << 20) +  (lo_bin.y << 10) + lo_bin.z;
     x: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x)));
     y: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y)));
@@ -82,14 +83,15 @@ schedule {
     };
 
     build particles {
-      build wlow = root.low;
-      build whigh = root.high;
-      build bins_inv = build_bins_inverse(wlow, whigh);
-      build bins = build_bins(bins_inv);
-
       build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
-        build low = quantize(low, wlow, bins_inv);
-        build high = quantize(high, whigh, bins_inv);
+        build root {
+          build wlow = low;
+          build whigh = high;
+          build bins_inv = build_bins_inverse(low, high);
+          build bins = build_bins(low, high);
+        }
+        build q_min = quantize(low, wlow, bins_inv);
+        build q_max = quantize(high, whigh, bins_inv);
         build nprims = 0;
         recurse left;
         recurse right;
@@ -97,8 +99,8 @@ schedule {
         return this;
       };
       build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
-        build low = quantize(low, wlow, bins_inv);
-        build high = quantize(high, whigh, bins_inv);
+        build q_min = quantize(low, wlow, bins_inv);
+        build q_max = quantize(high, whigh, bins_inv);
         build nprims;
         build poffset = append(data, nprims);
         return this;

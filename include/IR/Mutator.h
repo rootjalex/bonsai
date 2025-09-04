@@ -112,6 +112,7 @@ struct Mutator {
     virtual BuildIR visit(const BuildLet *);
     virtual BuildIR visit(const BuildRecurse *);
     virtual BuildIR visit(const BuildReturn *);
+    virtual BuildIR visit(const BuildRoot *);
     virtual BuildIR visit(const BuildRule *);
     virtual BuildIR visit(const BuildSequence *);
 };

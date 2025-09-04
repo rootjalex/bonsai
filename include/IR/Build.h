@@ -22,6 +22,7 @@ enum class IRBuildEnum {
     BuildRecurse,
     BuildReturn,
     BuildRule,
+    BuildRoot,
     BuildSequence,
 };
 
@@ -83,6 +84,14 @@ struct BuildRule : BuildNode<BuildRule> {
     static const IRBuildEnum node_type = IRBuildEnum::BuildRule;
 };
 
+struct BuildRoot : BuildNode<BuildRoot> {
+    ir::BuildIR rules;
+
+    static BuildIR make(ir::BuildIR rules);
+
+    static const IRBuildEnum node_type = IRBuildEnum::BuildRoot;
+};
+
 struct BuildSequence : BuildNode<BuildSequence> {
     std::vector<BuildIR> sequence;
 
@@ -103,6 +112,7 @@ struct BuildFunction {
     ir::BVH_t::Variant variant;
     std::vector<ir::Argument> arguments;
     BuildIR body;
+    bool is_root; // whether this is a root build function.
 };
 
 struct BuildLayout {

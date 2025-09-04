@@ -101,6 +101,7 @@ struct Visitor {
     virtual void visit(const BuildLet *);
     virtual void visit(const BuildRecurse *);
     virtual void visit(const BuildReturn *);
+    virtual void visit(const BuildRoot *);
     virtual void visit(const BuildRule *);
     virtual void visit(const BuildSequence *);
 };

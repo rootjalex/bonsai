@@ -298,7 +298,19 @@ class ConstructBuild : public ir::Visitor {
         : layout(layout), variant(variant), concretized_type(concretized_type),
           program(program) {}
 
-    std::vector<ir::Stmt> statements() { return stmts; }
+    std::vector<ir::Stmt> statements() {
+        if (root.empty()) {
+            return stmts;
+        }
+        // Otherwise, prepend the root.
+        ir::Expr cond =
+            ir::Var::make(ir::Index_t::make(), get_index_name("this")) ==
+            ir::IdxImm::make(0);
+        stmts.insert(stmts.begin(),
+                     ir::IfElse::make(std::move(cond),
+                                      ir::Sequence::make(std::move(root))));
+        return stmts;
+    }
 
     std::map<ir::Expr, std::vector<const ir::Group *>, ir::ExprLessThan>
     groups_by_field() {
@@ -306,12 +318,22 @@ class ConstructBuild : public ir::Visitor {
     }
 
   private:
+    bool is_root = false;
     const ir::Layout &layout;
     const ir::BVH_t::Variant &variant;
     const ir::Type &concretized_type;
     const ir::Program &program;
     std::vector<ir::Stmt> stmts;
+    std::vector<ir::Stmt> root;
     std::map<ir::Expr, std::vector<const ir::Group *>, ir::ExprLessThan> groups;
+
+    void append(ir::Stmt stmt) {
+        if (is_root) {
+            root.push_back(std::move(stmt));
+        } else {
+            stmts.push_back(std::move(stmt));
+        }
+    }
 
     ir::Type get_field_type(const std::string &field) {
         const auto &fields = variant.fields();
@@ -344,15 +366,14 @@ class ConstructBuild : public ir::Visitor {
         ir::Stmt body =
             ir::LetStmt::make(write, ir::Extract::make(node->input, i));
         ir::Type size_type = node->size.type();
-        stmts.push_back(ir::ForAll::make(index_name,
-                                         ir::ForAll::Slice{
-                                             .begin = make_zero(size_type),
-                                             .end = node->size,
-                                             .stride = make_one(size_type),
-                                         },
-                                         std::move(body)));
-        stmts.push_back(
-            ir::Accumulate::make(index, ir::Accumulate::Add, node->size));
+        append(ir::ForAll::make(index_name,
+                                ir::ForAll::Slice{
+                                    .begin = make_zero(size_type),
+                                    .end = node->size,
+                                    .stride = make_one(size_type),
+                                },
+                                std::move(body)));
+        append(ir::Accumulate::make(index, ir::Accumulate::Add, node->size));
     }
 
     void visit(const ir::BuildRecurse *node) {
@@ -383,19 +404,18 @@ class ConstructBuild : public ir::Visitor {
                 body.push_back(
                     ir::LetStmt::make(std::move(loc), let.to_expr()));
             }
-            stmts.push_back(
-                ir::ForAll::make(index_name,
-                                 ir::ForAll::Slice{
-                                     .begin = make_zero(size.type()),
-                                     .end = size,
-                                     .stride = make_one(size.type()),
-                                 },
-                                 ir::Sequence::make(std::move(body))));
+            append(ir::ForAll::make(index_name,
+                                    ir::ForAll::Slice{
+                                        .begin = make_zero(size.type()),
+                                        .end = size,
+                                        .stride = make_one(size.type()),
+                                    },
+                                    ir::Sequence::make(std::move(body))));
             return;
         }
 
         ir::WriteLoc let(get_index_name(node->field), layout.get_index_type());
-        stmts.push_back(ir::LetStmt::make(let, call_recurse(field)));
+        append(ir::LetStmt::make(let, call_recurse(field)));
         std::string name = get_field_name(field);
 
         ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
@@ -405,18 +425,24 @@ class ConstructBuild : public ir::Visitor {
             if (ir::Expr index = get_index(node->field); index.defined()) {
                 loc.add_index_access(std::move(index));
             }
-            stmts.push_back(ir::LetStmt::make(std::move(loc), let.to_expr()));
+            append(ir::LetStmt::make(std::move(loc), let.to_expr()));
         }
     }
 
     void visit(const ir::BuildReturn *node) {
-        stmts.push_back(ir::Return::make(node->expr));
+        append(ir::Return::make(node->expr));
         node->expr.accept(this);
     }
 
     void visit(const ir::BuildLet *node) {
         node->stmt.accept(this);
-        stmts.push_back(node->stmt);
+        append(node->stmt);
+    }
+
+    void visit(const ir::BuildRoot *node) {
+        is_root = true;
+        node->rules.accept(this);
+        is_root = false;
     }
 
     void visit(const ir::BuildRule *node) {
@@ -427,7 +453,8 @@ class ConstructBuild : public ir::Visitor {
         loc = get_write_loc(loc, layout.body, field_name, variant, layout,
                             visited_groups);
         internal_assert(loc.defined())
-            << "did not find concretized location for field: `" << field << "`";
+            << "did not find concretized location for field: `" << field << "`"
+            << " : " << field.type();
         internal_assert(!groups.contains(field)) << field;
         groups[field] = visited_groups;
         ir::Expr expr = node->expr;
@@ -435,7 +462,7 @@ class ConstructBuild : public ir::Visitor {
             // This should just retrieve the field from this node.
             expr = node->field;
         }
-        stmts.push_back(ir::LetStmt::make(std::move(loc), expr));
+        append(ir::LetStmt::make(std::move(loc), expr));
         expr.accept(this);
     }
 

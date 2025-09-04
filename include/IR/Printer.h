@@ -205,6 +205,7 @@ struct Printer : public Visitor {
     void visit(const BuildLet *) override;
     void visit(const BuildRecurse *) override;
     void visit(const BuildReturn *) override;
+    void visit(const BuildRoot *) override;
     void visit(const BuildRule *) override;
     void visit(const BuildSequence *) override;
 

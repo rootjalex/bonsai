@@ -158,7 +158,7 @@ bool Type::is_func() const { return is<Function_t>(); }
 Type Type::to_bool() const {
     if (this->is_bool()) {
         return *this;
-    } else if (this->is<Int_t>() || this->is<Float_t>() || this->is<UInt_t>()) {
+    } else if (this->is<Int_t, Float_t, UInt_t, Index_t>()) {
         return Bool_t::make();
     } else if (this->is<Vector_t>()) {
         const Vector_t *v = this->as<Vector_t>();

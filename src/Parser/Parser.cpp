@@ -2461,6 +2461,12 @@ struct Parser {
             return ir::BuildReturn::make(std::move(expr));
         }
         case Token::Type::BUILD: {
+            if (auto value = peek().value;
+                peek_type() == Token::Type::IDENTIFIER &&
+                std::get<std::string>(value) == "root") {
+                consume();
+                return ir::BuildRoot::make(parse_build());
+            }
             ir::Expr field = parse_expr();
             ir::Expr expr;
             if (consume(Token::Type::ASSIGN)) {
@@ -2496,18 +2502,16 @@ struct Parser {
             push_frame();
             expect(Token::Type::BUILD);
             std::string name = get_id();
+            std::vector<ir::Argument> arguments = parse_func_args();
+            for (const ir::Argument &arg : arguments) {
+                add_type_to_frame(arg.name, arg.type, /*mut=*/false);
+            }
             auto it = std::find_if(
                 bvh_t->variants.begin(), bvh_t->variants.end(),
                 [&](const ir::BVH_t::Variant &v) { return v.name() == name; });
             if (it == bvh_t->variants.end()) {
-                report_error() << "build for nonexistent variant: " << name
-                               << " for ADT: " << tree_layout.type;
-            }
-            const std::vector<ir::Member> fields =
-                tree_layout.find_all_fields();
-            std::vector<ir::Argument> arguments = parse_func_args();
-            for (const ir::Argument &arg : arguments) {
-                add_type_to_frame(arg.name, arg.type, /*mut=*/false);
+                report_error() << "build for nonexistent variant: `" << name
+                               << "` for ADT: " << tree_layout.type;
             }
             // Add layout fields to the scope for type checking purposes. An
             // example where this is necessary is in PBRT, where we need to set
@@ -2516,6 +2520,8 @@ struct Parser {
             // their type is not overwritten, e.g., a layout BVH type may just
             // be a u32 type but the canonical tree argument should be a
             // reference type for the purposes of tree building.
+            const std::vector<ir::Member> fields =
+                tree_layout.find_all_fields();
             for (const ir::Member &member : fields) {
                 const auto *field = member.as<ir::Field>();
                 internal_assert(field) << member;

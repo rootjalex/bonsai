@@ -31,6 +31,15 @@ namespace ir {
     return node;
 }
 
+/* static */ BuildIR BuildRoot::make(ir::BuildIR rules) {
+    internal_assert(rules.defined())
+        << "BuildRule::make received undefined rules";
+
+    BuildRoot *node = new BuildRoot;
+    node->rules = std::move(rules);
+    return node;
+}
+
 /* static */ BuildIR BuildSequence::make(std::vector<BuildIR> sequence) {
     internal_assert(!sequence.empty())
         << "BuildSequence::make received empty sequence";
