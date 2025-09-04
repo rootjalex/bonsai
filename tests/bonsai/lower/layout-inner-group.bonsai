@@ -12,7 +12,7 @@ element f32x3 = vector[f32, 3];
 element f16x3 = vector[f16, 3];
 
 schedule {
-    tree[[Triangle]] BVH(low high : vec3f) with AABB(low, high)
+    tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high)
     = Interior(left : BVH, right : BVH)
     | Leaf(nprims: u16, data: array[Triangle, nprims]);
 
