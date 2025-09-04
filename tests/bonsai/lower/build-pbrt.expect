@@ -47,7 +47,7 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   ST.primitives = primitives
   alloc nodes : mut nodes[ST.node_count]
   ST.group_nodes0 = nodes
-  rec_build_triangles(CT)
+  rec_build_triangles(CT, ST, nodes_index, primitives_index)
   return ST
 }
 
@@ -138,7 +138,7 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return cast<bool>(intersectsp_ray_tri(ray, tri))
 }
 
-func rec_build_triangles(node : (const BVH&)) -> u32 {
+func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : u32, primitives_index : idx) -> u32 {
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&), axis : u8) with AABB(low, high) ->
     let this_index = nodes_index in
@@ -147,8 +147,8 @@ func rec_build_triangles(node : (const BVH&)) -> u32 {
     ST.group_nodes0[this_index].high = node.high
     ST.group_nodes0[this_index].nprims = 0
     ST.group_nodes0[this_index].axis = argmax(node.high - node.low)
-    let left_index = build(node.left) in
-    let right_index = build(node.right) in
+    let left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index) in
+    let right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index) in
     ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Triangle[nprims]) with AABB(low, high) ->

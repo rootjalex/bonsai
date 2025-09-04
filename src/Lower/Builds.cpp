@@ -69,23 +69,21 @@ ir::Type get_recursive_build_function_type(const ir::Layout &layout) {
 
 ir::Type get_recursive_count_function_type(const ir::Layout &layout,
                                            const ir::Type &concretized_type) {
-    return ir::Function_t::make(ir::Void_t::make(),
-                                {ir::Function_t::ArgSig{
-                                     .type = get_layout_reference_type(layout),
-                                     .is_mutable = false,
-                                 },
-                                 ir::Function_t::ArgSig{
-                                     .type = concretized_type,
-                                     .is_mutable = true,
-                                 }});
+    return ir::Function_t::make(
+        ir::Void_t::make(), {
+                                ir::Function_t::ArgSig{
+                                    .type = get_layout_reference_type(layout),
+                                    .is_mutable = false,
+                                },
+                            });
 }
 
-std::string get_recursive_build_function_name(const ir::BuildLayout &b) {
-    return "rec_" + build_name(b.name);
+std::string get_recursive_build_function_name(const ir::Layout &layout) {
+    return "rec_" + build_name(layout.name);
 }
 
-std::string get_recursive_count_function_name(const ir::BuildLayout &b) {
-    return "rec_" + count_name(b.name);
+std::string get_recursive_count_function_name(const ir::Layout &layout) {
+    return "rec_" + count_name(layout.name);
 }
 
 // TODO(cgyurgyik): there is an underlying assumption that every layout is a
@@ -506,9 +504,13 @@ class ConstructBuild : public ir::Visitor {
     }
 
     ir::Expr call_recurse(const ir::Expr &field) {
-        ir::Type function_t = get_recursive_build_function_type(layout);
-        ir::Expr func = ir::Var::make(function_t, "build");
-        return ir::Call::make(func, {field});
+        ir::Type type = get_recursive_build_function_type(layout);
+        const auto *function_t = type.as<ir::Function_t>();
+        internal_assert(function_t) << type;
+        std::vector<ir::Expr> args = {field};
+        std::string name = get_recursive_build_function_name(layout);
+        ir::Expr func = ir::Var::make(std::move(type), std::move(name));
+        return ir::Call::make(func, args);
     }
 
     std::string get_field_name(const ir::Expr &field) {
@@ -600,8 +602,20 @@ std::shared_ptr<ir::Function> construct_build_recursive(
     ir::Stmt body = ir::Match::make(self(layout), std::move(arms));
     std::vector<ir::Argument> args = {
         ir::Argument("node", get_layout_reference_type(layout)),
+        ir::Argument(SPECIALIZED_TREE, concretized_type,
+                     /*default_value=*/ir::Expr(),
+                     /*mutating=*/true),
     };
-    std::string name = get_recursive_build_function_name(build);
+    std::vector<ir::TypedVar> free_variables = gather_free_vars(body);
+    for (const auto &[name, type] : free_variables) {
+        if (std::any_of(args.begin(), args.end(), [&](const ir::Argument &arg) {
+                return arg.name == name;
+            })) {
+            continue;
+        }
+        args.push_back(ir::Argument(name, type));
+    }
+    std::string name = get_recursive_build_function_name(layout);
     ir::Function::InterfaceList interfaces;
     std::vector<ir::Function::Attribute> attributes;
     return std::make_shared<ir::Function>(
@@ -656,11 +670,10 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
         if (ir::equals(argument.type, get_layout_reference_type(layout))) {
             ir::Type function_t =
                 get_recursive_count_function_type(layout, concretized_type);
-            std::string name = get_recursive_count_function_name(build);
+            std::string name = get_recursive_count_function_name(layout);
             ir::Expr func = ir::Var::make(function_t, name);
-            ir::Expr arg1 = ir::Access::make(argument.name, self(layout));
-            ir::Expr arg2 = ir::Var::make(concretized_type, SPECIALIZED_TREE);
-            stmts.push_back(ir::CallStmt::make(func, {arg1, arg2}));
+            ir::Expr arg = ir::Access::make(argument.name, self(layout));
+            stmts.push_back(ir::CallStmt::make(func, {arg}));
             continue;
         }
         if (argument.type.is_iterable() &&
@@ -671,12 +684,11 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
 
             ir::Type function_t =
                 get_recursive_count_function_type(layout, concretized_type);
-            std::string name = get_recursive_count_function_name(build);
+            std::string name = get_recursive_count_function_name(layout);
             ir::Expr func = ir::Var::make(function_t, name);
-            ir::Expr arg1 = ir::Access::make(argument.name, self(layout));
-            arg1 = ir::Extract::make(arg1, i);
-            ir::Expr arg2 = ir::Var::make(concretized_type, SPECIALIZED_TREE);
-            ir::Stmt body = ir::CallStmt::make(func, {arg1, arg2});
+            ir::Expr arg = ir::Access::make(argument.name, self(layout));
+            arg = ir::Extract::make(arg, i);
+            ir::Stmt body = ir::CallStmt::make(func, {arg});
             ir::Expr size = argument.type.size();
             stmts.push_back(
                 ir::ForAll::make(index_name,
@@ -744,7 +756,7 @@ std::shared_ptr<ir::Function> construct_count_recursive(
         });
     }
 
-    std::string name = get_recursive_count_function_name(build);
+    std::string name = get_recursive_count_function_name(layout);
     ir::Stmt body = ir::Match::make(self(layout), std::move(arms));
     std::vector<ir::Argument> args = {
         ir::Argument("node", get_layout_reference_type(layout)),
@@ -752,6 +764,15 @@ std::shared_ptr<ir::Function> construct_count_recursive(
                      /*default_value=*/ir::Expr(),
                      /*mutating=*/true),
     };
+    std::vector<ir::TypedVar> free_variables = gather_free_vars(body);
+    for (const auto &[name, type] : free_variables) {
+        if (std::any_of(args.begin(), args.end(), [&](const ir::Argument &arg) {
+                return arg.name == name;
+            })) {
+            continue;
+        }
+        args.push_back(ir::Argument(name, type));
+    }
     ir::Function::InterfaceList interfaces;
     std::vector<ir::Function::Attribute> attributes;
     return std::make_shared<ir::Function>(std::move(name), std::move(args),
@@ -773,7 +794,7 @@ construct_build_full(const ir::Type &concretized_type,
 
     // 2. Pre-process: call to function gathering counts for each group.
     {
-        std::string name = get_recursive_count_function_name(build);
+        std::string name = get_recursive_count_function_name(layout);
         ir::Type type =
             get_recursive_count_function_type(layout, concretized_type);
         ir::Expr func = ir::Var::make(type, name);
@@ -860,7 +881,7 @@ construct_build_full(const ir::Type &concretized_type,
     // 4. Call `__build_<name>` on CT.root
     {
         ir::Type function_t = get_recursive_build_function_type(layout);
-        std::string name = get_recursive_build_function_name(build);
+        std::string name = get_recursive_build_function_name(layout);
         stmts.push_back(ir::CallStmt::make(
             ir::Var::make(function_t, name),
             {
@@ -886,6 +907,63 @@ construct_build_full(const ir::Type &concretized_type,
     return std::make_shared<ir::Function>(std::move(name), std::move(args),
                                           concretized_type, std::move(body),
                                           interfaces, std::move(attributes));
+}
+
+template <typename Out, typename In>
+Out visit_call(const In *node, const std::string &name,
+               const std::vector<ir::Argument> &arguments,
+               const ir::Type &return_type) {
+    const auto *v = node->func.template as<ir::Var>();
+    if (v == nullptr) {
+        return node;
+    }
+    if (v->name != name) {
+        return node;
+    }
+    const auto *function_t = v->type.template as<ir::Function_t>();
+    internal_assert(function_t) << v->type;
+    // Leave the first argument alone.
+    std::vector<ir::Expr> args = {node->args.front()};
+    for (int i = 1, e = arguments.size(); i < e; ++i) {
+        args.push_back(ir::Var::make(arguments[i].type, arguments[i].name));
+    }
+
+    std::vector<ir::Function_t::ArgSig> types;
+    for (int i = 0, e = arguments.size(); i < e; ++i) {
+        types.push_back(ir::Function_t::ArgSig{
+            .type = arguments[i].type,
+            .is_mutable = arguments[i].mutating,
+        });
+    }
+    ir::Type updated_function_t =
+        ir::Function_t::make(return_type, std::move(types));
+    return In::make(ir::Var::make(std::move(updated_function_t), name),
+                    std::move(args));
+}
+
+ir::Stmt update_recursive_arguments(ir::Stmt body, const std::string &name,
+                                    const std::vector<ir::Argument> &arguments,
+                                    const ir::Type &return_type) {
+    struct UpdateCalls : ir::Mutator {
+        const std::string &name;
+        const std::vector<ir::Argument> &arguments;
+        const ir::Type &return_type;
+
+        UpdateCalls(const std::string &name,
+                    const std::vector<ir::Argument> &arguments,
+                    const ir::Type &return_type)
+            : name(name), arguments(arguments), return_type(return_type) {}
+
+        ir::Expr visit(const ir::Call *node) override {
+            return visit_call<ir::Expr>(node, name, arguments, return_type);
+        }
+
+        // TODO(cgyurgyik): exact duplicate of above :(
+        ir::Stmt visit(const ir::CallStmt *node) override {
+            return visit_call<ir::Stmt>(node, name, arguments, return_type);
+        }
+    };
+    return UpdateCalls{name, arguments, return_type}.mutate(body);
 }
 
 } // namespace
@@ -915,34 +993,31 @@ ir::Program LowerBuilds::run(ir::Program program,
         // The layout is necessary for determining where values should live.
         internal_assert(it != tree_layouts.end())
             << "no layout found for tree: `" << name << "`";
+        std::vector<std::shared_ptr<ir::Function>> functions;
         // First, construct the recursive build algorithm.
-        {
-            std::shared_ptr<ir::Function> fn = construct_build_recursive(
-                build, concretized_type, it->second, program);
-            std::string name = fn->name;
-            const auto [_, inserted] =
-                program.funcs.try_emplace(name, std::move(fn));
-            internal_assert(inserted)
-                << "function: `" << name << "` already exists in program";
+        functions.push_back(construct_build_recursive(build, concretized_type,
+                                                      it->second, program));
+        // Then, construct the recursive count algorithm.
+        functions.push_back(construct_count_recursive(concretized_type, build,
+                                                      it->second, program));
+        // Finally, construct the final build algorithm.
+        functions.push_back(
+            construct_build_full(concretized_type, build, it->second, program));
+
+        // Update free variables for function calls.
+        for (int i = 0, e = functions.size(); i < e; ++i) {
+            for (int j = 0; j < e; ++j) {
+                functions[i]->body = update_recursive_arguments(
+                    std::move(functions[i]->body), functions[j]->name,
+                    functions[j]->args, functions[j]->ret_type);
+            }
         }
 
-        { // Then, construct the recursive count algorithm.
-            std::shared_ptr<ir::Function> fn = construct_count_recursive(
-                concretized_type, build, it->second, program);
-            std::string name = fn->name;
+        // Append them to the program.
+        for (int i = 0, e = functions.size(); i < e; ++i) {
+            std::string name = functions[i]->name;
             const auto [_, inserted] =
-                program.funcs.try_emplace(name, std::move(fn));
-            internal_assert(inserted)
-                << "function: `" << name << "` already exists in program";
-        }
-
-        // Now, construct the final build algorithm.
-        {
-            std::shared_ptr<ir::Function> fn = construct_build_full(
-                concretized_type, build, it->second, program);
-            std::string name = fn->name;
-            const auto [_, inserted] =
-                program.funcs.try_emplace(name, std::move(fn));
+                program.funcs.try_emplace(name, std::move(functions[i]));
             internal_assert(inserted)
                 << "function: `" << name << "` already exists in program";
         }

@@ -75,7 +75,7 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   ST.indirect_group_AABBs0 = AABBs
   alloc OBBs : mut OBBs[size_OBBs]
   ST.indirect_group_OBBs1 = OBBs
-  rec_build_triangles(CT)
+  rec_build_triangles(CT, ST, AABBs_index, OBBs_index, primitives_index)
   return ST
 }
 
@@ -166,20 +166,20 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return cast<bool>(intersectsp_ray_tri(ray, tri))
 }
 
-func rec_build_triangles(node : (const BVH&)) -> u64 {
+func rec_build_triangles(node : (const BVH&), ST : mut triangles, AABBs_index : idx, OBBs_index : idx, primitives_index : idx) -> u64 {
   match node {
   | AABBNode(aabb_children : (const BVH&)[4], aabb_low : f32x3x4, aabb_high : f32x3x4) with AABB(aabb_low, aabb_high) ->
     let this_index = AABBs_index in
     AABBs_index += 1
     ST.indirect_group_AABBs0[this_index].aabb_low = node.aabb_low
     ST.indirect_group_AABBs0[this_index].aabb_high = node.aabb_high
-    let aabb_children_index0 = build(node.aabb_children[0]) in
+    let aabb_children_index0 = rec_build_triangles(node.aabb_children[0], ST, AABBs_index, OBBs_index, primitives_index) in
     let ST.indirect_group_AABBs0[this_index].aabb_children[0] = aabb_children_index0 in
-    let aabb_children_index1 = build(node.aabb_children[1]) in
+    let aabb_children_index1 = rec_build_triangles(node.aabb_children[1], ST, AABBs_index, OBBs_index, primitives_index) in
     let ST.indirect_group_AABBs0[this_index].aabb_children[1] = aabb_children_index1 in
-    let aabb_children_index2 = build(node.aabb_children[2]) in
+    let aabb_children_index2 = rec_build_triangles(node.aabb_children[2], ST, AABBs_index, OBBs_index, primitives_index) in
     let ST.indirect_group_AABBs0[this_index].aabb_children[2] = aabb_children_index2 in
-    let aabb_children_index3 = build(node.aabb_children[3]) in
+    let aabb_children_index3 = rec_build_triangles(node.aabb_children[3], ST, AABBs_index, OBBs_index, primitives_index) in
     let ST.indirect_group_AABBs0[this_index].aabb_children[3] = aabb_children_index3 in
     return (this_index << 4u) | 2u
   | OBBNode(obb_children : (const BVH&)[4], orientation : f32x9, obb_low : f32x3x4, obb_high : f32x3x4) with OBB(obb_low, obb_high, orientation) ->
@@ -188,7 +188,7 @@ func rec_build_triangles(node : (const BVH&)) -> u64 {
     ST.indirect_group_OBBs1[this_index].obb_low = node.obb_low
     ST.indirect_group_OBBs1[this_index].obb_high = node.obb_high
     forall __r in [0:4:1] {
-      let obb_children_index = build(node.obb_children[__r]) in
+      let obb_children_index = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index) in
       let ST.indirect_group_OBBs1[this_index].obb_children[__r] = obb_children_index in
     }
     return (this_index << 4u) | 3u

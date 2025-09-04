@@ -54,7 +54,7 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   ST.group_dop360 = dop36
   alloc nodes : mut nodes[ST.node_count]
   ST.group_nodes1 = nodes
-  rec_build_triangles(CT)
+  rec_build_triangles(CT, ST, nodes_index, primitives_index)
   return ST
 }
 
@@ -145,7 +145,7 @@ func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return cast<bool>(intersectsp_ray_tri(ray, tri))
 }
 
-func rec_build_triangles(node : (const BVH&)) -> u32 {
+func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : u32, primitives_index : idx) -> u32 {
   match node {
   | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
     let this_index = nodes_index in
@@ -157,9 +157,9 @@ func rec_build_triangles(node : (const BVH&)) -> u32 {
     ST.group_dop360[this_index].hi2 = build<f32x4>(node.hi[3], node.hi[4], node.hi[5], node.hi[6])
     ST.group_nodes1[this_index].ee = node.ee
     ST.group_nodes1[this_index].is_leaf_flag = 0
-    let left_index = build(node.left) in
+    let left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index) in
     let ST.group_nodes1[this_index].split0on_is_leaf_flag.left = left_index in
-    let right_index = build(node.right) in
+    let right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index) in
     let ST.group_nodes1[this_index].right = right_index in
     return this_index
   | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->

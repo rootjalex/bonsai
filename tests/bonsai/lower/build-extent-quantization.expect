@@ -57,7 +57,7 @@ func build_particles(CT : (const BVH&)) -> particles {
   ST.primitives = primitives
   alloc nodes : mut nodes[ST.node_count]
   ST.group_nodes0 = nodes
-  rec_build_particles(CT)
+  rec_build_particles(CT, ST, nodes_index, primitives_index)
   return ST
 }
 
@@ -163,7 +163,7 @@ func quantize(current : f32x3, world : f32x3, bin_inverse : f32x3) -> i30 {
   return cast<i30>(((x << 20u) | (y << 10u)) | z)
 }
 
-func rec_build_particles(node : (const BVH&)) -> u32 {
+func rec_build_particles(node : (const BVH&), ST : mut particles, nodes_index : u32, primitives_index : idx) -> u32 {
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     let this_index = nodes_index in
@@ -177,8 +177,8 @@ func rec_build_particles(node : (const BVH&)) -> u32 {
     ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
     ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
     ST.group_nodes0[this_index].nprims = 0
-    let left_index = build(node.left) in
-    let right_index = build(node.right) in
+    let left_index = rec_build_particles(node.left, ST, nodes_index, primitives_index) in
+    let right_index = rec_build_particles(node.right, ST, nodes_index, primitives_index) in
     ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Particle[nprims]) with AABB(low, high) ->
