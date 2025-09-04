@@ -83,7 +83,7 @@ ir::Expr WriteLoc::to_expr() {
         if (std::holds_alternative<std::string>(value)) {
             expr = Access::make(std::get<std::string>(value), expr);
         } else {
-            expr = Extract::make(std::get<ir::Expr>(value), expr);
+            expr = Extract::make(expr, std::get<ir::Expr>(value));
         }
     }
     return expr;

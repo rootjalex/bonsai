@@ -174,8 +174,8 @@ func rec_build_particles(node : (const BVH&)) -> u32 {
       let ST.bins_inv = build_bins_inverse(node.low, node.high) in
       let ST.bins = build_bins(node.low, node.high) in
     }
-    let ST.group_nodes0[this_index].q_min = quantize(node.low, wlow, bins_inv) in
-    let ST.group_nodes0[this_index].q_max = quantize(node.high, whigh, bins_inv) in
+    let ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv) in
+    let ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv) in
     let ST.group_nodes0[this_index].nprims = 0 in
     let left_index = build(node.left) in
     let right_index = build(node.right) in
@@ -184,8 +184,8 @@ func rec_build_particles(node : (const BVH&)) -> u32 {
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Particle[nprims]) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    let ST.group_nodes0[this_index].q_min = quantize(node.low, wlow, bins_inv) in
-    let ST.group_nodes0[this_index].q_max = quantize(node.high, whigh, bins_inv) in
+    let ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv) in
+    let ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv) in
     let ST.group_nodes0[this_index].nprims = node.nprims in
     let ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index in
     forall __p in [0u:node.nprims:1u] {

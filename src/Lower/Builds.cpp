@@ -291,6 +291,39 @@ class ConcretizeAppend : public ir::Mutator {
     }
 };
 
+class ConcretizeVar : public ir::Mutator {
+  public:
+    ConcretizeVar(const ir::Layout &layout, const ir::BVH_t::Variant &variant,
+                  const ir::Type &concretized_type)
+        : layout(layout), variant(variant), concretized_type(concretized_type) {
+    }
+
+  private:
+    const ir::Layout &layout;
+    const ir::BVH_t::Variant &variant;
+    const ir::Type &concretized_type;
+
+    ir::Expr visit(const ir::Var *node) override {
+        ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
+        std::vector<const ir::Group *> _;
+        const ir::Struct_t::Map &fields = variant.fields();
+        if (std::any_of(fields.begin(), fields.end(),
+                        [&](const ir::TypedVar &field) {
+                            return field.name == node->name;
+                        })) {
+            // This is an argument passed in from the canonical tree. We don't
+            // need to concretize its location.
+            return node;
+        }
+        if (loc =
+                get_write_loc(loc, layout.body, node->name, variant, layout, _);
+            loc.defined()) {
+            return loc.to_expr();
+        }
+        return node;
+    }
+};
+
 class ConstructBuild : public ir::Visitor {
   public:
     ConstructBuild(const ir::Layout &layout, const ir::BVH_t::Variant &variant,
@@ -303,11 +336,11 @@ class ConstructBuild : public ir::Visitor {
             return stmts;
         }
         // Otherwise, prepend the root.
-        ir::Expr cond =
+        ir::Expr is_zero =
             ir::Var::make(ir::Index_t::make(), get_index_name("this")) ==
             ir::IdxImm::make(0);
         stmts.insert(stmts.begin(),
-                     ir::IfElse::make(std::move(cond),
+                     ir::IfElse::make(std::move(is_zero),
                                       ir::Sequence::make(std::move(root))));
         return stmts;
     }
@@ -494,9 +527,10 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
                                         const ir::Layout &layout,
                                         const ir::Program &program) {
     ir::BuildIR body = function.body;
+    const ir::BVH_t::Variant &variant = function.variant;
     body = ConcretizeIndex(layout).mutate(body);
 
-    ConstructBuild visitor(layout, function.variant, concretized_type, program);
+    ConstructBuild visitor(layout, variant, concretized_type, program);
     body.accept(&visitor);
 
     std::vector<ir::Stmt> stmts;
@@ -546,6 +580,8 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
 
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = ConcretizeAppend(layout).mutate(std::move(sequence));
+    sequence = ConcretizeVar(layout, variant, concretized_type)
+                   .mutate(std::move(sequence));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
     return sequence;
 }

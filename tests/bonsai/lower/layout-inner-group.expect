@@ -8,27 +8,27 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
+type arm_Leaf = [[packed]] struct arm_Leaf{ poffset : u32 }
 type f16x3 = f16x3
 type f32x3 = f32x3
-type tl0 = [[packed]] struct tl0{ offset : u32 }
-type tl1 = [[packed]] struct tl1{ poffset : u32 }
-type tl2 = [[packed]] struct tl2{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
-type tl3 = [[packed]] struct tl3{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct tl2{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }
-type tl4 = [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl3{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct tl2{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }[node_count] }
+type nodes = [[packed]] struct nodes{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct unit{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }
+type triangles = [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct unit{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }[node_count] }
+type unit = [[packed]] struct unit{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern triangles : [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct tl3{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct tl2{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }[node_count] }
+extern triangles : [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct unit{ low_16 : f16x3; high_16 : f16x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[2] }[node_count] }
 
-func _traverse_tree0(ray : Ray, triangles : tl4) -> option<Triangle> {
+func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
   _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
   rec(index : u32, bit : u1) {
     if (triangles.group_nodes0[index].group_0[bit].nprims == 0u) {
       if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) && (distmin(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) < _best0[0])) {
-        from ((reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(0)), (reinterpret_cast<tl0>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(1)))
+        from ((reinterpret_cast<arm_Interior>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(0)), (reinterpret_cast<arm_Interior>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).offset, cast<u1>(1)))
       }
     } else {
-      foreach _iter0 in triangles.primitives[reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset:reinterpret_cast<tl1>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset + cast<u32>(triangles.group_nodes0[index].group_0[bit].nprims)] {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<arm_Leaf>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(triangles.group_nodes0[index].group_0[bit].split0on_nprims).poffset + cast<u32>(triangles.group_nodes0[index].group_0[bit].nprims)] {
         if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) && (distmin(ray, build<AABB>(triangles.group_nodes0[index].low_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].low_16), triangles.group_nodes0[index].high_32 + cast<f32x3>(triangles.group_nodes0[index].group_0[bit].high_16))) < _best0[0])) {
           if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
             _best0 argmin= (distmin(ray, _iter0), _iter0)
@@ -133,5 +133,36 @@ func [[export]] trace(ray : Ray) -> option<Triangle> {
 
 
 schedule host {
+    triangles : layout triangles(index : u32, bit : u1) {
+  primitive_count : u32;
+  primitives : Triangle[primitive_count];
+  node_count : u32;
+  group nodes[node_count] by index {
+    low_32 : f32x3;
+    high_32 : f32x3;
+    group[2] by bit {
+      low_16 : f16x3;
+      low = low_32 + cast<f32x3>(low_16);
+      high_16 : f16x3;
+      high = high_32 + cast<f32x3>(high_16);
+      nprims : u16;
+      axis : u8;
+      8;
+      split nprims {
+        0 -> Interior {
+          offset : u32;
+          left = (offset, cast<u1>(0));
+          right = (offset, cast<u1>(1));
+        };
+        _ -> Leaf {
+          poffset : u32;
+          data = primitives[poffset:poffset + cast<u32>(nprims)];
+        };
+      };
+    };
+  };
+};
+
+
 
 }

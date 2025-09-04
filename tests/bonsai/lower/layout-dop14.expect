@@ -9,28 +9,28 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type arm_Interior = [[packed]] struct arm_Interior{ left : u32 }
+type arm_Leaf = [[packed]] struct arm_Leaf{ leaf_size : u4; tri_address : u28 }
+type dop36 = [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }
 type f32x3 = f32x3
 type f32x4 = f32x4
 type f32x7 = f32x7
-type tl0 = [[packed]] struct tl0{ lo2 : f32x4; hi2 : f32x4 }
-type tl1 = [[packed]] struct tl1{ left : u32 }
-type tl2 = [[packed]] struct tl2{ leaf_size : u4; tri_address : u28 }
-type tl3 = [[packed]] struct tl3{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }
-type tl4 = [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_dop360 : [[packed]] struct tl0{ lo2 : f32x4; hi2 : f32x4 }[node_count]; group_nodes1 : [[packed]] struct tl3{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
+type nodes = [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }
+type triangles = [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_dop360 : [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }[node_count]; group_nodes1 : [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern triangles : [[packed]] struct tl4{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_dop360 : [[packed]] struct tl0{ lo2 : f32x4; hi2 : f32x4 }[node_count]; group_nodes1 : [[packed]] struct tl3{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
+extern triangles : [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_dop360 : [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }[node_count]; group_nodes1 : [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
 
-func _traverse_tree0(ray : Ray, triangles : tl4) -> option<Triangle> {
+func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
   _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
   rec(index : u32) {
     if (triangles.group_nodes1[index].is_leaf_flag == 0u) {
       if (intersects(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) && (distmin(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) < _best0[0])) {
-        from (reinterpret_cast<tl1>(triangles.group_nodes1[index].split0on_is_leaf_flag).left, triangles.group_nodes1[index].right)
+        from (reinterpret_cast<arm_Interior>(triangles.group_nodes1[index].split0on_is_leaf_flag).left, triangles.group_nodes1[index].right)
       }
     } else {
-      foreach _iter0 in triangles.primitives[reinterpret_cast<tl2>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address:reinterpret_cast<tl2>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address + cast<u28>(reinterpret_cast<tl2>(triangles.group_nodes1[index].split0on_is_leaf_flag).leaf_size)] {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<arm_Leaf>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address:reinterpret_cast<arm_Leaf>(triangles.group_nodes1[index].split0on_is_leaf_flag).tri_address + cast<u28>(reinterpret_cast<arm_Leaf>(triangles.group_nodes1[index].split0on_is_leaf_flag).leaf_size)] {
         if (intersects(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) && (distmin(ray, build<DOP14>(triangles.group_nodes1[index].ee, build<f32x7>(triangles.group_nodes1[index].lo1[0], triangles.group_nodes1[index].lo1[1], triangles.group_nodes1[index].lo1[2], triangles.group_dop360[index].lo2[0], triangles.group_dop360[index].lo2[1], triangles.group_dop360[index].lo2[2], triangles.group_dop360[index].lo2[3]), build<f32x7>(triangles.group_nodes1[index].hi1[0], triangles.group_nodes1[index].hi1[1], triangles.group_nodes1[index].hi1[2], triangles.group_dop360[index].hi2[0], triangles.group_dop360[index].hi2[1], triangles.group_dop360[index].hi2[2], triangles.group_dop360[index].hi2[3]))) < _best0[0])) {
           if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
             _best0 argmin= (distmin(ray, _iter0), _iter0)
@@ -135,5 +135,36 @@ func [[export]] trace(ray : Ray) -> option<Triangle> {
 
 
 schedule host {
+    triangles : layout triangles(index : u32) {
+  primitive_count : u32;
+  primitives : Triangle[primitive_count];
+  node_count : u32;
+  group dop36[node_count] by index {
+    lo2 : f32x4;
+    hi2 : f32x4;
+  };
+  group nodes[node_count] by index {
+    lo1 : f32x3;
+    hi1 : f32x3;
+    ee : u1;
+    is_leaf_flag : u1;
+    30;
+    right : u32;
+    lo = build<f32x7>(lo1[0], lo1[1], lo1[2], lo2[0], lo2[1], lo2[2], lo2[3]);
+    hi = build<f32x7>(hi1[0], hi1[1], hi1[2], hi2[0], hi2[1], hi2[2], hi2[3]);
+    split is_leaf_flag {
+      0 -> Interior {
+        left : u32;
+      };
+      1 -> Leaf {
+        leaf_size : u4;
+        tri_address : u28;
+        data = primitives[tri_address:tri_address + cast<u28>(leaf_size)];
+      };
+    };
+  };
+};
+
+
 
 }
