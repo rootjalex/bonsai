@@ -495,7 +495,7 @@ class ConstructBuild : public ir::Visitor {
             // This should just retrieve the field from this node.
             expr = node->field;
         }
-        append(ir::LetStmt::make(std::move(loc), expr));
+        append(ir::Store::make(std::move(loc), expr));
         expr.accept(this);
     }
 
@@ -722,9 +722,9 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
     if (stmts.empty()) {
         // Add some dead code that will later be eliminated since an
         // ir::Sequence cannot have zero statements.
+        ir::Type int_t = ir::Int_t::make(32);
         stmts.push_back(
-            ir::LetStmt::make(ir::WriteLoc("dce", ir::Int_t::make(32)),
-                              make_one(ir::Int_t::make(32))));
+            ir::LetStmt::make(ir::WriteLoc("dce", int_t), make_one(int_t)));
     }
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
@@ -801,7 +801,7 @@ construct_build_full(const ir::Type &concretized_type,
                 get_write_loc(specialized_tree, field->name, build, layout);
             stmts.push_back(ir::Allocate::make(location));
             stmts.push_back(
-                ir::LetStmt::make(std::move(write_to), location.to_expr()));
+                ir::Store::make(std::move(write_to), location.to_expr()));
 
             // Allocate indexes.
             stack.push_back(ir::Allocate::make(
@@ -831,7 +831,7 @@ construct_build_full(const ir::Type &concretized_type,
                                       ir::Array_t::make(it->second, size));
                 stmts.push_back(ir::Allocate::make(location));
                 stmts.push_back(
-                    ir::LetStmt::make(std::move(write_to), location.to_expr()));
+                    ir::Store::make(std::move(write_to), location.to_expr()));
                 continue;
             }
             if (const auto *size_variable = size.as<ir::Var>()) {
@@ -845,7 +845,7 @@ construct_build_full(const ir::Type &concretized_type,
                                   ir::Array_t::make(it->second, size));
             stmts.push_back(ir::Allocate::make(location));
             stmts.push_back(
-                ir::LetStmt::make(std::move(write_to), location.to_expr()));
+                ir::Store::make(std::move(write_to), location.to_expr()));
 
             ir::WriteLoc index(get_index_name(group->name),
                                ir::Index_t::make());

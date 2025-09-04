@@ -49,11 +49,11 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   nodes_index : mut idx
   rec_count_triangles(CT, ST)
   alloc primitives : mut Triangle[ST.primitive_count]
-  let ST.primitives = primitives in
+  ST.primitives = primitives
   alloc dop36 : mut dop36[ST.node_count]
-  let ST.group_dop360 = dop36 in
+  ST.group_dop360 = dop36
   alloc nodes : mut nodes[ST.node_count]
-  let ST.group_nodes1 = nodes in
+  ST.group_nodes1 = nodes
   rec_build_triangles(CT)
   return ST
 }
@@ -151,12 +151,12 @@ func rec_build_triangles(node : (const BVH&)) -> u32 {
     let this_index = nodes_index in
     nodes_index += 1u
     dop36_index += 1u
-    let ST.group_nodes1[this_index].lo1 = build<f32x3>(node.lo[0], node.lo[1], node.lo[2]) in
-    let ST.group_nodes1[this_index].hi1 = build<f32x3>(node.hi[0], node.hi[1], node.hi[2]) in
-    let ST.group_dop360[this_index].lo2 = build<f32x4>(node.lo[3], node.lo[4], node.lo[5], node.lo[6]) in
-    let ST.group_dop360[this_index].hi2 = build<f32x4>(node.hi[3], node.hi[4], node.hi[5], node.hi[6]) in
-    let ST.group_nodes1[this_index].ee = node.ee in
-    let ST.group_nodes1[this_index].is_leaf_flag = 0 in
+    ST.group_nodes1[this_index].lo1 = build<f32x3>(node.lo[0], node.lo[1], node.lo[2])
+    ST.group_nodes1[this_index].hi1 = build<f32x3>(node.hi[0], node.hi[1], node.hi[2])
+    ST.group_dop360[this_index].lo2 = build<f32x4>(node.lo[3], node.lo[4], node.lo[5], node.lo[6])
+    ST.group_dop360[this_index].hi2 = build<f32x4>(node.hi[3], node.hi[4], node.hi[5], node.hi[6])
+    ST.group_nodes1[this_index].ee = node.ee
+    ST.group_nodes1[this_index].is_leaf_flag = 0
     let left_index = build(node.left) in
     let ST.group_nodes1[this_index].split0on_is_leaf_flag.left = left_index in
     let right_index = build(node.right) in
@@ -165,9 +165,9 @@ func rec_build_triangles(node : (const BVH&)) -> u32 {
   | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    let ST.group_nodes1[this_index].is_leaf_flag = 1 in
-    let ST.group_nodes1[this_index].ee = node.ee in
-    let ST.group_nodes1[this_index].split0on_is_leaf_flag.tri_address = primitives_index in
+    ST.group_nodes1[this_index].is_leaf_flag = 1
+    ST.group_nodes1[this_index].ee = node.ee
+    ST.group_nodes1[this_index].split0on_is_leaf_flag.tri_address = primitives_index
     forall __p in [0u:node.leaf_size:1u] {
       let primitives[__p + primitives_index] = node.data[__p] in
     }

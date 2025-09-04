@@ -52,8 +52,6 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
     ir::Stmt visit(const ir::LetStmt *let) override {
         ir::WriteLoc lhs = let->loc;
-        internal_assert(lhs.accesses.empty()) << "unimplemented";
-
         ir::Expr rhs = let->value;
         if (const ir::Call *call = rhs.as<ir::Call>()) {
             return ir::Mutator::visit(let);

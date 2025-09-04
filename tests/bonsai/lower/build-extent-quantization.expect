@@ -54,9 +54,9 @@ func build_particles(CT : (const BVH&)) -> particles {
   nodes_index : mut idx
   rec_count_particles(CT, ST)
   alloc primitives : mut Particle[ST.primitive_count]
-  let ST.primitives = primitives in
+  ST.primitives = primitives
   alloc nodes : mut nodes[ST.node_count]
-  let ST.group_nodes0 = nodes in
+  ST.group_nodes0 = nodes
   rec_build_particles(CT)
   return ST
 }
@@ -169,25 +169,25 @@ func rec_build_particles(node : (const BVH&)) -> u32 {
     let this_index = nodes_index in
     nodes_index += 1u
     if (this_index == 0) {
-      let ST.wlow = node.low in
-      let ST.whigh = node.high in
-      let ST.bins_inv = build_bins_inverse(node.low, node.high) in
-      let ST.bins = build_bins(node.low, node.high) in
+      ST.wlow = node.low
+      ST.whigh = node.high
+      ST.bins_inv = build_bins_inverse(node.low, node.high)
+      ST.bins = build_bins(node.low, node.high)
     }
-    let ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv) in
-    let ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv) in
-    let ST.group_nodes0[this_index].nprims = 0 in
+    ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
+    ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
+    ST.group_nodes0[this_index].nprims = 0
     let left_index = build(node.left) in
     let right_index = build(node.right) in
-    let ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index in
+    ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Particle[nprims]) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    let ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv) in
-    let ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv) in
-    let ST.group_nodes0[this_index].nprims = node.nprims in
-    let ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index in
+    ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
+    ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
+    ST.group_nodes0[this_index].nprims = node.nprims
+    ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index
     forall __p in [0u:node.nprims:1u] {
       let primitives[__p + primitives_index] = node.data[__p] in
     }

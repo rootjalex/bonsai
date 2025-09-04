@@ -70,11 +70,11 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   size_OBBs : mut idx
   rec_count_triangles(CT, ST)
   alloc primitives : mut Triangle[ST.primitive_count]
-  let ST.primitives = primitives in
+  ST.primitives = primitives
   alloc AABBs : mut AABBs[size_AABBs]
-  let ST.indirect_group_AABBs0 = AABBs in
+  ST.indirect_group_AABBs0 = AABBs
   alloc OBBs : mut OBBs[size_OBBs]
-  let ST.indirect_group_OBBs1 = OBBs in
+  ST.indirect_group_OBBs1 = OBBs
   rec_build_triangles(CT)
   return ST
 }
@@ -171,8 +171,8 @@ func rec_build_triangles(node : (const BVH&)) -> u64 {
   | AABBNode(aabb_children : (const BVH&)[4], aabb_low : f32x3x4, aabb_high : f32x3x4) with AABB(aabb_low, aabb_high) ->
     let this_index = AABBs_index in
     AABBs_index += 1
-    let ST.indirect_group_AABBs0[this_index].aabb_low = node.aabb_low in
-    let ST.indirect_group_AABBs0[this_index].aabb_high = node.aabb_high in
+    ST.indirect_group_AABBs0[this_index].aabb_low = node.aabb_low
+    ST.indirect_group_AABBs0[this_index].aabb_high = node.aabb_high
     let aabb_children_index0 = build(node.aabb_children[0]) in
     let ST.indirect_group_AABBs0[this_index].aabb_children[0] = aabb_children_index0 in
     let aabb_children_index1 = build(node.aabb_children[1]) in
@@ -185,8 +185,8 @@ func rec_build_triangles(node : (const BVH&)) -> u64 {
   | OBBNode(obb_children : (const BVH&)[4], orientation : f32x9, obb_low : f32x3x4, obb_high : f32x3x4) with OBB(obb_low, obb_high, orientation) ->
     let this_index = OBBs_index in
     OBBs_index += 1
-    let ST.indirect_group_OBBs1[this_index].obb_low = node.obb_low in
-    let ST.indirect_group_OBBs1[this_index].obb_high = node.obb_high in
+    ST.indirect_group_OBBs1[this_index].obb_low = node.obb_low
+    ST.indirect_group_OBBs1[this_index].obb_high = node.obb_high
     forall __r in [0:4:1] {
       let obb_children_index = build(node.obb_children[__r]) in
       let ST.indirect_group_OBBs1[this_index].obb_children[__r] = obb_children_index in

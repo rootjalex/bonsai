@@ -44,9 +44,9 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   nodes_index : mut idx
   rec_count_triangles(CT, ST)
   alloc primitives : mut Triangle[ST.primitive_count]
-  let ST.primitives = primitives in
+  ST.primitives = primitives
   alloc nodes : mut nodes[ST.node_count]
-  let ST.group_nodes0 = nodes in
+  ST.group_nodes0 = nodes
   rec_build_triangles(CT)
   return ST
 }
@@ -143,22 +143,22 @@ func rec_build_triangles(node : (const BVH&)) -> u32 {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&), axis : u8) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    let ST.group_nodes0[this_index].low = node.low in
-    let ST.group_nodes0[this_index].high = node.high in
-    let ST.group_nodes0[this_index].nprims = 0 in
-    let ST.group_nodes0[this_index].axis = argmax(node.high - node.low) in
+    ST.group_nodes0[this_index].low = node.low
+    ST.group_nodes0[this_index].high = node.high
+    ST.group_nodes0[this_index].nprims = 0
+    ST.group_nodes0[this_index].axis = argmax(node.high - node.low)
     let left_index = build(node.left) in
     let right_index = build(node.right) in
-    let ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index in
+    ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Triangle[nprims]) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    let ST.group_nodes0[this_index].low = node.low in
-    let ST.group_nodes0[this_index].high = node.high in
-    let ST.group_nodes0[this_index].axis = argmax(node.high - node.low) in
-    let ST.group_nodes0[this_index].nprims = node.nprims in
-    let ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index in
+    ST.group_nodes0[this_index].low = node.low
+    ST.group_nodes0[this_index].high = node.high
+    ST.group_nodes0[this_index].axis = argmax(node.high - node.low)
+    ST.group_nodes0[this_index].nprims = node.nprims
+    ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index
     forall __p in [0u:node.nprims:1u] {
       let primitives[__p + primitives_index] = node.data[__p] in
     }
