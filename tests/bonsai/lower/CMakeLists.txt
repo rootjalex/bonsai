@@ -4,6 +4,7 @@ add_bonsai_tests(
     array.bonsai
     build-dop14.bonsai
     build-embree-hair.bonsai
+    build-extent-quantization.bonsai
     build-pbrt.bonsai
     collision.bonsai
     defer-dbl-buffer.bonsai
@@ -19,7 +20,7 @@ add_bonsai_tests(
     layout-childwise-product.bonsai
     layout-dop14.bonsai
     layout-embree-hair.bonsai
-    layout-eq.bonsai
+    layout-extent-quantization.bonsai
     layout-inner-group.bonsai
     layout-no-memory.bonsai
     layout-pbrt.bonsai

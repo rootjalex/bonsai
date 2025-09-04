@@ -1153,12 +1153,21 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "fadd_rd";
     case Intrinsic::fadd_ru:
         return "fadd_ru";
+    case Intrinsic::floorf:
+    case Intrinsic::fdiv_rd:
+        return "fdiv_rd";
+    case Intrinsic::fdiv_ru:
+        return "fdiv_ru";
     case Intrinsic::fma:
         return "fma";
     case Intrinsic::fmul_rd:
         return "fmul_rd";
     case Intrinsic::fmul_ru:
         return "fmul_ru";
+    case Intrinsic::frcp_rd:
+        return "frcp_rd";
+    case Intrinsic::frcp_ru:
+        return "frcp_ru";
     case Intrinsic::fsub_rd:
         return "fsub_rd";
     case Intrinsic::fsub_ru:
