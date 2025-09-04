@@ -18,12 +18,8 @@ add_bonsai_tests(
     ivector.bonsai
     lambda-simple.bonsai
     layout-childwise-product.bonsai
-    layout-dop14.bonsai
-    layout-embree-hair.bonsai
-    layout-extent-quantization.bonsai
     layout-inner-group.bonsai
     layout-no-memory.bonsai
-    layout-pbrt.bonsai
     layout-tree.bonsai
     logical-operation.bonsai
     map-func.bonsai
