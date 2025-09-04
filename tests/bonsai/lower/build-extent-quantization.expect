@@ -1,0 +1,212 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH = (const BVH&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Particle = struct Particle{ p : f32x3 }
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
+type arm_Leaf = [[packed]] struct arm_Leaf{ poffset : u32 }
+type f32x3 = f32x3
+type nodes = [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }
+type particles = [[packed]] struct particles{ wlow : f32x3; whigh : f32x3; bins : f32x3; bins_inv : f32x3; primitive_count : u32; primitives : struct Particle{ p : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }[node_count] }
+type vec3f = f32x3
+type vec3h = f16x3
+
+extern particles : [[packed]] struct particles{ wlow : f32x3; whigh : f32x3; bins : f32x3; bins_inv : f32x3; primitive_count : u32; primitives : struct Particle{ p : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }[node_count] }
+
+func _traverse_tree0(a : AABB, particles : particles) -> set<Particle> {
+  rec(index : u32) {
+    if (particles.group_nodes0[index].nprims == 0u) {
+      if (intersects(a, build<AABB>(fadd_rd(particles.wlow, dequantize(particles.group_nodes0[index].q_min, particles.bins)), fsub_ru(particles.whigh, dequantize(particles.group_nodes0[index].q_max, particles.bins))))) {
+        from (index + 1u, index + reinterpret_cast<arm_Interior>(particles.group_nodes0[index].split0on_nprims).offset)
+      }
+    } else {
+      foreach _iter0 in particles.primitives[reinterpret_cast<arm_Leaf>(particles.group_nodes0[index].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(particles.group_nodes0[index].split0on_nprims).poffset + cast<u32>(particles.group_nodes0[index].nprims)] {
+        if (intersects(a, build<AABB>(fadd_rd(particles.wlow, dequantize(particles.group_nodes0[index].q_min, particles.bins)), fsub_ru(particles.whigh, dequantize(particles.group_nodes0[index].q_max, particles.bins))))) {
+          if (intersects(a, _iter0)) {
+            yield _iter0
+          }
+        }
+      }
+    }
+  }
+}
+
+func build_bins(low : f32x3, high : f32x3) -> f32x3 {
+  let bins_inverse = build_bins_inverse(low, high) in
+  return build<f32x3>(frcp_rd(bins_inverse[0u]), frcp_rd(bins_inverse[1u]), frcp_rd(bins_inverse[2u]))
+}
+
+func build_bins_inverse(low : f32x3, high : f32x3) -> f32x3 {
+  let L1 = build<f32x3>(fsub_ru(high[0u], low[0u]), fsub_ru(high[1u], low[1u]), fsub_ru(high[2u], low[2u])) in
+  let L2 = select(L1 <= f32x3(0f), f32x3(1f), L1) in
+  return build<f32x3>(fdiv_rd(1023f, L2[0u]), fdiv_rd(1023f, L2[1u]), fdiv_rd(1023f, L2[2u]))
+}
+
+func build_particles(CT : (const BVH&)) -> particles {
+  ST : mut particles
+  primitives_index : mut idx
+  nodes_index : mut idx
+  rec_count_particles(CT, ST)
+  alloc primitives : mut Particle[ST.primitive_count]
+  let ST.primitives = primitives in
+  alloc nodes : mut nodes[ST.node_count]
+  let ST.group_nodes0 = nodes in
+  rec_build_particles(CT)
+  return ST
+}
+
+func dequantize(v : i30, bins : f32x3) -> f32x3 {
+  return build<f32x3>(cast<f32>(fmul_rd((v >> 20) & 1023, bins[0u])), cast<f32>(fmul_rd((v >> 10) & 1023, bins[1u])), cast<f32>(fmul_rd(v & 1023, bins[2u])))
+}
+
+func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return -(f32)inf
+  }
+}
+
+func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
+  let pts = closestPointonTriangle(p, tri) in
+  return norm(p.vec - pts[0].vec)
+}
+
+func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return (f32)inf
+  }
+}
+
+func [[export]] find_neighbors(a : AABB) -> set<Particle> {
+  return _traverse_tree0(a, particles)
+}
+
+func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < r.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
+  let interval = intersectsp_ray_sphere(ray, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < ray.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
+  return cast<bool>(intersectsp_ray_tri(ray, tri))
+}
+
+func quantize(current : f32x3, world : f32x3, bin_inverse : f32x3) -> i30 {
+  let x = cast<u32>(fdiv_rd(fmul_rd(fsub_rd(current[0u], world[0u]), bin_inverse[0u]))) in
+  let y = cast<u32>(fdiv_rd(fmul_rd(fsub_rd(current[1u], world[1u]), bin_inverse[1u]))) in
+  let z = cast<u32>(fdiv_rd(fmul_rd(fsub_rd(current[2u], world[2u]), bin_inverse[2u]))) in
+  return cast<i30>(((x << 20u) | (y << 10u)) | z)
+}
+
+func rec_build_particles(node : (const BVH&)) -> u32 {
+  match node {
+  | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    if (this_index == 0) {
+      let ST.wlow = node.low in
+      let ST.whigh = node.high in
+      let ST.bins_inv = build_bins_inverse(node.low, node.high) in
+      let ST.bins = build_bins(node.low, node.high) in
+    }
+    let ST.group_nodes0[this_index].q_min = quantize(node.low, wlow, bins_inv) in
+    let ST.group_nodes0[this_index].q_max = quantize(node.high, whigh, bins_inv) in
+    let ST.group_nodes0[this_index].nprims = 0 in
+    let left_index = build(node.left) in
+    let right_index = build(node.right) in
+    let ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index in
+    return this_index
+  | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Particle[nprims]) with AABB(low, high) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    let ST.group_nodes0[this_index].q_min = quantize(node.low, wlow, bins_inv) in
+    let ST.group_nodes0[this_index].q_max = quantize(node.high, whigh, bins_inv) in
+    let ST.group_nodes0[this_index].nprims = node.nprims in
+    let ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index in
+    forall __p in [0u:node.nprims:1u] {
+      let primitives[__p + primitives_index] = node.data[__p] in
+    }
+    primitives_index += node.nprims
+    return this_index
+  }
+}
+
+func rec_count_particles(node : (const BVH&), ST : mut particles) -> void {
+  match node {
+  | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
+    rec_count_particles(node.left, ST)
+    rec_count_particles(node.right, ST)
+  | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Particle[nprims]) with AABB(low, high) ->
+    ST.node_count += 1u
+  }
+}
+
+
+schedule host {
+
+}

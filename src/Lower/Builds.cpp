@@ -330,9 +330,9 @@ class ConstructBuild : public ir::Visitor {
     void append(ir::Stmt stmt) {
         if (is_root) {
             root.push_back(std::move(stmt));
-        } else {
-            stmts.push_back(std::move(stmt));
+            return;
         }
+        stmts.push_back(std::move(stmt));
     }
 
     ir::Type get_field_type(const std::string &field) {
