@@ -72,6 +72,25 @@ Sphere get_bounding_sphere(const BVH &bvh) {
     assert(false && "unexpected");
 }
 
+void free_canonical_tree(BVH tree) {
+    if (std::holds_alternative<Interior *>(tree)) {
+        Interior *interior = std::get<Interior *>(tree);
+        free_canonical_tree(interior->left);
+        free_canonical_tree(interior->right);
+        free(interior);
+        return;
+    }
+
+    if (std::holds_alternative<Leaf *>(tree)) {
+        Leaf *leaf = std::get<Leaf *>(tree);
+        free(leaf->data);
+        free(leaf);
+        return;
+    }
+
+    assert(false && "unexpected");
+}
+
 BVH build_canonical_tree(std::vector<MaterialSphere> &spheres) {
     std::function<BVH(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth = 0) -> BVH {
@@ -208,7 +227,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "building specialized tree" << std::endl;
     // _tree_layout0 tree = build_spheres(spheres);
 
-    // TODO(cgyurgyik): free the canonical tree.
+    free_canonical_tree(tree);
 
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
