@@ -113,7 +113,7 @@ bool Type::is_bool() const {
 
 bool Type::is_scalar() const {
     // TODO: what counts as scalar?
-    return this->is<Int_t, UInt_t, Float_t, Bool_t>();
+    return this->is<Int_t, UInt_t, Float_t, Bool_t, Index_t>();
 }
 
 bool Type::is_vector() const {
