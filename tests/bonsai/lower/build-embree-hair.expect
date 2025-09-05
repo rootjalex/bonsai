@@ -11,8 +11,14 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type f32x2 = f32x2
 type f32x3 = f32x3
 type f32x3x4 = f32x3x4
+type f32x4 = f32x4
+type f32x5 = f32x5
+type f32x6 = f32x6
+type f32x7 = f32x7
+type f32x8 = f32x8
 type f32x9 = f32x9
 type triangles = [[packed]] struct triangles{ primitive_count : u64; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; indirect_group_AABBs0 : [[packed]] struct AABBs{ aabb_low : f32x3x4; aabb_high : f32x3x4; aabb_children : u64x4 }[]; indirect_group_OBBs1 : [[packed]] struct OBBs{ obb_low : f32x3x4; obb_high : f32x3x4; orientation : f32x9; obb_children : u64x4 }[]; group__2 : [[packed]] struct _{  }[] }
 type u64x4 = u64x4
