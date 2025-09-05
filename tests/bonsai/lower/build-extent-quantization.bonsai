@@ -4,7 +4,6 @@ import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;
 
-element f32x3 = vector[f32, 3];
 element Particle { p: f32x3; }
 
 extern particles : set[Particle];

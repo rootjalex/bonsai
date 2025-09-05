@@ -6,10 +6,6 @@ import stdlib/triangle;
 
 extern triangles : set[Triangle];
 
-element f32x3 = vector[f32, 3];
-element f32x4 = vector[f32, 4];
-element f32x7 = vector[f32, 7];
-
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 // TODO(cgyurgyik): can we do load-sinking with this?

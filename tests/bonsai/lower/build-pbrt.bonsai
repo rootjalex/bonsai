@@ -8,8 +8,6 @@ extern triangles : set[Triangle];
 
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
-element f32x3 = vector[f32, 3];
-
 schedule {
     tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high) 
       = Interior(left : BVH, right : BVH, axis : u8)
