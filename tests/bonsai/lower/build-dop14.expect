@@ -169,7 +169,7 @@ func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : 
     ST.group_nodes1[this_index].ee = node.ee
     ST.group_nodes1[this_index].split0on_is_leaf_flag.tri_address = primitives_index
     forall __p in [0u:node.leaf_size:1u] {
-      let primitives[__p + primitives_index] = node.data[__p] in
+      ST.primitives[__p + primitives_index] = node.data[__p]
     }
     primitives_index += node.leaf_size
     return this_index

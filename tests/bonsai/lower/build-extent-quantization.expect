@@ -189,7 +189,7 @@ func rec_build_particles(node : (const BVH&), ST : mut particles, nodes_index : 
     ST.group_nodes0[this_index].nprims = node.nprims
     ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index
     forall __p in [0u:node.nprims:1u] {
-      let primitives[__p + primitives_index] = node.data[__p] in
+      ST.primitives[__p + primitives_index] = node.data[__p]
     }
     primitives_index += node.nprims
     return this_index

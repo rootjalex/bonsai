@@ -99,22 +99,6 @@ const ir::Chain *to_chainz(const ir::Member &member) {
     return chain;
 }
 
-// The concretized type of this member, if it exists.
-ir::Type get_concretized_type(const ir::Member &member,
-                              const ir::Program &program) {
-    if (const auto *field = member.as<ir::Field>()) {
-        return field->type;
-    }
-    if (const auto *group = member.as<ir::Group>()) {
-        std::string group_name = member.name();
-        auto it = program.types.find(group_name);
-        internal_assert(it != program.types.end())
-            << "no concretized type found for: " << group_name;
-        return it->second;
-    }
-    internal_error << "[unimplemented]: " << member;
-}
-
 // The size of this member, if it exists.
 ir::Expr get_member_size(const ir::Member &member) {
     if (const auto *field = member.as<ir::Field>()) {
@@ -325,9 +309,9 @@ class ConcretizeVar : public ir::Mutator {
 class ConstructBuild : public ir::Visitor {
   public:
     ConstructBuild(const ir::Layout &layout, const ir::BVH_t::Variant &variant,
-                   const ir::Type &concretized_type, const ir::Program &program)
-        : layout(layout), variant(variant), concretized_type(concretized_type),
-          program(program) {}
+                   const ir::Type &concretized_type)
+        : layout(layout), variant(variant), concretized_type(concretized_type) {
+    }
 
     std::vector<ir::Stmt> statements() {
         if (root.empty()) {
@@ -353,7 +337,6 @@ class ConstructBuild : public ir::Visitor {
     const ir::Layout &layout;
     const ir::BVH_t::Variant &variant;
     const ir::Type &concretized_type;
-    const ir::Program &program;
     std::vector<ir::Stmt> stmts;
     std::vector<ir::Stmt> root;
     std::map<ir::Expr, std::vector<const ir::Group *>, ir::ExprLessThan> groups;
@@ -384,18 +367,17 @@ class ConstructBuild : public ir::Visitor {
             << "failed to find primitives collection in layout: `"
             << layout.name << "`";
         std::string name = primitives_group.name();
-        ir::Type type = get_concretized_type(primitives_group, program);
 
         internal_assert(!name.empty()) << primitives_group;
         ir::WriteLoc index(get_index_name(name), index_type);
-        ir::WriteLoc collection(name, type);
 
-        ir::WriteLoc write(name, type);
+        ir::WriteLoc write(SPECIALIZED_TREE, concretized_type);
+        write.add_struct_access(name);
         std::string index_name = "__p";
         ir::Expr i = ir::Var::make(index_type, index_name);
         write.add_index_access(i + index.to_expr());
         ir::Stmt body =
-            ir::LetStmt::make(write, ir::Extract::make(node->input, i));
+            ir::Store::make(write, ir::Extract::make(node->input, i));
         ir::Type size_type = node->size.type();
         append(ir::ForAll::make(index_name,
                                 ir::ForAll::Slice{
@@ -525,13 +507,12 @@ class ConstructBuild : public ir::Visitor {
 
 ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
                                         const ir::Type &concretized_type,
-                                        const ir::Layout &layout,
-                                        const ir::Program &program) {
+                                        const ir::Layout &layout) {
     ir::BuildIR body = function.body;
     const ir::BVH_t::Variant &variant = function.variant;
     body = ConcretizeIndex(layout).mutate(body);
 
-    ConstructBuild visitor(layout, variant, concretized_type, program);
+    ConstructBuild visitor(layout, variant, concretized_type);
     body.accept(&visitor);
 
     std::vector<ir::Stmt> stmts;
@@ -587,15 +568,15 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
     return sequence;
 }
 
-std::shared_ptr<ir::Function> construct_build_recursive(
-    const ir::BuildLayout &build, const ir::Type &concretized_type,
-    const ir::Layout &layout, const ir::Program &program) {
+std::shared_ptr<ir::Function>
+construct_build_recursive(const ir::BuildLayout &build,
+                          const ir::Type &concretized_type,
+                          const ir::Layout &layout) {
     ir::Match::Arms arms;
     for (const ir::BuildFunction &function : build.functions) {
         arms.push_back({
             function.variant,
-            construct_build_recursive_body(function, concretized_type, layout,
-                                           program),
+            construct_build_recursive_body(function, concretized_type, layout),
         });
     }
     ir::Stmt body = ir::Match::make(self(layout), std::move(arms));
@@ -996,8 +977,8 @@ ir::Program LowerBuilds::run(ir::Program program,
             << "no layout found for tree: `" << name << "`";
         std::vector<std::shared_ptr<ir::Function>> functions;
         // First, construct the recursive build algorithm.
-        functions.push_back(construct_build_recursive(build, concretized_type,
-                                                      it->second, program));
+        functions.push_back(
+            construct_build_recursive(build, concretized_type, it->second));
         // Then, construct the recursive count algorithm.
         functions.push_back(construct_count_recursive(concretized_type, build,
                                                       it->second, program));

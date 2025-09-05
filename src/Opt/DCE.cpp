@@ -98,6 +98,17 @@ struct NameHygiene : ir::Mutator {
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
+    ir::Stmt visit(const ir::Match *node) override {
+        ir::Expr loc = mutate(node->loc);
+        // Rename where control flow diverges.
+        ScopedValue<bool> _(rename, true);
+        std::vector<std::pair<ir::BVH_t::Variant, ir::Stmt>> arms;
+        for (const auto &[variant, stmt] : node->arms) {
+            arms.push_back({variant, mutate(stmt)});
+        }
+        return ir::Match::make(std::move(loc), std::move(arms));
+    }
+
   private:
     ir::WriteLoc do_rename(const ir::WriteLoc &location) {
         std::string name =

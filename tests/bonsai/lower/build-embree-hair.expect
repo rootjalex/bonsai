@@ -194,7 +194,7 @@ func rec_build_triangles(node : (const BVH&), ST : mut triangles, AABBs_index : 
     return (this_index << 4u) | 3u
   | Leaf(nprims : u8, data : Triangle[nprims]) ->
     forall __p in [0u:node.nprims:1u] {
-      let primitives[__p + primitives_index] = node.data[__p] in
+      ST.primitives[__p + primitives_index] = node.data[__p]
     }
     primitives_index += node.nprims
     let poffset = primitives_index in
