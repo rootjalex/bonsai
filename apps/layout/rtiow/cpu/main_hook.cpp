@@ -72,17 +72,17 @@ Sphere get_bounding_sphere(const BVH &bvh) {
     assert(false && "unexpected");
 }
 
-void free_canonical_tree(BVH tree) {
-    if (std::holds_alternative<Interior *>(tree)) {
-        Interior *interior = std::get<Interior *>(tree);
+void free_canonical_tree(BVH node) {
+    if (std::holds_alternative<Interior *>(node)) {
+        Interior *interior = std::get<Interior *>(node);
         free_canonical_tree(interior->left);
         free_canonical_tree(interior->right);
         free(interior);
         return;
     }
 
-    if (std::holds_alternative<Leaf *>(tree)) {
-        Leaf *leaf = std::get<Leaf *>(tree);
+    if (std::holds_alternative<Leaf *>(node)) {
+        Leaf *leaf = std::get<Leaf *>(node);
         free(leaf->data);
         free(leaf);
         return;
@@ -223,11 +223,11 @@ int main(int argc, char *argv[]) {
     }
 
     std::cerr << "building canonical tree" << std::endl;
-    BVH tree = build_canonical_tree(spheres);
+    BVH node = build_canonical_tree(spheres);
     std::cerr << "building specialized tree" << std::endl;
-    // _tree_layout0 tree = build_spheres(spheres);
+    // _tree_layout0 tree = build_spheres(node);
 
-    free_canonical_tree(tree);
+    free_canonical_tree(node);
 
     Camera cam;
     cam.aspect_ratio = 16.0 / 9.0;
