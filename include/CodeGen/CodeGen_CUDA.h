@@ -116,10 +116,6 @@ class CodeGen_CUDA : public ir::Printer {
     //  The stream that is printed to.
     std::ostream &os;
 
-    // Increments the indentation.
-    void increment() { set_indent(get_indent().indent + 1); }
-    // Decrements the indentation.
-    void decrement() { set_indent(get_indent().indent - 1); }
     // Necessary prologue code.
     void emit_prologue();
     // Performs rng setup for CUDA, using cuRAND.

@@ -61,6 +61,9 @@ std::ostream &operator<<(std::ostream &os, const Indentation &);
 struct Printer : public Visitor {
     explicit Printer(std::ostream &_os) : os(_os) {}
 
+    explicit Printer(std::ostream &_os, int print_semicolon)
+        : os(_os), print_semicolon(print_semicolon != 0) {}
+
     explicit Printer(std::ostream &_os, bool verbose)
         : os(_os), verbose(verbose) {}
 
@@ -173,10 +176,21 @@ struct Printer : public Visitor {
   protected:
     void set_indent(int _indent) { indent = _indent; }
     Indentation get_indent() const { return Indentation{indent}; }
+    // Increments the indentation.
+    void increment() { set_indent(get_indent().indent + 1); }
+    // Decrements the indentation.
+    void decrement() { set_indent(get_indent().indent - 1); }
     /** Either emits "(" or "", depending on the value of implicit_parens */
     void open();
     /** Either emits ")" or "", depending on the value of implicit_parens */
     void close();
+
+    void end_stmt() {
+        if (print_semicolon) {
+            os << ";";
+        }
+        os << "\n";
+    }
 
   private:
     /** The stream on which we're outputting */
@@ -198,6 +212,9 @@ struct Printer : public Visitor {
 
     /** Whether to print verbosely or not. */
     bool verbose = false;
+
+    /** Whether to print semicolons at the end of a Stmt or not. */
+    bool print_semicolon = false;
 };
 
 } // namespace ir

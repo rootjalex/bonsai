@@ -10,7 +10,8 @@ enum class BackendTarget {
     ASM = 1,  // Generate assembly code for the host machine.
     LLVM = 2, // Generate LLVM IR.
     CPP = 3,  // Generate C++ header with respective .o file.
-    CUDA = 4, // Generate CUDA code.
+    CPPX = 4, // Generate C++ header and source file.
+    CUDA = 5, // Generate CUDA code.
 };
 
 enum class BackendOptimizationLevel {

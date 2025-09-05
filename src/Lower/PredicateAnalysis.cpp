@@ -126,6 +126,35 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
+        case ir::BinOp::Le: {
+            Interval a = get(node->a);
+            if (!a.has_upper_bound() && !a.has_lower_bound()) {
+                make_bool_bounds();
+                return;
+            }
+            Interval b = get(node->b);
+            if (!b.has_upper_bound() && !b.has_lower_bound()) {
+                make_bool_bounds();
+                return;
+            }
+            // Initially unbounded.
+            make_bool_bounds();
+
+            // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
+            // as true as a.max <(=) b.min. This does not depend on a's
+            // lower bound or b's upper bound.
+            if (a.has_upper_bound() && b.has_lower_bound()) {
+                interval.min = a.max <= b.min;
+            }
+
+            // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
+            // as true as a.min <(=) b.max. This does not depend on a's
+            // upper bound or b's lower bound.
+            if (a.has_lower_bound() && b.has_upper_bound()) {
+                interval.max = a.min <= b.max;
+            }
+            return;
+        }
         case ir::BinOp::LAnd: {
             if (!node->type.is_bool()) {
                 break; // TODO: handle non-booleans

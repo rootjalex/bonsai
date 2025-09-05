@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Error.h"
 #include "IRHandle.h"
 #include "IRNode.h"
 #include "Interface.h"
@@ -288,18 +289,34 @@ struct Generic_t : TypeNode<Generic_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Generic_t;
 };
 
-// An ADT with Volume information, representing a bounding volume hierarchy.
-struct BVH_t : TypeNode<BVH_t> {
-    // A type that should be treated as a bounding volume,
-    // initialized with Params.
+// TODO: Interval
+// TODO: aggregation
+struct Annotation {
+    struct Data {
+        std::string name;
+    };
+
     struct Volume {
+        std::string geometry; // possibly empty.
         Type struct_type;
         std::vector<std::string> initializers;
+        bool broadcast; // if on children
     };
-    // A Node is a Struct_t of typed fields with an optional bounding volume.
+
+    std::variant<Data, Volume> type;
+
+    template <typename T>
+    const T *as() const {
+        return std::get_if<T>(&type);
+    }
+};
+
+// An ADT with Volume information, representing a bounding volume hierarchy.
+struct BVH_t : TypeNode<BVH_t> {
+    // A Node is a Struct_t of typed fields with some annotations.
     struct Node {
         Type struct_type;
-        std::optional<Volume> volume;
+        std::vector<Annotation> annotations;
 
         // Useful helper functions.
         const std::string &name() const {
@@ -307,6 +324,25 @@ struct BVH_t : TypeNode<BVH_t> {
         }
         const Struct_t::Map &fields() const {
             return struct_type.as<Struct_t>()->fields;
+        }
+
+        bool has_volume() const {
+            for (const auto &annot : annotations) {
+                if (annot.as<Annotation::Volume>()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        const Annotation::Volume *get_volume() const {
+            for (const auto &annot : annotations) {
+                if (const auto *vol = annot.as<Annotation::Volume>()) {
+                    return vol;
+                }
+            }
+            internal_error << "get_volume called on no-volume node!\n";
+            return nullptr;
         }
     };
 
@@ -323,10 +359,11 @@ struct BVH_t : TypeNode<BVH_t> {
     // Each node should have a volume set, or are un-optimized.
     static Type make(ir::Type primitive, std::string name,
                      std::vector<Node> nodes);
-    // All nodes share the same volume type unless otherwise specified.
+    // All nodes share the same annotations + any specified annotations.
     static Type make(ir::Type primitive, std::string name,
                      const std::vector<TypedVar> &globals,
-                     std::vector<Node> nodes, Volume volume);
+                     std::vector<Node> nodes,
+                     std::vector<Annotation> annotations);
 
     static const IRTypeEnum node_type = IRTypeEnum::BVH_t;
 };

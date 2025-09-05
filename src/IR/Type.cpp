@@ -432,7 +432,7 @@ Type Generic_t::make(std::string name, Interface interface) {
 
 namespace {
 
-bool validate_volume(const BVH_t::Volume &volume,
+bool validate_volume(const Annotation::Volume &volume,
                      const std::vector<TypedVar> &params) {
     if (!volume.struct_type.is<Struct_t>()) {
         return false;
@@ -473,10 +473,12 @@ Type BVH_t::make(ir::Type primitive, std::string name,
 
     // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].volume.has_value()) {
-            internal_assert(
-                validate_volume(*nodes[i].volume, nodes[i].fields()))
-                << "Failed to validate node " << i << " of " << name;
+        for (const auto &annot : nodes[i].annotations) {
+            // TODO: other validations?
+            if (const auto *volume = annot.as<Annotation::Volume>()) {
+                internal_assert(validate_volume(*volume, nodes[i].fields()))
+                    << "Failed to validate node " << i << " of " << name;
+            }
         }
     }
 
@@ -489,15 +491,21 @@ Type BVH_t::make(ir::Type primitive, std::string name,
 
 Type BVH_t::make(ir::Type primitive, std::string name,
                  const std::vector<TypedVar> &globals,
-                 std::vector<BVH_t::Node> nodes, BVH_t::Volume volume) {
+                 std::vector<BVH_t::Node> nodes,
+                 std::vector<Annotation> annotations) {
     internal_assert(primitive.defined())
         << "BVH_t::make received undefined prim_t";
     internal_assert(!name.empty()) << "BVH_t::make received empty name";
     internal_assert(!globals.empty()) << "BVH_t::make received empty globals";
     internal_assert(!nodes.empty()) << "BVH_t::make received empty nodes";
 
-    internal_assert(validate_volume(volume, globals))
-        << "Failed to validate parent volume of " << name;
+    for (const auto &annot : annotations) {
+        // TODO: other validations?
+        if (const auto *volume = annot.as<Annotation::Volume>()) {
+            internal_assert(validate_volume(*volume, globals))
+                << "Failed to validate node of " << name;
+        }
+    }
 
     // TODO: check that prim_t is contained in some node (leaves)?
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -512,12 +520,9 @@ Type BVH_t::make(ir::Type primitive, std::string name,
         Type struct_type = Struct_t::make(nodes[i].name(), std::move(copy));
         nodes[i].struct_type = std::move(struct_type);
 
-        if (!nodes[i].volume.has_value()) {
-            nodes[i].volume = volume;
-        }
-
-        internal_assert(validate_volume(*nodes[i].volume, nodes[i].fields()))
-            << "Failed to validate node " << i << " of " << name;
+        // TODO: validate no duplicate annotation types!
+        nodes[i].annotations.insert(nodes[i].annotations.end(),
+                                    annotations.begin(), annotations.end());
     }
 
     BVH_t *node = new BVH_t;

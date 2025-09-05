@@ -33,13 +33,27 @@ std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
 std::pair<std::vector<ir::TypedVar>, std::vector<ir::TypedVar>>
 analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     std::vector<ir::TypedVar> data, children;
+    // Search for nodes annotated as data.
+    for (const auto &annot : node.annotations) {
+        if (const auto *d = annot.as<ir::Annotation::Data>()) {
+            // TODO: make this not n^2.
+            for (const auto &param : node.fields()) {
+                if (param.name == d->name) {
+                    internal_assert(
+                        ir::equals(prim_t, param.type) ||
+                        (param.type.is<ir::Array_t>() &&
+                         ir::equals(prim_t,
+                                    param.type.as<ir::Array_t>()->etype)));
+                    data.push_back(param);
+                }
+            }
+        }
+    }
+
+    // Search for recursive references.
     for (const auto &param : node.fields()) {
-        if (ir::equals(prim_t, param.type) ||
-            (param.type.is<ir::Array_t>() &&
-             ir::equals(prim_t, param.type.as<ir::Array_t>()->etype))) {
-            data.push_back(param);
-        } else if (param.type.is<ir::Ref_t>()) { // TODO: and is ref to
-                                                 // current tree type?
+        if (param.type.is<ir::Ref_t>()) { // TODO: and is ref to
+                                          // current tree type?
             children.push_back(param);
         }
     }
@@ -97,17 +111,17 @@ struct Rewriter : public ir::Mutator {
         ir::Match::Arms new_arms(n);
         for (size_t i = 0; i < n; i++) {
             ir::Expr tree = ir::Unwrap::make(i, node->loc);
-            if (node->arms[i].first.volume.has_value()) {
+            if (node->arms[i].first.has_volume()) {
                 const size_t n_args =
-                    node->arms[i].first.volume->initializers.size();
+                    node->arms[i].first.get_volume()->initializers.size();
                 std::vector<ir::Expr> args(n_args);
                 for (size_t j = 0; j < n_args; j++) {
                     const auto &name =
-                        node->arms[i].first.volume->initializers[j];
+                        node->arms[i].first.get_volume()->initializers[j];
                     args[j] = ir::Access::make(name, tree);
                 }
                 ir::Expr vol = ir::Build::make(
-                    node->arms[i].first.volume->struct_type, args);
+                    node->arms[i].first.get_volume()->struct_type, args);
                 volumes.emplace_back(std::move(vol));
             } else {
                 volumes.emplace_back(); // undef volume

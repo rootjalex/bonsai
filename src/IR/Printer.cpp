@@ -598,18 +598,29 @@ void Printer::visit(const Generic_t *node) {
 }
 
 void Printer::print(const BVH_t::Node &node) {
-    const auto print_volume = [&](const BVH_t::Volume &volume) {
-        internal_assert(volume.struct_type.is<Struct_t>());
-        os << volume.struct_type.as<Struct_t>()->name;
-        internal_assert(!volume.initializers.empty());
-        os << "(";
-        for (size_t i = 0; i < volume.initializers.size(); i++) {
-            if (i != 0) {
-                os << ", ";
+    const auto print_annotation = [&](const Annotation &annot) {
+        if (const Annotation::Data *data = annot.as<Annotation::Data>()) {
+            os << "data = " << data->name;
+        } else {
+            const Annotation::Volume *vol = annot.as<Annotation::Volume>();
+            internal_assert(vol)
+                << "TODO: handle non-Data/Volume annotions in Printer\n";
+            internal_assert(vol->struct_type.is<Struct_t>());
+            os << vol->struct_type.as<Struct_t>()->name;
+            internal_assert(!vol->initializers.empty());
+            os << "(";
+            for (size_t i = 0; i < vol->initializers.size(); i++) {
+                if (i != 0) {
+                    os << ", ";
+                }
+                os << vol->initializers[i];
             }
-            os << volume.initializers[i];
+            os << ")";
+            if (!vol->geometry.empty()) {
+                os << " on " << vol->geometry;
+            }
+            // TODO: print broadcast somehow?
         }
-        os << ")";
     };
 
     const Struct_t *as_struct = node.struct_type.as<Struct_t>();
@@ -626,9 +637,9 @@ void Printer::print(const BVH_t::Node &node) {
     }
     os << ")";
 
-    if (node.volume.has_value()) {
+    for (const auto &annot : node.annotations) {
         os << " with ";
-        print_volume(*node.volume);
+        print_annotation(annot);
     }
 }
 
@@ -1113,14 +1124,16 @@ void Printer::visit(const CallStmt *node) {
     print_no_parens(node->func);
     os << '(';
     print_expr_list(node->args);
-    os << ')' << '\n';
+    os << ')';
+    end_stmt();
 }
 
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";
     print_expr_list(node->args);
-    os << ")\n";
+    os << ")";
+    end_stmt();
 }
 
 void Printer::visit(const Return *node) {
@@ -1130,7 +1143,7 @@ void Printer::visit(const Return *node) {
         os << ' ';
         print_no_parens(node->value);
     }
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const LetStmt *node) {
@@ -1179,7 +1192,8 @@ void Printer::visit(const DoWhile *node) {
     indent--;
     os << get_indent() << "} while (";
     print_no_parens(node->cond);
-    os << ")\n";
+    os << ")";
+    end_stmt();
 }
 
 void Printer::visit(const Sequence *node) {
@@ -1200,7 +1214,7 @@ void Printer::visit(const Allocate *node) {
         os << " := ";
         print_no_parens(node->value);
     }
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const Free *node) {
@@ -1208,7 +1222,7 @@ void Printer::visit(const Free *node) {
     os << "free" << '(';
     node->value.accept(this);
     os << ')';
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const Store *node) {
@@ -1216,7 +1230,7 @@ void Printer::visit(const Store *node) {
     print(node->loc);
     os << " = ";
     print_no_parens(node->value);
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const Accumulate *node) {
@@ -1249,7 +1263,7 @@ void Printer::visit(const Accumulate *node) {
     }
     }
     print_no_parens(node->value);
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const Label *node) {
@@ -1259,7 +1273,8 @@ void Printer::visit(const Label *node) {
         os << "\n";
         print(node->body);
     }
-    os << "}\n";
+    os << "}";
+    end_stmt();
 }
 
 void Printer::visit(const RecLoop *node) {
@@ -1301,28 +1316,28 @@ void Printer::visit(const Yield *node) {
     os << get_indent();
     os << "yield ";
     print_no_parens(node->value);
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const Iterate *node) {
     os << get_indent();
     os << "iter ";
     print_no_parens(node->value);
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const Scan *node) {
     os << get_indent();
     os << "scan ";
     print_no_parens(node->value);
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const YieldFrom *node) {
     os << get_indent();
     os << "from ";
     print_no_parens(node->value);
-    os << "\n";
+    end_stmt();
 }
 
 void Printer::visit(const ForEach *node) {
@@ -1333,7 +1348,8 @@ void Printer::visit(const ForEach *node) {
     indent++;
     print(node->body);
     indent--;
-    os << get_indent() << "}\n";
+    os << get_indent() << "}";
+    end_stmt();
 }
 
 void Printer::visit(const ForAll *node) {
@@ -1355,7 +1371,8 @@ void Printer::visit(const ForAll *node) {
 
 void Printer::visit(const Continue *node) {
     os << get_indent();
-    os << "continue\n";
+    os << "continue";
+    end_stmt();
 }
 
 void Printer::visit(const Launch *node) {
@@ -1363,7 +1380,8 @@ void Printer::visit(const Launch *node) {
     print_no_parens(node->n);
     os << " " << node->func << "(";
     print_expr_list(node->args);
-    os << ")\n";
+    os << ")";
+    end_stmt();
 }
 
 void Printer::visit(const Append *node) {
@@ -1371,7 +1389,8 @@ void Printer::visit(const Append *node) {
     os << node->loc;
     os << ">(";
     print_no_parens(node->value);
-    os << ")\n";
+    os << ")";
+    end_stmt();
 }
 
 void Printer::visit(const Name *node) {

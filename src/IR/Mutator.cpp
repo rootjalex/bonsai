@@ -191,30 +191,41 @@ Type Mutator::visit(const BVH_t *node) {
     ir::Type primitive = mutate(node->primitive);
     bool not_changed = primitive.same_as(node->primitive);
 
-    const auto visit_volume = [&](const std::optional<BVH_t::Volume> &volume)
-        -> std::optional<BVH_t::Volume> {
-        if (!volume.has_value())
-            return volume;
-        Type type = mutate(volume->struct_type);
-        if (type.same_as(volume->struct_type)) {
-            return volume;
+    const auto visit_annotation = [&](const Annotation &annot) -> Annotation {
+        if (annot.as<Annotation::Data>()) {
+            return annot;
+        } else {
+            const Annotation::Volume *vol = annot.as<Annotation::Volume>();
+            internal_assert(vol)
+                << "TODO: handle non-Data/Volume annotions in Mutator\n";
+            Type type = mutate(vol->struct_type);
+            if (type.same_as(vol->struct_type)) {
+                return annot;
+            }
+            not_changed = false;
+            return Annotation{Annotation::Volume{vol->geometry, std::move(type),
+                                                 vol->initializers,
+                                                 vol->broadcast}};
         }
-        not_changed = false;
-        return BVH_t::Volume{std::move(type), volume->initializers};
     };
+
     const auto visit_node = [&](const BVH_t::Node &node) {
         bool cache_changed = not_changed;
 
         Type struct_type = mutate(node.struct_type);
         not_changed = struct_type.same_as(node.struct_type);
 
-        std::optional<BVH_t::Volume> volume = visit_volume(node.volume);
+        std::vector<Annotation> annotations;
+        annotations.reserve(node.annotations.size());
+        for (const auto &annot : node.annotations) {
+            annotations.push_back(visit_annotation(annot));
+        }
 
         if (not_changed) {
             not_changed = cache_changed;
             return node;
         }
-        return BVH_t::Node{std::move(struct_type), std::move(volume)};
+        return BVH_t::Node{std::move(struct_type), std::move(annotations)};
     };
 
     const size_t nnodes = node->nodes.size();

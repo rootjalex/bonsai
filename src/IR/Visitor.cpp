@@ -83,8 +83,10 @@ void Visitor::visit(const BVH_t *node) {
     // Recursively visit Volume types and Param types.
     for (const auto &subnode : node->nodes) {
         subnode.struct_type.accept(this);
-        if (subnode.volume.has_value()) {
-            subnode.volume->struct_type.accept(this);
+        for (const auto &annot : subnode.annotations) {
+            if (const auto *vol = annot.as<Annotation::Volume>()) {
+                vol->struct_type.accept(this);
+            }
         }
     }
 }

@@ -107,6 +107,9 @@ ir::Program LowerExterns::run(ir::Program program,
             new_args[counter].mutating = false;
             counter++;
         }
+        for (const auto &f : free_vars) {
+            std::cout << "free_var: " << f << "\n";
+        }
         internal_assert(counter == free_vars.size())
             << "Free vars: " << free_vars.size() << " but added: " << counter
             << " args to: " << *func;

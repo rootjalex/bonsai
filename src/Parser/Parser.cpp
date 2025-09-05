@@ -2136,7 +2136,7 @@ struct Parser {
         ir::Type primitive = parse_type();
         expect(Token::Type::RBRACKET);
         expect(Token::Type::RBRACKET);
-        auto [name, params, volume] = parse_node();
+        auto [name, params, annotations] = parse_node();
 
         if (program.types.contains(name)) {
             report_error() << "Tree named: " << name
@@ -2144,7 +2144,7 @@ struct Parser {
                            << program.types[name];
         }
 
-        if (volume.has_value() != !params.empty()) {
+        if (annotations.empty() != params.empty()) {
             report_error() << "Parsing of tree " << name
                            << " has incompatible volume and params";
         }
@@ -2171,10 +2171,10 @@ struct Parser {
         // parent.params or node.params BVH_t::make asserts this. we should
         // catch that failure, and report a backtrace.
         ir::Type type;
-        if (volume.has_value()) {
+        if (!annotations.empty()) {
             type = ir::BVH_t::make(std::move(primitive), std::move(name),
                                    std::move(params), std::move(nodes),
-                                   std::move(*volume));
+                                   std::move(annotations));
         } else {
             type = ir::BVH_t::make(std::move(primitive), std::move(name),
                                    std::move(nodes));
@@ -2183,43 +2183,57 @@ struct Parser {
         return type;
     }
 
-    ir::BVH_t::Volume parse_volume() {
+    ir::Annotation parse_annotation() {
         std::string name = get_id();
 
-        internal_assert(program.types.contains(name))
-            << "Unknown volume type: " << name;
-        ir::Type type = program.types[std::move(name)];
+        if (name == "data") {
+            expect(Token::Type::ASSIGN);
+            std::string label = get_id();
+            return ir::Annotation{ir::Annotation::Data{std::move(label)}};
+        } else {
+            internal_assert(program.types.contains(name))
+                << "Unknown volume type: " << name;
+            ir::Type type = program.types[std::move(name)];
 
-        expect(Token::Type::LPAREN);
+            expect(Token::Type::LPAREN);
 
-        std::vector<std::string> initializers;
-        do {
-            std::string iname = get_id();
-            initializers.emplace_back(std::move(iname));
-        } while (consume(Token::Type::COMMA));
+            std::vector<std::string> initializers;
+            do {
+                std::string iname = get_id();
+                initializers.emplace_back(std::move(iname));
+            } while (consume(Token::Type::COMMA));
 
-        expect(Token::Type::RPAREN);
+            expect(Token::Type::RPAREN);
 
-        return ir::BVH_t::Volume{std::move(type), std::move(initializers)};
+            std::string gname;
+            if (consume(Token::Type::ON)) {
+                gname = get_id();
+            }
+            // TODO: support broadcast checking...
+
+            return ir::Annotation{ir::Annotation::Volume{
+                std::move(gname), std::move(type), std::move(initializers),
+                /* broadcast */ false}};
+        }
     }
 
-    std::tuple<std::string, ir::Struct_t::Map, std::optional<ir::BVH_t::Volume>>
+    std::tuple<std::string, ir::Struct_t::Map, std::vector<ir::Annotation>>
     parse_node() {
         std::string name = get_id();
 
         std::vector<ir::TypedVar> params;
-        std::optional<ir::BVH_t::Volume> volume;
+        std::vector<ir::Annotation> annotations;
 
         if (consume(Token::Type::LPAREN)) {
             params = parse_tree_params();
             expect(Token::Type::RPAREN);
         }
 
-        if (consume(Token::Type::WITH)) {
-            volume = parse_volume();
+        while (consume(Token::Type::WITH)) {
+            annotations.push_back(parse_annotation());
         }
 
-        return {name, params, volume};
+        return {std::move(name), std::move(params), std::move(annotations)};
     }
 
     std::vector<ir::TypedVar> parse_tree_params() {
