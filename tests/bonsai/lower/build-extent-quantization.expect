@@ -163,7 +163,7 @@ func quantize(current : f32x3, world : f32x3, bin_inverse : f32x3) -> i30 {
   return cast<i30>(((x << 20u) | (y << 10u)) | z)
 }
 
-func rec_build_particles(node : (const BVH&), ST : mut particles, nodes_index : u32, primitives_index : idx) -> u32 {
+func rec_build_particles(node : (const BVH&), ST : mut particles, nodes_index : mut u32, primitives_index : mut idx) -> u32 {
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     let this_index = nodes_index in

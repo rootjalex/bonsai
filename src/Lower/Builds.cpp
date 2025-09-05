@@ -432,8 +432,7 @@ class ConstructBuild : public ir::Visitor {
             if (loc = get_write_loc(loc, layout.body, name, variant, layout, _);
                 loc.defined()) {
                 loc.add_index_access(std::move(index));
-                body.push_back(
-                    ir::LetStmt::make(std::move(loc), let.to_expr()));
+                body.push_back(ir::Store::make(std::move(loc), let.to_expr()));
             }
             append(ir::ForAll::make(index_name,
                                     ir::ForAll::Slice{
@@ -456,7 +455,7 @@ class ConstructBuild : public ir::Visitor {
             if (ir::Expr index = get_index(node->field); index.defined()) {
                 loc.add_index_access(std::move(index));
             }
-            append(ir::LetStmt::make(std::move(loc), let.to_expr()));
+            append(ir::Store::make(std::move(loc), let.to_expr()));
         }
     }
 
@@ -613,7 +612,9 @@ std::shared_ptr<ir::Function> construct_build_recursive(
             })) {
             continue;
         }
-        args.push_back(ir::Argument(name, type));
+        args.push_back(ir::Argument(name, type,
+                                    /*default_value=*/ir::Expr(),
+                                    /*mutating=*/true));
     }
     std::string name = get_recursive_build_function_name(layout);
     ir::Function::InterfaceList interfaces;
