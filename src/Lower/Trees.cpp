@@ -99,6 +99,11 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
+    // The list of tagged intervals. Holds scalar interval OR map of field
+    // intervals.
+    std::vector<
+        std::variant<std::monostate, Interval, std::map<std::string, Interval>>>
+        intervals;
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
 
@@ -111,23 +116,64 @@ struct Rewriter : public ir::Mutator {
         ir::Match::Arms new_arms(n);
         for (size_t i = 0; i < n; i++) {
             ir::Expr tree = ir::Unwrap::make(i, node->loc);
-            if (node->arms[i].first.has_volume()) {
-                const size_t n_args =
-                    node->arms[i].first.get_volume()->initializers.size();
+
+            const auto &bvh_node = node->arms[i].first;
+
+            const auto make_interval =
+                [&](const std::string &low,
+                    const std::string &high) -> Interval {
+                ir::Expr low_expr = ir::Access::make(low, tree);
+                ir::Expr high_expr = ir::Access::make(high, tree);
+                return Interval{std::move(low_expr), std::move(high_expr)};
+            };
+
+            if (bvh_node.has_volume()) {
+                const auto &volume = bvh_node.get_volume();
+                const auto &inits = volume->initializers;
+                const size_t n_args = inits.size();
                 std::vector<ir::Expr> args(n_args);
                 for (size_t j = 0; j < n_args; j++) {
-                    const auto &name =
-                        node->arms[i].first.get_volume()->initializers[j];
+                    const auto &name = inits[j];
                     args[j] = ir::Access::make(name, tree);
                 }
-                ir::Expr vol = ir::Build::make(
-                    node->arms[i].first.get_volume()->struct_type, args);
+                ir::Expr vol = ir::Build::make(volume->struct_type, args);
                 volumes.emplace_back(std::move(vol));
             } else {
                 volumes.emplace_back(); // undef volume
             }
+            std::variant<std::monostate, Interval,
+                         std::map<std::string, Interval>>
+                interval;
+            for (const auto &annot : node->arms[i].first.annotations) {
+                if (const auto *a_interval =
+                        annot.as<ir::Annotation::Interval>()) {
+                    Interval m_interval =
+                        make_interval(a_interval->low, a_interval->high);
+                    if (a_interval->scalar.empty()) {
+                        internal_assert(
+                            std::holds_alternative<std::monostate>(interval))
+                            << "Multiple primitive interval annotations on "
+                               "node: "
+                            << ir::Stmt(node);
+                        interval = m_interval;
+                    } else {
+                        if (std::holds_alternative<std::monostate>(interval)) {
+                            interval = std::map<std::string, Interval>{
+                                {a_interval->scalar, m_interval}};
+                        } else {
+                            auto *as_map =
+                                std::get_if<std::map<std::string, Interval>>(
+                                    &interval);
+                            (*as_map)[a_interval->scalar] = m_interval;
+                        }
+                    }
+                }
+            }
+            intervals.emplace_back(std::move(interval));
+
             ir::Stmt stmt = mutate(node->arms[i].second);
             volumes.pop_back();
+            intervals.pop_back();
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
@@ -147,6 +193,30 @@ struct Rewriter : public ir::Mutator {
             vols[args[i].name] = volumes[i];
         }
         return vols;
+    }
+
+    IntervalMap make_interval_map(const std::vector<ir::TypedVar> &args,
+                                  const IntervalMap &existing) const {
+        IntervalMap ints = existing;
+        const size_t n = intervals.size();
+        internal_assert(n == args.size())
+            << "Making interval map with incorrect number of arguments: "
+            << args.size() << " vs. " << n;
+        for (size_t i = 0; i < n; i++) {
+            if (const auto *interval = std::get_if<Interval>(&intervals[i])) {
+                // name -> interval (set of scalars)
+                ints[args[i]] = *interval;
+            } else if (const auto *field_map =
+                           std::get_if<std::map<std::string, Interval>>(
+                               &intervals[i])) {
+                ir::Expr var = args[i];
+                for (const auto &field : *field_map) {
+                    ir::Expr expr = ir::Access::make(field.first, var);
+                    ints[expr] = field.second;
+                }
+            }
+        }
+        return ints;
     }
 
     using ir::Mutator::visit;
@@ -196,9 +266,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             ir::Stmt body = ir::IfElse::make(std::move(cond), node);
 
             VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
 
-            Interval bounds =
-                predicate_analysis(lambda->value, vols, intervals);
+            Interval bounds = predicate_analysis(lambda->value, vols, ints);
             if (bounds.max.defined()) {
                 // Maybe true.
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
@@ -225,9 +295,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             internal_assert(volumes.size() == lambda->args.size());
 
             VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
 
-            Interval bounds =
-                predicate_analysis(lambda->value, vols, intervals);
+            Interval bounds = predicate_analysis(lambda->value, vols, ints);
             internal_assert(bounds.max.defined())
                 << "Cannot accelerate predicate: " << predicate
                 << " on: " << ir::Stmt(node);

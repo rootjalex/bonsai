@@ -194,10 +194,7 @@ Type Mutator::visit(const BVH_t *node) {
     const auto visit_annotation = [&](const Annotation &annot) -> Annotation {
         if (annot.as<Annotation::Data>()) {
             return annot;
-        } else {
-            const Annotation::Volume *vol = annot.as<Annotation::Volume>();
-            internal_assert(vol)
-                << "TODO: handle non-Data/Volume annotions in Mutator\n";
+        } else if (const auto *vol = annot.as<Annotation::Volume>()) {
             Type type = mutate(vol->struct_type);
             if (type.same_as(vol->struct_type)) {
                 return annot;
@@ -206,6 +203,12 @@ Type Mutator::visit(const BVH_t *node) {
             return Annotation{Annotation::Volume{vol->geometry, std::move(type),
                                                  vol->initializers,
                                                  vol->broadcast}};
+        } else {
+            const auto *interval = annot.as<Annotation::Interval>();
+            internal_assert(interval)
+                << "Handle non-(Data | Volume | Interval) in Mutator";
+            // TODO: handle low/high as Exprs?
+            return annot;
         }
     };
 

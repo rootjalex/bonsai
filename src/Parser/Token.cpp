@@ -90,12 +90,12 @@ uint64_t Token::size() const {
     case Token::Type::NEQ:
     case Token::Type::LEQ:
     case Token::Type::GEQ:
-    case Token::Type::IN:
     case Token::Type::IF:
     case Token::Type::SHIFT_LEFT:
     case Token::Type::SHIFT_RIGHT:
     case Token::Type::RARROW:
     case Token::Type::ON:
+    case Token::Type::IN:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
@@ -179,6 +179,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "with";
     case Token::Type::ON:
         return "on";
+    case Token::Type::IN:
+        return "in";
     case Token::Type::LAYOUT:
         return "layout";
     case Token::Type::GROUP:
@@ -187,8 +189,6 @@ std::string Token::token_type_string(Token::Type type) {
         return "switch";
     case Token::Type::FOR:
         return "for";
-    case Token::Type::IN:
-        return "in";
     case Token::Type::IF:
         return "if";
     case Token::Type::ELIF:

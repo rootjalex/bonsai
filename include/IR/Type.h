@@ -292,10 +292,13 @@ struct Generic_t : TypeNode<Generic_t> {
 // TODO: Interval
 // TODO: aggregation
 struct Annotation {
+
+    // data = name
     struct Data {
         std::string name;
     };
 
+    // GEOM [on name]?
     struct Volume {
         std::string geometry; // possibly empty.
         Type struct_type;
@@ -303,7 +306,15 @@ struct Annotation {
         bool broadcast; // if on children
     };
 
-    std::variant<Data, Volume> type;
+    // scalar in [low, high]
+    struct Interval {
+        std::string scalar;
+        // TODO: support compute?
+        // Expr low, high;
+        std::string low, high;
+    };
+
+    std::variant<Data, Volume, Interval> type;
 
     template <typename T>
     const T *as() const {

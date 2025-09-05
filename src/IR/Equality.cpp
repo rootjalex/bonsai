@@ -262,8 +262,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
 
         static const auto compare_annotation = [](const Annotation &annot0,
                                                   const Annotation &annot1) {
-            if (const Annotation::Data *data0 = annot0.as<Annotation::Data>()) {
-                const Annotation::Data *data1 = annot1.as<Annotation::Data>();
+            if (const auto *data0 = annot0.as<Annotation::Data>()) {
+                const auto *data1 = annot1.as<Annotation::Data>();
                 if (!data1)
                     return Cmp::Less;
                 if (const Cmp valid =
@@ -271,12 +271,11 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                     valid != Cmp::Equals) {
                     return valid;
                 }
-            } else if (const Annotation::Volume *vol0 =
-                           annot0.as<Annotation::Volume>()) {
-                const Annotation::Volume *vol1 =
-                    annot1.as<Annotation::Volume>();
+            } else if (const auto *vol0 = annot0.as<Annotation::Volume>()) {
+                const auto *vol1 = annot1.as<Annotation::Volume>();
                 if (!vol1)
-                    return Cmp::Greater;
+                    return annot1.as<Annotation::Data>() ? Cmp::Greater
+                                                         : Cmp::Less;
                 if (const Cmp geometry =
                         compare_primitives(vol0->geometry, vol1->geometry);
                     geometry != Cmp::Equals) {
@@ -301,9 +300,30 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                     inits != Cmp::Equals) {
                     return inits;
                 }
+            } else if (const auto *int0 = annot0.as<Annotation::Interval>()) {
+                const auto *int1 = annot1.as<Annotation::Interval>();
+                if (!int1)
+                    return Cmp::Greater;
+                if (const Cmp valid =
+                        compare_primitives(int0->scalar, int1->scalar);
+                    valid != Cmp::Equals) {
+                    return valid;
+                }
+
+                if (const Cmp valid = compare_primitives(int0->low, int1->low);
+                    valid != Cmp::Equals) {
+                    return valid;
+                }
+
+                if (const Cmp valid =
+                        compare_primitives(int0->high, int1->high);
+                    valid != Cmp::Equals) {
+                    return valid;
+                }
             } else {
-                internal_error << "TODO: support variant other than Data or "
-                                  "Volume for Annotation comparison!\n";
+                internal_error
+                    << "TODO: support variant other than Data or "
+                       "Volume or Interval for Annotation comparison!\n";
             }
             return Cmp::Equals;
         };

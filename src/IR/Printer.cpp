@@ -601,10 +601,7 @@ void Printer::print(const BVH_t::Node &node) {
     const auto print_annotation = [&](const Annotation &annot) {
         if (const Annotation::Data *data = annot.as<Annotation::Data>()) {
             os << "data = " << data->name;
-        } else {
-            const Annotation::Volume *vol = annot.as<Annotation::Volume>();
-            internal_assert(vol)
-                << "TODO: handle non-Data/Volume annotions in Printer\n";
+        } else if (const auto *vol = annot.as<Annotation::Volume>()) {
             internal_assert(vol->struct_type.is<Struct_t>());
             os << vol->struct_type.as<Struct_t>()->name;
             internal_assert(!vol->initializers.empty());
@@ -620,6 +617,12 @@ void Printer::print(const BVH_t::Node &node) {
                 os << " on " << vol->geometry;
             }
             // TODO: print broadcast somehow?
+        } else {
+            const auto *interval = annot.as<Annotation::Interval>();
+            internal_assert(interval) << "TODO: handle non-(Data | Volume | "
+                                         "Interval) annotions in Printer\n";
+            os << interval->scalar << " in [" << interval->low << ", "
+               << interval->high << "]";
         }
     };
 

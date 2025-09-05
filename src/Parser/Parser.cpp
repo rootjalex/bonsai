@@ -2187,12 +2187,24 @@ struct Parser {
         std::string name = get_id();
 
         if (name == "data") {
-            expect(Token::Type::ASSIGN);
-            std::string label = get_id();
-            return ir::Annotation{ir::Annotation::Data{std::move(label)}};
-        } else {
-            internal_assert(program.types.contains(name))
-                << "Unknown volume type: " << name;
+            if (consume(Token::Type::ASSIGN)) {
+                std::string label = get_id();
+                return ir::Annotation{ir::Annotation::Data{std::move(label)}};
+            } else {
+                // Must be a set of scalars, and therefore this is an interval
+                // TODO: code dedup
+                expect(Token::Type::IN);
+                expect(Token::Type::LBRACKET);
+                auto low = get_id();
+                expect(Token::Type::COMMA);
+                auto high = get_id();
+                expect(Token::Type::RBRACKET);
+                // No scalar name.
+                return ir::Annotation{ir::Annotation::Interval{
+                    "", std::move(low), std::move(high)}};
+            }
+
+        } else if (program.types.contains(name)) {
             ir::Type type = program.types[std::move(name)];
 
             expect(Token::Type::LPAREN);
@@ -2214,6 +2226,16 @@ struct Parser {
             return ir::Annotation{ir::Annotation::Volume{
                 std::move(gname), std::move(type), std::move(initializers),
                 /* broadcast */ false}};
+        } else if (consume(Token::Type::IN)) {
+            expect(Token::Type::LBRACKET);
+            auto low = get_id();
+            expect(Token::Type::COMMA);
+            auto high = get_id();
+            expect(Token::Type::RBRACKET);
+            return ir::Annotation{ir::Annotation::Interval{
+                std::move(name), std::move(low), std::move(high)}};
+        } else {
+            internal_error << "Unknown volume type: " << name;
         }
     }
 
