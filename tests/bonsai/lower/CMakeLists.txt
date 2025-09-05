@@ -10,6 +10,7 @@ add_bonsai_tests(
     defer-dbl-buffer.bonsai
     defer.bonsai
     exported-function.bonsai
+    filter.bonsai
     float.bonsai
     import_float.bonsai
     import_twice.bonsai

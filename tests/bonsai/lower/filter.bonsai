@@ -1,0 +1,3 @@
+extern input : set[i32];
+
+func [[export]] query(low : i32, high : i32) = filter(|i : i32| low <= i && i <= high, input);
