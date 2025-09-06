@@ -64,14 +64,19 @@ struct LowerToForAll : public ir::Mutator {
         return node;
     }
 
+    ir::Expr get_n(const ir::Type &type) {
+        if (const auto *array_t = type.as<ir::Array_t>()) {
+            return array_t->size;
+        } else if (const auto *vector_t = type.as<ir::Vector_t>()) {
+            return vector_t->lanes;
+        }
+        internal_error << "Unknown iterable type: " << type;
+    }
+
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iterable = node->iter;
 
-        const ir::Array_t *array_t = iterable.type().as<ir::Array_t>();
-        internal_assert(array_t)
-            << "Cannot lower ForEach over non-array: " << ir::Stmt(node);
-
-        ir::Expr end = array_t->size;
+        ir::Expr end = get_n(iterable.type());
         ir::Expr begin = make_zero(end.type());
         ir::Expr stride = make_one(end.type());
 
