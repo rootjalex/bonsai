@@ -57,8 +57,10 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Append *node) override {
-        seen_vars.insert(node->loc.base);
-        free_vars.push_back({node->loc.base, node->loc.base_type});
+        if (!seen_vars.contains(node->loc.base)) {
+            seen_vars.insert(node->loc.base);
+            free_vars.push_back({node->loc.base, node->loc.base_type});
+        }
         node->value.accept(this);
     }
 

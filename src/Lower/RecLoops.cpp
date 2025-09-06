@@ -30,7 +30,9 @@ struct LowerRecLoopsImpl : public Mutator {
         std::vector<Expr> call_args(node->args.size());
         std::vector<Function::Argument> f_args(node->args.size());
         for (size_t i = 0; i < node->args.size(); i++) {
-            call_args[i] = make_zero(node->args[i].type);
+            call_args[i] = node->args[i].type.is_numeric()
+                               ? make_zero(node->args[i].type)
+                               : node->args[i];
             f_args[i].name = node->args[i].name;
             f_args[i].type = node->args[i].type;
             f_args[i].mutating = false;
