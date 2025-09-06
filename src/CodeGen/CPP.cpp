@@ -293,7 +293,7 @@ class BonsaiToCpp : ir::Printer {
             ss << "&";
         } else {
             emit_type(ss, type);
-            if (is_const && should_be_ref(type)) {
+            if (!is_return_type && should_be_ref(type)) {
                 ss << "&";
             }
         }
@@ -301,7 +301,7 @@ class BonsaiToCpp : ir::Printer {
 
     bool should_be_ref(const Type &type) const {
         // TODO: finish
-        return type.is<Set_t>();
+        return type.is<Set_t>() || type.is<BVH_t>();
     }
 
     void emit_func_decl(const Function &func) {

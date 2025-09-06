@@ -486,6 +486,10 @@ std::set<std::string> mutated_variables(Stmt stmt) {
         void visit(const Accumulate *node) override {
             mutated.insert(node->loc.base);
         }
+
+        void visit(const Append *node) override {
+            mutated.insert(node->loc.base);
+        }
     };
 
     Gather g;
