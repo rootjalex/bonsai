@@ -174,10 +174,12 @@ struct UnswitchImpl : public Mutator {
                 // Perform loop unswitching.
                 ir::Stmt body0 =
                     ForAll::make(node->index, node->slice, if_else->then_body);
+                body0 = mutate(body0);
                 ir::Stmt body1 = if_else->else_body.defined()
                                      ? ForAll::make(node->index, node->slice,
                                                     if_else->else_body)
                                      : if_else->else_body;
+                body1 = mutate(body1);
                 return IfElse::make(if_else->cond, std::move(body0),
                                     std::move(body1));
             }
