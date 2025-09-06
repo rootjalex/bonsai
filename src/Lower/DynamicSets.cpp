@@ -112,7 +112,8 @@ Program LowerDynamicSets::run(Program program,
             continue;
         }
         // TODO(cgyurgyik): Add schedule support for dynamic array size.
-        Type dynamic_array_t = DynArray_t::make(set_t->etype);
+        // Type dynamic_array_t = DynArray_t::make(set_t->etype);
+        Type dynamic_array_t = Set_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;
         LowerDynamicSetCall lower(dynamic_array_t);
         func->body = lower.mutate(std::move(func->body));
