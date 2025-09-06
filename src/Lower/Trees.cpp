@@ -39,11 +39,17 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
             // TODO: make this not n^2.
             for (const auto &param : node.fields()) {
                 if (param.name == d->name) {
-                    internal_assert(
-                        ir::equals(prim_t, param.type) ||
+                    const bool is_prim = ir::equals(prim_t, param.type);
+                    const bool is_array_prim =
                         (param.type.is<ir::Array_t>() &&
                          ir::equals(prim_t,
-                                    param.type.as<ir::Array_t>()->etype)));
+                                    param.type.as<ir::Array_t>()->etype));
+                    const bool is_vector_prim =
+                        (param.type.is<ir::Vector_t>() &&
+                         ir::equals(prim_t,
+                                    param.type.as<ir::Vector_t>()->etype));
+
+                    internal_assert(is_prim || is_array_prim || is_vector_prim);
                     data.push_back(param);
                 }
             }

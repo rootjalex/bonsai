@@ -79,7 +79,12 @@ void emit_type(std::ostream &ss, Type type) {
             ss << " *";
         }
 
-        RESTRICT_VISITOR(Ref_t);
+        void visit(const Ref_t *node) override {
+            // TODO: remove this hack after figuring out tree lowering...
+            ss << node->name;
+            ss << " *";
+        }
+        // RESTRICT_VISITOR(Ref_t);
 
         void visit(const Vector_t *node) override {
             ss << "vec" << node->lanes << "_";
@@ -216,7 +221,7 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         for (const auto &[name, child] : struct_t->fields) {
             ss << indent;
             if (const Array_t *array_t = child.as<Array_t>();
-                array_t && is_const(array_t->size) &&
+                array_t && array_t->size.defined() && is_const(array_t->size) &&
                 // The buffer field of dynamic arrays should always be treated
                 // as a pointers, since its capacity may be resized.
                 !is_dynamic_array_struct_type(type)) {
@@ -348,6 +353,16 @@ class BonsaiToCpp : ir::Printer {
             if (auto [_, inserted] = deduplicate.insert(type); inserted) {
                 types.push_back(type);
             }
+        } else if (const BVH_t *bvh_t = type.as<BVH_t>()) {
+            for (const auto &node : bvh_t->nodes) {
+                get_declared_types(node.struct_type, deduplicate, types);
+                for (const auto &annot : node.annotations) {
+                    if (const auto *vol = annot.as<Annotation::Volume>()) {
+                        get_declared_types(vol->struct_type, deduplicate,
+                                           types);
+                    }
+                }
+            }
         }
     }
 
@@ -438,7 +453,11 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Extract *) override;
     // void visit(const Build *) override;
     // void visit(const Access *) override;
-    // void visit(const Unwrap *) override;
+    void visit(const Unwrap *node) override {
+        // TODO: be less hacky about this. relies on current Match lowering.
+        print_no_parens(node->value);
+        ss << "_" << node->type.as<Struct_t>()->name;
+    }
     // void visit(const Intrinsic *) override;
     // void visit(const Generator *) override;
     void visit(const Lambda *node) override {
@@ -473,13 +492,44 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const IfElse *) override;
     // void visit(const DoWhile *) override;
     // void visit(const Sequence *) override;
-    // void visit(const Allocate *) override;
+    void visit(const Allocate *node) override {
+        internal_assert(node->loc.base_type.is<Set_t>())
+            << "TODO: C++ Allocate lowering: " << Stmt(node);
+        ss << get_indent();
+        emit_type(ss, node->loc.base_type);
+        ss << " " << node->loc.base;
+        internal_assert(!node->value.defined())
+            << "TODO: C++ Allocate lowering: " << Stmt(node);
+        ss << ";\n";
+    }
     // void visit(const Free *) override;
     // void visit(const Store *) override;
     // void visit(const Accumulate *) override;
     // void visit(const Label *) override;
     // void visit(const RecLoop *) override;
-    // void visit(const Match *) override;
+    void visit(const Match *node) override {
+        ss << get_indent();
+        print(node->loc);
+        ss << ".match(\n";
+        increment();
+        for (size_t i = 0, e = node->arms.size(); i < e; i++) {
+            const auto &arm = node->arms[i];
+            ss << get_indent() << "[&](const ";
+            ss << arm.first.struct_type.as<Struct_t>()->name;
+            ss << "& ";
+            print(node->loc);
+            ss << "_";
+            ss << arm.first.struct_type.as<Struct_t>()->name;
+            // e.g. (const Interior& tree_Interior) { . . . }
+            ss << ") {\n";
+            increment();
+            print(arm.second);
+            decrement();
+            ss << get_indent() << "},\n";
+        }
+        decrement();
+        ss << get_indent() << ");\n";
+    }
     // void visit(const Yield *) override;
     // void visit(const Iterate *) override;
     // void visit(const Scan *) override;
