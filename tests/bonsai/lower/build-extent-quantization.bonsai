@@ -4,11 +4,9 @@ import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;
 
-element Particle { p: f32x3; }
+extern spheres : set[Sphere];
 
-extern particles : set[Particle];
-
-func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), particles);
+func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), spheres);
 
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
@@ -44,20 +42,20 @@ func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) -> i30 {
 schedule {
     // extent quantization, as defined in
     // https://www.sciencedirect.com/science/article/pii/S092702561930206X
-    tree[[Particle]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
+    tree[[Sphere]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
       = Interior(left : BVH, right : BVH)
-      | Leaf(nprims: u16, data : array[Particle, nprims]);
+      | Leaf(nprims: u16, data : array[Sphere, nprims]);
 
-    particles : BVH;
+    spheres : BVH;
 
-    layout particles(index: u32) {
+    layout spheres(index: u32) {
         wlow: f32x3;
         whigh: f32x3;
         bins: f32x3;
         bins_inv: f32x3;
 
         primitive_count : u32;
-        primitives : array[Particle, primitive_count];
+        primitives : array[Sphere, primitive_count];
         node_count : u32;
         group nodes[node_count] by index {
             q_min: i30;
@@ -81,7 +79,7 @@ schedule {
         };
     };
 
-    build particles {
+    build spheres {
       build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
         build root {
           build wlow = low;
