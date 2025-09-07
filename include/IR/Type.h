@@ -289,7 +289,6 @@ struct Generic_t : TypeNode<Generic_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Generic_t;
 };
 
-// TODO: Interval
 // TODO: aggregation
 struct Annotation {
 
