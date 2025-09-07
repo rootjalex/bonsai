@@ -61,7 +61,7 @@ Stmt LetStmt::make(WriteLoc loc, Expr value) {
 Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     internal_assert(cond.defined()) << "Undefined condition in IfElse::make";
     internal_assert(cond.type().defined() &&
-                    (cond.type().is_bool() || cond.type().is<Option_t>()))
+                    (cond.type().is<Option_t>() || cond.type().bits() == 1))
         << "Non-boolean condition in IfElse::make: " << cond << " of type "
         << cond.type();
     if (cond.type().is<Option_t>()) {

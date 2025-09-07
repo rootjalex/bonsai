@@ -547,14 +547,15 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
             stmts.push_back(ir::LetStmt::make(
                 std::move(assign),
                 ir::Var::make(index_type, get_index_name(group_name))));
+
+            // Preemptively increment the unique index for the next element in
+            // the collection.
+            ir::WriteLoc increment(get_index_name(group_name), index_type);
+            stmts.push_back(ir::Accumulate::make(std::move(increment),
+                                                 ir::Accumulate::Add,
+                                                 make_one(index_type)));
             this_index_defined = true;
         }
-
-        // Preemptively increment the unique index for the next element in
-        // the collection.
-        ir::WriteLoc increment(get_index_name(group_name), index_type);
-        stmts.push_back(ir::Accumulate::make(
-            std::move(increment), ir::Accumulate::Add, make_one(index_type)));
     }
 
     std::vector<ir::Stmt> visitor_stmts = visitor.statements();
