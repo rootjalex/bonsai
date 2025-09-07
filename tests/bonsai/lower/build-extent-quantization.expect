@@ -148,6 +148,12 @@ func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
   return reduce<all>(low <= high)
 }
 
+func intersects_AABB_Sphere(a : AABB, s : Sphere) -> bool {
+  let closest = max(a.low, min(s.center, a.high)) in
+  let d = s.center - closest in
+  return dot(d, d) <= (s.radius * s.radius)
+}
+
 func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
   let center = (a.low + a.high) * f32x3(0.5f) in
   let extents = (a.high - a.low) * f32x3(0.5f) in

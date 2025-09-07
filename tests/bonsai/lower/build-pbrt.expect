@@ -125,6 +125,80 @@ func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
   }
 }
 
+func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
+  let low = max(a.low, b.low) in
+  let high = min(a.high, b.high) in
+  return reduce<all>(low <= high)
+}
+
+func intersects_AABB_Sphere(a : AABB, s : Sphere) -> bool {
+  let closest = max(a.low, min(s.center, a.high)) in
+  let d = s.center - closest in
+  return dot(d, d) <= (s.radius * s.radius)
+}
+
+func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
+  let center = (a.low + a.high) * f32x3(0.5f) in
+  let extents = (a.high - a.low) * f32x3(0.5f) in
+  let v0 = b.p0 - center in
+  let v1 = b.p1 - center in
+  let v2 = b.p2 - center in
+  let f0 = v1 - v0 in
+  let f1 = v2 - v1 in
+  let f2 = v0 - v2 in
+  let tri_min = min(min(v0, v1), v2) in
+  let tri_max = max(max(v0, v1), v2) in
+  if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
+    return false
+  }
+  let X = (f32x3)[1f,0f,0f] in
+  let Y = (f32x3)[0f,1f,0f] in
+  let Z = (f32x3)[0f,0f,1f] in
+  let A0 = cross(f0, X) in
+  let A1 = cross(f0, Y) in
+  let A2 = cross(f0, Z) in
+  let A3 = cross(f1, X) in
+  let A4 = cross(f1, Y) in
+  let A5 = cross(f1, Z) in
+  let A6 = cross(f2, X) in
+  let A7 = cross(f2, Y) in
+  let A8 = cross(f2, Z) in
+  if (!axis(A0, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A1, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A2, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A3, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A4, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A5, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A6, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A7, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A8, extents, v0, v1, v2)) {
+    return false
+  }
+  let N = cross(f0, f1) in
+  let Rn = dot(extents, abs(N)) in
+  let dist = dot(v0, N) in
+  if ((Rn < dist) || (dist < -Rn)) {
+    return false
+  }
+  return true
+}
+
 func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
   let interval = intersectsp_ray_aabb(r, b) in
   if (cast<bool>(interval)) {
@@ -145,6 +219,66 @@ func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
 
 func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
   return cast<bool>(intersectsp_ray_tri(ray, tri))
+}
+
+func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
+  let eA0 = a.p1 - a.p0 in
+  let eA1 = a.p2 - a.p1 in
+  let eA2 = a.p0 - a.p2 in
+  let eB0 = b.p1 - b.p0 in
+  let eB1 = b.p2 - b.p1 in
+  let eB2 = b.p0 - b.p2 in
+  let N0 = cross(eA0, eA1) in
+  let N1 = cross(eB0, eB1) in
+  let a0 = a.p0 in
+  let a1 = a.p1 in
+  let a2 = a.p2 in
+  let b0 = b.p0 in
+  let b1 = b.p1 in
+  let b2 = b.p2 in
+  if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  let E00 = cross(eA0, eB0) in
+  let E01 = cross(eA0, eB1) in
+  let E02 = cross(eA0, eB2) in
+  let E10 = cross(eA1, eB0) in
+  let E11 = cross(eA1, eB1) in
+  let E12 = cross(eA1, eB2) in
+  let E20 = cross(eA2, eB0) in
+  let E21 = cross(eA2, eB1) in
+  let E22 = cross(eA2, eB2) in
+  if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  return true
 }
 
 func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : mut u32, primitives_index : mut idx) -> u32 {
