@@ -1389,7 +1389,7 @@ void Printer::visit(const Launch *node) {
 
 void Printer::visit(const Append *node) {
     os << get_indent() << "append<";
-    os << node->loc;
+    print(node->loc);
     os << ">(";
     print_no_parens(node->value);
     os << ")";
