@@ -819,15 +819,14 @@ ir::Program LowerLayouts::run(ir::Program program,
         }
     }
 
-    // lower all `Access`es on `Unwrap`s
-    LowerMatches lowerer(tree_layouts, types, ltmap);
-
     for (auto &[fname, func] : program.funcs) {
         for (auto &arg : func->args) {
             if (types.contains(arg.name)) {
                 arg.type = types.at(arg.name);
             }
         }
+
+        LowerMatches lowerer(tree_layouts, types, ltmap);
         func->body = lowerer.mutate(func->body);
     }
 
