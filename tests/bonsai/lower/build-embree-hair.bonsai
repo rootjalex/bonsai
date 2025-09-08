@@ -36,6 +36,8 @@ func intersectsp_ray_obb(r: Ray, b: OBB) -> option[FInterval] {
     dz = b.orientation[2][0] * r.d.x + b.orientation[2][1] * r.d.y + b.orientation[2][2] * r.d.z;
 
     // 2. Simplified slab test against unit cube.
+    // Since the inverse direction is dependent on the orientation matrix, we can't just 
+    // cache this in the ray data structure.
     inv_dx: f32 = 1.0 / dx;
     inv_dy: f32 = 1.0 / dy;
     inv_dz: f32 = 1.0 / dz;
