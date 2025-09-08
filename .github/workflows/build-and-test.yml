@@ -20,6 +20,14 @@ jobs:
       - name: Install LLVM
         run: |
           brew update
+
+          # Uninstall any conflicting versions
+          for formula in cmake ninja llvm@19; do
+            if brew list "$formula" &>/dev/null; then
+              brew uninstall --force "$formula"
+            fi
+          done
+  
           brew install ninja cmake llvm@19
 
       - name: Configure CMake
