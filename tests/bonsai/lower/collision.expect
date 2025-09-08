@@ -2,7 +2,6 @@ type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type Float = f32
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
-type __dyn_array0 = struct __dyn_array0{ buffer : struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
 type __tuple_0 = struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
 type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : u32 }
 type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
@@ -14,7 +13,7 @@ type vec3f = f32x3
 extern triangles1 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 extern triangles2 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 
-func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*), _dyn_alloc : (__dyn_array0*)) -> void {
+func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*), _dyn_alloc : mut (set<__tuple_0>*)) -> void {
   if (intersects_AABB_AABB((&build<AABB>((*triangles1).group0_index[triangles1_index].low, (*triangles1).group0_index[triangles1_index].high)), (&build<AABB>((*triangles2).group0_index[triangles2_index].low, (*triangles2).group0_index[triangles2_index].high)))) {
     if ((*triangles1).group0_index[triangles1_index].nPrims == 0u) {
       if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
@@ -42,14 +41,10 @@ func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 :
   return
 }
 
-func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
-  alloc _dyn_alloc : mut __dyn_array0
+func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> set<__tuple_0> {
+  alloc _dyn_alloc : mut set<__tuple_0>
   _recloop_func0(0u, 0u, triangles1, triangles2, _dyn_alloc)
   return (*_dyn_alloc)
-}
-
-func _unexported_collisions(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> __dyn_array0 {
-  return _traverse_tree0(triangles1, triangles2)
 }
 
 func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> bool {
@@ -58,9 +53,8 @@ func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> boo
   return reduce<all>((P <= f32x3(R)) & (f32x3(-R) <= P))
 }
 
-func [[export]] collisions(_ret0 : mut (__dyn_array0*), triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> void {
-  _ret0 = _traverse_tree0(triangles1, triangles2)
-  return
+func [[export]] collisions(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> set<__tuple_0> {
+  return _traverse_tree0(triangles1, triangles2)
 }
 
 func intersects_AABB_AABB(a : (AABB*), b : (AABB*)) -> bool {

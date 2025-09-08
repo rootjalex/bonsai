@@ -33,7 +33,7 @@ schedule {
     // TODO: generic over primitive types!
     tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : PointBVH, right : PointBVH)
-    | Leaf(data : Point);
+    | Leaf(data : Point) with data = data;
 
     points : PointBVH;
 }

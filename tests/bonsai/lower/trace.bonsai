@@ -14,7 +14,7 @@ schedule {
     // TODO: generic over primitive types!
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
-    | Leaf(data : array[Triangle]);
+    | Leaf(data : array[Triangle]) with data = data;
 
     triangles : TriangleBVH;
 

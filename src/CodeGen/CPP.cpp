@@ -433,13 +433,12 @@ class BonsaiToCpp : ir::Printer {
 
         // Headers for C++ types.
         ss << "#include <cstdint>" << '\n'; // integer
+        ss << "#include \"runtime/bonsai_cpp.h\"\n\n";
 
         // Disable C++ name mangling.
         if (!allow_mangling) {
             ss << '\n' << "extern \"C\"";
             ss << ' ' << '{' << '\n';
-        } else {
-            ss << "#include \"runtime/bonsai_cpp.h\"\n\n";
         }
     }
 

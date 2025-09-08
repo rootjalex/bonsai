@@ -1,5 +1,5 @@
 //! flags: -b cpp -o tests/bonsai/correctness/cpp/struct
-//! commands: clang++ -c $<>/main_struct.cpp -o $<>/main_struct.o, clang++ $<>/main_struct.o $<>/struct.o -o $<>/struct, ./$<>/struct, rm $<>/struct, rm $<>/main_struct.o, rm $<>/struct.h, rm $<>/struct.o
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_struct.cpp -I. -o $<>/main_struct.o, clang++ $<>/main_struct.o $<>/struct.o -o $<>/struct, ./$<>/struct, rm $<>/struct, rm $<>/main_struct.o, rm $<>/struct.h, rm $<>/struct.o
 element Position { x: i32; y: i32; }
 
 func [[export]] add(i: Position, j: Position) -> Position {

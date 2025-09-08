@@ -1,5 +1,3 @@
-type __dyn_array0 = struct __dyn_array0{ buffer : i32[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
-
 func _lambda0(x : i32) -> i32 {
   return x + 1
 }
@@ -18,7 +16,7 @@ func main() -> i32 {
   return y
 }
 
-func relu(v : set<i32>) -> __dyn_array0 {
+func relu(v : set<i32>) -> set<i32> {
   return filter(|x : i32| 0 < x, v)
 }
 

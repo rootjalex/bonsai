@@ -2,6 +2,8 @@
 #pragma once
 
 #include <cstdint>
+#include "runtime/bonsai_cpp.h"
+
 
 extern "C" {
 

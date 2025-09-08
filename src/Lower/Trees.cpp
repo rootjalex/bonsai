@@ -49,7 +49,8 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
                          ir::equals(prim_t,
                                     param.type.as<ir::Vector_t>()->etype));
 
-                    internal_assert(is_prim || is_array_prim || is_vector_prim);
+                    internal_assert(is_prim || is_array_prim || is_vector_prim)
+                        << param.type << " versus " << prim_t << "\n";
                     data.push_back(param);
                 }
             }

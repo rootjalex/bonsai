@@ -1,4 +1,4 @@
-[test] clang++ -c tests/bonsai/correctness/cpp/main_swap.cpp -o tests/bonsai/correctness/cpp/main_swap.o
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_swap.cpp -I. -o tests/bonsai/correctness/cpp/main_swap.o
 [test] clang++ tests/bonsai/correctness/cpp/main_swap.o tests/bonsai/correctness/cpp/swap.o -o tests/bonsai/correctness/cpp/swap
 [test] ./tests/bonsai/correctness/cpp/swap
 i: 1, j: 2

@@ -134,7 +134,7 @@ func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH)
-    | Leaf(data : array[Triangle]);
+    | Leaf(data : array[Triangle]) with data = data;
 
     triangles1 : TriangleBVH;
     triangles2 : TriangleBVH;

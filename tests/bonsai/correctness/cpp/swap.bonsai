@@ -1,5 +1,5 @@
 //! flags: -b cpp -o tests/bonsai/correctness/cpp/swap
-//! commands: clang++ -c $<>/main_swap.cpp -o $<>/main_swap.o, clang++ $<>/main_swap.o $<>/swap.o -o $<>/swap, ./$<>/swap, rm $<>/swap, rm $<>/main_swap.o, rm $<>/swap.h, rm $<>/swap.o
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_swap.cpp -I. -o $<>/main_swap.o, clang++ $<>/main_swap.o $<>/swap.o -o $<>/swap, ./$<>/swap, rm $<>/swap, rm $<>/main_swap.o, rm $<>/swap.h, rm $<>/swap.o
 
 func [[export]] swap(x: mut i32, y: mut i32) -> void {
     t: i32 = x;
