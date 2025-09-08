@@ -55,3 +55,8 @@ deps/llvm-install
 *.dSYM/
 
 .DS_Store
+
+# Generates header/source files
+apps/queries/*/*_gen.cpp
+apps/queries/*/*_gen.h
+apps/queries/*/*.out

@@ -1,0 +1,29 @@
+// ./build/compiler -i apps/queries/range/range_fast.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-recloops -p lower-scans -p lower-foreachs -p unswitch -b cppx
+extern input : set[i32];
+
+func [[export]] query_fast(low : i32, high : i32) = filter(|i : i32| low <= i && i <= high, input);
+
+schedule {
+    tree[[i32]] IntervalTree(low high : i32) with data in [low, high] =
+    | Interior(left : IntervalTree, right : IntervalTree)
+    | Leaf(d : array[i32]) with data = d;
+
+    input : IntervalTree;
+
+    // query_fast.loopify(64); ?
+
+    layout input {
+        pCount : u32;
+        prims : array[i32, pCount];
+        count : u32;
+        group[count] index : u32 {
+            low : i32;
+            high : i32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u24; left = index + 1; right = index + cast[[u32]](offset); };
+                 _ => Leaf { pOffset : u24; d = range(prims, cast[[u32]](pOffset), cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}
