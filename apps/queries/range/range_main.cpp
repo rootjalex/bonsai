@@ -84,81 +84,170 @@ _tree_layout0 build_tree(const set<int32_t> &input) {
     return tree;
 }
 
-int main() {
-    std::mt19937 rng(std::random_device{}());
-    std::uniform_int_distribution<int32_t> bound_dist(-1000, 1000);
-    std::vector<size_t> test_sizes = {1,    5,     10,    100,     1000,
-                                      5000, 10000, 65535, 1000000, 16777215};
+#define PROFILE 1
 
+template <typename Result, typename Func0, typename Func1, class... Args>
+double benchmark_queries(const std::string &benchmark_name,
+                         const set<int32_t> &input, const _tree_layout0 &tree,
+                         const int k, const int m, Func0 &&f0, Func1 &&f1,
+                         Args &&...args) {
+    // Run and time query()
+    std::vector<Result> query_results;
+    int64_t avg_query_time = benchmark_function(
+        [&]() {
+            query_results.push_back(f0(std::forward<Args>(args)..., input));
+        },
+        k, m);
+
+    // Run and time query_fast()
+    std::vector<Result> fast_results;
+    int64_t avg_fast_time = benchmark_function(
+        [&]() {
+            fast_results.push_back(f1(std::forward<Args>(args)..., tree));
+        },
+        k, m);
+
+    // Verify all results match
+    bool all_match = true;
+    for (int i = 0; i < k; ++i) {
+        if (!(query_results[i] == fast_results[i])) {
+            all_match = false;
+            break;
+        }
+    }
+#ifndef PROFILE
+    std::cout << benchmark_name << "() avg time: " << avg_query_time << " ns\n";
+    std::cout << benchmark_name << "_fast() avg time: " << avg_fast_time
+              << " ns\n";
+#endif
+    if (!all_match) {
+        std::cerr << "ERROR: " << benchmark_name << " results differ! "
+                  << input.size() << std::endl;
+        std::abort();
+    } else {
+#ifndef PROFILE
+        std::cout << "Results match.\n";
+#endif
+        if (avg_fast_time > 0) {
+            double speedup =
+                static_cast<double>(avg_query_time) / avg_fast_time;
+#ifndef PROFILE
+            std::cout << "Speedup: " << speedup << "x\n";
+#else
+            return speedup;
+#endif
+        } else {
+            std::cout << benchmark_name
+                      << " was too fast to measure accurately on input size: "
+                      << input.size() << std::endl;
+            return static_cast<double>(avg_query_time) / avg_fast_time; // inf
+        }
+    }
+}
+
+double benchmark_range_query(const set<int32_t> &input,
+                             const _tree_layout0 &tree, const int k,
+                             const int m) {
+    int32_t low = -10;
+    int32_t high = 10;
+#ifndef PROFILE
+    std::cout << "Range query, range = " << low << ", " << high << "]"
+              << std::endl;
+    std::cout << "Input size: " << input_set.size() << std::endl;
+#endif
+    // Example usage:
+    return benchmark_queries<set<int32_t>>("range_query", input, tree, k, m,
+                                           query, query_fast, low, high);
+}
+
+double benchmark_eq_query(const set<int32_t> &input, const _tree_layout0 &tree,
+                          const int k, const int m) {
+    // Random bounds
+    int32_t value = 42;
+#ifndef PROFILE
+    std::cout << "Equality query, value = " << value << std::endl;
+    std::cout << "Input size: " << input_set.size() << std::endl;
+#endif
+    // Example usage:
+    return benchmark_queries<set<int32_t>>("range_query", input, tree, k, m,
+                                           eq_query, eq_query_fast, value);
+}
+
+template <typename T>
+void pretty_print_vector(const std::vector<T> &vec) {
+    bool first = true;
+    std::cout << "[";
+    for (const auto &v : vec) {
+        if (!first) {
+            std::cout << ", ";
+        }
+        first = false;
+        std::cout << v;
+    }
+    std::cout << "]";
+}
+
+int main() {
+    const int k = 14; // total runs
+    const int m = 2;  // number of fastest and slowest to drop
+
+    // std::mt19937 rng(std::random_device{}());
+    // For consistent results
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<int32_t> bound_dist(-1000, 1000);
+    // std::vector<size_t> test_sizes = {1,    5,     10,    100,     1000,
+    //                                   5000, 10000, 65535, 1000000, 16777215};
+    std::vector<size_t> test_sizes = {
+        1 << 8,  1 << 9,  1 << 10, 1 << 11, 1 << 12,      1 << 13,
+        1 << 14, 1 << 15, 1 << 16, 1 << 17, 1 << 18,      1 << 19,
+        1 << 20, 1 << 21, 1 << 22, 1 << 23, (1 << 24) - 1};
+
+#ifdef PROFILE
+    pretty_print_vector(test_sizes);
+    std::cout << std::endl;
+    static constexpr int N_BENCHMARKS = 2;
+    std::vector<std::pair<std::string, std::vector<double>>> results(
+        N_BENCHMARKS);
+    results[0].first = "range_query";
+    results[0].second.reserve(test_sizes.size());
+    results[1].first = "eq_query";
+    results[1].second.reserve(test_sizes.size());
+#endif
     for (size_t size : test_sizes) {
+#ifndef PROFILE
         std::cout << "\n--- Test with input size: " << size << " ---"
                   << std::endl;
-
+#endif
         // Generate input
         auto input_set = generate_random_set(size);
 
-        // Random bounds
-        int32_t low = -10;
-        int32_t high = 10;
-        if (low > high)
-            std::swap(low, high);
-
-        std::cout << "Low: " << low << ", High: " << high << std::endl;
-        std::cout << "Input size: " << input_set.size() << std::endl;
-
-        // Time query()
-        auto t1 = std::chrono::high_resolution_clock::now();
-        auto result = query(low, high, input_set);
-        auto t2 = std::chrono::high_resolution_clock::now();
-
-        // Time tree build
-        auto t3 = std::chrono::high_resolution_clock::now();
+        // Build tree
+        auto t_build_start = std::chrono::high_resolution_clock::now();
         auto input_tree = build_tree(input_set);
-        auto t4 = std::chrono::high_resolution_clock::now();
-
-        // Time query_fast()
-        auto t5 = std::chrono::high_resolution_clock::now();
-        auto fast_result = query_fast(low, high, input_tree);
-        auto t6 = std::chrono::high_resolution_clock::now();
-
-        auto duration_query =
-            std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+        auto t_build_end = std::chrono::high_resolution_clock::now();
+        int64_t build_time =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t_build_end -
+                                                                 t_build_start)
                 .count();
-        auto tree_build =
-            std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3)
-                .count();
-        auto duration_fast =
-            std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5)
-                .count();
+#ifndef PROFILE
+        std::cout << "build_tree() time: " << build_time << " ns\n";
+#endif
 
-        std::cout << "query() result size: " << result.size()
-                  << ", time: " << duration_query << " us" << std::endl;
-        std::cout << "build_tree() time:        " << tree_build << " us"
-                  << std::endl;
-        std::cout << "query_fast() result size: " << fast_result.size()
-                  << ", time: " << duration_fast << " us" << std::endl;
+        results[0].second.push_back(
+            benchmark_range_query(input_set, input_tree, k, m));
 
-        // Validate equality
-        if (!sets_equal(result, fast_result)) {
-            std::cerr << "ERROR: query() and query_fast() results differ!"
-                      << std::endl;
-            abort();
-        } else {
-            std::cout << "Results match." << std::endl;
-            if (duration_fast > 0) {
-                double speedup =
-                    static_cast<double>(duration_query) / duration_fast;
-                std::cout << "Speedup (query / query_fast): " << speedup
-                          << "x\n";
-            } else {
-                std::cout
-                    << "query_fast() was too fast to measure accurately.\n";
-            }
-        }
+        results[1].second.push_back(
+            benchmark_eq_query(input_set, input_tree, k, m));
 
         std::free(input_tree.prims);
         std::free(input_tree.group0_index);
     }
-
+#ifdef PROFILE
+    for (const auto &res : results) {
+        std::cout << "(" << res.first << ", ";
+        pretty_print_vector(res.second);
+        std::cout << ")" << std::endl;
+    }
+#endif
     return 0;
 }

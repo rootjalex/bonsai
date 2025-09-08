@@ -162,7 +162,7 @@ nested_join(std::function<bool(const T &, const U &)> predicate,
 
 // Compare two sets for equality (order-agnostic)
 template <typename T>
-bool sets_equal(const set<T> &a, const set<T> &b) {
+bool operator==(const set<T> &a, const set<T> &b) {
     if (a.size() != b.size()) {
         return false;
     }

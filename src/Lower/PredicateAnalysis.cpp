@@ -20,6 +20,10 @@ bool Interval::has_upper_bound() const { return max.defined(); }
 
 bool Interval::has_lower_bound() const { return min.defined(); }
 
+bool Interval::is_bounded() const {
+    return has_lower_bound() && has_upper_bound();
+}
+
 namespace {
 
 struct PredicateAnalysis : public ir::Visitor {
@@ -95,38 +99,45 @@ struct PredicateAnalysis : public ir::Visitor {
         return a && b;
     }
 
-    void visit(const ir::BinOp *node) override {
-        switch (node->op) {
-        case ir::BinOp::Lt: {
-            Interval a = get(node->a);
-            if (!a.has_upper_bound() && !a.has_lower_bound()) {
-                make_bool_bounds();
-                return;
-            }
-            Interval b = get(node->b);
-            if (!b.has_upper_bound() && !b.has_lower_bound()) {
-                make_bool_bounds();
-                return;
-            }
-            // Initially unbounded.
+    // Handle Lt/Le
+    void visit_compare(const ir::BinOp *node) {
+        Interval a = get(node->a);
+        if (!a.has_upper_bound() && !a.has_lower_bound()) {
             make_bool_bounds();
-
-            // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
-            // as true as a.max <(=) b.min. This does not depend on a's
-            // lower bound or b's upper bound.
-            if (a.has_upper_bound() && b.has_lower_bound()) {
-                interval.min = a.max < b.min;
-            }
-
-            // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
-            // as true as a.min <(=) b.max. This does not depend on a's
-            // upper bound or b's lower bound.
-            if (a.has_lower_bound() && b.has_upper_bound()) {
-                interval.max = a.min < b.max;
-            }
             return;
         }
+        Interval b = get(node->b);
+        if (!b.has_upper_bound() && !b.has_lower_bound()) {
+            make_bool_bounds();
+            return;
+        }
+        // Initially unbounded.
+        make_bool_bounds();
+
+        // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
+        // as true as a.max <(=) b.min. This does not depend on a's
+        // lower bound or b's upper bound.
+        if (a.has_upper_bound() && b.has_lower_bound()) {
+            interval.min = ir::BinOp::make(node->op, a.max, b.min);
+        }
+
+        // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
+        // as true as a.min <(=) b.max. This does not depend on a's
+        // upper bound or b's lower bound.
+        if (a.has_lower_bound() && b.has_upper_bound()) {
+            interval.max = ir::BinOp::make(node->op, a.min, b.max);
+        }
+        return;
+    }
+
+    void visit(const ir::BinOp *node) override {
+        switch (node->op) {
+        case ir::BinOp::Lt:
         case ir::BinOp::Le: {
+            visit_compare(node);
+            return;
+        }
+        case ir::BinOp::Eq: {
             Interval a = get(node->a);
             if (!a.has_upper_bound() && !a.has_lower_bound()) {
                 make_bool_bounds();
@@ -137,20 +148,32 @@ struct PredicateAnalysis : public ir::Visitor {
                 make_bool_bounds();
                 return;
             }
+
+            if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+                return;
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min == b.min);
+                return;
+            }
+
             // Initially unbounded.
             make_bool_bounds();
 
-            // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
-            // as true as a.max <(=) b.min. This does not depend on a's
-            // lower bound or b's upper bound.
-            if (a.has_upper_bound() && b.has_lower_bound()) {
-                interval.min = a.max <= b.min;
+            // A sufficient condition is that all bounds are equal.
+            if (a.is_bounded() && b.is_bounded()) {
+                interval.min =
+                    (a.min == a.max) && (b.min == b.max) && (a.min == b.min);
             }
 
-            // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
-            // as true as a.min <(=) b.max. This does not depend on a's
-            // upper bound or b's lower bound.
-            if (a.has_lower_bound() && b.has_upper_bound()) {
+            // A necessary condition is that the ranges overlap.
+            if (a.is_bounded() && b.is_bounded()) {
+                interval.max = a.min <= b.max && b.min <= a.max;
+            } else if (a.has_upper_bound() && b.has_lower_bound()) {
+                // a.min <= b.max is implied if a.min = -inf or b.max = +inf.
+                interval.max = b.min <= a.max;
+            } else if (a.has_lower_bound() && b.has_upper_bound()) {
+                // b.min <= a.max is implied if a.max = +inf or b.min = -inf.
                 interval.max = a.min <= b.max;
             }
             return;

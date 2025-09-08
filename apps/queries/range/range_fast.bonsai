@@ -3,6 +3,9 @@ extern input : set[i32];
 
 func [[export]] query_fast(low : i32, high : i32) = filter(|i : i32| low <= i && i <= high, input);
 
+func [[export]] eq_query_fast(value : i32) = filter(|i : i32| i == value, input);
+
+
 schedule {
     tree[[i32]] IntervalTree(low high : i32) with data in [low, high] =
     | Interior(left : IntervalTree, right : IntervalTree)
