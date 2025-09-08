@@ -37,8 +37,8 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
         f_args[i].mutating = args[i].type.is<Set_t>();
     }
     std::shared_ptr<Function> func = std::make_shared<Function>(
-            func_name, std::move(f_args), Void_t::make(), Stmt(),
-            Function::InterfaceList{}, std::vector<Function::Attribute>{});
+        func_name, std::move(f_args), Void_t::make(), Stmt(),
+        Function::InterfaceList{}, std::vector<Function::Attribute>{});
 
     struct ScansToCalls : public Mutator {
         std::shared_ptr<Function> func;
@@ -46,13 +46,15 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
         WriteLoc write_loc;
 
         ScansToCalls(std::shared_ptr<Function> _func) : func(std::move(_func)) {
-            write_expr = Var::make(func->args.back().type, func->args.back().name);
-            write_loc = WriteLoc(func->args.back().name, func->args.back().type);
+            write_expr =
+                Var::make(func->args.back().type, func->args.back().name);
+            write_loc =
+                WriteLoc(func->args.back().name, func->args.back().type);
         }
-        
+
         Stmt visit(const Scan *node) override {
             // return YieldFrom::make(node->value);
-            
+
             std::vector<Expr> call_args(func->args.size());
             auto ids = break_tuple(node->value);
             std::vector<Stmt> stmts;
@@ -63,7 +65,8 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
             for (const auto &id : ids) {
                 std::vector<Expr> call_args(func->args.size(), Expr());
                 if (const Tuple_t *tuple_t = id.type().as<Tuple_t>()) {
-                    internal_assert(tuple_t->etypes.size() + 1 == func->args.size());
+                    internal_assert(tuple_t->etypes.size() + 1 ==
+                                    func->args.size());
                     for (size_t i = 0; i < tuple_t->etypes.size(); i++) {
                         call_args[i] = Extract::make(id, i);
                     }
@@ -76,13 +79,12 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
             }
 
             return Sequence::make(std::move(stmts));
-            
         }
 
         Stmt visit(const Iterate *node) override {
             return Append::make(write_loc, node->value);
         }
-        
+
         Stmt visit(const Yield *node) override {
             return Append::make(write_loc, node->value);
         }
@@ -147,11 +149,11 @@ struct LowerScansImpl : public Mutator {
         std::vector<TypedVar> free_vars = gather_free_vars(node->body);
         // Add non-duplicating free_vars.
         std::unordered_set<std::string> arg_names;
-        for (const auto& arg : args) {
+        for (const auto &arg : args) {
             arg_names.insert(arg.name);
         }
 
-        for (const auto& var : free_vars) {
+        for (const auto &var : free_vars) {
             if (arg_names.insert(var.name).second) {
                 args.push_back(var);
             }
@@ -173,7 +175,8 @@ struct LowerScansImpl : public Mutator {
         std::vector<Stmt> stmts;
         stmts.reserve(ids.size());
 
-        internal_assert(!args.empty() && args.front().type.is<BVH_t>()) << args.front();
+        internal_assert(!args.empty() && args.front().type.is<BVH_t>())
+            << args.front();
         std::string bvh_name = args.front().type.as<BVH_t>()->name;
 
         Expr callable = get_or_build_callable();
@@ -199,7 +202,7 @@ struct LowerScansImpl : public Mutator {
 } // namespace
 
 ir::FuncMap LowerScans::run(ir::FuncMap funcs,
-                               const CompilerOptions &options) const {
+                            const CompilerOptions &options) const {
     LowerScansImpl lowerer;
     for (const auto &[name, func] : funcs) {
         // lowerer.args = func->typedvar_argtypes();

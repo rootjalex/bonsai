@@ -1,9 +1,9 @@
 // bonsai_tree.h
 #pragma once
 
-#include <variant>
-#include <utility>
 #include <type_traits>
+#include <utility>
+#include <variant>
 
 template <typename... Ts>
 struct tree {
@@ -12,20 +12,20 @@ struct tree {
     tree() = default;
 
     template <typename T>
-    tree(T&& val) : value(std::forward<T>(val)) {}
+    tree(T &&val) : value(std::forward<T>(val)) {}
 
     // Match function: accepts a set of callables, and invokes the correct one
     template <typename... Fs>
-    decltype(auto) match(Fs&&... fs) {
+    decltype(auto) match(Fs &&...fs) {
         return std::visit(overload{std::forward<Fs>(fs)...}, value);
     }
 
     template <typename... Fs>
-    decltype(auto) match(Fs&&... fs) const {
+    decltype(auto) match(Fs &&...fs) const {
         return std::visit(overload{std::forward<Fs>(fs)...}, value);
     }
 
-private:
+  private:
     // Helper to allow overloaded lambdas
     template <typename... Fs>
     struct overload : Fs... {

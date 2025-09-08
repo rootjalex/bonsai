@@ -37,11 +37,11 @@ struct _tree_layout1 {
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;
-    MaterialSphere * prims;
+    MaterialSphere *prims;
     uint32_t count;
-    _tree_layout1 * group0_index;
+    _tree_layout1 *group0_index;
 } __attribute__((packed));
 
-void bounding_sphere(Sphere& _ret0, const Sphere& a, const Sphere& b);
-vec3_int32_t * * image(const Camera& c, const _tree_layout0& spheres);
+void bounding_sphere(Sphere &_ret0, const Sphere &a, const Sphere &b);
+vec3_int32_t **image(const Camera &c, const _tree_layout0 &spheres);
 }

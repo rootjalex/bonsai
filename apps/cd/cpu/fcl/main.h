@@ -15,7 +15,7 @@ struct __tuple_0 {
 };
 typedef uint8_t vec64_uint8_t __attribute__((vector_size(64)));
 struct __dyn_array0 {
-    __tuple_0* buffer;
+    __tuple_0 *buffer;
     int32_t size = 0;
     int32_t capacity;
     vec64_uint8_t mutex;
@@ -31,10 +31,11 @@ struct _tree_layout1 {
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;
-    Triangle* prims;
+    Triangle *prims;
     uint32_t count;
-    _tree_layout1* group0_index;
+    _tree_layout1 *group0_index;
 } __attribute__((packed));
 
-void collisions(__dyn_array0& _ret0, const _tree_layout0& triangles1, const _tree_layout0& triangles2);
+void collisions(__dyn_array0 &_ret0, const _tree_layout0 &triangles1,
+                const _tree_layout0 &triangles2);
 }

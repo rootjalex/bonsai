@@ -18,13 +18,12 @@ struct uint24_t {
 
     // Convert to uint32_t
     operator uint32_t() const {
-        return (uint32_t(data[2]) << 16) |
-               (uint32_t(data[1]) << 8)  |
+        return (uint32_t(data[2]) << 16) | (uint32_t(data[1]) << 8) |
                (uint32_t(data[0]));
     }
 
     // Assignment from uint32_t
-    uint24_t& operator=(uint32_t value) {
+    uint24_t &operator=(uint32_t value) {
         data[0] = value & 0xFF;
         data[1] = (value >> 8) & 0xFF;
         data[2] = (value >> 16) & 0xFF;
@@ -32,11 +31,9 @@ struct uint24_t {
     }
 
     // Comparison operators
-    bool operator==(const uint24_t& other) const {
+    bool operator==(const uint24_t &other) const {
         return std::memcmp(data, other.data, 3) == 0;
     }
 
-    bool operator!=(const uint24_t& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const uint24_t &other) const { return !(*this == other); }
 } __attribute__((packed));

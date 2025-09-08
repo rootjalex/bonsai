@@ -8,8 +8,8 @@
 #include <sstream>
 #include <thread>
 
-#include <unistd.h>
 #include <filesystem>
+#include <unistd.h>
 
 // TODO: port to MSVC
 

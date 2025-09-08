@@ -9,6 +9,8 @@ int main() {
     v[1] = -2;
     v[2] = 5;
 
+    std::cout << v[1] << " and " << v[2] << std::endl;
+
     print_vec(v);
 
     Sphere s;
