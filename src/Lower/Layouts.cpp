@@ -379,15 +379,18 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
 
 struct LowerUnwrapAccesses : public ir::Mutator {
     const std::string &tree_name;
+    const ir::Type &tree_layout;
     const std::string &node_type;
     const std::map<std::string, ir::Expr> &field_map;
 
     ir::MapStack<std::string, ir::Type> type_repls;
 
     LowerUnwrapAccesses(const std::string &tree_name,
+                        const ir::Type &tree_layout,
                         const std::string &node_type,
                         const std::map<std::string, ir::Expr> &field_map)
-        : tree_name(tree_name), node_type(node_type), field_map(field_map) {}
+        : tree_name(tree_name), tree_layout(tree_layout), node_type(node_type),
+          field_map(field_map) {}
 
     ir::Expr visit(const ir::Var *node) override {
         if (auto new_type = type_repls.from_frames(node->name)) {
@@ -476,6 +479,81 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             return node;
         }
         return make_tuple(std::move(values));
+    }
+
+    std::string get_tree_name(const ir::Expr &expr) const {
+        struct Getter : public ir::Visitor {
+            std::string name;
+            void visit(const ir::Unwrap *node) override {
+                internal_assert(node->value.is<ir::Var>())
+                    << "[unimplemented] Unwrap on non-Var: " << ir::Expr(node);
+
+                internal_assert(name.empty())
+                    << name << " when finding: " << ir::Expr(node);
+                name = node->value.as<ir::Var>()->name;
+            }
+        };
+        Getter getter;
+        expr.accept(&getter);
+        internal_assert(!getter.name.empty())
+            << "get_tree_name failed on: " << expr;
+        return getter.name;
+    }
+
+    ir::Expr make_new_call(const std::vector<ir::Expr> &args, size_t added_idx,
+                           const ir::Expr &call) {
+        // Need to change function signature of function
+        const ir::Var *var = call.as<ir::Var>();
+        internal_assert(var) << call;
+        const ir::Function_t *func_t = var->type.as<ir::Function_t>();
+        internal_assert(func_t) << call;
+
+        std::vector<ir::Function_t::ArgSig> arg_types(args.size());
+
+        for (size_t i = 0; i < args.size(); i++) {
+            arg_types[i].type = args[i].type();
+            arg_types[i].is_mutable =
+                (added_idx == i)
+                    ? false
+                    : ((added_idx < i) ? func_t->arg_types[i - 1].is_mutable
+                                       : func_t->arg_types[i].is_mutable);
+        }
+
+        ir::Type new_func_t =
+            ir::Function_t::make(func_t->ret_type, std::move(arg_types));
+        return ir::Var::make(std::move(new_func_t), var->name);
+    }
+
+    ir::Stmt visit(const ir::CallStmt *node) override {
+        bool not_changed = true;
+        const size_t n = node->args.size();
+        std::vector<ir::Expr> new_args(n);
+        size_t partition = 0;
+        for (size_t i = 0; i < n; i++) {
+            ir::Expr repl = mutate(node->args[i]);
+            bool changed = !repl.same_as(node->args[i]);
+            if (changed && node->args[i].type().is<ir::Ref_t>()) {
+                std::string t = get_tree_name(node->args[i]);
+                if (t == tree_name) {
+                    partition = i + 1;
+                }
+            }
+            new_args[i] = std::move(repl);
+            not_changed = not_changed && !changed;
+        }
+
+        if (partition) {
+            ir::Expr new_arg = ir::Var::make(tree_layout, tree_name);
+            new_args.insert(new_args.begin() + partition, new_arg);
+            ir::Expr new_func = make_new_call(new_args, partition, node->func);
+            return ir::CallStmt::make(std::move(new_func), std::move(new_args));
+        }
+
+        if (not_changed) {
+            return node;
+        }
+        // Assume the func can't be mutated.
+        return ir::CallStmt::make(node->func, std::move(new_args));
     }
 };
 
@@ -659,9 +737,9 @@ struct LowerMatches : public ir::Mutator {
             }
 
             // Lower these Unwraps.
-            ir::Stmt branch_body =
-                LowerUnwrapAccesses(tree_name, branch_name, field_map)
-                    .mutate(arm.second);
+            ir::Stmt branch_body = LowerUnwrapAccesses(tree_name, struct_type,
+                                                       branch_name, field_map)
+                                       .mutate(arm.second);
 
             body = FillHole(branch_name, std::move(branch_body))
                        .mutate(std::move(body));
@@ -820,9 +898,43 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     for (auto &[fname, func] : program.funcs) {
-        for (auto &arg : func->args) {
-            if (types.contains(arg.name)) {
-                arg.type = types.at(arg.name);
+        if (fname.starts_with("_scan")) {
+
+            std::vector<ir::Function::Argument> new_args;
+
+            // All arguments except the last are trees and should be replaced.
+            for (size_t i = 0; i + 1 < func->args.size(); ++i) {
+                const auto &arg = func->args[i];
+
+                // Replace type if mapped
+                auto type_it = types.find(arg.name);
+                internal_assert(type_it != types.end())
+                    << arg.name << "in _scan has no layout.";
+
+                auto layout = tree_layouts.find(arg.name);
+                internal_assert(layout != tree_layouts.end())
+                    << arg.name << "in _scan has no layout.";
+
+                // Get index struct and expand its fields as args
+                auto index_type = get_index_type(layout->second);
+
+                // Each needs to also accept the arguments returned by
+                // `get_index_type(layout)` using the layout associated with
+                // that tree type.
+                for (const auto &idx_t : index_type) {
+                    new_args.emplace_back(arg.name + "_" + idx_t.name,
+                                          idx_t.type);
+                }
+
+                new_args.emplace_back(arg.name, type_it->second);
+            }
+            new_args.push_back(func->args.back()); // write location.
+            func->args = new_args;
+        } else {
+            for (auto &arg : func->args) {
+                if (types.contains(arg.name)) {
+                    arg.type = types.at(arg.name);
+                }
             }
         }
 

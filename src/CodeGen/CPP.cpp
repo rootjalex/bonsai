@@ -6,6 +6,7 @@
 #include "IR/Program.h"
 #include "IR/Type.h"
 #include "IR/Visitor.h"
+#include "Lower/TopologicalOrder.h"
 
 #include "CompilerOptions.h"
 #include "Error.h"
@@ -81,8 +82,11 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const Ref_t *node) override {
             // TODO: remove this hack after figuring out tree lowering...
+            // Assume references are indexes into a tree array.
+            // ss << "uint32_t";
+            ss << "const ";
             ss << node->name;
-            ss << " *";
+            ss << "* __restrict__ ";
         }
         // RESTRICT_VISITOR(Ref_t);
 
@@ -109,14 +113,15 @@ void emit_type(std::ostream &ss, Type type) {
         }
 
         void visit(const BVH_t *node) override {
-            ss << "tree<";
-            for (size_t i = 0, e = node->nodes.size(); i < e; i++) {
-                ss << node->nodes[i].name();
-                if (i != (e - 1)) {
-                    ss << ", ";
-                }
-            }
-            ss << ">";
+            // ss << "tree<";
+            // for (size_t i = 0, e = node->nodes.size(); i < e; i++) {
+            //     ss << node->nodes[i].name();
+            //     if (i != (e - 1)) {
+            //         ss << ", ";
+            //     }
+            // }
+            // ss << ">";
+            ss << node->name;
         }
 
         RESTRICT_VISITOR(Option_t);
@@ -249,12 +254,29 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         ss << ";\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
-        ss << "typedef ";
-        emit_type(ss, vector_t->etype);
-        ss << " ";
+        ss << "using ";
         emit_type(ss, type); // get the name
-        ss << " __attribute__((vector_size(";
-        ss << vector_t->lanes * vector_t->etype.bytes() << ")));\n";
+        ss << " = vector<";
+        emit_type(ss, vector_t->etype);
+        // ss << " __attribute__((vector_size(";
+        ss << ", " << vector_t->lanes << ">;\n";
+        return;
+    } else if (const BVH_t *bvh_t = type.as<BVH_t>()) {
+        for (const auto &node : bvh_t->nodes) {
+            // Forward declare
+            ss << "struct " << node.name() << ";\n";
+        }
+        ss << "using " << bvh_t->name << " = ";
+        ss << "tree<";
+        bool first = true;
+        for (const auto &node : bvh_t->nodes) {
+            if (!first) {
+                ss << ", ";
+            }
+            first = false;
+            ss << node.name();
+        }
+        ss << ">;\n";
         return;
     }
     internal_error << "Can't emit type declaration for: " << type;
@@ -288,7 +310,8 @@ class BonsaiToCpp : ir::Printer {
 
     void emit_signature_type(const Type &type, bool is_mutating = false,
                              bool is_return_type = false) {
-        internal_assert(!type.is<Struct_t>());
+        // TODO: understand why this was here.
+        // internal_assert(!type.is<Struct_t>()) << type;
         const bool is_const = !is_mutating && !is_return_type;
         if (is_const) {
             ss << "const ";
@@ -354,6 +377,9 @@ class BonsaiToCpp : ir::Printer {
                 types.push_back(type);
             }
         } else if (const BVH_t *bvh_t = type.as<BVH_t>()) {
+            if (auto [_, inserted] = deduplicate.insert(type); inserted) {
+                types.push_back(type);
+            }
             for (const auto &node : bvh_t->nodes) {
                 get_declared_types(node.struct_type, deduplicate, types);
                 for (const auto &annot : node.annotations) {
@@ -369,6 +395,14 @@ class BonsaiToCpp : ir::Printer {
     void emit_program(const Program &program) {
         std::set<Type> deduplicate;
         std::vector<Type> exported_types;
+
+        // Any generated structs might be used in code generated,
+        // and therefore must be ommitted.
+        for (const auto &[name, type] : program.types) {
+            if (name.starts_with("_tree"))
+                get_declared_types(type, deduplicate, exported_types);
+        }
+
         for (const auto &[_, func] : program.funcs) {
             if (!func->is_exported()) {
                 continue;
@@ -405,8 +439,7 @@ class BonsaiToCpp : ir::Printer {
             ss << '\n' << "extern \"C\"";
             ss << ' ' << '{' << '\n';
         } else {
-            ss << "#include \"runtime/bonsai_cpp.h\""
-               << '\n'; // c++ runtime types.
+            ss << "#include \"runtime/bonsai_cpp.h\"\n\n";
         }
     }
 
@@ -418,8 +451,16 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void emit_funcs(const FuncMap &funcs) {
-        // TODO: ordering?
-        for (const auto &[_, func] : funcs) {
+        const std::vector<std::string> topological_order =
+            lower::func_topological_order(funcs,
+                                          /*undef_calls=*/false);
+
+        for (int i = 0, e = topological_order.size(); i < e; ++i) {
+            const std::string &name = topological_order[i];
+            const auto &it = funcs.find(name);
+            internal_assert(it != funcs.end());
+            const auto &func = it->second;
+
             ss << get_indent();
             emit_func_header(*func);
             ss << " {\n";
@@ -444,7 +485,24 @@ class BonsaiToCpp : ir::Printer {
     // void print(const UnOp::OpType &op);
     // void visit(const UnOp *) override;
     // void visit(const Select *) override;
-    // void visit(const Cast *) override;
+    void visit(const Cast *node) override {
+        if (node->mode == Cast::Mode::Reinterpret) {
+            ss << "reinterpret<";
+            emit_type(ss, node->type);
+            ss << ">(";
+            print_no_parens(node->value);
+            ss << ")";
+            return;
+        } else {
+            ss << "(";
+            emit_type(ss, node->type);
+            ss << ")(";
+            print_no_parens(node->value);
+            ss << ")";
+            return;
+        }
+        internal_error << "TODO: cast C++ codegen: " << Expr(node);
+    }
     // void visit(const Broadcast *) override;
     // void print(const VectorReduce::OpType &op);
     // void visit(const VectorReduce *) override;
@@ -452,7 +510,15 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Ramp *) override;
     // void visit(const Extract *) override;
     // void visit(const Build *) override;
-    // void visit(const Access *) override;
+    void visit(const Access *node) override {
+        if (node->type.is<Ref_t>()) {
+            ss << "(*"; // deref
+        }
+        ir::Printer::visit(node);
+        if (node->type.is<Ref_t>()) {
+            ss << ")";
+        }
+    }
     void visit(const Unwrap *node) override {
         // TODO: be less hacky about this. relies on current Match lowering.
         print_no_parens(node->value);
@@ -525,7 +591,12 @@ class BonsaiToCpp : ir::Printer {
             increment();
             print(arm.second);
             decrement();
-            ss << get_indent() << "},\n";
+            ss << get_indent() << "}";
+            if (i != (e - 1)) {
+                ss << ",\n";
+            } else {
+                ss << "\n";
+            }
         }
         decrement();
         ss << get_indent() << ");\n";
@@ -534,11 +605,37 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Iterate *) override;
     // void visit(const Scan *) override;
     // void visit(const YieldFrom *) override;
-    // void visit(const ForAll *) override;
+    void visit(const ForAll *node) override {
+        ss << get_indent();
+        ss << "for (";
+        emit_type(ss, node->slice.begin.type());
+        ss << " " << node->index << " = ";
+        print_no_parens(node->slice.begin);
+        ss << "; " << node->index << " < ";
+        print_no_parens(node->slice.end);
+        ss << "; " << node->index << " += ";
+        print_no_parens(node->slice.stride);
+        ss << ") {\n";
+        increment();
+        print(node->body);
+        decrement();
+        ss << get_indent() << "}\n";
+    }
     // void visit(const ForEach *) override;
     // void visit(const Continue *) override;
     // void visit(const Launch *) override;
-    // void visit(const Append *) override;
+    void visit(const Append *node) override {
+        ss << get_indent();
+        print(node->loc);
+        ss << ".push_back(";
+        print_no_parens(node->value);
+        // if (node->value.type().is<Array_t>() &&
+        // !node->loc.type.is<Array_t>()) {
+        //     ss << ", ";
+        //     print_no_parens(node->value.type().as<Array_t>()->size);
+        // }
+        ss << ");\n";
+    }
 };
 
 } // namespace

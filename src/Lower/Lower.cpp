@@ -20,6 +20,7 @@
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
 #include "Lower/ReturnToOutParameter.h"
+#include "Lower/Scans.h"
 #include "Lower/Sorts.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
@@ -94,6 +95,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<LowerRandom>();
+    manager.register_pass<LowerScans>();
     manager.register_pass<LowerRecLoops>();
     manager.register_pass<ReturnToOutParameter>();
     manager.register_pass<RenamePointerToExpr>();
@@ -129,6 +131,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerRandom>());
     core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
+    core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerOptions>());
@@ -168,6 +171,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerRandom>());
     d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
+    d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerOptions>());

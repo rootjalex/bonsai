@@ -77,6 +77,7 @@ struct LowerToForAll : public ir::Mutator {
         ir::Expr iterable = node->iter;
 
         ir::Expr end = get_n(iterable.type());
+        internal_assert(end.defined()) << ir::Stmt(node);
         ir::Expr begin = make_zero(end.type());
         ir::Expr stride = make_one(end.type());
 

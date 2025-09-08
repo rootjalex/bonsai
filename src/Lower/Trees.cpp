@@ -642,47 +642,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         const ir::BVH_t *bvh = tree.as<ir::BVH_t>();
         internal_assert(bvh);
 
-        ir::Expr bvh_expr = ir::Var::make(tree, as_var->name);
-
-        const size_t n_nodes = bvh->nodes.size();
-        ir::Match::Arms arms(n_nodes);
-        for (size_t i = 0; i < n_nodes; i++) {
-            ir::Expr node = ir::Unwrap::make(i, bvh_expr);
-            const auto [data, children] =
-                analyze_node(bvh->nodes[i], as_var->type.element_of());
-
-            std::vector<ir::Stmt> stmts(data.size() + !children.empty());
-            // TODO: visit order should be scheduable?
-            for (size_t i = 0; i < data.size(); i++) {
-                ir::Expr access = ir::Access::make(data[i].name, node);
-                if (data[i].type.is_iterable()) {
-                    // forall d in data: yield d
-                    stmts[i] = ir::Iterate::make(std::move(access));
-                } else {
-                    // yield d
-                    stmts[i] = ir::Yield::make(std::move(access));
-                }
-            }
-            if (!children.empty()) {
-                std::vector<ir::Expr> cs;
-                cs.reserve(children.size());
-                for (const auto &c : children) {
-                    cs.push_back(ir::Access::make(c.name, node));
-                }
-                stmts.back() = ir::Scan::make(make_tuple(cs));
-            }
-
-            arms[i].first = bvh->nodes[i];
-            internal_assert(!stmts.empty());
-            if (stmts.size() == 1) {
-                // Special case.
-                arms[i].second = stmts[0];
-            } else {
-                arms[i].second = ir::Sequence::make(std::move(stmts));
-            }
-        }
-        ir::Expr var = ir::Var::make(tree, as_var->name);
-        return ir::Match::make(std::move(var), std::move(arms));
+        return build_base_scan(as_var->name, bvh);
     }
 
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
@@ -798,6 +758,57 @@ struct LowerBVH : public ir::Mutator {
 };
 
 } // namespace
+
+ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
+    ir::Expr bvh_expr = ir::Var::make(bvh_t, name);
+
+    const size_t n_nodes = bvh_t->nodes.size();
+    ir::Match::Arms arms(n_nodes);
+    for (size_t i = 0; i < n_nodes; i++) {
+        ir::Expr node = ir::Unwrap::make(i, bvh_expr);
+        const auto [data, children] =
+            analyze_node(bvh_t->nodes[i], bvh_t->primitive);
+
+        std::vector<ir::Stmt> stmts(data.size() + !children.empty());
+        // TODO: visit order should be scheduable?
+        for (size_t i = 0; i < data.size(); i++) {
+            ir::Expr access = ir::Access::make(data[i].name, node);
+            if (data[i].type.is_iterable()) {
+                // forall d in data: yield d
+                if (data[i].type.is<ir::Array_t>() &&
+                    data[i].type.as<ir::Array_t>()->size.defined() &&
+                    !is_const(data[i].type.as<ir::Array_t>()->size)) {
+                    // Size must be a parameter of the type, need to change the
+                    // size somehow...
+                    internal_error
+                        << "TODO: handle array size in tree params\n";
+                }
+                stmts[i] = ir::Iterate::make(std::move(access));
+            } else {
+                // yield d
+                stmts[i] = ir::Yield::make(std::move(access));
+            }
+        }
+        if (!children.empty()) {
+            std::vector<ir::Expr> cs;
+            cs.reserve(children.size());
+            for (const auto &c : children) {
+                cs.push_back(ir::Access::make(c.name, node));
+            }
+            stmts.back() = ir::Scan::make(make_tuple(cs));
+        }
+
+        arms[i].first = bvh_t->nodes[i];
+        internal_assert(!stmts.empty());
+        if (stmts.size() == 1) {
+            // Special case.
+            arms[i].second = stmts[0];
+        } else {
+            arms[i].second = ir::Sequence::make(std::move(stmts));
+        }
+    }
+    return ir::Match::make(std::move(bvh_expr), std::move(arms));
+}
 
 ir::Program LowerTrees::run(ir::Program program,
                             const CompilerOptions &options) const {

@@ -95,6 +95,15 @@ struct Function {
         return types;
     }
 
+    std::vector<TypedVar> typedvar_argtypes() const {
+        std::vector<TypedVar> types;
+        std::transform(args.begin(), args.end(), std::back_inserter(types),
+                       [](const Function::Argument &argument) {
+                           return TypedVar{argument.name, argument.type};
+                       });
+        return types;
+    }
+
     Type call_type() const {
         internal_assert(ret_type.defined());
         return Function_t::make(ret_type, this->argument_types());
