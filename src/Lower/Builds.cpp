@@ -620,6 +620,8 @@ ir::WriteLoc get_write_loc(ir::WriteLoc loc, const std::string &name,
     internal_error << "member name: `" << name << "` not found";
 }
 
+// Returns both the `count` body and a list of generated indexes. These must be
+// added as arguments to the final `count` function.
 std::pair<ir::Stmt, std::set<ir::Expr, ir::ExprLessThan>>
 construct_count_recursive_body(const ir::BuildFunction &function,
                                const ir::Type &concretized_type,
