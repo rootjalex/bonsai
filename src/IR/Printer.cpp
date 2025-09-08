@@ -1143,6 +1143,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "abs";
     case Intrinsic::argmax:
         return "argmax";
+    case Intrinsic::ceilf:
+        return "ceilf";
     case Intrinsic::cos:
         return "cos";
     case Intrinsic::cross:
@@ -1154,6 +1156,7 @@ std::string to_string(const Intrinsic::OpType &op) {
     case Intrinsic::fadd_ru:
         return "fadd_ru";
     case Intrinsic::floorf:
+        return "floorf";
     case Intrinsic::fdiv_rd:
         return "fdiv_rd";
     case Intrinsic::fdiv_ru:
@@ -1182,6 +1185,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "pow";
     case Intrinsic::rand:
         return "rand";
+    case Intrinsic::roundf:
+        return "roundf";
     case Intrinsic::sin:
         return "sin";
     case Intrinsic::sqrt:

@@ -343,6 +343,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
     // https://llvm.org/docs/LangRef.html#standard-c-c-library-intrinsics
     enum OpType {
         abs,
+        ceilf,
         cos,
         cross,
         dot,
@@ -364,6 +365,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
         norm,
         pow,
         rand,
+        roundf,
         sin,
         sqrt,
         tan,

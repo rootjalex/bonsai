@@ -130,6 +130,7 @@ struct Parser {
             // Intrinsics
             "abs",
             "argmax",
+            "ceilf",
             "cos",
             "cross",
             "dot",
@@ -150,6 +151,7 @@ struct Parser {
             "norm",
             "pow",
             "rand",
+            "roundf",
             "sin",
             "sqrt",
             "tan",
@@ -1398,6 +1400,7 @@ struct Parser {
         static constexpr auto IPATTERNS = std::to_array<IntrinsicPattern>({
             {"abs", 1, ir::Intrinsic::abs},
             {"argmax", 1, ir::Intrinsic::argmax},
+            {"ceilf", 1, ir::Intrinsic::ceilf},
             {"cos", 1, ir::Intrinsic::cos},
             {"cross", 2, ir::Intrinsic::cross},
             {"dot", 2, ir::Intrinsic::dot},
@@ -1422,6 +1425,7 @@ struct Parser {
             // rand() can have 0 or 1 args (a seed).
             {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
+            {"roundf", 1, ir::Intrinsic::roundf},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqrt", 1, ir::Intrinsic::sqrt},
             {"tan", 1, ir::Intrinsic::tan},

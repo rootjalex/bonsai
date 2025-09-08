@@ -593,7 +593,6 @@ ir::FuncMap DCE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
 
     std::set<std::string> se_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
-        LOG_INFO << *func;
         std::set<std::string> mutable_func_args = func->mutable_args();
         func->body =
             dce(std::move(func->body), mutable_func_args, se_functions);

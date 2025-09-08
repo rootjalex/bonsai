@@ -620,16 +620,18 @@ ir::WriteLoc get_write_loc(ir::WriteLoc loc, const std::string &name,
     internal_error << "member name: `" << name << "` not found";
 }
 
-ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
-                                        const ir::Type &concretized_type,
-                                        const ir::Layout &layout,
-                                        const ir::BuildLayout &build,
-                                        const ir::Program &program) {
+std::pair<ir::Stmt, std::set<ir::Expr, ir::ExprLessThan>>
+construct_count_recursive_body(const ir::BuildFunction &function,
+                               const ir::Type &concretized_type,
+                               const ir::Layout &layout,
+                               const ir::BuildLayout &build,
+                               const ir::Program &program) {
     const auto *bvh_t = layout.type.as<ir::BVH_t>();
     internal_assert(bvh_t) << "expected ADT, received: " << layout.type;
 
     std::vector<ir::Stmt> stmts;
     std::set<std::string> counts_updated;
+    std::set<ir::Expr, ir::ExprLessThan> generated_indexes;
     for (const ir::Argument &argument : function.arguments) {
         if (argument.type.is_iterable() &&
             ir::equals(argument.type.element_of(), bvh_t->primitive)) {
@@ -696,6 +698,7 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
             // Some groups may not include a size field. We need to include one
             // for malloc'ing the correct count.
             ir::WriteLoc base(size_name(group.name()), ir::Index_t::make());
+            generated_indexes.insert(base.to_expr());
             stmts.push_back(ir::Accumulate::make(
                 std::move(base), ir::Accumulate::OpType::Add,
                 make_one(ir::Index_t::make())));
@@ -714,16 +717,10 @@ ir::Stmt construct_count_recursive_body(const ir::BuildFunction &function,
                                              ir::Accumulate::OpType::Add,
                                              make_one(size_variable->type)));
     }
-    if (stmts.empty()) {
-        // Add some dead code that will later be eliminated since an
-        // ir::Sequence cannot have zero statements.
-        ir::Type int_t = ir::Int_t::make(32);
-        stmts.push_back(
-            ir::LetStmt::make(ir::WriteLoc("dce", int_t), make_one(int_t)));
-    }
+    internal_assert(!stmts.empty()) << "[unexpected] empty count function!";
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
-    return sequence;
+    return {sequence, generated_indexes};
 }
 
 std::shared_ptr<ir::Function> construct_count_recursive(
@@ -731,12 +728,17 @@ std::shared_ptr<ir::Function> construct_count_recursive(
     const ir::Layout &layout, const ir::Program &program) {
 
     ir::Match::Arms arms;
+    std::set<ir::Expr, ir::ExprLessThan> generated_indexes;
     for (const ir::BuildFunction &function : build.functions) {
+        auto [body, indexes] = construct_count_recursive_body(
+            function, concretized_type, layout, build, program);
         arms.push_back({
             function.variant,
-            construct_count_recursive_body(function, concretized_type, layout,
-                                           build, program),
+            std::move(body),
         });
+        for (const ir::Expr &index : indexes) {
+            generated_indexes.insert(index);
+        }
     }
 
     std::string name = get_recursive_count_function_name(layout);
@@ -755,6 +757,19 @@ std::shared_ptr<ir::Function> construct_count_recursive(
             continue;
         }
         args.push_back(ir::Argument(name, type));
+    }
+    // Capture the generated indexes as well.
+    for (const ir::Expr &expr : generated_indexes) {
+        const ir::Var *v = expr.as<ir::Var>();
+        internal_assert(v) << expr;
+        if (std::any_of(args.begin(), args.end(), [&](const ir::Argument &arg) {
+                return v->name == name;
+            })) {
+            continue;
+        }
+        args.push_back(ir::Argument(v->name, v->type,
+                                    /*default_value=*/ir::Expr(),
+                                    /*mutating=*/true));
     }
     ir::Function::InterfaceList interfaces;
     std::vector<ir::Function::Attribute> attributes;
@@ -987,7 +1002,7 @@ ir::Program LowerBuilds::run(ir::Program program,
         functions.push_back(
             construct_build_full(concretized_type, build, it->second, program));
 
-        // Update free variables for function calls.
+        // Capture free variables for function calls.
         for (int i = 0, e = functions.size(); i < e; ++i) {
             for (int j = 0; j < e; ++j) {
                 functions[i]->body = update_recursive_arguments(
