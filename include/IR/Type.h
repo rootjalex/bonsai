@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <variant>
 
 namespace bonsai {
 namespace ir {
