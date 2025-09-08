@@ -119,6 +119,7 @@ target_sources(
     src/Lower/RecLoops.cpp
     src/Lower/RenamePointerToExpr.cpp
     src/Lower/ReturnToOutParameter.cpp
+    src/Lower/Scans.cpp
     src/Lower/Sorts.cpp
     src/Lower/Trees.cpp
     src/Lower/Tuples.cpp
@@ -203,6 +204,7 @@ target_sources(
     include/Lower/RecLoops.h
     include/Lower/RenamePointerToExpr.h
     include/Lower/ReturnToOutParameter.h
+    include/Lower/Scans.h
     include/Lower/Sorts.h
     include/Lower/Trees.h
     include/Lower/Tuples.h
