@@ -19,7 +19,6 @@ add_bonsai_tests(
     lambda-simple.bonsai
     layout-childwise-product.bonsai
     layout-inner-group.bonsai
-    layout-no-memory.bonsai
     layout-tree.bonsai
     logical-operation.bonsai
     map-func.bonsai

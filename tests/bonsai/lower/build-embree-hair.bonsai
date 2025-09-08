@@ -10,6 +10,9 @@ func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| 
 
 element OBB { 
   // TODO(cgyurgyik): we shouldn't need {obb,aabb}_low.
+  // This is an artifact of our path-finding algorithm that assumes paths 
+  // are unique only to identifiers. In reality, it should take into 
+  // account the variant as well.
   obb_low: f32x3; 
   obb_high: f32x3; 
 
