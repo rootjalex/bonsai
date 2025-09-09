@@ -473,7 +473,25 @@ class BonsaiToCpp : ir::Printer {
     // Exprs
     // void visit(const IntImm *) override;
     // void visit(const UIntImm *) override;
-    // void visit(const FloatImm *) override;
+    void visit(const FloatImm *node) override {
+        std::ios::fmtflags f = ss.flags();
+        std::streamsize p = ss.precision();
+
+        float val = node->value;
+
+        // Ensure float is parsed correctly in C++ by forcing float literal
+        // syntax Add 'f' suffix and a decimal point if needed
+        if (std::isnan(val)) {
+            ss << "NAN";
+        } else if (std::isinf(val)) {
+            ss << (val < 0 ? "-" : "") << "INFINITY";
+        } else {
+            ss << std::fixed << std::setprecision(8) << val << "f";
+        }
+
+        ss.flags(f);
+        ss.precision(p);
+    }
     // void visit(const BoolImm *) override;
     // void visit(const VecImm *) override;
     // void visit(const StringImm *) override;
@@ -483,7 +501,16 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const BinOp *) override;
     // void print(const UnOp::OpType &op);
     // void visit(const UnOp *) override;
-    // void visit(const Select *) override;
+    void visit(const Select *node) override {
+        ss << "(";
+        print(node->cond);
+        ss << " ? ";
+        print(node->tvalue);
+        ss << " : ";
+        print(node->fvalue);
+        ss << ")";
+    }
+
     void visit(const Cast *node) override {
         if (node->mode == Cast::Mode::Reinterpret) {
             ss << "reinterpret<";
