@@ -64,9 +64,6 @@ func intersectsp_ray_obb(r: Ray, b: OBB) -> option[FInterval] {
     tmin: f32 = max(max(tmin_x, tmin_y), tmin_z);
     tmax: f32 = min(min(tmax_x, tmax_y), tmax_z);
 
-    // TODO(cgyurgyik): is this needed? Copied from RTIOW.
-    tmax *= 1 + 2 * gamma(3);
-
     if tmin > tmax { return {}; } 
     if tmax < 0.0 { return {}; }
     return FInterval{max(tmin, 0.0), tmax};
