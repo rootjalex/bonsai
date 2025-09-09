@@ -5,6 +5,7 @@
 #include "bonsai_tree.h"
 #include "bonsai_vector.h"
 #include "u24.h"
+#include "u56.h"
 
 template <typename T, typename U>
 __attribute__((always_inline)) T reinterpret(const U &bits) {
@@ -21,4 +22,14 @@ __attribute__((always_inline)) T reinterpret(const U &bits) {
     std::memcpy(&result, &bits, sizeof(T));
     return result;
 #endif
+}
+
+using std::abs;
+using std::max;
+using std::min;
+using std::round;
+
+template <typename T>
+T sqr(const T &v) {
+    return v * v;
 }

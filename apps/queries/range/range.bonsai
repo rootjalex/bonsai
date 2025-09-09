@@ -1,6 +1,16 @@
 // ./build/compiler -i apps/queries/range/range.bonsai -b cppx -p canonicalize -p lower-externs
-extern input : set[i32];
+extern input : set[f32];
 
-func [[export]] query(low : i32, high : i32) = filter(|i : i32| low <= i && i <= high, input);
+func [[export]] range_query(low : f32, high : f32) = filter(|i : f32| low <= i && i <= high, input);
 
-func [[export]] eq_query(value : i32) = filter(|i : i32| i == value, input);
+func [[export]] eq_query(value : f32) = filter(|i : f32| i == value, input);
+
+func [[export]] abs_query(value : f32) = filter(|i : f32| abs(i) <= value, input);
+
+func [[export]] sqr_query(value : f32) = filter(|i : f32| sqr(i) <= value, input);
+
+func [[export]] round_query(value : f32) = filter(|i : f32| round(i) == value, input);
+
+func [[export]] poly_query(value : f32) = filter(|i : f32| sqr(i) - 4 * i + 3 <= 0, input);
+
+func [[export]] sqrt_query(value : f32) = filter(|i : f32| sqrt(abs(i)) <= value, input);
