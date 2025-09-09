@@ -8,6 +8,7 @@
 #include <iostream>
 
 template<typename Func>
+// k is the number of runs, m is the number of low and high runs to drop.
 int64_t benchmark_function(Func&& func, int k, int m) {
     if (2 * m >= k) {
         throw std::invalid_argument("Cannot drop more times than available runs (2 * m >= k)");
