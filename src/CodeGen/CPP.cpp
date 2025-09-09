@@ -708,7 +708,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     std::ofstream file;
     file.open(options.output_file + ".h");
     file << BonsaiToCpp().create_header(program,
-                                        /* allow_mangling */ false);
+                                        /*allow_mangling=*/false);
     file.close();
 }
 
