@@ -664,7 +664,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
         llvm::outs() << BonsaiToCpp().create_header(program,
-                                                    /* allow_mangling */ false)
+                                                    /*allow_mangling=*/false)
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -690,7 +690,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     std::ofstream file;
     file.open(options.output_file + ".h");
     file << BonsaiToCpp().create_header(program,
-                                        /* allow_mangling */ false);
+                                        /*allow_mangling=*/false);
     file.close();
 }
 
