@@ -275,6 +275,41 @@ double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
                                          sqrt_query, sqrt_query_fast, value);
 }
 
+std::pair<float, float> compute_mean_and_stdev(const std::vector<float> &data) {
+    if (data.size() < 2)
+        return {0.0f, 0.0f};
+
+    float mean = 0.0f;
+    float M2 = 0.0f;
+    size_t n = 0;
+
+    // Welford's algorithm
+    for (float x : data) {
+        ++n;
+        float delta = x - mean;
+        mean += delta / n;
+        float delta2 = x - mean;
+        M2 += delta * delta2;
+    }
+
+    return {mean, std::sqrt(M2 / (n - 1))};
+}
+
+double benchmark_stddev_query(const set<float> &input,
+                              const _tree_layout0 &tree, const int k,
+                              const int m) {
+    const auto [mean, stddev] = compute_mean_and_stdev(input.data);
+    const float stddev3 = stddev * 3;
+#ifndef PROFILE
+    std::cout << "Stdev query, mean = " << value << " stddev * 3 = " << stddev3
+              << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_queries<set<float>>("stddev_query", input, tree, k, m,
+                                         stddev_query, stddev_query_fast, mean,
+                                         stddev3);
+}
+
 template <typename T>
 void pretty_print_vector(const std::vector<T> &vec) {
     bool first = true;
@@ -310,7 +345,7 @@ int main() {
 #ifdef PROFILE
     pretty_print_vector(test_sizes);
     std::cout << std::endl;
-    static constexpr int N_BENCHMARKS = 7;
+    static constexpr int N_BENCHMARKS = 8;
     std::vector<std::pair<std::string, std::vector<double>>> results(
         N_BENCHMARKS);
     results[0].first = "range_query";
@@ -326,6 +361,8 @@ int main() {
     results[5].first = "poly_query";
     results[5].second.reserve(test_sizes.size());
     results[6].first = "sqrt_query";
+    results[6].second.reserve(test_sizes.size());
+    results[7].first = "stddev_query";
     results[6].second.reserve(test_sizes.size());
 #endif
     for (size_t size : test_sizes) {
@@ -419,6 +456,14 @@ int main() {
 #endif
             ;
 
+#ifdef PROFILE
+        results[7].second.push_back(
+#endif
+            benchmark_stddev_query(input_set, input_tree, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
         std::free(input_tree.prims);
         std::free(input_tree.group0_index);
     }

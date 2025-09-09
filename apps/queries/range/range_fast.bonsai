@@ -14,6 +14,8 @@ func [[export]] poly_query_fast(value : f32) = filter(|i : f32| sqr(i) - 4 * i +
 
 func [[export]] sqrt_query_fast(value : f32) = filter(|i : f32| sqrt(abs(i)) <= value, input);
 
+func [[export]] stddev_query_fast(mean : f32, stddev3 : f32) = filter(|i : f32| abs(i - mean) > stddev3, input);
+
 schedule {
     tree[[f32]] IntervalTree(low high : f32) with data in [low, high] =
     | Interior(left : IntervalTree, right : IntervalTree)

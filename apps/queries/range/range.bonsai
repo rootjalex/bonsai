@@ -14,3 +14,5 @@ func [[export]] round_query(value : f32) = filter(|i : f32| round(i) == value, i
 func [[export]] poly_query(value : f32) = filter(|i : f32| sqr(i) - 4 * i + 3 <= 0, input);
 
 func [[export]] sqrt_query(value : f32) = filter(|i : f32| sqrt(abs(i)) <= value, input);
+
+func [[export]] stddev_query(mean : f32, stddev3 : f32) = filter(|i : f32| abs(i - mean) > stddev3, input);
