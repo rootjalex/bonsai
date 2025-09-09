@@ -7,16 +7,58 @@
 #include <random>
 #include <set>
 
-// Helper function to generate a random set of float
+// -------- Choose one by uncommenting or defining via -D flag --------
+// #define USE_UNIFORM
+// #define USE_NORMAL
+// #define USE_EXPONENTIAL
+// #define USE_LOGNORMAL
+// #define USE_CAUCHY
+// #define USE_WEIBULL
+
 set<float> generate_random_set(std::mt19937 &rng, size_t size,
                                float min_val = -1000, float max_val = 1000) {
-    std::vector<float> result;
+    set<float> result;
+#if defined(USE_NORMAL)
+    // Centered at 0, stddev so most values fall in [min, max]
+    std::normal_distribution<float> dist(0.0f, (max_val - min_val) / 4.0f);
+
+#elif defined(USE_EXPONENTIAL)
+    // Shifted exponential: λ controls spread; result shifted by min_val
+    std::exponential_distribution<float> dist(1.0f / (max_val - min_val));
+
+#elif defined(USE_LOGNORMAL)
+    // log-normal parameters — mean and stddev of the underlying normal
+    std::lognormal_distribution<float> dist(0.0f, (max_val - min_val) / 4.0f);
+
+#elif defined(USE_CAUCHY)
+    // Heavy-tailed: median=0, scale controls width
+    std::cauchy_distribution<float> dist(0.0f, (max_val - min_val) / 10.0f);
+
+#elif defined(USE_WEIBULL)
+    // Shape > 0, scale > 0; used in survival analysis, reliability
+    std::weibull_distribution<float> dist(2.0f, (max_val - min_val) / 2.0f);
+
+#else
     std::uniform_real_distribution<float> dist(min_val, max_val);
+#endif
 
     while (result.size() < size) {
-        result.push_back(dist(rng));
+        float val = dist(rng);
+
+#if defined(USE_EXPONENTIAL)
+        val += min_val;
+#elif defined(USE_LOGNORMAL) || defined(USE_CAUCHY) || defined(USE_WEIBULL)
+        val = min_val + fmod(val, max_val - min_val); // wrap into range
+#endif
+
+        // Optional clamp for distributions that might go out of range
+        if (val < min_val || val > max_val || !std::isfinite(val))
+            continue;
+
+        result.push_back(val);
     }
-    return set<float>(std::move(result));
+
+    return result;
 }
 
 template <typename T>
@@ -166,6 +208,9 @@ double benchmark_queries(const std::string &benchmark_name,
             break;
         }
     }
+    // std::cout << benchmark_name << " -- ";
+    // std::cout << "input size: " << input.size()
+    //           << " output size: " << fast_results[0].size() << std::endl;
 #ifndef PROFILE
     std::cout << benchmark_name << "() avg time: " << avg_query_time << " ns\n";
     std::cout << benchmark_name << "_fast() avg time: " << avg_fast_time
@@ -216,7 +261,7 @@ double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Equality query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_queries<set<float>>("range_query", input, tree, k, m,
+    return benchmark_queries<set<float>>("eq_query", input, tree, k, m,
                                          eq_query, eq_query_fast, value);
 }
 
@@ -341,6 +386,19 @@ int main() {
         1ull << 23, 1ull << 24, 1ull << 25, 1ull << 26, 1ull << 27,
         // 1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
     };
+#if defined(USE_NORMAL)
+    std::cout << "normal distribution" << std::endl;
+#elif defined(USE_EXPONENTIAL)
+    std::cout << "exponential distribution" << std::endl;
+#elif defined(USE_LOGNORMAL)
+    std::cout << "lognormal distribution" << std::endl;
+#elif defined(USE_CAUCHY)
+    std::cout << "cauchy distribution" << std::endl;
+#elif defined(USE_WEIBULL)
+    std::cout << "weibull distribution" << std::endl;
+#else
+    std::cout << "uniform distribution" << std::endl;
+#endif
 
 #ifdef PROFILE
     pretty_print_vector(test_sizes);
@@ -469,9 +527,9 @@ int main() {
     }
 #ifdef PROFILE
     for (const auto &res : results) {
-        std::cout << "(" << res.first << ", ";
+        std::cout << "(\"" << res.first << "\", ";
         pretty_print_vector(res.second);
-        std::cout << ")" << std::endl;
+        std::cout << ")," << std::endl;
     }
 #endif
     return 0;
