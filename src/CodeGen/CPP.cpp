@@ -80,15 +80,7 @@ void emit_type(std::ostream &ss, Type type) {
             ss << " *";
         }
 
-        void visit(const Ref_t *node) override {
-            // TODO: remove this hack after figuring out tree lowering...
-            // Assume references are indexes into a tree array.
-            // ss << "uint32_t";
-            ss << "const ";
-            ss << node->name;
-            ss << "* __restrict__ ";
-        }
-        // RESTRICT_VISITOR(Ref_t);
+        RESTRICT_VISITOR(Ref_t);
 
         void visit(const Vector_t *node) override {
             ss << "vec" << node->lanes << "_";
@@ -112,17 +104,7 @@ void emit_type(std::ostream &ss, Type type) {
             ss << ">";
         }
 
-        void visit(const BVH_t *node) override {
-            // ss << "tree<";
-            // for (size_t i = 0, e = node->nodes.size(); i < e; i++) {
-            //     ss << node->nodes[i].name();
-            //     if (i != (e - 1)) {
-            //         ss << ", ";
-            //     }
-            // }
-            // ss << ">";
-            ss << node->name;
-        }
+        void visit(const BVH_t *node) override { ss << node->name; }
 
         RESTRICT_VISITOR(Option_t);
         // RESTRICT_VISITOR(Set_t);
@@ -477,7 +459,7 @@ class BonsaiToCpp : ir::Printer {
         std::ios::fmtflags f = ss.flags();
         std::streamsize p = ss.precision();
 
-        float val = node->value;
+        double val = node->value;
 
         // Ensure float is parsed correctly in C++ by forcing float literal
         // syntax Add 'f' suffix and a decimal point if needed
