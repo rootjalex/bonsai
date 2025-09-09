@@ -109,6 +109,20 @@ Expr product(Expr a, Expr b) {
     return SetOp::make(SetOp::product, std::move(a), std::move(b));
 }
 
+Expr abs(Expr a) { return Intrinsic::make(Intrinsic::abs, {std::move(a)}); }
+
+Expr max(Expr a, Expr b) {
+    return Intrinsic::make(Intrinsic::max, {std::move(a), std::move(b)});
+}
+
+Expr min(Expr a, Expr b) {
+    return Intrinsic::make(Intrinsic::min, {std::move(a), std::move(b)});
+}
+
+Expr round(Expr a) { return Intrinsic::make(Intrinsic::round, {std::move(a)}); }
+
+Expr sqr(Expr a) { return Intrinsic::make(Intrinsic::sqr, {std::move(a)}); }
+
 Expr sqrt(Expr a) { return Intrinsic::make(Intrinsic::sqrt, {std::move(a)}); }
 
 Expr norm(Expr a) { return Intrinsic::make(Intrinsic::norm, {std::move(a)}); }

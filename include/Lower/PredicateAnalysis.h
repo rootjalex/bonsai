@@ -14,6 +14,7 @@ struct Interval {
     bool has_upper_bound() const;
     bool has_lower_bound() const;
     bool is_bounded() const;
+    void include(const ir::Expr &e);
 
     static Interval single_point(ir::Expr a) { return Interval{a, a}; }
 };

@@ -995,8 +995,12 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "pow";
     case Intrinsic::rand:
         return "rand";
+    case Intrinsic::round:
+        return "round";
     case Intrinsic::sin:
         return "sin";
+    case Intrinsic::sqr:
+        return "sqr";
     case Intrinsic::sqrt:
         return "sqrt";
     case Intrinsic::tan:

@@ -104,7 +104,9 @@ struct Parser {
             "norm",
             "pow",
             "rand",
+            "round",
             "sin",
+            "sqr",
             "sqrt",
             "tan",
             // Set operations
@@ -1321,9 +1323,11 @@ struct Parser {
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
+            {"round", 1, ir::Intrinsic::round},
             {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
             {"sin", 1, ir::Intrinsic::sin},
+            {"sqr", 1, ir::Intrinsic::sqr},
             {"sqrt", 1, ir::Intrinsic::sqrt},
             {"tan", 1, ir::Intrinsic::tan},
         });

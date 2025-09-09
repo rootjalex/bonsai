@@ -43,6 +43,11 @@ Expr argmin(Expr metric, Expr set);
 Expr map(Expr func, Expr set);
 Expr product(Expr a, Expr b);
 
+Expr abs(Expr a);
+Expr max(Expr a, Expr b);
+Expr min(Expr a, Expr b);
+Expr round(Expr a);
+Expr sqr(Expr a);
 Expr sqrt(Expr a);
 Expr norm(Expr a);
 Expr dot(Expr a, Expr b);

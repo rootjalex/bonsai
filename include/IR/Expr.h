@@ -339,7 +339,9 @@ struct Intrinsic : ExprNode<Intrinsic> {
         norm,
         pow,
         rand,
+        round,
         sin,
+        sqr,
         sqrt,
         tan,
         // TODO: more
