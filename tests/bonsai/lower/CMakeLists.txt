@@ -5,6 +5,7 @@ add_bonsai_tests(
     build-dop14.bonsai
     build-embree-hair.bonsai
     build-extent-quantization.bonsai
+    build-inner-group.bonsai
     build-pbrt.bonsai
     collision.bonsai
     defer-dbl-buffer.bonsai
@@ -18,7 +19,6 @@ add_bonsai_tests(
     ivector.bonsai
     lambda-simple.bonsai
     layout-childwise-product.bonsai
-    layout-inner-group.bonsai
     layout-tree.bonsai
     logical-operation.bonsai
     map-func.bonsai

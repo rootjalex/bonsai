@@ -407,7 +407,6 @@ ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
     // 2. The rest are indexes of an equal constant size.
     ir::Expr constant, nonconstant;
     for (int32_t i = 0, e = mapping.size(); i < e; ++i) {
-
         const NameSize &ns = mapping[i];
         if (is_const(ns.size)) {
             if (constant.defined()) {
