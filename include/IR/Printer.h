@@ -212,6 +212,12 @@ struct Printer : public Visitor {
   protected:
     void set_indent(int _indent) { indent = _indent; }
     Indentation get_indent() const { return Indentation{indent}; }
+
+    // Increments the indentation.
+    void increment() { set_indent(get_indent().indent + 1); }
+    // Decrements the indentation.
+    void decrement() { set_indent(get_indent().indent - 1); }
+
     /** Either emits "(" or "", depending on the value of implicit_parens */
     void open();
     /** Either emits ")" or "", depending on the value of implicit_parens */

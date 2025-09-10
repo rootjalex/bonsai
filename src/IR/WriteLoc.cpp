@@ -94,7 +94,7 @@ WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
     return rebuilt;
 }
 
-ir::Expr WriteLoc::to_expr() {
+ir::Expr WriteLoc::to_expr() const {
     ir::Expr expr = ir::Var::make(base_type, base);
     for (const auto &value : this->accesses) {
         if (std::holds_alternative<std::string>(value)) {

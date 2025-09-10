@@ -143,7 +143,9 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
-    core.push_back(std::make_unique<ReturnToOutParameter>());
+    if (options.target != BackendTarget::CPPX) {
+        core.push_back(std::make_unique<ReturnToOutParameter>());
+    }
     core.push_back(std::make_unique<Mutability>());
     if (options.target == BackendTarget::CUDA) {
         // This must go after Mutability, since it requires PtrTo.
@@ -193,7 +195,9 @@ PassManager register_passes(const CompilerOptions &options) {
     // Clean up any dead functions after inlining.
     d.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.
-    d.push_back(std::make_unique<ReturnToOutParameter>());
+    if (options.target != BackendTarget::CPPX) {
+        d.push_back(std::make_unique<ReturnToOutParameter>());
+    }
     d.push_back(std::make_unique<Mutability>());
     if (options.target == BackendTarget::CUDA) {
         // This must go after Mutability, since it requires PtrTo.

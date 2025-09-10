@@ -23,6 +23,9 @@ namespace codegen {
 // purposes).
 void to_cpp(const ir::Program &program, const CompilerOptions &options);
 
+// Generates C++ source instead of LLVM module
+void to_cppx(const ir::Program &program, const CompilerOptions &options);
+
 // Emits the appropriate C++ type for a given bonsai type.
 void emit_type(std::ostream &ss, ir::Type type);
 

@@ -62,6 +62,10 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
         codegen::to_cpp(program, options);
         return EXIT_SUCCESS;
     }
+    case BackendTarget::CPPX: {
+        codegen::to_cppx(program, options);
+        return EXIT_SUCCESS;
+    }
     case BackendTarget::CUDA: {
         codegen::to_cuda(program, options);
         return EXIT_SUCCESS;

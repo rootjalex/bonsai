@@ -25,7 +25,7 @@ struct WriteLoc {
 
     bool defined() const { return !base.empty(); }
 
-    ir::Expr to_expr();
+    ir::Expr to_expr() const;
 
     static WriteLoc from(ir::Expr e);
 
