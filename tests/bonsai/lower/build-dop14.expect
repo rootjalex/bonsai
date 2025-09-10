@@ -1,25 +1,409 @@
----CODE---
-1
----STDERR---
-[internal] Error: src/Lower/Layouts.cpp:419
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH = (const BVH&)
+type DOP14 = struct DOP14{ early_exit : u1; low : f32x7; high : f32x7 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type arm_Interior = [[packed]] struct arm_Interior{ left : u32 }
+type arm_Leaf = [[packed]] struct arm_Leaf{ leaf_size : u4; tri_address : u28 }
+type dop36 = [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }
+type f32x2 = f32x2
+type f32x3 = f32x3
+type f32x3x4 = f32x3x4
+type f32x4 = f32x4
+type f32x4x3 = f32x4x3
+type f32x5 = f32x5
+type f32x6 = f32x6
+type f32x7 = f32x7
+type f32x8 = f32x8
+type f32x9 = f32x9
+type i8x3 = i8x3
+type i8x4 = i8x4
+type i8x4x3 = i8x4x3
+type i8x9 = i8x9
+type nodes = [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }
+type triangles = [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; dop36 : [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }[node_count]; nodes : [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
+type u64x4 = u64x4
+type u8x3 = u8x3
+type u8x3x4 = u8x3x4
+type vec3f = f32x3
+type vec3h = f16x3
 
---> !nonconstant.defined()
-non-constant already found: `index`
-[stack trace]
-  #16: bonsai::lower::(anonymous namespace)::fill_index_holes(bonsai::ir::Expr, bonsai::lower::(anonymous namespace)::LayoutTypeMap const&)
-  #15: bonsai::lower::(anonymous namespace)::field_in_layout(bonsai::ir::Expr const&, bonsai::ir::Member const&, bonsai::ir::MapStack<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, bonsai::ir::Expr, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, bonsai::lower::(anonymous namespace)::LayoutTypeMap const&, bonsai::ir::Layout const&, bonsai::ir::Expr const&, bool)
-  #14: bonsai::lower::(anonymous namespace)::LowerMatches::visit(bonsai::ir::Match const*)
-  #13: bonsai::ir::StmtNode<bonsai::ir::Match>::mutate_stmt(bonsai::ir::Mutator*) const
-  #12: bonsai::ir::Mutator::mutate(bonsai::ir::Stmt const&)
-  #11: bonsai::lower::(anonymous namespace)::LowerMatches::visit(bonsai::ir::RecLoop const*)
-  #10: bonsai::ir::StmtNode<bonsai::ir::RecLoop>::mutate_stmt(bonsai::ir::Mutator*) const
-  #9: bonsai::ir::Mutator::mutate(bonsai::ir::Stmt const&)
-  #8: std::__1::pair<std::__1::vector<bonsai::ir::Stmt, std::__1::allocator<bonsai::ir::Stmt>>, bool> bonsai::ir::(anonymous namespace)::visit_list<bonsai::ir::Stmt>(bonsai::ir::Mutator*, std::__1::vector<bonsai::ir::Stmt, std::__1::allocator<bonsai::ir::Stmt>> const&)
-  #7: bonsai::ir::Mutator::visit(bonsai::ir::Sequence const*)
-  #6: bonsai::ir::StmtNode<bonsai::ir::Sequence>::mutate_stmt(bonsai::ir::Mutator*) const
-  #5: bonsai::ir::Mutator::mutate(bonsai::ir::Stmt const&)
-  #4: bonsai::lower::LowerLayouts::run(bonsai::ir::Program, bonsai::CompilerOptions const&) const
-  #3: bonsai::lower::lower(bonsai::ir::Program&, bonsai::CompilerOptions const&)
-  #2: bonsai::cli::run(bonsai::cli::Flags const&)
-  #1: main
-  #0: start
+extern triangles : [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; dop36 : [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }[node_count]; nodes : [[packed]] struct nodes{ lo1 : f32x3; hi1 : f32x3; ee : u1; is_leaf_flag : u1; pad0 : u30; right : u32; split0on_is_leaf_flag : u8x4 }[node_count] }
+
+func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
+  _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
+  rec(index : u32) {
+    if (triangles.nodes[index].is_leaf_flag == 0u) {
+      if (intersects(ray, build<DOP14>(triangles.nodes[index].ee, build<f32x7>(triangles.nodes[index].lo1[0], triangles.nodes[index].lo1[1], triangles.nodes[index].lo1[2], triangles.dop36[index].lo2[0], triangles.dop36[index].lo2[1], triangles.dop36[index].lo2[2], triangles.dop36[index].lo2[3]), build<f32x7>(triangles.nodes[index].hi1[0], triangles.nodes[index].hi1[1], triangles.nodes[index].hi1[2], triangles.dop36[index].hi2[0], triangles.dop36[index].hi2[1], triangles.dop36[index].hi2[2], triangles.dop36[index].hi2[3]))) && (distmin(ray, build<DOP14>(triangles.nodes[index].ee, build<f32x7>(triangles.nodes[index].lo1[0], triangles.nodes[index].lo1[1], triangles.nodes[index].lo1[2], triangles.dop36[index].lo2[0], triangles.dop36[index].lo2[1], triangles.dop36[index].lo2[2], triangles.dop36[index].lo2[3]), build<f32x7>(triangles.nodes[index].hi1[0], triangles.nodes[index].hi1[1], triangles.nodes[index].hi1[2], triangles.dop36[index].hi2[0], triangles.dop36[index].hi2[1], triangles.dop36[index].hi2[2], triangles.dop36[index].hi2[3]))) < _best0[0])) {
+        from (reinterpret_cast<arm_Interior>(triangles.nodes[index].split0on_is_leaf_flag).left, triangles.nodes[index].right)
+      }
+    } else {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<arm_Leaf>(triangles.nodes[index].split0on_is_leaf_flag).tri_address:reinterpret_cast<arm_Leaf>(triangles.nodes[index].split0on_is_leaf_flag).tri_address + cast<u28>(reinterpret_cast<arm_Leaf>(triangles.nodes[index].split0on_is_leaf_flag).leaf_size)] {
+        if (intersects(ray, build<DOP14>(triangles.nodes[index].ee, build<f32x7>(triangles.nodes[index].lo1[0], triangles.nodes[index].lo1[1], triangles.nodes[index].lo1[2], triangles.dop36[index].lo2[0], triangles.dop36[index].lo2[1], triangles.dop36[index].lo2[2], triangles.dop36[index].lo2[3]), build<f32x7>(triangles.nodes[index].hi1[0], triangles.nodes[index].hi1[1], triangles.nodes[index].hi1[2], triangles.dop36[index].hi2[0], triangles.dop36[index].hi2[1], triangles.dop36[index].hi2[2], triangles.dop36[index].hi2[3]))) && (distmin(ray, build<DOP14>(triangles.nodes[index].ee, build<f32x7>(triangles.nodes[index].lo1[0], triangles.nodes[index].lo1[1], triangles.nodes[index].lo1[2], triangles.dop36[index].lo2[0], triangles.dop36[index].lo2[1], triangles.dop36[index].lo2[2], triangles.dop36[index].lo2[3]), build<f32x7>(triangles.nodes[index].hi1[0], triangles.nodes[index].hi1[1], triangles.nodes[index].hi1[2], triangles.dop36[index].hi2[0], triangles.dop36[index].hi2[1], triangles.dop36[index].hi2[2], triangles.dop36[index].hi2[3]))) < _best0[0])) {
+          if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
+            _best0 argmin= (distmin(ray, _iter0), _iter0)
+          }
+        }
+      }
+    }
+  }
+  yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
+}
+
+func build_triangles(CT : (const BVH&)) -> triangles {
+  ST : mut triangles
+  primitives_index : mut idx
+  dop36_index : mut idx
+  nodes_index : mut idx
+  rec_count_triangles(CT, ST)
+  alloc primitives : mut Triangle[ST.primitive_count]
+  ST.primitives = primitives
+  alloc dop36 : mut dop36[ST.node_count]
+  ST.dop36 = dop36
+  alloc nodes : mut nodes[ST.node_count]
+  ST.nodes = nodes
+  rec_build_triangles(CT, ST, nodes_index, primitives_index)
+  return ST
+}
+
+func clip(r : Ray, tmin : f32, tmax : f32, normal : f32x3, d_low : f32, d_high : f32) -> FInterval {
+  let denom = dot(r.d, normal) in
+  let t1 = (d_low - dot(r.o, normal)) / denom in
+  let t2 = (d_high - dot(r.o, normal)) / denom in
+  let new_tmin = max(tmin, min(t1, t2)) in
+  let new_tmax = min(tmax, max(t1, t2)) in
+  return build<FInterval>(new_tmin, new_tmax)
+}
+
+func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.high
+  }
+  return (f32)inf
+}
+
+func distmax_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return -(f32)inf
+  }
+}
+
+func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
+  let pts = closestPointonTriangle(p, tri) in
+  return norm(p.vec - pts[0].vec)
+}
+
+func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_DOP14(r : Ray, b : DOP14) -> f32 {
+  let interval = intersectsp_ray_dop14(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
+  let interval = intersectsp_ray_sphere(r, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return extract.low
+  }
+  return -(f32)inf
+}
+
+func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
+  let isect = intersectsp_ray_tri(ray, tri) in
+  if (cast<bool>(isect)) {
+    let isect_ = cast<TriangleIntersection>(isect) in
+    return isect_.t
+  } else {
+    return (f32)inf
+  }
+}
+
+func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
+  let low = max(a.low, b.low) in
+  let high = min(a.high, b.high) in
+  return reduce<all>(low <= high)
+}
+
+func intersects_AABB_Sphere(a : AABB, s : Sphere) -> bool {
+  let closest = max(a.low, min(s.center, a.high)) in
+  let d = s.center - closest in
+  return dot(d, d) <= (s.radius * s.radius)
+}
+
+func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
+  let center = (a.low + a.high) * f32x3(0.5f) in
+  let extents = (a.high - a.low) * f32x3(0.5f) in
+  let v0 = b.p0 - center in
+  let v1 = b.p1 - center in
+  let v2 = b.p2 - center in
+  let f0 = v1 - v0 in
+  let f1 = v2 - v1 in
+  let f2 = v0 - v2 in
+  let tri_min = min(min(v0, v1), v2) in
+  let tri_max = max(max(v0, v1), v2) in
+  if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
+    return false
+  }
+  let X = (f32x3)[1f,0f,0f] in
+  let Y = (f32x3)[0f,1f,0f] in
+  let Z = (f32x3)[0f,0f,1f] in
+  let A0 = cross(f0, X) in
+  let A1 = cross(f0, Y) in
+  let A2 = cross(f0, Z) in
+  let A3 = cross(f1, X) in
+  let A4 = cross(f1, Y) in
+  let A5 = cross(f1, Z) in
+  let A6 = cross(f2, X) in
+  let A7 = cross(f2, Y) in
+  let A8 = cross(f2, Z) in
+  if (!axis(A0, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A1, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A2, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A3, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A4, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A5, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A6, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A7, extents, v0, v1, v2)) {
+    return false
+  }
+  if (!axis(A8, extents, v0, v1, v2)) {
+    return false
+  }
+  let N = cross(f0, f1) in
+  let Rn = dot(extents, abs(N)) in
+  let dist = dot(v0, N) in
+  if ((Rn < dist) || (dist < -Rn)) {
+    return false
+  }
+  return true
+}
+
+func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
+  let interval = intersectsp_ray_aabb(r, b) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < r.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_DOP14(r : Ray, d : DOP14) -> bool {
+  let interval = intersectsp_ray_dop14(r, d) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < r.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
+  let interval = intersectsp_ray_sphere(ray, s) in
+  if (cast<bool>(interval)) {
+    let extract = cast<FInterval>(interval) in
+    return (extract.low < ray.tmax) & (0f < extract.high)
+  }
+  return false
+}
+
+func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
+  return cast<bool>(intersectsp_ray_tri(ray, tri))
+}
+
+func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
+  let eA0 = a.p1 - a.p0 in
+  let eA1 = a.p2 - a.p1 in
+  let eA2 = a.p0 - a.p2 in
+  let eB0 = b.p1 - b.p0 in
+  let eB1 = b.p2 - b.p1 in
+  let eB2 = b.p0 - b.p2 in
+  let N0 = cross(eA0, eA1) in
+  let N1 = cross(eB0, eB1) in
+  let a0 = a.p0 in
+  let a1 = a.p1 in
+  let a2 = a.p2 in
+  let b0 = b.p0 in
+  let b1 = b.p1 in
+  let b2 = b.p2 in
+  if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  let E00 = cross(eA0, eB0) in
+  let E01 = cross(eA0, eB1) in
+  let E02 = cross(eA0, eB2) in
+  let E10 = cross(eA1, eB0) in
+  let E11 = cross(eA1, eB1) in
+  let E12 = cross(eA1, eB2) in
+  let E20 = cross(eA2, eB0) in
+  let E21 = cross(eA2, eB1) in
+  let E22 = cross(eA2, eB2) in
+  if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) {
+    return false
+  }
+  return true
+}
+
+func intersectsp_ray_dop14(r : Ray, d : DOP14) -> option<FInterval> {
+  let invDir = f32x3(1f) / r.d in
+  let dirIsNeg = invDir < f32x3(0f) in
+  let b_low = build<f32x3>(d.low[0], d.low[1], d.low[2]) in
+  let b_high = build<f32x3>(d.high[0], d.high[1], d.high[2]) in
+  let low_parts = select(dirIsNeg, b_high, b_low) in
+  let high_parts = select(dirIsNeg, b_low, b_high) in
+  let tMin = (low_parts - r.o) * invDir in
+  let tMax = (high_parts - r.o) * invDir in
+  tMax *= 1f + (2f * gamma(3))
+  let tmin = max(tMin.x, max(tMin.y, tMin.z)) in
+  let tmax = min(tMax.x, min(tMax.y, tMax.z)) in
+  if (tmax < tmin) {
+    return build<option<FInterval>>()
+  }
+  if (d.early_exit) {
+    return cast<option<FInterval>>(build<FInterval>(tmin, tmax))
+  }
+  let N3 = build<f32x3>(1f, 1f, 1f) in
+  let n3 = clip(r, tmin, tmax, N3, d.low[3], d.high[3]) in
+  if (n3.high < n3.low) {
+    return build<option<FInterval>>()
+  }
+  let N4 = build<f32x3>(1f, -1f, 1f) in
+  let n4 = clip(r, n3.low, n3.high, N4, d.low[4], d.high[4]) in
+  if (n4.high < n4.low) {
+    return build<option<FInterval>>()
+  }
+  let N5 = build<f32x3>(1f, 1f, -1f) in
+  let n5 = clip(r, n4.low, n4.high, N5, d.low[5], d.high[5]) in
+  if (n5.high < n5.low) {
+    return build<option<FInterval>>()
+  }
+  let N6 = build<f32x3>(-1f, 1f, 1f) in
+  let n6 = clip(r, n5.low, n5.high, N6, d.low[6], d.high[6]) in
+  return cast<option<FInterval>>(n6)
+}
+
+func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : mut u32, primitives_index : mut idx) -> u32 {
+  match node {
+  | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    ST.nodes[this_index].lo1 = build<f32x3>(node.lo[0], node.lo[1], node.lo[2])
+    ST.nodes[this_index].hi1 = build<f32x3>(node.hi[0], node.hi[1], node.hi[2])
+    ST.dop36[this_index].lo2 = build<f32x4>(node.lo[3], node.lo[4], node.lo[5], node.lo[6])
+    ST.dop36[this_index].hi2 = build<f32x4>(node.hi[3], node.hi[4], node.hi[5], node.hi[6])
+    ST.nodes[this_index].ee = false
+    ST.nodes[this_index].is_leaf_flag = 0
+    let left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index) in
+    ST.nodes[this_index].split0on_is_leaf_flag.left = left_index
+    let right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index) in
+    ST.nodes[this_index].right = right_index
+    return this_index
+  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    ST.nodes[this_index].is_leaf_flag = 1
+    ST.nodes[this_index].ee = node.ee
+    ST.nodes[this_index].split0on_is_leaf_flag.tri_address = primitives_index
+    forall __p in [0u:node.leaf_size:1u] {
+      ST.primitives[__p + primitives_index] = node.data[__p]
+    }
+    primitives_index += node.leaf_size
+    return this_index
+  }
+}
+
+func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
+  match node {
+  | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
+    rec_count_triangles(node.left, ST)
+    rec_count_triangles(node.right, ST)
+  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
+    ST.node_count += 1u
+    ST.primitive_count += node.leaf_size
+  }
+}
+
+func [[export]] trace(ray : Ray) -> option<Triangle> {
+  return _traverse_tree0(ray, triangles)
+}
+
+
+schedule host {
+
+}

@@ -345,6 +345,42 @@ class ConstructBuild : public ir::Visitor {
         return it->type;
     }
 
+    ir::WriteLoc update_indexes(ir::WriteLoc loc,
+                                const std::vector<const ir::Group *> &groups) {
+        if (groups.size() <= 1) {
+            // Need to update the indexes.
+            return loc;
+        }
+        // TODO(cgyurgyik): generalize this.
+        internal_assert(groups.size() == 2)
+            << "[unimplemented] " << groups.size() << "-nesting of groups";
+        const ir::Group *inner = groups.front();
+        const ir::Group *outer = groups.back();
+        ir::Expr index = outer->index, size = inner->size;
+        ir::WriteLoc new_location(loc.base, loc.base_type);
+        std::string last; // save the last field accessed.
+        for (const std::variant<std::string, ir::Expr> &access : loc.accesses) {
+            if (std::holds_alternative<std::string>(access)) {
+                std::string field = std::get<std::string>(access);
+                last = field;
+                new_location.add_struct_access(field);
+                continue;
+            }
+            index = std::get<ir::Expr>(access);
+            if (outer->name == last) {
+                new_location.add_index_access(index / size);
+                last.clear();
+                continue;
+            }
+            if (inner->name == last) {
+                new_location.add_index_access(index % size);
+                last.clear();
+                continue;
+            }
+        }
+        return new_location;
+    }
+
     void visit(const ir::Append *node) {
         ir::Type index_type = ir::Index_t::make();
         ir::Member primitives_group = layout.find_primitives_group();
@@ -459,6 +495,7 @@ class ConstructBuild : public ir::Visitor {
             // This should just retrieve the field from this node.
             expr = node->field;
         }
+        loc = update_indexes(std::move(loc), visited_groups);
         append(ir::Store::make(std::move(loc), expr));
         expr.accept(this);
     }
@@ -510,36 +547,35 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
         if (groups.empty()) {
             continue;
         }
-        internal_assert(groups.size() == 1)
-            << "[unimplemented] nested groups: " << groups.size();
-        const ir::Group *group = groups.front();
-        internal_assert(!group->name.empty())
-            << "[unexpected] empty group name (at this point, each group "
-               "should have a name, whether it be user-provided or "
-               "machine-generated)";
-        if (groups_visited.contains(group->name)) {
-            continue;
-        }
-        groups_visited.insert(group->name);
+        for (const ir::Group *group : groups) {
+            internal_assert(!group->name.empty())
+                << "[unexpected] empty group name (at this point, each group "
+                   "should have a name, whether it be user-provided or "
+                   "machine-generated)";
+            if (groups_visited.contains(group->name)) {
+                continue;
+            }
+            groups_visited.insert(group->name);
+            if (!this_index_defined) {
+                ir::Type index_type = group->index.defined()
+                                          ? group->index.type()
+                                          : ir::Index_t::make();
+                std::string group_name = group->name;
+                // In the case of SoA, we just refer to the first group we come
+                // across (they all share the same index in the collection.)
+                ir::WriteLoc assign(get_index_name("this"), index_type);
+                stmts.push_back(ir::LetStmt::make(
+                    std::move(assign),
+                    ir::Var::make(index_type, get_index_name(group_name))));
 
-        ir::Type index_type =
-            group->index.defined() ? group->index.type() : ir::Index_t::make();
-        std::string group_name = group->name;
-        if (!this_index_defined) {
-            // In the case of SoA, we just refer to the first group we come
-            // across (they all share the same index in the collection.)
-            ir::WriteLoc assign(get_index_name("this"), index_type);
-            stmts.push_back(ir::LetStmt::make(
-                std::move(assign),
-                ir::Var::make(index_type, get_index_name(group_name))));
-
-            // Preemptively increment the unique index for the next element in
-            // the collection.
-            ir::WriteLoc increment(get_index_name(group_name), index_type);
-            stmts.push_back(ir::Accumulate::make(std::move(increment),
-                                                 ir::Accumulate::Add,
-                                                 make_one(index_type)));
-            this_index_defined = true;
+                // Preemptively increment the unique index for the next element
+                // in the collection.
+                ir::WriteLoc increment(get_index_name(group_name), index_type);
+                stmts.push_back(ir::Accumulate::make(std::move(increment),
+                                                     ir::Accumulate::Add,
+                                                     make_one(index_type)));
+                this_index_defined = true;
+            }
         }
     }
 
@@ -598,9 +634,10 @@ ir::WriteLoc get_write_loc(ir::WriteLoc loc, const std::string &name,
     for (const ir::BuildFunction &function : build.functions) {
         ir::WriteLoc base =
             get_write_loc(loc, layout.body, name, function.variant, layout, _);
-        if (base.defined()) {
-            return base;
+        if (!base.defined()) {
+            continue;
         }
+        return base;
     }
     internal_error << "member name: `" << name << "` not found";
 }

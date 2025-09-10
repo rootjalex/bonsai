@@ -91,8 +91,12 @@ uint64_t Member::bits() const {
     }
     case IRLayoutEnum::Group: {
         const Group *node = as<Group>();
-        internal_assert(!node->size.defined() || !is_const(node->size))
-            << "TODO: should a constant-sized group be inlined? " << *this;
+        if (node->size.defined()) {
+            if (std::optional<uint64_t> size = get_constant_value(node->size)) {
+                // treat constant sized groups as "inlined."
+                return *size * node->inner.bits();
+            }
+        }
         if (node->inner.bits() == 0) {
             return 0;
         }

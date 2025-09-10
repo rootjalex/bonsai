@@ -308,10 +308,12 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
                                       std::move(fields));
 }
 
+// TODO(cgyurgyik): misnomer, fix this.
 struct NameSize {
     std::string name;
     ir::Expr size;
 };
+
 std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
 
     struct Visit : public ir::Visitor {
@@ -356,7 +358,10 @@ std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
 }
 
 // Replace <hole> index expressions with the correct offset expression.
-// TODO(cgyurgyik): TOTAL HACK
+//
+// TODO(cgyurgyik): HACK. My approach in Builds is way cleaner since I maintain
+// a working list of groups while building up the WriteLoc. Do something similar
+// here.
 ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
     class ReplaceHole : public ir::Mutator {
       public:
@@ -388,6 +393,13 @@ ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
                                fill_index_holes(node->begin, map),
                                fill_index_holes(node->end, map),
                                fill_index_holes(node->step, map));
+    }
+    if (const auto *node = e.as<ir::Build>()) {
+        std::vector<ir::Expr> values;
+        for (const ir::Expr &value : node->values) {
+            values.push_back(fill_index_holes(value, map));
+        }
+        return ir::Build::make(node->type, std::move(values));
     }
     if (const auto *node = e.as<ir::BinOp>()) {
         return ir::BinOp::make(node->op, fill_index_holes(node->a, map),

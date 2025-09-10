@@ -57,6 +57,22 @@ func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
   yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
 }
 
+func build_triangles(CT : (const BVH&)) -> triangles {
+  ST : mut triangles
+  primitives_index : mut idx
+  volumes_index : mut idx
+  nodes_index : mut idx
+  rec_count_triangles(CT, ST)
+  alloc primitives : mut Triangle[ST.primitive_count]
+  ST.primitives = primitives
+  alloc volumes : mut volumes[ST.node_count]
+  ST.volumes = volumes
+  alloc nodes : mut nodes[ST.node_count]
+  ST.nodes = nodes
+  rec_build_triangles(CT, ST, nodes_index, primitives_index)
+  return ST
+}
+
 func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
   let interval = intersectsp_ray_aabb(r, b) in
   if (cast<bool>(interval)) {
@@ -278,42 +294,53 @@ func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
   return true
 }
 
+func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : mut u32, primitives_index : mut idx) -> u32 {
+  match node {
+  | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&), axis : u8) with AABB(low, high) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    ST.volumes[this_index / 4u].lows[this_index % 4u].low = node.low
+    ST.volumes[this_index / 4u].highs[this_index % 4u].high = node.high
+    ST.nodes[this_index].nprims = 0
+    ST.nodes[this_index].axis = argmax(node.high - node.low)
+    let left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index) in
+    let right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index) in
+    ST.nodes[this_index].split0on_nprims.offset = right_index - this_index
+    return this_index
+  | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Triangle[nprims]) with AABB(low, high) ->
+    let this_index = nodes_index in
+    nodes_index += 1u
+    ST.volumes[this_index / 4u].lows[this_index % 4u].low = node.low
+    ST.volumes[this_index / 4u].highs[this_index % 4u].high = node.high
+    ST.nodes[this_index].axis = argmax(node.high - node.low)
+    ST.nodes[this_index].nprims = node.nprims
+    ST.nodes[this_index].split0on_nprims.poffset = primitives_index
+    forall __p in [0u:node.nprims:1u] {
+      ST.primitives[__p + primitives_index] = node.data[__p]
+    }
+    primitives_index += node.nprims
+    return this_index
+  }
+}
+
+func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
+  match node {
+  | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&), axis : u8) with AABB(low, high) ->
+    ST.node_count += 1u
+    rec_count_triangles(node.left, ST)
+    rec_count_triangles(node.right, ST)
+  | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Triangle[nprims]) with AABB(low, high) ->
+    ST.node_count += 1u
+    ST.node_count += 1u
+    ST.primitive_count += node.nprims
+  }
+}
+
 func [[export]] trace(ray : Ray) -> option<Triangle> {
   return _traverse_tree0(ray, triangles)
 }
 
 
 schedule host {
-    triangles : layout triangles(index : u32) {
-  primitive_count : u32;
-  primitives : Triangle[primitive_count];
-  node_count : u32;
-  group volumes[node_count] by index {
-    group lows[4] {
-      low : f32x3;
-    };
-    group highs[4] {
-      high : f32x3;
-    };
-  };
-  group nodes[node_count] by index {
-    nprims : u16;
-    axis : u8;
-    8;
-    split nprims {
-      0 -> Interior {
-        offset : u32;
-        left = index + 1u;
-        right = index + offset;
-      };
-      _ -> Leaf {
-        poffset : u32;
-        data = primitives[poffset:poffset + cast<u32>(nprims)];
-      };
-    };
-  };
-};
-
-
 
 }
