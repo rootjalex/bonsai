@@ -3,6 +3,7 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
 #include "IR/Analysis.h"
+#include "IR/Equality.h"
 #include "IR/Program.h"
 #include "IR/Type.h"
 #include "IR/Visitor.h"
@@ -349,7 +350,8 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // Recursively acquire all *unique* types and inserted them into `types`.
-    void get_declared_types(const Type &type, std::set<Type> &deduplicate,
+    void get_declared_types(const Type &type,
+                            std::set<Type, ir::TypeLessThan> &deduplicate,
                             std::vector<Type> &types) {
         if (const Vector_t *vector_t = type.as<Vector_t>()) {
             get_declared_types(vector_t->etype, deduplicate, types);
@@ -390,7 +392,7 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void emit_program(const Program &program) {
-        std::set<Type> deduplicate;
+        std::set<Type, ir::TypeLessThan> deduplicate;
         std::vector<Type> exported_types;
 
         // Any generated structs might be used in code generated,
@@ -406,6 +408,7 @@ class BonsaiToCpp : ir::Printer {
                 get_declared_types(sig.type, deduplicate, exported_types);
             }
         }
+
         for (const Type &type : exported_types) {
             ss << get_indent();
             emit_type_declaration(ss, type);

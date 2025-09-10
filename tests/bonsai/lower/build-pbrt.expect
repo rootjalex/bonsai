@@ -12,13 +12,11 @@ struct AABB {
     vec3_float low;
     vec3_float high;
 };
-using vec3_float = vector<float, 3>;
 struct Triangle {
     vec3_float p0;
     vec3_float p1;
     vec3_float p2;
 };
-using vec3_float = vector<float, 3>;
 using vec4_uint8_t = vector<uint8_t, 4>;
 struct nodes {
     vec3_float low;
@@ -73,7 +71,6 @@ struct _option2 {
     TriangleIntersection value;
     bool set = false;
 };
-using vec3_float = vector<float, 3>;
 
 _option0 trace(const Ray& ray, const triangles& triangles);
 
