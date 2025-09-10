@@ -112,20 +112,6 @@ ir::Expr get_member_size(const ir::Member &member) {
     internal_error << "[unimplemented]: " << member;
 }
 
-std::string group_name(uint32_t count, const std::string &id,
-                       ir::Group::Type type) {
-    std::string name;
-    switch (type) {
-    case ir::Group::Type::Indirect:
-        name += "indirect_";
-        [[fallthrough]];
-    case ir::Group::Type::Direct:
-        name += "group_" + id + std::to_string(count);
-        break;
-    }
-    return name;
-}
-
 std::string split_name(uint32_t count, const std::string &field) {
     return "split" + std::to_string(count) + "on_" + field;
 }
@@ -139,7 +125,7 @@ ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
                            const ir::BVH_t::Variant &variant,
                            const ir::Layout &layout,
                            std::vector<const ir::Group *> &visited_groups) {
-    uint32_t group_count = 0, split_count = 0;
+    uint32_t split_count = 0;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
         switch (m.node_type()) {
@@ -153,8 +139,7 @@ ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            std::string field_name =
-                group_name(group_count++, node->name, node->type);
+            std::string field_name = node->name;
             ir::WriteLoc path = base;
             path.add_struct_access(field_name);
             if (node->name == field) {

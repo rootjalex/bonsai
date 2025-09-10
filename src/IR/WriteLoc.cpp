@@ -7,6 +7,23 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
+
+// Collects a list of accesses and finally returns the base expression.
+ir::Expr convert(ir::Expr e,
+                 std::vector<std::variant<std::string, Expr>> &accesses) {
+    if (const auto *ex = e.as<ir::Extract>()) {
+        accesses.push_back(ex->idx);
+        return convert(ex->vec, accesses);
+    }
+    if (const auto *ac = e.as<ir::Access>()) {
+        accesses.push_back(ac->field);
+        return convert(ac->value, accesses);
+    }
+    return e;
+}
+
+} // namespace
 
 void WriteLoc::add_struct_access(const std::string &field) {
     internal_assert(!field.empty()) << "Write location made with empty field";
@@ -87,6 +104,20 @@ ir::Expr WriteLoc::to_expr() {
         }
     }
     return expr;
+}
+
+/* static */ WriteLoc WriteLoc::from(ir::Expr e) {
+    std::vector<std::variant<std::string, Expr>> accesses;
+    ir::Expr base = convert(e, accesses);
+    std::reverse(accesses.begin(), accesses.end());
+
+    const auto *v = base.as<ir::Var>();
+    internal_assert(v) << "[unimplemented] non-variable base in "
+                          "`WriteLoc::from` conversion of: "
+                       << e;
+    WriteLoc location(v->name, v->type);
+    location.accesses = std::move(accesses);
+    return location;
 }
 
 } // namespace ir

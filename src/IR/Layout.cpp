@@ -204,8 +204,14 @@ Member Group::make(std::string name, Expr size, Expr index, Member inner,
     case Group::Type::Indirect:
         break;
     case Group::Type::Direct:
-        internal_assert(index.defined())
-            << "Cannot make direct Group: " << name << " with undefined index";
+        if (!index.defined()) {
+            // TODO(cgyurgyik): is this too restrictive? What is a realistic
+            // case where this is necessary?
+            internal_assert(is_const(size))
+                << "[unexpected] undefined index with non-constant size: "
+                << size;
+        }
+        break;
     }
     internal_assert(inner.defined())
         << "Cannot make Group: " << name << " with undefined body";

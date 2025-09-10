@@ -2673,10 +2673,11 @@ struct Parser {
             ir::Expr index;
             switch (group_type) {
             case ir::Group::Type::Direct: {
-                expect(Token::Type::BY);
-                std::string index_name = get_id();
-                index =
-                    ir::Var::make(get_type_from_frame(index_name), index_name);
+                if (consume(Token::Type::BY)) {
+                    std::string index_name = get_id();
+                    index = ir::Var::make(get_type_from_frame(index_name),
+                                          index_name);
+                }
                 break;
             }
             case ir::Group::Type::Indirect:

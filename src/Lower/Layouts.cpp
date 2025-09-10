@@ -21,6 +21,19 @@ namespace lower {
 
 namespace {
 
+// TODO(cgyurgyik): there is an underlying assumption that every layout is a
+// chain. This seems in general brittle, and breaks for arms with lookups.
+// https://www.youtube.com/watch?v=C6ZnwuhqALY&ab_channel=2ChainzVEVO
+const ir::Chain *to_chainz(const ir::Member &member) {
+    const ir::Chain *chain = member.as<ir::Chain>();
+    if (chain == nullptr) {
+        static ir::Chain *m = new ir::Chain;
+        m->members = {member};
+        return m;
+    }
+    return chain;
+}
+
 class LayoutTypeMap {
   public:
     ir::Type insert_struct_layout(const ir::Member &member,
@@ -43,9 +56,9 @@ class LayoutTypeMap {
         return type;
     }
 
-    [[maybe_unused]] ir::Type insert_group_layout(const ir::Member &member,
-                                                  const std::string &name,
-                                                  const ir::Type &type) {
+    ir::Type insert_group_layout(const ir::Member &member,
+                                 const std::string &name,
+                                 const ir::Type &type) {
         {
             auto [_, inserted] = layout_to_type.try_emplace(member, type);
             internal_assert(inserted)
@@ -77,6 +90,10 @@ class LayoutTypeMap {
     const auto &types() const { return layout_to_type; }
     const auto &names() const { return layout_to_name; }
 
+    bool contains_group(const std::string &name) const {
+        return group_map.contains(name);
+    }
+
     ir::Member group(const std::string &name) const {
         const auto it = group_map.find(name);
         internal_assert(it != group_map.cend()) << name;
@@ -106,31 +123,8 @@ class LayoutTypeMap {
 
 std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
 
-std::string group_name(uint32_t count, const std::string &index,
-                       ir::Group::Type type) {
-    std::string name;
-    if (type == ir::Group::Type::Indirect) {
-        name += "indirect_";
-    }
-    name += "group_" + index + std::to_string(count);
-    return name;
-}
-
 std::string split_name(uint32_t count, const std::string &field) {
     return "split" + std::to_string(count) + "on_" + field;
-}
-
-// TODO(cgyurgyik): there is an underlying assumption that every layout is a
-// chain. This seems in general brittle, and breaks for arms with lookups.
-// https://www.youtube.com/watch?v=C6ZnwuhqALY&ab_channel=2ChainzVEVO
-const ir::Chain *to_chainz(const ir::Member &member) {
-    const ir::Chain *chain = member.as<ir::Chain>();
-    if (chain == nullptr) {
-        static ir::Chain *m = new ir::Chain;
-        m->members = {member};
-        return m;
-    }
-    return chain;
 }
 
 struct FindFromType : public ir::Visitor {
@@ -195,11 +189,11 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
 // Groups may be interdependent. This builds fields for the outer layout so that
 // materializations can references fields in other groups.
 // TODO(cgyurgyik): this is incomplete, e.g., it doesn't support visiting splits
-// and lookups.
+// and lookups. Note that compilation will still gracefully fail if a field
+// exists in an unsupported member since it won't be found.
 void add_fields(const ir::Expr &base, const ir::Member &member,
                 ir::MapStack<std::string, ir::Expr> &frames,
                 const LayoutTypeMap &ltmap, const ir::Layout &layout) {
-    uint32_t group_count = 0;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
         switch (m.node_type()) {
@@ -211,13 +205,15 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            std::string field_name =
-                group_name(group_count++, node->name, node->type);
+            std::string field_name = node->name;
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = ir::Access::make(field_name, base);
-                internal_assert(node->index.defined()) << m;
-                ir::Expr index = node->index;
+                ir::Expr index;
+                if (!index.defined()) {
+                    index = ir::Var::make(ir::Index_t::make(), "<hole>");
+                }
+
                 path = ir::Extract::make(std::move(path), index);
                 frames.maybe_add_to_frame(node->name, index);
                 add_fields(path, node->inner, frames, ltmap, layout);
@@ -252,10 +248,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
     if (auto it = ltmap.types().find(member); it != ltmap.types().cend()) {
         return it->second;
     }
-
-    uint32_t pad_count = 0;
-    uint32_t group_count = 0;
-    uint32_t split_count = 0;
+    uint32_t pad_count = 0, split_count = 0;
     ir::Struct_t::Map fields;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
@@ -275,8 +268,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             const ir::Group *node = m.as<ir::Group>();
             ir::Type base_t = layout_to_struct(node->name, node->inner, ltmap);
             ir::Type group_t = ir::Array_t::make(std::move(base_t), node->size);
-            std::string field_name =
-                group_name(group_count++, node->name, node->type);
+            std::string field_name = node->name;
             ltmap.insert_group_layout(m, field_name, group_t);
             fields.emplace_back(std::move(field_name), std::move(group_t));
 
@@ -316,13 +308,137 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
                                       std::move(fields));
 }
 
-ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
-                         ir::MapStack<std::string, ir::Expr> frames,
-                         const std::string &iter_name,
-                         const std::string &node_type, const std::string &field,
-                         const LayoutTypeMap &ltmap, const ir::Layout &layout,
-                         const ir::Expr &root, bool is_lookup = false) {
-    uint32_t group_count = 0, split_count = 0;
+struct NameSize {
+    std::string name;
+    ir::Expr size;
+};
+std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
+
+    struct Visit : public ir::Visitor {
+      public:
+        Visit(const LayoutTypeMap &map) : map(map) {}
+        std::vector<NameSize> mapping;
+
+      private:
+        const LayoutTypeMap &map;
+
+        void visit(const ir::Extract *node) override {
+            const auto *idx = node->idx.as<ir::Var>();
+            if (idx == nullptr) {
+                node->vec.accept(this);
+                return;
+            }
+            if (idx->name != "<hole>") {
+                node->vec.accept(this);
+                return;
+            }
+            const auto *ac = node->vec.as<ir::Access>();
+            internal_assert(ac) << node->vec;
+            if (!map.contains_group(ac->field)) {
+                ac->value.accept(this);
+                return;
+            }
+            ir::Member group = map.group(ac->field);
+            // For non-constants, this should be the index.
+            // For constants, this should be size.
+            const auto *g = group.as<ir::Group>();
+            mapping.push_back({
+                ac->field,
+                is_const(g->size) ? g->size : g->index,
+            });
+            ac->value.accept(this);
+        }
+    };
+
+    Visit visit(map);
+    e.accept(&visit);
+    return visit.mapping;
+}
+
+// Replace <hole> index expressions with the correct offset expression.
+// TODO(cgyurgyik): TOTAL HACK
+ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
+    class ReplaceHole : public ir::Mutator {
+      public:
+        ReplaceHole(const std::vector<NameSize> &mapping) : mapping(mapping) {}
+
+        ir::Expr visit(const ir::Extract *node) override {
+            const auto *index = node->idx.as<ir::Var>();
+            if (index == nullptr || index->name != "<hole>") {
+                return ir::Mutator::visit(node);
+            }
+            const auto *access = node->vec.as<ir::Access>();
+            if (access == nullptr) {
+                return ir::Mutator::visit(node);
+            }
+            auto [name, size] = mapping.back();
+            mapping.pop_back();
+            internal_assert(name == access->field)
+                << name << " vs " << access->field;
+            return ir::Extract::make(ir::Mutator::visit(access),
+                                     std::move(size));
+        }
+
+      private:
+        std::vector<NameSize> mapping;
+    };
+
+    if (const auto *node = e.as<ir::Slice>()) {
+        return ir::Slice::make(fill_index_holes(node->value, map),
+                               fill_index_holes(node->begin, map),
+                               fill_index_holes(node->end, map),
+                               fill_index_holes(node->step, map));
+    }
+    if (const auto *node = e.as<ir::BinOp>()) {
+        return ir::BinOp::make(node->op, fill_index_holes(node->a, map),
+                               fill_index_holes(node->b, map));
+    }
+
+    std::vector<NameSize> mapping = name_to_size(e, map);
+    if (mapping.empty()) {
+        return e;
+    }
+    if (mapping.size() == 1) {
+        return ReplaceHole(mapping).mutate(e);
+    }
+    std::reverse(mapping.begin(), mapping.end());
+    // Otherwise, we make a bunch of assumptions (for now).
+    // 1. There is a single non-constant index.
+    // 2. The rest are indexes of an equal constant size.
+    ir::Expr constant, nonconstant;
+    for (int32_t i = 0, e = mapping.size(); i < e; ++i) {
+
+        const NameSize &ns = mapping[i];
+        if (is_const(ns.size)) {
+            if (constant.defined()) {
+                internal_assert(ir::equals(ns.size, constant));
+                continue;
+            }
+            constant = ns.size;
+        } else {
+            internal_assert(!nonconstant.defined())
+                << "non-constant already found: `" << nonconstant << "`";
+            nonconstant = ns.size;
+            continue;
+        }
+    }
+    // Then, we update the indexes.
+    for (int32_t i = 0, e = mapping.size(); i < e; ++i) {
+        NameSize &ns = mapping[i];
+        ns.size =
+            is_const(ns.size) ? nonconstant % constant : nonconstant / constant;
+    }
+    return ReplaceHole(mapping).mutate(e);
+}
+
+ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
+                           ir::MapStack<std::string, ir::Expr> frames,
+                           const std::string &iter_name,
+                           const std::string &node_type,
+                           const std::string &field, const LayoutTypeMap &ltmap,
+                           const ir::Layout &layout, const ir::Expr &root,
+                           bool is_lookup = false) {
+    uint32_t split_count = 0;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
         switch (m.node_type()) {
@@ -341,21 +457,20 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            std::string field_name =
-                group_name(group_count++, node->name, node->type);
+            std::string field_name = node->name;
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = ir::Access::make(field_name, base);
-                // TODO(cgyurgyik): can groups access fields from other groups?
-                // frames.push_frame();
-                internal_assert(node->index.defined()) << m;
-                ir::Expr index = node->index;
+                ir::Expr index;
+                if (!index.defined()) {
+                    index = ir::Var::make(ir::Index_t::make(), "<hole>");
+                }
+
                 path = ir::Extract::make(std::move(path), index);
                 frames.maybe_add_to_frame(node->name, index);
                 ir::Expr recurse =
-                    field_in_layout(path, node->inner, frames, iter_name,
-                                    node_type, field, ltmap, layout, root);
-                // frames.pop_frame();
+                    field_from_layout(path, node->inner, frames, iter_name,
+                                      node_type, field, ltmap, layout, root);
                 if (recurse.defined()) {
                     return recurse;
                 }
@@ -363,9 +478,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             }
             case ir::Group::Type::Indirect:
                 if (is_lookup) {
-                    ir::Expr recurse =
-                        field_in_layout(base, node->inner, frames, iter_name,
-                                        node_type, field, ltmap, layout, root);
+                    ir::Expr recurse = field_from_layout(
+                        base, node->inner, frames, iter_name, node_type, field,
+                        ltmap, layout, root);
                     internal_assert(recurse.defined());
                     return recurse;
                 }
@@ -397,8 +512,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
 
                 frames.push_frame();
                 ir::Expr recurse =
-                    field_in_layout(path, arm.member, frames, iter_name,
-                                    node_type, field, ltmap, layout, root);
+                    field_from_layout(path, arm.member, frames, iter_name,
+                                      node_type, field, ltmap, layout, root);
                 frames.pop_frame();
                 if (recurse.defined()) {
                     return recurse;
@@ -414,9 +529,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
             ir::Expr path = ir::Access::make(concretized_name, root);
             path = ir::Extract::make(path, node->index);
             frames.push_frame();
-            ir::Expr recurse =
-                field_in_layout(path, group, frames, iter_name, node_type,
-                                field, ltmap, layout, root, /*is_lookup=*/true);
+            ir::Expr recurse = field_from_layout(
+                path, group, frames, iter_name, node_type, field, ltmap, layout,
+                root, /*is_lookup=*/true);
             frames.pop_frame();
             internal_assert(recurse.defined());
             return recurse;
@@ -440,6 +555,18 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
         }
     }
     return ir::Expr();
+}
+
+ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
+                         ir::MapStack<std::string, ir::Expr> frames,
+                         const std::string &iter_name,
+                         const std::string &node_type, const std::string &field,
+                         const LayoutTypeMap &ltmap, const ir::Layout &layout,
+                         const ir::Expr &root, bool is_lookup = false) {
+    ir::Expr concretized_field =
+        field_from_layout(base, member, frames, iter_name, node_type, field,
+                          ltmap, layout, root, is_lookup);
+    return fill_index_holes(std::move(concretized_field), ltmap);
 }
 
 class GatherTreeCarriedDependencies : public ir::Visitor {
@@ -744,16 +871,19 @@ ir::Expr flatten_tuple(ir::Expr expr,
     return ir::Build::make(std::move(tuple), std::move(exprs));
 }
 
-ir::Stmt
-flatten_yield_froms(ir::Stmt body, const std::vector<ir::Argument> &root_list,
-                    const std::map<std::string, ir::Expr> &references) {
+ir::Stmt flatten_yield_froms(ir::Stmt body,
+                             const std::vector<ir::Argument> &root_list,
+                             const std::map<std::string, ir::Expr> &references,
+                             const LayoutTypeMap &map) {
     struct FlattenYieldFroms : public ir::Mutator {
         const std::vector<ir::Argument> &root_list;
         const std::map<std::string, ir::Expr> &references;
+        const LayoutTypeMap &map;
 
         FlattenYieldFroms(const std::vector<ir::Argument> &root_list,
-                          const std::map<std::string, ir::Expr> &references)
-            : root_list(root_list), references(references) {}
+                          const std::map<std::string, ir::Expr> &references,
+                          const LayoutTypeMap &map)
+            : root_list(root_list), references(references), map(map) {}
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
             std::vector<ir::Expr> ids = break_tuple(node->value);
@@ -763,7 +893,7 @@ flatten_yield_froms(ir::Stmt body, const std::vector<ir::Argument> &root_list,
             for (ir::Expr &id : ids) {
                 ir::Expr value = flatten_tuple(id, references);
                 if (!value.type().is<ir::Tuple_t>()) {
-                    flat_ids.push_back(value);
+                    flat_ids.push_back(fill_index_holes(std::move(value), map));
                     continue;
                 }
                 const ir::Tuple_t *tuple = value.type().as<ir::Tuple_t>();
@@ -781,13 +911,14 @@ flatten_yield_froms(ir::Stmt body, const std::vector<ir::Argument> &root_list,
                         << " but found type: " << tuple->etypes[i]
                         << " at index: " << i << " in: " << ir::Stmt(node);
                 }
-                flat_ids.push_back(value);
+                flat_ids.push_back(fill_index_holes(std::move(value), map));
             }
+
             return ir::YieldFrom::make(make_tuple(std::move(flat_ids)));
         }
     };
 
-    FlattenYieldFroms f(root_list, references);
+    FlattenYieldFroms f(root_list, references, map);
     return f.mutate(std::move(body));
 }
 
@@ -837,7 +968,8 @@ struct LowerMatches : public ir::Mutator {
         // Should not be in a match right now.
         internal_assert(references.empty()) << ir::Stmt(node);
         ir::Stmt body = mutate(node->body);
-        body = flatten_yield_froms(std::move(body), root_list, references);
+        body = flatten_yield_froms(std::move(body), root_list, references,
+                                   layout_type_map);
 
         references.clear();
         return ir::RecLoop::make(std::move(root_list), std::move(body));
@@ -1050,7 +1182,7 @@ ir::Program LowerLayouts::run(ir::Program program,
             }
         }
         internal_assert(found)
-            << "extern " << name << " has member but not found.\n";
+            << "extern `" << name << "` has a layout, but not found";
 
         for (const auto &[_, type] : ltmap.types()) {
             if (const auto *struct_t = type.as<ir::Struct_t>()) {

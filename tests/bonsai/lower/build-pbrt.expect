@@ -25,25 +25,25 @@ type i8x4 = i8x4
 type i8x4x3 = i8x4x3
 type i8x9 = i8x9
 type nodes = [[packed]] struct nodes{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
-type triangles = [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
+type triangles = [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes : [[packed]] struct nodes{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 type u64x4 = u64x4
 type u8x3 = u8x3
 type u8x3x4 = u8x3x4
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern triangles : [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
+extern triangles : [[packed]] struct triangles{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes : [[packed]] struct nodes{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 
 func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
   _best0 : mut (f32, Triangle) := ((f32)inf, build<Triangle>())
   rec(index : u32) {
-    if (triangles.group_nodes0[index].nprims == 0u) {
-      if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low, triangles.group_nodes0[index].high)) && (distmin(ray, build<AABB>(triangles.group_nodes0[index].low, triangles.group_nodes0[index].high)) < _best0[0])) {
-        from (index + 1u, index + reinterpret_cast<arm_Interior>(triangles.group_nodes0[index].split0on_nprims).offset)
+    if (triangles.nodes[index].nprims == 0u) {
+      if (intersects(ray, build<AABB>(triangles.nodes[index].low, triangles.nodes[index].high)) && (distmin(ray, build<AABB>(triangles.nodes[index].low, triangles.nodes[index].high)) < _best0[0])) {
+        from (index + 1u, index + reinterpret_cast<arm_Interior>(triangles.nodes[index].split0on_nprims).offset)
       }
     } else {
-      foreach _iter0 in triangles.primitives[reinterpret_cast<arm_Leaf>(triangles.group_nodes0[index].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(triangles.group_nodes0[index].split0on_nprims).poffset + cast<u32>(triangles.group_nodes0[index].nprims)] {
-        if (intersects(ray, build<AABB>(triangles.group_nodes0[index].low, triangles.group_nodes0[index].high)) && (distmin(ray, build<AABB>(triangles.group_nodes0[index].low, triangles.group_nodes0[index].high)) < _best0[0])) {
+      foreach _iter0 in triangles.primitives[reinterpret_cast<arm_Leaf>(triangles.nodes[index].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(triangles.nodes[index].split0on_nprims).poffset + cast<u32>(triangles.nodes[index].nprims)] {
+        if (intersects(ray, build<AABB>(triangles.nodes[index].low, triangles.nodes[index].high)) && (distmin(ray, build<AABB>(triangles.nodes[index].low, triangles.nodes[index].high)) < _best0[0])) {
           if (intersects(ray, _iter0) && (distmin(ray, _iter0) < _best0[0])) {
             _best0 argmin= (distmin(ray, _iter0), _iter0)
           }
@@ -62,7 +62,7 @@ func build_triangles(CT : (const BVH&)) -> triangles {
   alloc primitives : mut Triangle[ST.primitive_count]
   ST.primitives = primitives
   alloc nodes : mut nodes[ST.node_count]
-  ST.group_nodes0 = nodes
+  ST.nodes = nodes
   rec_build_triangles(CT, ST, nodes_index, primitives_index)
   return ST
 }
@@ -293,22 +293,22 @@ func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : 
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&), axis : u8) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    ST.group_nodes0[this_index].low = node.low
-    ST.group_nodes0[this_index].high = node.high
-    ST.group_nodes0[this_index].nprims = 0
-    ST.group_nodes0[this_index].axis = argmax(node.high - node.low)
+    ST.nodes[this_index].low = node.low
+    ST.nodes[this_index].high = node.high
+    ST.nodes[this_index].nprims = 0
+    ST.nodes[this_index].axis = argmax(node.high - node.low)
     let left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index) in
     let right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index) in
-    ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index
+    ST.nodes[this_index].split0on_nprims.offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Triangle[nprims]) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    ST.group_nodes0[this_index].low = node.low
-    ST.group_nodes0[this_index].high = node.high
-    ST.group_nodes0[this_index].axis = argmax(node.high - node.low)
-    ST.group_nodes0[this_index].nprims = node.nprims
-    ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index
+    ST.nodes[this_index].low = node.low
+    ST.nodes[this_index].high = node.high
+    ST.nodes[this_index].axis = argmax(node.high - node.low)
+    ST.nodes[this_index].nprims = node.nprims
+    ST.nodes[this_index].split0on_nprims.poffset = primitives_index
     forall __p in [0u:node.nprims:1u] {
       ST.primitives[__p + primitives_index] = node.data[__p]
     }

@@ -25,24 +25,24 @@ type i8x4 = i8x4
 type i8x4x3 = i8x4x3
 type i8x9 = i8x9
 type nodes = [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }
-type spheres = [[packed]] struct spheres{ wlow : f32x3; whigh : f32x3; bins : f32x3; bins_inv : f32x3; primitive_count : u32; primitives : struct Sphere{ center : f32x3; radius : f32 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }[node_count] }
+type spheres = [[packed]] struct spheres{ wlow : f32x3; whigh : f32x3; bins : f32x3; bins_inv : f32x3; primitive_count : u32; primitives : struct Sphere{ center : f32x3; radius : f32 }[primitive_count]; node_count : u32; nodes : [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }[node_count] }
 type u64x4 = u64x4
 type u8x3 = u8x3
 type u8x3x4 = u8x3x4
 type vec3f = f32x3
 type vec3h = f16x3
 
-extern spheres : [[packed]] struct spheres{ wlow : f32x3; whigh : f32x3; bins : f32x3; bins_inv : f32x3; primitive_count : u32; primitives : struct Sphere{ center : f32x3; radius : f32 }[primitive_count]; node_count : u32; group_nodes0 : [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }[node_count] }
+extern spheres : [[packed]] struct spheres{ wlow : f32x3; whigh : f32x3; bins : f32x3; bins_inv : f32x3; primitive_count : u32; primitives : struct Sphere{ center : f32x3; radius : f32 }[primitive_count]; node_count : u32; nodes : [[packed]] struct nodes{ q_min : i30; q_max : i30; pad0 : u4; nprims : u16; pad1 : u16; split0on_nprims : u8x4 }[node_count] }
 
 func _traverse_tree0(a : AABB, spheres : spheres) -> set<Sphere> {
   rec(index : u32) {
-    if (spheres.group_nodes0[index].nprims == 0u) {
-      if (intersects(a, build<AABB>(fadd_rd(spheres.wlow, dequantize(spheres.group_nodes0[index].q_min, spheres.bins)), fsub_ru(spheres.whigh, dequantize(spheres.group_nodes0[index].q_max, spheres.bins))))) {
-        from (index + 1u, index + reinterpret_cast<arm_Interior>(spheres.group_nodes0[index].split0on_nprims).offset)
+    if (spheres.nodes[index].nprims == 0u) {
+      if (intersects(a, build<AABB>(fadd_rd(spheres.wlow, dequantize(spheres.nodes[index].q_min, spheres.bins)), fsub_ru(spheres.whigh, dequantize(spheres.nodes[index].q_max, spheres.bins))))) {
+        from (index + 1u, index + reinterpret_cast<arm_Interior>(spheres.nodes[index].split0on_nprims).offset)
       }
     } else {
-      foreach _iter0 in spheres.primitives[reinterpret_cast<arm_Leaf>(spheres.group_nodes0[index].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(spheres.group_nodes0[index].split0on_nprims).poffset + cast<u32>(spheres.group_nodes0[index].nprims)] {
-        if (intersects(a, build<AABB>(fadd_rd(spheres.wlow, dequantize(spheres.group_nodes0[index].q_min, spheres.bins)), fsub_ru(spheres.whigh, dequantize(spheres.group_nodes0[index].q_max, spheres.bins))))) {
+      foreach _iter0 in spheres.primitives[reinterpret_cast<arm_Leaf>(spheres.nodes[index].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(spheres.nodes[index].split0on_nprims).poffset + cast<u32>(spheres.nodes[index].nprims)] {
+        if (intersects(a, build<AABB>(fadd_rd(spheres.wlow, dequantize(spheres.nodes[index].q_min, spheres.bins)), fsub_ru(spheres.whigh, dequantize(spheres.nodes[index].q_max, spheres.bins))))) {
           if (intersects(a, _iter0)) {
             yield _iter0
           }
@@ -71,7 +71,7 @@ func build_spheres(CT : (const BVH&)) -> spheres {
   alloc primitives : mut Sphere[ST.primitive_count]
   ST.primitives = primitives
   alloc nodes : mut nodes[ST.node_count]
-  ST.group_nodes0 = nodes
+  ST.nodes = nodes
   rec_build_spheres(CT, ST, nodes_index, primitives_index)
   return ST
 }
@@ -323,20 +323,20 @@ func rec_build_spheres(node : (const BVH&), ST : mut spheres, nodes_index : mut 
       ST.bins_inv = build_bins_inverse(node.low, node.high)
       ST.bins = build_bins(node.low, node.high)
     }
-    ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
-    ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
-    ST.group_nodes0[this_index].nprims = 0
+    ST.nodes[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
+    ST.nodes[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
+    ST.nodes[this_index].nprims = 0
     let left_index = rec_build_spheres(node.left, ST, nodes_index, primitives_index) in
     let right_index = rec_build_spheres(node.right, ST, nodes_index, primitives_index) in
-    ST.group_nodes0[this_index].split0on_nprims.offset = right_index - this_index
+    ST.nodes[this_index].split0on_nprims.offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Sphere[nprims]) with AABB(low, high) ->
     let this_index = nodes_index in
     nodes_index += 1u
-    ST.group_nodes0[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
-    ST.group_nodes0[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
-    ST.group_nodes0[this_index].nprims = node.nprims
-    ST.group_nodes0[this_index].split0on_nprims.poffset = primitives_index
+    ST.nodes[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
+    ST.nodes[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
+    ST.nodes[this_index].nprims = node.nprims
+    ST.nodes[this_index].split0on_nprims.poffset = primitives_index
     forall __p in [0u:node.nprims:1u] {
       ST.primitives[__p + primitives_index] = node.data[__p]
     }
