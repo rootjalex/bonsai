@@ -139,8 +139,10 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
-    core.push_back(std::make_unique<LowerOptions>());
-    core.push_back(std::make_unique<LowerTuples>());
+    if (options.target != BackendTarget::CPPX) {
+        core.push_back(std::make_unique<LowerOptions>());
+        core.push_back(std::make_unique<LowerTuples>());
+    }
     core.push_back(std::make_unique<LowerDynamicArrays>());
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
@@ -149,7 +151,8 @@ PassManager register_passes(const CompilerOptions &options) {
         core.push_back(std::make_unique<ReturnToOutParameter>());
     }
     core.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
+    if (options.target == BackendTarget::CUDA ||
+        options.target == BackendTarget::CPPX) {
         // This must go after Mutability, since it requires PtrTo.
         core.push_back(std::make_unique<RenamePointerToExpr>());
     }
@@ -183,9 +186,11 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
-    d.push_back(std::make_unique<LowerOptions>());
-    d.push_back(std::make_unique<LowerTuples>());
-    d.push_back(std::make_unique<LowerDynamicArrays>());
+    if (options.target != BackendTarget::CPPX) {
+        d.push_back(std::make_unique<LowerOptions>());
+        d.push_back(std::make_unique<LowerTuples>());
+        d.push_back(std::make_unique<LowerDynamicArrays>());
+    }
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
@@ -203,7 +208,8 @@ PassManager register_passes(const CompilerOptions &options) {
         d.push_back(std::make_unique<ReturnToOutParameter>());
     }
     d.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
+    if (options.target == BackendTarget::CUDA ||
+        options.target == BackendTarget::CPPX) {
         // This must go after Mutability, since it requires PtrTo.
         d.push_back(std::make_unique<RenamePointerToExpr>());
     }

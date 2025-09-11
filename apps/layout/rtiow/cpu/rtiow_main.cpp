@@ -100,8 +100,8 @@ BVH build_canonical_tree(std::vector<MaterialSphere> &spheres) {
             vec3_float center = spheres[low].s.center;
             f32 radius = spheres[low].s.radius;
             if (count == 2) {
-                Sphere merged;
-                bounding_sphere(merged, spheres[low].s, spheres[low + 1].s);
+                Sphere merged =
+                    bounding_sphere(&spheres[low].s, &spheres[low + 1].s);
                 center = merged.center;
                 radius = merged.radius;
             }
@@ -147,10 +147,8 @@ BVH build_canonical_tree(std::vector<MaterialSphere> &spheres) {
         BVH right = partition(mid, high, depth + 1);
 
         // Compute bounding volume
-        Sphere merged;
-        bounding_sphere(merged,
-                        /*a=*/get_bounding_sphere(left),
-                        /*b=*/get_bounding_sphere(right));
+        Sphere a = get_bounding_sphere(left), b = get_bounding_sphere(right);
+        Sphere merged = bounding_sphere(&a, &b);
 
         return new Interior{
             .center = merged.center,
@@ -225,7 +223,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "building canonical tree" << std::endl;
     BVH node = build_canonical_tree(spheres);
     std::cerr << "building specialized tree" << std::endl;
-    // _tree_layout0 tree = build_spheres(node);
+    Spheres tree = build_spheres(node);
 
     free_canonical_tree(node);
 
@@ -250,7 +248,7 @@ int main(int argc, char *argv[]) {
     auto t1 = clock::now();
 
     // Render
-    int *im = (int *)image(cam, tree);
+    int *im = (int *)image(&cam, tree);
 
     auto t2 = clock::now();
 

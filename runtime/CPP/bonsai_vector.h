@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -15,25 +16,86 @@ struct vector {
 
     T data[N] = {}; // Zero-initialize
 
+    // Allow initialization from a single scalar value
+    explicit vector(const T &value) {
+        for (size_t i = 0; i < N; ++i)
+            data[i] = value;
+    }
+
+    // Default constructor = zero
+    vector() = default;
+
+    // Support initializer list if needed
+    vector(std::initializer_list<T> init) {
+        size_t i = 0;
+        for (T v : init) {
+            if (i < N)
+                data[i++] = v;
+            else
+                break;
+        }
+    }
+
+    // cast
+    template <typename U>
+    explicit vector(const vector<U, N> &other) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] = static_cast<T>(other[i]);
+        }
+    }
+
     // Indexing (with bounds checking in debug builds)
     T &operator[](size_t i) {
-        if (i >= N)
-            throw std::out_of_range("vector[] index out of range");
+        assert(i < N && "index out of range!");
         return data[i];
     }
 
     const T &operator[](size_t i) const {
-        if (i >= N)
-            throw std::out_of_range("vector[] index out of range");
+        assert(i < N && "index out of range!");
         return data[i];
     }
 
-    // Comparison operators
-    bool operator==(const vector &other) const {
-        return std::memcmp(data, other.data, sizeof(data)) == 0;
+    vector operator-() const {
+        vector<T, N> result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = -data[i];
+        }
+        return result;
     }
 
-    bool operator!=(const vector &other) const { return !(*this == other); }
+    // Comparison operators
+    vector<bool, N> operator==(const vector &other) const {
+        // return std::memcmp(data, other.data, sizeof(data)) == 0;
+        vector<bool, N> result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] == other.data[i];
+        }
+        return result;
+    }
+
+    vector<bool, N> operator<(const vector &other) const {
+        vector<bool, N> result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] < other.data[i];
+        }
+        return result;
+    }
+
+    vector<bool, N> operator!=(const vector &other) const {
+        return !(*this == other);
+    }
+
+    vector<bool, N> operator>=(const vector &other) const {
+        return !((*this) < other);
+    }
+
+    vector<bool, N> operator>(const vector &other) const {
+        return other < (*this);
+    }
+
+    vector<bool, N> operator<=(const vector &other) const {
+        return !(other < (*this));
+    }
 
     vector operator+(const vector &other) const {
         vector result;
@@ -158,26 +220,117 @@ struct vector {
         return *this;
     }
 
-    // Allow initialization from a single scalar value
-    explicit vector(const T &value) {
-        for (size_t i = 0; i < N; ++i)
-            data[i] = value;
-    }
-
-    // Default constructor = zero
-    vector() = default;
-
-    // Support initializer list if needed
-    vector(std::initializer_list<T> init) {
-        size_t i = 0;
-        for (T v : init) {
-            if (i < N)
-                data[i++] = v;
-            else
-                break;
-        }
-    }
 } __attribute__((packed));
+
+template <typename T, size_t N>
+vector<T, N> max(const vector<T, N> &a, const vector<T, N> &b) {
+    vector<T, N> r;
+    for (int i = 0; i < N; ++i) {
+        r[i] = std::max(a[i], b[i]);
+    }
+    return r;
+}
+
+template <typename T, size_t N>
+vector<T, N> min(const vector<T, N> &a, const vector<T, N> &b) {
+    vector<T, N> r;
+    for (int i = 0; i < N; ++i) {
+        r[i] = std::min(a[i], b[i]);
+    }
+    return r;
+}
+
+template <typename T, size_t N>
+size_t argmax(const vector<T, N> &a) {
+    size_t p = 0;
+    T r = a[0];
+    for (int i = 1; i < N; ++i) {
+        if (r <= a[i]) {
+            continue;
+        }
+        p = i;
+        r = a[i];
+    }
+    return p;
+}
+
+template <typename T, size_t N>
+static vector<T, N> select(const vector<bool, N> &mask,
+                           const vector<T, N> &if_true,
+                           const vector<T, N> &if_false) {
+    vector<T, N> result;
+    for (size_t i = 0; i < N; ++i) {
+        result.data[i] = mask.data[i] ? if_true.data[i] : if_false.data[i];
+    }
+    return result;
+}
+
+template <typename T, size_t N>
+T dot(const vector<T, N> &a, const vector<T, N> &b) {
+    T result = a[0] * b[0];
+    for (size_t i = 1; i < N; ++i) {
+        result += a[i] * b[i];
+    }
+    return result;
+}
+
+template <typename T, size_t N>
+T norm(const vector<T, N> &v) {
+    return std::sqrt(norm_squared(v));
+}
+
+template <typename T, size_t N>
+vector<T, N> normalize(const vector<T, N> &v) {
+    return v / norm(v);
+}
+
+template <typename T>
+vector<T, 3> cross(const vector<T, 3> &a, const vector<T, 3> &b) {
+    return vector<T, 3>{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+                        a[0] * b[1] - a[1] * b[0]};
+}
+
+template <typename T, size_t N>
+vector<T, N> abs(const vector<T, N> &v) {
+    vector<T, N> result;
+    for (size_t i = 0; i < N; ++i) {
+        result.data[i] = std::abs(v[i]);
+    }
+    return result;
+}
+
+template <typename T, size_t N>
+vector<T, N> shuffle(const vector<T, N> &v,
+                     std::initializer_list<size_t> indices) {
+    vector<T, N> result;
+    size_t i = 0;
+    for (size_t idx : indices) {
+        result.data[i++] = v[idx];
+    }
+    return result;
+}
+
+template <size_t N>
+vector<bool, N> operator&(const vector<bool, N> &a, const vector<bool, N> &b) {
+    vector<bool, N> result;
+    for (size_t i = 0; i < N; ++i) {
+        result.data[i] = a[i] & b[i];
+    }
+    return result;
+}
+
+template <size_t N>
+vector<bool, N> operator|(const vector<bool, N> &a, const vector<bool, N> &b) {
+    vector<bool, N> result;
+    for (size_t i = 0; i < N; ++i) {
+        result.data[i] = a[i] | b[i];
+    }
+    return result;
+}
+
+// ################################################
+// Reductions
+// ################################################
 
 template <typename T, size_t N>
 T reduce_add(const vector<T, N> &v) {

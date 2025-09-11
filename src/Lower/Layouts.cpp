@@ -290,10 +290,9 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             // Cache the struct-type of each arm.
             for (const ir::Arm &arm : node->arms) {
                 std::string name = "arm_";
-                if (arm.name.has_value()) {
-                    name += *arm.name;
-                }
-                layout_to_struct(name, arm.member, ltmap);
+                internal_assert(arm.name.has_value()) << arm;
+                name += *arm.name;
+                layout_to_struct(std::move(name), arm.member, ltmap);
             }
             continue;
         }

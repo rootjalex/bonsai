@@ -36,7 +36,7 @@ struct RewriteMutables : public ir::Mutator {
         : mut_args(std::move(mut_args)), immut_args(std::move(immut_args)) {}
 
     ir::Expr visit(const ir::Var *node) override {
-        if (mut_args.contains(node->name) || mut_locals.contains(node->name)) {
+        if (mut_args.contains(node->name)) {
             ir::Expr var =
                 ir::Var::make(ir::Ptr_t::make(node->type), node->name);
             return ir::Deref::make(std::move(var));

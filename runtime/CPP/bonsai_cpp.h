@@ -1,6 +1,8 @@
 #pragma once
 
 #include "bonsai_benchmark.h"
+#include "bonsai_misc.h"
+#include "bonsai_random.h"
 #include "bonsai_set.h"
 #include "bonsai_tree.h"
 #include "bonsai_vector.h"
