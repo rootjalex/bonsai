@@ -12,18 +12,12 @@ PREFIX="apps/layout/rtiow/cpu"
 
 # Compile
 cmake --build build --config Debug -j
-./build/compiler -i $PREFIX/main.bonsai -o $PREFIX/main.bir
-./build/compiler -i $PREFIX/main.bonsai -b llvm -o $PREFIX/main.ll
-./build/compiler -i $PREFIX/main.bonsai -b cpp -o $PREFIX/main
-clang++ -g -std=c++20 -O3 $PREFIX/main_hook.cpp $PREFIX/main.o -o $PREFIX/bonsai.out
+./build/compiler -i $PREFIX/main.bonsai -b cppx -o $PREFIX/rtiow
+# clang++ -g -std=c++20 -O3 $PREFIX/main_hook.cpp $PREFIX/main.o -o $PREFIX/bonsai.out
 # Run
-time ./$PREFIX/bonsai.out $PREFIX/rtiow-cpu-image.ppm
+# time ./$PREFIX/bonsai.out $PREFIX/rtiow-cpu-image.ppm
+clang++ -std=c++20 -O3 -g -o $PREFIX/rtiow.out $PREFIX/rtiow_main.cpp $PREFIX/rtiow.cpp -Iruntime/CPP
 
 # Clean up
-rm $PREFIX/main.bir
-rm $PREFIX/main.ll
-rm $PREFIX/main.o
-rm $PREFIX/bonsai.out
-rm -r $PREFIX/bonsai.out.dSYM
 
 exit 0

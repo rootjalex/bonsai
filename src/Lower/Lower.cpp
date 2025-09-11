@@ -132,7 +132,9 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
     // and before Mutability
-    core.push_back(std::make_unique<LowerRandom>());
+    if (options.target != BackendTarget::CPPX) {
+        core.push_back(std::make_unique<LowerRandom>());
+    }
     core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
@@ -174,7 +176,9 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
     // and before Mutability
-    d.push_back(std::make_unique<LowerRandom>());
+    if (options.target != BackendTarget::CPPX) {
+        d.push_back(std::make_unique<LowerRandom>());
+    }
     d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());

@@ -8,7 +8,7 @@
 #include <random>
 #include <vector>
 
-#include "main.h"
+#include "rtiow.h"
 #include <cassert>
 
 constexpr uint32_t LAMBERTIAN = 0;

@@ -32,6 +32,15 @@
 
 namespace bonsai {
 namespace codegen {
+namespace {
+
+void capitalize_first(std::string &name) {
+    if (!name.empty() && std::isalpha(name.front())) {
+        name.front() = std::toupper(name.front());
+    }
+}
+
+} // namespace
 
 using namespace ir;
 
@@ -65,9 +74,14 @@ void emit_type(std::ostream &ss, Type type) {
                 internal_assert(type->is_ieee754());
                 ss << "float";
                 break;
+            case 16:
+                internal_assert(type->is_ieee754());
+                ss << "_Float16";
+                break;
             default:
-                internal_error << "unimplemented: e" << type->exponent << "m"
-                               << type->mantissa;
+                internal_error << "unimplemented: " << ir::Type(type) << " (e"
+                               << type->exponent << "m" << type->mantissa
+                               << ")";
             }
         }
 
@@ -91,7 +105,11 @@ void emit_type(std::ostream &ss, Type type) {
             node->etype.accept(this);
         }
 
-        void visit(const Struct_t *node) override { ss << node->name; }
+        void visit(const Struct_t *node) override {
+            std::string name = node->name;
+            capitalize_first(name);
+            ss << name;
+        }
 
         RESTRICT_VISITOR(Tuple_t);
 
@@ -109,10 +127,8 @@ void emit_type(std::ostream &ss, Type type) {
         void visit(const BVH_t *node) override { ss << node->name; }
 
         RESTRICT_VISITOR(Option_t);
-        // RESTRICT_VISITOR(Set_t);
         RESTRICT_VISITOR(Function_t);
         RESTRICT_VISITOR(Generic_t);
-        // RESTRICT_VISITOR(BVH_t);
         RESTRICT_VISITOR(Rand_State_t);
     };
 
@@ -215,7 +231,9 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
     auto indent = std::string(4, ' ');
 
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
-        ss << "struct" << ' ' << struct_t->name << ' ' << '{' << '\n';
+        std::string name = struct_t->name;
+        capitalize_first(name);
+        ss << "struct" << ' ' << name << ' ' << '{' << '\n';
         for (const auto &[name, child] : struct_t->fields) {
             ss << indent;
             if (const Array_t *array_t = child.as<Array_t>();
@@ -313,11 +331,11 @@ class BonsaiToCpp : ir::Printer {
         }
         if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
             emit_type(ss, ptr_t->etype);
-            ss << "&";
+            ss << "*";
         } else {
             emit_type(ss, type);
             if (!is_return_type && should_be_ref(type)) {
-                ss << "&";
+                ss << "*";
             }
         }
     }
@@ -393,23 +411,22 @@ class BonsaiToCpp : ir::Printer {
 
     void emit_program(const Program &program) {
         std::set<Type, ir::TypeLessThan> deduplicate;
-        std::vector<Type> exported_types;
+        std::vector<Type> types;
 
         // Any generated structs might be used in code generated,
         // and therefore must be emitted.
         for (const auto &[name, type] : program.types) {
-            if (name.starts_with("_tree"))
-                get_declared_types(type, deduplicate, exported_types);
+            get_declared_types(type, deduplicate, types);
         }
 
         for (const auto &[_, func] : program.funcs) {
-            get_declared_types(func->ret_type, deduplicate, exported_types);
+            get_declared_types(func->ret_type, deduplicate, types);
             for (const ir::Function_t::ArgSig &sig : func->argument_types()) {
-                get_declared_types(sig.type, deduplicate, exported_types);
+                get_declared_types(sig.type, deduplicate, types);
             }
         }
 
-        for (const Type &type : exported_types) {
+        for (const Type &type : types) {
             ss << get_indent();
             emit_type_declaration(ss, type);
         }
@@ -430,7 +447,7 @@ class BonsaiToCpp : ir::Printer {
 
         // Headers for C++ types.
         ss << "#include <cstdint>" << '\n'; // integer
-        ss << "#include \"runtime/bonsai_cpp.h\"\n\n";
+        ss << "#include \"bonsai_cpp.h\"\n\n";
 
         // Disable C++ name mangling.
         if (!allow_mangling) {
@@ -535,7 +552,13 @@ class BonsaiToCpp : ir::Printer {
     void visit(const Cast *node) override {
         switch (node->mode) {
         case Cast::Mode::Reinterpret: {
-            ss << "reinterpret<";
+            ss << "reinterpret";
+            if (node->type.is<ir::Ptr_t, ir::Array_t>()) {
+                // If this is already a pointer, just use the C++ built-in cast.
+                // (Otherwise, we use the bonsai runtime reinterpret cast.)
+                ss << "_cast";
+            }
+            ss << "<";
             emit_type(ss, node->type);
             ss << ">(";
             print_no_parens(node->value);
@@ -554,6 +577,7 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void visit(const Broadcast *node) override {
+        emit_type(ss, ir::Vector_t::make(node->value.type(), node->lanes));
         ss << "{";
         for (int i = 0, e = node->lanes; i < e; ++i) {
             node->value.accept(this);
@@ -565,8 +589,38 @@ class BonsaiToCpp : ir::Printer {
         ss << "}";
     }
 
-    // void print(const VectorReduce::OpType &op);
-    // void visit(const VectorReduce *) override;
+    void visit(const VectorReduce *node) override {
+        ss << "reduce_";
+        switch (node->op) {
+        case VectorReduce::Add:
+            ss << "add";
+            break;
+        case VectorReduce::Mul:
+            ss << "mul";
+            break;
+        case VectorReduce::And:
+            ss << "and";
+            break;
+        case VectorReduce::Or:
+            ss << "or";
+            break;
+        case VectorReduce::Max:
+            ss << "max";
+            break;
+        case VectorReduce::Min:
+            ss << "min";
+            break;
+        case VectorReduce::Idxmax:
+            ss << "idxmax";
+            break;
+        case VectorReduce::Idxmin:
+            ss << "idxmin";
+            break;
+        }
+        ss << "(";
+        node->value.accept(this);
+        ss << ")";
+    };
     // void visit(const VectorShuffle *) override;
     // void visit(const Ramp *) override;
     // void visit(const Extract *) override;
