@@ -35,6 +35,129 @@ struct vector {
 
     bool operator!=(const vector &other) const { return !(*this == other); }
 
+    vector operator+(const vector &other) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] + other.data[i];
+        }
+        return result;
+    }
+
+    vector operator-(const vector &other) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] - other.data[i];
+        }
+        return result;
+    }
+
+    vector operator*(const vector &other) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] * other.data[i];
+        }
+        return result;
+    }
+
+    vector operator/(const vector &other) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] / other.data[i];
+        }
+        return result;
+    }
+
+    // Arithmetic operators - vector + scalar
+    vector operator+(const T &scalar) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] + scalar;
+        }
+        return result;
+    }
+
+    vector operator-(const T &scalar) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] - scalar;
+        }
+        return result;
+    }
+
+    vector operator*(const T &scalar) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] * scalar;
+        }
+        return result;
+    }
+
+    vector operator/(const T &scalar) const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = data[i] / scalar;
+        }
+        return result;
+    }
+
+    // Compound assignment operators
+    vector &operator+=(const vector &other) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] += other.data[i];
+        }
+        return *this;
+    }
+
+    vector &operator-=(const vector &other) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] -= other.data[i];
+        }
+        return *this;
+    }
+
+    vector &operator*=(const vector &other) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] *= other.data[i];
+        }
+        return *this;
+    }
+
+    vector &operator/=(const vector &other) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] /= other.data[i];
+        }
+        return *this;
+    }
+
+    // Compound assignment operators with scalars
+    vector &operator+=(const T &scalar) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] += scalar;
+        }
+        return *this;
+    }
+
+    vector &operator-=(const T &scalar) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] -= scalar;
+        }
+        return *this;
+    }
+
+    vector &operator*=(const T &scalar) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] *= scalar;
+        }
+        return *this;
+    }
+
+    vector &operator/=(const T &scalar) {
+        for (size_t i = 0; i < N; ++i) {
+            data[i] /= scalar;
+        }
+        return *this;
+    }
+
     // Allow initialization from a single scalar value
     explicit vector(const T &value) {
         for (size_t i = 0; i < N; ++i)
