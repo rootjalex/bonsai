@@ -514,7 +514,7 @@ struct Simplifier : ir::Mutator {
     ir::Stmt visit(const ir::LetStmt *node) override {
         ir::Expr value = mutate(node->value);
         if (is_const(value)) {
-            name_to_immediate[node->loc.base] = value;
+            name_to_immediate[node->loc.base()] = value;
         }
         if (value.same_as(node->value)) {
             return node;
@@ -590,7 +590,7 @@ struct Simplifier : ir::Mutator {
             return ir::Mutator::visit(node);
         }
         value = mutate(std::move(value));
-        ir::Expr v = ir::Var::make(loc.type, loc.base);
+        ir::Expr v = ir::Var::make(loc.type, loc.base());
         if (ir::equals(v, value)) {
             // *a = *a;
             return ir::Stmt();

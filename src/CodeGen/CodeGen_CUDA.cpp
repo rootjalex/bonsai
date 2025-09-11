@@ -739,7 +739,7 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
         //  os << "const" << ' ';
     }
     node->loc.type.accept(this);
-    os << ' ' << node->loc.base << ' ' << '=' << ' ';
+    os << ' ' << node->loc.base() << ' ' << '=' << ' ';
     node->value.accept(this);
     os << ';' << '\n';
 }
@@ -768,7 +768,7 @@ void CodeGen_CUDA::visit(const Free *node) {
 
 void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     const Expr &value = node->value;
-    const std::string &base = node->loc.base;
+    const std::string &base = node->loc.base();
     Type type = node->loc.type;
     if (type.is<Ptr_t>()) {
         type = type.element_of();
@@ -859,7 +859,7 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
 
 void CodeGen_CUDA::visit(const Allocate *node) {
     ir::Type type = node->loc.type;
-    const std::string &b = node->loc.base;
+    const std::string &b = node->loc.base();
 
     switch (node->memory) {
     case Allocate::Memory::Stack: {
@@ -948,7 +948,7 @@ void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
 
     Expr value = node->value;
-    Type base_type = node->loc.base_type;
+    Type base_type = node->loc.base_type();
     if (base_type.is<Array_t>() && value.type().is<Array_t>()) {
         // We assume `T* = T*` is a pointer assignment.
         os << node->loc << ' ' << '=' << ' ';
@@ -959,15 +959,18 @@ void CodeGen_CUDA::visit(const Store *node) {
     if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
         os << '*';
     }
-    os << node->loc.base;
+    os << node->loc.base();
     const auto &accesses = node->loc.accesses;
     for (const auto &access : accesses) {
         if (std::holds_alternative<std::string>(access)) {
             os << "." << std::get<std::string>(access);
-        } else {
+        } else if (std::holds_alternative<ir::Expr>(access)) {
             os << "[";
             print_no_parens(std::get<Expr>(access));
             os << "]";
+        } else if (std::holds_alternative<ir::WriteLoc::Cast>(access)) {
+            // TODO(cgyurgyik): see Printer.h; this should be roughly identical.
+            internal_error << "[unimplemented] WriteLoc::Cast";
         }
     }
     os << ' ' << '=' << ' ';
@@ -979,10 +982,10 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
-    if (!node->loc.base_type.is<Array_t>()) {
+    if (!node->loc.base_type().is<Array_t>()) {
         os << '*';
     }
-    os << current.base << ' ';
+    os << current.base() << ' ';
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
@@ -1001,7 +1004,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         os << '=' << ' ';
         os << "arg" << (node->op == Accumulate::OpType::Argmax ? "max" : "min")
            << '(';
-        Var::make(current.type, current.base).accept(this);
+        Var::make(current.type, current.base()).accept(this);
         os << ',' << ' ';
         update.accept(this);
         os << ')';
@@ -1146,7 +1149,7 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
         seq->stmts[i].accept(this);
         constexpr char TID[] = "tid";
         if (const auto *seed = seq->stmts[i].as<LetStmt>();
-            !tid_seen && seed && seed->loc.base == TID) {
+            !tid_seen && seed && seed->loc.base() == TID) {
             tid_seen = true;
         }
         // TODO(cgyurgyik): We can future-proof this even more by ensuring the

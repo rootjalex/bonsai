@@ -588,20 +588,42 @@ void Printer::print(const Stmt &stmt) {
 }
 
 void Printer::print(const WriteLoc &loc) {
+    std::string ss;
     if (verbose) {
-        os << "(";
+        ss += "(";
         print(loc.type);
-        os << ")";
+        ss += ")";
     }
-    os << loc.base;
+    ss += loc.base();
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
-            os << "." << std::get<std::string>(value);
-        } else {
-            os << "[";
-            print_no_parens(std::get<Expr>(value));
-            os << "]";
+            ss += ".";
+            ss += std::get<std::string>(value);
+            continue;
         }
+        if (std::holds_alternative<ir::Expr>(value)) {
+            ss += "[";
+            ss += to_string(std::get<Expr>(value));
+            ss += "]";
+            continue;
+        }
+        if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+            auto cast = std::get<ir::WriteLoc::Cast>(value);
+            std::string b;
+            if (cast.mode == Cast::Mode::Reinterpret) {
+                b += "reinterpret";
+                b += '_';
+            }
+            b += "cast<";
+            b += to_string(cast.type);
+            b += ">(";
+            b += ss;
+            b += ")";
+            ss = std::move(b);
+            continue;
+        }
+        os << ss;
+        internal_error << "unexpected WriteLoc access type";
     }
 }
 
@@ -1406,7 +1428,7 @@ void Printer::visit(const Allocate *node) {
     }
     print(node->loc);
     os << " : mut ";
-    print(node->loc.base_type);
+    print(node->loc.base_type());
     if (node->value.defined()) {
         os << " := ";
         print_no_parens(node->value);

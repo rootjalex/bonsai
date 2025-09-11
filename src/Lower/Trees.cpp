@@ -438,7 +438,7 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
         size_t counter = 0;
 
         std::string make_temp_name() {
-            return loc.base + "_temp" + std::to_string(counter++);
+            return loc.base() + "_temp" + std::to_string(counter++);
         }
 
         using ir::Mutator::visit;
@@ -871,6 +871,19 @@ ir::Program LowerTrees::run(ir::Program program,
     // Pop tree schedule, no longer necessary.
     ir::TypeMap tree_types =
         std::move(program.schedules[ir::Target::Host].tree_types);
+
+    for (const auto &[name, type] : tree_types) {
+        if (const auto *bvh_t = type.as<ir::BVH_t>()) {
+            for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
+                if (program.types.contains(variant.name())) {
+                    continue;
+                }
+                program.types.insert(
+                    {variant.name(),
+                     ir::Struct_t::make(variant.name(), variant.fields())});
+            }
+        }
+    }
 
     LowerBVH lower(tree_types);
 

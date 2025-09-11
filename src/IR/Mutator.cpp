@@ -55,7 +55,7 @@ BuildIR Mutator::mutate(const BuildIR &ir) {
 }
 
 std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
-    WriteLoc new_loc(loc.base, loc.base_type);
+    WriteLoc new_loc(loc.base(), loc.base_type());
     bool not_changed = true;
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<Expr>(value)) {
@@ -63,8 +63,11 @@ std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
             not_changed =
                 not_changed && new_value.same_as(std::get<Expr>(value));
             new_loc.add_index_access(std::move(new_value));
-        } else {
+        } else if (std::holds_alternative<std::string>(value)) {
             new_loc.add_struct_access(std::get<std::string>(value));
+        } else if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+            auto cast = std::get<ir::WriteLoc::Cast>(value);
+            new_loc.add_cast(cast.type, cast.mode);
         }
     }
     return {std::move(new_loc), not_changed};

@@ -68,7 +68,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
         auto it = lambda_metadata.find(lambda);
         Metadata &m = it->second;
-        m.name = lhs.base;
+        m.name = lhs.base();
         return let;
     }
 

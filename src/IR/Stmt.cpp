@@ -325,7 +325,7 @@ Stmt Launch::make(std::string func, Expr n, std::vector<Expr> args) {
 }
 
 Stmt AppendStmt::make(WriteLoc loc, Expr value) {
-    internal_assert(!loc.base.empty())
+    internal_assert(!loc.base().empty())
         << "AppendStmt::make received empty allocation name";
     internal_assert(loc.type.defined())
         << "AppendStmt::make received untyped allocation";

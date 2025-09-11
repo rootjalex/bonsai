@@ -18,6 +18,24 @@ struct FInterval {
     float low;
     float high;
 };
+struct Interior {
+    vec3_float low;
+    vec3_float high;
+    BVH* left;
+    BVH* right;
+    uint8_t axis;
+};
+struct Triangle {
+    vec3_float p0;
+    vec3_float p1;
+    vec3_float p2;
+};
+struct Leaf {
+    vec3_float low;
+    vec3_float high;
+    uint16_t nprims;
+    Triangle* data;
+};
 struct Point {
     vec3_float vec;
 };
@@ -29,11 +47,6 @@ struct Ray {
 struct Sphere {
     vec3_float center;
     float radius;
-};
-struct Triangle {
-    vec3_float p0;
-    vec3_float p1;
-    vec3_float p2;
 };
 struct TriangleIntersection {
     float b0;
@@ -230,7 +243,7 @@ void _recloop_func0(const uint32_t index, const Triangles* triangles, const Ray*
             if ((distmin_Ray_Triangle(ray, (&_lv2)) < std::get<0>((*_best0)))) {
               const Triangle _lv0 = (*triangles).primitives[_idx0];
               const Triangle _lv1 = (*triangles).primitives[_idx0];
-              _best0 = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv0)), _lv1});
+              (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv0)), _lv1});
             }
           }
         }
@@ -562,28 +575,28 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, uint32_t* nodes_ind
   node.match(
     [&](const Interior& node_Interior) {
       const uint32_t this_index = (*nodes_index);
-      nodes_index+= 1;
-      ST.nodes[this_index].low = node.low;
-      ST.nodes[this_index].high = node.high;
-      ST.nodes[this_index].nprims = 0;
-      ST.nodes[this_index].axis = argmax((node.high - node.low));
+      (*nodes_index)+= 1;
+      (*ST).nodes[this_index].low = node.low;
+      (*ST).nodes[this_index].high = node.high;
+      (*ST).nodes[this_index].nprims = 0;
+      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       const uint32_t left_index = rec_build_triangles((*node.left), ST, nodes_index, primitives_index);
       const uint32_t right_index = rec_build_triangles((*node.right), ST, nodes_index, primitives_index);
-      ST.nodes[this_index].split0on_nprims.offset = (right_index - this_index);
+      (*ST).nodes[this_index].split0on_nprims.offset = (right_index - this_index);
       return this_index;
     },
     [&](const Leaf& node_Leaf) {
       const uint32_t this_index = (*nodes_index);
-      nodes_index+= 1;
-      ST.nodes[this_index].low = node.low;
-      ST.nodes[this_index].high = node.high;
-      ST.nodes[this_index].axis = argmax((node.high - node.low));
-      ST.nodes[this_index].nprims = node.nprims;
-      ST.nodes[this_index].split0on_nprims.poffset = (*primitives_index);
+      (*nodes_index)+= 1;
+      (*ST).nodes[this_index].low = node.low;
+      (*ST).nodes[this_index].high = node.high;
+      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
+      (*ST).nodes[this_index].nprims = node.nprims;
+      (*ST).nodes[this_index].split0on_nprims.poffset = (*primitives_index);
       for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
-        ST.primitives[(__p + (*primitives_index))] = node.data[__p];
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
-      primitives_index+= node.nprims;
+      (*primitives_index)+= node.nprims;
       return this_index;
     }
   );
@@ -591,13 +604,13 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, uint32_t* nodes_ind
 void rec_count_triangles(const BVH* node, Triangles* ST) {
   node.match(
     [&](const Interior& node_Interior) {
-      ST.node_count+= 1;
+      (*ST).node_count+= 1;
       rec_count_triangles((*node.left), ST);
       rec_count_triangles((*node.right), ST);
     },
     [&](const Leaf& node_Leaf) {
-      ST.node_count+= 1;
-      ST.primitive_count+= node.nprims;
+      (*ST).node_count+= 1;
+      (*ST).primitive_count+= (Leaf)(node).nprims;
     }
   );
 }

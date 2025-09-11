@@ -62,12 +62,12 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
         mutate_writeloc(const WriteLoc &loc) override {
             // This should not include writes to scalars, e.g., the thread
             // index calculation.
-            if (loc.base_type.is<Array_t>()) {
-                closure.written[loc.base] = loc.base_type;
+            if (loc.base_type().is<Array_t>()) {
+                closure.written[loc.base()] = loc.base_type();
             }
-            if (repls.contains(loc.base)) {
+            if (repls.contains(loc.base())) {
                 WriteLoc new_loc = ctx;
-                new_loc.add_struct_access(loc.base);
+                new_loc.add_struct_access(loc.base());
                 for (const auto &value : loc.accesses) {
                     if (std::holds_alternative<Expr>(value)) {
                         Expr new_value = mutate(std::get<Expr>(value));

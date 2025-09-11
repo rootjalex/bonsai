@@ -68,7 +68,7 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
             if (!node->value.type().defined() && repl->value.type().defined()) {
                 // Insert inferred var type for later references.
                 internal_assert(repl->loc.accesses.empty());
-                var_types[repl->loc.base] = repl->value.type();
+                var_types[repl->loc.base()] = repl->value.type();
             }
             return mut;
         }

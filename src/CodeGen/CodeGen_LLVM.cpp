@@ -1980,7 +1980,7 @@ void CodeGen_LLVM::visit(const Return *node) {
 void CodeGen_LLVM::visit(const LetStmt *node) {
     internal_assert(node->loc.accesses.empty());
     llvm::Value *v = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, v);
+    frames.add_to_frame(node->loc.base(), v);
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -2126,8 +2126,8 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 }
 
 void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
-    std::string name = node->loc.base;
-    Type type = node->loc.base_type;
+    std::string name = node->loc.base();
+    Type type = node->loc.base_type();
     internal_assert(is_dynamic_array_struct_type(type)) << type;
     const auto *dynamic_array_t = type.as<Struct_t>();
 
@@ -2188,8 +2188,8 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
 // TODO(ajr): Figure out which parts of Halide's Store
 // codegen we can steal. They do better with __restrict
 void CodeGen_LLVM::visit(const Allocate *node) {
-    std::string name = node->loc.base;
-    Type allocate_type = node->loc.base_type;
+    std::string name = node->loc.base();
+    Type allocate_type = node->loc.base_type();
     ir::Expr value = node->value;
 
     if (is_dynamic_array_struct_type(allocate_type)) {
@@ -2219,7 +2219,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         << "Allocating Allocate to non-local value: " << Stmt(node);
     internal_assert(!frames.from_frames(name).has_value()) << name;
 
-    llvm::Type *value_type = codegen_type(node->loc.base_type);
+    llvm::Type *value_type = codegen_type(node->loc.base_type());
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
     // TODO: when is isVolatile true?
@@ -2361,16 +2361,17 @@ void CodeGen_LLVM::ensure_capacity(
 // TODO(bonsai/issues/200): add test for parallel appends.
 void CodeGen_LLVM::visit(const AppendStmt *node) {
     llvm::Value *dynamic_array = codegen_write_loc(node->loc);
-    std::string base_n = node->loc.base;
-    const auto *struct_t = node->loc.base_type.as<Struct_t>();
+    std::string base_n = node->loc.base();
+    const auto *struct_t = node->loc.base_type().as<Struct_t>();
     llvm::Type *llvm_struct_t = codegen_type(struct_t);
-    internal_assert(struct_t) << node->loc.base_type;
+    internal_assert(struct_t) << node->loc.base_type();
     llvm::Value *rhs = codegen_expr(node->value);
 
     // Pointer to the statically sized array.
     // Dynamic arrays are always mutable, so stored as pointers to the
     // underlying struct type. Need to dereference that pointer to load buffer.
-    Expr base_v = Deref::make(Var::make(Ptr_t::make(struct_t), node->loc.base));
+    Expr base_v =
+        Deref::make(Var::make(Ptr_t::make(struct_t), node->loc.base()));
     Expr ptr = Access::make("buffer", base_v);
     const auto *array_t = ptr.type().as<Array_t>();
     internal_assert(array_t) << ptr.type();
@@ -2421,13 +2422,15 @@ void CodeGen_LLVM::visit(const AppendStmt *node) {
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
-    if (node->loc.base_type.is<Vector_t>() && node->loc.accesses.size() == 1) {
+    if (node->loc.base_type().is<Vector_t>() &&
+        node->loc.accesses.size() == 1) {
         // Update a single element of a vector.
         // For now, we rewrite this into an equivalent expr.
         // This is an unfortunate hack.
         // TODO(ajr): fix.
-        Type vtype = node->loc.base_type;
-        Expr load = Deref::make(Var::make(Ptr_t::make(vtype), node->loc.base));
+        Type vtype = node->loc.base_type();
+        Expr load =
+            Deref::make(Var::make(Ptr_t::make(vtype), node->loc.base()));
         Expr lane = std::get<Expr>(node->loc.accesses[0]);
         const size_t lanes = vtype.lanes();
         Type etype = vtype.element_of();
@@ -2457,7 +2460,7 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
                            << Stmt(node);
         }
         }
-        WriteLoc base(node->loc.base, node->loc.base_type);
+        WriteLoc base(node->loc.base(), node->loc.base_type());
         Stmt equiv_stmt = Store::make(std::move(base), std::move(equiv));
         codegen_stmt(equiv_stmt);
         return;
@@ -2823,7 +2826,7 @@ void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,
     //         int64_t b = (base / w) * w;
 
     //         std::stringstream level;
-    //         level << buffer << ".width" << w << ".base" << b;
+    //         level << buffer << ".width" << w << ".base()" << b;
     //         tbaa = builder.createTBAAScalarTypeNode(level.str(), tbaa);
     //     }
     // }
@@ -2955,11 +2958,11 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 }
 
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
-    std::string name = wloc.base;
+    std::string name = wloc.base();
     auto frame_value = frames.from_frames(name);
     internal_assert(frame_value.has_value()) << name;
     llvm::Value *loc = *frame_value;
-    Type bonsai_type = wloc.base_type;
+    Type bonsai_type = wloc.base_type();
 
     for (const auto &value : wloc.accesses) {
         if (std::holds_alternative<std::string>(value)) {

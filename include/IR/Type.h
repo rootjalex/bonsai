@@ -309,10 +309,13 @@ struct BVH_t : TypeNode<BVH_t> {
         Type struct_type;
         std::optional<Volume> volume;
 
+        const ir::Type &type() const { return struct_type; }
+
         // Useful helper functions.
         const std::string &name() const {
             return struct_type.as<Struct_t>()->name;
         }
+
         const Struct_t::Map &fields() const {
             return struct_type.as<Struct_t>()->fields;
         }

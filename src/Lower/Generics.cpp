@@ -165,7 +165,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
             if (type.same_as(node->loc.type)) {
                 return node;
             } else {
-                ir::WriteLoc loc(node->loc.base, std::move(type));
+                ir::WriteLoc loc(node->loc.base(), std::move(type));
                 return LetStmt::make(std::move(loc), mutate(node->value));
             }
         }

@@ -29,6 +29,12 @@ struct FInterval {
     float low;
     float high;
 };
+struct Interior {
+    vec3_float center;
+    float radius;
+    BVH* left;
+    BVH* right;
+};
 struct Sphere {
     vec3_float center;
     float radius;
@@ -38,6 +44,12 @@ struct MaterialSphere {
     uint32_t material;
     vec3_float albedo;
     float fuzz;
+};
+struct Leaf {
+    vec3_float center;
+    float radius;
+    uint8_t nprims;
+    MaterialSphere* data;
 };
 struct Point {
     vec3_float vec;

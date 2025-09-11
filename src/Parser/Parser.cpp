@@ -941,7 +941,7 @@ struct Parser {
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?
             ir::WriteLoc loc = parse_write_loc(std::move(id));
-            if (loc.accesses.empty() && !name_in_scope(loc.base)) {
+            if (loc.accesses.empty() && !name_in_scope(loc.base())) {
                 // Just a regular variable write
                 // might be an Assign/Store (if labelled `mut`)
                 return parse_name_decl(std::move(loc));
@@ -1002,9 +1002,9 @@ struct Parser {
             // Allow type inference to occur when the value type is not defined.
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
-        add_type_to_frame(loc.base, write_type, _mutable);
+        add_type_to_frame(loc.base(), write_type, _mutable);
 
-        loc = ir::WriteLoc(loc.base, std::move(write_type));
+        loc = ir::WriteLoc(loc.base(), std::move(write_type));
         if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
@@ -1016,11 +1016,11 @@ struct Parser {
         ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
 
-        const bool mutating = name_in_scope(loc.base);
+        const bool mutating = name_in_scope(loc.base());
 
-        if (mutating && !is_mutable(loc.base)) {
+        if (mutating && !is_mutable(loc.base())) {
             report_error() << "Cannot assign to non-mutable variable: "
-                           << loc.base;
+                           << loc.base();
         }
 
         // TODO: do type forcing here!
@@ -1034,8 +1034,8 @@ struct Parser {
         if (!loc.type.defined() && value.type().defined()) {
             // TODO: do type forcing here!
             if (loc.accesses.empty()) {
-                modify_type_in_frame(loc.base, value.type());
-                loc = ir::WriteLoc(loc.base, value.type());
+                modify_type_in_frame(loc.base(), value.type());
+                loc = ir::WriteLoc(loc.base(), value.type());
             }
             // e.g. if accesses wasn't empty, we could still infer a partial
             // type.

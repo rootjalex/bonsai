@@ -93,9 +93,9 @@ struct TuplesToStructs : public ir::Mutator {
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
     std::pair<ir::WriteLoc, bool>
     mutate_writeloc(const ir::WriteLoc &loc) override {
-        ir::Type base_type = mutate(loc.base_type);
-        bool not_changed = base_type.same_as(loc.base_type);
-        ir::WriteLoc new_loc(loc.base, std::move(base_type));
+        ir::Type base_type = mutate(loc.base_type());
+        bool not_changed = base_type.same_as(loc.base_type());
+        ir::WriteLoc new_loc(loc.base(), std::move(base_type));
 
         for (const auto &value : loc.accesses) {
             if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {

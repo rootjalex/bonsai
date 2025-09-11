@@ -39,7 +39,7 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const LetStmt *node) override {
-        seen_vars.insert(node->loc.base);
+        seen_vars.insert(node->loc.base());
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
                 std::get<Expr>(value).accept(this);
@@ -49,7 +49,7 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Allocate *node) override {
-        seen_vars.insert(node->loc.base);
+        seen_vars.insert(node->loc.base());
         internal_assert(node->loc.accesses.empty());
         if (node->value.defined()) {
             node->value.accept(this);
@@ -57,15 +57,15 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const AppendStmt *node) override {
-        seen_vars.insert(node->loc.base);
-        free_vars.push_back({node->loc.base, node->loc.base_type});
+        seen_vars.insert(node->loc.base());
+        free_vars.push_back({node->loc.base(), node->loc.base_type()});
         node->value.accept(this);
     }
 
     void visit(const Store *node) override {
-        if (!seen_vars.contains(node->loc.base)) {
-            free_vars.push_back({node->loc.base, node->loc.base_type});
-            seen_vars.insert(node->loc.base);
+        if (!seen_vars.contains(node->loc.base())) {
+            free_vars.push_back({node->loc.base(), node->loc.base_type()});
+            seen_vars.insert(node->loc.base());
         }
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
@@ -76,7 +76,7 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Accumulate *node) override {
-        seen_vars.insert(node->loc.base);
+        seen_vars.insert(node->loc.base());
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
                 std::get<Expr>(value).accept(this);
@@ -378,7 +378,7 @@ std::vector<TypedVar> gather_free_vars(const Function &func) {
 
 std::vector<TypedVar> gather_write_vars(const WriteLoc &loc) {
     GatherFreeVars gather;
-    gather.free_vars = {{loc.base, loc.base_type}};
+    gather.free_vars = {{loc.base(), loc.base_type()}};
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<Expr>(value)) {
             std::get<Expr>(value).accept(&gather);
@@ -485,11 +485,11 @@ std::set<std::string> mutated_variables(Stmt stmt) {
         std::set<std::string> mutated;
 
         void visit(const Store *node) override {
-            mutated.insert(node->loc.base);
+            mutated.insert(node->loc.base());
         }
 
         void visit(const Accumulate *node) override {
-            mutated.insert(node->loc.base);
+            mutated.insert(node->loc.base());
         }
     };
 

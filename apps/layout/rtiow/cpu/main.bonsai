@@ -181,10 +181,9 @@ func [[export]] image(c : Camera) {
 }
 
 schedule {
-    // TODO: generic over primitive types!
     tree[[MaterialSphere]] BVH(center : f32x3, radius : f32) with Sphere(center, radius)
     = Interior(left : BVH, right : BVH)
-    | Leaf(data : array[MaterialSphere]);
+    | Leaf(nprims: u8, data: array[MaterialSphere, nprims]);
 
     spheres : BVH;
 

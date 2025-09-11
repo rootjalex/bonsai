@@ -740,11 +740,11 @@ struct LowerUnwrapAccesses : public ir::Mutator {
         if (value.same_as(node->value)) {
             return node;
         }
-        if (equals(value.type(), node->loc.base_type)) {
+        if (equals(value.type(), node->loc.base_type())) {
             return ir::LetStmt::make(node->loc, std::move(value));
         }
-        ir::WriteLoc new_loc(node->loc.base, value.type());
-        type_repls.maybe_add_to_frame(node->loc.base, value.type());
+        ir::WriteLoc new_loc(node->loc.base(), value.type());
+        type_repls.maybe_add_to_frame(node->loc.base(), value.type());
         return ir::LetStmt::make(std::move(new_loc), std::move(value));
     }
 
@@ -755,12 +755,12 @@ struct LowerUnwrapAccesses : public ir::Mutator {
         if (value.same_as(node->value)) {
             return node;
         }
-        if (equals(value.type(), node->loc.base_type)) {
+        if (equals(value.type(), node->loc.base_type())) {
             return ir::Allocate::make(node->loc, std::move(value),
                                       node->memory);
         }
-        ir::WriteLoc new_loc(node->loc.base, value.type());
-        type_repls.maybe_add_to_frame(node->loc.base, value.type());
+        ir::WriteLoc new_loc(node->loc.base(), value.type());
+        type_repls.maybe_add_to_frame(node->loc.base(), value.type());
         return ir::Allocate::make(std::move(new_loc), std::move(value),
                                   node->memory);
     }

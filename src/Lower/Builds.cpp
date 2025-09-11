@@ -179,6 +179,9 @@ ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
                     std::string field_name =
                         split_name(split_count++, node->field_name());
                     path.add_struct_access(field_name);
+                    // TODO(cgyurgyik): we need the layout type map!
+                    path.add_cast(layout.type_map(arm.member),
+                                  ir::Cast::Mode::Reinterpret);
                 }
                 if (path = get_write_loc(path, arm.member, field, variant,
                                          layout, visited_groups);
@@ -357,26 +360,35 @@ class ConstructBuild : public ir::Visitor {
         const ir::Group *inner = groups.front();
         const ir::Group *outer = groups.back();
         ir::Expr index = outer->index, size = inner->size;
-        ir::WriteLoc new_location(loc.base, loc.base_type);
+        ir::WriteLoc new_location(loc.base(), loc.base_type());
         std::string last; // save the last field accessed.
-        for (const std::variant<std::string, ir::Expr> &access : loc.accesses) {
+        for (const std::variant<std::string, ir::Expr, ir::WriteLoc::Cast>
+                 &access : loc.accesses) {
             if (std::holds_alternative<std::string>(access)) {
                 std::string field = std::get<std::string>(access);
                 last = field;
                 new_location.add_struct_access(field);
                 continue;
             }
-            index = std::get<ir::Expr>(access);
-            if (outer->name == last) {
-                new_location.add_index_access(index / size);
-                last.clear();
+            if (std::holds_alternative<ir::Expr>(access)) {
+                index = std::get<ir::Expr>(access);
+                if (outer->name == last) {
+                    new_location.add_index_access(index / size);
+                    last.clear();
+                    continue;
+                }
+                if (inner->name == last) {
+                    new_location.add_index_access(index % size);
+                    last.clear();
+                    continue;
+                }
+            }
+            if (std::holds_alternative<ir::WriteLoc::Cast>(access)) {
+                auto cast = std::get<ir::WriteLoc::Cast>(access);
+                new_location.add_cast(cast.type, cast.mode);
                 continue;
             }
-            if (inner->name == last) {
-                new_location.add_index_access(index % size);
-                last.clear();
-                continue;
-            }
+            internal_error << "[unexpected] WriteLoc access type";
         }
         return new_location;
     }
@@ -673,8 +685,12 @@ construct_count_recursive_body(const ir::BuildFunction &function,
             ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
             ir::WriteLoc loc =
                 get_write_loc(base, size_variable->name, build, layout);
+            if (const auto *v = count.as<ir::Var>()) {
+                count = ir::Access::make(
+                    v->name, cast_to(function.variant.type(), self(layout)));
+            }
             stmts.push_back(ir::Accumulate::make(
-                std::move(loc), ir::Accumulate::OpType::Add, count));
+                std::move(loc), ir::Accumulate::OpType::Add, std::move(count)));
         }
         if (ir::equals(argument.type, get_layout_reference_type(layout))) {
             ir::Type function_t =

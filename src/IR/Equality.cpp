@@ -320,7 +320,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
 }
 
 Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
-    if (const Cmp types = compare_types(w0.base_type, w1.base_type);
+    if (const Cmp types = compare_types(w0.base_type(), w1.base_type());
         types != Cmp::Equals) {
         return types;
     }
@@ -328,7 +328,7 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
         base_types != Cmp::Equals) {
         return base_types;
     }
-    if (const Cmp names = compare_primitives(w0.base, w1.base);
+    if (const Cmp names = compare_primitives(w0.base(), w1.base());
         names != Cmp::Equals) {
         return names;
     }

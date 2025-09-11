@@ -883,7 +883,7 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const Access *node) override {
         if (node->type.is<Ref_t>()) {
-            ss << "(*"; // deref
+            ss << "(*";
         }
         ir::Printer::visit(node);
         if (node->type.is<Ref_t>()) {
@@ -959,8 +959,8 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const LetStmt *node) override {
         ss << get_indent() << "const ";
-        emit_type(ss, node->loc.base_type);
-        ss << " " << node->loc.base << " = ";
+        emit_type(ss, node->loc.base_type());
+        ss << " " << node->loc.base() << " = ";
         node->value.accept(this);
         ss << ";\n";
     }
@@ -1000,7 +1000,7 @@ class BonsaiToCpp : ir::Printer {
             ss << '>';
 
             ss << '(';
-            Var::make(current.type, current.base).accept(this);
+            Var::make(current.type, current.base()).accept(this);
             ss << ',' << ' ';
             update.accept(this);
             ss << ')';
@@ -1018,15 +1018,15 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const Allocate *node) override {
         ss << get_indent();
-        emit_type(ss, node->loc.base_type);
-        ss << " " << node->loc.base;
+        emit_type(ss, node->loc.base_type());
+        ss << " " << node->loc.base();
         if (node->value.defined()) {
             ss << " = ";
             node->value.accept(this);
             ss << ";\n";
             return;
         }
-        if (ir::Type base_type = node->loc.base_type; base_type.is_scalar()) {
+        if (ir::Type base_type = node->loc.base_type(); base_type.is_scalar()) {
             ss << " = ";
             ss << make_const(base_type, 0);
             ss << ";\n";

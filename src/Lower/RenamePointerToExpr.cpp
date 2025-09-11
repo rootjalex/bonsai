@@ -141,7 +141,7 @@ struct Rename : public ir::Mutator {
             ir::WriteLoc location(PREFIX + std::to_string(counter++),
                                   node->type);
             stmts.push_back(ir::LetStmt::make(location, std::move(op)));
-            return ir::Var::make(node->type, location.base);
+            return ir::Var::make(node->type, location.base());
         }
     }
 
@@ -157,7 +157,7 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc location(PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(intrinsic)));
-        return ir::Var::make(node->type, location.base);
+        return ir::Var::make(node->type, location.base());
     }
 
     ir::Expr visit(const ir::Access *node) override {
@@ -169,7 +169,7 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc location(PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(access)));
-        return ir::Var::make(node->type, location.base);
+        return ir::Var::make(node->type, location.base());
     }
 
     ir::Expr visit(const ir::Build *node) override {
@@ -184,7 +184,7 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc location(PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(build)));
-        return ir::Var::make(node->type, location.base);
+        return ir::Var::make(node->type, location.base());
     }
 
     ir::Expr visit(const ir::Cast *node) override {
@@ -197,7 +197,7 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc location(PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(cast)));
-        return ir::Var::make(node->type, location.base);
+        return ir::Var::make(node->type, location.base());
     }
 
     ir::Expr visit(const ir::Extract *node) override {
@@ -210,7 +210,7 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc location(PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(extract)));
-        return ir::Var::make(node->type, location.base);
+        return ir::Var::make(node->type, location.base());
     }
 
     ir::Expr visit(const ir::Call *node) override {
@@ -225,7 +225,7 @@ struct Rename : public ir::Mutator {
         }
         ir::WriteLoc loc(PREFIX + std::to_string(counter++), node->type);
         stmts.push_back(ir::LetStmt::make(loc, std::move(call)));
-        return ir::Var::make(node->type, loc.base);
+        return ir::Var::make(node->type, loc.base());
     }
 
   private:

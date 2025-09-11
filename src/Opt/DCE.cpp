@@ -51,11 +51,11 @@ struct NameHygiene : ir::Mutator {
             return node;
         }
 
-        auto it = old_to_new.find(node->loc.base);
+        auto it = old_to_new.find(node->loc.base());
         if (it == old_to_new.end()) {
             return ir::Mutator::visit(node);
         }
-        ir::WriteLoc new_loc(it->second, node->loc.base_type);
+        ir::WriteLoc new_loc(it->second, node->loc.base_type());
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr new_value = mutate(std::get<ir::Expr>(value));
@@ -72,7 +72,7 @@ struct NameHygiene : ir::Mutator {
         if (!rename) {
             return node;
         }
-        auto it = old_to_new.find(node->loc.base);
+        auto it = old_to_new.find(node->loc.base());
         if (it == old_to_new.end()) {
             return ir::Mutator::visit(node);
         }
@@ -112,9 +112,9 @@ struct NameHygiene : ir::Mutator {
   private:
     ir::WriteLoc do_rename(const ir::WriteLoc &location) {
         std::string name =
-            DELIMITER + location.base + DELIMITER + std::to_string(counter++);
+            DELIMITER + location.base() + DELIMITER + std::to_string(counter++);
         // Replacement is expected here; this is why this pass exists.
-        old_to_new[location.base] = name;
+        old_to_new[location.base()] = name;
         return ir::WriteLoc(std::move(name), location.type);
     }
     bool rename = false; // Whether to perform a rename.
@@ -132,19 +132,19 @@ struct UnnameHygiene : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Allocate *node) override {
-        if (!node->loc.base.starts_with(DELIMITER)) {
+        if (!node->loc.base().starts_with(DELIMITER)) {
             return ir::Mutator::visit(node);
         }
-        ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        ir::WriteLoc loc(extract(node->loc.base()), node->loc.type);
         return ir::Allocate::make(std::move(loc), mutate(node->value),
                                   node->memory);
     }
 
     ir::Stmt visit(const ir::Store *node) override {
-        if (!node->loc.base.starts_with(DELIMITER)) {
+        if (!node->loc.base().starts_with(DELIMITER)) {
             return ir::Mutator::visit(node);
         }
-        ir::WriteLoc new_loc(extract(node->loc.base), node->loc.base_type);
+        ir::WriteLoc new_loc(extract(node->loc.base()), node->loc.base_type());
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr new_value = mutate(std::get<ir::Expr>(value));
@@ -158,19 +158,19 @@ struct UnnameHygiene : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (!node->loc.base.starts_with(DELIMITER)) {
+        if (!node->loc.base().starts_with(DELIMITER)) {
             return ir::Mutator::visit(node);
         }
-        ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        ir::WriteLoc loc(extract(node->loc.base()), node->loc.type);
         return ir::Accumulate::make(std::move(loc), node->op,
                                     mutate(node->value));
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (!node->loc.base.starts_with(DELIMITER)) {
+        if (!node->loc.base().starts_with(DELIMITER)) {
             return ir::Mutator::visit(node);
         }
-        ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        ir::WriteLoc loc(extract(node->loc.base()), node->loc.type);
         return ir::LetStmt::make(std::move(loc), mutate(node->value));
     }
 
@@ -245,16 +245,16 @@ struct ComputeUseCounts : ir::Visitor {
             << " when traversing for: " << curr_var;
         // TODO(ajr): Should LetStmts just contain a string name for writes? Can
         // never immutably write to an access.
-        internal_assert(!use_counts.contains(node->loc.base))
+        internal_assert(!use_counts.contains(node->loc.base()))
             << "ComputeUseCounts already active for var: " << node->loc;
-        internal_assert(!dependent_use_counts.contains(node->loc.base))
+        internal_assert(!dependent_use_counts.contains(node->loc.base()))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
-        use_counts[node->loc.base] = 0;
-        dependent_use_counts[node->loc.base] = {};
+        use_counts[node->loc.base()] = 0;
+        dependent_use_counts[node->loc.base()] = {};
 
-        curr_var = node->loc.base;
+        curr_var = node->loc.base();
         node->value.accept(this);
         curr_var.clear();
     }
@@ -263,18 +263,18 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Allocate: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(!use_counts.contains(node->loc.base))
+        internal_assert(!use_counts.contains(node->loc.base()))
             << "ComputeUseCounts already active for var: " << node->loc
             << " in Allocate: " << ir::Stmt(node);
-        internal_assert(!dependent_use_counts.contains(node->loc.base))
+        internal_assert(!dependent_use_counts.contains(node->loc.base()))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
 
-        use_counts[node->loc.base] = 0;
-        dependent_use_counts[node->loc.base] = {};
+        use_counts[node->loc.base()] = 0;
+        dependent_use_counts[node->loc.base()] = {};
 
         if (node->value.defined()) {
-            curr_var = node->loc.base;
+            curr_var = node->loc.base();
             node->value.accept(this);
             curr_var.clear();
         }
@@ -284,10 +284,10 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Store: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(use_counts.contains(node->loc.base))
+        internal_assert(use_counts.contains(node->loc.base()))
             << "ComputeUseCounts not active for var: " << node->loc
             << " in Store: " << ir::Stmt(node);
-        internal_assert(dependent_use_counts.contains(node->loc.base))
+        internal_assert(dependent_use_counts.contains(node->loc.base()))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
 
         // Need to increment use counts of indices.
@@ -297,7 +297,7 @@ struct ComputeUseCounts : ir::Visitor {
             }
         }
 
-        curr_var = node->loc.base;
+        curr_var = node->loc.base();
         node->value.accept(this);
         curr_var.clear();
     }
@@ -306,9 +306,9 @@ struct ComputeUseCounts : ir::Visitor {
         internal_assert(curr_var.empty())
             << "Unexpected nested Accumulate: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
-        internal_assert(use_counts.contains(node->loc.base))
+        internal_assert(use_counts.contains(node->loc.base()))
             << "ComputeUseCounts not active for var: " << node->loc;
-        internal_assert(dependent_use_counts.contains(node->loc.base))
+        internal_assert(dependent_use_counts.contains(node->loc.base()))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
         // Need to increment use counts of indices.
         for (const auto &value : node->loc.accesses) {
@@ -316,7 +316,7 @@ struct ComputeUseCounts : ir::Visitor {
                 std::get<ir::Expr>(value).accept(this);
             }
         }
-        curr_var = node->loc.base;
+        curr_var = node->loc.base();
         node->value.accept(this);
         curr_var.clear();
     }
@@ -391,7 +391,7 @@ struct DeadCodeElimination : ir::Mutator {
 
     void erase_dependents(const ir::WriteLoc &loc) {
         // Erase it's impact on use_counts.
-        if (const auto cmap = dependent_use_counts.find(loc.base);
+        if (const auto cmap = dependent_use_counts.find(loc.base());
             cmap != dependent_use_counts.cend()) {
             for (const auto &[var, count] : cmap->second) {
                 internal_assert(use_counts[var] >= count)
@@ -405,7 +405,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
-        if (use_counts[node->loc.base] == 0 &&
+        if (use_counts[node->loc.base()] == 0 &&
             !has_side_effects(node->value, side_effects_functions)) {
             erase_dependents(node->loc);
             return ir::Stmt();
@@ -414,7 +414,7 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Allocate *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (use_counts[node->loc.base()] != 0) {
             return node;
         }
         erase_dependents(node->loc);
@@ -461,14 +461,14 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Store *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (use_counts[node->loc.base()] != 0) {
             return node;
         }
         return handle_side_effects(node->loc, node->value);
     }
 
     ir::Stmt visit(const ir::Accumulate *node) override {
-        if (use_counts[node->loc.base] != 0) {
+        if (use_counts[node->loc.base()] != 0) {
             return node;
         }
         return handle_side_effects(node->loc, node->value);

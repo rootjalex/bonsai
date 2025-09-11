@@ -154,7 +154,7 @@ struct RewriteMutables : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Allocate *node) override {
-        mut_locals.insert(node->loc.base);
+        mut_locals.insert(node->loc.base());
         return ir::Mutator::visit(node);
     }
 
@@ -180,17 +180,32 @@ struct RewriteMutables : public ir::Mutator {
     // Also mutates type of write loc.
     std::pair<ir::WriteLoc, bool>
     mutate_writeloc(const ir::WriteLoc &loc) override {
-        ir::Type base_type = mutate(loc.base_type);
-        bool not_changed = base_type.same_as(loc.base_type);
-        ir::WriteLoc new_loc(loc.base, std::move(base_type));
+        ir::Type base_type = mutate(loc.base_type());
+        bool not_changed = base_type.same_as(loc.base_type());
+
+        ir::WriteLoc new_loc(loc.base(), std::move(base_type));
+        if (const auto *v = loc.b.as<ir::Var>()) {
+            if (mut_args.contains(v->name)) {
+                ir::Expr new_b = ir::Var::make(
+                    ir::Ptr_t::make(new_loc.base_type()), new_loc.base());
+                new_loc.b = ir::Deref::make(new_b);
+                not_changed = false;
+            }
+        }
 
         for (const auto &value : loc.accesses) {
             if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {
                 ir::Expr new_value = mutate(*expr);
                 not_changed = not_changed && new_value.same_as(*expr);
                 new_loc.add_index_access(std::move(new_value));
-            } else {
-                new_loc.add_struct_access(std::get<std::string>(value));
+                continue;
+            }
+            if (const std::string *s = std::get_if<std::string>(&value)) {
+                new_loc.add_struct_access(*s);
+            }
+            if (const ir::WriteLoc::Cast *c =
+                    std::get_if<ir::WriteLoc::Cast>(&value)) {
+                new_loc.add_cast(c->type, c->mode);
             }
         }
         return {std::move(new_loc), not_changed};

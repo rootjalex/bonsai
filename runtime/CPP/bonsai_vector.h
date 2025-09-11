@@ -63,6 +63,14 @@ struct vector {
         return result;
     }
 
+    vector operator!() const {
+        vector result;
+        for (size_t i = 0; i < N; ++i) {
+            result.data[i] = !data[i];
+        }
+        return result;
+    }
+
     // Comparison operators
     vector<bool, N> operator==(const vector &other) const {
         // return std::memcmp(data, other.data, sizeof(data)) == 0;
@@ -276,7 +284,7 @@ T dot(const vector<T, N> &a, const vector<T, N> &b) {
 
 template <typename T, size_t N>
 T norm(const vector<T, N> &v) {
-    return std::sqrt(norm_squared(v));
+    return std::sqrt(dot(v, v));
 }
 
 template <typename T, size_t N>
