@@ -578,9 +578,7 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
             }
             groups_visited.insert(group->name);
             if (!this_index_defined) {
-                ir::Type index_type = group->index.defined()
-                                          ? group->index.type()
-                                          : ir::Index_t::make();
+                ir::Type index_type = ir::Index_t::make();
                 std::string group_name = group->name;
                 // In the case of SoA, we just refer to the first group we come
                 // across (they all share the same index in the collection.)
@@ -695,10 +693,6 @@ construct_count_recursive_body(const ir::BuildFunction &function,
             ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
             ir::WriteLoc loc = get_write_loc(base, size_variable->name, build,
                                              layout, program);
-            if (const auto *v = count.as<ir::Var>()) {
-                count = ir::Access::make(
-                    v->name, cast_to(function.variant.type(), self(layout)));
-            }
             stmts.push_back(ir::Accumulate::make(
                 std::move(loc), ir::Accumulate::OpType::Add, std::move(count)));
         }

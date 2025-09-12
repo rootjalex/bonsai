@@ -9,21 +9,20 @@
 #include <tuple>
 #include "bonsai_cpp.h"
 
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
 using vec3_float = vector<float, 3>;
-struct AABB {
-    vec3_float low;
-    vec3_float high;
-};
-struct FInterval {
-    float low;
-    float high;
-};
 struct Interior {
     vec3_float low;
     vec3_float high;
     BVH* left;
     BVH* right;
     uint8_t axis;
+};
+struct AABB {
+    vec3_float low;
+    vec3_float high;
 };
 struct Triangle {
     vec3_float p0;
@@ -35,6 +34,10 @@ struct Leaf {
     vec3_float high;
     uint16_t nprims;
     Triangle* data;
+};
+struct FInterval {
+    float low;
+    float high;
 };
 struct Point {
     vec3_float vec;
@@ -94,6 +97,7 @@ using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
 using vec3__Float16 = vector<_Float16, 3>;
 
+Triangles build_triangles(const BVH* CT);
 std::optional<Triangle> trace(const Ray* ray, const Triangles* triangles);
 
 Point ClosestPtPointAABB(const Point* pt, const AABB* a) {
@@ -262,14 +266,57 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
   const vec3_float P = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
   return reduce_and(((P <= vec3_float{R}) & (vec3_float{(-R)} <= P)));
 }
+uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
+  return std::visit(overloaded{
+    [&](const Interior& node) {
+      const size_t this_index = (*nodes_index);
+      (*nodes_index)+= 1;
+      (*ST).nodes[this_index].low = node.low;
+      (*ST).nodes[this_index].high = node.high;
+      (*ST).nodes[this_index].nprims = 0;
+      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
+      const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
+      const uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
+      return this_index;
+    },
+    [&](const Leaf& node) {
+      const size_t this_index = (*nodes_index);
+      (*nodes_index)+= 1;
+      (*ST).nodes[this_index].low = node.low;
+      (*ST).nodes[this_index].high = node.high;
+      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
+      (*ST).nodes[this_index].nprims = node.nprims;
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index)+= node.nprims;
+      return this_index;
+    }
+  }, *node);
+}
+void rec_count_triangles(const BVH* node, Triangles* ST) {
+  return std::visit(overloaded{
+    [&](const Interior& node) {
+      (*ST).node_count+= 1;
+      rec_count_triangles(node.left, ST);
+      rec_count_triangles(node.right, ST);
+    },
+    [&](const Leaf& node) {
+      (*ST).node_count+= 1;
+      (*ST).primitive_count+= node.nprims;
+    }
+  }, *node);
+}
 Triangles build_triangles(const BVH* CT) {
   Triangles ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;
   rec_count_triangles(CT, (&ST));
-  Triangle* primitives;
+  Triangle* primitives = malloc(sizeof(Triangle) * ST.primitive_count);
   ST.primitives = primitives;
-  Nodes* nodes;
+  Nodes* nodes = malloc(sizeof(Nodes) * ST.node_count);
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
@@ -571,49 +618,6 @@ vec3_float linear_to_gamma_v(const vec3_float l) {
 bool near_zero(const vec3_float v) {
   return (((abs(v[0]) < 0.00000001f) & (abs(v[1]) < 0.00000001f)) & (abs(v[2]) < 0.00000001f));
 }
-uint32_t rec_build_triangles(const BVH* node, Triangles* ST, uint32_t* nodes_index, size_t* primitives_index) {
-  node.match(
-    [&](const Interior& node_Interior) {
-      const uint32_t this_index = (*nodes_index);
-      (*nodes_index)+= 1;
-      (*ST).nodes[this_index].low = node.low;
-      (*ST).nodes[this_index].high = node.high;
-      (*ST).nodes[this_index].nprims = 0;
-      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
-      const uint32_t left_index = rec_build_triangles((*node.left), ST, nodes_index, primitives_index);
-      const uint32_t right_index = rec_build_triangles((*node.right), ST, nodes_index, primitives_index);
-      reinterpret<Arm_Interior>((*ST).nodes[this_index].split0on_nprims).offset = (right_index - this_index);
-      return this_index;
-    },
-    [&](const Leaf& node_Leaf) {
-      const uint32_t this_index = (*nodes_index);
-      (*nodes_index)+= 1;
-      (*ST).nodes[this_index].low = node.low;
-      (*ST).nodes[this_index].high = node.high;
-      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
-      (*ST).nodes[this_index].nprims = node.nprims;
-      reinterpret<Arm_Leaf>((*ST).nodes[this_index].split0on_nprims).poffset = (*primitives_index);
-      for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
-        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
-      }
-      (*primitives_index)+= node.nprims;
-      return this_index;
-    }
-  );
-}
-void rec_count_triangles(const BVH* node, Triangles* ST) {
-  node.match(
-    [&](const Interior& node_Interior) {
-      (*ST).node_count+= 1;
-      rec_count_triangles((*node.left), ST);
-      rec_count_triangles((*node.right), ST);
-    },
-    [&](const Leaf& node_Leaf) {
-      (*ST).node_count+= 1;
-      (*ST).primitive_count+= (Leaf)(node).nprims;
-    }
-  );
-}
 vec3_float reflect(const vec3_float v, const vec3_float n) {
   return (v - (vec3_float{(2.00000000f * dot(v, n))} * n));
 }
@@ -635,8 +639,3 @@ vec3_float unit_vector(const vec3_float v) {
   return (v / vec3_float{norm(v)});
 }
 
----STDERR---
-[INFO] src/Lower/Layouts.cpp:1202: arm_Leaf : arm_Leaf
-[INFO] src/Lower/Layouts.cpp:1202: arm_Interior : arm_Interior
-[INFO] src/Lower/Layouts.cpp:1202: triangles : triangles
-[INFO] src/Lower/Layouts.cpp:1202: nodes : nodes

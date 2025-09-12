@@ -100,7 +100,7 @@ bool intersects_Ray_Sphere(const Ray* ray, const Sphere* s) {
 std::optional<MaterialSphere> _traverse_tree0(const Ray* r, const Spheres* spheres) {
   std::tuple<float, MaterialSphere> _best0 = std::tuple<float, MaterialSphere>{std::numeric_limits<float>::infinity(), MaterialSphere{}};
   int32_t _queue_count0 = 1;
-  uint32_t* _queue0;
+  uint32_t* _queue0 = reinterpret_cast<uint32_t*>(malloc(sizeof(uint32_t) * 64));
   _queue0[0] = 0;
   do {
     _queue_count0-= 1;
@@ -225,7 +225,7 @@ vec3_int32_t to_rgb(const vec3_float v) {
   return (vec3_int32_t)((vec3_float{256.00000000f} * min(max(corrected, vec3_float{0.0f}), vec3_float{0.99900001f})));
 }
 vec3_int32_t** _traverse_array0(const Camera* c, const int32_t height, const Spheres* spheres) {
-  int32_t* _alloc0;
+  int32_t* _alloc0 = reinterpret_cast<int32_t*>(malloc(sizeof(int32_t) * ((height * (*c).width) * 3)));
   for (int32_t _i0 = 0; _i0 < height; _i0 += 1) {
     for (int32_t _i1 = 0; _i1 < (*c).width; _i1 += 1) {
       const vec3_int32_t __temp = to_rgb((_traverse_array1(_i1, _i0, c, spheres) / vec3_float{(float)((*c).samples_per_pixel)}));
@@ -258,14 +258,54 @@ Sphere bounding_sphere(const Sphere* a, const Sphere* b) {
   const vec3_float new_center = ((*a).center + (direction * vec3_float{(new_radius - (*a).radius)}));
   return Sphere{.center=new_center, .radius=new_radius};
 }
+uint32_t rec_build_spheres(const BVH* node, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
+  return std::visit(overloaded{
+    [&](const Interior& node) {
+      const size_t this_index = (*nodes_index);
+      (*nodes_index)+= 1;
+      (*ST).nodes[this_index].center = node.center;
+      (*ST).nodes[this_index].radius = node.radius;
+      (*ST).nodes[this_index].nprims = 0;
+      const uint32_t left_index = rec_build_spheres(node.left, ST, nodes_index, primitives_index);
+      const uint32_t right_index = rec_build_spheres(node.right, ST, nodes_index, primitives_index);
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
+      return this_index;
+    },
+    [&](const Leaf& node) {
+      const size_t this_index = (*nodes_index);
+      (*nodes_index)+= 1;
+      (*ST).nodes[this_index].center = node.center;
+      (*ST).nodes[this_index].radius = node.radius;
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint8_t __p = 0; __p < node.nprims; __p += 1) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index)+= node.nprims;
+      return this_index;
+    }
+  }, *node);
+}
+void rec_count_spheres(const BVH* node, Spheres* ST) {
+  return std::visit(overloaded{
+    [&](const Interior& node) {
+      (*ST).node_count+= 1;
+      rec_count_spheres(node.left, ST);
+      rec_count_spheres(node.right, ST);
+    },
+    [&](const Leaf& node) {
+      (*ST).node_count+= 1;
+      (*ST).primitive_count+= node.nprims;
+    }
+  }, *node);
+}
 Spheres build_spheres(const BVH* CT) {
   Spheres ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;
   rec_count_spheres(CT, (&ST));
-  MaterialSphere* primitives;
+  MaterialSphere* primitives = reinterpret_cast<MaterialSphere*>(malloc(sizeof(MaterialSphere) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes;
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
@@ -666,46 +706,6 @@ vec3_float random_vec3f() {
 }
 vec3_float random_vec3f_in(const float low, const float high) {
   return vec3_float{(low + ((high - low) * random_float<float>())), (low + ((high - low) * random_float<float>())), (low + ((high - low) * random_float<float>()))};
-}
-uint32_t rec_build_spheres(const BVH* node, Spheres* ST, uint32_t* nodes_index, size_t* primitives_index) {
-  node.match(
-    [&](const Interior& node_Interior) {
-      const uint32_t this_index = (*nodes_index);
-      (*nodes_index)+= 1;
-      (*ST).nodes[this_index].center = node.center;
-      (*ST).nodes[this_index].radius = node.radius;
-      (*ST).nodes[this_index].nprims = 0;
-      const uint32_t left_index = rec_build_spheres((*node.left), ST, nodes_index, primitives_index);
-      const uint32_t right_index = rec_build_spheres((*node.right), ST, nodes_index, primitives_index);
-      reinterpret_cast<Arm_Interior *>((*ST).nodes[this_index].split0on_nprims).offset = (right_index - this_index);
-      return this_index;
-    },
-    [&](const Leaf& node_Leaf) {
-      const uint32_t this_index = (*nodes_index);
-      (*nodes_index)+= 1;
-      (*ST).nodes[this_index].center = node.center;
-      (*ST).nodes[this_index].radius = node.radius;
-      reinterpret_cast<Arm_Leaf *>((*ST).nodes[this_index].split0on_nprims).poffset = (*primitives_index);
-      for (uint8_t __p = 0; __p < node.nprims; __p += 1) {
-        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
-      }
-      (*primitives_index)+= node.nprims;
-      return this_index;
-    }
-  );
-}
-void rec_count_spheres(const BVH* node, Spheres* ST) {
-  node.match(
-    [&](const Interior& node_Interior) {
-      (*ST).node_count+= 1;
-      rec_count_spheres((*node.left), ST);
-      rec_count_spheres((*node.right), ST);
-    },
-    [&](const Leaf& node_Leaf) {
-      (*ST).node_count+= 1;
-      (*ST).primitive_count+= (Leaf)(node).nprims;
-    }
-  );
 }
 vec3_float reflect(const vec3_float v, const vec3_float n) {
   return (v - (vec3_float{(2.00000000f * dot(v, n))} * n));

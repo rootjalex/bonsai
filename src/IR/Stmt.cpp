@@ -200,6 +200,9 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";
     const BVH_t *bvh = loc.type().as<BVH_t>();
+    if (bvh == nullptr && loc.type().is<ir::Ptr_t>()) {
+        bvh = loc.type().element_of().as<BVH_t>();
+    }
     internal_assert(bvh) << "Match is only implemented for BVH_t, received: "
                          << loc << " : " << loc.type();
     internal_assert(bvh->variants.size() == arms.size())

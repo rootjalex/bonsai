@@ -19,3 +19,9 @@ std::tuple<T1, T2> argmax(const std::tuple<T1, T2> &a,
     }
     return b;
 }
+
+// Used for std::variant visitor.
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};

@@ -886,15 +886,7 @@ class BonsaiToCpp : ir::Printer {
         ss << "}";
     }
 
-    void visit(const Access *node) override {
-        if (node->type.is<Ref_t>()) {
-            ss << "(*";
-        }
-        ir::Printer::visit(node);
-        if (node->type.is<Ref_t>()) {
-            ss << ")";
-        }
-    }
+    void visit(const Access *node) override { ir::Printer::visit(node); }
     void visit(const Unwrap *node) override {
         // TODO: be less hacky about this. relies on current Match lowering.
         print_no_parens(node->value);
@@ -1031,12 +1023,27 @@ class BonsaiToCpp : ir::Printer {
             ss << ";\n";
             return;
         }
-        if (ir::Type base_type = node->loc.base_type(); base_type.is_scalar()) {
+        if (ir::Type type = node->loc.base_type(); type.is_scalar()) {
             ss << " = ";
-            ss << make_const(base_type, 0);
+            ss << make_const(type, 0);
             ss << ";\n";
             return;
         }
+        if (ir::Type type = node->loc.base_type(); type.is_iterable()) {
+            ss << " = ";
+            ss << "reinterpret_cast<";
+            emit_type(ss, type.element_of());
+            ss << "*>(";
+            ss << "malloc(";
+            ss << "sizeof(";
+            emit_type(ss, type.element_of());
+            ss << ") * ";
+            type.size().accept(this);
+            ss << ")";
+            ss << ");\n";
+            return;
+        }
+
         ss << ";\n";
     }
 
@@ -1054,7 +1061,8 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const Store *node) override {
         ss << get_indent();
-        node->loc.to_expr().accept(this);
+        print_loc(ss, node->loc, /*is_assignment=*/true);
+        // node->loc.to_expr().accept(this);
         ss << " = ";
         node->value.accept(this);
         ss << ";\n";
@@ -1064,8 +1072,7 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const RecLoop *) override;
     void visit(const Match *node) override {
         ss << get_indent();
-        print(node->loc);
-        ss << ".match(\n";
+        ss << "return std::visit(overloaded{\n";
         increment();
         for (size_t i = 0, e = node->arms.size(); i < e; i++) {
             const auto &arm = node->arms[i];
@@ -1073,9 +1080,6 @@ class BonsaiToCpp : ir::Printer {
             ss << arm.first.struct_type.as<Struct_t>()->name;
             ss << "& ";
             print(node->loc);
-            ss << "_";
-            ss << arm.first.struct_type.as<Struct_t>()->name;
-            // e.g. (const Interior& tree_Interior) { . . . }
             ss << ") {\n";
             increment();
             print(arm.second);
@@ -1088,7 +1092,9 @@ class BonsaiToCpp : ir::Printer {
             }
         }
         decrement();
-        ss << get_indent() << ");\n";
+        ss << get_indent() << "}, *";
+        print(node->loc);
+        ss << ");\n";
     }
     // void visit(const Yield *) override;
     // void visit(const Iterate *) override;
@@ -1126,6 +1132,63 @@ class BonsaiToCpp : ir::Printer {
         //     print_no_parens(node->value.type().as<Array_t>()->size);
         // }
         ss << ");\n";
+    }
+
+    // This is almost identical to the Printer version, except needs to take the
+    // address for assignments.
+    void print_loc(std::stringstream &os, const ir::WriteLoc &loc,
+                   bool is_assignment) {
+        std::string ss;
+        if (loc.base_type().is<ir::Ptr_t>()) {
+            ss += "(*";
+        }
+        ss += loc.base();
+        if (loc.base_type().is<ir::Ptr_t>()) {
+            ss += ")";
+        }
+        bool is_pointer = false;
+        for (const auto &value : loc.accesses) {
+            if (std::holds_alternative<std::string>(value)) {
+                if (is_pointer) {
+                    ss += "->";
+                    is_pointer = false;
+                } else {
+                    ss += ".";
+                }
+                ss += std::get<std::string>(value);
+                continue;
+            }
+            if (std::holds_alternative<ir::Expr>(value)) {
+                ss += "[";
+                ss += to_string(std::get<ir::Expr>(value));
+                ss += "]";
+                continue;
+            }
+            if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+                auto cast = std::get<ir::WriteLoc::Cast>(value);
+                std::string b;
+                if (cast.mode == ir::Cast::Mode::Reinterpret) {
+                    b += "reinterpret";
+                    b += '_';
+                }
+                b += "cast<";
+                std::stringstream t;
+                emit_type(t, cast.type);
+                b += t.str();
+                b += ">(";
+                if (is_assignment) {
+                    b += "&"; // *must* take the address for assignment.
+                    is_pointer = true;
+                }
+                b += ss;
+                b += ")";
+                ss = std::move(b);
+
+                continue;
+            }
+            internal_error << "unexpected WriteLoc access type";
+        }
+        os << ss;
     }
 };
 

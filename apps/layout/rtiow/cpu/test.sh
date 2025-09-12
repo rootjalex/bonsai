@@ -17,7 +17,7 @@ cmake --build build --config Debug -j
 # 3. Compile the lowered C++.
 clang++ -std=c++20 -O3 -g -o $PREFIX/rtiow.out $PREFIX/rtiow_main.cpp $PREFIX/rtiow.cpp -Iruntime/CPP -I.
 # 4. Run it.
-# time ./$PREFIX/bonsai.out $PREFIX/rtiow-cpu-image.ppm
+time ./$PREFIX/rtiow.out $PREFIX/rtiow-cpu-image.ppm
 
 # Clean up
 

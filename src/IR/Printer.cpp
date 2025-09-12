@@ -622,9 +622,9 @@ void Printer::print(const WriteLoc &loc) {
             ss = std::move(b);
             continue;
         }
-        os << ss;
         internal_error << "unexpected WriteLoc access type";
     }
+    os << ss;
 }
 
 void Printer::print(const Member &member) { member->accept(this); }
