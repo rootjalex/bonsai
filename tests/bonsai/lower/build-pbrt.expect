@@ -582,7 +582,7 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, uint32_t* nodes_ind
       (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       const uint32_t left_index = rec_build_triangles((*node.left), ST, nodes_index, primitives_index);
       const uint32_t right_index = rec_build_triangles((*node.right), ST, nodes_index, primitives_index);
-      (*ST).nodes[this_index].split0on_nprims.offset = (right_index - this_index);
+      reinterpret<Arm_Interior>((*ST).nodes[this_index].split0on_nprims).offset = (right_index - this_index);
       return this_index;
     },
     [&](const Leaf& node_Leaf) {
@@ -592,7 +592,7 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, uint32_t* nodes_ind
       (*ST).nodes[this_index].high = node.high;
       (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       (*ST).nodes[this_index].nprims = node.nprims;
-      (*ST).nodes[this_index].split0on_nprims.poffset = (*primitives_index);
+      reinterpret<Arm_Leaf>((*ST).nodes[this_index].split0on_nprims).poffset = (*primitives_index);
       for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
@@ -635,3 +635,8 @@ vec3_float unit_vector(const vec3_float v) {
   return (v / vec3_float{norm(v)});
 }
 
+---STDERR---
+[INFO] src/Lower/Layouts.cpp:1202: arm_Leaf : arm_Leaf
+[INFO] src/Lower/Layouts.cpp:1202: arm_Interior : arm_Interior
+[INFO] src/Lower/Layouts.cpp:1202: triangles : triangles
+[INFO] src/Lower/Layouts.cpp:1202: nodes : nodes

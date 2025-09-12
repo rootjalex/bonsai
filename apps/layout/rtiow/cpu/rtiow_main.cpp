@@ -40,60 +40,42 @@ inline vec3_float max(const vec3_float &a, const vec3_float &b) {
                       std::fmaxf(a[2], b[2])};
 }
 
-struct Interior;
-struct Leaf;
-
-using BVH = std::variant<Interior *, Leaf *>;
 using f32 = float;
 
-struct Interior {
-    vec3_float center;
-    f32 radius;
-    BVH left;
-    BVH right;
-};
-
-struct Leaf {
-    vec3_float center;
-    f32 radius;
-    uint16_t nprims;
-    MaterialSphere *data;
-};
-
-Sphere get_bounding_sphere(const BVH &bvh) {
-    if (std::holds_alternative<Interior *>(bvh)) {
-        const Interior *interior = std::get<Interior *>(bvh);
-        return {interior->center, interior->radius};
+Sphere get_bounding_sphere(const BVH *node) {
+    if (std::holds_alternative<Interior>(*node)) {
+        const Interior &interior = std::get<Interior>(*node);
+        return {interior.center, interior.radius};
     }
-    if (std::holds_alternative<Leaf *>(bvh)) {
-        const Leaf *leaf = std::get<Leaf *>(bvh);
-        return {leaf->center, leaf->radius};
+    if (std::holds_alternative<Leaf>(*node)) {
+        const Leaf &leaf = std::get<Leaf>(*node);
+        return {leaf.center, leaf.radius};
     }
     assert(false && "unexpected");
 }
 
-void free_canonical_tree(BVH node) {
-    if (std::holds_alternative<Interior *>(node)) {
-        Interior *interior = std::get<Interior *>(node);
-        free_canonical_tree(interior->left);
-        free_canonical_tree(interior->right);
-        free(interior);
+void free_canonical_tree(BVH *node) {
+    if (std::holds_alternative<Interior>(*node)) {
+        Interior &interior = std::get<Interior>(*node);
+        free_canonical_tree(interior.left);
+        free_canonical_tree(interior.right);
+        free(&interior);
         return;
     }
 
-    if (std::holds_alternative<Leaf *>(node)) {
-        Leaf *leaf = std::get<Leaf *>(node);
-        free(leaf->data);
-        free(leaf);
+    if (std::holds_alternative<Leaf>(*node)) {
+        Leaf &leaf = std::get<Leaf>(*node);
+        free(leaf.data);
+        free(&leaf);
         return;
     }
 
     assert(false && "unexpected");
 }
 
-BVH build_canonical_tree(std::vector<MaterialSphere> &spheres) {
-    std::function<BVH(uint32_t, uint32_t, uint32_t)> partition =
-        [&](uint32_t low, uint32_t high, uint32_t depth = 0) -> BVH {
+BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
+    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
+        [&](uint32_t low, uint32_t high, uint32_t depth = 0) -> BVH * {
         assert(depth < MAX_TREE_DEPTH);
         uint32_t count = high - low;
         if (count <= 2) {
@@ -110,12 +92,12 @@ BVH build_canonical_tree(std::vector<MaterialSphere> &spheres) {
             for (int i = 0; i < count; ++i) {
                 data[i] = spheres[low + i];
             }
-            return new Leaf{
+            return new BVH(Leaf{
                 .center = center,
                 .radius = radius,
-                .nprims = (uint16_t)count,
+                .nprims = static_cast<uint8_t>(count),
                 .data = data,
-            };
+            });
         }
 
         // Internal node
@@ -143,19 +125,19 @@ BVH build_canonical_tree(std::vector<MaterialSphere> &spheres) {
                          });
 
         const uint32_t mid = low + count / 2;
-        BVH left = partition(low, mid, depth + 1);
-        BVH right = partition(mid, high, depth + 1);
+        BVH *left = partition(low, mid, depth + 1);
+        BVH *right = partition(mid, high, depth + 1);
 
         // Compute bounding volume
         Sphere a = get_bounding_sphere(left), b = get_bounding_sphere(right);
         Sphere merged = bounding_sphere(&a, &b);
 
-        return new Interior{
+        return new BVH(Interior{
             .center = merged.center,
             .radius = merged.radius,
             .left = left,
             .right = right,
-        };
+        });
     };
 
     return partition(/*low=*/0, /*high=*/spheres.size(), /*depth=*/0);
@@ -221,7 +203,7 @@ int main(int argc, char *argv[]) {
     }
 
     std::cerr << "building canonical tree" << std::endl;
-    BVH node = build_canonical_tree(spheres);
+    BVH *node = build_canonical_tree(spheres);
     std::cerr << "building specialized tree" << std::endl;
     Spheres tree = build_spheres(node);
 
@@ -248,7 +230,7 @@ int main(int argc, char *argv[]) {
     auto t1 = clock::now();
 
     // Render
-    int *im = (int *)image(&cam, tree);
+    int *im = (int *)image(&cam, &tree);
 
     auto t2 = clock::now();
 

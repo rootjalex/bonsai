@@ -123,7 +123,7 @@ std::string split_name(uint32_t count, const std::string &field) {
 ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
                            const std::string &field,
                            const ir::BVH_t::Variant &variant,
-                           const ir::Layout &layout,
+                           const ir::Layout &layout, const ir::Program &program,
                            std::vector<const ir::Group *> &visited_groups) {
     uint32_t split_count = 0;
     const ir::Chain *chain = to_chainz(member);
@@ -149,7 +149,7 @@ ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
                 ir::Var::make(layout.get_index_type(), get_index_name("this"));
             path.add_index_access(index);
             if (path = get_write_loc(path, node->inner, field, variant, layout,
-                                     visited_groups);
+                                     program, visited_groups);
                 path.defined()) {
                 if (auto it = std::find_if(visited_groups.begin(),
                                            visited_groups.end(),
@@ -179,13 +179,17 @@ ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
                     std::string field_name =
                         split_name(split_count++, node->field_name());
                     path.add_struct_access(field_name);
-                    // TODO(cgyurgyik): we need the layout type map!
-                    path.add_cast(layout.type_map(arm.member),
-                                  ir::Cast::Mode::Reinterpret);
                 }
-                if (path = get_write_loc(path, arm.member, field, variant,
-                                         layout, visited_groups);
-                    path.defined()) {
+                if (ir::WriteLoc split_path =
+                        get_write_loc(path, arm.member, field, variant, layout,
+                                      program, visited_groups);
+                    split_path.defined()) {
+                    std::string name = "arm_" + variant.name();
+                    auto it = program.types.find(name);
+                    internal_assert(it != program.types.end()) << name;
+                    path.add_cast(ir::Ptr_t::make(it->second),
+                                  ir::Cast::Mode::Reinterpret);
+                    path.add_struct_access(field);
                     return path;
                 }
             }
@@ -264,14 +268,15 @@ class ConcretizeAppend : public ir::Mutator {
 class ConcretizeVar : public ir::Mutator {
   public:
     ConcretizeVar(const ir::Layout &layout, const ir::BVH_t::Variant &variant,
-                  const ir::Type &concretized_type)
-        : layout(layout), variant(variant), concretized_type(concretized_type) {
-    }
+                  const ir::Type &concretized_type, const ir::Program &program)
+        : layout(layout), variant(variant), concretized_type(concretized_type),
+          program(program) {}
 
   private:
     const ir::Layout &layout;
     const ir::BVH_t::Variant &variant;
     const ir::Type &concretized_type;
+    const ir::Program &program;
 
     ir::Expr visit(const ir::Var *node) override {
         ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
@@ -285,8 +290,8 @@ class ConcretizeVar : public ir::Mutator {
             // need to concretize its location.
             return node;
         }
-        if (loc =
-                get_write_loc(loc, layout.body, node->name, variant, layout, _);
+        if (loc = get_write_loc(loc, layout.body, node->name, variant, layout,
+                                program, _);
             loc.defined()) {
             return loc.to_expr();
         }
@@ -297,9 +302,9 @@ class ConcretizeVar : public ir::Mutator {
 class ConstructBuild : public ir::Visitor {
   public:
     ConstructBuild(const ir::Layout &layout, const ir::BVH_t::Variant &variant,
-                   const ir::Type &concretized_type)
-        : layout(layout), variant(variant), concretized_type(concretized_type) {
-    }
+                   const ir::Type &concretized_type, const ir::Program &program)
+        : layout(layout), variant(variant), concretized_type(concretized_type),
+          program(program) {}
 
     std::vector<ir::Stmt> statements() {
         if (root.empty()) {
@@ -325,6 +330,7 @@ class ConstructBuild : public ir::Visitor {
     const ir::Layout &layout;
     const ir::BVH_t::Variant &variant;
     const ir::Type &concretized_type;
+    const ir::Program &program;
     std::vector<ir::Stmt> stmts;
     std::vector<ir::Stmt> root;
     std::map<ir::Expr, std::vector<const ir::Group *>, ir::ExprLessThan> groups;
@@ -444,7 +450,8 @@ class ConstructBuild : public ir::Visitor {
             ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
             std::string name = get_field_name(field);
             std::vector<const ir::Group *> _;
-            if (loc = get_write_loc(loc, layout.body, name, variant, layout, _);
+            if (loc = get_write_loc(loc, layout.body, name, variant, layout,
+                                    program, _);
                 loc.defined()) {
                 loc.add_index_access(std::move(index));
                 body.push_back(ir::Store::make(std::move(loc), let.to_expr()));
@@ -465,7 +472,8 @@ class ConstructBuild : public ir::Visitor {
 
         ir::WriteLoc loc(SPECIALIZED_TREE, concretized_type);
         std::vector<const ir::Group *> _;
-        if (loc = get_write_loc(loc, layout.body, name, variant, layout, _);
+        if (loc = get_write_loc(loc, layout.body, name, variant, layout,
+                                program, _);
             loc.defined()) {
             if (ir::Expr index = get_index(node->field); index.defined()) {
                 loc.add_index_access(std::move(index));
@@ -496,7 +504,7 @@ class ConstructBuild : public ir::Visitor {
         ir::Expr field = node->field;
         std::string field_name = get_field_name(field);
         loc = get_write_loc(loc, layout.body, field_name, variant, layout,
-                            visited_groups);
+                            program, visited_groups);
         internal_assert(loc.defined())
             << "did not find concretized location for field: `" << field << "`"
             << " : " << field.type();
@@ -541,12 +549,13 @@ class ConstructBuild : public ir::Visitor {
 
 ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
                                         const ir::Type &concretized_type,
-                                        const ir::Layout &layout) {
+                                        const ir::Layout &layout,
+                                        const ir::Program &program) {
     ir::BuildIR body = function.body;
     const ir::BVH_t::Variant &variant = function.variant;
     body = ConcretizeIndex(layout).mutate(body);
 
-    ConstructBuild visitor(layout, variant, concretized_type);
+    ConstructBuild visitor(layout, variant, concretized_type, program);
     body.accept(&visitor);
 
     std::vector<ir::Stmt> stmts;
@@ -596,21 +605,21 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
 
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = ConcretizeAppend(layout).mutate(std::move(sequence));
-    sequence = ConcretizeVar(layout, variant, concretized_type)
+    sequence = ConcretizeVar(layout, variant, concretized_type, program)
                    .mutate(std::move(sequence));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
     return sequence;
 }
 
-std::shared_ptr<ir::Function>
-construct_build_recursive(const ir::BuildLayout &build,
-                          const ir::Type &concretized_type,
-                          const ir::Layout &layout) {
+std::shared_ptr<ir::Function> construct_build_recursive(
+    const ir::BuildLayout &build, const ir::Type &concretized_type,
+    const ir::Layout &layout, const ir::Program &program) {
     ir::Match::Arms arms;
     for (const ir::BuildFunction &function : build.functions) {
         arms.push_back({
             function.variant,
-            construct_build_recursive_body(function, concretized_type, layout),
+            construct_build_recursive_body(function, concretized_type, layout,
+                                           program),
         });
     }
     ir::Stmt body = ir::Match::make(self(layout), std::move(arms));
@@ -641,11 +650,12 @@ construct_build_recursive(const ir::BuildLayout &build,
 
 ir::WriteLoc get_write_loc(ir::WriteLoc loc, const std::string &name,
                            const ir::BuildLayout &build,
-                           const ir::Layout &layout) {
+                           const ir::Layout &layout,
+                           const ir::Program &program) {
     std::vector<const ir::Group *> _;
     for (const ir::BuildFunction &function : build.functions) {
-        ir::WriteLoc base =
-            get_write_loc(loc, layout.body, name, function.variant, layout, _);
+        ir::WriteLoc base = get_write_loc(loc, layout.body, name,
+                                          function.variant, layout, program, _);
         if (!base.defined()) {
             continue;
         }
@@ -683,8 +693,8 @@ construct_count_recursive_body(const ir::BuildFunction &function,
             // TODO(cgyurgyik): don't limit this to constants and variables.
             internal_assert(size_variable) << member_size;
             ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
-            ir::WriteLoc loc =
-                get_write_loc(base, size_variable->name, build, layout);
+            ir::WriteLoc loc = get_write_loc(base, size_variable->name, build,
+                                             layout, program);
             if (const auto *v = count.as<ir::Var>()) {
                 count = ir::Access::make(
                     v->name, cast_to(function.variant.type(), self(layout)));
@@ -752,7 +762,7 @@ construct_count_recursive_body(const ir::BuildFunction &function,
         internal_assert(size_variable) << size;
         ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
         ir::WriteLoc loc =
-            get_write_loc(base, size_variable->name, build, layout);
+            get_write_loc(base, size_variable->name, build, layout, program);
         stmts.push_back(ir::Accumulate::make(std::move(loc),
                                              ir::Accumulate::OpType::Add,
                                              make_one(size_variable->type)));
@@ -849,15 +859,15 @@ construct_build_full(const ir::Type &concretized_type,
             ir::Expr size = field->type.size();
             if (const auto *size_variable = size.as<ir::Var>()) {
                 ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
-                ir::WriteLoc location =
-                    get_write_loc(base, size_variable->name, build, layout);
+                ir::WriteLoc location = get_write_loc(base, size_variable->name,
+                                                      build, layout, program);
                 internal_assert(location.defined());
                 size = location.to_expr();
             }
             ir::WriteLoc location(
                 field->name, ir::Array_t::make(field->type.element_of(), size));
-            ir::WriteLoc write_to =
-                get_write_loc(specialized_tree, field->name, build, layout);
+            ir::WriteLoc write_to = get_write_loc(specialized_tree, field->name,
+                                                  build, layout, program);
             stmts.push_back(ir::Allocate::make(location));
             stmts.push_back(
                 ir::Store::make(std::move(write_to), location.to_expr()));
@@ -873,8 +883,8 @@ construct_build_full(const ir::Type &concretized_type,
             if (member.bits() == 0) {
                 continue;
             }
-            ir::WriteLoc write_to =
-                get_write_loc(specialized_tree, group->name, build, layout);
+            ir::WriteLoc write_to = get_write_loc(specialized_tree, group->name,
+                                                  build, layout, program);
             auto it = program.types.find(group->name);
             internal_assert(it != program.types.end())
                 << "no type found for: `" << group->name << "`";
@@ -895,8 +905,8 @@ construct_build_full(const ir::Type &concretized_type,
             }
             if (const auto *size_variable = size.as<ir::Var>()) {
                 ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
-                ir::WriteLoc location =
-                    get_write_loc(base, size_variable->name, build, layout);
+                ir::WriteLoc location = get_write_loc(base, size_variable->name,
+                                                      build, layout, program);
                 internal_assert(location.defined());
                 size = location.to_expr();
             }
@@ -1033,14 +1043,16 @@ ir::Program LowerBuilds::run(ir::Program program,
             << "no layout found for tree: `" << name << "`";
         std::vector<std::shared_ptr<ir::Function>> functions;
         // First, construct the recursive build algorithm.
-        functions.push_back(
-            construct_build_recursive(build, concretized_type, it->second));
+        functions.push_back(construct_build_recursive(build, concretized_type,
+                                                      it->second, program));
         // Then, construct the recursive count algorithm.
         functions.push_back(construct_count_recursive(concretized_type, build,
                                                       it->second, program));
         // Finally, construct the final build algorithm.
         functions.push_back(
             construct_build_full(concretized_type, build, it->second, program));
+        functions.back()->attributes.push_back(
+            ir::Function::Attribute::exported);
 
         // Capture free variables for function calls.
         for (int i = 0, e = functions.size(); i < e; ++i) {

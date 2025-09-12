@@ -8,27 +8,10 @@
 #include <tuple>
 #include "bonsai_cpp.h"
 
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
 using vec3_float = vector<float, 3>;
-struct AABB {
-    vec3_float low;
-    vec3_float high;
-};
-struct Camera {
-    float aspect_ratio;
-    int32_t width;
-    uint32_t samples_per_pixel = 100;
-    int32_t max_depth = 10;
-    float vfov = 90;
-    vec3_float lookfrom = vec3_float{0.0f, 0.0f, 0.0f};
-    vec3_float lookat = vec3_float{0.0f, 0.0f, -1};
-    vec3_float vup = vec3_float{0.0f, 1.0f, 0.0f};
-    float defocus_angle = 0.0f;
-    float focus_dist = 10;
-};
-struct FInterval {
-    float low;
-    float high;
-};
 struct Interior {
     vec3_float center;
     float radius;
@@ -50,6 +33,26 @@ struct Leaf {
     float radius;
     uint8_t nprims;
     MaterialSphere* data;
+};
+struct AABB {
+    vec3_float low;
+    vec3_float high;
+};
+struct Camera {
+    float aspect_ratio;
+    int32_t width;
+    uint32_t samples_per_pixel = 100;
+    int32_t max_depth = 10;
+    float vfov = 90;
+    vec3_float lookfrom = vec3_float{0.0f, 0.0f, 0.0f};
+    vec3_float lookat = vec3_float{0.0f, 0.0f, -1};
+    vec3_float vup = vec3_float{0.0f, 1.0f, 0.0f};
+    float defocus_angle = 0.0f;
+    float focus_dist = 10;
+};
+struct FInterval {
+    float low;
+    float high;
 };
 struct Point {
     vec3_float vec;
@@ -122,4 +125,5 @@ using vec3__Float16 = vector<_Float16, 3>;
 using vec3_int32_t = vector<int32_t, 3>;
 
 Sphere bounding_sphere(const Sphere* a, const Sphere* b);
+Spheres build_spheres(const BVH* CT);
 vec3_int32_t** image(const Camera* c, const Spheres* spheres);

@@ -869,8 +869,8 @@ ir::Program LowerTrees::run(ir::Program program,
         << "TODO: support selecting a schedule target!\n";
 
     // Pop tree schedule, no longer necessary.
-    ir::TypeMap tree_types =
-        std::move(program.schedules[ir::Target::Host].tree_types);
+    const ir::TypeMap &tree_types =
+        program.schedules[ir::Target::Host].tree_types;
 
     for (const auto &[name, type] : tree_types) {
         if (const auto *bvh_t = type.as<ir::BVH_t>()) {

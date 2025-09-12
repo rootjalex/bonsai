@@ -317,7 +317,7 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             ss << "struct " << node.name() << ";\n";
         }
         ss << "using " << bvh_t->name << " = ";
-        ss << "tree<";
+        ss << "std::variant<";
         bool first = true;
         for (const auto &node : bvh_t->variants) {
             if (!first) {
@@ -452,7 +452,12 @@ class BonsaiToCpp : ir::Printer {
 
         // Any generated structs might be used in code generated,
         // and therefore must be emitted.
-        for (const auto &[name, type] : program.types) {
+        auto it = program.schedules.find(ir::Target::Host);
+        internal_assert(it != program.schedules.end());
+        for (const auto &[_, type] : it->second.tree_types) {
+            get_declared_types(type, deduplicate, types);
+        }
+        for (const auto &[_, type] : program.types) {
             get_declared_types(type, deduplicate, types);
         }
 
