@@ -10,20 +10,19 @@ fi
 
 PREFIX="apps/rtiow/cpu"
 
-# Compile
+# 0. Remove any previously built image.
+rm -f $PREFIX/rtiow-cpu-image.ppm
+# 1. Build the Bonsai compiler.
 cmake --build build --config Debug -j
-./build/compiler -i $PREFIX/main.bonsai -o $PREFIX/main.bir
-./build/compiler -i $PREFIX/main.bonsai -b llvm -o $PREFIX/main.ll
-./build/compiler -i $PREFIX/main.bonsai -b cpp -o $PREFIX/main
-clang++ -g -std=c++20 -O3 $PREFIX/main_hook.cpp $PREFIX/main.o -o $PREFIX/bonsai.out
-# Run
-time ./$PREFIX/bonsai.out $PREFIX/rtiow-cpu-image.ppm
+# 2. Lower to C++.
+./build/compiler -i $PREFIX/main.bonsai -b cppx -o $PREFIX/rtiow
+# 3. Compile the lowered C++.
+clang++ -std=c++20 -O3 -g -o $PREFIX/rtiow.out $PREFIX/main.cpp $PREFIX/rtiow.cpp -Iruntime/CPP -I.
+# 4. Run it.
+time ./$PREFIX/rtiow.out $PREFIX/rtiow-cpu-image.ppm
 
 # Clean up
-rm $PREFIX/main.bir
-rm $PREFIX/main.ll
-rm $PREFIX/main.o
-rm $PREFIX/bonsai.out
-rm -r $PREFIX/bonsai.out.dSYM
+rm $PREFIX/rtiow.out
+rm -r $PREFIX/rtiow.out.dSYM
 
 exit 0

@@ -1,8 +1,5 @@
-// clang++ -std=c++20 -O3 apps/rtiow/main_hook.cpp apps/rtiow/main.o -o
-// apps/rtiow/main_runner
-// ./main_runner &> bonsai_image.ppm
 #include <chrono>
-#include <fstream> // for std::ofstream
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <random>
@@ -209,6 +206,7 @@ int main(int argc, char *argv[]) {
 
     std::cout << "building specialized tree" << std::endl;
     auto st_begin = clock::now();
+    // TODO(cgyurgyik): free the specialized tree.
     Spheres tree = build_spheres(node);
     auto st_end = clock::now();
 
@@ -282,6 +280,5 @@ int main(int argc, char *argv[]) {
     std::cout << "Write-to-output time: " << write_ms << " ms\n";
 
     free(im);
-    // TODO(cgyurgyik): free the specialized tree.
     return 0;
 }

@@ -1,6 +1,3 @@
-//! flags: -b cpp -o apps/rtiow/main
-// clang++ -std=c++20 -O3 main_hook.cpp main.o -o bonsai.out
-
 import stdlib/numerics;
 import stdlib/random;
 import stdlib/ray;
@@ -10,7 +7,7 @@ import stdlib/distance;
 element MaterialSphere {
     s : Sphere;
     material : u32; // 0 = Lambertian, 1 = Metal
-    albedo : vec3f;
+    albedo : f32x3;
     fuzz : Float; // Metal's fuzz, Dialectric's refraction_index
 }
 
@@ -24,9 +21,9 @@ element Camera {
     samples_per_pixel : u32 = 100;
     max_depth : i32 = 10;
     vfov : Float = 90;
-    lookfrom : vec3f = vec3f{0.0, 0.0, 0.0};
-    lookat : vec3f = vec3f{0.0, 0.0, -1.0};
-    vup : vec3f = vec3f{0.0, 1.0, 0.0};
+    lookfrom : f32x3 = f32x3{0.0, 0.0, 0.0};
+    lookat : f32x3 = f32x3{0.0, 0.0, -1.0};
+    vup : f32x3 = f32x3{0.0, 1.0, 0.0};
     defocus_angle : Float  = 0.0;
     focus_dist : Float = 10.0;
 }
@@ -83,7 +80,7 @@ func build_ray(i : i32, j : i32, cam : Camera) {
 func at(r : Ray, t : Float) = r.o + t * r.d;
 
 element hit_record {
-    p, normal : vec3f;
+    p, normal : f32x3;
     t : Float;
     front_face : bool;
 }
@@ -99,7 +96,7 @@ func get_hit_record(r : Ray, s : Sphere) -> hit_record {
 }
 
 element scatter_record {
-    attenuation : vec3f;
+    attenuation : f32x3;
     ray : Ray;
     hit : bool;
 }
@@ -137,7 +134,7 @@ func scatter(ray : Ray, ms : MaterialSphere) -> scatter_record {
         direction = select(cannot_refract, reflect(unit_dir, hit.normal), refract(unit_dir, hit.normal, ri));
 
         d_scattered = Ray{hit.p, direction};
-        return {vec3f{1.0, 1.0, 1.0}, d_scattered, true};
+        return {f32x3{1.0, 1.0, 1.0}, d_scattered, true};
     }
 }
 
@@ -147,9 +144,9 @@ extern spheres : set[MaterialSphere];
 // TODO: need to inspect llvm/asm to make sure calls only happen once.
 func trace(r : Ray) = argmin(|s : MaterialSphere| distmin(r, s), filter(|s : MaterialSphere| intersects(r, s) && distmin(r, s) > 0.001, spheres));
 
-func sample(r : Ray, depth : i32, mult : vec3f) -> vec3f {
+func sample(r : Ray, depth : i32, mult : f32x3) -> f32x3 {
     if (depth <= 0) {
-        return vec3f{0.0, 0.0, 0.0};
+        return f32x3{0.0, 0.0, 0.0};
     }
     isect : option[MaterialSphere] = trace(r);
     if isect {
@@ -157,59 +154,21 @@ func sample(r : Ray, depth : i32, mult : vec3f) -> vec3f {
         if (data.hit) {
             return sample(data.ray, depth - 1, mult * data.attenuation);
         } else {
-            return vec3f{0.0, 0.0, 0.0};
+            return f32x3{0.0, 0.0, 0.0};
         }
     }
     unit_direction = r.d / norm(r.d);
     a = 0.5 * (unit_direction.y + 1.0);
-    return mult * ((1.0 - a) * vec3f{1.0, 1.0, 1.0} + a * vec3f{0.5, 0.7, 1.0});
+    return mult * ((1.0 - a) * f32x3{1.0, 1.0, 1.0} + a * f32x3{0.5, 0.7, 1.0});
 }
 
 func pixel(i : i32, j : i32, c : Camera) {
-    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth, vec3f{1.0, 1.0, 1.0}), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
+    return sum(map(|k : u32| sample(build_ray(i, j, c), c.max_depth, f32x3{1.0, 1.0, 1.0}), iter(c.samples_per_pixel))) / cast[[Float]](c.samples_per_pixel);
 } 
 
-func to_rgb(v : vec3f) {
+func to_rgb(v : f32x3) {
     corrected = linear_to_gamma_v(v);
     return cast[[vector[i32, 3]]](256.0 * clamp(corrected, 0.0, 0.999));
-}
-
-func [[export]] image(c : Camera) {
-    height : mut = cast[[i32]](cast[[Float]](c.width) / c.aspect_ratio);
-    height = select(height < 1, 1, height);
-    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(c.width)), iter(height));
-}
-
-schedule {
-    // TODO: generic over primitive types!
-    tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
-    | Interior(left : SphereBVH, right : SphereBVH, axis : u8)
-    | Leaf(data : array[MaterialSphere]);
-
-    spheres : SphereBVH;
-
-    layout spheres {
-        pCount : u32;
-        prims : array[MaterialSphere, pCount];
-        count : u32;
-        group[count] index : u16 {
-            center : vec3f;
-            radius : Float;
-            nPrims : u8;
-            axis : u8;
-            switch nPrims {
-                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
-            };
-        };
-    };
-
-    image.split(i0, io, ii, 45, false) // make 15 threads
-         .cpu_thread(io);
-    trace
-         // This actually slows the application down. Not sure why.
-         // .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| select((1 / r.d)[axis] < 0, 1 - i, i))
-         .loopify(64);
 }
 
 func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
@@ -226,9 +185,67 @@ func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
 
     new_radius = 0.5 * (dist + a.radius + b.radius);
     // check for degnerate case of the same center
-    direction = select(dist > 0, d / dist, vec3f{1.0, 0.0, 0.0});
+    direction = select(dist > 0, d / dist, f32x3{1.0, 0.0, 0.0});
 
     new_center = a.center + direction * (new_radius - a.radius);
 
     return {new_center, new_radius};
 }
+
+func [[export]] image(c : Camera) {
+    height : mut = cast[[i32]](cast[[Float]](c.width) / c.aspect_ratio);
+    height = select(height < 1, 1, height);
+    return map(|j : i32| map(|i : i32| to_rgb(pixel(i, j, c)), iter(c.width)), iter(height));
+}
+
+schedule {
+    tree[[MaterialSphere]] BVH(center : f32x3, radius : f32) with Sphere(center, radius)
+    = Interior(left : BVH, right : BVH)
+    | Leaf(nprims: u8, data: array[MaterialSphere, nprims]);
+
+    spheres : BVH;
+
+    layout spheres(index: u32) {
+        primitive_count : u32;
+        primitives : array[MaterialSphere, primitive_count];
+        node_count : u32;
+        group nodes[node_count] by index {
+            center : f32x3;
+            radius : f32;
+            nprims : u8;
+            8;
+            split nprims {
+                0 -> Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ -> Leaf { poffset : u16; data = primitives[poffset : poffset + nprims]; };
+            };
+        };
+    };
+
+    build spheres {
+      build Interior(center: f32x3, radius: f32, left: BVH, right: BVH) {
+        build center;
+        build radius;
+        build nprims = 0;
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+
+      build Leaf(center: f32x3, radius: f32, nprims: u8, data: array[MaterialSphere, nprims]) {
+        build center;
+        build radius;
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+
+    // image.loop_split(i0, io, ii, 45, false) // make 15 threads
+    //     .cpu_thread(io);
+    trace
+         // This actually slows the application down. Not sure why.
+         // .sort(spheres.Interior, |i : u8, r : Ray, axis : u8| select((1 / r.d)[axis] < 0, 1 - i, i))
+         .loopify(64);
+}
+

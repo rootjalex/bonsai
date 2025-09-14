@@ -1,4 +1,4 @@
-#include "apps/layout/rtiow/cpu/rtiow.h"
+#include "apps/rtiow/cpu/rtiow.h"
 Point ClosestPtPointAABB(const Point* pt, const AABB* a) {
   return Point{.vec=min(max((*pt).vec, (*a).low), (*a).high)};
 }
