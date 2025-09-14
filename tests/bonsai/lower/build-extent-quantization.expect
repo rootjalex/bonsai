@@ -3,6 +3,8 @@ type BVH = (const BVH&)
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
+type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const BVH&); right : (const BVH&) }
+type Leaf = struct Leaf{ low : f32x3; high : f32x3; nprims : u16; data : struct Sphere{ center : f32x3; radius : f32 }[nprims] }
 type Point = struct Point{ vec : f32x3 }
 type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
@@ -10,6 +12,7 @@ type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
 type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
 type arm_Leaf = [[packed]] struct arm_Leaf{ poffset : u32 }
+type boolx3 = boolx3
 type f32x2 = f32x2
 type f32x3 = f32x3
 type f32x3x4 = f32x3x4
@@ -63,7 +66,7 @@ func build_bins_inverse(low : f32x3, high : f32x3) -> f32x3 {
   return build<f32x3>(fdiv_rd(1023f, L2[0u]), fdiv_rd(1023f, L2[1u]), fdiv_rd(1023f, L2[2u]))
 }
 
-func build_spheres(CT : (const BVH&)) -> spheres {
+func [[export]] build_spheres(CT : (const BVH&)) -> spheres {
   ST : mut spheres
   primitives_index : mut idx
   nodes_index : mut idx
@@ -312,11 +315,11 @@ func quantize(current : f32x3, world : f32x3, bin_inverse : f32x3) -> i30 {
   return cast<i30>(((x << 20u) | (y << 10u)) | z)
 }
 
-func rec_build_spheres(node : (const BVH&), ST : mut spheres, nodes_index : mut u32, primitives_index : mut idx) -> u32 {
+func rec_build_spheres(node : (const BVH&), ST : mut spheres, nodes_index : mut idx, primitives_index : mut idx) -> u32 {
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     let this_index = nodes_index in
-    nodes_index += 1u
+    nodes_index += 1
     if (this_index == 0) {
       ST.wlow = node.low
       ST.whigh = node.high
@@ -328,17 +331,17 @@ func rec_build_spheres(node : (const BVH&), ST : mut spheres, nodes_index : mut 
     ST.nodes[this_index].nprims = 0
     let left_index = rec_build_spheres(node.left, ST, nodes_index, primitives_index) in
     let right_index = rec_build_spheres(node.right, ST, nodes_index, primitives_index) in
-    ST.nodes[this_index].split0on_nprims.offset = right_index - this_index
+    reinterpret_cast<(arm_Interior*)>(ST.nodes[this_index].split0on_nprims).offset = right_index - this_index
     return this_index
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Sphere[nprims]) with AABB(low, high) ->
     let this_index = nodes_index in
-    nodes_index += 1u
+    nodes_index += 1
     ST.nodes[this_index].q_min = quantize(node.low, ST.wlow, ST.bins_inv)
     ST.nodes[this_index].q_max = quantize(node.high, ST.whigh, ST.bins_inv)
     ST.nodes[this_index].nprims = node.nprims
-    ST.nodes[this_index].split0on_nprims.poffset = primitives_index
+    reinterpret_cast<(arm_Leaf*)>(ST.nodes[this_index].split0on_nprims).poffset = primitives_index
     forall __p in [0u:node.nprims:1u] {
-      ST.primitives[__p + primitives_index] = node.data[__p]
+      ST.primitives[(__p + primitives_index)] = node.data[__p]
     }
     primitives_index += node.nprims
     return this_index
@@ -357,5 +360,8 @@ func rec_count_spheres(node : (const BVH&), ST : mut spheres) -> void {
 
 
 schedule host {
+    spheres : tree[[struct Sphere{ center : f32x3; radius : f32 }]] BVH
+  | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Sphere[nprims]) with AABB(low, high)
 
 }

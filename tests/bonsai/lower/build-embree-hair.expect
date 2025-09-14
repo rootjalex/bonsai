@@ -1,16 +1,20 @@
 type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type AABBNode = struct AABBNode{ aabb_children : (const BVH&)[4]; aabb_low : f32x3x4; aabb_high : f32x3x4 }
 type AABBs = [[packed]] struct AABBs{ aabb_low : f32x3x4; aabb_high : f32x3x4; aabb_children : u64x4 }
 type BVH = (const BVH&)
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
+type Leaf = struct Leaf{ nprims : u8; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[nprims] }
 type OBB = struct OBB{ obb_low : f32x3; obb_high : f32x3; orientation : f32x4x3 }
+type OBBNode = struct OBBNode{ obb_children : (const BVH&)[4]; orientation : f32x4x3; obb_low : f32x3x4; obb_high : f32x3x4 }
 type OBBs = [[packed]] struct OBBs{ mlo : f32x3; mex : f32x3; qlo : u8x3x4; qhi : u8x3x4; qorientation : i8x4x3; obb_children : u64x4 }
 type Point = struct Point{ vec : f32x3 }
 type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type boolx3 = boolx3
 type f32x2 = f32x2
 type f32x3 = f32x3
 type f32x3x4 = f32x3x4
@@ -76,7 +80,7 @@ func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
   yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
 }
 
-func build_triangles(CT : (const BVH&)) -> triangles {
+func [[export]] build_triangles(CT : (const BVH&)) -> triangles {
   ST : mut triangles
   primitives_index : mut idx
   size_AABBs : mut idx
@@ -429,7 +433,7 @@ func rec_build_triangles(node : (const BVH&), ST : mut triangles, AABBs_index : 
     return (this_index << 4u) | 3u
   | Leaf(nprims : u8, data : Triangle[nprims]) ->
     forall __p in [0u:node.nprims:1u] {
-      ST.primitives[__p + primitives_index] = node.data[__p]
+      ST.primitives[(__p + primitives_index)] = node.data[__p]
     }
     primitives_index += node.nprims
     let poffset = primitives_index in
@@ -479,5 +483,9 @@ func [[export]] trace(ray : Ray) -> option<Triangle> {
 
 
 schedule host {
+    triangles : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH
+  | AABBNode(aabb_children : (const BVH&)[4], aabb_low : f32x3x4, aabb_high : f32x3x4) with AABB(aabb_low, aabb_high)
+  | OBBNode(obb_children : (const BVH&)[4], orientation : f32x4x3, obb_low : f32x3x4, obb_high : f32x3x4) with OBB(obb_low, obb_high, orientation)
+  | Leaf(nprims : u8, data : Triangle[nprims])
 
 }

@@ -4,6 +4,8 @@ type DOP14 = struct DOP14{ early_exit : u1; low : f32x7; high : f32x7 }
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
+type Interior = struct Interior{ lo : f32x7; hi : f32x7; ee : u1; left : (const BVH&); right : (const BVH&) }
+type Leaf = struct Leaf{ lo : f32x7; hi : f32x7; ee : u1; leaf_size : u4; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[leaf_size] }
 type Point = struct Point{ vec : f32x3 }
 type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
@@ -11,6 +13,7 @@ type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
 type arm_Interior = [[packed]] struct arm_Interior{ left : u32 }
 type arm_Leaf = [[packed]] struct arm_Leaf{ leaf_size : u4; tri_address : u28 }
+type boolx3 = boolx3
 type dop36 = [[packed]] struct dop36{ lo2 : f32x4; hi2 : f32x4 }
 type f32x2 = f32x2
 type f32x3 = f32x3
@@ -56,7 +59,7 @@ func _traverse_tree0(ray : Ray, triangles : triangles) -> option<Triangle> {
   yield select(_best0[0] != (f32)inf, build<option<Triangle>>(_best0[1]), build<option<Triangle>>())
 }
 
-func build_triangles(CT : (const BVH&)) -> triangles {
+func [[export]] build_triangles(CT : (const BVH&)) -> triangles {
   ST : mut triangles
   primitives_index : mut idx
   dop36_index : mut idx
@@ -358,11 +361,11 @@ func intersectsp_ray_dop14(r : Ray, d : DOP14) -> option<FInterval> {
   return cast<option<FInterval>>(n6)
 }
 
-func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : mut u32, primitives_index : mut idx) -> u32 {
+func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : mut idx, primitives_index : mut idx) -> u32 {
   match node {
   | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
     let this_index = nodes_index in
-    nodes_index += 1u
+    nodes_index += 1
     ST.nodes[this_index].lo1 = build<f32x3>(node.lo[0], node.lo[1], node.lo[2])
     ST.nodes[this_index].hi1 = build<f32x3>(node.hi[0], node.hi[1], node.hi[2])
     ST.dop36[this_index].lo2 = build<f32x4>(node.lo[3], node.lo[4], node.lo[5], node.lo[6])
@@ -370,18 +373,18 @@ func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : 
     ST.nodes[this_index].ee = false
     ST.nodes[this_index].is_leaf_flag = 0
     let left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index) in
-    ST.nodes[this_index].split0on_is_leaf_flag.left = left_index
+    reinterpret_cast<(arm_Interior*)>(ST.nodes[this_index].split0on_is_leaf_flag).left = left_index
     let right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index) in
     ST.nodes[this_index].right = right_index
     return this_index
   | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
     let this_index = nodes_index in
-    nodes_index += 1u
+    nodes_index += 1
     ST.nodes[this_index].is_leaf_flag = 1
     ST.nodes[this_index].ee = node.ee
-    ST.nodes[this_index].split0on_is_leaf_flag.tri_address = primitives_index
+    reinterpret_cast<(arm_Leaf*)>(ST.nodes[this_index].split0on_is_leaf_flag).tri_address = primitives_index
     forall __p in [0u:node.leaf_size:1u] {
-      ST.primitives[__p + primitives_index] = node.data[__p]
+      ST.primitives[(__p + primitives_index)] = node.data[__p]
     }
     primitives_index += node.leaf_size
     return this_index
@@ -405,5 +408,8 @@ func [[export]] trace(ray : Ray) -> option<Triangle> {
 
 
 schedule host {
+    triangles : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH
+  | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi)
+  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi)
 
 }
