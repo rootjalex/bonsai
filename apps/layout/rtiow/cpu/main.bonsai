@@ -217,6 +217,7 @@ schedule {
       build Leaf(center: f32x3, radius: f32, nprims: u8, data: array[MaterialSphere, nprims]) {
         build center;
         build radius;
+        build nprims;
         build poffset = append(data, nprims);
         return this;
       };

@@ -205,15 +205,8 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         void visit(const UIntImm *node) override { ss << node->value; }
 
         void visit(const FloatImm *node) override {
-            if (is_const_zero(node)) {
-                ss << "0.0";
-                if (node->type.bits() == 32) {
-                    ss << "f";
-                }
-                return;
-            }
-            if (is_const_one(node)) {
-                ss << "1.0";
+            if (double x = node->value; x == std::floor(x)) {
+                ss << static_cast<int64_t>(x) << ".0";
                 if (node->type.bits() == 32) {
                     ss << "f";
                 }
@@ -537,15 +530,8 @@ class BonsaiToCpp : ir::Printer {
     void visit(const UIntImm *node) override { ss << node->value; }
     void visit(const IdxImm *node) override { ss << node->value; }
     void visit(const FloatImm *node) override {
-        if (is_const_zero(node)) {
-            ss << "0.0";
-            if (node->type.bits() == 32) {
-                ss << "f";
-            }
-            return;
-        }
-        if (is_const_one(node)) {
-            ss << "1.0";
+        if (double x = node->value; x == std::floor(x)) {
+            ss << static_cast<int64_t>(x) << ".0";
             if (node->type.bits() == 32) {
                 ss << "f";
             }

@@ -127,7 +127,7 @@ std::optional<FInterval> intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   const vec3_float high_parts = select(dirIsNeg, (*b).low, (*b).high);
   vec3_float tMin = ((low_parts - (*r).o) * invDir);
   vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax*= (1.0f + (2.00000000f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  tMax*= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
   if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
     return std::nullopt;
   }
@@ -206,9 +206,9 @@ std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* ray, const Tr
   const float maxYt = reduce_max(abs(vec3_float{p0t[1], p1t[1], p2t[1]}));
   const float deltaX = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxXt + maxZt));
   const float deltaY = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxYt + maxZt));
-  const float deltaE = (2.00000000f * (((((((float)(2) * 0.00000006f) / (1.0f - ((float)(2) * 0.00000006f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  const float deltaE = (2.0f * (((((((float)(2) * 0.00000006f) / (1.0f - ((float)(2) * 0.00000006f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
   const float maxE = reduce_max(abs(vec3_float{e0, e1, e2}));
-  const float deltaT = ((3.00000000f * (((((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
+  const float deltaT = ((3.0f * (((((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
   if ((t <= deltaT)) {
     return std::nullopt;
   }
@@ -285,8 +285,8 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index
       (*nodes_index)+= 1;
       (*ST).nodes[this_index].low = node.low;
       (*ST).nodes[this_index].high = node.high;
-      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       (*ST).nodes[this_index].nprims = node.nprims;
+      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
       for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
@@ -314,9 +314,9 @@ Triangles build_triangles(const BVH* CT) {
   size_t primitives_index = 0;
   size_t nodes_index = 0;
   rec_count_triangles(CT, (&ST));
-  Triangle* primitives = malloc(sizeof(Triangle) * ST.primitive_count);
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes = malloc(sizeof(Nodes) * ST.node_count);
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
@@ -389,7 +389,7 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* pt, const Triangle*
   return std::tuple<Point, Point>{Point{.vec=((a + (ab * vec3_float{v})) + (ac * vec3_float{w}))}, Point{.vec=vec3_float{u, v, w}}};
 }
 float degrees_to_radians(const float degrees) {
-  return ((degrees * 3.14159274f) / 180.00000000f);
+  return ((degrees * 3.14159274f) / 180.0f);
 }
 float distmax_Ray_AABB(const Ray* r, const AABB* b) {
   const std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
@@ -619,12 +619,12 @@ bool near_zero(const vec3_float v) {
   return (((abs(v[0]) < 0.00000001f) & (abs(v[1]) < 0.00000001f)) & (abs(v[2]) < 0.00000001f));
 }
 vec3_float reflect(const vec3_float v, const vec3_float n) {
-  return (v - (vec3_float{(2.00000000f * dot(v, n))} * n));
+  return (v - (vec3_float{(2.0f * dot(v, n))} * n));
 }
 float reflectance(const float cos_theta, const float refract_idx) {
   const float r0 = ((1.0f - refract_idx) / (1.0f + refract_idx));
   const float r1 = (r0 * r0);
-  return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.00000000f)));
+  return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.0f)));
 }
 vec3_float refract(const vec3_float uv, const vec3_float n, const float etai_over_etat) {
   const float cos_theta = min(dot((-uv), n), 1.0f);

@@ -25,10 +25,24 @@ struct vector {
     // Default constructor = zero
     vector() = default;
 
-    // Support initializer list if needed
-    vector(std::initializer_list<T> init) {
+    // TODO(cgyurgyik): this leads to subtle bugs, e.g.,
+    // `vec3_float{1}` will be `{1, 0, 0}`. Remove this.
+    vector(std::initializer_list<T> list) {
+        if (list.size() == 0) {
+            for (int i = 0; i < N; ++i) {
+                data[i] = T{};
+            }
+            return;
+        }
+        if (list.size() == 1) {
+            const T v = *list.begin();
+            for (int i = 0; i < N; ++i) {
+                data[i] = v;
+            }
+            return;
+        }
         size_t i = 0;
-        for (T v : init) {
+        for (T v : list) {
             if (i < N)
                 data[i++] = v;
             else
@@ -410,8 +424,10 @@ bool reduce_and(const vector<bool, N> &v) {
 template <size_t N>
 bool reduce_or(const vector<bool, N> &v) {
     bool t = v[0];
-    for (int i = v[i]; i < N; ++i) {
+    for (int i = 1; i < N; ++i) {
         t |= v[i];
     }
     return t;
 }
+
+static_assert(sizeof(vector<float, 3>) == sizeof(float) * 3);

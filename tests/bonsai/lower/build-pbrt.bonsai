@@ -53,8 +53,8 @@ schedule {
       build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
         build low; 
         build high;
-        build axis = argmax(high - low);
         build nprims;
+        build axis = argmax(high - low);
         build poffset = append(data, nprims);
         return this;
       };

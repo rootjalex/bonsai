@@ -202,10 +202,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    std::cerr << "building canonical tree" << std::endl;
+    std::cout << "building canonical tree" << std::endl;
+    auto ct_begin = clock::now();
     BVH *node = build_canonical_tree(spheres);
-    std::cerr << "building specialized tree" << std::endl;
+    auto ct_end = clock::now();
+
+    std::cout << "building specialized tree" << std::endl;
+    auto st_begin = clock::now();
     Spheres tree = build_spheres(node);
+    auto st_end = clock::now();
 
     free_canonical_tree(node);
 
@@ -230,6 +235,7 @@ int main(int argc, char *argv[]) {
     auto t1 = clock::now();
 
     // Render
+    std::cout << "rendering image" << std::endl;
     int *im = (int *)image(&cam, &tree);
 
     auto t2 = clock::now();
@@ -258,12 +264,20 @@ int main(int argc, char *argv[]) {
 
     auto setup_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    auto ct_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(ct_end - ct_begin)
+            .count();
+    auto st_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(st_end - st_begin)
+            .count();
     auto render_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
     auto write_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
 
     std::cout << "Setup time: " << setup_ms << " ms\n";
+    std::cout << "-- canonical tree build time: " << ct_time << "ms\n";
+    std::cout << "-- specialized tree build time: " << st_time << "ms\n";
     std::cout << "Render time: " << render_ms << " ms\n";
     std::cout << "Write-to-output time: " << write_ms << " ms\n";
 

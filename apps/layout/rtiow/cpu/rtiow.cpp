@@ -21,7 +21,7 @@ float __sqlen_f32(const vec3_float v) {
 }
 vec3_float random_in_unit_disk() {
   const float r = sqrtf(random_float<float>());
-  const float theta = ((2.00000000f * 3.14159274f) * random_float<float>());
+  const float theta = ((2.0f * 3.14159274f) * random_float<float>());
   return vec3_float{(r * cosf(theta)), (r * sinf(theta)), 0.0f};
 }
 vec3_float defocus_disk_sample(const vec3_float center, const vec3_float defocus_disk_u, const vec3_float defocus_disk_v) {
@@ -32,9 +32,9 @@ Ray build_ray(const int32_t i, const int32_t j, const Camera* cam) {
   const int32_t width = (*cam).width;
   int32_t height = (int32_t)(((float)(width) / (*cam).aspect_ratio));
   height = ((height < 1) ? 1 : height);
-  const float theta = (((*cam).vfov * 3.14159274f) / 180.00000000f);
-  const float h = tanf((theta / 2.00000000f));
-  const float viewport_height = ((2.00000000f * h) * (*cam).focus_dist);
+  const float theta = (((*cam).vfov * 3.14159274f) / 180.0f);
+  const float h = tanf((theta / 2.0f));
+  const float viewport_height = ((2.0f * h) * (*cam).focus_dist);
   const float viewport_width = (viewport_height * ((float)(width) / (float)(height)));
   const vec3_float camera_center = (*cam).lookfrom;
   const vec3_float w = (((*cam).lookfrom - (*cam).lookat) / vec3_float{norm(((*cam).lookfrom - (*cam).lookat))});
@@ -44,9 +44,9 @@ Ray build_ray(const int32_t i, const int32_t j, const Camera* cam) {
   const vec3_float viewport_v = (vec3_float{viewport_height} * (-v));
   const vec3_float pixel_delta_u = (viewport_u / vec3_float{(float)(width)});
   const vec3_float pixel_delta_v = (viewport_v / vec3_float{(float)(height)});
-  const vec3_float viewport_upper_left = (((camera_center - (vec3_float{(*cam).focus_dist} * w)) - (viewport_u / vec3_float{2.00000000f})) - (viewport_v / vec3_float{2.00000000f}));
+  const vec3_float viewport_upper_left = (((camera_center - (vec3_float{(*cam).focus_dist} * w)) - (viewport_u / vec3_float{2.0f})) - (viewport_v / vec3_float{2.0f}));
   const vec3_float pixel00_loc = (viewport_upper_left + (vec3_float{0.50000000f} * (pixel_delta_u + pixel_delta_v)));
-  const float defocus_radius = ((*cam).focus_dist * tanf(((((*cam).defocus_angle / 2.00000000f) * 3.14159274f) / 180.00000000f)));
+  const float defocus_radius = ((*cam).focus_dist * tanf(((((*cam).defocus_angle / 2.0f) * 3.14159274f) / 180.0f)));
   const vec3_float defocus_disk_u = (u * vec3_float{defocus_radius});
   const vec3_float defocus_disk_v = (v * vec3_float{defocus_radius});
   const vec3_float offset = vec3_float{(random_float<float>() - 0.50000000f), (random_float<float>() - 0.50000000f), 0.0f};
@@ -142,20 +142,20 @@ Hit_record get_hit_record(const Ray* r, const Sphere* s) {
   return record;
 }
 vec3_float random_unit_vector() {
-  const float x1 = (-1.00000000f + ((1.0f - -1.00000000f) * random_float<float>()));
-  const float x2 = (-1.00000000f + ((1.0f - -1.00000000f) * random_float<float>()));
+  const float x1 = (-1.0f + ((1.0f - -1.0f) * random_float<float>()));
+  const float x2 = (-1.0f + ((1.0f - -1.0f) * random_float<float>()));
   const float s = (((x1 * x1) + (x2 * x2)) + 0.00000001f);
-  const float factor = sqrtf((2.00000000f / s));
+  const float factor = sqrtf((2.0f / s));
   const float x = (factor * x1);
   const float y = (factor * x2);
-  const float z = (1.0f - (2.00000000f * s));
+  const float z = (1.0f - (2.0f * s));
   const float len = sqrtf((((x * x) + (y * y)) + (z * z)));
   return vec3_float{(x / len), (y / len), (z / len)};
 }
 float reflectance(const float cos_theta, const float refract_idx) {
   const float r0 = ((1.0f - refract_idx) / (1.0f + refract_idx));
   const float r1 = (r0 * r0);
-  return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.00000000f)));
+  return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.0f)));
 }
 vec3_float refract(const vec3_float uv, const vec3_float n, const float etai_over_etat) {
   const float cos_theta = min(dot((-uv), n), 1.0f);
@@ -173,7 +173,7 @@ Scatter_record scatter(const Ray* ray, const MaterialSphere* ms) {
     const Ray l_scattered = Ray{.o=hit.p, .d=scatter_dir, .tmax=std::numeric_limits<float>::infinity()};
     return Scatter_record{.attenuation=(*ms).albedo, .ray=l_scattered, .hit=true};
   } else if ((*ms).material == 1) {
-    const vec3_float ref = ((*ray).d - (vec3_float{(2.00000000f * dot((*ray).d, hit.normal))} * hit.normal));
+    const vec3_float ref = ((*ray).d - (vec3_float{(2.0f * dot((*ray).d, hit.normal))} * hit.normal));
     const vec3_float reflected = ((ref / vec3_float{norm(ref)}) + (vec3_float{(*ms).fuzz} * random_unit_vector()));
     const Ray m_scattered = Ray{.o=hit.p, .d=reflected, .tmax=std::numeric_limits<float>::infinity()};
     return Scatter_record{.attenuation=(*ms).albedo, .ray=m_scattered, .hit=true};
@@ -183,7 +183,7 @@ Scatter_record scatter(const Ray* ray, const MaterialSphere* ms) {
     const float cos_theta = min(dot((-unit_dir), hit.normal), 1.0f);
     const float sin_theta = sqrtf((1.0f - (cos_theta * cos_theta)));
     const bool cannot_refract = ((1.0f < (ri * sin_theta)) | (random_float<float>() < reflectance(cos_theta, ri)));
-    const vec3_float direction = (cannot_refract ? (unit_dir - (vec3_float{(2.00000000f * dot(unit_dir, hit.normal))} * hit.normal)) : refract(unit_dir, hit.normal, ri));
+    const vec3_float direction = (cannot_refract ? (unit_dir - (vec3_float{(2.0f * dot(unit_dir, hit.normal))} * hit.normal)) : refract(unit_dir, hit.normal, ri));
     const Ray d_scattered = Ray{.o=hit.p, .d=direction, .tmax=std::numeric_limits<float>::infinity()};
     return Scatter_record{.attenuation=vec3_float{1.0f, 1.0f, 1.0f}, .ray=d_scattered, .hit=true};
   }
@@ -222,7 +222,7 @@ float linear_to_gamma_f(const float l) {
 }
 vec3_int32_t to_rgb(const vec3_float v) {
   const vec3_float corrected = vec3_float{linear_to_gamma_f(v[0]), linear_to_gamma_f(v[1]), linear_to_gamma_f(v[2])};
-  return (vec3_int32_t)((vec3_float{256.00000000f} * min(max(corrected, vec3_float{0.0f}), vec3_float{0.99900001f})));
+  return (vec3_int32_t)((vec3_float{256.0f} * min(max(corrected, vec3_float{0.0f}), vec3_float{0.99900001f})));
 }
 vec3_int32_t** _traverse_array0(const Camera* c, const int32_t height, const Spheres* spheres) {
   int32_t* _alloc0 = reinterpret_cast<int32_t*>(malloc(sizeof(int32_t) * ((height * (*c).width) * 3)));
@@ -276,6 +276,7 @@ uint32_t rec_build_spheres(const BVH* node, Spheres* ST, size_t* nodes_index, si
       (*nodes_index)+= 1;
       (*ST).nodes[this_index].center = node.center;
       (*ST).nodes[this_index].radius = node.radius;
+      (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
       for (uint8_t __p = 0; __p < node.nprims; __p += 1) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
@@ -381,7 +382,7 @@ vec3_float cross_(const vec3_float v0, const vec3_float v1) {
   return vec3_float{__prod_diff_f32(v0[1], v1[2], v0[2], v1[1]), __prod_diff_f32(v0[2], v1[0], v0[0], v1[2]), __prod_diff_f32(v0[0], v1[1], v0[1], v1[0])};
 }
 float degrees_to_radians(const float degrees) {
-  return ((degrees * 3.14159274f) / 180.00000000f);
+  return ((degrees * 3.14159274f) / 180.0f);
 }
 std::optional<FInterval> intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   const vec3_float invDir = (vec3_float{1.0f} / (*r).d);
@@ -390,7 +391,7 @@ std::optional<FInterval> intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   const vec3_float high_parts = select(dirIsNeg, (*b).low, (*b).high);
   vec3_float tMin = ((low_parts - (*r).o) * invDir);
   vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax*= (1.0f + (2.00000000f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  tMax*= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
   if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
     return std::nullopt;
   }
@@ -469,9 +470,9 @@ std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* ray, const Tr
   const float maxYt = reduce_max(abs(vec3_float{p0t[1], p1t[1], p2t[1]}));
   const float deltaX = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxXt + maxZt));
   const float deltaY = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxYt + maxZt));
-  const float deltaE = (2.00000000f * (((((((float)(2) * 0.00000006f) / (1.0f - ((float)(2) * 0.00000006f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  const float deltaE = (2.0f * (((((((float)(2) * 0.00000006f) / (1.0f - ((float)(2) * 0.00000006f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
   const float maxE = reduce_max(abs(vec3_float{e0, e1, e2}));
-  const float deltaT = ((3.00000000f * (((((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
+  const float deltaT = ((3.0f * (((((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
   if ((t <= deltaT)) {
     return std::nullopt;
   }
@@ -708,7 +709,7 @@ vec3_float random_vec3f_in(const float low, const float high) {
   return vec3_float{(low + ((high - low) * random_float<float>())), (low + ((high - low) * random_float<float>())), (low + ((high - low) * random_float<float>()))};
 }
 vec3_float reflect(const vec3_float v, const vec3_float n) {
-  return (v - (vec3_float{(2.00000000f * dot(v, n))} * n));
+  return (v - (vec3_float{(2.0f * dot(v, n))} * n));
 }
 vec3_float sample_square() {
   return vec3_float{(random_float<float>() - 0.50000000f), (random_float<float>() - 0.50000000f), 0.0f};
