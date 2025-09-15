@@ -23,7 +23,7 @@ for LAYOUT in "${LAYOUTS[@]}"; do
   # 2. Lower to C++.
   ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
   # 3. Compile the lowered C++.
-  clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -Iruntime/CPP -I.
+  clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/rtiow -Iruntime/CPP 
   # 4. Run it.
   time ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
   # 5. Clean up

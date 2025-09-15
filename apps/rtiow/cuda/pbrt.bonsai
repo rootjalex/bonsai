@@ -45,24 +45,3 @@ schedule {
     trace.loopify(64);
     image.collapse(i0, i1, i).gpu_thread(i);
 }
-
-func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
-    d = b.center - a.center;
-    dist_sq = sum(d * d);
-    dist = sqrt(dist_sq);
-
-    // Check if one sphere fully contains the other.
-    if (a.radius >= dist + b.radius) {
-        return a;
-    } else if (b.radius >= dist + a.radius) {
-        return b;
-    }
-
-    new_radius = 0.5 * (dist + a.radius + b.radius);
-    // check for degnerate case of the same center
-    direction = select(dist > 0, d / dist, vec3f{1.0, 0.0, 0.0});
-
-    new_center = a.center + direction * (new_radius - a.radius);
-
-    return {new_center, new_radius};
-}
