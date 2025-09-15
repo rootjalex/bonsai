@@ -31,13 +31,22 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
+// TODO(cgyurgyik): support vector types as well.
+template <typename T>
+T next_after(T from, T to) {
+    if constexpr (std::is_scalar_v<T>) {
+        return std::nextafterf(from, to);
+    }
+    return nextafter(from, to);
+}
+
 // Template function to perform operations with specific rounding modes
 template <int RoundingMode, typename T, typename Op>
 T directed_operation(T a, T b, Op &&op) {
     if constexpr (RoundingMode == FE_DOWNWARD) {
-        return std::nextafterf(op(a, b), -std::numeric_limits<T>::max());
+        return next_after(op(a, b), -std::numeric_limits<T>::max());
     }
-    return std::nextafterf(op(a, b), std::numeric_limits<T>::max());
+    return next_after(op(a, b), std::numeric_limits<T>::max());
 }
 
 template <typename T>
