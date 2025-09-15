@@ -53,8 +53,6 @@ void run_test(const std::string &object) {
     auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                           trace_end - trace_begin)
                           .count();
-    std::cout << "--------------------------------\n";
-    std::cout << object << "\n";
     std::cout << "hits             : " << hits.size() << "\n";
     std::cout << "canonical tree   : " << ct_time << "ms\n";
     std::cout << "specialized tree : " << st_time << "ms\n";
@@ -64,14 +62,12 @@ void run_test(const std::string &object) {
 
 } // namespace
 
-int main() {
+int main(int argc, char *argv[]) {
+    assert(argc == 2);
+    std::string object = argv[1];
     // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
-    // run_test<float>("env");
-    run_test<float>("dragon");
-    // run_test<float>("teapot");
-    // run_test<float>("bunny");
-
+    run_test<float>(object);
     return 0;
 }
