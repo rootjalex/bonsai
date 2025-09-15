@@ -4,7 +4,8 @@ set -euo pipefail
 
 APPLICATION="rtiow"
 TARGET="cpu"
-PREFIX="apps/${APPLICATION}/${TARGET}"
+KERNEL_PATH="apps/${APPLICATION}"
+PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("soa" "pbrt")
 
 # Enable this to be run from either root or 
@@ -20,7 +21,7 @@ for LAYOUT in "${LAYOUTS[@]}"; do
   # 1. Build the Bonsai compiler.
   cmake --build build --config Debug -j
   # 2. Lower to C++.
-  ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
+  ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
   # 3. Compile the lowered C++.
   clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -Iruntime/CPP -I.
   # 4. Run it.

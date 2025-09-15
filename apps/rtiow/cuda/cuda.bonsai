@@ -1,0 +1,68 @@
+schedule {
+    tree[[MaterialSphere]] BVH(center : f32x3, radius : f32) with Sphere(center, radius)
+    = Interior(left : BVH, right : BVH)
+    | Leaf(nprims: u8, data: array[MaterialSphere, nprims]);
+
+    spheres : BVH;
+
+    layout spheres(index: u32) {
+        primitive_count : u32;
+        primitives : array[MaterialSphere, primitive_count];
+        node_count : u32;
+        group nodes[node_count] by index {
+            center : f32x3;
+            radius : f32;
+            nprims : u8;
+            8;
+            split nprims {
+                0 -> Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ -> Leaf { poffset : u16; data = primitives[poffset : poffset + nprims]; };
+            };
+        };
+    };
+
+    build spheres {
+      build Interior(center: f32x3, radius: f32, left: BVH, right: BVH) {
+        build center;
+        build radius;
+        build nprims = 0;
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+
+      build Leaf(center: f32x3, radius: f32, nprims: u8, data: array[MaterialSphere, nprims]) {
+        build center;
+        build radius;
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+
+    sample.loopify();
+    trace.loopify(64);
+    image.collapse(i0, i1, i).gpu_thread(i);
+}
+
+func [[export]] bounding_sphere(a : Sphere, b : Sphere) -> Sphere {
+    d = b.center - a.center;
+    dist_sq = sum(d * d);
+    dist = sqrt(dist_sq);
+
+    // Check if one sphere fully contains the other.
+    if (a.radius >= dist + b.radius) {
+        return a;
+    } else if (b.radius >= dist + a.radius) {
+        return b;
+    }
+
+    new_radius = 0.5 * (dist + a.radius + b.radius);
+    // check for degnerate case of the same center
+    direction = select(dist > 0, d / dist, vec3f{1.0, 0.0, 0.0});
+
+    new_center = a.center + direction * (new_radius - a.radius);
+
+    return {new_center, new_radius};
+}
