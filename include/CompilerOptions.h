@@ -40,6 +40,10 @@ struct CompilerOptions {
     // The output file name; if this is empty, then defaults to standard I/O.
     std::string output_file;
 
+    // The layout file name. If this is empty, then we assume the layout exists
+    // in the same file as the kernel.
+    std::string layout_file;
+
     // The Bonsai passes to run during lowering. This may also include pass
     // aliases, which refer to a set of passes, e.g., `core`. These are run in
     // the order they are passed on the command line.

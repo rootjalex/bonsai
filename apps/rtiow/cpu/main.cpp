@@ -259,9 +259,6 @@ int main(int argc, char *argv[]) {
     }
 
     auto t3 = clock::now();
-
-    auto setup_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     auto ct_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(ct_end - ct_begin)
             .count();
@@ -273,11 +270,10 @@ int main(int argc, char *argv[]) {
     auto write_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
 
-    std::cout << "Setup time: " << setup_ms << " ms\n";
-    std::cout << "-- canonical tree build time: " << ct_time << "ms\n";
-    std::cout << "-- specialized tree build time: " << st_time << "ms\n";
-    std::cout << "Render time: " << render_ms << " ms\n";
-    std::cout << "Write-to-output time: " << write_ms << " ms\n";
+    std::cout << "canonical tree   : " << ct_time << "ms\n";
+    std::cout << "specialized tree : " << st_time << "ms\n";
+    std::cout << "render time      : " << render_ms << " ms\n";
+    std::cout << "write time       : " << write_ms << " ms\n";
 
     free(im);
     return 0;

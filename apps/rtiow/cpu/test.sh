@@ -2,27 +2,34 @@
 
 set -euo pipefail
 
+APPLICATION="rtiow"
+TARGET="cpu"
+PREFIX="apps/${APPLICATION}/${TARGET}"
+LAYOUTS=("soa" "pbrt")
+
 # Enable this to be run from either root or 
 # the directory where this script exists.
-if [[ "$(pwd)" == */apps/rtiow/cpu ]]; then
+if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../../..
 fi
 
-PREFIX="apps/rtiow/cpu"
-
-# 0. Remove any previously built image.
-rm -f $PREFIX/rtiow-cpu-image.ppm
-# 1. Build the Bonsai compiler.
-cmake --build build --config Debug -j
-# 2. Lower to C++.
-./build/compiler -i $PREFIX/main.bonsai -b cppx -o $PREFIX/rtiow
-# 3. Compile the lowered C++.
-clang++ -std=c++20 -O3 -g -o $PREFIX/rtiow.out $PREFIX/main.cpp $PREFIX/rtiow.cpp -Iruntime/CPP -I.
-# 4. Run it.
-time ./$PREFIX/rtiow.out $PREFIX/rtiow-cpu-image.ppm
-
-# Clean up
-rm $PREFIX/rtiow.out
-rm -r $PREFIX/rtiow.out.dSYM
+for LAYOUT in "${LAYOUTS[@]}"; do
+  echo "-- ${APPLICATION} - ${TARGET} - ${LAYOUT} --"
+  # 0. Remove any previously built image.
+  rm -f ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
+  # 1. Build the Bonsai compiler.
+  cmake --build build --config Debug -j
+  # 2. Lower to C++.
+  ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
+  # 3. Compile the lowered C++.
+  clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -Iruntime/CPP -I.
+  # 4. Run it.
+  time ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
+  # 5. Clean up
+  rm ${PREFIX}/${APPLICATION}.h
+  rm ${PREFIX}/${APPLICATION}.cpp
+  rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
+  rm -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
+done
 
 exit 0
