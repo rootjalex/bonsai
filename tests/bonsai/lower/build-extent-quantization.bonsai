@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p verify-layouts -p lower-trees -p lower-layouts -p lower-builds
+//! flags: -b cppx
 
 import stdlib/distance;
 import stdlib/intersects;
@@ -11,7 +11,10 @@ func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), spheres)
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
 func dequantize(v: i30, bins: f32x3) -> f32x3 {
-  return f32x3 {fmul_rd(((v >> 20) & 1023), bins.x), fmul_rd(((v >> 10) & 1023), bins.y), fmul_rd((v & 1023), bins.z)};
+  return f32x3 {
+    fmul_rd(cast[[f32]]((v >> 20) & 1023), bins.x), 
+    fmul_rd(cast[[f32]]((v >> 10) & 1023), bins.y), 
+    fmul_rd(cast[[f32]]((v >> 00) & 1023), bins.z)};
 }
 
 // build tree bins inverse.

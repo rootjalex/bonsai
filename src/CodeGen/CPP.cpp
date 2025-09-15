@@ -56,6 +56,18 @@ std::string cpp_intrinsic(std::string intrinsic, const ir::Type &type) {
     }
 }
 
+uint64_t nearest_power_of_two(uint64_t n) {
+    if (n == 0)
+        return 1;
+    int msb_pos = 31 - std::countl_zero(n);
+
+    uint64_t lower = 1U << msb_pos;
+    uint64_t upper = 1U << (msb_pos + 1);
+
+    // The smallest built-in type for C++ is 8.
+    return std::max<uint64_t>(8U, (n - lower <= upper - n) ? lower : upper);
+}
+
 } // namespace
 
 using namespace ir;
@@ -69,13 +81,11 @@ void emit_type(std::ostream &ss, Type type) {
         void visit(const Void_t *node) override { ss << "void"; }
 
         void visit(const Int_t *node) override {
-            internal_assert(is_power_of_two(node->bits)) << node->bits;
-            ss << "int" << node->bits << "_t";
+            ss << "int" << nearest_power_of_two(node->bits) << "_t";
         }
 
         void visit(const UInt_t *node) override {
-            internal_assert(is_power_of_two(node->bits)) << node->bits;
-            ss << "uint" << node->bits << "_t";
+            ss << "uint" << nearest_power_of_two(node->bits) << "_t";
         }
 
         // TODO(cgyurgyik): use std::float when it is supported:
@@ -280,6 +290,12 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             } else {
                 emit_type(ss, child);
                 ss << " " << name;
+                if (child.is_scalar()) {
+                    if (uint64_t b = child.bits();
+                        b < 8 || !is_power_of_two(b)) {
+                        ss << " : " << b;
+                    }
+                }
             }
             if (const auto &it = struct_t->defaults.find(name);
                 it != struct_t->defaults.cend()) {
@@ -762,7 +778,6 @@ class BonsaiToCpp : ir::Printer {
             return;
         }
         case ir::Intrinsic::OpType::abs: {
-            ir::Type element_type = node->args.front().type();
             ss << "abs(";
             print_expr_list(node->args);
             ss << ')';
@@ -795,6 +810,29 @@ class BonsaiToCpp : ir::Printer {
             ss << cpp_intrinsic("fma", element_type) << '(';
             print_expr_list(node->args);
             ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::floorf: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << "floor(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::fadd_rd:
+        case ir::Intrinsic::OpType::fadd_ru:
+        case ir::Intrinsic::OpType::fsub_rd:
+        case ir::Intrinsic::OpType::fsub_ru:
+        case ir::Intrinsic::OpType::fmul_rd:
+        case ir::Intrinsic::OpType::fmul_ru:
+        case ir::Intrinsic::OpType::fdiv_rd:
+        case ir::Intrinsic::OpType::fdiv_ru:
+        case ir::Intrinsic::OpType::frcp_rd:
+        case ir::Intrinsic::OpType::frcp_ru: {
+            ss << to_string(node->op) << "(";
+            print_expr_list(node->args);
+            ss << ")";
             return;
         }
         default:
