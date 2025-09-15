@@ -3,6 +3,8 @@
 #include <cfenv>
 #include <cmath>
 #include <functional>
+#include <limits>
+#include <math.h>
 #include <tuple>
 
 template <typename T1, typename T2>
@@ -29,22 +31,13 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
-class RoundingModeGuard {
-  private:
-    int old_mode;
-
-  public:
-    RoundingModeGuard(int new_mode) : old_mode(std::fegetround()) {
-        std::fesetround(new_mode);
-    }
-    ~RoundingModeGuard() { std::fesetround(old_mode); }
-};
-
 // Template function to perform operations with specific rounding modes
 template <int RoundingMode, typename T, typename Op>
 T directed_operation(T a, T b, Op &&op) {
-    RoundingModeGuard guard(RoundingMode);
-    return op(a, b);
+    if constexpr (RoundingMode == FE_DOWNWARD) {
+        return std::nextafterf(op(a, b), -std::numeric_limits<T>::max());
+    }
+    return std::nextafterf(op(a, b), std::numeric_limits<T>::max());
 }
 
 template <typename T>
