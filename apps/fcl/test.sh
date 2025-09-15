@@ -3,10 +3,10 @@
 set -euo pipefail
 
 # MUST be run from this directory
-PREFIX="apps/cd/cpu/fcl"
+PREFIX="apps/fcl"
 
-if [[ "$(pwd)" == */apps/cd/cpu/fcl ]]; then
-  cd ../../../..
+if [[ "$(pwd)" == */apps/fcl ]]; then
+  cd ../..
 fi
 
 # build and compile bonsai
@@ -14,7 +14,7 @@ cmake --build build --config Debug -j
 ./build/compiler -i $PREFIX/main.bonsai -o $PREFIX/main.bir
 ./build/compiler -i $PREFIX/main.bonsai -b llvm -o $PREFIX/main.ll
 ./build/compiler -i $PREFIX/main.bonsai -b cpp -o $PREFIX/main
-cd apps/cd/cpu/fcl
+cd apps/fcl
 
 # build the main hook (requires fcl)
 mkdir -p build
