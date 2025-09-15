@@ -99,6 +99,16 @@ const ir::Chain *to_chainz(const ir::Member &member) {
     return chain;
 }
 
+std::vector<const ir::BuildRule *> get_build_rules(const ir::BuildIR &ir) {
+    struct Visit : public ir::Visitor {
+        std::vector<const ir::BuildRule *> rules;
+        void visit(const ir::BuildRule *node) { rules.push_back(node); };
+    };
+    Visit visitor;
+    ir.accept(&visitor);
+    return visitor.rules;
+}
+
 // The size of this member, if it exists.
 ir::Expr get_member_size(const ir::Member &member) {
     if (const auto *field = member.as<ir::Field>()) {
@@ -674,7 +684,7 @@ construct_count_recursive_body(const ir::BuildFunction &function,
     internal_assert(bvh_t) << "expected ADT, received: " << layout.type;
 
     std::vector<ir::Stmt> stmts;
-    std::set<std::string> counts_updated;
+    std::set<ir::Expr, ir::ExprLessThan> counts_updated;
     std::set<ir::Expr, ir::ExprLessThan> generated_indexes;
     for (const ir::Argument &argument : function.arguments) {
         if (argument.type.is_iterable() &&
@@ -728,16 +738,26 @@ construct_count_recursive_body(const ir::BuildFunction &function,
                                  },
                                  std::move(body)));
         }
-        ir::Member group = layout.find_group_for(argument.name);
+    }
+    std::vector<const ir::BuildRule *> rules = get_build_rules(function.body);
+    for (const ir::BuildRule *rule : rules) {
+        const auto *field = rule->field.as<ir::Var>();
+        if (field == nullptr) {
+            const auto *extract = rule->field.as<ir::Extract>();
+            field = extract->vec.as<ir::Var>();
+        }
+        internal_assert(field) << rule->field;
+        ir::Member group = layout.find_group_for(field->name);
         if (!group.defined()) {
             continue;
         }
-        std::string name = group.name();
-        if (counts_updated.contains(name)) {
+
+        ir::Expr size = get_member_size(group);
+        if (counts_updated.contains(size)) {
             continue;
         }
-        counts_updated.insert(name);
-        ir::Expr size = get_member_size(group);
+        std::string name = group.name();
+        counts_updated.insert(size);
         if (!size.defined()) {
             // Some groups may not include a size field. We need to include one
             // for malloc'ing the correct count.

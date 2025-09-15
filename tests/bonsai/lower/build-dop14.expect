@@ -396,9 +396,10 @@ func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
   | Interior(lo : f32x7, hi : f32x7, ee : u1, left : (const BVH&), right : (const BVH&)) with DOP14(ee, lo, hi) ->
     rec_count_triangles(node.left, ST)
     rec_count_triangles(node.right, ST)
-  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
     ST.node_count += 1u
+  | Leaf(lo : f32x7, hi : f32x7, ee : u1, leaf_size : u4, data : Triangle[leaf_size]) with DOP14(ee, lo, hi) ->
     ST.primitive_count += node.leaf_size
+    ST.node_count += 1u
   }
 }
 

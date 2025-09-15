@@ -329,13 +329,12 @@ func rec_build_triangles(node : (const BVH&), ST : mut triangles, nodes_index : 
 func rec_count_triangles(node : (const BVH&), ST : mut triangles) -> void {
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&), axis : u8) with AABB(low, high) ->
-    ST.node_count += 1u
     rec_count_triangles(node.left, ST)
     rec_count_triangles(node.right, ST)
+    ST.node_count += 1u
   | Leaf(low : f32x3, high : f32x3, nprims : u16, data : Triangle[nprims]) with AABB(low, high) ->
-    ST.node_count += 1u
-    ST.node_count += 1u
     ST.primitive_count += node.nprims
+    ST.node_count += 1u
   }
 }
 

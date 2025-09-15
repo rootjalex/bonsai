@@ -215,6 +215,7 @@ void rec_count_spheres(const BVH* node, Spheres* ST) {
     [&](const Interior& node) {
       rec_count_spheres(node.left, ST);
       rec_count_spheres(node.right, ST);
+      (*ST).node_count+= 1;
     },
     [&](const Leaf& node) {
       (*ST).node_count+= 1;

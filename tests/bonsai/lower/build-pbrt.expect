@@ -299,13 +299,13 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index
 void rec_count_triangles(const BVH* node, Triangles* ST) {
   return std::visit(overloaded{
     [&](const Interior& node) {
-      (*ST).node_count+= 1;
       rec_count_triangles(node.left, ST);
       rec_count_triangles(node.right, ST);
+      (*ST).node_count+= 1;
     },
     [&](const Leaf& node) {
-      (*ST).node_count+= 1;
       (*ST).primitive_count+= node.nprims;
+      (*ST).node_count+= 1;
     }
   }, *node);
 }

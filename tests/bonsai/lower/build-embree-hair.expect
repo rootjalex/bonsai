@@ -453,7 +453,6 @@ func rec_count_triangles(node : (const BVH&), ST : mut triangles, size_AABBs : m
       rec_count_triangles(node.obb_children[__r], ST, size_AABBs, size_OBBs)
     }
     size_OBBs += 1
-    size_AABBs += 1
   | Leaf(nprims : u8, data : Triangle[nprims]) ->
     ST.primitive_count += node.nprims
   }

@@ -7,23 +7,19 @@
 #include <math.h>
 #include <tuple>
 
-template <typename T1, typename T2>
-std::tuple<T1, T2> argmin(const std::tuple<T1, T2> &a,
-                          const std::tuple<T1, T2> &b) {
-    if (std::get<0>(a) < std::get<0>(b)) {
-        return a;
-    }
-    return b;
-}
+// Forward declaration for vector type.
+template <typename T, std::size_t N>
+struct vector;
 
-template <typename T1, typename T2>
-std::tuple<T1, T2> argmax(const std::tuple<T1, T2> &a,
-                          const std::tuple<T1, T2> &b) {
-    if (std::get<0>(a) > std::get<0>(b)) {
-        return a;
-    }
-    return b;
-}
+// Type traits to detect if something is a vector type.
+template <typename T>
+struct is_vector : std::false_type {};
+
+template <typename T, std::size_t N>
+struct is_vector<vector<T, N>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_vector_v = is_vector<T>::value;
 
 // Used for std::variant visitor.
 template <class... Ts>
@@ -31,22 +27,53 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
-// TODO(cgyurgyik): support vector types as well.
+// Extract element type from vector or return T if scalar
 template <typename T>
-T next_after(T from, T to) {
-    if constexpr (std::is_scalar_v<T>) {
-        return std::nextafterf(from, to);
+struct element_type {
+    using type = T;
+};
+
+template <typename T, std::size_t N>
+struct element_type<vector<T, N>> {
+    using type = T;
+};
+
+template <typename T>
+using element_type_t = typename element_type<T>::type;
+
+template <typename T, size_t N>
+vector<T, N> next_after_element_wise(const vector<T, N> &from, T to) {
+    vector<T, N> result;
+    for (std::size_t i = 0; i < N; ++i) {
+        result[i] = std::nextafter(from[i], to);
     }
-    return nextafter(from, to);
+    return result;
 }
 
-// Template function to perform operations with specific rounding modes
+template <typename T>
+T next_after(T from, T to) {
+    return std::nextafterf(from, to);
+}
+
+// Template function to perform operations with specific rounding modes.
 template <int RoundingMode, typename T, typename Op>
 T directed_operation(T a, T b, Op &&op) {
+    using E = element_type_t<T>;
+    constexpr E MAX = std::numeric_limits<E>::max();
+    T result = op(a, b);
+
     if constexpr (RoundingMode == FE_DOWNWARD) {
-        return next_after(op(a, b), -std::numeric_limits<T>::max());
+        if constexpr (is_vector_v<T>) {
+            return next_after_element_wise(result, -MAX);
+        } else {
+            return std::nextafter(result, -MAX);
+        }
     }
-    return next_after(op(a, b), std::numeric_limits<T>::max());
+    if constexpr (is_vector_v<T>) {
+        return next_after_element_wise(result, MAX);
+    } else {
+        return std::nextafter(result, MAX);
+    }
 }
 
 template <typename T>
