@@ -263,6 +263,33 @@ vector<T, N> min(const vector<T, N> &a, const vector<T, N> &b) {
 }
 
 template <typename T, size_t N>
+vector<T, N> ceil(const vector<T, N> &in) {
+    vector<T, N> r;
+    for (int i = 0; i < N; ++i) {
+        r[i] = std::ceil(in[i]);
+    }
+    return r;
+}
+
+template <typename T, size_t N>
+vector<T, N> floor(const vector<T, N> &in) {
+    vector<T, N> r;
+    for (int i = 0; i < N; ++i) {
+        r[i] = std::floor(in[i]);
+    }
+    return r;
+}
+
+template <typename T, size_t N>
+vector<T, N> round(const vector<T, N> &in) {
+    vector<T, N> r;
+    for (int i = 0; i < N; ++i) {
+        r[i] = std::round(in[i]);
+    }
+    return r;
+}
+
+template <typename T, size_t N>
 size_t argmax(const vector<T, N> &a) {
     size_t p = 0;
     T r = a[0];

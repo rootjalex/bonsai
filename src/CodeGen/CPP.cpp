@@ -813,9 +813,19 @@ class BonsaiToCpp : ir::Printer {
             return;
         }
         case ir::Intrinsic::OpType::floorf: {
-            ir::Type element_type = node->args.front().type();
-            internal_assert(element_type.is<ir::Float_t>()) << element_type;
             ss << "floor(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::ceilf: {
+            ss << "ceil(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::roundf: {
+            ss << "round(";
             print_expr_list(node->args);
             ss << ")";
             return;

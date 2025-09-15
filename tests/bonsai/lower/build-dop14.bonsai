@@ -1,4 +1,4 @@
-//! flags: -p verify-layouts -p lower-trees -p lower-layouts -p lower-builds
+//! flags: -b cppx
 
 import stdlib/intersects;
 import stdlib/ray;
