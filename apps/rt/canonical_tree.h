@@ -1,71 +1,13 @@
 #include "cpu/rt.h"
 
-class IndexTriangle {
-  public:
-    IndexTriangle() {
-        sides[0] = 0;
-        sides[1] = 0;
-        sides[2] = 0;
-    }
-    IndexTriangle(size_t a, size_t b, size_t c) {
-        sides[0] = a;
-        sides[1] = b;
-        sides[2] = c;
-    }
-
-    size_t &operator[](size_t index) {
-        assert(index < 3);
-        return sides[index];
-    }
-
-    const size_t &operator[](size_t index) const {
-        assert(index < 3);
-        return sides[index];
-    }
-
-  private:
-    size_t sides[3];
-};
-
-template <typename S>
-Triangle build_triangle(const uint64_t i,
-                        const std::vector<vector<S, 3>> &vertices,
-                        const std::vector<IndexTriangle> &triangles) {
-    assert(i < triangles.size());
-    const IndexTriangle &before = triangles[i];
-    return build_triangle(before, vertices);
-};
-
-template <typename S>
-Triangle build_triangle(const IndexTriangle &before,
-                        const std::vector<vector<S, 3>> &vertices) {
-    size_t i0 = before[0];
-    assert(i0 < vertices.size());
-    size_t i1 = before[1];
-    assert(i1 < vertices.size());
-    size_t i2 = before[2];
-    assert(i2 < vertices.size());
-    const auto &p0 = vertices[i0];
-    const auto &p1 = vertices[i1];
-    const auto &p2 = vertices[i2];
-
-    Triangle after;
-    after.p0 = {p0[0], p0[1], p0[2]};
-    after.p1 = {p1[0], p1[1], p1[2]};
-    after.p2 = {p2[0], p2[1], p2[2]};
-    return after;
-}
-
-template <typename S>
 std::pair<vec3_float, vec3_float>
 compute_aabb(uint32_t low, uint32_t high,
-             const std::vector<vector<S, 3>> &vertices,
-             const std::vector<IndexTriangle> &triangles) {
-    Triangle t = build_triangle(low, vertices, triangles);
-    vec3_float aabb_min = t.p0;
-    vec3_float aabb_max = t.p0;
+             const std::vector<Triangle> &triangles) {
+    Triangle tri = triangles[low];
+    vec3_float aabb_min = tri.p0;
+    vec3_float aabb_max = tri.p0;
     for (uint32_t i = low; i < high; ++i) {
-        Triangle t = build_triangle(i, vertices, triangles);
+        Triangle t = triangles[i];
         for (vec3_float v : {t.p0, t.p1, t.p2}) {
             aabb_min = min(aabb_min, v);
             aabb_max = max(aabb_max, v);
@@ -74,9 +16,7 @@ compute_aabb(uint32_t low, uint32_t high,
     return {aabb_min, aabb_max};
 }
 
-template <typename S>
-BVH *build_canonical_tree(const std::vector<vector<S, 3>> &vertices,
-                          std::vector<IndexTriangle> &triangles,
+BVH *build_canonical_tree(std::vector<Triangle> &triangles,
                           int max_prims_per_leaf = 15,
                           int max_tree_depth = 64) {
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
@@ -84,13 +24,12 @@ BVH *build_canonical_tree(const std::vector<vector<S, 3>> &vertices,
         assert(depth < max_tree_depth);
         uint32_t count = high - low;
 
-        auto [aabb_min, aabb_max] =
-            compute_aabb(low, high, vertices, triangles);
+        auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
         if (count <= max_prims_per_leaf) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (int i = 0; i < count; ++i) {
-                data[i] = build_triangle(low + i, vertices, triangles);
+                data[i] = triangles[low + i];
             }
             return new BVH(Leaf{
                 .low = aabb_min,
@@ -111,9 +50,7 @@ BVH *build_canonical_tree(const std::vector<vector<S, 3>> &vertices,
         auto mid_it = triangles.begin() + low + count / 2;
         std::nth_element(triangles.begin() + low, mid_it,
                          triangles.begin() + high,
-                         [&](const IndexTriangle &aa, const IndexTriangle &bb) {
-                             Triangle a = build_triangle(aa, vertices);
-                             Triangle b = build_triangle(bb, vertices);
+                         [&](const Triangle &a, const Triangle &b) {
                              float ca = (a.p0[axis] + a.p1[axis] + a.p2[axis]);
                              float cb = (b.p0[axis] + b.p1[axis] + b.p2[axis]);
                              return ca < cb;

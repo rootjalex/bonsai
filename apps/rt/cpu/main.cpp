@@ -3,29 +3,90 @@
 #include "rt.h"
 #include "util.h"
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 #include <chrono>
 #include <iostream>
 #include <random>
 
 namespace {
 
-// Runs an collision detection test on the two OBJ files for Bonsai and FCL.
-template <typename S>
-void run_test(const std::string &object) {
-    if constexpr (!(std::is_floating_point_v<S> && sizeof(S) == 4)) {
-        std::cerr << "the bonsai kernel currently assumes f32 input";
-        exit(-1);
+std::vector<Triangle> load_obj(const std::string &object) {
+    std::filesystem::path current_path = std::filesystem::current_path();
+    while (current_path.has_parent_path()) {
+        if (std::filesystem::exists(current_path / "bonsai")) {
+            break;
+        }
+        current_path = current_path.parent_path();
     }
 
-    using clock = std::chrono::high_resolution_clock;
-    std::vector<vector<S, 3>> vertices;
-    std::vector<IndexTriangle> triangles;
-    if (!load_object_file(object, vertices, triangles)) {
-        exit(-1);
+    std::string object_path = "apps/rt/objects/" + object + ".obj";
+    std::string material_path = "apps/rt/objects/" + object;
+
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string _, err;
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &_, &err,
+                                object_path.c_str(), material_path.c_str());
+    if (!err.empty()) {
+        std::cerr << "ERR: " << err << std::endl;
     }
+    if (!ret) {
+        std::cerr << "Failed to load " << object_path << std::endl;
+        return {};
+    }
+
+    std::vector<Triangle> triangles;
+    // Loop over shapes
+    for (size_t s = 0; s < shapes.size(); s++) {
+        size_t index_offset = 0;
+
+        // Loop over faces (triangles)
+        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+            int fv =
+                shapes[s]
+                    .mesh.num_face_vertices[f]; // Should be 3 for triangles
+
+            if (fv == 3) {
+                Triangle tri;
+
+                // Get vertices
+                for (int v = 0; v < 3; v++) {
+                    tinyobj::index_t idx =
+                        shapes[s].mesh.indices[index_offset + v];
+
+                    float x = attrib.vertices[3 * idx.vertex_index + 0];
+                    float y = attrib.vertices[3 * idx.vertex_index + 1];
+                    float z = attrib.vertices[3 * idx.vertex_index + 2];
+
+                    if (v == 0)
+                        tri.p0 = {x, y, z};
+                    else if (v == 1)
+                        tri.p1 = {x, y, z};
+                    else
+                        tri.p2 = {x, y, z};
+                }
+
+                triangles.push_back(tri);
+            }
+
+            index_offset += fv;
+        }
+    }
+
+    return triangles;
+}
+
+// Runs an collision detection test on the two OBJ files for Bonsai and FCL.
+void run_test(const std::string &object_file, const std::string &ray_file) {
+    using clock = std::chrono::high_resolution_clock;
+    std::vector<Triangle> triangles = load_obj(object_file);
+    assert(!triangles.empty());
 
     auto ct_begin = clock::now();
-    BVH *canonical_tree = build_canonical_tree<S>(vertices, triangles);
+    BVH *canonical_tree = build_canonical_tree(triangles);
     auto ct_end = clock::now();
 
     Triangles tree = build_triangles(canonical_tree);
@@ -34,7 +95,7 @@ void run_test(const std::string &object) {
     free_canonical_tree(canonical_tree);
     auto st_end = clock::now();
 
-    std::vector<Ray> rays = generate_random_rays(4096);
+    std::vector<Ray> rays = load_rays_binary(ray_file);
     std::vector<Triangle> hits;
     auto trace_begin = clock::now();
     for (const Ray &ray : rays) {
@@ -63,11 +124,12 @@ void run_test(const std::string &object) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc == 2);
-    std::string object = argv[1];
+    assert(argc == 3);
+    std::string object_file = argv[1];
+    std::string ray_file = argv[2];
     // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
-    run_test<float>(object);
+    run_test(object_file, ray_file);
     return 0;
 }
