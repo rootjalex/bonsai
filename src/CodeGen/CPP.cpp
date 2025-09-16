@@ -154,6 +154,12 @@ void emit_type(std::ostream &ss, Type type) {
             ss << "*";
         }
 
+        void visit(const DynArray_t *node) override {
+            ss << "std::vector<";
+            node->etype.accept(this);
+            ss << ">";
+        }
+
         void visit(const Set_t *node) override {
             ss << "set<";
             node->etype.accept(this);
@@ -269,7 +275,6 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
 
 void emit_type_declaration(std::stringstream &ss, Type type) {
     auto indent = std::string(4, ' ');
-
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
         std::string name = struct_t->name;
         capitalize_first(name);
@@ -371,7 +376,8 @@ class BonsaiToCpp : ir::Printer {
                              bool is_return_type = false) {
         // TODO: understand why this was here.
         // internal_assert(!type.is<Struct_t>()) << type;
-        const bool is_const = !is_mutating && !is_return_type;
+        const bool is_const =
+            !is_mutating && !is_return_type && !type.is<DynArray_t>();
         if (is_const) {
             ss << "const ";
         }
@@ -382,6 +388,9 @@ class BonsaiToCpp : ir::Printer {
             emit_type(ss, type);
             if (!is_return_type && should_be_ref(type)) {
                 ss << "*";
+            }
+            if (!is_return_type && type.is<DynArray_t>()) {
+                ss << "&";
             }
         }
     }

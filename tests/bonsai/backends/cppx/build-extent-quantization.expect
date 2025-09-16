@@ -101,7 +101,7 @@ using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
 using vec3__Float16 = vector<_Float16, 3>;
 
 Spheres build_spheres(const BVH* CT);
-Sphere find_neighbors(const AABB* a, const Spheres* spheres);
+std::vector<Sphere> find_neighbors(const AABB* a, const Spheres* spheres);
 
 Point ClosestPtPointAABB(const Point* pt, const AABB* a) {
   return Point{.vec=min(max((*pt).vec, (*a).low), (*a).high)};
@@ -133,7 +133,7 @@ bool intersects_AABB_Sphere(const AABB* a, const Sphere* s) {
   const vec3_float d = ((*s).center - closest);
   return (dot(d, d) <= ((*s).radius * (*s).radius));
 }
-void _recloop_func0(const uint32_t index, const Spheres* spheres, const AABB* a, const Sphere _dyn_alloc) {
+void _recloop_func0(const uint32_t index, const Spheres* spheres, const AABB* a, std::vector<Sphere>& _dyn_alloc) {
   const AABB _lv2 = AABB{.low=fadd_rd((*spheres).wlow, vec3_float{fmul_rd((float)((((*spheres).nodes[index].q_min >> 20) & 1023)), (*spheres).bins[0]), fmul_rd((float)((((*spheres).nodes[index].q_min >> 10) & 1023)), (*spheres).bins[1]), fmul_rd((float)((((*spheres).nodes[index].q_min >> 0) & 1023)), (*spheres).bins[2])}), .high=fsub_ru((*spheres).whigh, vec3_float{fmul_rd((float)((((*spheres).nodes[index].q_max >> 20) & 1023)), (*spheres).bins[0]), fmul_rd((float)((((*spheres).nodes[index].q_max >> 10) & 1023)), (*spheres).bins[1]), fmul_rd((float)((((*spheres).nodes[index].q_max >> 0) & 1023)), (*spheres).bins[2])})};
   if (intersects_AABB_AABB(a, (&_lv2))) {
     if ((*spheres).nodes[index].nprims == 0) {
@@ -151,8 +151,8 @@ void _recloop_func0(const uint32_t index, const Spheres* spheres, const AABB* a,
   }
   return;
 }
-Sphere _traverse_tree0(const AABB* a, const Spheres* spheres) {
-  Sphere _dyn_alloc;
+std::vector<Sphere> _traverse_tree0(const AABB* a, const Spheres* spheres) {
+  std::vector<Sphere> _dyn_alloc;
   _recloop_func0(0, spheres, a, _dyn_alloc);
   return _dyn_alloc;
 }
@@ -465,7 +465,7 @@ float distmin_Ray_Triangle(const Ray* ray, const Triangle* tri) {
     return std::numeric_limits<float>::infinity();
   }
 }
-Sphere find_neighbors(const AABB* a, const Spheres* spheres) {
+std::vector<Sphere> find_neighbors(const AABB* a, const Spheres* spheres) {
   return _traverse_tree0(a, spheres);
 }
 float gamma(const int32_t n) {
