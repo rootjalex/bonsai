@@ -102,6 +102,7 @@ struct DynamicArraysToStructs : public ir::Mutator {
 
 ir::Program LowerDynamicArrays::run(ir::Program program,
                                     const CompilerOptions &options) const {
+    return program;
     DynamicArraysToStructs converter;
 
     // Externs should not contain dynamic arrays.

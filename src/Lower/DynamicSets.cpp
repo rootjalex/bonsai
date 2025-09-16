@@ -70,7 +70,15 @@ class LowerDynamicSetCall : public ir::Mutator {
     LowerDynamicSetCall(Type dynamic_array_t)
         : dynamic_array_t(std::move(dynamic_array_t)) {}
 
-    Expr visit(const Call *node) {
+    Expr visit(const Var *node) override {
+        if (!node->type.is<ir::Set_t>()) {
+            return node;
+        }
+        return ir::Var::make(ir::DynArray_t::make(node->type.element_of()),
+                             node->name);
+    }
+
+    Expr visit(const Call *node) override {
         const auto *func = node->func.as<Var>();
         if (func == nullptr) {
             return ir::Mutator::visit(node);
@@ -84,7 +92,7 @@ class LowerDynamicSetCall : public ir::Mutator {
         return Call::make(Var::make(std::move(t), func->name), node->args);
     }
 
-    Stmt visit(const CallStmt *node) {
+    Stmt visit(const CallStmt *node) override {
         const auto *func = node->func.as<Var>();
         if (func == nullptr) {
             return ir::Mutator::visit(node);
@@ -107,6 +115,19 @@ class LowerDynamicSetCall : public ir::Mutator {
 Program LowerDynamicSets::run(Program program,
                               const CompilerOptions &options) const {
     for (auto &[name, func] : program.funcs) {
+        std::vector<ir::Argument> args;
+        std::transform(func->args.begin(), func->args.end(),
+                       std::back_inserter(args), [&](const ir::Argument &arg) {
+                           const ir::Type &type = arg.type;
+                           if (!type.is<ir::Set_t>()) {
+                               return arg;
+                           }
+                           return ir::Argument(
+                               arg.name,
+                               ir::DynArray_t::make(type.element_of()),
+                               arg.default_value, arg.mutating);
+                       });
+        func->args = std::move(args);
         const auto *set_t = func->ret_type.as<Set_t>();
         if (set_t == nullptr) {
             continue;
