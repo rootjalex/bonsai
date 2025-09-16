@@ -1,8 +1,15 @@
 #include "helpers.h"
+
 #include <cuda/std/array>
 #include <thrust/universal_vector.h>
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
+
+#include <variant>
+
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
 
 struct AABB {
   float3 low;
@@ -57,40 +64,40 @@ struct TriangleIntersection {
   float t;
 };
 
-struct arm_Interior {
+struct Arm_Interior {
   uint32_t offset;
 } __attribute__((packed));
 
-struct arm_Leaf {
+struct Arm_Leaf {
   uint32_t poffset;
 } __attribute__((packed));
 
-struct highs {
+struct Highs {
   float3 high;
 } __attribute__((packed));
 
-struct lows {
+struct Lows {
   float3 low;
 } __attribute__((packed));
 
-struct nodes {
+struct Nodes {
   uint16_t nprims;
   uint8_t axis;
   uint8_t pad0;
   uchar4 split0on_nprims;
 } __attribute__((packed));
 
-struct volumes {
-  cuda::std::array<lows, 4> lows;
-  cuda::std::array<highs, 4> highs;
+struct Volumes {
+  cuda::std::array<Lows, 4> lows;
+  cuda::std::array<Highs, 4> highs;
 } __attribute__((packed));
 
-struct triangles {
+struct Triangles {
   uint32_t primitive_count;
   Triangle* primitives;
   uint32_t node_count;
-  volumes* volumes;
-  nodes* nodes;
+  Volumes* volumes;
+  Nodes* nodes;
 } __attribute__((packed));
 
 __device__ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
@@ -105,24 +112,20 @@ __device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_aabb(Ray* r, 
   bool3 dirIsNeg = (invDir < make_float3(0));
   float3 low_parts = make_float3((dirIsNeg.x ? (*b).high.x : (*b).low.x),(dirIsNeg.y ? (*b).high.y : (*b).low.y),(dirIsNeg.z ? (*b).high.z : (*b).low.z));
   float3 high_parts = make_float3((dirIsNeg.x ? (*b).low.x : (*b).high.x),(dirIsNeg.y ? (*b).low.y : (*b).high.y),(dirIsNeg.z ? (*b).low.z : (*b).high.z));
-  float3 _tMin = ((low_parts - (*r).o) * invDir);
-  float3* tMin = &_tMin;
-  float3 _tMax = ((high_parts - (*r).o) * invDir);
-  float3* tMax = &_tMax;
-  *tMax *= (1 + ((float)2 * (((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08)))));
+  float3 tMin = ((low_parts - (*r).o) * invDir);
+  float3 tMax = ((high_parts - (*r).o) * invDir);
+  tMax *= (1 + ((float)2 * (((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08)))));
   if ((tMax.y < tMin.x) || (tMax.x < tMin.y)) {
     return cuda::std::nullopt;
   }
-  float _tmin = fmaxf(tMin.x, tMin.y);
-  float* tmin = &_tmin;
-  float _tmax = fminf(tMax.x, tMax.y);
-  float* tmax = &_tmax;
+  float tmin = fmaxf(tMin.x, tMin.y);
+  float tmax = fminf(tMax.x, tMax.y);
   if ((tMax.z < tmin) || (tmax < tMin.z)) {
     return cuda::std::nullopt;
   }
-  *tmin = fmaxf(tmin, tMin.z);
-  *tmax = fminf(tmax, tMax.z);
-  return (cuda::std::optional<FInterval>)FInterval{tmin, tmax};
+  tmin = fmaxf(tmin, tMin.z);
+  tmax = fminf(tmax, tMax.z);
+  return FInterval{tmin, tmax};
 }
 
 __device__ __host__ float distmin_Ray_AABB(Ray* r, AABB* b) {
@@ -142,28 +145,25 @@ __device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tr
   if (sum((cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0) * cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0))) == 0) {
     return cuda::std::nullopt;
   }
-  float3 _p0t = ((*tri).p0 - (*ray).o);
-  float3* p0t = &_p0t;
-  float3 _p1t = ((*tri).p1 - (*ray).o);
-  float3* p1t = &_p1t;
-  float3 _p2t = ((*tri).p2 - (*ray).o);
-  float3* p2t = &_p2t;
+  float3 p0t = ((*tri).p0 - (*ray).o);
+  float3 p1t = ((*tri).p1 - (*ray).o);
+  float3 p2t = ((*tri).p2 - (*ray).o);
   uint32_t kz = idxmax(abs((*ray).d));
   uint32_t kx = ((kz + 1u) % 3u);
   uint32_t ky = ((kx + 1u) % 3u);
   float3 d = shuffle((*ray).d, {kx, ky, kz});
-  *p0t = shuffle(p0t, {kx, ky, kz});
-  *p1t = shuffle(p1t, {kx, ky, kz});
-  *p2t = shuffle(p2t, {kx, ky, kz});
+  p0t = shuffle(p0t, {kx, ky, kz});
+  p1t = shuffle(p1t, {kx, ky, kz});
+  p2t = shuffle(p2t, {kx, ky, kz});
   float Sx = (-d.x / d.z);
   float Sy = (-d.y / d.z);
   float Sz = (1 / d.z);
-  *p0t += (Sx * p0t.z);
-  *p0t += (Sy * p0t.z);
-  *p1t += (Sx * p1t.z);
-  *p1t += (Sy * p1t.z);
-  *p2t += (Sx * p2t.z);
-  *p2t += (Sy * p2t.z);
+  p0t.x += (Sx * p0t.z);
+  p0t.y += (Sy * p0t.z);
+  p1t.x += (Sx * p1t.z);
+  p1t.y += (Sy * p1t.z);
+  p2t.x += (Sx * p2t.z);
+  p2t.y += (Sy * p2t.z);
   float e0 = __prod_diff_f32(p1t.x, p2t.y, p1t.y, p2t.x);
   float e1 = __prod_diff_f32(p2t.x, p0t.y, p2t.y, p0t.x);
   float e2 = __prod_diff_f32(p0t.x, p1t.y, p0t.y, p1t.x);
@@ -176,9 +176,9 @@ __device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tr
   if (det == 0) {
     return cuda::std::nullopt;
   }
-  *p0t *= Sz;
-  *p1t *= Sz;
-  *p2t *= Sz;
+  p0t.z *= Sz;
+  p1t.z *= Sz;
+  p2t.z *= Sz;
   float tScaled = (((e0 * p0t.z) + (e1 * p1t.z)) + (e2 * p2t.z));
   if ((det < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * det)))) {
     return cuda::std::nullopt;
@@ -204,7 +204,7 @@ __device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tr
   if (t <= deltaT) {
     return cuda::std::nullopt;
   }
-  return (cuda::std::optional<TriangleIntersection>)TriangleIntersection{b0, b1, b2, t};
+  return TriangleIntersection{b0, b1, b2, t};
 }
 
 __device__ __host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
@@ -226,23 +226,23 @@ __device__ __host__ bool intersects_Ray_AABB(Ray* r, AABB* b) {
   return false;
 }
 
-__device__ __host__ void _recloop_func0(uint32_t index, triangles* triangles, Ray* ray, cuda::std::tuple<float, Triangle>* _best0) {
+__device__ __host__ void _recloop_func0(uint32_t index, Triangles* triangles, Ray* ray, cuda::std::tuple<float, Triangle>* _best0) {
   AABB _lv5 = AABB{(*triangles).volumes[index / 4u].lows[index % 4u].low, (*triangles).volumes[index / 4u].highs[index % 4u].high};
   if (intersects_Ray_AABB(ray, (&_lv5))) {
     AABB _lv4 = AABB{(*triangles).volumes[index / 4u].lows[index % 4u].low, (*triangles).volumes[index / 4u].highs[index % 4u].high};
-    if (distmin_Ray_AABB(ray, (&_lv4)) < (*_best0)[0]) {
+    if (distmin_Ray_AABB(ray, (&_lv4)) < cuda::std::get<0>((*_best0))) {
       if ((*triangles).nodes[index].nprims == 0u) {
         _recloop_func0(index + 1u, triangles, ray, _best0);
-        _recloop_func0(index + bonsai_reinterpret<arm_Interior>((*triangles).nodes[index].split0on_nprims).offset, triangles, ray, _best0);
+        _recloop_func0(index + bonsai_reinterpret<Arm_Interior>((*triangles).nodes[index].split0on_nprims).offset, triangles, ray, _best0);
       } else {
-        for (uint32_t _idx0 = bonsai_reinterpret<arm_Leaf>((*triangles).nodes[index].split0on_nprims).poffset; _idx0 < (bonsai_reinterpret<arm_Leaf>((*triangles).nodes[index].split0on_nprims).poffset + (uint32_t)(*triangles).nodes[index].nprims); _idx0 += 1u) {
+        for (uint32_t _idx0 = bonsai_reinterpret<Arm_Leaf>((*triangles).nodes[index].split0on_nprims).poffset; _idx0 < (bonsai_reinterpret<Arm_Leaf>((*triangles).nodes[index].split0on_nprims).poffset + (uint32_t)(*triangles).nodes[index].nprims); _idx0 += 1u) {
           Triangle _lv3 = (*triangles).primitives[_idx0];
           if (intersectsp_ray_tri(ray, (&_lv3)).has_value()) {
             Triangle _lv2 = (*triangles).primitives[_idx0];
-            if (distmin_Ray_Triangle(ray, (&_lv2)) < (*_best0)[0]) {
+            if (distmin_Ray_Triangle(ray, (&_lv2)) < cuda::std::get<0>((*_best0))) {
               Triangle _lv0 = (*triangles).primitives[_idx0];
               Triangle _lv1 = (*triangles).primitives[_idx0];
-              *_best0 = argmin(_best0, cuda::std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv0)), _lv1});
+              (*_best0) = argmin(_best0, cuda::std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv0)), _lv1});
             }
           }
         }
@@ -252,79 +252,75 @@ __device__ __host__ void _recloop_func0(uint32_t index, triangles* triangles, Ra
   return;
 }
 
-__device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, triangles* triangles) {
-  cuda::std::tuple<float, Triangle> __best0 = cuda::std::tuple<float, Triangle>{INFINITY, Triangle{}};
-  cuda::std::tuple<float, Triangle>* _best0 = &__best0;
+__device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* triangles) {
+  cuda::std::tuple<float, Triangle> _best0 = cuda::std::tuple<float, Triangle>{INFINITY, Triangle{}};
   _recloop_func0(0u, triangles, ray, (&_best0));
-  return ((_best0[0] != INFINITY) ? cuda::std::optional<Triangle>{_best0[1]} : cuda::std::nullopt);
+  return ((cuda::std::get<0>(_best0) != INFINITY) ? cuda::std::optional<Triangle>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
 }
 
-__device__ __host__ uint32_t rec_build_triangles(BVH* node, triangles* ST, size_t* nodes_index, size_t* primitives_index) {
-  return std::visit(overloaded{
-    [&](const Interior& node) {
+__device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
+    if (std::holds_alternative<const Interior&>(*node)) {
+      const Interior& node = std::get<const Interior&>(*node);
       size_t this_index = (*nodes_index);
-      *nodes_index += 1;
-      *ST.volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      *ST.volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
-      *ST.nodes[this_index].nprims = 0;
-      *ST.nodes[this_index].axis = argmax(node.high - node.low);
+      (*nodes_index) += 1;
+      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
+      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      (*ST).nodes[this_index].nprims = 0;
+      (*ST).nodes[this_index].axis = argmax(node.high - node.low);
       uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
       uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
-      *reinterpret_cast<(arm_Interior*)>(ST.nodes[this_index].split0on_nprims).offset = (right_index - this_index);
-      return this_index;
-    },
-    [&](const Leaf& node) {
-      size_t this_index = (*nodes_index);
-      *nodes_index += 1;
-      *ST.volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      *ST.volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
-      *ST.nodes[this_index].axis = argmax(node.high - node.low);
-      *ST.nodes[this_index].nprims = node.nprims;
-      *reinterpret_cast<(arm_Leaf*)>(ST.nodes[this_index].split0on_nprims).poffset = (*primitives_index);
-      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
-        *ST.primitives[(__p + (*primitives_index))] = node.data[__p];
-      }
-      *primitives_index += node.nprims;
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     }
-  }, *node);
+    else if (std::holds_alternative<const Leaf&>(*node)) {
+      const Leaf& node = std::get<const Leaf&>(*node);
+      size_t this_index = (*nodes_index);
+      (*nodes_index) += 1;
+      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
+      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      (*ST).nodes[this_index].axis = argmax(node.high - node.low);
+      (*ST).nodes[this_index].nprims = node.nprims;
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index) += node.nprims;
+      return this_index;
+    }
 }
 
-__device__ __host__ void rec_count_triangles(BVH* node, triangles* ST) {
-  return std::visit(overloaded{
-    [&](const Interior& node) {
+__device__ __host__ void rec_count_triangles(BVH* node, Triangles* ST) {
+    if (std::holds_alternative<const Interior&>(*node)) {
+      const Interior& node = std::get<const Interior&>(*node);
       rec_count_triangles(node.left, ST);
       rec_count_triangles(node.right, ST);
-      *ST += 1u;
-    },
-    [&](const Leaf& node) {
-      *ST += node.nprims;
-      *ST += 1u;
+      (*ST).node_count += 1u;
     }
-  }, *node);
+    else if (std::holds_alternative<const Leaf&>(*node)) {
+      const Leaf& node = std::get<const Leaf&>(*node);
+      (*ST).primitive_count += node.nprims;
+      (*ST).node_count += 1u;
+    }
 }
 
-__host__ triangles build_triangles(BVH* CT) {
-  triangles _ST;
-  triangles* ST = &_ST;
-  size_t _primitives_index = 0;
-  size_t* primitives_index = &_primitives_index;
-  size_t _nodes_index = 0;
-  size_t* nodes_index = &_nodes_index;
+__host__ Triangles build_triangles(BVH* CT) {
+  Triangles ST;
+  size_t primitives_index = 0;
+  size_t nodes_index = 0;
   rec_count_triangles(CT, (&ST));
   Triangle* primitives;
   (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Triangle));
-  *ST.primitives = primitives;
-  volumes* volumes;
-  (void)cudaMalloc((void**)&volumes, ST.node_count * sizeof(volumes));
-  *ST.volumes = volumes;
-  nodes* nodes;
-  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(nodes));
-  *ST.nodes = nodes;
+  ST.primitives = primitives;
+  Volumes* volumes;
+  (void)cudaMalloc((void**)&volumes, ST.node_count * sizeof(Volumes));
+  ST.volumes = volumes;
+  Nodes* nodes;
+  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(Nodes));
+  ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
 }
 
-__host__ cuda::std::optional<Triangle> trace(Ray* ray, triangles* triangles) {
+__host__ cuda::std::optional<Triangle> trace(Ray* ray, Triangles* triangles) {
   return _traverse_tree0(ray, triangles);
 }

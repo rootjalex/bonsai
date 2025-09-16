@@ -1,8 +1,15 @@
 #include "helpers.h"
+
 #include <cuda/std/array>
 #include <thrust/universal_vector.h>
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
+
+#include <variant>
+
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
 
 struct AABB {
   float3 low;
@@ -56,15 +63,15 @@ struct TriangleIntersection {
   float t;
 };
 
-struct arm_Interior {
+struct Arm_Interior {
   uint32_t offset;
 } __attribute__((packed));
 
-struct arm_Leaf {
+struct Arm_Leaf {
   uint32_t poffset;
 } __attribute__((packed));
 
-struct nodes {
+struct Nodes {
   int32_t q_min;
   int32_t q_max;
   uint8_t pad0;
@@ -73,7 +80,7 @@ struct nodes {
   uchar4 split0on_nprims;
 } __attribute__((packed));
 
-struct spheres {
+struct Spheres {
   float3 wlow;
   float3 whigh;
   float3 bins;
@@ -81,7 +88,7 @@ struct spheres {
   uint32_t primitive_count;
   Sphere* primitives;
   uint32_t node_count;
-  nodes* nodes;
+  Nodes* nodes;
 } __attribute__((packed));
 
 __device__ __host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
@@ -96,14 +103,14 @@ __device__ __host__ bool intersects_AABB_Sphere(AABB* a, Sphere* s) {
   return (dot(d, d) <= ((*s).radius * (*s).radius));
 }
 
-__device__ __host__ void _recloop_func0(uint32_t index, spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
+__device__ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
   AABB _lv2 = AABB{__fadd_rd((*spheres).wlow, float3{__fmul_rd((float)((*spheres).nodes[index].q_min >> 20) & 1023, (*spheres).bins.x), __fmul_rd((float)((*spheres).nodes[index].q_min >> 10) & 1023, (*spheres).bins.y), __fmul_rd((float)((*spheres).nodes[index].q_min >> 0) & 1023, (*spheres).bins.z)}), __fsub_ru((*spheres).whigh, float3{__fmul_rd((float)((*spheres).nodes[index].q_max >> 20) & 1023, (*spheres).bins.x), __fmul_rd((float)((*spheres).nodes[index].q_max >> 10) & 1023, (*spheres).bins.y), __fmul_rd((float)((*spheres).nodes[index].q_max >> 0) & 1023, (*spheres).bins.z)})};
   if (intersects_AABB_AABB(a, (&_lv2))) {
     if ((*spheres).nodes[index].nprims == 0u) {
       _recloop_func0(index + 1u, spheres, a, _dyn_alloc);
-      _recloop_func0(index + bonsai_reinterpret<arm_Interior>((*spheres).nodes[index].split0on_nprims).offset, spheres, a, _dyn_alloc);
+      _recloop_func0(index + bonsai_reinterpret<Arm_Interior>((*spheres).nodes[index].split0on_nprims).offset, spheres, a, _dyn_alloc);
     } else {
-      for (uint32_t _idx0 = bonsai_reinterpret<arm_Leaf>((*spheres).nodes[index].split0on_nprims).poffset; _idx0 < (bonsai_reinterpret<arm_Leaf>((*spheres).nodes[index].split0on_nprims).poffset + (uint32_t)(*spheres).nodes[index].nprims); _idx0 += 1u) {
+      for (uint32_t _idx0 = bonsai_reinterpret<Arm_Leaf>((*spheres).nodes[index].split0on_nprims).poffset; _idx0 < (bonsai_reinterpret<Arm_Leaf>((*spheres).nodes[index].split0on_nprims).poffset + (uint32_t)(*spheres).nodes[index].nprims); _idx0 += 1u) {
         Sphere _lv0 = (*spheres).primitives[_idx0];
         Sphere _lv1 = (*spheres).primitives[_idx0];
         if (intersects_AABB_Sphere(a, (&_lv1))) {
@@ -115,7 +122,7 @@ __device__ __host__ void _recloop_func0(uint32_t index, spheres* spheres, AABB* 
   return;
 }
 
-__device__ __host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, spheres* spheres) {
+__device__ __host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* spheres) {
   thrust::universal_vector<Sphere> _dyn_alloc;
   _dyn_alloc.reserve(16);
   _recloop_func0(0u, spheres, a, _dyn_alloc);
@@ -140,72 +147,69 @@ __device__ __host__ int32_t quantize(float3 current, float3 world, float3 bin_in
   return (int32_t)(((x << 20u) | (y << 10u)) | z);
 }
 
-__device__ __host__ uint32_t rec_build_spheres(BVH* node, spheres* ST, size_t* nodes_index, size_t* primitives_index) {
-  return std::visit(overloaded{
-    [&](const Interior& node) {
+__device__ __host__ uint32_t rec_build_spheres(BVH* node, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
+    if (std::holds_alternative<const Interior&>(*node)) {
+      const Interior& node = std::get<const Interior&>(*node);
       size_t this_index = (*nodes_index);
-      *nodes_index += 1;
+      (*nodes_index) += 1;
       if (this_index == 0) {
-        *ST.wlow = node.low;
-        *ST.whigh = node.high;
-        *ST.bins_inv = build_bins_inverse(node.low, node.high);
-        *ST.bins = build_bins(node.low, node.high);
+        (*ST).wlow = node.low;
+        (*ST).whigh = node.high;
+        (*ST).bins_inv = build_bins_inverse(node.low, node.high);
+        (*ST).bins = build_bins(node.low, node.high);
       }
-      *ST.nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
-      *ST.nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
-      *ST.nodes[this_index].nprims = 0;
+      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].nprims = 0;
       uint32_t left_index = rec_build_spheres(node.left, ST, nodes_index, primitives_index);
       uint32_t right_index = rec_build_spheres(node.right, ST, nodes_index, primitives_index);
-      *reinterpret_cast<(arm_Interior*)>(ST.nodes[this_index].split0on_nprims).offset = (right_index - this_index);
-      return this_index;
-    },
-    [&](const Leaf& node) {
-      size_t this_index = (*nodes_index);
-      *nodes_index += 1;
-      *ST.nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
-      *ST.nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
-      *ST.nodes[this_index].nprims = node.nprims;
-      *reinterpret_cast<(arm_Leaf*)>(ST.nodes[this_index].split0on_nprims).poffset = (*primitives_index);
-      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
-        *ST.primitives[(__p + (*primitives_index))] = node.data[__p];
-      }
-      *primitives_index += node.nprims;
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     }
-  }, *node);
+    else if (std::holds_alternative<const Leaf&>(*node)) {
+      const Leaf& node = std::get<const Leaf&>(*node);
+      size_t this_index = (*nodes_index);
+      (*nodes_index) += 1;
+      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].nprims = node.nprims;
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index) += node.nprims;
+      return this_index;
+    }
 }
 
-__device__ __host__ void rec_count_spheres(BVH* node, spheres* ST) {
-  return std::visit(overloaded{
-    [&](const Interior& node) {
+__device__ __host__ void rec_count_spheres(BVH* node, Spheres* ST) {
+    if (std::holds_alternative<const Interior&>(*node)) {
+      const Interior& node = std::get<const Interior&>(*node);
       rec_count_spheres(node.left, ST);
       rec_count_spheres(node.right, ST);
-      *ST += 1u;
-    },
-    [&](const Leaf& node) {
-      *ST += 1u;
+      (*ST).node_count += 1u;
     }
-  }, *node);
+    else if (std::holds_alternative<const Leaf&>(*node)) {
+      const Leaf& node = std::get<const Leaf&>(*node);
+      (*ST).node_count += 1u;
+    }
 }
 
-__host__ spheres build_spheres(BVH* CT) {
-  spheres _ST;
-  spheres* ST = &_ST;
-  size_t _primitives_index = 0;
-  size_t* primitives_index = &_primitives_index;
-  size_t _nodes_index = 0;
-  size_t* nodes_index = &_nodes_index;
+__host__ Spheres build_spheres(BVH* CT) {
+  Spheres ST;
+  size_t primitives_index = 0;
+  size_t nodes_index = 0;
   rec_count_spheres(CT, (&ST));
   Sphere* primitives;
   (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Sphere));
-  *ST.primitives = primitives;
-  nodes* nodes;
-  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(nodes));
-  *ST.nodes = nodes;
+  ST.primitives = primitives;
+  Nodes* nodes;
+  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(Nodes));
+  ST.nodes = nodes;
   rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
 }
 
-__host__ thrust::universal_vector<Sphere> find_neighbors(AABB* a, spheres* spheres) {
+__host__ thrust::universal_vector<Sphere> find_neighbors(AABB* a, Spheres* spheres) {
   return _traverse_tree0(a, spheres);
 }

@@ -1106,7 +1106,6 @@ class BonsaiToCpp : ir::Printer {
     void visit(const Store *node) override {
         ss << get_indent();
         print_loc(ss, node->loc, /*is_assignment=*/true);
-        // node->loc.to_expr().accept(this);
         ss << " = ";
         node->value.accept(this);
         ss << ";\n";

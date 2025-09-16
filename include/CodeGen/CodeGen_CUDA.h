@@ -37,13 +37,13 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Array_t *) override;
     void visit(const ir::Ptr_t *) override;
     void visit(const ir::Ref_t *) override;
+    void visit(const ir::BVH_t *) override;
 
     RESTRICT_VISITOR(ir::String_t);
     RESTRICT_VISITOR(ir::Function_t);
 
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
-    RESTRICT_VISITOR(ir::BVH_t);
     void visit(const ir::Option_t *) override;
     void visit(const ir::Tuple_t *) override;
     void visit(const ir::Rand_State_t *) override;
@@ -130,6 +130,9 @@ class CodeGen_CUDA : public ir::Printer {
     void emit_to_device(std::string base, const ir::Struct_t *, ir::Expr);
     void emit_to_device(std::string base, const ir::Array_t *, ir::Expr,
                         std::optional<ir::Expr> = {});
+
+    void print_loc(std::ostream &os, const ir::WriteLoc &loc,
+                   bool is_assignment);
 };
 
 } //  namespace bonsai

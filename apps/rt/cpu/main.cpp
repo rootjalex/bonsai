@@ -28,13 +28,13 @@ std::vector<Triangle> load_obj(const std::string &object) {
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
     std::string _, err;
-    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &_, &err,
-                                object_path.c_str(), material_path.c_str());
+    bool result = tinyobj::LoadObj(&attrib, &shapes, &materials, &_, &err,
+                                   object_path.c_str(), material_path.c_str());
     if (!err.empty()) {
-        std::cerr << "ERR: " << err << std::endl;
+        std::cerr << "error: " << err << std::endl;
     }
-    if (!ret) {
-        std::cerr << "Failed to load " << object_path << std::endl;
+    if (!result) {
+        std::cerr << "failed to load " << object_path << std::endl;
         return {};
     }
 
@@ -79,7 +79,6 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-// Runs an collision detection test on the two OBJ files for Bonsai and FCL.
 void run_test(const std::string &object_file, const std::string &ray_file) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object_file);

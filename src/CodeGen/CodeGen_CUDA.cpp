@@ -39,6 +39,13 @@ using namespace ir;
 
 namespace {
 
+// Capitalizes the first letter of `name`.
+void capitalize_first(std::string &name) {
+    if (!name.empty() && std::isalpha(name.front())) {
+        name.front() = std::toupper(name.front());
+    }
+}
+
 // Returns whether this type contains a field with a memory address.
 bool has_address(Type type) {
     if (type.is<Ptr_t, Array_t>()) {
@@ -76,9 +83,9 @@ std::vector<TypedVar> get_immediate_addressed_children(Type type) {
     return children;
 }
 
-// Returns whether this is a context type created during parallelization. The
-// contexts already allocate everything to device; we want to avoid also needing
-// to allocate the context pointer on device, so we just copy it.
+// Returns whether this is a context type created during parallelization.
+// The contexts already allocate everything to device; we want to avoid also
+// needing to allocate the context pointer on device, so we just copy it.
 bool is_context_type(Type t) {
     const auto *s = t.as<Struct_t>();
     if (s == nullptr) {
@@ -194,8 +201,8 @@ std::string vector_lane_to_field(uint32_t lane) {
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 std::string vector_prefix(Type element_type) {
     if (element_type.is<Bool_t>()) {
-        // TODO(cgyurgyik): this is a home-grown bool vector for now. There are
-        // likely better alternatives.
+        // TODO(cgyurgyik): this is a home-grown bool vector for now. There
+        // are likely better alternatives.
         return "bool";
     }
     if (element_type.is<Int_t, UInt_t>()) {
@@ -266,13 +273,34 @@ void CodeGen_CUDA::visit(const Array_t *node) {
     os << '*';
 }
 
+void CodeGen_CUDA::visit(const BVH_t *node) {
+    for (const auto &variant : node->variants) {
+        // Forward declare
+        os << "struct " << variant.name() << ";\n";
+    }
+    os << "using " << node->name << " = ";
+    os << "std::variant<";
+    bool first = true;
+    for (const auto &variant : node->variants) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << variant.name();
+    }
+    os << ">;\n";
+    return;
+}
+
 void CodeGen_CUDA::visit(const Struct_t *node) {
+    std::string name = node->name;
+    capitalize_first(name);
     if (!is_declaration) {
-        os << node->name;
+        os << name;
         return;
     }
     os << get_indent();
-    os << "struct" << ' ' << node->name << ' ' << '{' << '\n';
+    os << "struct" << ' ' << name << ' ' << '{' << '\n';
     ScopedValue<bool> _(is_declaration, false);
     increment();
     for (const auto &[name, type] : node->fields) {
@@ -437,9 +465,12 @@ void CodeGen_CUDA::visit(const Cast *node) {
             print_no_parens(node->value);
             return;
         }
-        os << '(';
-        node->type.accept(this);
-        os << ')';
+        if (!type.is<ir::Option_t>()) {
+            // No need to cast for Option_t. this should be readily inferred.
+            os << '(';
+            node->type.accept(this);
+            os << ')';
+        }
         value.accept(this);
         return;
     case Cast::Mode::Reinterpret:
@@ -776,6 +807,14 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
         Access::make(vector_lane_to_field(*index), node->vec).accept(this);
         return;
     }
+    if (const auto &tuple_t = node->vec.type().as<Tuple_t>()) {
+        os << "cuda::std::get<";
+        internal_assert(index.has_value()) << node->idx;
+        os << *index << ">(";
+        print_no_parens(node->vec);
+        os << ")";
+        return;
+    }
 
     node->vec.accept(this);
     os << "[";
@@ -966,6 +1005,16 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     switch (node->memory) {
     case Allocate::Memory::Stack: {
         os << get_indent();
+        if (const auto *vector_t = type.as<Vector_t>()) {
+            type->accept(this);
+            os << ' ' << b;
+            if (node->value.defined()) {
+                os << ' ' << '=' << ' ';
+                node->value.accept(this);
+            }
+            os << ';' << '\n';
+            return;
+        }
         if (const auto *array_type = type.as<Array_t>()) {
             // <type> <name>[<size>];
             array_type->etype.accept(this);
@@ -986,10 +1035,9 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ';' << '\n';
             return;
         }
-        // Bonsai assumes *everything*, including stack allocated elements,
-        // are pointers. So first we "stack" allocate,
-        constexpr std::string_view P = "_";
-        os << ' ' << P << b;
+        // // Bonsai assumes *everything*, including stack allocated elements,
+        // // are pointers. So first we "stack" allocate,
+        os << ' ' << b;
         if (!node->value.defined() && type.is_scalar()) {
             os << ' ' << '=' << ' ';
             os << make_zero(type);
@@ -997,13 +1045,13 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ' ' << '=' << ' ';
             node->value.accept(this);
         }
-
         os << ';' << '\n';
-        // ...and then we take its address.
-        os << get_indent();
-        type.accept(this);
-        os << '*';
-        os << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';' << '\n';
+        // os << ';' << '\n';
+        // // ...and then we take its address.
+        // os << get_indent();
+        // type.accept(this);
+        // os << '*';
+        // os << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';' << '\n';
         return;
     }
     case Allocate::Memory::Heap: {
@@ -1063,37 +1111,18 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
-
-    Expr value = node->value;
-    Type base_type = node->loc.base_type();
-    if (base_type.is<Array_t>() && value.type().is<Array_t>()) {
-        // We assume `T* = T*` is a pointer assignment.
-        os << node->loc << ' ' << '=' << ' ';
-        value.accept(this);
-        os << ';' << '\n';
-        return;
-    }
-    if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
-        os << '*';
-    }
-    {
-        ir::Printer printer(os);
-        printer.print(node->loc);
-    }
-
-    os << ' ' << '=' << ' ';
-    value.accept(this);
-    os << ';' << '\n';
+    print_loc(os, node->loc, /*is_assignment=*/true);
+    os << " = ";
+    node->value.accept(this);
+    os << ";\n";
 }
 
 void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
-    if (!node->loc.base_type().is<Array_t>()) {
-        os << '*';
-    }
-    os << current.base() << ' ';
+    print_loc(os, current, /*is_assignment=*/true);
+    os << ' ';
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
@@ -1232,31 +1261,30 @@ void CodeGen_CUDA::visit(const Launch *node) {
 }
 
 void CodeGen_CUDA::visit(const Match *node) {
-    // TODO(cgyurgyik): currently just a duplicate of `cppx`.
-    os << get_indent();
-    os << "return std::visit(overloaded{\n";
     increment();
     for (size_t i = 0, e = node->arms.size(); i < e; i++) {
-        const auto &arm = node->arms[i];
-        os << get_indent() << "[&](const ";
-        os << arm.first.struct_type.as<Struct_t>()->name;
-        os << "& ";
-        node->loc.accept(this);
-        os << ") {\n";
-        increment();
-        arm.second.accept(this);
-        decrement();
-        os << get_indent() << "}";
-        if (i != (e - 1)) {
-            os << ",\n";
-        } else {
-            os << "\n";
+        const auto &[variant, body] = node->arms[i];
+        const auto *struct_t = variant.struct_type.as<Struct_t>();
+        os << get_indent();
+        if (i > 0) {
+            os << "else ";
         }
+        os << "if (std::holds_alternative<const ";
+        os << struct_t->name << "&>(*";
+        node->loc.accept(this);
+        os << ")) {\n";
+        increment();
+        os << get_indent() << "const " << struct_t->name << "& ";
+        node->loc.accept(this);
+        os << " = " << "std::get<const ";
+        os << struct_t->name << "&>(*";
+        node->loc.accept(this);
+        os << ");\n";
+        body.accept(this);
+        decrement();
+        os << get_indent() << "}\n";
     }
     decrement();
-    os << get_indent() << "}, *";
-    node->loc.accept(this);
-    os << ");\n";
 }
 
 void CodeGen_CUDA::visit(const AppendStmt *node) {
@@ -1271,10 +1299,15 @@ void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
     // Requires: `-Iruntime/CUDA` to work.
     os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
+    os << '\n';
+    // CUDA headers
     os << '#' << "include" << ' ' << "<cuda/std/array>" << '\n';
     os << '#' << "include" << ' ' << "<thrust/universal_vector.h>" << '\n';
     os << '#' << "include" << ' ' << "<cuda/std/optional>" << '\n';
     os << '#' << "include" << ' ' << "<cuda/std/tuple>" << '\n';
+    os << '\n';
+    // STL headers
+    os << '#' << "include" << ' ' << "<variant>" << '\n';
     os << '\n';
 }
 
@@ -1334,13 +1367,21 @@ void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
     std::set<Type> visited;
+    auto it = program.schedules.find(ir::Target::Host);
+    internal_assert(it != program.schedules.end());
+    for (const auto &[name, type] : it->second.tree_types) {
+        type.accept(this);
+        os << '\n';
+    }
+
+    const ir::TypeMap &types = program.types;
     std::vector<std::string> types_topological =
-        lower::type_topological_order(program.types);
+        lower::type_topological_order(types);
     for (const std::string &name : types_topological) {
-        auto tit = program.types.find(name);
-        internal_assert(tit != program.types.end());
+        auto tit = types.find(name);
+        internal_assert(tit != types.end());
         const Type &type = tit->second;
-        if (!type.is<Struct_t>()) {
+        if (!type.is<Struct_t, BVH_t>()) {
             // This is just an alias of an non-aggregate type, e.g.,
             // element Float = f32;
             continue;
@@ -1425,6 +1466,67 @@ void CodeGen_CUDA::print(const Function &function) {
     }
     decrement();
     os << get_indent() << '}';
+}
+
+void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,
+                             bool is_assignment) {
+    std::string ss;
+    if (loc.base_type().is<ir::Ptr_t>()) {
+        ss += "(*";
+    }
+    ss += loc.base();
+    if (loc.base_type().is<ir::Ptr_t>()) {
+        ss += ")";
+    }
+    bool is_pointer = false;
+    for (const auto &value : loc.accesses) {
+        if (std::holds_alternative<std::string>(value)) {
+            if (is_pointer) {
+                ss += "->";
+                is_pointer = false;
+            } else {
+                ss += ".";
+            }
+            ss += std::get<std::string>(value);
+            continue;
+        }
+        if (std::holds_alternative<ir::Expr>(value)) {
+            ir::Expr idx = std::get<ir::Expr>(value);
+            if (loc.base_type().is<ir::Vector_t>() && is_const(idx)) {
+                ss += ".";
+                ss += vector_lane_to_field(*get_constant_value(idx));
+                continue;
+            }
+            ss += "[";
+            ss += to_string(idx);
+            ss += "]";
+            continue;
+        }
+        if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+            auto cast = std::get<ir::WriteLoc::Cast>(value);
+            std::string b;
+            if (cast.mode == ir::Cast::Mode::Reinterpret) {
+                b += "reinterpret";
+                b += '_';
+            }
+            b += "cast<";
+            std::stringstream t;
+            codegen::emit_type(t, cast.type);
+            b += t.str();
+            b += ">(";
+            if (is_assignment) {
+                b += "&"; // *must* take the address for assignment.
+                is_pointer = true;
+            }
+            b += ss;
+            b += ")";
+            ss = std::move(b);
+
+            continue;
+        }
+        internal_error << "unexpected WriteLoc access type";
+    }
+    os << ss;
 }
 
 } //  namespace bonsai

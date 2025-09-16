@@ -27,7 +27,7 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
-// Extract element type from vector or return T if scalar
+// Extract element type from vector or return T if scalar.
 template <typename T>
 struct element_type {
     using type = T;

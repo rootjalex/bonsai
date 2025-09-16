@@ -1774,32 +1774,30 @@ __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
 
 size_t argmax(float3 a) {
     size_t p = 0;
-    T r = a[0];
-    for (int i = 1; i < 3; ++i) {
-        if (r <= a[i]) {
-            continue;
-        }
-        p = i;
-        r = a[i];
+    float r = a.x;
+    if (r <= a.y) {
+        r = a.y;
+        p = 1;
+    }
+    if (r <= a.z) {
+        p = 2;
     }
     return p;
 }
 
 template <size_t N>
-bool reduce_and(float3 a) {
-    bool t = a[0];
-    for (int i = 1; i < 3; ++i) {
-        t &= a[i];
-    }
+bool reduce_and(bool3 a) {
+    bool t = a.x;
+    t &= a.y;
+    t &= a.z;
     return t;
 }
 
 template <size_t N>
-bool reduce_or(float3 a) {
-    bool t = a[0];
-    for (int i = 1; i < 3; ++i) {
-        t |= a[i];
-    }
+bool reduce_or(bool3 a) {
+    bool t = a.x;
+    t |= a.y;
+    t |= a.z;
     return t;
 }
 
