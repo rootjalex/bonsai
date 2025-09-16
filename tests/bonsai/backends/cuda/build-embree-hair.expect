@@ -34,7 +34,7 @@ struct Triangle {
 
 struct Leaf {
   uint8_t nprims;
-  cuda::std::array<Triangle, nprims> data;
+  Triangle* data;
 };
 
 struct OBB {
@@ -83,7 +83,7 @@ struct TriangleIntersection {
 
 struct triangles {
   uint64_t primitive_count;
-  cuda::std::array<Triangle, primitive_count> primitives;
+  Triangle* primitives;
   AABBs* AABBs;
   OBBs* OBBs;
 } __attribute__((packed));

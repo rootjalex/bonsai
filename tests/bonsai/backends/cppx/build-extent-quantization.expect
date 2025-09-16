@@ -152,7 +152,7 @@ void _recloop_func0(const uint32_t index, const Spheres* spheres, const AABB* a,
   return;
 }
 std::vector<Sphere> _traverse_tree0(const AABB* a, const Spheres* spheres) {
-  std::vector<Sphere> _dyn_alloc;
+  std::vector<Sphere> _dyn_alloc = reinterpret_cast<Sphere*>(malloc(sizeof(Sphere) * 16));
   _recloop_func0(0, spheres, a, _dyn_alloc);
   return _dyn_alloc;
 }

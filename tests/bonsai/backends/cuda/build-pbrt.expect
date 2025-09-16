@@ -1,4 +1,5 @@
 #include "helpers.h"
+#include <cuda/std/array>
 #include <thrust/universal_vector.h>
 #include <optional>
 #include <tuple>
@@ -16,8 +17,8 @@ struct FInterval {
 struct Interior {
   float3 low;
   float3 high;
-  (const BVH&) left;
-  (const BVH&) right;
+  BVH* left;
+  BVH* right;
   uint8_t axis;
 };
 
@@ -31,7 +32,7 @@ struct Leaf {
   float3 low;
   float3 high;
   uint16_t nprims;
-  Triangle* data; // of size nprims
+  Triangle* data;
 };
 
 struct Point {
@@ -75,9 +76,9 @@ struct nodes {
 
 struct triangles {
   uint32_t primitive_count;
-  Triangle* primitives; // of size primitive_count
+  Triangle* primitives;
   uint32_t node_count;
-  nodes* nodes; // of size node_count
+  nodes* nodes;
 } __attribute__((packed));
 
 __device__ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
@@ -246,10 +247,10 @@ __device__ __host__ std::optional<Triangle> _traverse_tree0(Ray* ray, triangles*
   return ((_best0[0] != INFINITY) ? std::optional<Triangle>{_best0[1]} : std::optional<Triangle>{});
 }
 
-__device__ __host__ uint32_t rec_build_triangles((const BVH&) node, triangles* ST, idx* nodes_index, idx* primitives_index) {
+__device__ __host__ uint32_t rec_build_triangles(BVH* node, triangles* ST, size_t* nodes_index, size_t* primitives_index) {
   return std::visit(overloaded{
     [&](const Interior& node) {
-      idx this_index = (*nodes_index);
+      size_t this_index = (*nodes_index);
       *nodes_index += 1;
       *ST.nodes[this_index].low = node.low;
       *ST.nodes[this_index].high = node.high;
@@ -261,7 +262,7 @@ __device__ __host__ uint32_t rec_build_triangles((const BVH&) node, triangles* S
       return this_index;
     },
     [&](const Leaf& node) {
-      idx this_index = (*nodes_index);
+      size_t this_index = (*nodes_index);
       *nodes_index += 1;
       *ST.nodes[this_index].low = node.low;
       *ST.nodes[this_index].high = node.high;
@@ -277,7 +278,7 @@ __device__ __host__ uint32_t rec_build_triangles((const BVH&) node, triangles* S
   }, *node);
 }
 
-__device__ __host__ void rec_count_triangles((const BVH&) node, triangles* ST) {
+__device__ __host__ void rec_count_triangles(BVH* node, triangles* ST) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       rec_count_triangles(node.left, ST);
@@ -291,13 +292,13 @@ __device__ __host__ void rec_count_triangles((const BVH&) node, triangles* ST) {
   }, *node);
 }
 
-__host__ triangles build_triangles((const BVH&) CT) {
+__host__ triangles build_triangles(BVH* CT) {
   triangles _ST;
   triangles* ST = &_ST;
-  idx _primitives_index = 0;
-  idx* primitives_index = &_primitives_index;
-  idx _nodes_index = 0;
-  idx* nodes_index = &_nodes_index;
+  size_t _primitives_index = 0;
+  size_t* primitives_index = &_primitives_index;
+  size_t _nodes_index = 0;
+  size_t* nodes_index = &_nodes_index;
   rec_count_triangles(CT, (&ST));
   Triangle* primitives;
   (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Triangle));

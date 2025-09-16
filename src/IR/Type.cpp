@@ -70,6 +70,9 @@ Expr Type::size() const {
     if (const auto *array_t = as<Array_t>()) {
         return array_t->size;
     }
+    if (const auto *dyn_array_t = as<DynArray_t>()) {
+        return dyn_array_t->capacity;
+    }
     internal_error << "Called size() on bad type: " << *this;
 }
 

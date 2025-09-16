@@ -1,4 +1,5 @@
 #include "helpers.h"
+#include <cuda/std/array>
 #include <thrust/universal_vector.h>
 #include <optional>
 #include <tuple>
@@ -16,8 +17,8 @@ struct FInterval {
 struct Interior {
   float3 low;
   float3 high;
-  (const BVH&) left;
-  (const BVH&) right;
+  BVH* left;
+  BVH* right;
 };
 
 struct Sphere {
@@ -29,7 +30,7 @@ struct Leaf {
   float3 low;
   float3 high;
   uint16_t nprims;
-  Sphere* data; // of size nprims
+  Sphere* data;
 };
 
 struct Point {
@@ -78,9 +79,9 @@ struct spheres {
   float3 bins;
   float3 bins_inv;
   uint32_t primitive_count;
-  Sphere* primitives; // of size primitive_count
+  Sphere* primitives;
   uint32_t node_count;
-  nodes* nodes; // of size node_count
+  nodes* nodes;
 } __attribute__((packed));
 
 __device__ __host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
@@ -139,10 +140,10 @@ __device__ __host__ int32_t quantize(float3 current, float3 world, float3 bin_in
   return (int32_t)(((x << 20u) | (y << 10u)) | z);
 }
 
-__device__ __host__ uint32_t rec_build_spheres((const BVH&) node, spheres* ST, idx* nodes_index, idx* primitives_index) {
+__device__ __host__ uint32_t rec_build_spheres(BVH* node, spheres* ST, size_t* nodes_index, size_t* primitives_index) {
   return std::visit(overloaded{
     [&](const Interior& node) {
-      idx this_index = (*nodes_index);
+      size_t this_index = (*nodes_index);
       *nodes_index += 1;
       if (this_index == 0) {
         *ST.wlow = node.low;
@@ -159,7 +160,7 @@ __device__ __host__ uint32_t rec_build_spheres((const BVH&) node, spheres* ST, i
       return this_index;
     },
     [&](const Leaf& node) {
-      idx this_index = (*nodes_index);
+      size_t this_index = (*nodes_index);
       *nodes_index += 1;
       *ST.nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
       *ST.nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
@@ -174,7 +175,7 @@ __device__ __host__ uint32_t rec_build_spheres((const BVH&) node, spheres* ST, i
   }, *node);
 }
 
-__device__ __host__ void rec_count_spheres((const BVH&) node, spheres* ST) {
+__device__ __host__ void rec_count_spheres(BVH* node, spheres* ST) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       rec_count_spheres(node.left, ST);
@@ -187,13 +188,13 @@ __device__ __host__ void rec_count_spheres((const BVH&) node, spheres* ST) {
   }, *node);
 }
 
-__host__ spheres build_spheres((const BVH&) CT) {
+__host__ spheres build_spheres(BVH* CT) {
   spheres _ST;
   spheres* ST = &_ST;
-  idx _primitives_index = 0;
-  idx* primitives_index = &_primitives_index;
-  idx _nodes_index = 0;
-  idx* nodes_index = &_nodes_index;
+  size_t _primitives_index = 0;
+  size_t* primitives_index = &_primitives_index;
+  size_t _nodes_index = 0;
+  size_t* nodes_index = &_nodes_index;
   rec_count_spheres(CT, (&ST));
   Sphere* primitives;
   (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Sphere));

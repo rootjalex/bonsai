@@ -278,7 +278,7 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     for (const auto &[name, type] : node->fields) {
         os << get_indent();
         const auto *array_t = type.as<Array_t>();
-        if (array_t && array_t->size.defined()) {
+        if (array_t && array_t->size.defined() && is_const(array_t->size)) {
             os << "cuda::std::array<";
             array_t->etype.accept(this);
             os << ", ";
