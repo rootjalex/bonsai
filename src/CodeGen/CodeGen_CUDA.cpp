@@ -352,13 +352,13 @@ void CodeGen_CUDA::visit(const DynArray_t *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::Option_t *node) {
-    os << "std::optional<";
+    os << "cuda::std::optional<";
     node->etype.accept(this);
     os << ">";
 }
 
 void CodeGen_CUDA::visit(const ir::Tuple_t *node) {
-    os << "std::tuple<";
+    os << "cuda::std::tuple<";
     print_type_list(node->etypes);
     os << ">";
 }
@@ -427,6 +427,16 @@ void CodeGen_CUDA::visit(const Cast *node) {
 
     switch (node->mode) {
     case Cast::Mode::Convert:
+        if (node->value.type().is<ir::Option_t>()) {
+            if (node->type.is<ir::Bool_t>()) {
+                print_no_parens(node->value);
+                os << ".has_value()";
+                return;
+            }
+            os << "*";
+            print_no_parens(node->value);
+            return;
+        }
         os << '(';
         node->type.accept(this);
         os << ')';
@@ -526,6 +536,11 @@ void CodeGen_CUDA::visit(const Ramp *node) {
 }
 
 void CodeGen_CUDA::visit(const Build *node) {
+    if (const auto *option_t = node->type.as<ir::Option_t>();
+        option_t && node->values.empty()) {
+        os << "cuda::std::nullopt";
+        return;
+    }
     node->type.accept(this);
     os << '{';
     for (size_t i = 0, n = node->values.size(); i < n; i++) {
@@ -1258,8 +1273,8 @@ void CodeGen_CUDA::emit_prologue() {
     os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
     os << '#' << "include" << ' ' << "<cuda/std/array>" << '\n';
     os << '#' << "include" << ' ' << "<thrust/universal_vector.h>" << '\n';
-    os << '#' << "include" << ' ' << "<optional>" << '\n';
-    os << '#' << "include" << ' ' << "<tuple>" << '\n';
+    os << '#' << "include" << ' ' << "<cuda/std/optional>" << '\n';
+    os << '#' << "include" << ' ' << "<cuda/std/tuple>" << '\n';
     os << '\n';
 }
 

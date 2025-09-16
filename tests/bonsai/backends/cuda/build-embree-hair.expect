@@ -1,8 +1,8 @@
 #include "helpers.h"
 #include <cuda/std/array>
 #include <thrust/universal_vector.h>
-#include <optional>
-#include <tuple>
+#include <cuda/std/optional>
+#include <cuda/std/tuple>
 
 struct AABB {
   float3 low;
@@ -95,7 +95,7 @@ __device__ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
   return (diff + err);
 }
 
-__device__ __host__ std::optional<FInterval> intersectsp_ray_aabb(Ray* r, AABB* b) {
+__device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_aabb(Ray* r, AABB* b) {
   float3 invDir = (make_float3(1) / (*r).d);
   bool3 dirIsNeg = (invDir < make_float3(0));
   float3 low_parts = make_float3((dirIsNeg.x ? (*b).high.x : (*b).low.x),(dirIsNeg.y ? (*b).high.y : (*b).low.y),(dirIsNeg.z ? (*b).high.z : (*b).low.z));
@@ -106,30 +106,30 @@ __device__ __host__ std::optional<FInterval> intersectsp_ray_aabb(Ray* r, AABB* 
   float3* tMax = &_tMax;
   *tMax *= (1 + ((float)2 * (((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08)))));
   if ((tMax.y < tMin.x) || (tMax.x < tMin.y)) {
-    return std::optional<FInterval>{};
+    return cuda::std::nullopt;
   }
   float _tmin = fmaxf(tMin.x, tMin.y);
   float* tmin = &_tmin;
   float _tmax = fminf(tMax.x, tMax.y);
   float* tmax = &_tmax;
   if ((tMax.z < tmin) || (tmax < tMin.z)) {
-    return std::optional<FInterval>{};
+    return cuda::std::nullopt;
   }
   *tmin = fmaxf(tmin, tMin.z);
   *tmax = fminf(tmax, tMax.z);
-  return (std::optional<FInterval>)FInterval{tmin, tmax};
+  return (cuda::std::optional<FInterval>)FInterval{tmin, tmax};
 }
 
 __device__ __host__ float distmin_Ray_AABB(Ray* r, AABB* b) {
-  std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
-  if ((bool)interval) {
-    FInterval extract = (FInterval)interval;
+  cuda::std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
+  if (interval.has_value()) {
+    FInterval extract = *interval;
     return extract.low;
   }
   return -INFINITY;
 }
 
-__device__ __host__ std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b) {
+__device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b) {
   float ox = (((((*b).orientation.x.x * (*r).o.x) + ((*b).orientation.x.y * (*r).o.y)) + ((*b).orientation.x.z * (*r).o.z)) + (*b).orientation.x.w);
   float oy = (((((*b).orientation.y.x * (*r).o.x) + ((*b).orientation.y.y * (*r).o.y)) + ((*b).orientation.y.z * (*r).o.z)) + (*b).orientation.y.w);
   float oz = (((((*b).orientation.z.x * (*r).o.x) + ((*b).orientation.z.y * (*r).o.y)) + ((*b).orientation.z.z * (*r).o.z)) + (*b).orientation.z.w);
@@ -154,18 +154,18 @@ __device__ __host__ std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b)
   float tmin = fmaxf(fmaxf(tmin_x, tmin_y), tmin_z);
   float tmax = fminf(fminf(tmax_x, tmax_y), tmax_z);
   if (tmax < tmin) {
-    return std::optional<FInterval>{};
+    return cuda::std::nullopt;
   }
   if (tmax < 0) {
-    return std::optional<FInterval>{};
+    return cuda::std::nullopt;
   }
-  return (std::optional<FInterval>)FInterval{fmaxf(tmin, 0), tmax};
+  return (cuda::std::optional<FInterval>)FInterval{fmaxf(tmin, 0), tmax};
 }
 
 __device__ __host__ float distmin_Ray_OBB(Ray* r, OBB* b) {
-  std::optional<FInterval> interval = intersectsp_ray_obb(r, b);
-  if ((bool)interval) {
-    FInterval extract = (FInterval)interval;
+  cuda::std::optional<FInterval> interval = intersectsp_ray_obb(r, b);
+  if (interval.has_value()) {
+    FInterval extract = *interval;
     return extract.low;
   }
   return -INFINITY;
@@ -175,9 +175,9 @@ __device__ __host__ float3 cross_(float3 v0, float3 v1) {
   return float3{__prod_diff_f32(v0.y, v1.z, v0.z, v1.y), __prod_diff_f32(v0.z, v1.x, v0.x, v1.z), __prod_diff_f32(v0.x, v1.y, v0.y, v1.x)};
 }
 
-__device__ __host__ std::optional<TriangleIntersection> intersectsp_ray_tri(Ray* ray, Triangle* tri) {
+__device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tri(Ray* ray, Triangle* tri) {
   if (sum((cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0) * cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0))) == 0) {
-    return std::optional<TriangleIntersection>{};
+    return cuda::std::nullopt;
   }
   float3 _p0t = ((*tri).p0 - (*ray).o);
   float3* p0t = &_p0t;
@@ -206,22 +206,22 @@ __device__ __host__ std::optional<TriangleIntersection> intersectsp_ray_tri(Ray*
   float e2 = __prod_diff_f32(p0t.x, p1t.y, p0t.y, p1t.x);
   if (((e0 < 0) || (e1 < 0)) || (e2 < 0)) {
     if (((0 < e0) || (0 < e1)) || (0 < e2)) {
-      return std::optional<TriangleIntersection>{};
+      return cuda::std::nullopt;
     }
   }
   float det = ((e0 + e1) + e2);
   if (det == 0) {
-    return std::optional<TriangleIntersection>{};
+    return cuda::std::nullopt;
   }
   *p0t *= Sz;
   *p1t *= Sz;
   *p2t *= Sz;
   float tScaled = (((e0 * p0t.z) + (e1 * p1t.z)) + (e2 * p2t.z));
   if ((det < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * det)))) {
-    return std::optional<TriangleIntersection>{};
+    return cuda::std::nullopt;
   } else {
     if ((0 < det) && ((tScaled <= 0) || (((*ray).tmax * det) < tScaled))) {
-      return std::optional<TriangleIntersection>{};
+      return cuda::std::nullopt;
     }
   }
   float invDet = (1 / det);
@@ -239,15 +239,15 @@ __device__ __host__ std::optional<TriangleIntersection> intersectsp_ray_tri(Ray*
   float maxE = max(abs(float3{e0, e1, e2}));
   float deltaT = (((float)3 * (((((((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * fabsf(invDet));
   if (t <= deltaT) {
-    return std::optional<TriangleIntersection>{};
+    return cuda::std::nullopt;
   }
-  return (std::optional<TriangleIntersection>)TriangleIntersection{b0, b1, b2, t};
+  return (cuda::std::optional<TriangleIntersection>)TriangleIntersection{b0, b1, b2, t};
 }
 
 __device__ __host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
-  std::optional<TriangleIntersection> isect = intersectsp_ray_tri(ray, tri);
-  if ((bool)isect) {
-    TriangleIntersection isect_ = (TriangleIntersection)isect;
+  cuda::std::optional<TriangleIntersection> isect = intersectsp_ray_tri(ray, tri);
+  if (isect.has_value()) {
+    TriangleIntersection isect_ = *isect;
     return isect_.t;
   } else {
     return INFINITY;
@@ -255,24 +255,24 @@ __device__ __host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
 }
 
 __device__ __host__ bool intersects_Ray_AABB(Ray* r, AABB* b) {
-  std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
-  if ((bool)interval) {
-    FInterval extract = (FInterval)interval;
+  cuda::std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
+  if (interval.has_value()) {
+    FInterval extract = *interval;
     return ((extract.low < (*r).tmax) & (0 < extract.high));
   }
   return false;
 }
 
 __device__ __host__ bool intersects_Ray_OBB(Ray* r, OBB* b) {
-  std::optional<FInterval> interval = intersectsp_ray_obb(r, b);
-  if ((bool)interval) {
-    FInterval extract = (FInterval)interval;
+  cuda::std::optional<FInterval> interval = intersectsp_ray_obb(r, b);
+  if (interval.has_value()) {
+    FInterval extract = *interval;
     return ((extract.low < (*r).tmax) & (0 < extract.high));
   }
   return false;
 }
 
-__device__ __host__ void _recloop_func0(uint64_t index, Ray* ray, triangles* triangles, std::tuple<float, Triangle>* _best0) {
+__device__ __host__ void _recloop_func0(uint64_t index, Ray* ray, triangles* triangles, cuda::std::tuple<float, Triangle>* _best0) {
   if ((index & 0x3) == 2u) {
     AABB _lv1 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.x, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.x};
     if (intersects_Ray_AABB(ray, (&_lv1))) {
@@ -335,12 +335,12 @@ __device__ __host__ void _recloop_func0(uint64_t index, Ray* ray, triangles* tri
     } else {
       for (uint64_t _idx0 = ((index >> 4) & 0x7ffffffffffffff); _idx0 < (((index >> 4) & 0x7ffffffffffffff) + (uint64_t)(uint8_t)(((index >> 1) & 0x7) + 1u)); _idx0 += 1u) {
         Triangle _lv19 = (*triangles).primitives[_idx0];
-        if ((bool)intersectsp_ray_tri(ray, (&_lv19))) {
+        if (intersectsp_ray_tri(ray, (&_lv19)).has_value()) {
           Triangle _lv18 = (*triangles).primitives[_idx0];
           if (distmin_Ray_Triangle(ray, (&_lv18)) < (*_best0)[0]) {
             Triangle _lv16 = (*triangles).primitives[_idx0];
             Triangle _lv17 = (*triangles).primitives[_idx0];
-            *_best0 = argmin(_best0, std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv16)), _lv17});
+            *_best0 = argmin(_best0, cuda::std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv16)), _lv17});
           }
         }
       }
@@ -349,11 +349,11 @@ __device__ __host__ void _recloop_func0(uint64_t index, Ray* ray, triangles* tri
   return;
 }
 
-__device__ __host__ std::optional<Triangle> _traverse_tree0(Ray* ray, triangles* triangles) {
-  std::tuple<float, Triangle> __best0 = std::tuple<float, Triangle>{INFINITY, Triangle{}};
-  std::tuple<float, Triangle>* _best0 = &__best0;
+__device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, triangles* triangles) {
+  cuda::std::tuple<float, Triangle> __best0 = cuda::std::tuple<float, Triangle>{INFINITY, Triangle{}};
+  cuda::std::tuple<float, Triangle>* _best0 = &__best0;
   _recloop_func0(0u, ray, triangles, (&_best0));
-  return ((_best0[0] != INFINITY) ? std::optional<Triangle>{_best0[1]} : std::optional<Triangle>{});
+  return ((_best0[0] != INFINITY) ? cuda::std::optional<Triangle>{_best0[1]} : cuda::std::nullopt);
 }
 
 __device__ __host__ float3 calculate_merged_extent(cuda::std::array<float3, 4> low, cuda::std::array<float3, 4> high) {
@@ -477,6 +477,6 @@ __host__ triangles build_triangles(BVH* CT) {
   return ST;
 }
 
-__host__ std::optional<Triangle> trace(Ray* ray, triangles* triangles) {
+__host__ cuda::std::optional<Triangle> trace(Ray* ray, triangles* triangles) {
   return _traverse_tree0(ray, triangles);
 }

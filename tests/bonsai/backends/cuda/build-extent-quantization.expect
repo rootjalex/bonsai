@@ -1,8 +1,8 @@
 #include "helpers.h"
 #include <cuda/std/array>
 #include <thrust/universal_vector.h>
-#include <optional>
-#include <tuple>
+#include <cuda/std/optional>
+#include <cuda/std/tuple>
 
 struct AABB {
   float3 low;
