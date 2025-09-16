@@ -327,6 +327,8 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
 void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
 
 void CodeGen_CUDA::visit(const DynArray_t *node) {
+    // TODO(cgyurgyik): this probably has some performance implications. Can we
+    // always infer whether this is a {host, device}_vector?
     os << "thrust::universal_vector<";
     node->etype.accept(this);
     os << ">";
