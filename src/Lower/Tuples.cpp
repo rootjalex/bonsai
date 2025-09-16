@@ -113,6 +113,9 @@ struct TuplesToStructs : public ir::Mutator {
                     not_changed = not_changed && new_value.same_as(*expr);
                     new_loc.add_index_access(std::move(new_value));
                 }
+            } else if (const ir::WriteLoc::Cast *cast =
+                           std::get_if<ir::WriteLoc::Cast>(&value)) {
+                new_loc.add_cast(cast->type, cast->mode);
             } else {
                 new_loc.add_struct_access(std::get<std::string>(value));
             }

@@ -91,12 +91,12 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::ForAll *) override;
     void visit(const ir::Continue *) override;
     void visit(const ir::Launch *) override;
+    void visit(const ir::Match *) override;
     RESTRICT_VISITOR(ir::Append);     // TODO
     RESTRICT_VISITOR(ir::AppendStmt); // TODO
     RESTRICT_VISITOR(ir::ForEach);
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
-    RESTRICT_VISITOR(ir::Match);
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Iterate);
     RESTRICT_VISITOR(ir::Scan);

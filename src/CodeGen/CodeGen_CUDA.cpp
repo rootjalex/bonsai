@@ -653,6 +653,12 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ')';
         return;
     }
+    case ir::Intrinsic::OpType::argmax: {
+        os << "argmax(";
+        print_expr_list(node->args);
+        os << ")";
+        return;
+    }
     default:
         internal_error << "[unimplemented] Intrinsic CUDA codegen: "
                        << Expr(node);
@@ -887,10 +893,14 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         // Bonsai assumes *everything*, including stack allocated elements,
         // are pointers. So first we "stack" allocate,
         constexpr std::string_view P = "_";
-        os << ' ' << P << b << ' ' << '=' << ' ';
-        internal_assert(node->value.defined())
-            << "undefined value for CUDA stack allocation: " << Stmt(node);
-        node->value.accept(this);
+        os << ' ' << P << b;
+        if (!node->value.defined() && type.is_scalar()) {
+            os << ' ' << '=' << ' ';
+            os << make_zero(type);
+        } else if (node->value.defined()) {
+            os << ' ' << '=' << ' ';
+            node->value.accept(this);
+        }
 
         os << ';' << '\n';
         // ...and then we take its address.
@@ -959,20 +969,11 @@ void CodeGen_CUDA::visit(const Store *node) {
     if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
         os << '*';
     }
-    os << node->loc.base();
-    const auto &accesses = node->loc.accesses;
-    for (const auto &access : accesses) {
-        if (std::holds_alternative<std::string>(access)) {
-            os << "." << std::get<std::string>(access);
-        } else if (std::holds_alternative<ir::Expr>(access)) {
-            os << "[";
-            print_no_parens(std::get<Expr>(access));
-            os << "]";
-        } else if (std::holds_alternative<ir::WriteLoc::Cast>(access)) {
-            // TODO(cgyurgyik): see Printer.h; this should be roughly identical.
-            internal_error << "[unimplemented] WriteLoc::Cast";
-        }
+    {
+        ir::Printer printer(os);
+        printer.print(node->loc);
     }
+
     os << ' ' << '=' << ' ';
     value.accept(this);
     os << ';' << '\n';
@@ -1123,6 +1124,34 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << "cudaDeviceSynchronize" << '(' << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Match *node) {
+    // TODO(cgyurgyik): currently just a duplicate of `cppx`.
+    os << get_indent();
+    os << "return std::visit(overloaded{\n";
+    increment();
+    for (size_t i = 0, e = node->arms.size(); i < e; i++) {
+        const auto &arm = node->arms[i];
+        os << get_indent() << "[&](const ";
+        os << arm.first.struct_type.as<Struct_t>()->name;
+        os << "& ";
+        node->loc.accept(this);
+        os << ") {\n";
+        increment();
+        arm.second.accept(this);
+        decrement();
+        os << get_indent() << "}";
+        if (i != (e - 1)) {
+            os << ",\n";
+        } else {
+            os << "\n";
+        }
+    }
+    decrement();
+    os << get_indent() << "}, *";
+    node->loc.accept(this);
+    os << ");\n";
+}
+
 void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
     // Requires: `-Iruntime/CUDA` to work.
@@ -1205,7 +1234,6 @@ void CodeGen_CUDA::print(const Program &program) {
         os << '\n';
     }
     is_declaration = false;
-
     // CUDA requires functions to be declared before uses.
     const std::vector<std::string> topological_order =
         lower::func_topological_order(program.funcs,

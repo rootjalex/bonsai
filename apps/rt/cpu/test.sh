@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("aosoa" "soa" "eq" "pbrt")
 OBJECTS=("cornell-box" "hairball" "sponza" "dragon")
-RAY_COUNT=10000 # 65536 # (2^16)
+RAY_COUNT=65536 # (2^16)
 RAY_FILE="temporary-rng-ray"
 
 # Enable this to be run from either root or 

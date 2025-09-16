@@ -246,6 +246,7 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
 
 std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
     std::set<std::string> hosts;
+    std::set<std::string> seen;
     lower::CallGraph call_graph = lower::build_call_graph(funcs);
     for (const auto &[name, func] : funcs) {
         if (!func->is_exported()) {
@@ -255,7 +256,11 @@ std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
         internal_assert(it != call_graph.end());
 
         std::vector<std::string> visit;
+        if (seen.contains(name)) {
+            continue;
+        }
         visit.push_back(name);
+        seen.insert(name);
         visit.insert(visit.end(), it->second.begin(), it->second.end());
         while (!visit.empty()) {
             std::string name = visit.back();
@@ -270,7 +275,12 @@ std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
             internal_assert(cit != call_graph.end()) << name;
             const auto &graph = cit->second;
             hosts.insert(name);
-            visit.insert(visit.end(), graph.begin(), graph.end());
+            for (const std::string &call : graph) {
+                if (call == name) {
+                    continue;
+                }
+                visit.push_back(call);
+            }
         }
     }
     return hosts;
