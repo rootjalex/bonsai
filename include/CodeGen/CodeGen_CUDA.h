@@ -32,9 +32,11 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Vector_t *) override;
     void visit(const ir::Int_t *) override;
     void visit(const ir::UInt_t *) override;
+    void visit(const ir::Index_t *) override;
     void visit(const ir::Struct_t *) override;
     void visit(const ir::Array_t *) override;
     void visit(const ir::Ptr_t *) override;
+    void visit(const ir::Ref_t *) override;
 
     RESTRICT_VISITOR(ir::String_t);
     RESTRICT_VISITOR(ir::Function_t);

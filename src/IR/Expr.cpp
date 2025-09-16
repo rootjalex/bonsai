@@ -602,8 +602,8 @@ Expr Extract::make(Expr vec, Expr idx) {
             // (for atomic purposes).
             type = Access::make("buffer", vec).type().element_of();
         } else {
-            internal_assert(
-                (vec.type().is<Vector_t, Array_t, Tuple_t, DynArray_t>()))
+            internal_assert((
+                vec.type().is<Vector_t, DynArray_t, Array_t, Tuple_t, Set_t>()))
                 << "Extract of non-aggregate: " << vec << " at index: " << idx
                 << ", with type: " << vec.type();
             internal_assert(idx.type().is_int_or_uint())

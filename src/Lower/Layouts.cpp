@@ -208,14 +208,17 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
             std::string field_name = node->name;
             switch (node->type) {
             case ir::Group::Type::Direct: {
-                ir::Expr path = ir::Access::make(field_name, base);
-                ir::Expr index;
-                if (!index.defined()) {
-                    index = ir::Var::make(ir::Index_t::make(), "<hole>");
-                }
+                ir::Expr path = base;
+                if (m.bits() > 0) {
+                    path = ir::Access::make(field_name, base);
+                    ir::Expr index;
+                    if (!index.defined()) {
+                        index = ir::Var::make(ir::Index_t::make(), "<hole>");
+                    }
 
-                path = ir::Extract::make(std::move(path), index);
-                frames.maybe_add_to_frame(node->name, index);
+                    path = ir::Extract::make(std::move(path), index);
+                    frames.maybe_add_to_frame(node->name, index);
+                }
                 add_fields(path, node->inner, frames, ltmap, layout);
                 break;
             }
@@ -270,6 +273,9 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             ir::Type group_t = ir::Array_t::make(std::move(base_t), node->size);
             std::string field_name = node->name;
             ltmap.insert_group_layout(m, field_name, group_t);
+            if (m.bits() == 0) {
+                continue;
+            }
             fields.emplace_back(std::move(field_name), std::move(group_t));
 
             continue;
@@ -470,14 +476,18 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
             std::string field_name = node->name;
             switch (node->type) {
             case ir::Group::Type::Direct: {
-                ir::Expr path = ir::Access::make(field_name, base);
-                ir::Expr index;
-                if (!index.defined()) {
-                    index = ir::Var::make(ir::Index_t::make(), "<hole>");
+                ir::Expr path = base;
+                if (m.bits() > 0) {
+                    path = ir::Access::make(field_name, base);
+                    ir::Expr index;
+                    if (!index.defined()) {
+                        index = ir::Var::make(ir::Index_t::make(), "<hole>");
+                    }
+
+                    path = ir::Extract::make(std::move(path), index);
+                    frames.maybe_add_to_frame(node->name, index);
                 }
 
-                path = ir::Extract::make(std::move(path), index);
-                frames.maybe_add_to_frame(node->name, index);
                 ir::Expr recurse =
                     field_from_layout(path, node->inner, frames, iter_name,
                                       node_type, field, ltmap, layout, root);

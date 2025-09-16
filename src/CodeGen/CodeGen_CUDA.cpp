@@ -128,6 +128,9 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
 }
 
 std::string bonsai_scalar_type_to_cpp(Type type) {
+    if (const auto *index_t = type.as<Index_t>()) {
+        return "size_t";
+    }
     if (const auto *float_t = type.as<Float_t>()) {
         internal_assert(float_t->is_ieee754());
         switch (float_t->bits()) {
@@ -273,9 +276,17 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     ScopedValue<bool> _(is_declaration, false);
     increment();
     for (const auto &[name, type] : node->fields) {
-        // TODO: handle constant-sized arrays?
         os << get_indent();
         const auto *array_t = type.as<Array_t>();
+        if (array_t && array_t->size.defined()) {
+            os << "cuda::std::array<";
+            array_t->etype.accept(this);
+            os << ", ";
+            array_t->size.accept(this);
+            os << ">";
+            os << ' ' << name << ";\n";
+            continue;
+        }
         (array_t == nullptr ? type : array_t->etype).accept(this);
         if (array_t) {
             os << '*';
@@ -287,10 +298,6 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
             print_no_parens(it->second);
         }
         os << ';';
-        if (array_t) {
-            os << ' ' << '/' << '/' << ' ' << "of size" << ' ';
-            array_t->size.accept(this);
-        }
         os << '\n';
     }
     decrement();
@@ -302,12 +309,20 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
 }
 
 void CodeGen_CUDA::visit(const Vector_t *node) {
+    if (const auto *vector_t = node->etype.as<Vector_t>()) {
+        os << "cuda::std::array<";
+        internal_assert(!vector_t->etype.is<Vector_t>())
+            << "[unimplemented]: " << ir::Type(node);
+        os << vector_prefix(vector_t->etype) << vector_t->lanes;
+        os << ", " << std::to_string(node->lanes) + ">";
+        return;
+    }
     // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
     if (1 <= node->lanes && node->lanes <= 4) {
         os << vector_prefix(node->etype) << node->lanes;
         return;
     }
-    os << "vector<" << vector_prefix(node->etype) << ", ";
+    os << "universal::thrust::vector<" << vector_prefix(node->etype) << ", ";
     os << node->lanes << ">";
 }
 
@@ -323,6 +338,8 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
     etype.accept(this);
     os << "*";
 }
+
+void CodeGen_CUDA::visit(const Ref_t *node) { os << node->name << "*"; }
 
 void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
 
@@ -344,6 +361,10 @@ void CodeGen_CUDA::visit(const ir::Tuple_t *node) {
     os << "std::tuple<";
     print_type_list(node->etypes);
     os << ">";
+}
+
+void CodeGen_CUDA::visit(const Index_t *node) {
+    os << bonsai_scalar_type_to_cpp(node);
 }
 
 void CodeGen_CUDA::visit(const FloatImm *node) {
@@ -1235,6 +1256,7 @@ void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
     // Requires: `-Iruntime/CUDA` to work.
     os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
+    os << '#' << "include" << ' ' << "<cuda/std/array>" << '\n';
     os << '#' << "include" << ' ' << "<thrust/universal_vector.h>" << '\n';
     os << '#' << "include" << ' ' << "<optional>" << '\n';
     os << '#' << "include" << ' ' << "<tuple>" << '\n';

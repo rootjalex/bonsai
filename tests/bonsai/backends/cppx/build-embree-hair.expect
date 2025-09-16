@@ -95,14 +95,11 @@ using vec8_float = vector<float, 8>;
 using vec9_float = vector<float, 9>;
 using vec3_int8_t = vector<int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
-struct _ {
-} __attribute__((packed));
 struct Triangles {
     uint64_t primitive_count;
     Triangle* primitives;
     AABBs* AABBs;
     OBBs* OBBs;
-    _* _;
 } __attribute__((packed));
 using vec3__Float16 = vector<_Float16, 3>;
 

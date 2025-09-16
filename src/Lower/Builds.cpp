@@ -151,13 +151,16 @@ ir::WriteLoc get_write_loc(ir::WriteLoc base, const ir::Member &member,
             const ir::Group *node = m.as<ir::Group>();
             std::string field_name = node->name;
             ir::WriteLoc path = base;
-            path.add_struct_access(field_name);
-            if (node->name == field) {
-                return path;
+            if (m.bits() > 0) {
+                path.add_struct_access(field_name);
+                if (node->name == field) {
+                    return path;
+                }
+                ir::Expr index = ir::Var::make(layout.get_index_type(),
+                                               get_index_name("this"));
+                path.add_index_access(index);
             }
-            ir::Expr index =
-                ir::Var::make(layout.get_index_type(), get_index_name("this"));
-            path.add_index_access(index);
+
             if (path = get_write_loc(path, node->inner, field, variant, layout,
                                      program, visited_groups);
                 path.defined()) {

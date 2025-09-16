@@ -56,10 +56,11 @@ std::string cpp_intrinsic(std::string intrinsic, const ir::Type &type) {
     }
 }
 
-uint64_t nearest_power_of_two(uint64_t n) {
+uint64_t nearest_power_of_two(uint32_t n) {
     if (n == 0)
         return 1;
     int msb_pos = 31 - std::countl_zero(n);
+    internal_assert(0 <= msb_pos && msb_pos < 32) << msb_pos;
 
     uint64_t lower = 1U << msb_pos;
     uint64_t upper = 1U << (msb_pos + 1);
