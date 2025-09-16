@@ -232,7 +232,7 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
         auto it = funcs.find(name);
         internal_assert(it != funcs.end()) << name;
         const auto &func = *it->second;
-        if (!func.is_kernel() && !devices.contains(name)) {
+        if (func.is_kernel()) {
             continue;
         }
         auto cit = call_graph.find(name);
@@ -246,7 +246,6 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
 
 std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
     std::set<std::string> hosts;
-    std::set<std::string> seen;
     lower::CallGraph call_graph = lower::build_call_graph(funcs);
     for (const auto &[name, func] : funcs) {
         if (!func->is_exported()) {
@@ -256,11 +255,7 @@ std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
         internal_assert(it != call_graph.end());
 
         std::vector<std::string> visit;
-        if (seen.contains(name)) {
-            continue;
-        }
         visit.push_back(name);
-        seen.insert(name);
         visit.insert(visit.end(), it->second.begin(), it->second.end());
         while (!visit.empty()) {
             std::string name = visit.back();
@@ -276,7 +271,7 @@ std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
             const auto &graph = cit->second;
             hosts.insert(name);
             for (const std::string &call : graph) {
-                if (call == name) {
+                if (hosts.contains(call)) {
                     continue;
                 }
                 visit.push_back(call);

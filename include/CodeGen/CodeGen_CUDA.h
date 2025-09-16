@@ -37,16 +37,15 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Ptr_t *) override;
 
     RESTRICT_VISITOR(ir::String_t);
-    RESTRICT_VISITOR(ir::Tuple_t);
     RESTRICT_VISITOR(ir::Function_t);
-    RESTRICT_VISITOR(ir::Option_t);
+
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
+    void visit(const ir::Option_t *) override;
+    void visit(const ir::Tuple_t *) override;
     void visit(const ir::Rand_State_t *) override;
-    // TODO(cgyurgyik): CUDA supports a std::vector variant through their thrust
-    // library. Potentially sufficient for our use case?
-    RESTRICT_VISITOR(ir::DynArray_t);
+    void visit(const ir::DynArray_t *) override;
 
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
@@ -92,8 +91,8 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Continue *) override;
     void visit(const ir::Launch *) override;
     void visit(const ir::Match *) override;
-    RESTRICT_VISITOR(ir::Append);     // TODO
-    RESTRICT_VISITOR(ir::AppendStmt); // TODO
+    void visit(const ir::AppendStmt *) override;
+    RESTRICT_VISITOR(ir::Append); // TODO
     RESTRICT_VISITOR(ir::ForEach);
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);

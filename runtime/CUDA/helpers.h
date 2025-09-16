@@ -1772,6 +1772,37 @@ __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
     return &update;
 }
 
+size_t argmax(float3 a) {
+    size_t p = 0;
+    T r = a[0];
+    for (int i = 1; i < 3; ++i) {
+        if (r <= a[i]) {
+            continue;
+        }
+        p = i;
+        r = a[i];
+    }
+    return p;
+}
+
+template <size_t N>
+bool reduce_and(float3 a) {
+    bool t = a[0];
+    for (int i = 1; i < 3; ++i) {
+        t &= a[i];
+    }
+    return t;
+}
+
+template <size_t N>
+bool reduce_or(float3 a) {
+    bool t = a[0];
+    for (int i = 1; i < 3; ++i) {
+        t |= a[i];
+    }
+    return t;
+}
+
 // Mimics curand_uniform by producing an output in (0, 1].
 // https://docs.nvidia.com/cuda/curand/group__DEVICE.html#group__DEVICE_1gf1ba3a7a4a53b2bee1d7c1c7b837c00d
 template <typename T>

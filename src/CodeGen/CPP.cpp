@@ -1160,11 +1160,6 @@ class BonsaiToCpp : ir::Printer {
         print(node->loc);
         ss << ".push_back(";
         print_no_parens(node->value);
-        // if (node->value.type().is<Array_t>() &&
-        // !node->loc.type.is<Array_t>()) {
-        //     ss << ", ";
-        //     print_no_parens(node->value.type().as<Array_t>()->size);
-        // }
         ss << ");\n";
     }
 

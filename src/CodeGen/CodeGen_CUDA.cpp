@@ -303,10 +303,12 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
 
 void CodeGen_CUDA::visit(const Vector_t *node) {
     // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
-    internal_assert(1 <= node->lanes && node->lanes <= 4)
-        << "[unimplemented] vector size: " << node->lanes
-        << " in CUDA codegen, " << Type(node);
-    os << vector_prefix(node->etype) << node->lanes;
+    if (1 <= node->lanes && node->lanes <= 4) {
+        os << vector_prefix(node->etype) << node->lanes;
+        return;
+    }
+    os << "vector<" << vector_prefix(node->etype) << ", ";
+    os << node->lanes << ">";
 }
 
 void CodeGen_CUDA::visit(const Ptr_t *node) {
@@ -323,6 +325,24 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
 }
 
 void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
+
+void CodeGen_CUDA::visit(const DynArray_t *node) {
+    os << "thrust::universal_vector<";
+    node->etype.accept(this);
+    os << ">";
+}
+
+void CodeGen_CUDA::visit(const ir::Option_t *node) {
+    os << "std::optional<";
+    node->etype.accept(this);
+    os << ">";
+}
+
+void CodeGen_CUDA::visit(const ir::Tuple_t *node) {
+    os << "std::tuple<";
+    print_type_list(node->etypes);
+    os << ">";
+}
 
 void CodeGen_CUDA::visit(const FloatImm *node) {
     if (node->type.bits() == 64) {
@@ -446,6 +466,18 @@ void CodeGen_CUDA::visit(const VectorReduce *node) {
     }
     case VectorReduce::OpType::Max: {
         os << "max" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::And: {
+        os << "reduce_and" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Or: {
+        os << "reduce_or" << '(';
         node->value.accept(this);
         os << ')';
         return;
@@ -659,6 +691,29 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ")";
         return;
     }
+    case ir::Intrinsic::OpType::fadd_rd:
+    case ir::Intrinsic::OpType::fadd_ru:
+    case ir::Intrinsic::OpType::fsub_rd:
+    case ir::Intrinsic::OpType::fsub_ru:
+    case ir::Intrinsic::OpType::fdiv_rd:
+    case ir::Intrinsic::OpType::fdiv_ru:
+    case ir::Intrinsic::OpType::fmul_rd:
+    case ir::Intrinsic::OpType::fmul_ru:
+    case ir::Intrinsic::OpType::frcp_rd:
+    case ir::Intrinsic::OpType::frcp_ru: {
+        os << "__" << to_string(node->op) << "(";
+        print_expr_list(node->args);
+        os << ")";
+        return;
+    }
+    case ir::Intrinsic::OpType::floorf:
+    case ir::Intrinsic::OpType::roundf:
+    case ir::Intrinsic::OpType::ceilf: {
+        os << to_string(node->op) << "(";
+        print_expr_list(node->args);
+        os << ")";
+        return;
+    }
     default:
         internal_error << "[unimplemented] Intrinsic CUDA codegen: "
                        << Expr(node);
@@ -677,7 +732,9 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
     // vector types that match the alignment of CUDA builtin vector types, but
     // enable us to overload operators.
     std::optional<uint32_t> index = get_constant_value(node->idx);
-    if (node->vec.type().is<Vector_t>() && index.has_value()) {
+
+    if (const auto *vector_t = node->vec.type().as<Vector_t>();
+        vector_t && vector_t->lanes <= 4 && index.has_value()) {
         Access::make(vector_lane_to_field(*index), node->vec).accept(this);
         return;
     }
@@ -741,7 +798,8 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
         // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
-        // TODO(cgyurgyik): Need to revisit this and fix const qualifier issues.
+        // TODO(cgyurgyik): Need to revisit this and fix const qualifier
+        // issues.
         //  os << "const" << ' ';
     }
     node->loc.type.accept(this);
@@ -922,6 +980,17 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ' ' << '*' << ' ' << "sizeof" << '(';
             array_t->etype.accept(this);
             os << ')' << ')' << ';' << '\n';
+            return;
+        }
+        if (const auto *dyn_array_t = type.as<DynArray_t>()) {
+            type.accept(this);
+            os << ' ' << b << ';' << '\n';
+            if (dyn_array_t->capacity.defined()) {
+                os << get_indent();
+                os << b << ".reserve(";
+                dyn_array_t->capacity.accept(this);
+                os << ");\n";
+            }
             return;
         }
         internal_error << "[unimplemented] Allocate CUDA codegen: "
@@ -1111,8 +1180,8 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << node->func;
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
-    // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full block
-    // size (1024) was causing resource launch errors.
+    // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full
+    // block size (1024) was causing resource launch errors.
     Expr block_size = make_const(n.type(), 512);
     opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';
@@ -1152,10 +1221,21 @@ void CodeGen_CUDA::visit(const Match *node) {
     os << ");\n";
 }
 
+void CodeGen_CUDA::visit(const AppendStmt *node) {
+    os << get_indent();
+    node->loc.to_expr().accept(this);
+    os << ".push_back(";
+    print_no_parens(node->value);
+    os << ");\n";
+}
+
 void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
     // Requires: `-Iruntime/CUDA` to work.
     os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
+    os << '#' << "include" << ' ' << "<thrust/universal_vector.h>" << '\n';
+    os << '#' << "include" << ' ' << "<optional>" << '\n';
+    os << '#' << "include" << ' ' << "<tuple>" << '\n';
     os << '\n';
 }
 
@@ -1170,9 +1250,9 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
                          << function.body;
     // Whether we've seen this exit condition.
     bool thread_within_bounds_visited = false;
-    // Whether the thread index (TID) has been initialized. This is absolutely
-    // necessary before we visit the exit condition and ensures the compiler
-    // will never haphazardly produce incorrect code.
+    // Whether the thread index (TID) has been initialized. This is
+    // absolutely necessary before we visit the exit condition and ensures
+    // the compiler will never haphazardly produce incorrect code.
     bool tid_seen = false;
     for (int i = 0, e = seq->stmts.size(); i < e; ++i) {
         seq->stmts[i].accept(this);
@@ -1181,14 +1261,16 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
             !tid_seen && seed && seed->loc.base() == TID) {
             tid_seen = true;
         }
-        // TODO(cgyurgyik): We can future-proof this even more by ensuring the
-        // condition contains the correct variable (which won't be TID, so isn't
-        // necessarily straight forward). However, this is a good first step.
+        // TODO(cgyurgyik): We can future-proof this even more by ensuring
+        // the condition contains the correct variable (which won't be TID,
+        // so isn't necessarily straight forward). However, this is a good
+        // first step.
         if (thread_within_bounds_visited || !tid_seen) {
             continue;
         }
-        // We'd like to only initialize this state if the thread id is within
-        // bounds. This is usually done by some statement of the form:
+        // We'd like to only initialize this state if the thread id is
+        // within bounds. This is usually done by some statement of the
+        // form:
         //  `if (tid >= C) { return; }`
         const auto *ifelse = seq->stmts[i].as<IfElse>();
         if (ifelse == nullptr) {
@@ -1204,7 +1286,8 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
            << lower::rng_state_name << ");\n";
     }
     internal_assert(thread_within_bounds_visited)
-        << "the thread id is never verified to be within bounds for kernel: "
+        << "the thread id is never verified to be within bounds for "
+           "kernel: "
         << function;
 }
 
@@ -1281,6 +1364,9 @@ void CodeGen_CUDA::print(const Function &function) {
     for (int i = 0, e = function.args.size(); i < e; ++i) {
         const Argument &arg = function.args[i];
         arg.type.accept(this);
+        if (arg.type.is<ir::DynArray_t>()) {
+            os << '&';
+        }
         os << ' ' << arg.name;
         if (ir::Expr value = arg.default_value; value.defined()) {
             os << '=';

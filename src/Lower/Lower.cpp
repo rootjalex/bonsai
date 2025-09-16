@@ -139,15 +139,17 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerYields>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
-    if (options.target != BackendTarget::CPPX) {
+    if (options.target != BackendTarget::CPPX &&
+        options.target != BackendTarget::CUDA) {
         core.push_back(std::make_unique<LowerOptions>());
         core.push_back(std::make_unique<LowerTuples>());
+        core.push_back(std::make_unique<LowerDynamicArrays>());
     }
-    core.push_back(std::make_unique<LowerDynamicArrays>());
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
-    if (options.target != BackendTarget::CPPX) {
+    if (options.target != BackendTarget::CUDA &&
+        options.target != BackendTarget::CPPX) {
         core.push_back(std::make_unique<ReturnToOutParameter>());
     }
     core.push_back(std::make_unique<Mutability>());
@@ -186,7 +188,8 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerYields>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
-    if (options.target != BackendTarget::CPPX) {
+    if (options.target != BackendTarget::CPPX &&
+        options.target != BackendTarget::CUDA) {
         d.push_back(std::make_unique<LowerOptions>());
         d.push_back(std::make_unique<LowerTuples>());
         d.push_back(std::make_unique<LowerDynamicArrays>());
@@ -204,7 +207,8 @@ PassManager register_passes(const CompilerOptions &options) {
     // Clean up any dead functions after inlining.
     d.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.
-    if (options.target != BackendTarget::CPPX) {
+    if (options.target != BackendTarget::CUDA &&
+        options.target != BackendTarget::CPPX) {
         d.push_back(std::make_unique<ReturnToOutParameter>());
     }
     d.push_back(std::make_unique<Mutability>());
