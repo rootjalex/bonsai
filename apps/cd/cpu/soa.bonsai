@@ -37,9 +37,9 @@ schedule {
         primitives : array[Triangle, primitive_count];
         node_count : u32;
         group aabbs_2[node_count] by index2 {
-            // TODO(cgyurgyik): we flip members because the layout cache 
-            // will otherwise incorrectly mark this as equal to aabbs_1.
-            // Fix this.
+            // TODO(cgyurgyik): we add a no-op materialization because the layout 
+            // cache will otherwise incorrectly mark this as equal to aabbs_1.
+            // I need to fix this.
             L : f32x3;
             low = L;
             high : f32x3;
