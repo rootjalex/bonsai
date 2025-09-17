@@ -6,7 +6,7 @@ APPLICATION="cd"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("pbrt")
+LAYOUTS=("soa" "pbrt")
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.
 OBJECTS=("suzanne" "bunny" "dragon" "teapot")
@@ -15,12 +15,12 @@ if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../..
 fi
 
-for OBJECT_A in "${OBJECTS[@]}"; do
-  for OBJECT_B in "${OBJECTS[@]}"; do
-    if [[ "$OBJECT_A" == "$OBJECT_B" ]]; then
-      continue
-    fi
+for ((i=0; i<${#OBJECTS[@]}; i++)); do
+  for ((j=i+1; j<${#OBJECTS[@]}; j++)); do
+    OBJECT_A="${OBJECTS[i]}"
+    OBJECT_B="${OBJECTS[j]}"
     for LAYOUT in "${LAYOUTS[@]}"; do
+      echo "--- ${LAYOUT} ---"
       # 1. build and compile bonsai
       cmake --build build --config Debug -j > /dev/null
       

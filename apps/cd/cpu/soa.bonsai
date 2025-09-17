@@ -1,0 +1,106 @@
+schedule {
+    tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high) 
+      = Interior(left : BVH, right : BVH, axis : u8)
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
+
+    triangles1 : BVH;
+    triangles2 : BVH;
+
+    layout triangles1(index1: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group aabbs_1[node_count] by index1 {
+            low : f32x3;
+            high : f32x3;
+        };
+        group nodes_1[node_count] by index1 {
+            nprims : u16;
+            axis : u8;
+            8;
+            split nprims {
+                0 -> Interior { 
+                    offset : u32; 
+                    left = index1 + 1; 
+                    right = index1 + offset; 
+                };
+                _ -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
+            };
+        };
+    };
+
+ layout triangles2(index2: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group aabbs_2[node_count] by index2 {
+            // TODO(cgyurgyik): we flip members because the layout cache 
+            // will otherwise incorrectly mark this as equal to aabbs_1.
+            // Fix this.
+            L : f32x3;
+            low = L;
+            high : f32x3;
+        };
+        group nodes_2[node_count] by index2 {
+            nprims : u16;
+            axis : u8;
+            8;
+            split nprims {
+                0 -> Interior { 
+                    offset : u32; 
+                    left = index2 + 1; 
+                    right = index2 + offset; 
+                };
+                _ -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
+            };
+        };
+    };
+
+    build triangles1 {
+      build Interior(low: f32x3, high: f32x3, axis: u8, left: BVH, right: BVH) {
+        build low;
+        build high;
+        build nprims = 0;
+        build axis = argmax(high - low);
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build low; 
+        build high;
+        build nprims;
+        build axis = argmax(high - low);
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+
+    build triangles2 {
+      build Interior(low: f32x3, high: f32x3, axis: u8, left: BVH, right: BVH) {
+        build L = low;
+        build high;
+        build nprims = 0;
+        build axis = argmax(high - low);
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build L = low; 
+        build high;
+        build nprims;
+        build axis = argmax(high - low);
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+}

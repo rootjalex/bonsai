@@ -272,6 +272,9 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
+            // TODO(cgyurgyik): this is incorrect. if two inner groups match,
+            // then the second group will received the first group's member,
+            // including its name. We need to uniquely match on body *and* name.
             ir::Type base_t = layout_to_struct(node->name, node->inner, ltmap);
             ir::Type group_t = ir::Array_t::make(std::move(base_t), node->size);
             std::string field_name = node->name;

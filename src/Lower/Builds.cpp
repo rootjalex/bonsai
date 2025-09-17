@@ -904,7 +904,7 @@ construct_build_full(const ir::Type &concretized_type,
                                                   build, layout, program);
             auto it = program.types.find(group->name);
             internal_assert(it != program.types.end())
-                << "no type found for: `" << group->name << "`";
+                << "no type found for group: `" << group->name << "`";
             ir::Expr size = group->size;
             if (!size.defined()) {
                 // Not all indirect groups may have a size. We write to a local
