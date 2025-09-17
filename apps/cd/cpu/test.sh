@@ -21,28 +21,39 @@ for OBJECT_A in "${OBJECTS[@]}"; do
     for LAYOUT in "${LAYOUTS[@]}"; do
       # 1. build and compile bonsai
       cmake --build build --config Debug -j # > /dev/null
+      
       # 2. lower to c++
       ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
-      # 3. compile the lowered c++
 
-      # ${PREFIX}/main.cpp
-      clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
-
-      # 4. build the main hook (requires fcl)
+      # 3. build the main hook and final executable (requires fcl)
       cd ${PREFIX} 
       mkdir -p build
       cd build
-      cmake ..
+      
+      # Configure CMake with layout parameter
+      cmake -DLAYOUT=${LAYOUT} ..
+      
+      # Build main library first
+      make -j main_library
+      
+      # Go back to reconfigure CMake now that generated files exist
+      cd ..
+      cd build
+      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} ..
+      
+      # Build final executable
       make -j
       
-      # run
-      ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}
+      # Return to original directory for running
+      cd ../..
+      
+      # run (executable is now in the build directory)
+      ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}
 
       # clean up
-      rm ${PREFIX}/${APPLICATION}.h
-      rm ${PREFIX}/${APPLICATION}.cpp
-      rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
-      rm -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
+      rm -f ${PREFIX}/${APPLICATION}.h
+      rm -f ${PREFIX}/${APPLICATION}.cpp
+      rm -rf ${PREFIX}/build
     done
   done
 done
