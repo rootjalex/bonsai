@@ -919,6 +919,9 @@ ir::Stmt substitute_temporaries(ir::Stmt body) {
 ir::FuncMap CSE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     std::set<std::string> side_effect_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
+        // TODO(cgyurgyik): there are some compiler breakages here; need to
+        // investigate. Not a high priority since we're not focused on tree
+        // building and I don't think CSE will help much here.
         if (name.starts_with("rec_build") || name.starts_with("build") ||
             name.starts_with("rec_count") || name.starts_with("count")) {
             continue;
