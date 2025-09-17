@@ -37,19 +37,16 @@ for OBJECT_A in "${OBJECTS[@]}"; do
       make -j main_library
       
       # Go back to reconfigure CMake now that generated files exist
-      cd ..
-      cd build
       cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} ..
       
       # Build final executable
       make -j
       
-      # Return to original directory for running
-      cd ../..
-      
       # run (executable is now in the build directory)
+      cd ..       # build directory
+      cd ../../.. # PREFIX
       ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}
-
+      
       # clean up
       rm -f ${PREFIX}/${APPLICATION}.h
       rm -f ${PREFIX}/${APPLICATION}.cpp

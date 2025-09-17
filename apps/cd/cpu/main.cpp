@@ -1,4 +1,6 @@
+#include "canonical_tree.h"
 #include "cd.h"
+
 #include <fcl/fcl.h>
 
 #include <chrono>
@@ -10,15 +12,14 @@
 namespace fcl {
 // Loads the object file at filename, and fills the points and trinagles arrays.
 template <typename S>
-bool load_object_file(const std::string &filename,
+bool load_object_file(const std::string &object,
                       std::vector<Vector3<S>> &points,
                       std::vector<Triangle> &triangles) {
     // Format is assumed to be Wavefront OBJ.
-    // The relative path from root is: `bonsai/apps/cd/cpu/fcl/objects`
-    std::string path = "../objects/" + filename;
+    std::string path = "apps/data/" + object + ".obj";
     FILE *file = fopen(path.data(), "rb");
     if (file == nullptr) {
-        std::cerr << "file: " << filename << " does not exist" << std::endl;
+        std::cerr << "file: " << path << " does not exist" << std::endl;
         return false;
     }
 
@@ -154,164 +155,6 @@ inline vec3_float max(const vec3_float &a, const vec3_float &b) {
     return result;
 }
 
-template <typename S>
-_tree_layout0 build_tree(const std::vector<fcl::Vector3<S>> &input_vertices,
-                         const std::vector<fcl::Triangle> &input_triangles,
-                         int max_prims_per_leaf = 32, int max_tree_depth = 64) {
-    _tree_layout0 tree;
-    tree.pCount = input_triangles.size();
-    if (tree.pCount >= std::numeric_limits<uint32_t>::max()) {
-        std::cerr << "Use larger index type for primitive offsets, "
-                  << tree.pCount
-                  << " >= " << std::numeric_limits<uint32_t>::max();
-        exit(-1);
-    }
-    assert(tree.pCount < std::numeric_limits<uint32_t>::max());
-
-    auto build_triangle = [&](const uint64_t i) {
-        assert(i < input_triangles.size());
-        const fcl::Triangle &t = input_triangles[i];
-        size_t i0 = t[0];
-        assert(i0 < input_vertices.size());
-        size_t i1 = t[1];
-        assert(i1 < input_vertices.size());
-        size_t i2 = t[2];
-        assert(i2 < input_vertices.size());
-        const auto &p0 = input_vertices[i0];
-        const auto &p1 = input_vertices[i1];
-        const auto &p2 = input_vertices[i2];
-        Triangle tri;
-        tri.p0 = {p0[0], p0[1], p0[2]};
-        tri.p1 = {p1[0], p1[1], p1[2]};
-        tri.p2 = {p2[0], p2[1], p2[2]};
-        return tri;
-    };
-
-    // Build triangle list
-    Triangle *triangles = (Triangle *)malloc(sizeof(Triangle) * tree.pCount);
-    for (size_t i = 0; i < input_triangles.size(); ++i) {
-        triangles[i] = build_triangle(i);
-    }
-    tree.prims = triangles;
-
-    // Upper bound for unbalanced binary tree
-    tree.count = 2 * tree.pCount;
-    if (tree.count >= std::numeric_limits<uint32_t>::max()) {
-        std::cerr << "Use larger index type for references, " << tree.count
-                  << " >= " << std::numeric_limits<uint32_t>::max();
-        exit(-1);
-    }
-
-    tree.group0_index =
-        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.count);
-
-    uint32_t next_node = 0;
-
-    uint32_t max_depth = 0;
-
-    uint32_t leaf_nodes = 0;
-    uint32_t interior_nodes = 0;
-
-    uint32_t *leaf_numbers =
-        (uint32_t *)malloc(sizeof(uint32_t) * max_prims_per_leaf);
-
-    std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
-        [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
-        max_depth = std::max(max_depth, depth);
-        if (depth >= max_tree_depth) {
-            std::cerr << "tree build surpassed max tree depth: " << depth
-                      << "\n";
-            exit(-1);
-        }
-        if (low >= tree.pCount) {
-            std::cerr << "tree build out of range: " << low << " with "
-                      << tree.pCount << "primitives\n";
-            exit(-1);
-        }
-        uint32_t count = high - low;
-        uint32_t this_index = next_node++;
-
-        // Compute AABB of all triangles in range
-        vec3_float aabb_min = triangles[low].p0;
-        vec3_float aabb_max = triangles[low].p0;
-        for (uint32_t i = low; i < high; ++i) {
-            for (vec3_float v :
-                 {triangles[i].p0, triangles[i].p1, triangles[i].p2}) {
-                aabb_min = min(aabb_min, v);
-                aabb_max = max(aabb_max, v);
-            }
-        }
-        tree.group0_index[this_index].low = aabb_min;
-        tree.group0_index[this_index].high = aabb_max;
-        tree.group0_index[this_index].pad0 = 0;
-
-        if (count <= max_prims_per_leaf) {
-            leaf_numbers[count]++;
-            leaf_nodes++;
-            // Leaf node
-            tree.group0_index[this_index].nPrims = count;
-            *reinterpret_cast<uint32_t *>(
-                &tree.group0_index[this_index].split0on_nPrims) = low;
-        } else {
-            interior_nodes++;
-            // Internal node
-            tree.group0_index[this_index].nPrims = 0;
-
-            vec3_float extent = aabb_max - aabb_min;
-            int axis = 0;
-            if (extent[1] > extent[0])
-                axis = 1;
-            if (extent[2] > extent[axis])
-                axis = 2;
-            tree.group0_index[this_index].axis = axis;
-
-            // Partition around midpoint along axis
-            auto mid = low + count / 2;
-            std::nth_element(
-                triangles + low, triangles + mid, triangles + high,
-                [axis](const Triangle &a, const Triangle &b) {
-                    float ca = (a.p0[axis] + a.p1[axis] + a.p2[axis]) / 3.f;
-                    float cb = (b.p0[axis] + b.p1[axis] + b.p2[axis]) / 3.f;
-                    return ca < cb;
-                });
-
-            uint32_t left = handle_range(low, mid, depth + 1);
-            uint32_t right = handle_range(mid, high, depth + 1);
-
-            uint32_t offset = right - this_index;
-            *reinterpret_cast<uint32_t *>(
-                &tree.group0_index[this_index].split0on_nPrims) = offset;
-        }
-
-        return this_index;
-    };
-
-    handle_range(0, tree.pCount, 0);
-    free(leaf_numbers);
-
-    if (next_node != tree.count) {
-        if (next_node >= tree.count) {
-            std::cerr << "Debug tree build: " << tree.count << " versus "
-                      << next_node << std::endl;
-            exit(-1);
-        }
-        for (uint64_t i = next_node; i < tree.count; i++) {
-            tree.group0_index[i].low = {std::numeric_limits<float>::max(),
-                                        std::numeric_limits<float>::max(),
-                                        std::numeric_limits<float>::max()};
-            tree.group0_index[i].high = {std::numeric_limits<float>::min(),
-                                         std::numeric_limits<float>::min(),
-                                         std::numeric_limits<float>::min()};
-            tree.group0_index[i].nPrims = 0;
-            tree.group0_index[i].axis = 0;
-            tree.group0_index[i].pad0 = 0;
-            *reinterpret_cast<uint32_t *>(
-                &tree.group0_index[i].split0on_nPrims) = 0;
-        }
-    }
-    return tree;
-}
-
 } // namespace bonsai
 
 // Functions for verifying the correctness of the collision detection
@@ -409,7 +252,18 @@ Triangle construct_triangle(const fcl::Triangle &t,
     return Triangle{p0, p1, p2};
 }
 
-// Runs an collision detection test on the two OBJ files for Bonsai and FCL.
+template <typename S>
+std::vector<Triangle>
+construct_triangles(const std::vector<fcl::Triangle> &fcl_triangles,
+                    const std::vector<fcl::Vector3<S>> &fcl_vertices) {
+    std::vector<Triangle> triangles;
+    for (const fcl::Triangle &triangle : fcl_triangles) {
+        triangles.push_back(construct_triangle(triangle, fcl_vertices));
+    }
+    return triangles;
+}
+
+// Runs a collision detection test on the two OBJ files for Bonsai and FCL.
 template <typename S>
 void run_test(const std::string &obj1, const std::string &obj2) {
     if constexpr (!(std::is_floating_point_v<S> && sizeof(S) == 4)) {
@@ -417,20 +271,16 @@ void run_test(const std::string &obj1, const std::string &obj2) {
         exit(-1);
     }
 
-    std::string path = "apps/data/";
-    std::string obj1_path = path + obj1 + ".obj";
-    std::string obj2_path = path + obj2 + ".obj";
-
     using clock = std::chrono::high_resolution_clock;
     std::vector<fcl::Vector3<S>> v1, v2;
     std::vector<fcl::Triangle> T1, T2;
-    if (!fcl::load_object_file(obj1_path, v1, T1)) {
+    if (!fcl::load_object_file(obj1, v1, T1)) {
         exit(-1);
     }
     assert(!v1.empty() && "no vertices found!");
     assert(!T1.empty() && "no triangles found!");
     std::cout << obj1 << ": " << T1.size() << " triangles\n";
-    if (!fcl::load_object_file(obj2_path, v2, T2)) {
+    if (!fcl::load_object_file(obj2, v2, T2)) {
         exit(-1);
     }
     assert(!v2.empty() && "no vertices found!");
@@ -456,9 +306,13 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
 
     // ---- Bonsai tree construction ----
+    std::vector<Triangle> T1s = construct_triangles(T2, v1);
+    std::vector<Triangle> T2s = construct_triangles(T2, v2);
     t0 = clock::now();
-    _tree_layout0 b1 = bonsai::build_tree<S>(v1, T1);
-    _tree_layout0 b2 = bonsai::build_tree<S>(v2, T2);
+    BVH *canonical_tree1 = build_canonical_tree(T1s);
+    BVH *canonical_tree2 = build_canonical_tree(T2s);
+    Triangles1 tree1 = build_triangles1(canonical_tree1);
+    Triangles2 tree2 = build_triangles2(canonical_tree2);
     t1 = clock::now();
     auto bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -466,21 +320,16 @@ void run_test(const std::string &obj1, const std::string &obj2) {
 
     // ---- Bonsai collision detection ----
     t0 = clock::now();
-    __dyn_array0 out = {
-        .buffer = nullptr,
-        .size = 0,
-        .capacity = 0,
-    };
-    collisions(out, b1, b2);
+    std::vector<std::tuple<Triangle, Triangle>> bonsai_collisions =
+        collisions(&tree1, &tree2);
     t1 = clock::now();
-    auto *bonsai_collisons = reinterpret_cast<__tuple_0 *>(out.buffer);
     bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "[bonsai] collision detection time: " << bonsai_time
               << " ms\n";
 
     // Verify outputs match and are valid intersections.
-    const int64_t bonsai_count = out.size;
+    const int64_t bonsai_count = bonsai_collisions.size();
     const int64_t fcl_count = fcl_collisions.size();
     if (bonsai_count != fcl_count) {
         std::cerr << "different collision detection counts, bonsai: "
@@ -489,7 +338,7 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     }
     std::cout << "collision count: " << bonsai_count << '\n';
     for (int i = 0; i < fcl_collisions.size(); ++i) {
-        auto [bt1, bt2] = bonsai_collisons[i];
+        auto [bt1, bt2] = bonsai_collisions[i];
         assert(intersects(bt1, bt2) &&
                "found non-intersecting triangles in bonsai!");
 
@@ -503,7 +352,7 @@ void run_test(const std::string &obj1, const std::string &obj2) {
 
 } // namespace
 
-int main() {
+int main(int argc, char *argv[]) {
     // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
