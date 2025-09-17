@@ -1011,6 +1011,7 @@ class BonsaiToCpp : ir::Printer {
         const ir::Expr &update = node->value;
         ss << get_indent();
         current.to_expr().accept(this);
+        ss << ' ';
         switch (node->op) {
         case Accumulate::OpType::Add:
             ss << '+';
@@ -1025,7 +1026,7 @@ class BonsaiToCpp : ir::Printer {
         case Accumulate::OpType::Argmin:
             // We assume arg{min,max} is a tuple with one or more arguments, and
             // the comparison is done with the first argument.
-            ss << ' ' << '=' << ' ';
+            ss << '=' << ' ';
             ss << "arg"
                << (node->op == Accumulate::OpType::Argmax ? "max" : "min");
 
@@ -1059,7 +1060,8 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const Allocate *node) override {
         ss << get_indent();
-        emit_type(ss, node->loc.base_type());
+        const ir::Type &base_type = node->loc.base_type();
+        emit_type(ss, base_type);
         ss << " " << node->loc.base();
         if (node->value.defined()) {
             ss << " = ";
@@ -1067,22 +1069,30 @@ class BonsaiToCpp : ir::Printer {
             ss << ";\n";
             return;
         }
-        if (ir::Type type = node->loc.base_type(); type.is_scalar()) {
+        if (const auto *dyn_array_t = base_type.as<ir::DynArray_t>()) {
+            ss << ";\n";
+            ss << get_indent() << node->loc.base();
+            ss << ".reserve(";
+            dyn_array_t->capacity.accept(this);
+            ss << ");\n";
+            return;
+        }
+        if (base_type.is_scalar()) {
             ss << " = ";
-            ss << make_const(type, 0);
+            ss << make_const(base_type, 0);
             ss << ";\n";
             return;
         }
-        if (ir::Type type = node->loc.base_type(); type.is_iterable()) {
+        if (base_type.is_iterable()) {
             ss << " = ";
             ss << "reinterpret_cast<";
-            emit_type(ss, type.element_of());
+            emit_type(ss, base_type.element_of());
             ss << "*>(";
             ss << "malloc(";
             ss << "sizeof(";
-            emit_type(ss, type.element_of());
+            emit_type(ss, base_type.element_of());
             ss << ") * ";
-            type.size().accept(this);
+            base_type.size().accept(this);
             ss << ")";
             ss << ");\n";
             return;
@@ -1166,7 +1176,7 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const AppendStmt *node) override {
         ss << get_indent();
-        print(node->loc);
+        print_loc(ss, node->loc, /*is_assignment=*/false);
         ss << ".push_back(";
         print_no_parens(node->value);
         ss << ");\n";

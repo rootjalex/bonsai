@@ -20,11 +20,13 @@ for OBJECT_A in "${OBJECTS[@]}"; do
     fi
     for LAYOUT in "${LAYOUTS[@]}"; do
       # 1. build and compile bonsai
-      cmake --build build --config Debug -j > /dev/null
+      cmake --build build --config Debug -j # > /dev/null
       # 2. lower to c++
       ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
       # 3. compile the lowered c++
-      clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
+
+      # ${PREFIX}/main.cpp
+      clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
 
       # 4. build the main hook (requires fcl)
       cd ${PREFIX} 

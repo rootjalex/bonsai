@@ -1,16 +1,16 @@
 schedule {
     tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high)
     = Interior(left : BVH, right : BVH)
-    | Leaf(data : array[Triangle]);
+    | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
     triangles1 : BVH;
     triangles2 : BVH;
 
-    layout triangles1(index: u32) {
+    layout triangles1(index1: u32) {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group nodes[node_count] by index {
+        group nodes[node_count] by index1 {
             low : f32x3;
             high : f32x3;
             nprims : u16;
@@ -19,8 +19,8 @@ schedule {
             split nprims {
                 0 -> Interior { 
                     offset : u32; 
-                    left = index + 1; 
-                    right = index + offset; 
+                    left = index1 + 1; 
+                    right = index1 + offset; 
                 };
                 _ -> Leaf { 
                     poffset : u32; 
@@ -51,11 +51,11 @@ schedule {
       };
     };
     
-    layout triangles2(index: u32) {
+    layout triangles2(index2: u32) {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group nodes[node_count] by index {
+        group nodes[node_count] by index2 {
             low : f32x3;
             high : f32x3;
             nprims : u16;
@@ -64,8 +64,8 @@ schedule {
             split nprims {
                 0 -> Interior { 
                     offset : u32; 
-                    left = index + 1; 
-                    right = index + offset; 
+                    left = index2 + 1; 
+                    right = index2 + offset; 
                 };
                 _ -> Leaf { 
                     poffset : u32; 

@@ -1,5 +1,3 @@
-#include "main.h"
-
 #include <fcl/fcl.h>
 
 #include <chrono>

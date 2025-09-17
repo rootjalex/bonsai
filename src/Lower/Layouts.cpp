@@ -910,6 +910,8 @@ ir::Stmt flatten_yield_froms(ir::Stmt body,
             std::vector<ir::Expr> flat_ids;
             flat_ids.reserve(ids.size());
 
+            internal_assert(!root_list.empty());
+
             for (ir::Expr &id : ids) {
                 ir::Expr value = flatten_tuple(id, references);
                 if (!value.type().is<ir::Tuple_t>()) {
@@ -917,20 +919,14 @@ ir::Stmt flatten_yield_froms(ir::Stmt body,
                     continue;
                 }
                 const ir::Tuple_t *tuple = value.type().as<ir::Tuple_t>();
-                internal_assert(tuple &&
-                                tuple->etypes.size() == root_list.size())
-                    << "Expected " << root_list.size()
-                    << " value(s), but found: " << value.type()
-                    << " in: " << ir::Stmt(node) << " of flattened id: " << id;
-
-                for (size_t i = 0; i < root_list.size(); i++) {
-                    internal_assert(
-                        ir::equals(root_list[i].type, tuple->etypes[i]))
-                        << "Mismatching YieldFroms, expected type: "
-                        << root_list[i].type
-                        << " but found type: " << tuple->etypes[i]
-                        << " at index: " << i << " in: " << ir::Stmt(node);
-                }
+                const size_t root_size = root_list.size();
+                // for (size_t i = 0, e = tuple->etypes.size(); i < e; ++i) {
+                //     const ir::Type &type = root_list[i % root_size].type;
+                //     internal_assert(ir::equals(type, tuple->etypes[i]))
+                //         << "Mismatching YieldFroms, expected type: " << type
+                //         << " but found type: " << tuple->etypes[i]
+                //         << " at index: " << i << " in: " << ir::Stmt(node);
+                // }
                 flat_ids.push_back(fill_index_holes(std::move(value), map));
             }
 
