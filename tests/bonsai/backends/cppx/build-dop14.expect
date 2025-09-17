@@ -110,7 +110,7 @@ using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
 using vec3__Float16 = vector<_Float16, 3>;
 
-Triangles build_triangles(const BVH* CT);
+Triangles build_triangles(const BVH* __restrict__ CT);
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles);
 
 Point ClosestPtPointAABB(const Point* __restrict__ pt, const AABB* __restrict__ a) {
@@ -300,7 +300,7 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
   const vec3_float P = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
   return reduce_and(((P <= vec3_float{R}) & (vec3_float{(-R)} <= P)));
 }
-uint32_t rec_build_triangles(const BVH* node, Triangles* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
+uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       const size_t this_index = (*nodes_index);
@@ -331,7 +331,7 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* __restrict__ ST, size_t
     }
   }, *node);
 }
-void rec_count_triangles(const BVH* node, Triangles* __restrict__ ST) {
+void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       rec_count_triangles(node.left, ST);
@@ -344,7 +344,7 @@ void rec_count_triangles(const BVH* node, Triangles* __restrict__ ST) {
     }
   }, *node);
 }
-Triangles build_triangles(const BVH* CT) {
+Triangles build_triangles(const BVH* __restrict__ CT) {
   Triangles ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;

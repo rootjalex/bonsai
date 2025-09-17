@@ -100,7 +100,7 @@ using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
 using vec3__Float16 = vector<_Float16, 3>;
 
-Spheres build_spheres(const BVH* CT);
+Spheres build_spheres(const BVH* __restrict__ CT);
 std::vector<Sphere> find_neighbors(const AABB* __restrict__ a, const Spheres* __restrict__ spheres);
 
 Point ClosestPtPointAABB(const Point* __restrict__ pt, const AABB* __restrict__ a) {
@@ -177,7 +177,7 @@ int32_t quantize(const vec3_float current, const vec3_float world, const vec3_fl
   const uint32_t z = (uint32_t)(floor(fmul_rd(fsub_rd(current[2], world[2]), bin_inverse[2])));
   return (int32_t)((((x << 20) | (y << 10)) | z));
 }
-uint32_t rec_build_spheres(const BVH* node, Spheres* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
+uint32_t rec_build_spheres(const BVH* __restrict__ node, Spheres* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       const size_t this_index = (*nodes_index);
@@ -211,7 +211,7 @@ uint32_t rec_build_spheres(const BVH* node, Spheres* __restrict__ ST, size_t* __
     }
   }, *node);
 }
-void rec_count_spheres(const BVH* node, Spheres* __restrict__ ST) {
+void rec_count_spheres(const BVH* __restrict__ node, Spheres* __restrict__ ST) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       rec_count_spheres(node.left, ST);
@@ -223,7 +223,7 @@ void rec_count_spheres(const BVH* node, Spheres* __restrict__ ST) {
     }
   }, *node);
 }
-Spheres build_spheres(const BVH* CT) {
+Spheres build_spheres(const BVH* __restrict__ CT) {
   Spheres ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;

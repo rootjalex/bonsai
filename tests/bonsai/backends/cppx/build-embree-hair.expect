@@ -103,7 +103,7 @@ struct Triangles {
 } __attribute__((packed));
 using vec3__Float16 = vector<_Float16, 3>;
 
-Triangles build_triangles(const BVH* CT);
+Triangles build_triangles(const BVH* __restrict__ CT);
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles);
 
 Point ClosestPtPointAABB(const Point* __restrict__ pt, const AABB* __restrict__ a) {
@@ -399,7 +399,7 @@ int8_t to_i8(const float f) {
   const float f2 = max(-128.0f, min(f1, 127.0f));
   return (int8_t)(f2);
 }
-uint64_t rec_build_triangles(const BVH* node, Triangles* __restrict__ ST, size_t* __restrict__ AABBs_index, size_t* __restrict__ OBBs_index, size_t* __restrict__ primitives_index) {
+uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ AABBs_index, size_t* __restrict__ OBBs_index, size_t* __restrict__ primitives_index) {
   return std::visit(overloaded{
     [&](const AABBNode& node) {
       const size_t this_index = (*AABBs_index);
@@ -440,7 +440,7 @@ uint64_t rec_build_triangles(const BVH* node, Triangles* __restrict__ ST, size_t
     }
   }, *node);
 }
-void rec_count_triangles(const BVH* node, Triangles* __restrict__ ST, size_t* __restrict__ size_AABBs, size_t* __restrict__ size_OBBs) {
+void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ size_AABBs, size_t* __restrict__ size_OBBs) {
   return std::visit(overloaded{
     [&](const AABBNode& node) {
       for (int32_t __r = 0; __r < 4; __r += 1) {
@@ -459,7 +459,7 @@ void rec_count_triangles(const BVH* node, Triangles* __restrict__ ST, size_t* __
     }
   }, *node);
 }
-Triangles build_triangles(const BVH* CT) {
+Triangles build_triangles(const BVH* __restrict__ CT) {
   Triangles ST;
   size_t primitives_index = 0;
   size_t size_AABBs = 0;

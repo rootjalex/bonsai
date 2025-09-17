@@ -69,6 +69,10 @@ uint64_t nearest_power_of_two(uint32_t n) {
     return std::max<uint64_t>(8U, (n - lower <= upper - n) ? lower : upper);
 }
 
+bool is_reference_type(const ir::Type &type) {
+    return type.is<ir::Ref_t, ir::Set_t, ir::BVH_t>();
+}
+
 } // namespace
 
 using namespace ir;
@@ -123,7 +127,7 @@ void emit_type(std::ostream &ss, Type type) {
             ss << " *";
         }
 
-        void visit(const Ref_t *node) override { ss << node->name << "*"; }
+        void visit(const Ref_t *node) override { ss << node->name; }
 
         void visit(const Vector_t *node) override {
             ss << "vec" << node->lanes << "_";
@@ -287,14 +291,19 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
                 // The buffer field of dynamic arrays should always be treated
                 // as a pointers, since its capacity may be resized.
                 !is_dynamic_array_struct_type(type)) {
-
                 emit_type(ss, array_t->etype);
+                if (is_reference_type(array_t->etype)) {
+                    ss << "*";
+                }
                 std::optional<uint64_t> size =
                     get_constant_value(array_t->size);
                 internal_assert(size.has_value());
                 ss << " " << name << "[" << *size << "]";
             } else {
                 emit_type(ss, child);
+                if (is_reference_type(child)) {
+                    ss << "*";
+                }
                 ss << " " << name;
                 if (child.is_scalar()) {
                     if (uint64_t b = child.bits();
@@ -385,20 +394,17 @@ class BonsaiToCpp : ir::Printer {
         if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
             emit_type(ss, ptr_t->etype);
             ss << "* __restrict__";
-        } else {
-            emit_type(ss, type);
-            if (!is_return_type && should_be_ref(type)) {
-                ss << "* __restrict__";
-            }
-            if (!is_return_type && type.is<DynArray_t>()) {
-                ss << "&";
-            }
+            return;
         }
-    }
-
-    bool should_be_ref(const Type &type) const {
-        // TODO: finish
-        return type.is<Set_t>() || type.is<BVH_t>();
+        emit_type(ss, type);
+        if (!is_return_type && is_reference_type(type)) {
+            ss << "* __restrict__";
+            return;
+        }
+        if (!is_return_type && type.is<DynArray_t>()) {
+            ss << "&";
+            return;
+        }
     }
 
     void emit_func_decl(const Function &func) {
