@@ -12,13 +12,5 @@ using Cmake: `-DBUILD_OCTOMAP=OFF`.
 ## run the benchmarks
 
 ```bash
-cd apps/cd/cpu/fcl/
-./test.sh
-```
-
-Wavefront OBJ files are taken from [FCL](https://github.com/flexible-collision-library/fcl/tree/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/test/fcl_resources) 
-and from [`prims`](https://github.com/nickdesaulniers/prims/tree/master/meshes), the script assumes these are placed in the following directory: 
-
-```
-apps/cd/cpu/fcl/objects/
+./apps/cd/test.sh
 ```

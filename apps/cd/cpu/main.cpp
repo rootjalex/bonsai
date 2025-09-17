@@ -412,28 +412,31 @@ Triangle construct_triangle(const fcl::Triangle &t,
 
 // Runs an collision detection test on the two OBJ files for Bonsai and FCL.
 template <typename S>
-void run_test(const std::string &obj1_filename,
-              const std::string &obj2_filename) {
+void run_test(const std::string &obj1, const std::string &obj2) {
     if constexpr (!(std::is_floating_point_v<S> && sizeof(S) == 4)) {
         std::cerr << "the bonsai kernel currently assumes f32 input";
         exit(-1);
     }
 
+    std::string path = "apps/data/";
+    std::string obj1_path = path + obj1 + ".obj";
+    std::string obj2_path = path + obj2 + ".obj";
+
     using clock = std::chrono::high_resolution_clock;
     std::vector<fcl::Vector3<S>> v1, v2;
     std::vector<fcl::Triangle> T1, T2;
-    if (!fcl::load_object_file(obj1_filename, v1, T1)) {
+    if (!fcl::load_object_file(obj1_path, v1, T1)) {
         exit(-1);
     }
     assert(!v1.empty() && "no vertices found!");
     assert(!T1.empty() && "no triangles found!");
-    std::cout << obj1_filename << ": " << T1.size() << " triangles\n";
-    if (!fcl::load_object_file(obj2_filename, v2, T2)) {
+    std::cout << obj1 << ": " << T1.size() << " triangles\n";
+    if (!fcl::load_object_file(obj2_path, v2, T2)) {
         exit(-1);
     }
     assert(!v2.empty() && "no vertices found!");
     assert(!T2.empty() && "no triangles found!");
-    std::cout << obj2_filename << ": " << T2.size() << " triangles\n";
+    std::cout << obj2 << ": " << T2.size() << " triangles\n";
 
     // ---- FCL tree construction ----
     auto t0 = clock::now();
@@ -505,10 +508,9 @@ int main() {
     // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
-    run_test<float>("env.obj", "rob.obj");       // [1]
-    run_test<float>("dragon.obj", "bunny.obj");  // [2]
-    run_test<float>("teapot.obj", "bunny.obj");  // [2]
-    run_test<float>("teapot.obj", "dragon.obj"); // [2]
-
+    assert(argc == 3);
+    std::string obj1 = argv[1];
+    std::string obj2 = argv[2];
+    run_test<float>(obj1, obj2);
     return 0;
 }

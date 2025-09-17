@@ -1,0 +1,89 @@
+element f32x3 = vector[f32, 3];
+
+element Triangle {
+    p0, p1, p2 : f32x3;
+}
+
+element AABB {
+    low, high : f32x3;
+}
+
+func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3, q1: f32x3, q2: f32x3, q3: f32x3) -> bool {
+    P1 = dot(ax, p1);
+    P2 = dot(ax, p2);
+    P3 = dot(ax, p3);
+    Q1 = dot(ax, q1);
+    Q2 = dot(ax, q2);
+    Q3 = dot(ax, q3);
+
+    mn1 = min(min(P1, P2), P3);
+    mx2 = max(max(Q1, Q2), Q3);
+    if (mn1 > mx2) { return false; }
+
+    mx1 = max(max(P1, P2), P3);
+    mn2 = min(min(Q1, Q2), Q3);
+
+    if (mn2 > mx1) { return false; }
+    return true;
+}
+
+// (derived from FCL)
+func intersects(a: Triangle, b: Triangle) -> bool {
+    p1 = a.p0; p2 = a.p1; p3 = a.p2;
+    q1 = b.p0; q2 = b.p1; q3 = b.p2;
+
+    e1 = p2 - p1;
+    e2 = p3 - p2;
+    e3 = p1 - p3;
+
+    f1 = q2 - q1;
+    f2 = q3 - q2;
+    f3 = q1 - q3;
+
+    n1 = cross(e1, e2);
+    if (!project6(n1, p1, p2, p3, q1, q2, q3)) { return false; }
+    m1 = cross(f1, f2);
+    if (!project6(m1, p1, p2, p3, q1, q2, q3)) { return false; }
+
+    if (!project6(cross(e1, f1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e1, f2), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e1, f3), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, f1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, f2), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, f3), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, f1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, f2), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, f3), p1, p2, p3, q1, q2, q3)) { return false; }
+
+    if (!project6(cross(e1, n1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, n1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, n1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(f1, m1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(f2, m1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(f3, m1), p1, p2, p3, q1, q2, q3)) { return false; }
+
+    return true;
+}
+
+func axis(A: f32x3, extents: f32x3, v0: f32x3, v1: f32x3, v2: f32x3) -> bool {
+    R = dot(extents, abs(A));
+    P0 = dot(v0, A);
+    P1 = dot(v1, A);
+    P2 = dot(v2, A);
+    Pmin = min(min(P0, P1), P2);
+    Pmax = max(max(P0, P1), P2);
+    
+    return Pmax >= -R & Pmin <= R;
+}
+
+
+func intersects(a : AABB, b : AABB) -> bool {
+    low = max(a.low, b.low);
+    high = min(a.high, b.high);
+    return all(low <= high);
+}
+
+extern triangles1 : set[Triangle];
+extern triangles2 : set[Triangle];
+
+func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
