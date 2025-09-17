@@ -19,5 +19,8 @@ class DCE : public lower::Pass {
                     const CompilerOptions &options) const override;
 };
 
+ir::Stmt dce(ir::Stmt, const std::set<std::string> &mutable_func_args,
+             const std::set<std::string> &se_functions);
+
 } // namespace opt
 } // namespace bonsai

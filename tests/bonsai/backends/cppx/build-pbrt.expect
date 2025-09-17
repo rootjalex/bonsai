@@ -120,14 +120,21 @@ float __prod_diff_f32(const float a, const float b, const float c, const float d
 float __sqlen_f32(const vec3_float v) {
   return reduce_add((v * v));
 }
+float gamma(const int32_t n) {
+  const float _t1 = ((float)(n) * 0.00000006f);
+  return (_t1 / (1.0f - _t1));
+}
 std::optional<FInterval> intersectsp_ray_aabb(const Ray* __restrict__ r, const AABB* __restrict__ b) {
-  const vec3_float invDir = (vec3_float{1.0f} / (*r).d);
-  const vec3_bool dirIsNeg = (invDir < vec3_float{0.0f});
-  const vec3_float low_parts = select(dirIsNeg, (*b).high, (*b).low);
-  const vec3_float high_parts = select(dirIsNeg, (*b).low, (*b).high);
-  vec3_float tMin = ((low_parts - (*r).o) * invDir);
-  vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax *= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  const vec3_float _t1 = (vec3_float{1.0f} / (*r).d);
+  const vec3_bool dirIsNeg = (_t1 < vec3_float{0.0f});
+  const vec3_float _t2 = (*b).high;
+  const vec3_float _t3 = (*b).low;
+  const vec3_float low_parts = select(dirIsNeg, _t2, _t3);
+  const vec3_float high_parts = select(dirIsNeg, _t3, _t2);
+  const vec3_float _t6 = (*r).o;
+  vec3_float tMin = ((low_parts - _t6) * _t1);
+  vec3_float tMax = ((high_parts - _t6) * _t1);
+  tMax *= (1.0f + (2.0f * gamma(3)));
   if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
     return std::nullopt;
   }
@@ -149,66 +156,80 @@ float distmin_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) {
   return (-std::numeric_limits<float>::infinity());
 }
 vec3_float cross_(const vec3_float v0, const vec3_float v1) {
-  return vec3_float{__prod_diff_f32(v0[1], v1[2], v0[2], v1[1]), __prod_diff_f32(v0[2], v1[0], v0[0], v1[2]), __prod_diff_f32(v0[0], v1[1], v0[1], v1[0])};
+  const float _t0 = v0[1];
+  const float _t1 = v1[2];
+  const float _t2 = v0[2];
+  const float _t3 = v1[1];
+  const float _t5 = v1[0];
+  const float _t6 = v0[0];
+  return vec3_float{__prod_diff_f32(_t0, _t1, _t2, _t3), __prod_diff_f32(_t2, _t5, _t6, _t1), __prod_diff_f32(_t6, _t3, _t0, _t5)};
 }
 std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* __restrict__ ray, const Triangle* __restrict__ tri) {
-  if (reduce_add((cross_(((*tri).p2 - (*tri).p0), ((*tri).p1 - (*tri).p0)) * cross_(((*tri).p2 - (*tri).p0), ((*tri).p1 - (*tri).p0)))) == 0.0f) {
+  const vec3_float _t0 = (*tri).p2;
+  const vec3_float _t1 = (*tri).p0;
+  const vec3_float _t2 = (*tri).p1;
+  if (reduce_add((cross_((_t0 - _t1), (_t2 - _t1)) * cross_((_t0 - _t1), (_t2 - _t1)))) == 0.0f) {
     return std::nullopt;
   }
-  vec3_float p0t = ((*tri).p0 - (*ray).o);
-  vec3_float p1t = ((*tri).p1 - (*ray).o);
-  vec3_float p2t = ((*tri).p2 - (*ray).o);
-  const uint32_t kz = reduce_idxmax(abs((*ray).d));
+  const vec3_float _t5 = (*ray).o;
+  vec3_float p0t = (_t1 - _t5);
+  vec3_float p1t = (_t2 - _t5);
+  vec3_float p2t = (_t0 - _t5);
+  const vec3_float _t10 = (*ray).d;
+  const uint32_t kz = reduce_idxmax(abs(_t10));
   const uint32_t kx = ((kz + 1) % 3);
   const uint32_t ky = ((kx + 1) % 3);
-  const vec3_float d = shuffle((*ray).d, {kx, ky, kz});
+  const vec3_float d = shuffle(_t10, {kx, ky, kz});
   p0t = shuffle(p0t, {kx, ky, kz});
   p1t = shuffle(p1t, {kx, ky, kz});
   p2t = shuffle(p2t, {kx, ky, kz});
-  const float Sx = ((-d[0]) / d[2]);
-  const float Sy = ((-d[1]) / d[2]);
-  const float Sz = (1.0f / d[2]);
-  p0t[0] += (Sx * p0t[2]);
-  p0t[1] += (Sy * p0t[2]);
-  p1t[0] += (Sx * p1t[2]);
-  p1t[1] += (Sy * p1t[2]);
-  p2t[0] += (Sx * p2t[2]);
-  p2t[1] += (Sy * p2t[2]);
-  const float e0 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
-  const float e1 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
-  const float e2 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
-  if ((((e0 < 0.0f) || (e1 < 0.0f)) || (e2 < 0.0f))) {
-    if ((((0.0f < e0) || (0.0f < e1)) || (0.0f < e2))) {
+  const float _t13 = d[2];
+  const float _t14 = ((-d[0]) / _t13);
+  const float _t17 = ((-d[1]) / _t13);
+  const float Sz = (1.0f / _t13);
+  p0t[0] += (_t14 * p0t[2]);
+  p0t[1] += (_t17 * p0t[2]);
+  p1t[0] += (_t14 * p1t[2]);
+  p1t[1] += (_t17 * p1t[2]);
+  p2t[0] += (_t14 * p2t[2]);
+  p2t[1] += (_t17 * p2t[2]);
+  const float _t20 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
+  const float _t21 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
+  const float _t22 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
+  if ((((_t20 < 0.0f) || (_t21 < 0.0f)) || (_t22 < 0.0f))) {
+    if ((((0.0f < _t20) || (0.0f < _t21)) || (0.0f < _t22))) {
       return std::nullopt;
     }
   }
-  const float det = ((e0 + e1) + e2);
-  if (det == 0.0f) {
+  const float _t24 = ((_t20 + _t21) + _t22);
+  if (_t24 == 0.0f) {
     return std::nullopt;
   }
   p0t[2] *= Sz;
   p1t[2] *= Sz;
   p2t[2] *= Sz;
-  const float tScaled = (((e0 * p0t[2]) + (e1 * p1t[2])) + (e2 * p2t[2]));
-  if (((det < 0.0f) && ((0.0f <= tScaled) || (tScaled < ((*ray).tmax * det))))) {
+  const float tScaled = (((_t20 * p0t[2]) + (_t21 * p1t[2])) + (_t22 * p2t[2]));
+  if (((_t24 < 0.0f) && ((0.0f <= tScaled) || (tScaled < ((*ray).tmax * _t24))))) {
     return std::nullopt;
-  } else if (((0.0f < det) && ((tScaled <= 0.0f) || (((*ray).tmax * det) < tScaled)))) {
+  } else if (((0.0f < _t24) && ((tScaled <= 0.0f) || (((*ray).tmax * _t24) < tScaled)))) {
     return std::nullopt;
   }
-  const float invDet = (1.0f / det);
-  const float b0 = (e0 * invDet);
-  const float b1 = (e1 * invDet);
-  const float b2 = (e2 * invDet);
+  const float invDet = (1.0f / _t24);
+  const float b0 = (_t20 * invDet);
+  const float b1 = (_t21 * invDet);
+  const float b2 = (_t22 * invDet);
   const float t = (tScaled * invDet);
   const float maxZt = reduce_max(abs(vec3_float{p0t[2], p1t[2], p2t[2]}));
-  const float deltaZ = ((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxZt);
+  const float _t25 = gamma(3);
+  const float deltaZ = (_t25 * maxZt);
   const float maxXt = reduce_max(abs(vec3_float{p0t[0], p1t[0], p2t[0]}));
   const float maxYt = reduce_max(abs(vec3_float{p0t[1], p1t[1], p2t[1]}));
-  const float deltaX = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxXt + maxZt));
-  const float deltaY = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxYt + maxZt));
-  const float deltaE = (2.0f * (((((((float)(2) * 0.00000006f) / (1.0f - ((float)(2) * 0.00000006f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
-  const float maxE = reduce_max(abs(vec3_float{e0, e1, e2}));
-  const float deltaT = ((3.0f * (((((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
+  const float _t26 = gamma(5);
+  const float deltaX = (_t26 * (maxXt + maxZt));
+  const float deltaY = (_t26 * (maxYt + maxZt));
+  const float deltaE = (2.0f * ((((gamma(2) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  const float maxE = reduce_max(abs(vec3_float{_t20, _t21, _t22}));
+  const float deltaT = ((3.0f * ((((_t25 * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
   if ((t <= deltaT)) {
     return std::nullopt;
   }
@@ -232,22 +253,22 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
   return false;
 }
 void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangles, const Ray* __restrict__ ray, std::tuple<float, Triangle>* __restrict__ _best0) {
-  const AABB _lv5 = AABB{.low=(*triangles).nodes[index].low, .high=(*triangles).nodes[index].high};
-  if (intersects_Ray_AABB(ray, (&_lv5))) {
-    const AABB _lv4 = AABB{.low=(*triangles).nodes[index].low, .high=(*triangles).nodes[index].high};
-    if ((distmin_Ray_AABB(ray, (&_lv4)) < std::get<0>((*_best0)))) {
-      if ((*triangles).nodes[index].nprims == 0) {
+  const Nodes _t37 = (*triangles).nodes[index];
+  const AABB _t42 = AABB{.low=_t37.low, .high=_t37.high};
+  if (intersects_Ray_AABB(ray, (&_t42))) {
+    if ((distmin_Ray_AABB(ray, (&_t42)) < std::get<0>((*_best0)))) {
+      const uint16_t _t28 = _t37.nprims;
+      if (_t28 == 0) {
         _recloop_func0((index + 1), triangles, ray, _best0);
-        _recloop_func0((index + reinterpret<Arm_Interior>((*triangles).nodes[index].split0on_nprims).offset), triangles, ray, _best0);
+        _recloop_func0((index + (Arm_Interior)(_t37.split0on_nprims).offset), triangles, ray, _best0);
       } else {
-        for (uint32_t _idx0 = reinterpret<Arm_Leaf>((*triangles).nodes[index].split0on_nprims).poffset; _idx0 < (reinterpret<Arm_Leaf>((*triangles).nodes[index].split0on_nprims).poffset + (uint32_t)((*triangles).nodes[index].nprims)); _idx0 += 1) {
-          const Triangle _lv3 = (*triangles).primitives[_idx0];
-          if (intersectsp_ray_tri(ray, (&_lv3)).has_value()) {
-            const Triangle _lv2 = (*triangles).primitives[_idx0];
-            if ((distmin_Ray_Triangle(ray, (&_lv2)) < std::get<0>((*_best0)))) {
-              const Triangle _lv0 = (*triangles).primitives[_idx0];
-              const Triangle _lv1 = (*triangles).primitives[_idx0];
-              (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv0)), _lv1});
+        const uint32_t _t17 = (Arm_Leaf)(_t37.split0on_nprims).poffset;
+        for (uint32_t _idx0 = _t17; _idx0 < (_t17 + (uint32_t)(_t28)); _idx0 += 1) {
+          const Triangle _t12 = (*triangles).primitives[_idx0];
+          if (intersectsp_ray_tri(ray, (&_t12)).has_value()) {
+            const float _t10 = distmin_Ray_Triangle(ray, (&_t12));
+            if ((_t10 < std::get<0>((*_best0)))) {
+              (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t10, _t12});
             }
           }
         }
@@ -263,8 +284,8 @@ std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Trian
 }
 bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, const vec3_float v1, const vec3_float v2) {
   const float R = dot(extents, abs(A));
-  const vec3_float P = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
-  return reduce_and(((P <= vec3_float{R}) & (vec3_float{(-R)} <= P)));
+  const vec3_float _t3 = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
+  return reduce_and(((_t3 <= vec3_float{R}) & (vec3_float{(-R)} <= _t3)));
 }
 uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
   return std::visit(overloaded{
@@ -347,12 +368,12 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* __restrict__ pt, co
       return std::tuple<Point, Point>{Point{.vec=b}, Point{.vec=vec3_float{0.0f, 1.0f, 0.0f}}};
     }
   }
-  const float vc = ((d1 * d4) - (d3 * d2));
-  if ((vc <= 0.0f)) {
+  const float _t2 = ((d1 * d4) - (d3 * d2));
+  if ((_t2 <= 0.0f)) {
     if ((0.0f <= d1)) {
       if ((d3 <= 0.0f)) {
-        const float v0 = (d1 / (d1 - d3));
-        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{v0} * ab))}, Point{.vec=vec3_float{(1.0f - v0), v0, 0.0f}}};
+        const float _t4 = (d1 / (d1 - d3));
+        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{_t4} * ab))}, Point{.vec=vec3_float{(1.0f - _t4), _t4, 0.0f}}};
       }
     }
   }
@@ -364,28 +385,30 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* __restrict__ pt, co
       return std::tuple<Point, Point>{Point{.vec=c}, Point{.vec=vec3_float{0.0f, 0.0f, 1.0f}}};
     }
   }
-  const float vb = ((d5 * d2) - (d1 * d6));
-  if ((vb <= 0.0f)) {
+  const float _t7 = ((d5 * d2) - (d1 * d6));
+  if ((_t7 <= 0.0f)) {
     if ((0.0f <= d2)) {
       if ((d6 <= 0.0f)) {
-        const float w0 = (d2 / (d2 - d6));
-        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{w0} * ac))}, Point{.vec=vec3_float{(1.0f - w0), 0.0f, w0}}};
+        const float _t9 = (d2 / (d2 - d6));
+        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{_t9} * ac))}, Point{.vec=vec3_float{(1.0f - _t9), 0.0f, _t9}}};
       }
     }
   }
-  const float va = ((d3 * d6) - (d5 * d4));
-  if ((va <= 0.0f)) {
-    if ((0.0f <= (d4 - d3))) {
-      if ((0.0f <= (d5 - d6))) {
-        const float w1 = ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
-        return std::tuple<Point, Point>{Point{.vec=(b + (vec3_float{w1} * (c - b)))}, Point{.vec=vec3_float{0.0f, (1.0f - w1), w1}}};
+  const float _t12 = ((d3 * d6) - (d5 * d4));
+  if ((_t12 <= 0.0f)) {
+    const float _t19 = (d4 - d3);
+    if ((0.0f <= _t19)) {
+      const float _t18 = (d5 - d6);
+      if ((0.0f <= _t18)) {
+        const float _t17 = (_t19 / (_t19 + _t18));
+        return std::tuple<Point, Point>{Point{.vec=(b + (vec3_float{_t17} * (c - b)))}, Point{.vec=vec3_float{0.0f, (1.0f - _t17), _t17}}};
       }
     }
   }
-  const float denom = (1.0f / ((va + vb) + vc));
-  const float v = (vb * denom);
-  const float w = (vc * denom);
-  const float u = (va * denom);
+  const float _t22 = (1.0f / ((_t12 + _t7) + _t2));
+  const float v = (_t7 * _t22);
+  const float w = (_t2 * _t22);
+  const float u = (_t12 * _t22);
   return std::tuple<Point, Point>{Point{.vec=((a + (ab * vec3_float{v})) + (ac * vec3_float{w}))}, Point{.vec=vec3_float{u, v, w}}};
 }
 float degrees_to_radians(const float degrees) {
@@ -400,18 +423,19 @@ float distmax_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) {
   return std::numeric_limits<float>::infinity();
 }
 std::optional<FInterval> intersectsp_ray_sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s) {
-  const vec3_float oc = ((*s).center - (*r).o);
-  const float a = reduce_add(((*r).d * (*r).d));
-  const float h = dot((*r).d, oc);
-  const float c = (reduce_add((oc * oc)) - ((*s).radius * (*s).radius));
-  const float disc = ((h * h) - (a * c));
-  if ((disc < 0.0f)) {
+  const vec3_float _t2 = ((*s).center - (*r).o);
+  const vec3_float _t3 = (*r).d;
+  const float a = reduce_add((_t3 * _t3));
+  const float _t7 = dot(_t3, _t2);
+  const float _t9 = (*s).radius;
+  const float _t15 = ((_t7 * _t7) - (a * (reduce_add((_t2 * _t2)) - (_t9 * _t9))));
+  if ((_t15 < 0.0f)) {
     return std::nullopt;
   }
-  const float sqrtd = sqrtf(disc);
-  const float root0 = ((h - sqrtd) / a);
-  const float root1 = ((h + sqrtd) / a);
-  const FInterval interval = FInterval{.low=min(root0, root1), .high=max(root0, root1)};
+  const float sqrtd = sqrtf(_t15);
+  const float _t17 = ((_t7 - sqrtd) / a);
+  const float _t19 = ((_t7 + sqrtd) / a);
+  const FInterval interval = FInterval{.low=min(_t17, _t19), .high=max(_t17, _t19)};
   return (std::optional<FInterval>)(interval);
 }
 float distmax_Ray_Sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s) {
@@ -446,31 +470,31 @@ float distmin_Ray_Sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s
   }
   return (-std::numeric_limits<float>::infinity());
 }
-float gamma(const int32_t n) {
-  return (((float)(n) * 0.00000006f) / (1.0f - ((float)(n) * 0.00000006f)));
-}
 bool intersects_AABB_AABB(const AABB* __restrict__ a, const AABB* __restrict__ b) {
   const vec3_float low = max((*a).low, (*b).low);
   const vec3_float high = min((*a).high, (*b).high);
   return reduce_and((low <= high));
 }
 bool intersects_AABB_Sphere(const AABB* __restrict__ a, const Sphere* __restrict__ s) {
-  const vec3_float closest = max((*a).low, min((*s).center, (*a).high));
-  const vec3_float d = ((*s).center - closest);
-  return (dot(d, d) <= ((*s).radius * (*s).radius));
+  const vec3_float _t1 = (*s).center;
+  const vec3_float _t6 = (_t1 - max((*a).low, min(_t1, (*a).high)));
+  const float _t7 = (*s).radius;
+  return (dot(_t6, _t6) <= (_t7 * _t7));
 }
 bool intersects_AABB_Triangle(const AABB* __restrict__ a, const Triangle* __restrict__ b) {
-  const vec3_float center = (((*a).low + (*a).high) * vec3_float{0.50000000f});
-  const vec3_float extents = (((*a).high - (*a).low) * vec3_float{0.50000000f});
-  const vec3_float v0 = ((*b).p0 - center);
-  const vec3_float v1 = ((*b).p1 - center);
-  const vec3_float v2 = ((*b).p2 - center);
-  const vec3_float f0 = (v1 - v0);
-  const vec3_float f1 = (v2 - v1);
-  const vec3_float f2 = (v0 - v2);
-  const vec3_float tri_min = min(min(v0, v1), v2);
-  const vec3_float tri_max = max(max(v0, v1), v2);
-  if ((!reduce_and(((tri_min <= extents) & ((-extents) <= tri_max))))) {
+  const vec3_float _t0 = (*a).low;
+  const vec3_float _t1 = (*a).high;
+  const vec3_float _t3 = ((_t0 + _t1) * vec3_float{0.50000000f});
+  const vec3_float _t7 = ((_t1 - _t0) * vec3_float{0.50000000f});
+  const vec3_float _t9 = ((*b).p0 - _t3);
+  const vec3_float _t11 = ((*b).p1 - _t3);
+  const vec3_float _t13 = ((*b).p2 - _t3);
+  const vec3_float f0 = (_t11 - _t9);
+  const vec3_float f1 = (_t13 - _t11);
+  const vec3_float f2 = (_t9 - _t13);
+  const vec3_float tri_min = min(min(_t9, _t11), _t13);
+  const vec3_float tri_max = max(max(_t9, _t11), _t13);
+  if ((!reduce_and(((tri_min <= _t7) & ((-_t7) <= tri_max))))) {
     return false;
   }
   const vec3_float A0 = cross(f0, vec3_float{1.0f, 0.0f, 0.0f});
@@ -482,36 +506,36 @@ bool intersects_AABB_Triangle(const AABB* __restrict__ a, const Triangle* __rest
   const vec3_float A6 = cross(f2, vec3_float{1.0f, 0.0f, 0.0f});
   const vec3_float A7 = cross(f2, vec3_float{0.0f, 1.0f, 0.0f});
   const vec3_float A8 = cross(f2, vec3_float{0.0f, 0.0f, 1.0f});
-  if ((!axis(A0, extents, v0, v1, v2))) {
+  if ((!axis(A0, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A1, extents, v0, v1, v2))) {
+  if ((!axis(A1, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A2, extents, v0, v1, v2))) {
+  if ((!axis(A2, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A3, extents, v0, v1, v2))) {
+  if ((!axis(A3, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A4, extents, v0, v1, v2))) {
+  if ((!axis(A4, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A5, extents, v0, v1, v2))) {
+  if ((!axis(A5, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A6, extents, v0, v1, v2))) {
+  if ((!axis(A6, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A7, extents, v0, v1, v2))) {
+  if ((!axis(A7, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A8, extents, v0, v1, v2))) {
+  if ((!axis(A8, _t7, _t9, _t11, _t13))) {
     return false;
   }
   const vec3_float N = cross(f0, f1);
-  const float Rn = dot(extents, abs(N));
-  const float dist = dot(v0, N);
+  const float Rn = dot(_t7, abs(N));
+  const float dist = dot(_t9, N);
   if (((Rn < dist) || (dist < (-Rn)))) {
     return false;
   }
@@ -545,60 +569,60 @@ bool tri_tri_axis(const vec3_float A, const vec3_float a0, const vec3_float a1, 
   return (!((amax < bmin) | (bmax < amin)));
 }
 bool intersects_Triangle_Triangle(const Triangle* __restrict__ a, const Triangle* __restrict__ b) {
-  const vec3_float eA0 = ((*a).p1 - (*a).p0);
-  const vec3_float eA1 = ((*a).p2 - (*a).p1);
-  const vec3_float eA2 = ((*a).p0 - (*a).p2);
-  const vec3_float eB0 = ((*b).p1 - (*b).p0);
-  const vec3_float eB1 = ((*b).p2 - (*b).p1);
-  const vec3_float eB2 = ((*b).p0 - (*b).p2);
-  const vec3_float N0 = cross(eA0, eA1);
-  const vec3_float N1 = cross(eB0, eB1);
-  const vec3_float a0 = (*a).p0;
-  const vec3_float a1 = (*a).p1;
-  const vec3_float a2 = (*a).p2;
-  const vec3_float b0 = (*b).p0;
-  const vec3_float b1 = (*b).p1;
-  const vec3_float b2 = (*b).p2;
-  if ((!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2))) {
+  const vec3_float _t0 = (*a).p1;
+  const vec3_float _t1 = (*a).p0;
+  const vec3_float _t2 = (_t0 - _t1);
+  const vec3_float _t3 = (*a).p2;
+  const vec3_float _t5 = (_t3 - _t0);
+  const vec3_float _t8 = (_t1 - _t3);
+  const vec3_float _t9 = (*b).p1;
+  const vec3_float _t10 = (*b).p0;
+  const vec3_float _t11 = (_t9 - _t10);
+  const vec3_float _t12 = (*b).p2;
+  const vec3_float _t14 = (_t12 - _t9);
+  const vec3_float _t17 = (_t10 - _t12);
+  const vec3_float N0 = cross(_t2, _t5);
+  const vec3_float N1 = cross(_t11, _t14);
+  if ((!tri_tri_axis(N0, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(N1, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  const vec3_float E00 = cross(eA0, eB0);
-  const vec3_float E01 = cross(eA0, eB1);
-  const vec3_float E02 = cross(eA0, eB2);
-  const vec3_float E10 = cross(eA1, eB0);
-  const vec3_float E11 = cross(eA1, eB1);
-  const vec3_float E12 = cross(eA1, eB2);
-  const vec3_float E20 = cross(eA2, eB0);
-  const vec3_float E21 = cross(eA2, eB1);
-  const vec3_float E22 = cross(eA2, eB2);
-  if ((!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2))) {
+  const vec3_float E00 = cross(_t2, _t11);
+  const vec3_float E01 = cross(_t2, _t14);
+  const vec3_float E02 = cross(_t2, _t17);
+  const vec3_float E10 = cross(_t5, _t11);
+  const vec3_float E11 = cross(_t5, _t14);
+  const vec3_float E12 = cross(_t5, _t17);
+  const vec3_float E20 = cross(_t8, _t11);
+  const vec3_float E21 = cross(_t8, _t14);
+  const vec3_float E22 = cross(_t8, _t17);
+  if ((!tri_tri_axis(E00, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E01, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E02, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E10, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E11, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E12, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E20, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E21, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E22, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
   return true;
@@ -622,15 +646,15 @@ vec3_float reflect(const vec3_float v, const vec3_float n) {
   return (v - (vec3_float{(2.0f * dot(v, n))} * n));
 }
 float reflectance(const float cos_theta, const float refract_idx) {
-  const float r0 = ((1.0f - refract_idx) / (1.0f + refract_idx));
-  const float r1 = (r0 * r0);
+  const float _t2 = ((1.0f - refract_idx) / (1.0f + refract_idx));
+  const float r1 = (_t2 * _t2);
   return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.0f)));
 }
 vec3_float refract(const vec3_float uv, const vec3_float n, const float etai_over_etat) {
   const float cos_theta = min(dot((-uv), n), 1.0f);
-  const vec3_float r_out_perp = (vec3_float{etai_over_etat} * (uv + (vec3_float{cos_theta} * n)));
-  const vec3_float r_out_parallel = (vec3_float{(-sqrtf(abs((1.0f - reduce_add((r_out_perp * r_out_perp))))))} * n);
-  return (r_out_perp + r_out_parallel);
+  const vec3_float _t2 = (vec3_float{etai_over_etat} * (uv + (vec3_float{cos_theta} * n)));
+  const vec3_float r_out_parallel = (vec3_float{(-sqrtf(abs((1.0f - reduce_add((_t2 * _t2))))))} * n);
+  return (_t2 + r_out_parallel);
 }
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
   return _traverse_tree0(ray, triangles);

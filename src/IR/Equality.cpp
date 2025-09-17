@@ -52,6 +52,9 @@ std::optional<Cmp> compare_node_types(const T &a, const T &b) {
     }
 
     // Must both be defined.
+    if (a.same_as(b)) {
+        return Cmp::Equals;
+    }
 
     if (a.node_type() < b.node_type()) {
         return Cmp::Less;

@@ -28,6 +28,7 @@
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Lower/Yields.h"
+#include "Opt/CSE.h"
 #include "Opt/DCE.h"
 #include "Opt/Fusion.h"
 #include "Opt/Inline.h"
@@ -103,6 +104,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<RenamePointerToExpr>();
     manager.register_pass<Mutability>();
     // Optimizing pass registration.
+    manager.register_pass<opt::CSE>();
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Fusion>();
     manager.register_pass<opt::Inline>();
@@ -198,6 +200,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
     d.push_back(std::make_unique<opt::Simplify>());
+    d.push_back(std::make_unique<opt::CSE>());
     // TODO(cgyurgyik): Right now, we don't update functions that are "dead" in
     // the LowerRandom pass because we need to propagate through live functions
     // to get the analysis correct. Ideally we could run this DCE pass much

@@ -131,6 +131,7 @@ target_sources(
     src/Lower/VerifyLayouts.cpp
     src/Lower/VerifyOptions.cpp
     src/Lower/Yields.cpp
+    src/Opt/CSE.cpp
     src/Opt/DCE.cpp
     src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
@@ -221,6 +222,7 @@ target_sources(
     include/Lower/VerifyLayouts.h
     include/Lower/VerifyOptions.h
     include/Lower/Yields.h
+    include/Opt/CSE.h
     include/Opt/DCE.h
     include/Opt/Fusion.h
     include/Opt/Inline.h
