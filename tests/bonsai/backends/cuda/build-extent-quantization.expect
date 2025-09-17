@@ -98,23 +98,27 @@ __device__ __host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
 }
 
 __device__ __host__ bool intersects_AABB_Sphere(AABB* a, Sphere* s) {
-  float3 closest = max((*a).low, min((*s).center, (*a).high));
-  float3 d = ((*s).center - closest);
-  return (dot(d, d) <= ((*s).radius * (*s).radius));
+  float3 _t1 = (*s).center;
+  float3 _t6 = (_t1 - max((*a).low, min(_t1, (*a).high)));
+  float _t7 = (*s).radius;
+  return (dot(_t6, _t6) <= (_t7 * _t7));
 }
 
 __device__ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
-  AABB _lv2 = AABB{__fadd_rd((*spheres).wlow, float3{__fmul_rd((float)((*spheres).nodes[index].q_min >> 20) & 1023, (*spheres).bins.x), __fmul_rd((float)((*spheres).nodes[index].q_min >> 10) & 1023, (*spheres).bins.y), __fmul_rd((float)((*spheres).nodes[index].q_min >> 0) & 1023, (*spheres).bins.z)}), __fsub_ru((*spheres).whigh, float3{__fmul_rd((float)((*spheres).nodes[index].q_max >> 20) & 1023, (*spheres).bins.x), __fmul_rd((float)((*spheres).nodes[index].q_max >> 10) & 1023, (*spheres).bins.y), __fmul_rd((float)((*spheres).nodes[index].q_max >> 0) & 1023, (*spheres).bins.z)})};
-  if (intersects_AABB_AABB(a, (&_lv2))) {
-    if ((*spheres).nodes[index].nprims == 0u) {
+  Nodes _t24 = (*spheres).nodes[index];
+  float3 _t25 = (*spheres).bins;
+  AABB _lv0 = AABB{__fadd_rd((*spheres).wlow, float3{__fmul_rd((float)(_t24.q_min >> 20) & 1023, _t25.x), __fmul_rd((float)(_t24.q_min >> 10) & 1023, _t25.y), __fmul_rd((float)(_t24.q_min >> 0) & 1023, _t25.z)}), __fsub_ru((*spheres).whigh, float3{__fmul_rd((float)(_t24.q_max >> 20) & 1023, _t25.x), __fmul_rd((float)(_t24.q_max >> 10) & 1023, _t25.y), __fmul_rd((float)(_t24.q_max >> 0) & 1023, _t25.z)})};
+  if (intersects_AABB_AABB(a, (&_lv0))) {
+    uint16_t _t22 = _t24.nprims;
+    if (_t22 == 0u) {
       _recloop_func0(index + 1u, spheres, a, _dyn_alloc);
-      _recloop_func0(index + bonsai_reinterpret<Arm_Interior>((*spheres).nodes[index].split0on_nprims).offset, spheres, a, _dyn_alloc);
+      _recloop_func0(index + bonsai_reinterpret<Arm_Interior>(_t24.split0on_nprims).offset, spheres, a, _dyn_alloc);
     } else {
-      for (uint32_t _idx0 = bonsai_reinterpret<Arm_Leaf>((*spheres).nodes[index].split0on_nprims).poffset; _idx0 < (bonsai_reinterpret<Arm_Leaf>((*spheres).nodes[index].split0on_nprims).poffset + (uint32_t)(*spheres).nodes[index].nprims); _idx0 += 1u) {
-        Sphere _lv0 = (*spheres).primitives[_idx0];
-        Sphere _lv1 = (*spheres).primitives[_idx0];
-        if (intersects_AABB_Sphere(a, (&_lv1))) {
-          _dyn_alloc.push_back(_lv0);
+      uint32_t _t11 = bonsai_reinterpret<Arm_Leaf>(_t24.split0on_nprims).poffset;
+      for (uint32_t _idx0 = _t11; _idx0 < (_t11 + (uint32_t)_t22); _idx0 += 1u) {
+        Sphere _t4 = (*spheres).primitives[_idx0];
+        if (intersects_AABB_Sphere(a, (&_t4))) {
+          _dyn_alloc.push_back(_t4);
         }
       }
     }

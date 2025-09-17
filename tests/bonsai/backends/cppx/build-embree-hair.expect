@@ -126,14 +126,27 @@ float __prod_diff_f32(const float a, const float b, const float c, const float d
 float __sqlen_f32(const vec3_float v) {
   return reduce_add((v * v));
 }
+vec3_vec4_float dequantize_orientation(const vec3_vec4_int8_t x) {
+  const vec4_int8_t _t0 = x[0];
+  const vec4_int8_t _t4 = x[1];
+  const vec4_int8_t _t8 = x[2];
+  return vec3_vec4_float{vec4_float{((float)(_t0[0]) / 127.0f), ((float)(_t0[1]) / 127.0f), ((float)(_t0[2]) / 127.0f), ((float)(_t0[3]) / 127.0f)}, vec4_float{((float)(_t4[0]) / 127.0f), ((float)(_t4[1]) / 127.0f), ((float)(_t4[2]) / 127.0f), ((float)(_t4[3]) / 127.0f)}, vec4_float{((float)(_t8[0]) / 127.0f), ((float)(_t8[1]) / 127.0f), ((float)(_t8[2]) / 127.0f), ((float)(_t8[3]) / 127.0f)}};
+}
+float gamma(const int32_t n) {
+  const float _t1 = ((float)(n) * 0.00000006f);
+  return (_t1 / (1.0f - _t1));
+}
 std::optional<FInterval> intersectsp_ray_aabb(const Ray* __restrict__ r, const AABB* __restrict__ b) {
-  const vec3_float invDir = (vec3_float{1.0f} / (*r).d);
-  const vec3_bool dirIsNeg = (invDir < vec3_float{0.0f});
-  const vec3_float low_parts = select(dirIsNeg, (*b).high, (*b).low);
-  const vec3_float high_parts = select(dirIsNeg, (*b).low, (*b).high);
-  vec3_float tMin = ((low_parts - (*r).o) * invDir);
-  vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax *= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  const vec3_float _t1 = (vec3_float{1.0f} / (*r).d);
+  const vec3_bool dirIsNeg = (_t1 < vec3_float{0.0f});
+  const vec3_float _t2 = (*b).high;
+  const vec3_float _t3 = (*b).low;
+  const vec3_float low_parts = select(dirIsNeg, _t2, _t3);
+  const vec3_float high_parts = select(dirIsNeg, _t3, _t2);
+  const vec3_float _t6 = (*r).o;
+  vec3_float tMin = ((low_parts - _t6) * _t1);
+  vec3_float tMax = ((high_parts - _t6) * _t1);
+  tMax *= (1.0f + (2.0f * gamma(3)));
   if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
     return std::nullopt;
   }
@@ -155,36 +168,51 @@ float distmin_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) {
   return (-std::numeric_limits<float>::infinity());
 }
 std::optional<FInterval> intersectsp_ray_obb(const Ray* __restrict__ r, const OBB* __restrict__ b) {
-  const float ox = (((((*b).orientation[0][0] * (*r).o[0]) + ((*b).orientation[0][1] * (*r).o[1])) + ((*b).orientation[0][2] * (*r).o[2])) + (*b).orientation[0][3]);
-  const float oy = (((((*b).orientation[1][0] * (*r).o[0]) + ((*b).orientation[1][1] * (*r).o[1])) + ((*b).orientation[1][2] * (*r).o[2])) + (*b).orientation[1][3]);
-  const float oz = (((((*b).orientation[2][0] * (*r).o[0]) + ((*b).orientation[2][1] * (*r).o[1])) + ((*b).orientation[2][2] * (*r).o[2])) + (*b).orientation[2][3]);
-  const float dx = ((((*b).orientation[0][0] * (*r).d[0]) + ((*b).orientation[0][1] * (*r).d[1])) + ((*b).orientation[0][2] * (*r).d[2]));
-  const float dy = ((((*b).orientation[1][0] * (*r).d[0]) + ((*b).orientation[1][1] * (*r).d[1])) + ((*b).orientation[1][2] * (*r).d[2]));
-  const float dz = ((((*b).orientation[2][0] * (*r).d[0]) + ((*b).orientation[2][1] * (*r).d[1])) + ((*b).orientation[2][2] * (*r).d[2]));
-  const float inv_dx = (1.0f / dx);
-  const float inv_dy = (1.0f / dy);
-  const float inv_dz = (1.0f / dz);
-  const float t0x = ((-0.0f) * inv_dx);
-  const float t1x = ((1.0f - ox) * inv_dx);
-  const float tmin_x = min(t0x, t1x);
-  const float tmax_x = max(t0x, t1x);
-  const float t0y = ((-0.0f) * inv_dy);
-  const float t1y = ((1.0f - oy) * inv_dy);
-  const float tmin_y = min(t0y, t1y);
-  const float tmax_y = max(t0y, t1y);
-  const float t0z = ((-0.0f) * inv_dz);
-  const float t1z = ((1.0f - oz) * inv_dz);
-  const float tmin_z = min(t0z, t1z);
-  const float tmax_z = max(t0z, t1z);
-  const float tmin = max(max(tmin_x, tmin_y), tmin_z);
-  const float tmax = min(min(tmax_x, tmax_y), tmax_z);
-  if ((tmax < tmin)) {
+  const vec3_vec4_float _t0 = (*b).orientation;
+  const vec4_float _t1 = _t0[0];
+  const float _t2 = _t1[0];
+  const vec3_float _t3 = (*r).o;
+  const float _t4 = _t3[0];
+  const float _t8 = _t1[1];
+  const float _t10 = _t3[1];
+  const float _t15 = _t1[2];
+  const float _t17 = _t3[2];
+  const vec4_float _t25 = _t0[1];
+  const float _t26 = _t25[0];
+  const float _t32 = _t25[1];
+  const float _t39 = _t25[2];
+  const vec4_float _t49 = _t0[2];
+  const float _t50 = _t49[0];
+  const float _t56 = _t49[1];
+  const float _t63 = _t49[2];
+  const vec3_float _t75 = (*r).d;
+  const float _t76 = _t75[0];
+  const float _t82 = _t75[1];
+  const float _t89 = _t75[2];
+  const float inv_dx = (1.0f / (((_t2 * _t76) + (_t8 * _t82)) + (_t15 * _t89)));
+  const float inv_dy = (1.0f / (((_t26 * _t76) + (_t32 * _t82)) + (_t39 * _t89)));
+  const float inv_dz = (1.0f / (((_t50 * _t76) + (_t56 * _t82)) + (_t63 * _t89)));
+  const float _t132 = ((-0.0f) * inv_dx);
+  const float _t134 = ((1.0f - ((((_t2 * _t4) + (_t8 * _t10)) + (_t15 * _t17)) + _t1[3])) * inv_dx);
+  const float tmin_x = min(_t132, _t134);
+  const float tmax_x = max(_t132, _t134);
+  const float _t135 = ((-0.0f) * inv_dy);
+  const float _t137 = ((1.0f - ((((_t26 * _t4) + (_t32 * _t10)) + (_t39 * _t17)) + _t25[3])) * inv_dy);
+  const float tmin_y = min(_t135, _t137);
+  const float tmax_y = max(_t135, _t137);
+  const float _t138 = ((-0.0f) * inv_dz);
+  const float _t140 = ((1.0f - ((((_t50 * _t4) + (_t56 * _t10)) + (_t63 * _t17)) + _t49[3])) * inv_dz);
+  const float tmin_z = min(_t138, _t140);
+  const float tmax_z = max(_t138, _t140);
+  const float _t142 = max(max(tmin_x, tmin_y), tmin_z);
+  const float _t144 = min(min(tmax_x, tmax_y), tmax_z);
+  if ((_t144 < _t142)) {
     return std::nullopt;
   }
-  if ((tmax < 0.0f)) {
+  if ((_t144 < 0.0f)) {
     return std::nullopt;
   }
-  return (std::optional<FInterval>)(FInterval{.low=max(tmin, 0.0f), .high=tmax});
+  return (std::optional<FInterval>)(FInterval{.low=max(_t142, 0.0f), .high=_t144});
 }
 float distmin_Ray_OBB(const Ray* __restrict__ r, const OBB* __restrict__ b) {
   const std::optional<FInterval> interval = intersectsp_ray_obb(r, b);
@@ -195,66 +223,80 @@ float distmin_Ray_OBB(const Ray* __restrict__ r, const OBB* __restrict__ b) {
   return (-std::numeric_limits<float>::infinity());
 }
 vec3_float cross_(const vec3_float v0, const vec3_float v1) {
-  return vec3_float{__prod_diff_f32(v0[1], v1[2], v0[2], v1[1]), __prod_diff_f32(v0[2], v1[0], v0[0], v1[2]), __prod_diff_f32(v0[0], v1[1], v0[1], v1[0])};
+  const float _t0 = v0[1];
+  const float _t1 = v1[2];
+  const float _t2 = v0[2];
+  const float _t3 = v1[1];
+  const float _t5 = v1[0];
+  const float _t6 = v0[0];
+  return vec3_float{__prod_diff_f32(_t0, _t1, _t2, _t3), __prod_diff_f32(_t2, _t5, _t6, _t1), __prod_diff_f32(_t6, _t3, _t0, _t5)};
 }
 std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* __restrict__ ray, const Triangle* __restrict__ tri) {
-  if (reduce_add((cross_(((*tri).p2 - (*tri).p0), ((*tri).p1 - (*tri).p0)) * cross_(((*tri).p2 - (*tri).p0), ((*tri).p1 - (*tri).p0)))) == 0.0f) {
+  const vec3_float _t0 = (*tri).p2;
+  const vec3_float _t1 = (*tri).p0;
+  const vec3_float _t2 = (*tri).p1;
+  if (reduce_add((cross_((_t0 - _t1), (_t2 - _t1)) * cross_((_t0 - _t1), (_t2 - _t1)))) == 0.0f) {
     return std::nullopt;
   }
-  vec3_float p0t = ((*tri).p0 - (*ray).o);
-  vec3_float p1t = ((*tri).p1 - (*ray).o);
-  vec3_float p2t = ((*tri).p2 - (*ray).o);
-  const uint32_t kz = reduce_idxmax(abs((*ray).d));
+  const vec3_float _t5 = (*ray).o;
+  vec3_float p0t = (_t1 - _t5);
+  vec3_float p1t = (_t2 - _t5);
+  vec3_float p2t = (_t0 - _t5);
+  const vec3_float _t10 = (*ray).d;
+  const uint32_t kz = reduce_idxmax(abs(_t10));
   const uint32_t kx = ((kz + 1) % 3);
   const uint32_t ky = ((kx + 1) % 3);
-  const vec3_float d = shuffle((*ray).d, {kx, ky, kz});
+  const vec3_float d = shuffle(_t10, {kx, ky, kz});
   p0t = shuffle(p0t, {kx, ky, kz});
   p1t = shuffle(p1t, {kx, ky, kz});
   p2t = shuffle(p2t, {kx, ky, kz});
-  const float Sx = ((-d[0]) / d[2]);
-  const float Sy = ((-d[1]) / d[2]);
-  const float Sz = (1.0f / d[2]);
-  p0t[0] += (Sx * p0t[2]);
-  p0t[1] += (Sy * p0t[2]);
-  p1t[0] += (Sx * p1t[2]);
-  p1t[1] += (Sy * p1t[2]);
-  p2t[0] += (Sx * p2t[2]);
-  p2t[1] += (Sy * p2t[2]);
-  const float e0 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
-  const float e1 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
-  const float e2 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
-  if ((((e0 < 0.0f) || (e1 < 0.0f)) || (e2 < 0.0f))) {
-    if ((((0.0f < e0) || (0.0f < e1)) || (0.0f < e2))) {
+  const float _t13 = d[2];
+  const float _t14 = ((-d[0]) / _t13);
+  const float _t17 = ((-d[1]) / _t13);
+  const float Sz = (1.0f / _t13);
+  p0t[0] += (_t14 * p0t[2]);
+  p0t[1] += (_t17 * p0t[2]);
+  p1t[0] += (_t14 * p1t[2]);
+  p1t[1] += (_t17 * p1t[2]);
+  p2t[0] += (_t14 * p2t[2]);
+  p2t[1] += (_t17 * p2t[2]);
+  const float _t20 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
+  const float _t21 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
+  const float _t22 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
+  if ((((_t20 < 0.0f) || (_t21 < 0.0f)) || (_t22 < 0.0f))) {
+    if ((((0.0f < _t20) || (0.0f < _t21)) || (0.0f < _t22))) {
       return std::nullopt;
     }
   }
-  const float det = ((e0 + e1) + e2);
-  if (det == 0.0f) {
+  const float _t24 = ((_t20 + _t21) + _t22);
+  if (_t24 == 0.0f) {
     return std::nullopt;
   }
   p0t[2] *= Sz;
   p1t[2] *= Sz;
   p2t[2] *= Sz;
-  const float tScaled = (((e0 * p0t[2]) + (e1 * p1t[2])) + (e2 * p2t[2]));
-  if (((det < 0.0f) && ((0.0f <= tScaled) || (tScaled < ((*ray).tmax * det))))) {
+  const float tScaled = (((_t20 * p0t[2]) + (_t21 * p1t[2])) + (_t22 * p2t[2]));
+  if (((_t24 < 0.0f) && ((0.0f <= tScaled) || (tScaled < ((*ray).tmax * _t24))))) {
     return std::nullopt;
-  } else if (((0.0f < det) && ((tScaled <= 0.0f) || (((*ray).tmax * det) < tScaled)))) {
+  } else if (((0.0f < _t24) && ((tScaled <= 0.0f) || (((*ray).tmax * _t24) < tScaled)))) {
     return std::nullopt;
   }
-  const float invDet = (1.0f / det);
-  const float b0 = (e0 * invDet);
-  const float b1 = (e1 * invDet);
-  const float b2 = (e2 * invDet);
+  const float invDet = (1.0f / _t24);
+  const float b0 = (_t20 * invDet);
+  const float b1 = (_t21 * invDet);
+  const float b2 = (_t22 * invDet);
   const float t = (tScaled * invDet);
   const float maxZt = reduce_max(abs(vec3_float{p0t[2], p1t[2], p2t[2]}));
-  const float deltaZ = ((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxZt);
+  const float _t25 = gamma(3);
+  const float deltaZ = (_t25 * maxZt);
   const float maxXt = reduce_max(abs(vec3_float{p0t[0], p1t[0], p2t[0]}));
   const float maxYt = reduce_max(abs(vec3_float{p0t[1], p1t[1], p2t[1]}));
-  const float deltaX = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxXt + maxZt));
-  const float deltaY = ((((float)(5) * 0.00000006f) / (1.0f - ((float)(5) * 0.00000006f))) * (maxYt + maxZt));
-  const float deltaE = (2.0f * (((((((float)(2) * 0.00000006f) / (1.0f - ((float)(2) * 0.00000006f))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
-  const float maxE = reduce_max(abs(vec3_float{e0, e1, e2}));
-  const float deltaT = ((3.0f * (((((((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
+  const float _t26 = gamma(5);
+  const float deltaX = (_t26 * (maxXt + maxZt));
+  const float deltaY = (_t26 * (maxYt + maxZt));
+  const float deltaE = (2.0f * ((((gamma(2) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  const float maxE = reduce_max(abs(vec3_float{_t20, _t21, _t22}));
+  const float deltaT = ((3.0f * ((((_t25 * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
   if ((t <= deltaT)) {
     return std::nullopt;
   }
@@ -287,72 +329,71 @@ bool intersects_Ray_OBB(const Ray* __restrict__ r, const OBB* __restrict__ b) {
 }
 void _recloop_func0(const uint64_t index, const Ray* __restrict__ ray, const Triangles* __restrict__ triangles, std::tuple<float, Triangle>* __restrict__ _best0) {
   if (index[0:2] == 2) {
-    const AABB _lv1 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[0], .high=(*triangles).AABBs[index[4:63]].aabb_high[0]};
-    if (intersects_Ray_AABB(ray, (&_lv1))) {
-      const AABB _lv0 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[0], .high=(*triangles).AABBs[index[4:63]].aabb_high[0]};
-      if ((distmin_Ray_AABB(ray, (&_lv0)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).AABBs[index[4:63]].aabb_children[0], ray, triangles, _best0);
+    const AABBs _t13 = (*triangles).AABBs[index[4:63]];
+    const vec4_vec3_float _t14 = _t13.aabb_low;
+    const vec4_vec3_float _t18 = _t13.aabb_high;
+    const AABB _t20 = AABB{.low=_t14[0], .high=_t18[0]};
+    if (intersects_Ray_AABB(ray, (&_t20))) {
+      if ((distmin_Ray_AABB(ray, (&_t20)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t13.aabb_children[0], ray, triangles, _best0);
       }
     }
-    const AABB _lv3 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[1], .high=(*triangles).AABBs[index[4:63]].aabb_high[1]};
-    if (intersects_Ray_AABB(ray, (&_lv3))) {
-      const AABB _lv2 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[1], .high=(*triangles).AABBs[index[4:63]].aabb_high[1]};
-      if ((distmin_Ray_AABB(ray, (&_lv2)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).AABBs[index[4:63]].aabb_children[1], ray, triangles, _best0);
+    const AABB _t41 = AABB{.low=_t14[1], .high=_t18[1]};
+    if (intersects_Ray_AABB(ray, (&_t41))) {
+      if ((distmin_Ray_AABB(ray, (&_t41)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t13.aabb_children[1], ray, triangles, _best0);
       }
     }
-    const AABB _lv5 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[2], .high=(*triangles).AABBs[index[4:63]].aabb_high[2]};
-    if (intersects_Ray_AABB(ray, (&_lv5))) {
-      const AABB _lv4 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[2], .high=(*triangles).AABBs[index[4:63]].aabb_high[2]};
-      if ((distmin_Ray_AABB(ray, (&_lv4)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).AABBs[index[4:63]].aabb_children[2], ray, triangles, _best0);
+    const AABB _t62 = AABB{.low=_t14[2], .high=_t18[2]};
+    if (intersects_Ray_AABB(ray, (&_t62))) {
+      if ((distmin_Ray_AABB(ray, (&_t62)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t13.aabb_children[2], ray, triangles, _best0);
       }
     }
-    const AABB _lv7 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[3], .high=(*triangles).AABBs[index[4:63]].aabb_high[3]};
-    if (intersects_Ray_AABB(ray, (&_lv7))) {
-      const AABB _lv6 = AABB{.low=(*triangles).AABBs[index[4:63]].aabb_low[3], .high=(*triangles).AABBs[index[4:63]].aabb_high[3]};
-      if ((distmin_Ray_AABB(ray, (&_lv6)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).AABBs[index[4:63]].aabb_children[3], ray, triangles, _best0);
+    const AABB _t83 = AABB{.low=_t14[3], .high=_t18[3]};
+    if (intersects_Ray_AABB(ray, (&_t83))) {
+      if ((distmin_Ray_AABB(ray, (&_t83)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t13.aabb_children[3], ray, triangles, _best0);
       }
     }
   } else if (index[0:2] == 3) {
-    const OBB _lv9 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[0], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[0], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-    if (intersects_Ray_OBB(ray, (&_lv9))) {
-      const OBB _lv8 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[0], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[0], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-      if ((distmin_Ray_OBB(ray, (&_lv8)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).OBBs[index[4:63]].obb_children[0], ray, triangles, _best0);
+    const OBBs _t115 = (*triangles).OBBs[index[4:63]];
+    const vec3_float _t116 = _t115.mlo;
+    const vec3_float _t119 = _t115.mex;
+    const vec4_vec3_float _t123 = vec4_vec3_float{(_t116 + (vec3_float{((float)(_t115.qlo[0]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qlo[1]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qlo[2]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qlo[3]) / 255.0f)} * _t119))};
+    const vec4_vec3_float _t134 = vec4_vec3_float{(_t116 + (vec3_float{((float)(_t115.qhi[0]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qhi[1]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qhi[2]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qhi[3]) / 255.0f)} * _t119))};
+    const vec3_vec4_float _t139 = dequantize_orientation(_t115.qorientation);
+    const OBB _t140 = OBB{.obb_low=_t123[0], .obb_high=_t134[0], .orientation=_t139};
+    if (intersects_Ray_OBB(ray, (&_t140))) {
+      if ((distmin_Ray_OBB(ray, (&_t140)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t115.obb_children[0], ray, triangles, _best0);
       }
     }
-    const OBB _lv11 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[1], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[1], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-    if (intersects_Ray_OBB(ray, (&_lv11))) {
-      const OBB _lv10 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[1], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[1], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-      if ((distmin_Ray_OBB(ray, (&_lv10)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).OBBs[index[4:63]].obb_children[1], ray, triangles, _best0);
+    const OBB _t197 = OBB{.obb_low=_t123[1], .obb_high=_t134[1], .orientation=_t139};
+    if (intersects_Ray_OBB(ray, (&_t197))) {
+      if ((distmin_Ray_OBB(ray, (&_t197)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t115.obb_children[1], ray, triangles, _best0);
       }
     }
-    const OBB _lv13 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[2], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[2], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-    if (intersects_Ray_OBB(ray, (&_lv13))) {
-      const OBB _lv12 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[2], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[2], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-      if ((distmin_Ray_OBB(ray, (&_lv12)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).OBBs[index[4:63]].obb_children[2], ray, triangles, _best0);
+    const OBB _t254 = OBB{.obb_low=_t123[2], .obb_high=_t134[2], .orientation=_t139};
+    if (intersects_Ray_OBB(ray, (&_t254))) {
+      if ((distmin_Ray_OBB(ray, (&_t254)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t115.obb_children[2], ray, triangles, _best0);
       }
     }
-    const OBB _lv15 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[3], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[3], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-    if (intersects_Ray_OBB(ray, (&_lv15))) {
-      const OBB _lv14 = OBB{.obb_low=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qlo[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[3], .obb_high=vec4_vec3_float{((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[0]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[1]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[2]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex)), ((*triangles).OBBs[index[4:63]].mlo + (vec3_float{((float)((*triangles).OBBs[index[4:63]].qhi[3]) / 255.0f)} * (*triangles).OBBs[index[4:63]].mex))}[3], .orientation=vec3_vec4_float{vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[0][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[0][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[1][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[1][3]) / 127.0f)}, vec4_float{((float)((*triangles).OBBs[index[4:63]].qorientation[2][0]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][1]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][2]) / 127.0f), ((float)((*triangles).OBBs[index[4:63]].qorientation[2][3]) / 127.0f)}}};
-      if ((distmin_Ray_OBB(ray, (&_lv14)) < std::get<0>((*_best0)))) {
-        _recloop_func0((*triangles).OBBs[index[4:63]].obb_children[3], ray, triangles, _best0);
+    const OBB _t311 = OBB{.obb_low=_t123[3], .obb_high=_t134[3], .orientation=_t139};
+    if (intersects_Ray_OBB(ray, (&_t311))) {
+      if ((distmin_Ray_OBB(ray, (&_t311)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t115.obb_children[3], ray, triangles, _best0);
       }
     }
   } else {
     for (uint64_t _idx0 = index[4:63]; _idx0 < (index[4:63] + (uint64_t)((uint8_t)((index[1:4] + 1)))); _idx0 += 1) {
-      const Triangle _lv19 = (*triangles).primitives[_idx0];
-      if (intersectsp_ray_tri(ray, (&_lv19)).has_value()) {
-        const Triangle _lv18 = (*triangles).primitives[_idx0];
-        if ((distmin_Ray_Triangle(ray, (&_lv18)) < std::get<0>((*_best0)))) {
-          const Triangle _lv16 = (*triangles).primitives[_idx0];
-          const Triangle _lv17 = (*triangles).primitives[_idx0];
-          (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv16)), _lv17});
+      const Triangle _t321 = (*triangles).primitives[_idx0];
+      if (intersectsp_ray_tri(ray, (&_t321)).has_value()) {
+        const float _t319 = distmin_Ray_Triangle(ray, (&_t321));
+        if ((_t319 < std::get<0>((*_best0)))) {
+          (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t319, _t321});
         }
       }
     }
@@ -366,8 +407,8 @@ std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Trian
 }
 bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, const vec3_float v1, const vec3_float v2) {
   const float R = dot(extents, abs(A));
-  const vec3_float P = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
-  return reduce_and(((P <= vec3_float{R}) & (vec3_float{(-R)} <= P)));
+  const vec3_float _t3 = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
+  return reduce_and(((_t3 <= vec3_float{R}) & (vec3_float{(-R)} <= _t3)));
 }
 vec3_float calculate_merged_extent(const vec4_vec3_float low, const vec4_vec3_float high) {
   const vec3_float mlo = min(low[0], min(low[1], min(low[2], low[3])));
@@ -399,6 +440,12 @@ int8_t to_i8(const float f) {
   const float f2 = max(-128.0f, min(f1, 127.0f));
   return (int8_t)(f2);
 }
+vec3_vec4_int8_t quantize_orientation(const vec3_vec4_float x) {
+  const vec4_float _t0 = x[0];
+  const vec4_float _t4 = x[1];
+  const vec4_float _t8 = x[2];
+  return vec3_vec4_int8_t{vec4_int8_t{to_i8((_t0[0] * 127.0f)), to_i8((_t0[1] * 127.0f)), to_i8((_t0[2] * 127.0f)), to_i8((_t0[3] * 127.0f))}, vec4_int8_t{to_i8((_t4[0] * 127.0f)), to_i8((_t4[1] * 127.0f)), to_i8((_t4[2] * 127.0f)), to_i8((_t4[3] * 127.0f))}, vec4_int8_t{to_i8((_t8[0] * 127.0f)), to_i8((_t8[1] * 127.0f)), to_i8((_t8[2] * 127.0f)), to_i8((_t8[3] * 127.0f))}};
+}
 uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ AABBs_index, size_t* __restrict__ OBBs_index, size_t* __restrict__ primitives_index) {
   return std::visit(overloaded{
     [&](const AABBNode& node) {
@@ -423,7 +470,7 @@ uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
       (*ST).OBBs[this_index].mex = calculate_merged_extent((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qlo = quantize_bounds_low((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qhi = quantize_bounds_high((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
-      (*ST).OBBs[this_index].qorientation = vec3_vec4_int8_t{vec4_int8_t{to_i8((node.orientation[0][0] * 127.0f)), to_i8((node.orientation[0][1] * 127.0f)), to_i8((node.orientation[0][2] * 127.0f)), to_i8((node.orientation[0][3] * 127.0f))}, vec4_int8_t{to_i8((node.orientation[1][0] * 127.0f)), to_i8((node.orientation[1][1] * 127.0f)), to_i8((node.orientation[1][2] * 127.0f)), to_i8((node.orientation[1][3] * 127.0f))}, vec4_int8_t{to_i8((node.orientation[2][0] * 127.0f)), to_i8((node.orientation[2][1] * 127.0f)), to_i8((node.orientation[2][2] * 127.0f)), to_i8((node.orientation[2][3] * 127.0f))}};
+      (*ST).OBBs[this_index].qorientation = quantize_orientation(node.orientation);
       for (int32_t __r = 0; __r < 4; __r += 1) {
         const uint64_t obb_children_index = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
         (*ST).OBBs[this_index].obb_children[__r] = obb_children_index;
@@ -503,12 +550,12 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* __restrict__ pt, co
       return std::tuple<Point, Point>{Point{.vec=b}, Point{.vec=vec3_float{0.0f, 1.0f, 0.0f}}};
     }
   }
-  const float vc = ((d1 * d4) - (d3 * d2));
-  if ((vc <= 0.0f)) {
+  const float _t2 = ((d1 * d4) - (d3 * d2));
+  if ((_t2 <= 0.0f)) {
     if ((0.0f <= d1)) {
       if ((d3 <= 0.0f)) {
-        const float v0 = (d1 / (d1 - d3));
-        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{v0} * ab))}, Point{.vec=vec3_float{(1.0f - v0), v0, 0.0f}}};
+        const float _t4 = (d1 / (d1 - d3));
+        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{_t4} * ab))}, Point{.vec=vec3_float{(1.0f - _t4), _t4, 0.0f}}};
       }
     }
   }
@@ -520,28 +567,30 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* __restrict__ pt, co
       return std::tuple<Point, Point>{Point{.vec=c}, Point{.vec=vec3_float{0.0f, 0.0f, 1.0f}}};
     }
   }
-  const float vb = ((d5 * d2) - (d1 * d6));
-  if ((vb <= 0.0f)) {
+  const float _t7 = ((d5 * d2) - (d1 * d6));
+  if ((_t7 <= 0.0f)) {
     if ((0.0f <= d2)) {
       if ((d6 <= 0.0f)) {
-        const float w0 = (d2 / (d2 - d6));
-        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{w0} * ac))}, Point{.vec=vec3_float{(1.0f - w0), 0.0f, w0}}};
+        const float _t9 = (d2 / (d2 - d6));
+        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{_t9} * ac))}, Point{.vec=vec3_float{(1.0f - _t9), 0.0f, _t9}}};
       }
     }
   }
-  const float va = ((d3 * d6) - (d5 * d4));
-  if ((va <= 0.0f)) {
-    if ((0.0f <= (d4 - d3))) {
-      if ((0.0f <= (d5 - d6))) {
-        const float w1 = ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
-        return std::tuple<Point, Point>{Point{.vec=(b + (vec3_float{w1} * (c - b)))}, Point{.vec=vec3_float{0.0f, (1.0f - w1), w1}}};
+  const float _t12 = ((d3 * d6) - (d5 * d4));
+  if ((_t12 <= 0.0f)) {
+    const float _t19 = (d4 - d3);
+    if ((0.0f <= _t19)) {
+      const float _t18 = (d5 - d6);
+      if ((0.0f <= _t18)) {
+        const float _t17 = (_t19 / (_t19 + _t18));
+        return std::tuple<Point, Point>{Point{.vec=(b + (vec3_float{_t17} * (c - b)))}, Point{.vec=vec3_float{0.0f, (1.0f - _t17), _t17}}};
       }
     }
   }
-  const float denom = (1.0f / ((va + vb) + vc));
-  const float v = (vb * denom);
-  const float w = (vc * denom);
-  const float u = (va * denom);
+  const float _t22 = (1.0f / ((_t12 + _t7) + _t2));
+  const float v = (_t7 * _t22);
+  const float w = (_t2 * _t22);
+  const float u = (_t12 * _t22);
   return std::tuple<Point, Point>{Point{.vec=((a + (ab * vec3_float{v})) + (ac * vec3_float{w}))}, Point{.vec=vec3_float{u, v, w}}};
 }
 float degrees_to_radians(const float degrees) {
@@ -549,9 +598,6 @@ float degrees_to_radians(const float degrees) {
 }
 vec4_vec3_float dequantize_bounds(const vec3_float mlo, const vec3_float mex, const vec4_vec3_uint8_t q) {
   return vec4_vec3_float{(mlo + (vec3_float{((float)(q[0]) / 255.0f)} * mex)), (mlo + (vec3_float{((float)(q[1]) / 255.0f)} * mex)), (mlo + (vec3_float{((float)(q[2]) / 255.0f)} * mex)), (mlo + (vec3_float{((float)(q[3]) / 255.0f)} * mex))};
-}
-vec3_vec4_float dequantize_orientation(const vec3_vec4_int8_t x) {
-  return vec3_vec4_float{vec4_float{((float)(x[0][0]) / 127.0f), ((float)(x[0][1]) / 127.0f), ((float)(x[0][2]) / 127.0f), ((float)(x[0][3]) / 127.0f)}, vec4_float{((float)(x[1][0]) / 127.0f), ((float)(x[1][1]) / 127.0f), ((float)(x[1][2]) / 127.0f), ((float)(x[1][3]) / 127.0f)}, vec4_float{((float)(x[2][0]) / 127.0f), ((float)(x[2][1]) / 127.0f), ((float)(x[2][2]) / 127.0f), ((float)(x[2][3]) / 127.0f)}};
 }
 float distmax_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) {
   const std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
@@ -562,18 +608,19 @@ float distmax_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) {
   return std::numeric_limits<float>::infinity();
 }
 std::optional<FInterval> intersectsp_ray_sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s) {
-  const vec3_float oc = ((*s).center - (*r).o);
-  const float a = reduce_add(((*r).d * (*r).d));
-  const float h = dot((*r).d, oc);
-  const float c = (reduce_add((oc * oc)) - ((*s).radius * (*s).radius));
-  const float disc = ((h * h) - (a * c));
-  if ((disc < 0.0f)) {
+  const vec3_float _t2 = ((*s).center - (*r).o);
+  const vec3_float _t3 = (*r).d;
+  const float a = reduce_add((_t3 * _t3));
+  const float _t7 = dot(_t3, _t2);
+  const float _t9 = (*s).radius;
+  const float _t15 = ((_t7 * _t7) - (a * (reduce_add((_t2 * _t2)) - (_t9 * _t9))));
+  if ((_t15 < 0.0f)) {
     return std::nullopt;
   }
-  const float sqrtd = sqrtf(disc);
-  const float root0 = ((h - sqrtd) / a);
-  const float root1 = ((h + sqrtd) / a);
-  const FInterval interval = FInterval{.low=min(root0, root1), .high=max(root0, root1)};
+  const float sqrtd = sqrtf(_t15);
+  const float _t17 = ((_t7 - sqrtd) / a);
+  const float _t19 = ((_t7 + sqrtd) / a);
+  const FInterval interval = FInterval{.low=min(_t17, _t19), .high=max(_t17, _t19)};
   return (std::optional<FInterval>)(interval);
 }
 float distmax_Ray_Sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s) {
@@ -608,31 +655,31 @@ float distmin_Ray_Sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s
   }
   return (-std::numeric_limits<float>::infinity());
 }
-float gamma(const int32_t n) {
-  return (((float)(n) * 0.00000006f) / (1.0f - ((float)(n) * 0.00000006f)));
-}
 bool intersects_AABB_AABB(const AABB* __restrict__ a, const AABB* __restrict__ b) {
   const vec3_float low = max((*a).low, (*b).low);
   const vec3_float high = min((*a).high, (*b).high);
   return reduce_and((low <= high));
 }
 bool intersects_AABB_Sphere(const AABB* __restrict__ a, const Sphere* __restrict__ s) {
-  const vec3_float closest = max((*a).low, min((*s).center, (*a).high));
-  const vec3_float d = ((*s).center - closest);
-  return (dot(d, d) <= ((*s).radius * (*s).radius));
+  const vec3_float _t1 = (*s).center;
+  const vec3_float _t6 = (_t1 - max((*a).low, min(_t1, (*a).high)));
+  const float _t7 = (*s).radius;
+  return (dot(_t6, _t6) <= (_t7 * _t7));
 }
 bool intersects_AABB_Triangle(const AABB* __restrict__ a, const Triangle* __restrict__ b) {
-  const vec3_float center = (((*a).low + (*a).high) * vec3_float{0.50000000f});
-  const vec3_float extents = (((*a).high - (*a).low) * vec3_float{0.50000000f});
-  const vec3_float v0 = ((*b).p0 - center);
-  const vec3_float v1 = ((*b).p1 - center);
-  const vec3_float v2 = ((*b).p2 - center);
-  const vec3_float f0 = (v1 - v0);
-  const vec3_float f1 = (v2 - v1);
-  const vec3_float f2 = (v0 - v2);
-  const vec3_float tri_min = min(min(v0, v1), v2);
-  const vec3_float tri_max = max(max(v0, v1), v2);
-  if ((!reduce_and(((tri_min <= extents) & ((-extents) <= tri_max))))) {
+  const vec3_float _t0 = (*a).low;
+  const vec3_float _t1 = (*a).high;
+  const vec3_float _t3 = ((_t0 + _t1) * vec3_float{0.50000000f});
+  const vec3_float _t7 = ((_t1 - _t0) * vec3_float{0.50000000f});
+  const vec3_float _t9 = ((*b).p0 - _t3);
+  const vec3_float _t11 = ((*b).p1 - _t3);
+  const vec3_float _t13 = ((*b).p2 - _t3);
+  const vec3_float f0 = (_t11 - _t9);
+  const vec3_float f1 = (_t13 - _t11);
+  const vec3_float f2 = (_t9 - _t13);
+  const vec3_float tri_min = min(min(_t9, _t11), _t13);
+  const vec3_float tri_max = max(max(_t9, _t11), _t13);
+  if ((!reduce_and(((tri_min <= _t7) & ((-_t7) <= tri_max))))) {
     return false;
   }
   const vec3_float A0 = cross(f0, vec3_float{1.0f, 0.0f, 0.0f});
@@ -644,36 +691,36 @@ bool intersects_AABB_Triangle(const AABB* __restrict__ a, const Triangle* __rest
   const vec3_float A6 = cross(f2, vec3_float{1.0f, 0.0f, 0.0f});
   const vec3_float A7 = cross(f2, vec3_float{0.0f, 1.0f, 0.0f});
   const vec3_float A8 = cross(f2, vec3_float{0.0f, 0.0f, 1.0f});
-  if ((!axis(A0, extents, v0, v1, v2))) {
+  if ((!axis(A0, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A1, extents, v0, v1, v2))) {
+  if ((!axis(A1, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A2, extents, v0, v1, v2))) {
+  if ((!axis(A2, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A3, extents, v0, v1, v2))) {
+  if ((!axis(A3, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A4, extents, v0, v1, v2))) {
+  if ((!axis(A4, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A5, extents, v0, v1, v2))) {
+  if ((!axis(A5, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A6, extents, v0, v1, v2))) {
+  if ((!axis(A6, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A7, extents, v0, v1, v2))) {
+  if ((!axis(A7, _t7, _t9, _t11, _t13))) {
     return false;
   }
-  if ((!axis(A8, extents, v0, v1, v2))) {
+  if ((!axis(A8, _t7, _t9, _t11, _t13))) {
     return false;
   }
   const vec3_float N = cross(f0, f1);
-  const float Rn = dot(extents, abs(N));
-  const float dist = dot(v0, N);
+  const float Rn = dot(_t7, abs(N));
+  const float dist = dot(_t9, N);
   if (((Rn < dist) || (dist < (-Rn)))) {
     return false;
   }
@@ -707,60 +754,60 @@ bool tri_tri_axis(const vec3_float A, const vec3_float a0, const vec3_float a1, 
   return (!((amax < bmin) | (bmax < amin)));
 }
 bool intersects_Triangle_Triangle(const Triangle* __restrict__ a, const Triangle* __restrict__ b) {
-  const vec3_float eA0 = ((*a).p1 - (*a).p0);
-  const vec3_float eA1 = ((*a).p2 - (*a).p1);
-  const vec3_float eA2 = ((*a).p0 - (*a).p2);
-  const vec3_float eB0 = ((*b).p1 - (*b).p0);
-  const vec3_float eB1 = ((*b).p2 - (*b).p1);
-  const vec3_float eB2 = ((*b).p0 - (*b).p2);
-  const vec3_float N0 = cross(eA0, eA1);
-  const vec3_float N1 = cross(eB0, eB1);
-  const vec3_float a0 = (*a).p0;
-  const vec3_float a1 = (*a).p1;
-  const vec3_float a2 = (*a).p2;
-  const vec3_float b0 = (*b).p0;
-  const vec3_float b1 = (*b).p1;
-  const vec3_float b2 = (*b).p2;
-  if ((!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2))) {
+  const vec3_float _t0 = (*a).p1;
+  const vec3_float _t1 = (*a).p0;
+  const vec3_float _t2 = (_t0 - _t1);
+  const vec3_float _t3 = (*a).p2;
+  const vec3_float _t5 = (_t3 - _t0);
+  const vec3_float _t8 = (_t1 - _t3);
+  const vec3_float _t9 = (*b).p1;
+  const vec3_float _t10 = (*b).p0;
+  const vec3_float _t11 = (_t9 - _t10);
+  const vec3_float _t12 = (*b).p2;
+  const vec3_float _t14 = (_t12 - _t9);
+  const vec3_float _t17 = (_t10 - _t12);
+  const vec3_float N0 = cross(_t2, _t5);
+  const vec3_float N1 = cross(_t11, _t14);
+  if ((!tri_tri_axis(N0, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(N1, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  const vec3_float E00 = cross(eA0, eB0);
-  const vec3_float E01 = cross(eA0, eB1);
-  const vec3_float E02 = cross(eA0, eB2);
-  const vec3_float E10 = cross(eA1, eB0);
-  const vec3_float E11 = cross(eA1, eB1);
-  const vec3_float E12 = cross(eA1, eB2);
-  const vec3_float E20 = cross(eA2, eB0);
-  const vec3_float E21 = cross(eA2, eB1);
-  const vec3_float E22 = cross(eA2, eB2);
-  if ((!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2))) {
+  const vec3_float E00 = cross(_t2, _t11);
+  const vec3_float E01 = cross(_t2, _t14);
+  const vec3_float E02 = cross(_t2, _t17);
+  const vec3_float E10 = cross(_t5, _t11);
+  const vec3_float E11 = cross(_t5, _t14);
+  const vec3_float E12 = cross(_t5, _t17);
+  const vec3_float E20 = cross(_t8, _t11);
+  const vec3_float E21 = cross(_t8, _t14);
+  const vec3_float E22 = cross(_t8, _t17);
+  if ((!tri_tri_axis(E00, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E01, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E02, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E10, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E11, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E12, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E20, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E21, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
-  if ((!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2))) {
+  if ((!tri_tri_axis(E22, _t1, _t0, _t3, _t10, _t9, _t12))) {
     return false;
   }
   return true;
@@ -780,22 +827,19 @@ vec3_float linear_to_gamma_v(const vec3_float l) {
 bool near_zero(const vec3_float v) {
   return (((abs(v[0]) < 0.00000001f) & (abs(v[1]) < 0.00000001f)) & (abs(v[2]) < 0.00000001f));
 }
-vec3_vec4_int8_t quantize_orientation(const vec3_vec4_float x) {
-  return vec3_vec4_int8_t{vec4_int8_t{to_i8((x[0][0] * 127.0f)), to_i8((x[0][1] * 127.0f)), to_i8((x[0][2] * 127.0f)), to_i8((x[0][3] * 127.0f))}, vec4_int8_t{to_i8((x[1][0] * 127.0f)), to_i8((x[1][1] * 127.0f)), to_i8((x[1][2] * 127.0f)), to_i8((x[1][3] * 127.0f))}, vec4_int8_t{to_i8((x[2][0] * 127.0f)), to_i8((x[2][1] * 127.0f)), to_i8((x[2][2] * 127.0f)), to_i8((x[2][3] * 127.0f))}};
-}
 vec3_float reflect(const vec3_float v, const vec3_float n) {
   return (v - (vec3_float{(2.0f * dot(v, n))} * n));
 }
 float reflectance(const float cos_theta, const float refract_idx) {
-  const float r0 = ((1.0f - refract_idx) / (1.0f + refract_idx));
-  const float r1 = (r0 * r0);
+  const float _t2 = ((1.0f - refract_idx) / (1.0f + refract_idx));
+  const float r1 = (_t2 * _t2);
   return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.0f)));
 }
 vec3_float refract(const vec3_float uv, const vec3_float n, const float etai_over_etat) {
   const float cos_theta = min(dot((-uv), n), 1.0f);
-  const vec3_float r_out_perp = (vec3_float{etai_over_etat} * (uv + (vec3_float{cos_theta} * n)));
-  const vec3_float r_out_parallel = (vec3_float{(-sqrtf(abs((1.0f - reduce_add((r_out_perp * r_out_perp))))))} * n);
-  return (r_out_perp + r_out_parallel);
+  const vec3_float _t2 = (vec3_float{etai_over_etat} * (uv + (vec3_float{cos_theta} * n)));
+  const vec3_float r_out_parallel = (vec3_float{(-sqrtf(abs((1.0f - reduce_add((_t2 * _t2))))))} * n);
+  return (_t2 + r_out_parallel);
 }
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
   return _traverse_tree0(ray, triangles);

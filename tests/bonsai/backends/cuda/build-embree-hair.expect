@@ -103,14 +103,29 @@ __device__ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
   return (diff + err);
 }
 
+__device__ __host__ cuda::std::array<float4, 3> dequantize_orientation(cuda::std::array<char4, 3> x) {
+  char4 _t0 = x.x;
+  char4 _t4 = x.y;
+  char4 _t8 = x.z;
+  return cuda::std::array<float4, 3>{float4{(float)_t0.x / (float)127, (float)_t0.y / (float)127, (float)_t0.z / (float)127, (float)_t0.w / (float)127}, float4{(float)_t4.x / (float)127, (float)_t4.y / (float)127, (float)_t4.z / (float)127, (float)_t4.w / (float)127}, float4{(float)_t8.x / (float)127, (float)_t8.y / (float)127, (float)_t8.z / (float)127, (float)_t8.w / (float)127}};
+}
+
+__device__ __host__ float gamma(int32_t n) {
+  float _t1 = ((float)n * (float)5.96046e-08);
+  return (_t1 / (1 - _t1));
+}
+
 __device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_aabb(Ray* r, AABB* b) {
-  float3 invDir = (make_float3(1) / (*r).d);
-  bool3 dirIsNeg = (invDir < make_float3(0));
-  float3 low_parts = make_float3((dirIsNeg.x ? (*b).high.x : (*b).low.x),(dirIsNeg.y ? (*b).high.y : (*b).low.y),(dirIsNeg.z ? (*b).high.z : (*b).low.z));
-  float3 high_parts = make_float3((dirIsNeg.x ? (*b).low.x : (*b).high.x),(dirIsNeg.y ? (*b).low.y : (*b).high.y),(dirIsNeg.z ? (*b).low.z : (*b).high.z));
-  float3 tMin = ((low_parts - (*r).o) * invDir);
-  float3 tMax = ((high_parts - (*r).o) * invDir);
-  tMax *= (1 + ((float)2 * (((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08)))));
+  float3 _t1 = (make_float3(1) / (*r).d);
+  bool3 dirIsNeg = (_t1 < make_float3(0));
+  float3 _t2 = (*b).high;
+  float3 _t3 = (*b).low;
+  float3 low_parts = make_float3((dirIsNeg.x ? _t2.x : _t3.x),(dirIsNeg.y ? _t2.y : _t3.y),(dirIsNeg.z ? _t2.z : _t3.z));
+  float3 high_parts = make_float3((dirIsNeg.x ? _t3.x : _t2.x),(dirIsNeg.y ? _t3.y : _t2.y),(dirIsNeg.z ? _t3.z : _t2.z));
+  float3 _t6 = (*r).o;
+  float3 tMin = ((low_parts - _t6) * _t1);
+  float3 tMax = ((high_parts - _t6) * _t1);
+  tMax *= (1 + ((float)2 * gamma(3)));
   if ((tMax.y < tMin.x) || (tMax.x < tMin.y)) {
     return cuda::std::nullopt;
   }
@@ -134,36 +149,51 @@ __device__ __host__ float distmin_Ray_AABB(Ray* r, AABB* b) {
 }
 
 __device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b) {
-  float ox = (((((*b).orientation.x.x * (*r).o.x) + ((*b).orientation.x.y * (*r).o.y)) + ((*b).orientation.x.z * (*r).o.z)) + (*b).orientation.x.w);
-  float oy = (((((*b).orientation.y.x * (*r).o.x) + ((*b).orientation.y.y * (*r).o.y)) + ((*b).orientation.y.z * (*r).o.z)) + (*b).orientation.y.w);
-  float oz = (((((*b).orientation.z.x * (*r).o.x) + ((*b).orientation.z.y * (*r).o.y)) + ((*b).orientation.z.z * (*r).o.z)) + (*b).orientation.z.w);
-  float dx = ((((*b).orientation.x.x * (*r).d.x) + ((*b).orientation.x.y * (*r).d.y)) + ((*b).orientation.x.z * (*r).d.z));
-  float dy = ((((*b).orientation.y.x * (*r).d.x) + ((*b).orientation.y.y * (*r).d.y)) + ((*b).orientation.y.z * (*r).d.z));
-  float dz = ((((*b).orientation.z.x * (*r).d.x) + ((*b).orientation.z.y * (*r).d.y)) + ((*b).orientation.z.z * (*r).d.z));
-  float inv_dx = (1 / dx);
-  float inv_dy = (1 / dy);
-  float inv_dz = (1 / dz);
-  float t0x = (-0 * inv_dx);
-  float t1x = ((1 - ox) * inv_dx);
-  float tmin_x = fminf(t0x, t1x);
-  float tmax_x = fmaxf(t0x, t1x);
-  float t0y = (-0 * inv_dy);
-  float t1y = ((1 - oy) * inv_dy);
-  float tmin_y = fminf(t0y, t1y);
-  float tmax_y = fmaxf(t0y, t1y);
-  float t0z = (-0 * inv_dz);
-  float t1z = ((1 - oz) * inv_dz);
-  float tmin_z = fminf(t0z, t1z);
-  float tmax_z = fmaxf(t0z, t1z);
-  float tmin = fmaxf(fmaxf(tmin_x, tmin_y), tmin_z);
-  float tmax = fminf(fminf(tmax_x, tmax_y), tmax_z);
-  if (tmax < tmin) {
+  cuda::std::array<float4, 3> _t0 = (*b).orientation;
+  float4 _t1 = _t0.x;
+  float _t2 = _t1.x;
+  float3 _t3 = (*r).o;
+  float _t4 = _t3.x;
+  float _t8 = _t1.y;
+  float _t10 = _t3.y;
+  float _t15 = _t1.z;
+  float _t17 = _t3.z;
+  float4 _t25 = _t0.y;
+  float _t26 = _t25.x;
+  float _t32 = _t25.y;
+  float _t39 = _t25.z;
+  float4 _t49 = _t0.z;
+  float _t50 = _t49.x;
+  float _t56 = _t49.y;
+  float _t63 = _t49.z;
+  float3 _t75 = (*r).d;
+  float _t76 = _t75.x;
+  float _t82 = _t75.y;
+  float _t89 = _t75.z;
+  float inv_dx = (1 / (((_t2 * _t76) + (_t8 * _t82)) + (_t15 * _t89)));
+  float inv_dy = (1 / (((_t26 * _t76) + (_t32 * _t82)) + (_t39 * _t89)));
+  float inv_dz = (1 / (((_t50 * _t76) + (_t56 * _t82)) + (_t63 * _t89)));
+  float _t132 = (-0 * inv_dx);
+  float _t134 = ((1 - ((((_t2 * _t4) + (_t8 * _t10)) + (_t15 * _t17)) + _t1.w)) * inv_dx);
+  float tmin_x = fminf(_t132, _t134);
+  float tmax_x = fmaxf(_t132, _t134);
+  float _t135 = (-0 * inv_dy);
+  float _t137 = ((1 - ((((_t26 * _t4) + (_t32 * _t10)) + (_t39 * _t17)) + _t25.w)) * inv_dy);
+  float tmin_y = fminf(_t135, _t137);
+  float tmax_y = fmaxf(_t135, _t137);
+  float _t138 = (-0 * inv_dz);
+  float _t140 = ((1 - ((((_t50 * _t4) + (_t56 * _t10)) + (_t63 * _t17)) + _t49.w)) * inv_dz);
+  float tmin_z = fminf(_t138, _t140);
+  float tmax_z = fmaxf(_t138, _t140);
+  float _t142 = fmaxf(fmaxf(tmin_x, tmin_y), tmin_z);
+  float _t144 = fminf(fminf(tmax_x, tmax_y), tmax_z);
+  if (_t144 < _t142) {
     return cuda::std::nullopt;
   }
-  if (tmax < 0) {
+  if (_t144 < 0) {
     return cuda::std::nullopt;
   }
-  return FInterval{fmaxf(tmin, 0), tmax};
+  return FInterval{fmaxf(_t142, 0), _t144};
 }
 
 __device__ __host__ float distmin_Ray_OBB(Ray* r, OBB* b) {
@@ -176,69 +206,83 @@ __device__ __host__ float distmin_Ray_OBB(Ray* r, OBB* b) {
 }
 
 __device__ __host__ float3 cross_(float3 v0, float3 v1) {
-  return float3{__prod_diff_f32(v0.y, v1.z, v0.z, v1.y), __prod_diff_f32(v0.z, v1.x, v0.x, v1.z), __prod_diff_f32(v0.x, v1.y, v0.y, v1.x)};
+  float _t0 = v0.y;
+  float _t1 = v1.z;
+  float _t2 = v0.z;
+  float _t3 = v1.y;
+  float _t5 = v1.x;
+  float _t6 = v0.x;
+  return float3{__prod_diff_f32(_t0, _t1, _t2, _t3), __prod_diff_f32(_t2, _t5, _t6, _t1), __prod_diff_f32(_t6, _t3, _t0, _t5)};
 }
 
 __device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tri(Ray* ray, Triangle* tri) {
-  if (sum((cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0) * cross_((*tri).p2 - (*tri).p0, (*tri).p1 - (*tri).p0))) == 0) {
+  float3 _t0 = (*tri).p2;
+  float3 _t1 = (*tri).p0;
+  float3 _t2 = (*tri).p1;
+  if (sum((cross_(_t0 - _t1, _t2 - _t1) * cross_(_t0 - _t1, _t2 - _t1))) == 0) {
     return cuda::std::nullopt;
   }
-  float3 p0t = ((*tri).p0 - (*ray).o);
-  float3 p1t = ((*tri).p1 - (*ray).o);
-  float3 p2t = ((*tri).p2 - (*ray).o);
-  uint32_t kz = idxmax(abs((*ray).d));
+  float3 _t5 = (*ray).o;
+  float3 p0t = (_t1 - _t5);
+  float3 p1t = (_t2 - _t5);
+  float3 p2t = (_t0 - _t5);
+  float3 _t10 = (*ray).d;
+  uint32_t kz = idxmax(abs(_t10));
   uint32_t kx = ((kz + 1u) % 3u);
   uint32_t ky = ((kx + 1u) % 3u);
-  float3 d = shuffle((*ray).d, {kx, ky, kz});
+  float3 d = shuffle(_t10, {kx, ky, kz});
   p0t = shuffle(p0t, {kx, ky, kz});
   p1t = shuffle(p1t, {kx, ky, kz});
   p2t = shuffle(p2t, {kx, ky, kz});
-  float Sx = (-d.x / d.z);
-  float Sy = (-d.y / d.z);
-  float Sz = (1 / d.z);
-  p0t.x += (Sx * p0t.z);
-  p0t.y += (Sy * p0t.z);
-  p1t.x += (Sx * p1t.z);
-  p1t.y += (Sy * p1t.z);
-  p2t.x += (Sx * p2t.z);
-  p2t.y += (Sy * p2t.z);
-  float e0 = __prod_diff_f32(p1t.x, p2t.y, p1t.y, p2t.x);
-  float e1 = __prod_diff_f32(p2t.x, p0t.y, p2t.y, p0t.x);
-  float e2 = __prod_diff_f32(p0t.x, p1t.y, p0t.y, p1t.x);
-  if (((e0 < 0) || (e1 < 0)) || (e2 < 0)) {
-    if (((0 < e0) || (0 < e1)) || (0 < e2)) {
+  float _t13 = d.z;
+  float _t14 = (-d.x / _t13);
+  float _t17 = (-d.y / _t13);
+  float Sz = (1 / _t13);
+  p0t.x += (_t14 * p0t.z);
+  p0t.y += (_t17 * p0t.z);
+  p1t.x += (_t14 * p1t.z);
+  p1t.y += (_t17 * p1t.z);
+  p2t.x += (_t14 * p2t.z);
+  p2t.y += (_t17 * p2t.z);
+  float _t20 = __prod_diff_f32(p1t.x, p2t.y, p1t.y, p2t.x);
+  float _t21 = __prod_diff_f32(p2t.x, p0t.y, p2t.y, p0t.x);
+  float _t22 = __prod_diff_f32(p0t.x, p1t.y, p0t.y, p1t.x);
+  if (((_t20 < 0) || (_t21 < 0)) || (_t22 < 0)) {
+    if (((0 < _t20) || (0 < _t21)) || (0 < _t22)) {
       return cuda::std::nullopt;
     }
   }
-  float det = ((e0 + e1) + e2);
-  if (det == 0) {
+  float _t24 = ((_t20 + _t21) + _t22);
+  if (_t24 == 0) {
     return cuda::std::nullopt;
   }
   p0t.z *= Sz;
   p1t.z *= Sz;
   p2t.z *= Sz;
-  float tScaled = (((e0 * p0t.z) + (e1 * p1t.z)) + (e2 * p2t.z));
-  if ((det < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * det)))) {
+  float tScaled = (((_t20 * p0t.z) + (_t21 * p1t.z)) + (_t22 * p2t.z));
+  if ((_t24 < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * _t24)))) {
     return cuda::std::nullopt;
   } else {
-    if ((0 < det) && ((tScaled <= 0) || (((*ray).tmax * det) < tScaled))) {
+    if ((0 < _t24) && ((tScaled <= 0) || (((*ray).tmax * _t24) < tScaled))) {
       return cuda::std::nullopt;
     }
   }
-  float invDet = (1 / det);
-  float b0 = (e0 * invDet);
-  float b1 = (e1 * invDet);
-  float b2 = (e2 * invDet);
+  float invDet = (1 / _t24);
+  float b0 = (_t20 * invDet);
+  float b1 = (_t21 * invDet);
+  float b2 = (_t22 * invDet);
   float t = (tScaled * invDet);
   float maxZt = max(abs(float3{p0t.z, p1t.z, p2t.z}));
-  float deltaZ = ((((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08))) * maxZt);
+  float _t25 = gamma(3);
+  float deltaZ = (_t25 * maxZt);
   float maxXt = max(abs(float3{p0t.x, p1t.x, p2t.x}));
   float maxYt = max(abs(float3{p0t.y, p1t.y, p2t.y}));
-  float deltaX = ((((float)5 * (float)5.96046e-08) / (1 - ((float)5 * (float)5.96046e-08))) * (maxXt + maxZt));
-  float deltaY = ((((float)5 * (float)5.96046e-08) / (1 - ((float)5 * (float)5.96046e-08))) * (maxYt + maxZt));
-  float deltaE = ((float)2 * (((((((float)2 * (float)5.96046e-08) / (1 - ((float)2 * (float)5.96046e-08))) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
-  float maxE = max(abs(float3{e0, e1, e2}));
-  float deltaT = (((float)3 * (((((((float)3 * (float)5.96046e-08) / (1 - ((float)3 * (float)5.96046e-08))) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * fabsf(invDet));
+  float _t26 = gamma(5);
+  float deltaX = (_t26 * (maxXt + maxZt));
+  float deltaY = (_t26 * (maxYt + maxZt));
+  float deltaE = ((float)2 * ((((gamma(2) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  float maxE = max(abs(float3{_t20, _t21, _t22}));
+  float deltaT = (((float)3 * ((((_t25 * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * fabsf(invDet));
   if (t <= deltaT) {
     return cuda::std::nullopt;
   }
@@ -275,73 +319,72 @@ __device__ __host__ bool intersects_Ray_OBB(Ray* r, OBB* b) {
 
 __device__ __host__ void _recloop_func0(uint64_t index, Ray* ray, Triangles* triangles, cuda::std::tuple<float, Triangle>* _best0) {
   if ((index & 0x3) == 2u) {
-    AABB _lv1 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.x, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.x};
-    if (intersects_Ray_AABB(ray, (&_lv1))) {
-      AABB _lv0 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.x, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.x};
-      if (distmin_Ray_AABB(ray, (&_lv0)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0((*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_children.x, ray, triangles, _best0);
+    AABBs _t13 = (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)];
+    cuda::std::array<float3, 4> _t14 = _t13.aabb_low;
+    cuda::std::array<float3, 4> _t18 = _t13.aabb_high;
+    AABB _t20 = AABB{_t14.x, _t18.x};
+    if (intersects_Ray_AABB(ray, (&_t20))) {
+      if (distmin_Ray_AABB(ray, (&_t20)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t13.aabb_children.x, ray, triangles, _best0);
       }
     }
-    AABB _lv3 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.y, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.y};
-    if (intersects_Ray_AABB(ray, (&_lv3))) {
-      AABB _lv2 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.y, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.y};
-      if (distmin_Ray_AABB(ray, (&_lv2)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0((*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_children.y, ray, triangles, _best0);
+    AABB _t41 = AABB{_t14.y, _t18.y};
+    if (intersects_Ray_AABB(ray, (&_t41))) {
+      if (distmin_Ray_AABB(ray, (&_t41)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t13.aabb_children.y, ray, triangles, _best0);
       }
     }
-    AABB _lv5 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.z, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.z};
-    if (intersects_Ray_AABB(ray, (&_lv5))) {
-      AABB _lv4 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.z, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.z};
-      if (distmin_Ray_AABB(ray, (&_lv4)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0((*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_children.z, ray, triangles, _best0);
+    AABB _t62 = AABB{_t14.z, _t18.z};
+    if (intersects_Ray_AABB(ray, (&_t62))) {
+      if (distmin_Ray_AABB(ray, (&_t62)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t13.aabb_children.z, ray, triangles, _best0);
       }
     }
-    AABB _lv7 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.w, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.w};
-    if (intersects_Ray_AABB(ray, (&_lv7))) {
-      AABB _lv6 = AABB{(*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_low.w, (*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_high.w};
-      if (distmin_Ray_AABB(ray, (&_lv6)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0((*triangles).AABBs[((index >> 4) & 0x7ffffffffffffff)].aabb_children.w, ray, triangles, _best0);
+    AABB _t83 = AABB{_t14.w, _t18.w};
+    if (intersects_Ray_AABB(ray, (&_t83))) {
+      if (distmin_Ray_AABB(ray, (&_t83)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t13.aabb_children.w, ray, triangles, _best0);
       }
     }
   } else {
     if ((index & 0x3) == 3u) {
-      OBB _lv9 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.x, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.x, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-      if (intersects_Ray_OBB(ray, (&_lv9))) {
-        OBB _lv8 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.x, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.x, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-        if (distmin_Ray_OBB(ray, (&_lv8)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0((*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].obb_children.x, ray, triangles, _best0);
+      OBBs _t115 = (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)];
+      float3 _t116 = _t115.mlo;
+      float3 _t119 = _t115.mex;
+      cuda::std::array<float3, 4> _t123 = cuda::std::array<float3, 4>{_t116 + (make_float3(((float)_t115.qlo.x / (float)255)) * _t119), _t116 + (make_float3(((float)_t115.qlo.y / (float)255)) * _t119), _t116 + (make_float3(((float)_t115.qlo.z / (float)255)) * _t119), _t116 + (make_float3(((float)_t115.qlo.w / (float)255)) * _t119)};
+      cuda::std::array<float3, 4> _t134 = cuda::std::array<float3, 4>{_t116 + (make_float3(((float)_t115.qhi.x / (float)255)) * _t119), _t116 + (make_float3(((float)_t115.qhi.y / (float)255)) * _t119), _t116 + (make_float3(((float)_t115.qhi.z / (float)255)) * _t119), _t116 + (make_float3(((float)_t115.qhi.w / (float)255)) * _t119)};
+      cuda::std::array<float4, 3> _t139 = dequantize_orientation(_t115.qorientation);
+      OBB _t140 = OBB{_t123.x, _t134.x, _t139};
+      if (intersects_Ray_OBB(ray, (&_t140))) {
+        if (distmin_Ray_OBB(ray, (&_t140)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t115.obb_children.x, ray, triangles, _best0);
         }
       }
-      OBB _lv11 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.y, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.y, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-      if (intersects_Ray_OBB(ray, (&_lv11))) {
-        OBB _lv10 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.y, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.y, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-        if (distmin_Ray_OBB(ray, (&_lv10)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0((*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].obb_children.y, ray, triangles, _best0);
+      OBB _t197 = OBB{_t123.y, _t134.y, _t139};
+      if (intersects_Ray_OBB(ray, (&_t197))) {
+        if (distmin_Ray_OBB(ray, (&_t197)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t115.obb_children.y, ray, triangles, _best0);
         }
       }
-      OBB _lv13 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.z, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.z, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-      if (intersects_Ray_OBB(ray, (&_lv13))) {
-        OBB _lv12 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.z, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.z, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-        if (distmin_Ray_OBB(ray, (&_lv12)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0((*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].obb_children.z, ray, triangles, _best0);
+      OBB _t254 = OBB{_t123.z, _t134.z, _t139};
+      if (intersects_Ray_OBB(ray, (&_t254))) {
+        if (distmin_Ray_OBB(ray, (&_t254)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t115.obb_children.z, ray, triangles, _best0);
         }
       }
-      OBB _lv15 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.w, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.w, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-      if (intersects_Ray_OBB(ray, (&_lv15))) {
-        OBB _lv14 = OBB{cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qlo.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.w, cuda::std::array<float3, 4>{(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.x / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.y / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.z / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex), (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mlo + (make_float3(((float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qhi.w / (float)255)) * (*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].mex)}.w, cuda::std::array<float4, 3>{float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.x.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.y.w / (float)127}, float4{(float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.x / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.y / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.z / (float)127, (float)(*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].qorientation.z.w / (float)127}}};
-        if (distmin_Ray_OBB(ray, (&_lv14)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0((*triangles).OBBs[((index >> 4) & 0x7ffffffffffffff)].obb_children.w, ray, triangles, _best0);
+      OBB _t311 = OBB{_t123.w, _t134.w, _t139};
+      if (intersects_Ray_OBB(ray, (&_t311))) {
+        if (distmin_Ray_OBB(ray, (&_t311)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t115.obb_children.w, ray, triangles, _best0);
         }
       }
     } else {
       for (uint64_t _idx0 = ((index >> 4) & 0x7ffffffffffffff); _idx0 < (((index >> 4) & 0x7ffffffffffffff) + (uint64_t)(uint8_t)(((index >> 1) & 0x7) + 1u)); _idx0 += 1u) {
-        Triangle _lv19 = (*triangles).primitives[_idx0];
-        if (intersectsp_ray_tri(ray, (&_lv19)).has_value()) {
-          Triangle _lv18 = (*triangles).primitives[_idx0];
-          if (distmin_Ray_Triangle(ray, (&_lv18)) < cuda::std::get<0>((*_best0))) {
-            Triangle _lv16 = (*triangles).primitives[_idx0];
-            Triangle _lv17 = (*triangles).primitives[_idx0];
-            (*_best0) = argmin(_best0, cuda::std::tuple<float, Triangle>{distmin_Ray_Triangle(ray, (&_lv16)), _lv17});
+        Triangle _t321 = (*triangles).primitives[_idx0];
+        if (intersectsp_ray_tri(ray, (&_t321)).has_value()) {
+          float _t319 = distmin_Ray_Triangle(ray, (&_t321));
+          if (_t319 < cuda::std::get<0>((*_best0))) {
+            (*_best0) = argmin(_best0, cuda::std::tuple<float, Triangle>{_t319, _t321});
           }
         }
       }
@@ -392,6 +435,13 @@ __device__ __host__ int8_t to_i8(float f) {
   return (int8_t)f2;
 }
 
+__device__ __host__ cuda::std::array<char4, 3> quantize_orientation(cuda::std::array<float4, 3> x) {
+  float4 _t0 = x.x;
+  float4 _t4 = x.y;
+  float4 _t8 = x.z;
+  return cuda::std::array<char4, 3>{char4{to_i8(_t0.x * (float)127), to_i8(_t0.y * (float)127), to_i8(_t0.z * (float)127), to_i8(_t0.w * (float)127)}, char4{to_i8(_t4.x * (float)127), to_i8(_t4.y * (float)127), to_i8(_t4.z * (float)127), to_i8(_t4.w * (float)127)}, char4{to_i8(_t8.x * (float)127), to_i8(_t8.y * (float)127), to_i8(_t8.z * (float)127), to_i8(_t8.w * (float)127)}};
+}
+
 __device__ __host__ uint64_t rec_build_triangles(BVH* node, Triangles* ST, size_t* AABBs_index, size_t* OBBs_index, size_t* primitives_index) {
     if (std::holds_alternative<const AABBNode&>(*node)) {
       const AABBNode& node = std::get<const AABBNode&>(*node);
@@ -417,7 +467,7 @@ __device__ __host__ uint64_t rec_build_triangles(BVH* node, Triangles* ST, size_
       (*ST).OBBs[this_index].mex = calculate_merged_extent((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qlo = quantize_bounds_low((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qhi = quantize_bounds_high((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
-      (*ST).OBBs[this_index].qorientation = cuda::std::array<char4, 3>{char4{to_i8(node.orientation.x.x * (float)127), to_i8(node.orientation.x.y * (float)127), to_i8(node.orientation.x.z * (float)127), to_i8(node.orientation.x.w * (float)127)}, char4{to_i8(node.orientation.y.x * (float)127), to_i8(node.orientation.y.y * (float)127), to_i8(node.orientation.y.z * (float)127), to_i8(node.orientation.y.w * (float)127)}, char4{to_i8(node.orientation.z.x * (float)127), to_i8(node.orientation.z.y * (float)127), to_i8(node.orientation.z.z * (float)127), to_i8(node.orientation.z.w * (float)127)}};
+      (*ST).OBBs[this_index].qorientation = quantize_orientation(node.orientation);
       for (int32_t __r = 0; __r < 4; __r += 1) {
         uint64_t obb_children_index = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
         (*ST).OBBs[this_index].obb_children[__r] = obb_children_index;

@@ -260,9 +260,9 @@ void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangle
       const uint16_t _t28 = _t37.nprims;
       if (_t28 == 0) {
         _recloop_func0((index + 1), triangles, ray, _best0);
-        _recloop_func0((index + (Arm_Interior)(_t37.split0on_nprims).offset), triangles, ray, _best0);
+        _recloop_func0((index + reinterpret<Arm_Interior>(_t37.split0on_nprims).offset), triangles, ray, _best0);
       } else {
-        const uint32_t _t17 = (Arm_Leaf)(_t37.split0on_nprims).poffset;
+        const uint32_t _t17 = reinterpret<Arm_Leaf>(_t37.split0on_nprims).poffset;
         for (uint32_t _idx0 = _t17; _idx0 < (_t17 + (uint32_t)(_t28)); _idx0 += 1) {
           const Triangle _t12 = (*triangles).primitives[_idx0];
           if (intersectsp_ray_tri(ray, (&_t12)).has_value()) {
