@@ -7,7 +7,7 @@ TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("aosoa" "soa" "eq" "pbrt")
-OBJECTS=("cornell-box" "hairball" "sponza" "dragon")
+OBJECTS=("cornell-box" "dragon" "hairball" "sponza")
 RAY_COUNT=65536 # (2^16)
 RAY_FILE="RANDOM_GENERATED_RAYS"
 

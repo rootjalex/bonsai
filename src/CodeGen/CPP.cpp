@@ -384,11 +384,11 @@ class BonsaiToCpp : ir::Printer {
         }
         if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
             emit_type(ss, ptr_t->etype);
-            ss << "*";
+            ss << "* __restrict__";
         } else {
             emit_type(ss, type);
             if (!is_return_type && should_be_ref(type)) {
-                ss << "*";
+                ss << "* __restrict__";
             }
             if (!is_return_type && type.is<DynArray_t>()) {
                 ss << "&";

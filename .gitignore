@@ -1,12 +1,15 @@
 # Prerequisites
 *.d
 
-# Compiled Object files
+# Scenes
 *.slo
 *.lo
 *.o
 *.obj
 *.mtl
+*.png
+copyright.txt
+textures
 
 # Precompiled Headers
 *.gch
