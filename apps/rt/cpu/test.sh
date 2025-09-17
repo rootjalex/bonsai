@@ -9,7 +9,7 @@ PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("aosoa" "soa" "eq" "pbrt")
 OBJECTS=("cornell-box" "hairball" "sponza" "dragon")
 RAY_COUNT=65536 # (2^16)
-RAY_FILE="temporary-rng-ray"
+RAY_FILE="RANDOM_GENERATED_RAYS"
 
 # Enable this to be run from either root or 
 # the directory where this script exists.

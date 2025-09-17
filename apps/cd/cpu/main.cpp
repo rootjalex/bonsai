@@ -16,7 +16,7 @@ bool load_object_file(const std::string &object,
                       std::vector<Vector3<S>> &points,
                       std::vector<Triangle> &triangles) {
     // Format is assumed to be Wavefront OBJ.
-    std::string path = "apps/data/" + object + ".obj";
+    std::string path = "apps/cd/data/" + object + ".obj";
     FILE *file = fopen(path.data(), "rb");
     if (file == nullptr) {
         std::cerr << "file: " << path << " does not exist" << std::endl;
@@ -242,8 +242,11 @@ bool intersects(const Triangle &t1, const Triangle &t2) {
 template <typename S>
 Triangle construct_triangle(const fcl::Triangle &t,
                             const std::vector<fcl::Vector3<S>> &v) {
+    assert(t[0] < v.size());
     fcl::Vector3<S> x = v[t[0]];
+    assert(t[1] < v.size());
     fcl::Vector3<S> y = v[t[1]];
+    assert(t[2] < v.size());
     fcl::Vector3<S> z = v[t[2]];
 
     auto p0 = vec3_float{x[0], x[1], x[2]};
@@ -279,13 +282,13 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     }
     assert(!v1.empty() && "no vertices found!");
     assert(!T1.empty() && "no triangles found!");
-    std::cout << obj1 << ": " << T1.size() << " triangles\n";
     if (!fcl::load_object_file(obj2, v2, T2)) {
         exit(-1);
     }
     assert(!v2.empty() && "no vertices found!");
     assert(!T2.empty() && "no triangles found!");
-    std::cout << obj2 << ": " << T2.size() << " triangles\n";
+    std::cout << obj1 << ": " << T1.size() << ", ";
+    std::cout << obj2 << ": " << T2.size() << std::endl;
 
     // ---- FCL tree construction ----
     auto t0 = clock::now();
@@ -294,7 +297,8 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     auto t1 = clock::now();
     auto fcl_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcl]    tree construction time: " << fcl_time << " ms\n";
+    std::cout << "[fcl]    tree construction   : " << fcl_time << " ms"
+              << std::endl;
 
     // ---- FCL collision detection ----
     t0 = clock::now();
@@ -303,10 +307,11 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     t1 = clock::now();
     fcl_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcl]    collision detection time: " << fcl_time << " ms\n";
+    std::cout << "[fcl]    collision detection : " << fcl_time << " ms"
+              << std::endl;
 
     // ---- Bonsai tree construction ----
-    std::vector<Triangle> T1s = construct_triangles(T2, v1);
+    std::vector<Triangle> T1s = construct_triangles(T1, v1);
     std::vector<Triangle> T2s = construct_triangles(T2, v2);
     t0 = clock::now();
     BVH *canonical_tree1 = build_canonical_tree(T1s);
@@ -316,7 +321,11 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     t1 = clock::now();
     auto bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[bonsai] tree construction time: " << bonsai_time << " ms\n";
+    std::cout << "[bonsai] tree construction   : " << bonsai_time << " ms"
+              << std::endl;
+
+    free_canonical_tree(canonical_tree1);
+    free_canonical_tree(canonical_tree2);
 
     // ---- Bonsai collision detection ----
     t0 = clock::now();
@@ -325,8 +334,8 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     t1 = clock::now();
     bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[bonsai] collision detection time: " << bonsai_time
-              << " ms\n";
+    std::cout << "[bonsai] collision detection : " << bonsai_time << " ms"
+              << std::endl;
 
     // Verify outputs match and are valid intersections.
     const int64_t bonsai_count = bonsai_collisions.size();
@@ -336,8 +345,10 @@ void run_test(const std::string &obj1, const std::string &obj2) {
                   << bonsai_count << " vs fcl: " << fcl_count << '\n';
         exit(-1);
     }
-    std::cout << "collision count: " << bonsai_count << '\n';
-    for (int i = 0; i < fcl_collisions.size(); ++i) {
+    std::cout << "collision count: " << bonsai_count << std::endl;
+    for (int i = 0,
+             e = std::min(fcl_collisions.size(), bonsai_collisions.size());
+         i < e; ++i) {
         auto [bt1, bt2] = bonsai_collisions[i];
         assert(intersects(bt1, bt2) &&
                "found non-intersecting triangles in bonsai!");

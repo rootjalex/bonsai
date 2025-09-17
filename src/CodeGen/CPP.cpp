@@ -510,7 +510,7 @@ class BonsaiToCpp : ir::Printer {
         ss << "#include <cstdint>" << '\n';  // integer
         ss << "#include <cmath>" << '\n';    // math
         ss << "#include <optional>" << '\n'; // optional
-        ss << "#include <ostream>" << '\n';  // cout
+        ss << "#include <iostream>" << '\n'; // cout
         ss << "#include <string>" << '\n';   // string
         ss << "#include <tuple>" << '\n';    // tuple
 
@@ -979,13 +979,15 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void visit(const Print *node) override {
-        ss << "std::cout";
+        ss << "std::cout ";
         for (int i = 0, e = node->args.size(); i < e; ++i) {
-            ss << "<<";
+            ss << "<< ";
             node->args[i].accept(this);
-            ss << '\n';
+            if (i + 1 == e) {
+                continue;
+            }
+            ss << ' ';
         }
-
         ss << ";\n";
     }
 

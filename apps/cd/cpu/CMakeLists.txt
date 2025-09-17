@@ -17,12 +17,16 @@ message(STATUS "building with APPLICATION: ${APPLICATION}")
 add_library(main_library main.cpp)
 target_link_libraries(main_library PUBLIC Eigen3::Eigen fcl)
 target_include_directories(main_library PUBLIC         
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/..
     ${CMAKE_SOURCE_DIR}/../../..
     ${CMAKE_SOURCE_DIR}/../../../..
-    ${CMAKE_SOURCE_DIR}/..
-    ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/../../../runtime/CPP    
 )
+target_compile_options(main_library PUBLIC -fsanitize=address)
+target_link_options(main_library PUBLIC -fsanitize=address)
+
+
 
 add_executable(${APPLICATION}_${LAYOUT}
     main.cpp
@@ -38,6 +42,8 @@ target_include_directories(${APPLICATION}_${LAYOUT} PRIVATE
     ${CMAKE_SOURCE_DIR}/../../../apps/${APPLICATION}
     ${CMAKE_SOURCE_DIR}/../../../runtime/CPP        
 )
+target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -fsanitize=address)
+target_link_options(${APPLICATION}_${LAYOUT} PRIVATE -fsanitize=address)
 
 
 target_link_libraries(${APPLICATION}_${LAYOUT} PRIVATE Eigen3::Eigen fcl)

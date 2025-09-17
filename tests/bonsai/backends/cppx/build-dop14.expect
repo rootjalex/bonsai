@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cmath>
 #include <optional>
-#include <ostream>
+#include <iostream>
 #include <string>
 #include <tuple>
 #include "bonsai_cpp.h"
@@ -150,7 +150,7 @@ std::optional<FInterval> intersectsp_ray_dop14(const Ray* r, const DOP14* d) {
   const vec3_float high_parts = select(dirIsNeg, b_low, b_high);
   const vec3_float tMin = ((low_parts - (*r).o) * invDir);
   const vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax*= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  tMax *= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
   const float tmin = max(tMin[0], max(tMin[1], tMin[2]));
   const float tmax = min(tMax[0], min(tMax[1], tMax[2]));
   if ((tmax < tmin)) {
@@ -202,12 +202,12 @@ std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* ray, const Tr
   const float Sx = ((-d[0]) / d[2]);
   const float Sy = ((-d[1]) / d[2]);
   const float Sz = (1.0f / d[2]);
-  p0t[0]+= (Sx * p0t[2]);
-  p0t[1]+= (Sy * p0t[2]);
-  p1t[0]+= (Sx * p1t[2]);
-  p1t[1]+= (Sy * p1t[2]);
-  p2t[0]+= (Sx * p2t[2]);
-  p2t[1]+= (Sy * p2t[2]);
+  p0t[0] += (Sx * p0t[2]);
+  p0t[1] += (Sy * p0t[2]);
+  p1t[0] += (Sx * p1t[2]);
+  p1t[1] += (Sy * p1t[2]);
+  p2t[0] += (Sx * p2t[2]);
+  p2t[1] += (Sy * p2t[2]);
   const float e0 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
   const float e1 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
   const float e2 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
@@ -220,9 +220,9 @@ std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* ray, const Tr
   if (det == 0.0f) {
     return std::nullopt;
   }
-  p0t[2]*= Sz;
-  p1t[2]*= Sz;
-  p2t[2]*= Sz;
+  p0t[2] *= Sz;
+  p1t[2] *= Sz;
+  p2t[2] *= Sz;
   const float tScaled = (((e0 * p0t[2]) + (e1 * p1t[2])) + (e2 * p2t[2]));
   if (((det < 0.0f) && ((0.0f <= tScaled) || (tScaled < ((*ray).tmax * det))))) {
     return std::nullopt;
@@ -304,7 +304,7 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index
   return std::visit(overloaded{
     [&](const Interior& node) {
       const size_t this_index = (*nodes_index);
-      (*nodes_index)+= 1;
+      (*nodes_index) += 1;
       (*ST).nodes[this_index].lo1 = vec3_float{node.lo[0], node.lo[1], node.lo[2]};
       (*ST).nodes[this_index].hi1 = vec3_float{node.hi[0], node.hi[1], node.hi[2]};
       (*ST).dop36[this_index].lo2 = vec4_float{node.lo[3], node.lo[4], node.lo[5], node.lo[6]};
@@ -319,14 +319,14 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index
     },
     [&](const Leaf& node) {
       const size_t this_index = (*nodes_index);
-      (*nodes_index)+= 1;
+      (*nodes_index) += 1;
       (*ST).nodes[this_index].is_leaf_flag = 1;
       (*ST).nodes[this_index].ee = node.ee;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_is_leaf_flag)->tri_address = (*primitives_index);
       for (uint8_t __p = 0; __p < node.leaf_size; __p += 1) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
-      (*primitives_index)+= node.leaf_size;
+      (*primitives_index) += node.leaf_size;
       return this_index;
     }
   }, *node);
@@ -336,11 +336,11 @@ void rec_count_triangles(const BVH* node, Triangles* ST) {
     [&](const Interior& node) {
       rec_count_triangles(node.left, ST);
       rec_count_triangles(node.right, ST);
-      (*ST).node_count+= 1;
+      (*ST).node_count += 1;
     },
     [&](const Leaf& node) {
-      (*ST).primitive_count+= node.leaf_size;
-      (*ST).node_count+= 1;
+      (*ST).primitive_count += node.leaf_size;
+      (*ST).node_count += 1;
     }
   }, *node);
 }
@@ -435,7 +435,7 @@ std::optional<FInterval> intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   const vec3_float high_parts = select(dirIsNeg, (*b).low, (*b).high);
   vec3_float tMin = ((low_parts - (*r).o) * invDir);
   vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax*= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  tMax *= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
   if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
     return std::nullopt;
   }

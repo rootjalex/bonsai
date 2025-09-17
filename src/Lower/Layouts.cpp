@@ -100,8 +100,11 @@ class LayoutTypeMap {
         return it->second;
     }
 
-    void update_group_map(std::map<std::string, ir::Member> group_map) {
-        this->group_map = std::move(group_map);
+    void update_group_map(const std::map<std::string, ir::Member> &group_map) {
+        for (const auto &[name, group] : group_map) {
+            auto [_, inserted] = this->group_map.try_emplace(name, group);
+            internal_assert(inserted) << name;
+        }
     }
 
   private:
@@ -320,7 +323,6 @@ struct NameSize {
 };
 
 std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
-
     struct Visit : public ir::Visitor {
       public:
         Visit(const LayoutTypeMap &map) : map(map) {}
@@ -1197,11 +1199,12 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     ir::TypeMap types;
-    LayoutTypeMap ltmap;
+    LayoutTypeMap layout_type_map;
     for (const auto &[name, layout] : tree_layouts) {
-        ltmap.update_group_map(get_group_map(layout));
+        layout_type_map.update_group_map(get_group_map(layout));
 
-        ir::Type struct_t = layout_to_struct(name, layout.body, ltmap);
+        ir::Type struct_t =
+            layout_to_struct(name, layout.body, layout_type_map);
         types[name] = struct_t;
         program.types.emplace(name, struct_t);
 
@@ -1216,7 +1219,7 @@ ir::Program LowerLayouts::run(ir::Program program,
         internal_assert(found)
             << "extern `" << name << "` has a layout, but not found";
 
-        for (const auto &[_, type] : ltmap.types()) {
+        for (const auto &[_, type] : layout_type_map.types()) {
             if (const auto *struct_t = type.as<ir::Struct_t>()) {
                 if (struct_t->fields.empty()) {
                     continue;
@@ -1227,7 +1230,7 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
 
     // lower all `Access`es on `Unwrap`s
-    LowerMatches lower(tree_layouts, types, ltmap);
+    LowerMatches lower(tree_layouts, types, layout_type_map);
 
     for (auto &[fname, func] : program.funcs) {
         for (auto &arg : func->args) {

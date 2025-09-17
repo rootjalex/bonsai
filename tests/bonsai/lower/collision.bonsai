@@ -1,124 +1,80 @@
-element Float = f32;
-element vec3f = vector[Float, 3];
+element f32x3 = vector[f32, 3];
 
 element Triangle {
-    p0, p1, p2 : vec3f;
+    p0, p1, p2 : f32x3;
 }
 
 element AABB {
-    low, high : vec3f;
+    low, high : f32x3;
 }
 
-func axis(A: vec3f, extents: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> bool {
-    R = dot(extents, abs(A));
-    P: vec3f = {dot(v0, A), dot(v1, A), dot(v2, A)};
-    return all(P <= R & P >= -R);
-}
+func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3, q1: f32x3, q2: f32x3, q3: f32x3) -> bool {
+    P1 = dot(ax, p1);
+    P2 = dot(ax, p2);
+    P3 = dot(ax, p3);
+    Q1 = dot(ax, q1);
+    Q2 = dot(ax, q2);
+    Q3 = dot(ax, q3);
 
-func tri_tri_axis(A: vec3f, a0: vec3f, a1: vec3f, a2: vec3f, b0: vec3f, b1: vec3f, b2: vec3f) -> bool {
-    if (all(A == 0)) { return true; }
-    PA0 = dot(a0, A); 
-    PA1 = dot(a1, A); 
-    PA2 = dot(a2, A);
-    amin = min(min(PA0, PA1), PA2); 
-    amax = max(max(PA0, PA1), PA2);
+    mn1 = min(min(P1, P2), P3);
+    mx2 = max(max(Q1, Q2), Q3);
+    if (mn1 > mx2) { return false; }
 
-    PB0 = dot(b0, A); 
-    PB1 = dot(b1, A); 
-    PB2 = dot(b2, A);
-    bmin = min(min(PB0, PB1), PB2); 
-    bmax = max(max(PB0, PB1), PB2);
-    
-    return !(amax < bmin | bmax < amin);
-}
+    mx1 = max(max(P1, P2), P3);
+    mn2 = min(min(Q1, Q2), Q3);
 
-func intersects(a: AABB, b: Triangle) -> bool {
-    center  = (a.low + a.high) * 0.5;
-    extents = (a.high - a.low) * 0.5;
-
-    v0: vec3f = b.p0 - center;
-    v1: vec3f = b.p1 - center;
-    v2: vec3f = b.p2 - center;
-
-    f0 = v1 - v0;
-    f1 = v2 - v1;
-    f2 = v0 - v2;
-
-    tri_min = min(min(v0, v1), v2);
-    tri_max = max(max(v0, v1), v2);
-    if (!all(tri_min <= extents & tri_max >= -extents)) { return false; }
-
-    X: vec3f  = {1.0,0.0,0.0};
-    Y: vec3f  = {0.0,1.0,0.0};
-    Z: vec3f  = {0.0,0.0,1.0};
-
-    A0 = cross(f0, X);
-    A1 = cross(f0, Y);
-    A2 = cross(f0, Z);
-    A3 = cross(f1, X);
-    A4 = cross(f1, Y);
-    A5 = cross(f1, Z);
-    A6 = cross(f2, X);
-    A7 = cross(f2, Y);
-    A8 = cross(f2, Z);
-
-    if (!axis(A0, extents, v0, v1, v2)) { return false; }
-    if (!axis(A1, extents, v0, v1, v2)) { return false; }
-    if (!axis(A2, extents, v0, v1, v2)) { return false; }
-    if (!axis(A3, extents, v0, v1, v2)) { return false; }
-    if (!axis(A4, extents, v0, v1, v2)) { return false; }
-    if (!axis(A5, extents, v0, v1, v2)) { return false; }
-    if (!axis(A6, extents, v0, v1, v2)) { return false; }
-    if (!axis(A7, extents, v0, v1, v2)) { return false; }
-    if (!axis(A8, extents, v0, v1, v2)) { return false; }
-
-    N = cross(f0, f1);
-    Rn = dot(extents, abs(N));
-    dist = dot(v0, N);
-    if (dist > Rn || dist < -Rn) { return false; }
-
+    if (mn2 > mx1) { return false; }
     return true;
 }
 
+// (derived from FCL)
 func intersects(a: Triangle, b: Triangle) -> bool {
-    eA0 = a.p1 - a.p0;
-    eA1 = a.p2 - a.p1;
-    eA2 = a.p0 - a.p2;
+    p1 = a.p0; p2 = a.p1; p3 = a.p2;
+    q1 = b.p0; q2 = b.p1; q3 = b.p2;
 
-    eB0 = b.p1 - b.p0;
-    eB1 = b.p2 - b.p1;
-    eB2 = b.p0 - b.p2;
+    e1 = p2 - p1;
+    e2 = p3 - p2;
+    e3 = p1 - p3;
 
-    N0 = cross(eA0, eA1);
-    N1 = cross(eB0, eB1);
+    f1 = q2 - q1;
+    f2 = q3 - q2;
+    f3 = q1 - q3;
 
-    a0 = a.p0; a1 = a.p1; a2 = a.p2;
-    b0 = b.p0; b1 = b.p1; b2 = b.p2;
+    n1 = cross(e1, e2);
+    if (!project6(n1, p1, p2, p3, q1, q2, q3)) { return false; }
+    m1 = cross(f1, f2);
+    if (!project6(m1, p1, p2, p3, q1, q2, q3)) { return false; }
 
-    if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!project6(cross(e1, f1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e1, f2), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e1, f3), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, f1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, f2), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, f3), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, f1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, f2), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, f3), p1, p2, p3, q1, q2, q3)) { return false; }
 
-    E00 = cross(eA0, eB0);
-    E01 = cross(eA0, eB1);
-    E02 = cross(eA0, eB2);
-    E10 = cross(eA1, eB0);
-    E11 = cross(eA1, eB1);
-    E12 = cross(eA1, eB2);
-    E20 = cross(eA2, eB0);
-    E21 = cross(eA2, eB1);
-    E22 = cross(eA2, eB2);
-
-    if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) { return false; }
-    if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) { return false; }
+    if (!project6(cross(e1, n1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e2, n1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(e3, n1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(f1, m1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(f2, m1), p1, p2, p3, q1, q2, q3)) { return false; }
+    if (!project6(cross(f3, m1), p1, p2, p3, q1, q2, q3)) { return false; }
     return true;
 }
+
+func axis(A: f32x3, extents: f32x3, v0: f32x3, v1: f32x3, v2: f32x3) -> bool {
+    R = dot(extents, abs(A));
+    P0 = dot(v0, A);
+    P1 = dot(v1, A);
+    P2 = dot(v2, A);
+    Pmin = min(min(P0, P1), P2);
+    Pmax = max(max(P0, P1), P2);
+    
+    return Pmax >= -R & Pmin <= R;
+}
+
 
 func intersects(a : AABB, b : AABB) -> bool {
     low = max(a.low, b.low);
@@ -129,48 +85,103 @@ func intersects(a : AABB, b : AABB) -> bool {
 extern triangles1 : set[Triangle];
 extern triangles2 : set[Triangle];
 
-// TODO(cgyurgyik): broken.
 func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
 
 schedule {
-    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high)
-    = Interior(left : TriangleBVH, right : TriangleBVH)
-    | Leaf(data : array[Triangle]);
+    tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high)
+    = Interior(left : BVH, right : BVH)
+    | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
-    triangles1 : TriangleBVH;
-    triangles2 : TriangleBVH;
+    triangles1 : BVH;
+    triangles2 : BVH;
 
-    layout triangles1(t1_index: u32) {
-        pCount : u32;
-        prims : array[Triangle, pCount];
-        count : u32;
-        group[count] by t1_index {
-            low : vec3f;
-            nPrims : u16;
+    layout triangles1(index1: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group nodes1[node_count] by index1 {
+            low : f32x3;
+            high : f32x3;
+            nprims : u16;
             axis : u8;
-            8; // pad bits.
-            high : vec3f;
-            split nPrims {
-                0 -> Interior { offset : u32; left = t1_index + 1; right = t1_index + offset; };
-                _ -> Leaf { pOffset : u32; data = prims[pOffset : pOffset + cast[[u32]](nPrims)]; };
+            8;
+            split nprims {
+                0 -> Interior { 
+                    offset : u32; 
+                    left = index1 + 1; 
+                    right = index1 + offset; 
+                };
+                _ -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
             };
         };
     };
 
-    layout triangles2(t2_index: u32) {
-        pCount : u32;
-        prims : array[Triangle, pCount];
-        count : u32;
-        group[count] by t2_index {
-            low : vec3f;
-            nPrims : u16;
+    build triangles1 {
+      build Interior(low: f32x3, high: f32x3, axis: u8, left: BVH, right: BVH) {
+        build low;
+        build high;
+        build nprims = 0;
+        build axis = argmax(high - low);
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build low; 
+        build high;
+        build nprims;
+        build axis = argmax(high - low);
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+    
+    layout triangles2(index2: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group nodes2[node_count] by index2 {
+            low : f32x3;
+            high : f32x3;
+            nprims : u16;
             axis : u8;
-            8; // pad bits.
-            high : vec3f;
-            split nPrims {
-                0 -> Interior { offset : u32; left = t2_index + 1; right = t2_index + offset; };
-                _ -> Leaf { pOffset : u32; data = prims[pOffset : pOffset + cast[[u32]](nPrims)]; };
+            8;
+            split nprims {
+                0 -> Interior { 
+                    offset : u32; 
+                    left = index2 + 1; 
+                    right = index2 + offset; 
+                };
+                _ -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
             };
         };
+    };
+
+    build triangles2 {
+      build Interior(low: f32x3, high: f32x3, axis: u8, left: BVH, right: BVH) {
+        build low;
+        build high;
+        build nprims = 0;
+        build axis = argmax(high - low);
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build low; 
+        build high;
+        build nprims;
+        build axis = argmax(high - low);
+        build poffset = append(data, nprims);
+        return this;
+      };
     };
 }

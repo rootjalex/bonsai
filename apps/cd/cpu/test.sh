@@ -7,7 +7,9 @@ TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("pbrt")
-OBJECTS=("cornell-box" "hairball" "sponza" "dragon")
+# *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
+#  work with all OBJ files. Therefore, we only choose a select few.
+OBJECTS=("suzanne" "bunny" "dragon" "teapot")
 
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../..
@@ -20,7 +22,7 @@ for OBJECT_A in "${OBJECTS[@]}"; do
     fi
     for LAYOUT in "${LAYOUTS[@]}"; do
       # 1. build and compile bonsai
-      cmake --build build --config Debug -j # > /dev/null
+      cmake --build build --config Debug -j > /dev/null
       
       # 2. lower to c++
       ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
@@ -31,16 +33,16 @@ for OBJECT_A in "${OBJECTS[@]}"; do
       cd build
       
       # Configure CMake with layout parameter
-      cmake -DLAYOUT=${LAYOUT} ..
+      cmake -DLAYOUT=${LAYOUT} .. > /dev/null
       
       # Build main library first
-      make -j main_library
+      make -j main_library > /dev/null
       
       # Go back to reconfigure CMake now that generated files exist
-      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} ..
+      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} .. > /dev/null
       
       # Build final executable
-      make -j
+      make -j > /dev/null
       
       # run (executable is now in the build directory)
       cd ..       # build directory

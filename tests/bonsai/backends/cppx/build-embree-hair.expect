@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cmath>
 #include <optional>
-#include <ostream>
+#include <iostream>
 #include <string>
 #include <tuple>
 #include "bonsai_cpp.h"
@@ -133,7 +133,7 @@ std::optional<FInterval> intersectsp_ray_aabb(const Ray* r, const AABB* b) {
   const vec3_float high_parts = select(dirIsNeg, (*b).low, (*b).high);
   vec3_float tMin = ((low_parts - (*r).o) * invDir);
   vec3_float tMax = ((high_parts - (*r).o) * invDir);
-  tMax*= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
+  tMax *= (1.0f + (2.0f * (((float)(3) * 0.00000006f) / (1.0f - ((float)(3) * 0.00000006f)))));
   if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
     return std::nullopt;
   }
@@ -214,12 +214,12 @@ std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* ray, const Tr
   const float Sx = ((-d[0]) / d[2]);
   const float Sy = ((-d[1]) / d[2]);
   const float Sz = (1.0f / d[2]);
-  p0t[0]+= (Sx * p0t[2]);
-  p0t[1]+= (Sy * p0t[2]);
-  p1t[0]+= (Sx * p1t[2]);
-  p1t[1]+= (Sy * p1t[2]);
-  p2t[0]+= (Sx * p2t[2]);
-  p2t[1]+= (Sy * p2t[2]);
+  p0t[0] += (Sx * p0t[2]);
+  p0t[1] += (Sy * p0t[2]);
+  p1t[0] += (Sx * p1t[2]);
+  p1t[1] += (Sy * p1t[2]);
+  p2t[0] += (Sx * p2t[2]);
+  p2t[1] += (Sy * p2t[2]);
   const float e0 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
   const float e1 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
   const float e2 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
@@ -232,9 +232,9 @@ std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray* ray, const Tr
   if (det == 0.0f) {
     return std::nullopt;
   }
-  p0t[2]*= Sz;
-  p1t[2]*= Sz;
-  p2t[2]*= Sz;
+  p0t[2] *= Sz;
+  p1t[2] *= Sz;
+  p2t[2] *= Sz;
   const float tScaled = (((e0 * p0t[2]) + (e1 * p1t[2])) + (e2 * p2t[2]));
   if (((det < 0.0f) && ((0.0f <= tScaled) || (tScaled < ((*ray).tmax * det))))) {
     return std::nullopt;
@@ -403,7 +403,7 @@ uint64_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* AABBs_index
   return std::visit(overloaded{
     [&](const AABBNode& node) {
       const size_t this_index = (*AABBs_index);
-      (*AABBs_index)+= 1;
+      (*AABBs_index) += 1;
       (*ST).AABBs[this_index].aabb_low = node.aabb_low;
       (*ST).AABBs[this_index].aabb_high = node.aabb_high;
       const uint64_t aabb_children_index0 = rec_build_triangles(node.aabb_children[0], ST, AABBs_index, OBBs_index, primitives_index);
@@ -418,7 +418,7 @@ uint64_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* AABBs_index
     },
     [&](const OBBNode& node) {
       const size_t this_index = (*OBBs_index);
-      (*OBBs_index)+= 1;
+      (*OBBs_index) += 1;
       (*ST).OBBs[this_index].mlo = min((*ST).AABBs[this_index].aabb_low[0], min((*ST).AABBs[this_index].aabb_low[1], min((*ST).AABBs[this_index].aabb_low[2], (*ST).AABBs[this_index].aabb_low[3])));
       (*ST).OBBs[this_index].mex = calculate_merged_extent((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qlo = quantize_bounds_low((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
@@ -434,7 +434,7 @@ uint64_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* AABBs_index
       for (uint8_t __p = 0; __p < node.nprims; __p += 1) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
-      (*primitives_index)+= node.nprims;
+      (*primitives_index) += node.nprims;
       const uint64_t poffset = (*primitives_index);
       return ((poffset << 4) | (uint64_t)((node.nprims << 2)));
     }
@@ -446,16 +446,16 @@ void rec_count_triangles(const BVH* node, Triangles* ST, size_t* size_AABBs, siz
       for (int32_t __r = 0; __r < 4; __r += 1) {
         rec_count_triangles(node.aabb_children[__r], ST, size_AABBs, size_OBBs);
       }
-      (*size_AABBs)+= 1;
+      (*size_AABBs) += 1;
     },
     [&](const OBBNode& node) {
       for (int32_t __r = 0; __r < 4; __r += 1) {
         rec_count_triangles(node.obb_children[__r], ST, size_AABBs, size_OBBs);
       }
-      (*size_OBBs)+= 1;
+      (*size_OBBs) += 1;
     },
     [&](const Leaf& node) {
-      (*ST).primitive_count+= node.nprims;
+      (*ST).primitive_count += node.nprims;
     }
   }, *node);
 }

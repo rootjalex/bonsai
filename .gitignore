@@ -6,6 +6,7 @@
 *.lo
 *.o
 *.obj
+*.mtl
 
 # Precompiled Headers
 *.gch
@@ -55,3 +56,6 @@ deps/llvm-install
 *.dSYM/
 
 .DS_Store
+
+# randomly generated rays for ray-tracing app.
+apps/rt/RANDOM_GENERATED_RAYS.txt

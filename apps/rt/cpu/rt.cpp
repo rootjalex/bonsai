@@ -1,114 +1,4 @@
-// Bonsai Header
-#pragma once
-
-#include <cstdint>
-#include <cmath>
-#include <optional>
-#include <iostream>
-#include <string>
-#include <tuple>
-#include "bonsai_cpp.h"
-
-struct Interior;
-struct Leaf;
-using BVH = std::variant<Interior, Leaf>;
-using vec3_float = vector<float, 3>;
-struct Interior {
-    vec3_float low;
-    vec3_float high;
-    BVH* left;
-    BVH* right;
-    uint8_t axis;
-};
-struct AABB {
-    vec3_float low;
-    vec3_float high;
-};
-struct Triangle {
-    vec3_float p0;
-    vec3_float p1;
-    vec3_float p2;
-};
-struct Leaf {
-    vec3_float low;
-    vec3_float high;
-    uint16_t nprims;
-    Triangle* data;
-};
-struct FInterval {
-    float low;
-    float high;
-};
-struct Point {
-    vec3_float vec;
-};
-struct Ray {
-    vec3_float o;
-    vec3_float d;
-    float tmax = std::numeric_limits<float>::infinity();
-};
-struct Sphere {
-    vec3_float center;
-    float radius;
-};
-struct TriangleIntersection {
-    float b0;
-    float b1;
-    float b2;
-    float t;
-};
-struct Arm_Interior {
-    uint32_t offset;
-} __attribute__((packed));
-struct Arm_Leaf {
-    uint32_t poffset;
-} __attribute__((packed));
-using vec3_bool = vector<bool, 3>;
-using vec2_float = vector<float, 2>;
-using vec4_vec3_float = vector<vec3_float, 4>;
-using vec4_float = vector<float, 4>;
-using vec3_vec4_float = vector<vec4_float, 3>;
-using vec5_float = vector<float, 5>;
-using vec6_float = vector<float, 6>;
-using vec7_float = vector<float, 7>;
-using vec8_float = vector<float, 8>;
-using vec9_float = vector<float, 9>;
-struct Highs {
-    vec3_float high;
-} __attribute__((packed));
-using vec3_int8_t = vector<int8_t, 3>;
-using vec4_int8_t = vector<int8_t, 4>;
-using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
-using vec9_int8_t = vector<int8_t, 9>;
-struct Lows {
-    vec3_float low;
-} __attribute__((packed));
-using vec4_uint8_t = vector<uint8_t, 4>;
-struct Nodes {
-    uint16_t nprims;
-    uint8_t axis;
-    uint8_t pad0;
-    vec4_uint8_t split0on_nprims;
-} __attribute__((packed));
-struct Volumes {
-    Lows lows[4];
-    Highs highs[4];
-} __attribute__((packed));
-struct Triangles {
-    uint32_t primitive_count;
-    Triangle* primitives;
-    uint32_t node_count;
-    Volumes* volumes;
-    Nodes* nodes;
-} __attribute__((packed));
-using vec4_uint64_t = vector<uint64_t, 4>;
-using vec3_uint8_t = vector<uint8_t, 3>;
-using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
-using vec3__Float16 = vector<_Float16, 3>;
-
-Triangles build_triangles(const BVH* CT);
-std::optional<Triangle> trace(const Ray* ray, const Triangles* triangles);
-
+#include "apps/rt/cpu/rt.h"
 Point ClosestPtPointAABB(const Point* pt, const AABB* a) {
   return Point{.vec=min(max((*pt).vec, (*a).low), (*a).high)};
 }
@@ -241,9 +131,9 @@ bool intersects_Ray_AABB(const Ray* r, const AABB* b) {
   return false;
 }
 void _recloop_func0(const uint32_t index, const Triangles* triangles, const Ray* ray, std::tuple<float, Triangle>* _best0) {
-  const AABB _lv5 = AABB{.low=(*triangles).volumes[(index / 4)].lows[(index % 4)].low, .high=(*triangles).volumes[(index / 4)].highs[(index % 4)].high};
+  const AABB _lv5 = AABB{.low=fadd_rd((*triangles).wlow, vec3_float{fmul_rd((float)((((*triangles).nodes[index].q_min >> 20) & 1023)), (*triangles).bins[0]), fmul_rd((float)((((*triangles).nodes[index].q_min >> 10) & 1023)), (*triangles).bins[1]), fmul_rd((float)((((*triangles).nodes[index].q_min >> 0) & 1023)), (*triangles).bins[2])}), .high=fsub_ru((*triangles).whigh, vec3_float{fmul_rd((float)((((*triangles).nodes[index].q_max >> 20) & 1023)), (*triangles).bins[0]), fmul_rd((float)((((*triangles).nodes[index].q_max >> 10) & 1023)), (*triangles).bins[1]), fmul_rd((float)((((*triangles).nodes[index].q_max >> 0) & 1023)), (*triangles).bins[2])})};
   if (intersects_Ray_AABB(ray, (&_lv5))) {
-    const AABB _lv4 = AABB{.low=(*triangles).volumes[(index / 4)].lows[(index % 4)].low, .high=(*triangles).volumes[(index / 4)].highs[(index % 4)].high};
+    const AABB _lv4 = AABB{.low=fadd_rd((*triangles).wlow, vec3_float{fmul_rd((float)((((*triangles).nodes[index].q_min >> 20) & 1023)), (*triangles).bins[0]), fmul_rd((float)((((*triangles).nodes[index].q_min >> 10) & 1023)), (*triangles).bins[1]), fmul_rd((float)((((*triangles).nodes[index].q_min >> 0) & 1023)), (*triangles).bins[2])}), .high=fsub_ru((*triangles).whigh, vec3_float{fmul_rd((float)((((*triangles).nodes[index].q_max >> 20) & 1023)), (*triangles).bins[0]), fmul_rd((float)((((*triangles).nodes[index].q_max >> 10) & 1023)), (*triangles).bins[1]), fmul_rd((float)((((*triangles).nodes[index].q_max >> 0) & 1023)), (*triangles).bins[2])})};
     if ((distmin_Ray_AABB(ray, (&_lv4)) < std::get<0>((*_best0)))) {
       if ((*triangles).nodes[index].nprims == 0) {
         _recloop_func0((index + 1), triangles, ray, _best0);
@@ -275,15 +165,35 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
   const vec3_float P = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
   return reduce_and(((P <= vec3_float{R}) & (vec3_float{(-R)} <= P)));
 }
+vec3_float build_bins_inverse(const vec3_float low, const vec3_float high) {
+  const vec3_float L1 = vec3_float{fsub_ru(high[0], low[0]), fsub_ru(high[1], low[1]), fsub_ru(high[2], low[2])};
+  const vec3_float L2 = select((L1 <= vec3_float{0.0f}), vec3_float{1.0f}, L1);
+  return vec3_float{fdiv_rd(1023.0f, L2[0]), fdiv_rd(1023.0f, L2[1]), fdiv_rd(1023.0f, L2[2])};
+}
+vec3_float build_bins(const vec3_float low, const vec3_float high) {
+  const vec3_float bins_inverse = build_bins_inverse(low, high);
+  return vec3_float{frcp_rd(bins_inverse[0]), frcp_rd(bins_inverse[1]), frcp_rd(bins_inverse[2])};
+}
+int32_t quantize(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
+  const uint32_t x = (uint32_t)(floor(fmul_rd(fsub_rd(current[0], world[0]), bin_inverse[0])));
+  const uint32_t y = (uint32_t)(floor(fmul_rd(fsub_rd(current[1], world[1]), bin_inverse[1])));
+  const uint32_t z = (uint32_t)(floor(fmul_rd(fsub_rd(current[2], world[2]), bin_inverse[2])));
+  return (int32_t)((((x << 20) | (y << 10)) | z));
+}
 uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
   return std::visit(overloaded{
     [&](const Interior& node) {
       const size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      if (this_index == 0) {
+        (*ST).wlow = node.low;
+        (*ST).whigh = node.high;
+        (*ST).bins_inv = build_bins_inverse(node.low, node.high);
+        (*ST).bins = build_bins(node.low, node.high);
+      }
+      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = 0;
-      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
       const uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
@@ -292,9 +202,8 @@ uint32_t rec_build_triangles(const BVH* node, Triangles* ST, size_t* nodes_index
     [&](const Leaf& node) {
       const size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
-      (*ST).nodes[this_index].axis = argmax((node.high - node.low));
+      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
       for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
@@ -325,8 +234,6 @@ Triangles build_triangles(const BVH* CT) {
   rec_count_triangles(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Volumes* volumes = reinterpret_cast<Volumes*>(malloc(sizeof(Volumes) * ST.node_count));
-  ST.volumes = volumes;
   Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
@@ -401,6 +308,9 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* pt, const Triangle*
 }
 float degrees_to_radians(const float degrees) {
   return ((degrees * 3.14159274f) / 180.0f);
+}
+vec3_float dequantize(const int32_t v, const vec3_float bins) {
+  return vec3_float{fmul_rd((float)(((v >> 20) & 1023)), bins[0]), fmul_rd((float)(((v >> 10) & 1023)), bins[1]), fmul_rd((float)(((v >> 0) & 1023)), bins[2])};
 }
 float distmax_Ray_AABB(const Ray* r, const AABB* b) {
   const std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
@@ -649,4 +559,3 @@ std::optional<Triangle> trace(const Ray* ray, const Triangles* triangles) {
 vec3_float unit_vector(const vec3_float v) {
   return (v / vec3_float{norm(v)});
 }
-
