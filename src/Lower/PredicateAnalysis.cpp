@@ -11,36 +11,34 @@ namespace bonsai {
 namespace lower {
 
 bool Interval::is_single_point(const ir::Expr &a) const {
-    return min.same_as(a) && max.same_as(a);
+    return is_bounded() && min.same_as(a) && max.same_as(a);
 }
 
-bool Interval::is_single_point() const { return min.same_as(max); }
+bool Interval::is_single_point() const {
+    return is_bounded() && min.same_as(max);
+}
 
 bool Interval::has_upper_bound() const { return max.defined(); }
 
 bool Interval::has_lower_bound() const { return min.defined(); }
 
-std::ostream &operator<<(std::ostream &os, const Interval &interval) {
-    os << "[" << interval.min << ", " << interval.max << "]";
-    return os;
+bool Interval::is_bounded() const {
+    return has_lower_bound() && has_upper_bound();
 }
 
-std::ostream &operator<<(std::ostream &os, const VolumeMap &volume_map) {
-    os << "VolumeMap [\n";
-    for (const auto &[name, expr] : volume_map) {
-        os << "  " << name << " : " << expr << "\n";
+void Interval::include(const ir::Expr &e) {
+    // TODO: Do Halide-style simplifications if necessary
+    if (e.defined()) {
+        if (max.defined()) {
+            max = ir::max(e, std::move(max));
+        }
+        if (min.defined()) {
+            min = ir::min(e, std::move(min));
+        }
+    } else {
+        min = e;
+        max = e;
     }
-    os << "]\n";
-    return os;
-}
-
-std::ostream &operator<<(std::ostream &os, const IntervalMap &interval_map) {
-    os << "IntervalMap [\n";
-    for (const auto &[expr, interval] : interval_map) {
-        os << "  " << expr << " : " << interval << "\n";
-    }
-    os << "]\n";
-    return os;
 }
 
 namespace {
@@ -82,7 +80,10 @@ struct PredicateAnalysis : public ir::Visitor {
         }
         // Otherwise recurse.
         expr.accept(this);
-        return std::move(interval);
+        Interval value = std::move(interval);
+        interval.min = ir::Expr();
+        interval.max = ir::Expr();
+        return value;
     }
 
     void make_bool_bounds() {
@@ -126,9 +127,45 @@ struct PredicateAnalysis : public ir::Visitor {
         return a && b;
     }
 
+    // Handle Lt/Le
+    void visit_compare(const ir::BinOp *node) {
+        Interval a = get(node->a);
+        if (!a.has_upper_bound() && !a.has_lower_bound()) {
+            make_bool_bounds();
+            return;
+        }
+        Interval b = get(node->b);
+        if (!b.has_upper_bound() && !b.has_lower_bound()) {
+            make_bool_bounds();
+            return;
+        }
+        // Initially unbounded.
+        make_bool_bounds();
+
+        // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
+        // as true as a.max <(=) b.min. This does not depend on a's
+        // lower bound or b's upper bound.
+        if (a.has_upper_bound() && b.has_lower_bound()) {
+            interval.min = ir::BinOp::make(node->op, a.max, b.min);
+        }
+
+        // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
+        // as true as a.min <(=) b.max. This does not depend on a's
+        // upper bound or b's lower bound.
+        if (a.has_lower_bound() && b.has_upper_bound()) {
+            interval.max = ir::BinOp::make(node->op, a.min, b.max);
+        }
+        return;
+    }
+
     void visit(const ir::BinOp *node) override {
         switch (node->op) {
-        case ir::BinOp::Lt: {
+        case ir::BinOp::Lt:
+        case ir::BinOp::Le: {
+            visit_compare(node);
+            return;
+        }
+        case ir::BinOp::Eq: {
             Interval a = get(node->a);
             if (!a.has_upper_bound() && !a.has_lower_bound()) {
                 make_bool_bounds();
@@ -139,21 +176,33 @@ struct PredicateAnalysis : public ir::Visitor {
                 make_bool_bounds();
                 return;
             }
+
+            if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+                return;
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min == b.min);
+                return;
+            }
+
             // Initially unbounded.
             make_bool_bounds();
 
-            // a.max <(=) b.min implies a <(=) b, so a <(=) b is at least
-            // as true as a.max <(=) b.min. This does not depend on a's
-            // lower bound or b's upper bound.
-            if (a.has_upper_bound() && b.has_lower_bound()) {
-                interval.min = a.max < b.min;
+            // A sufficient condition is that all bounds are equal.
+            if (a.is_bounded() && b.is_bounded()) {
+                interval.min =
+                    (a.min == a.max) && (b.min == b.max) && (a.min == b.min);
             }
 
-            // a <(=) b implies a.min <(=) b.max, so a <(=) b is at most
-            // as true as a.min <(=) b.max. This does not depend on a's
-            // upper bound or b's lower bound.
-            if (a.has_lower_bound() && b.has_upper_bound()) {
-                interval.max = a.min < b.max;
+            // A necessary condition is that the ranges overlap.
+            if (a.is_bounded() && b.is_bounded()) {
+                interval.max = a.min <= b.max && b.min <= a.max;
+            } else if (a.has_upper_bound() && b.has_lower_bound()) {
+                // a.min <= b.max is implied if a.min = -inf or b.max = +inf.
+                interval.max = b.min <= a.max;
+            } else if (a.has_lower_bound() && b.has_upper_bound()) {
+                // b.min <= a.max is implied if a.max = +inf or b.min = -inf.
+                interval.max = a.min <= b.max;
             }
             return;
         }
@@ -174,6 +223,80 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
+        case ir::BinOp::Add: {
+            Interval a = get(node->a);
+            Interval b = get(node->b);
+            if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min + b.min);
+            } else {
+                // TODO: for integers, need to handle overflow if defined.
+                if (a.has_lower_bound() && b.has_lower_bound()) {
+                    interval.min = a.min + b.min;
+                }
+                if (a.has_upper_bound() && b.has_upper_bound()) {
+                    interval.max = a.max + b.max;
+                }
+            }
+            return;
+        }
+        case ir::BinOp::Sub: {
+            Interval a = get(node->a);
+            Interval b = get(node->b);
+            if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min - b.min);
+            } else {
+                // TODO: for integers, need to handle overflow if defined.
+                if (a.has_lower_bound() && b.has_upper_bound()) {
+                    interval.min = a.min - b.max;
+                }
+                if (a.has_upper_bound() && b.has_lower_bound()) {
+                    interval.max = a.max - b.min;
+                }
+            }
+            return;
+        }
+        case ir::BinOp::Mul: {
+            Interval a = get(node->a);
+            Interval b = get(node->b);
+
+            // Move constants to the right
+            if (a.is_single_point() && !b.is_single_point()) {
+                std::swap(a, b);
+            }
+
+            if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min * b.min);
+            } else if (b.is_single_point()) {
+                ir::Expr e1 = a.has_lower_bound() ? a.min * b.min : a.min;
+                ir::Expr e2 = a.has_upper_bound() ? a.max * b.min : a.max;
+                if (is_const_zero(b.min)) {
+                    interval = b;
+                } else if (is_positive_const(b.min) || node->type.is_uint()) {
+                    interval.min = std::move(e1);
+                    interval.max = std::move(e2);
+                } else if (is_negative_const(b.min)) {
+                    interval.min = std::move(e2);
+                    interval.max = std::move(e1);
+                } else if (a.is_bounded()) {
+                    // Sign of b is unknown
+                    ir::Expr cmp =
+                        b.min >= make_zero(b.min.type().element_of());
+                    interval.min = select(cmp, e1, e2);
+                    interval.max = select(cmp, e2, e1);
+                }
+                // else unbounded
+            } else if (a.is_bounded() && b.is_bounded()) {
+                // TODO: let exprs for linearity.
+            }
+            // TODO: for integers, need to handle overflow if defined.
+            return;
+        }
         default: {
             break;
         }
@@ -189,11 +312,81 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::VectorReduce);
     RESTRICT_VISITOR(ir::VectorShuffle);
     RESTRICT_VISITOR(ir::Ramp);
-    RESTRICT_VISITOR(ir::Extract);
+    // RESTRICT_VISITOR(ir::Extract);
+    // RESTRICT_VISITOR(ir::Access);
     RESTRICT_VISITOR(ir::Build);
-    RESTRICT_VISITOR(ir::Access);
     RESTRICT_VISITOR(ir::Unwrap);
-    RESTRICT_VISITOR(ir::Intrinsic);
+
+    void visit(const ir::Intrinsic *node) override {
+        switch (node->op) {
+        case ir::Intrinsic::abs: {
+            internal_assert(node->args.size() == 1);
+            Interval a = get(node->args[0]);
+            if (a.is_bounded()) {
+                if (ir::equals(a.min, a.max)) {
+                    interval = Interval::single_point(ir::abs(a.min));
+                } else {
+                    interval.min =
+                        cast_to(node->type,
+                                ir::max(a.min, -ir::min(make_zero(a.min.type()),
+                                                        a.max)));
+                    a.min = abs(a.min);
+                    a.max = abs(a.max);
+                    interval.max = ir::max(a.min, a.max);
+                }
+            } else {
+                if (a.has_lower_bound()) {
+                    // If a is strictly positive, then abs(a) is strictly
+                    // positive.
+                    interval.min = cast_to(node->type,
+                                           max(make_zero(a.min.type()), a.min));
+                } else if (a.has_upper_bound()) {
+                    // If a is strictly negative, then abs(a) is strictly
+                    // positive.
+                    interval.min = cast_to(
+                        node->type, -min(make_zero(a.max.type()), a.max));
+                } else {
+                    interval.min = make_zero(node->type);
+                }
+                // If the argument is unbounded on one side, then the max is
+                // unbounded.
+                interval.max = ir::Expr();
+            }
+            return;
+        }
+        case ir::Intrinsic::roundf:
+        case ir::Intrinsic::sqrt: {
+            // For monotonic, pure, single-argument functions, we can
+            // make two calls for the min and the max.
+            internal_assert(node->args.size() == 1);
+            Interval a = get(node->args[0]);
+            if (a.has_lower_bound()) {
+                interval.min =
+                    ir::Intrinsic::make(node->op, {std::move(a.min)});
+            }
+            if (a.has_upper_bound()) {
+                interval.max =
+                    ir::Intrinsic::make(node->op, {std::move(a.max)});
+            }
+            return;
+        }
+        // case ir::Intrinsic::sqr: {
+        //     internal_assert(node->args.size() == 1);
+        //     Interval a = get(node->args[0]);
+        //     if (a.is_bounded()) {
+        //         interval.min = select(a.min >= 0, a.min * a.min,
+        //                               select(a.max <= 0, a.max * a.max, 0));
+        //         interval.max = max(a.min * a.min, a.max * a.max);
+        //     }
+        //     return;
+        // }
+        default: {
+            internal_error << "TODO: predicate analysis of expression: "
+                           << ir::Expr(node);
+        }
+        }
+    }
+
     RESTRICT_VISITOR(ir::Generator);
     RESTRICT_VISITOR(ir::Lambda);
 

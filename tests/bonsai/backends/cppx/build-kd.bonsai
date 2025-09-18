@@ -1,0 +1,69 @@
+//! flags: -p default
+
+import stdlib/point;
+import stdlib/distance;
+import stdlib/intersects;
+
+extern points : set[Point];
+
+func [[export]] range_query_x(low : f32, high : f32) = filter(|p : Point| low <= p.vec.x && p.vec.x <= high, points);
+
+func construct_clipped_aabb(v: f32x3, split_axis: u8, coord: f32) -> f32x3 {
+  v_ : mut f32x3 = v;
+  v_[split_axis] = coord;
+  return v_;
+}
+
+element T = array[(u32, f32x3, f32x3), 2];
+
+schedule {
+    tree[[Point]] KD
+      = Interior(low: f32x3x2, high: f32x3x2, children: array[KD, 2], split_axis : u8, coord : f32) with AABB(low, high) on children
+      | Leaf(nprims: u16, data : array[Point, nprims]);
+
+    points : KD;
+
+    layout points(index: u32, lo: f32x3, hi: f32x3) {
+        primitive_count : u32;
+        primitives : array[Point, primitive_count];
+        node_count : u32;
+        group nodes[node_count] by index {
+            coord: f32;
+            split_axis : u8;
+            8;
+            nprims : u16;
+            split nprims {
+                0 -> Interior {
+                    // near: (same min, max clipped at coord)
+                    // far : (same max, min clipped at coord)
+                    low = f32x3x2 { parent.lo, construct_clipped_aabb(parent.lo, split_axis, coord) };
+                    high = f32x3x2 { construct_clipped_aabb(parent.hi, split_axis, coord), parent.hi };
+                    
+                    offset : u32;
+                    children[0] = (index + 1, low[0], high[0]);
+                    children[1] (index + offset, low[1], high[1]);
+                };
+                _ -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
+            };
+        };
+    };
+
+    build points {
+      build Interior(children: array[KD, 2], coord: f32, split_axis: u8) {
+        build coord;
+        build split_axis;
+        build nprims = 0;
+        recurse children;
+        build offset = children[1] - this;
+        return this;
+      };
+      build Leaf(nprims: u16, data: array[Point, nprims]) {
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+}

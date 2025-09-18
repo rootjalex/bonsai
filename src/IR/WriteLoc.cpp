@@ -51,7 +51,8 @@ void WriteLoc::add_index_access(const Expr &index) {
     // TODO: if we were doing stronger type inference, we could add a constraint
     // that the type of index must be an integer (signed or unsigned).
     internal_assert(!index.type().defined() || index.type().is_int_or_uint())
-        << "Write location made with non-integer index: " << index;
+        << "Write location made with non-integer index: " << index << " : "
+        << index.type();
     accesses.push_back(index);
     // TODO: if we were doing stronger type inference, we could add a constraint
     // that the current type must be a vector...

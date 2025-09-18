@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS backends cppx
     FILES
+    build-kd.bonsai
     build-dop14.bonsai
     build-embree-hair.bonsai
     build-extent-quantization.bonsai

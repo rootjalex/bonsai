@@ -78,6 +78,7 @@ struct Dop36 {
     vec4_float hi2;
 } __attribute__((packed));
 using vec2_float = vector<float, 2>;
+using vec2_vec3_float = vector<vec3_float, 2>;
 using vec4_vec3_float = vector<vec3_float, 4>;
 using vec3_vec4_float = vector<vec4_float, 3>;
 using vec5_float = vector<float, 5>;

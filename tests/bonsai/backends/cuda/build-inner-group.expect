@@ -287,8 +287,8 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_
       const Interior& node = std::get<const Interior&>(*node);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      (*ST).volumes[(this_index / 4u)].lows[(this_index % 4u)].low = node.low;
+      (*ST).volumes[(this_index / 4u)].highs[(this_index % 4u)].high = node.high;
       (*ST).nodes[this_index].nprims = 0;
       (*ST).nodes[this_index].axis = argmax(node.high - node.low);
       uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
@@ -300,8 +300,8 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_
       const Leaf& node = std::get<const Leaf&>(*node);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      (*ST).volumes[(this_index / 4u)].lows[(this_index % 4u)].low = node.low;
+      (*ST).volumes[(this_index / 4u)].highs[(this_index % 4u)].high = node.high;
       (*ST).nodes[this_index].axis = argmax(node.high - node.low);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);

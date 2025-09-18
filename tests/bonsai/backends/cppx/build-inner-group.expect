@@ -65,6 +65,7 @@ struct Arm_Leaf {
 } __attribute__((packed));
 using vec3_bool = vector<bool, 3>;
 using vec2_float = vector<float, 2>;
+using vec2_vec3_float = vector<vec3_float, 2>;
 using vec4_vec3_float = vector<vec3_float, 4>;
 using vec4_float = vector<float, 4>;
 using vec3_vec4_float = vector<vec4_float, 3>;
@@ -303,8 +304,8 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
     [&](const Interior& node) {
       const size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      (*ST).volumes[(this_index / 4u)].lows[(this_index % 4u)].low = node.low;
+      (*ST).volumes[(this_index / 4u)].highs[(this_index % 4u)].high = node.high;
       (*ST).nodes[this_index].nprims = 0;
       (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
@@ -315,8 +316,8 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
     [&](const Leaf& node) {
       const size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).volumes[(this_index / 4u)].lows[(this_index & 3u)].low = node.low;
-      (*ST).volumes[(this_index / 4u)].highs[(this_index & 3u)].high = node.high;
+      (*ST).volumes[(this_index / 4u)].lows[(this_index % 4u)].low = node.low;
+      (*ST).volumes[(this_index / 4u)].highs[(this_index % 4u)].high = node.high;
       (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);

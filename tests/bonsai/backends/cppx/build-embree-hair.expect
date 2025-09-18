@@ -88,6 +88,7 @@ struct TriangleIntersection {
 };
 using vec3_bool = vector<bool, 3>;
 using vec2_float = vector<float, 2>;
+using vec2_vec3_float = vector<vec3_float, 2>;
 using vec5_float = vector<float, 5>;
 using vec6_float = vector<float, 6>;
 using vec7_float = vector<float, 7>;

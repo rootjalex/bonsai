@@ -621,6 +621,12 @@ struct Simplifier : ir::Mutator {
 ir::FuncMap Simplify::run(ir::FuncMap funcs,
                           const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
+        // TODO(cgyurgyik): there are some compiler breakages here; need to
+        // investigate.
+        if (name.starts_with("rec_build") || name.starts_with("build") ||
+            name.starts_with("rec_count") || name.starts_with("count")) {
+            continue;
+        }
         // Don't try to simplify templated functions.
         if (func->interfaces.empty()) {
             func->body = Simplify::simplify(std::move(func->body));

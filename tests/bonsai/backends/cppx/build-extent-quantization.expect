@@ -64,6 +64,7 @@ struct Arm_Leaf {
 } __attribute__((packed));
 using vec3_bool = vector<bool, 3>;
 using vec2_float = vector<float, 2>;
+using vec2_vec3_float = vector<vec3_float, 2>;
 using vec4_vec3_float = vector<vec3_float, 4>;
 using vec4_float = vector<float, 4>;
 using vec3_vec4_float = vector<vec4_float, 3>;

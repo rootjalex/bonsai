@@ -14,6 +14,8 @@ const int64_t *as_const_int(const ir::Expr &e);
 bool is_const_one(const ir::Expr &e);
 bool is_const_all_ones(const ir::Expr &e);
 bool is_const_zero(const ir::Expr &e);
+bool is_positive_const(const ir::Expr &e);
+bool is_negative_const(const ir::Expr &e);
 bool is_const(const ir::Expr &e);
 bool is_location_expr(const ir::Expr &expr);
 

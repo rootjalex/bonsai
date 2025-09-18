@@ -404,6 +404,17 @@ ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
                                fill_index_holes(node->end, map),
                                fill_index_holes(node->step, map));
     }
+    if (const auto *node = e.as<ir::Call>()) {
+        std::vector<ir::Expr> args;
+        for (int i = 0; i < node->args.size(); ++i) {
+            args.push_back(fill_index_holes(node->args[i], map));
+        }
+        return ir::Call::make(node->func, std::move(args));
+    }
+    if (const auto *node = e.as<ir::Extract>()) {
+        return ir::Extract::make(fill_index_holes(node->vec, map),
+                                 fill_index_holes(node->idx, map));
+    }
     if (const auto *node = e.as<ir::Build>()) {
         std::vector<ir::Expr> values;
         for (const ir::Expr &value : node->values) {
@@ -437,7 +448,8 @@ ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
             }
             constant = ns.size;
         } else {
-            internal_assert(!nonconstant.defined())
+            internal_assert(!nonconstant.defined() ||
+                            ir::equals(nonconstant, ns.size))
                 << "non-constant already found: `" << nonconstant << "`";
             nonconstant = ns.size;
             continue;

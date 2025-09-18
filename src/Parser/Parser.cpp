@@ -2703,12 +2703,13 @@ struct Parser {
                 expect(Token::Type::ASSIGN);
                 // TODO: insert built-ins to frame, here or somewhere?
                 ir::Expr expr = parse_expr();
-                if (!expr.defined() || !expr.type().defined() ||
-                    !expr.type().is_primitive()) {
-                    report_error()
-                        << "Layout received materialization of name: " << name
-                        << " with non-primitive type: " << expr;
-                }
+                // if (!expr.defined() || !expr.type().defined() ||
+                //     !expr.type().is_primitive()) {
+                //     report_error()
+                //         << "Layout received materialization of name: " <<
+                //         name
+                //         << " with non-primitive type: " << expr;
+                // }
                 add_type_to_frame(name, expr.type(), /*mutable=*/false);
                 return ir::Materialize::make(std::move(name), std::move(expr));
             }
