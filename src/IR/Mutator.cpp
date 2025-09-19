@@ -744,7 +744,7 @@ Member Mutator::visit(const Materialize *node) {
     if (value.same_as(node->value)) {
         return node;
     }
-    return Materialize::make(node->name, std::move(value));
+    return Materialize::make(node->loc, std::move(value));
 }
 Member Mutator::visit(const Lookup *node) {
     internal_error << "[unimplemented] mutate " << ir::Member(node);

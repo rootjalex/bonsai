@@ -74,6 +74,7 @@ struct BuildRecurse : BuildNode<BuildRecurse> {
 };
 
 struct BuildRule : BuildNode<BuildRule> {
+    // TODO(cgyurgyik): This should probably be an ir::WriteLoc.
     ir::Expr field;
     // (optionally defined) expression. If none provided, it must have an
     // argument of the same name in the build function.

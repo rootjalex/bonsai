@@ -190,7 +190,7 @@ void emit_type(std::ostream &ss, Type type) {
 namespace {
 
 void emit_const_var(std::stringstream &ss, const Expr &expr) {
-    internal_assert(is_const(expr));
+    internal_assert(is_const(expr)) << expr;
 
     // This *must* support printing any Expr considered is_const.
     struct EmitConstVar : public Visitor {

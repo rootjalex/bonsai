@@ -1683,7 +1683,7 @@ void Printer::visit(const Group *node) {
 
 void Printer::visit(const Materialize *node) {
     os << get_indent();
-    os << node->name;
+    os << node->loc;
     os << " = ";
     print_no_parens(node->value);
     os << ";\n";

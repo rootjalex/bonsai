@@ -149,5 +149,12 @@ ir::Expr WriteLoc::to_expr() const {
     return location;
 }
 
+std::string WriteLoc::name() const {
+    std::stringstream os;
+    ir::Printer printer(os);
+    printer.print(to_expr());
+    return os.str();
+}
+
 } // namespace ir
 } // namespace bonsai

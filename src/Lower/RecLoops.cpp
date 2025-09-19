@@ -31,10 +31,15 @@ struct LowerRecLoopsImpl : public Mutator {
         std::vector<Expr> call_args(node->args.size());
         std::vector<Argument> f_args(node->args.size());
         for (size_t i = 0; i < node->args.size(); i++) {
-            call_args[i] = make_zero(node->args[i].type);
+            const ir::Expr &default_value = node->args[i].default_value;
+            call_args[i] = default_value.defined()
+                               ? default_value
+                               : make_zero(node->args[i].type);
             f_args[i].name = node->args[i].name;
             f_args[i].type = node->args[i].type;
             f_args[i].mutating = false;
+            // Now, erase the default value.
+            f_args[i].default_value = ir::Expr();
         }
         std::vector<TypedVar> vars = gather_free_vars(node);
         auto mutables = mutated_variables(node->body);

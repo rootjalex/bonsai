@@ -8,7 +8,10 @@
 #include "IntrusivePtr.h"
 #include "Mutator.h"
 #include "Visitor.h"
+#include "WriteLoc.h"
 
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -147,10 +150,10 @@ struct Group : LayoutMember<Group> {
 };
 
 struct Materialize : LayoutMember<Materialize> {
-    std::string name;
+    ir::WriteLoc loc;
     Expr value;
 
-    static Member make(std::string name, Expr value);
+    static Member make(ir::WriteLoc loc, Expr value);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Materialize;
 };
@@ -183,6 +186,10 @@ struct Layout {
     ir::Member find_primitives_group() const;
 
     ir::Member find_group_for(const std::string &field_name) const;
+
+    std::vector<std::pair<std::string, ir::Expr>> tree_carried_updates() const;
+
+    std::set<std::string> tree_carried_dependencies() const;
 };
 
 using LayoutMap = std::map<std::string, Layout>;

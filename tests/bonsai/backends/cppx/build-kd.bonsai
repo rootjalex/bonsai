@@ -1,31 +1,35 @@
-//! flags: -p default
+//! flags: -b cppx
 
 import stdlib/point;
 import stdlib/distance;
 import stdlib/intersects;
 
-extern points : set[Point];
+extern points : set[Triangle];
 
-func [[export]] range_query_x(low : f32, high : f32) = filter(|p : Point| low <= p.vec.x && p.vec.x <= high, points);
+// func [[export]] range_query_x(low : f32, high : f32) = filter(|p : Triangle| low <= p.vec.x && p.vec.x <= high, points);
+func [[export]] trace(ray : Ray) = argmin(|pt| distmin(ray, pt), filter(|pt| intersects(ray, pt), points));
 
-func construct_clipped_aabb(v: f32x3, split_axis: u8, coord: f32) -> f32x3 {
+func split_aabb(v: f32x3, split_axis: u8, coord: f32) -> f32x3 {
   v_ : mut f32x3 = v;
   v_[split_axis] = coord;
   return v_;
 }
 
-element T = array[(u32, f32x3, f32x3), 2];
+// concretized child type
+element CCT = array[(u32, f32x3, f32x3), 2];
 
 schedule {
-    tree[[Point]] KD
+    tree[[Triangle]] KD
       = Interior(low: f32x3x2, high: f32x3x2, children: array[KD, 2], split_axis : u8, coord : f32) with AABB(low, high) on children
-      | Leaf(nprims: u16, data : array[Point, nprims]);
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
     points : KD;
 
-    layout points(index: u32, lo: f32x3, hi: f32x3) {
+    layout points(index: u32, lo: f32x3 = wlo, hi: f32x3 = whi) {
         primitive_count : u32;
-        primitives : array[Point, primitive_count];
+        wlo: f32x3;
+        whi: f32x3;
+        primitives : array[Triangle, primitive_count];
         node_count : u32;
         group nodes[node_count] by index {
             coord: f32;
@@ -34,14 +38,15 @@ schedule {
             nprims : u16;
             split nprims {
                 0 -> Interior {
-                    // near: (same min, max clipped at coord)
-                    // far : (same max, min clipped at coord)
-                    low = f32x3x2 { parent.lo, construct_clipped_aabb(parent.lo, split_axis, coord) };
-                    high = f32x3x2 { construct_clipped_aabb(parent.hi, split_axis, coord), parent.hi };
+                    // near: (same min, max clipped at coord), far : (same max, min clipped at coord)
+                    low  = f32x3x2 { parent.lo, split_aabb(parent.lo, split_axis, coord) };
+                    high = f32x3x2 { split_aabb(parent.hi, split_axis, coord), parent.hi };
                     
                     offset : u32;
-                    children[0] = (index + 1, low[0], high[0]);
-                    children[1] (index + offset, low[1], high[1]);
+                    children = CCT { 
+                      (index + 1, low[0], high[0]), 
+                      (index + offset, low[1], high[1]) 
+                    };
                 };
                 _ -> Leaf { 
                     poffset : u32; 
@@ -52,7 +57,11 @@ schedule {
     };
 
     build points {
-      build Interior(children: array[KD, 2], coord: f32, split_axis: u8) {
+      build Interior(low: f32x3x2, high: f32x3x2, children: array[KD, 2], coord: f32, split_axis: u8) {
+        build root {
+          build wlo = f32x3{ min(low[0].x, low[1].x), min(low[0].y, low[1].y), min(low[0].z, low[1].z) };
+          build whi = f32x3{ max(high[0].x, high[1].x), max(high[0].y, high[1].y), max(high[0].z, high[1].z) };
+        }
         build coord;
         build split_axis;
         build nprims = 0;
@@ -60,7 +69,7 @@ schedule {
         build offset = children[1] - this;
         return this;
       };
-      build Leaf(nprims: u16, data: array[Point, nprims]) {
+      build Leaf(nprims: u16, data: array[Triangle, nprims]) {
         build nprims;
         build poffset = append(data, nprims);
         return this;

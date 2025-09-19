@@ -10,6 +10,36 @@ namespace bonsai {
 namespace ir {
 namespace {
 
+class GatherTreeCarriedDependencies : public ir::Visitor {
+  public:
+    explicit GatherTreeCarriedDependencies() {}
+
+    void visit(const ir::Materialize *node) override {
+        node->value.accept(this);
+        if (parent_accesses.contains(node->loc.name())) {
+            parent_updates.push_back({node->loc.name(), node->value});
+        }
+    }
+
+    void visit(const ir::Access *node) override {
+        if (const ir::Struct_t *struct_t =
+                node->value.type().as<ir::Struct_t>();
+            struct_t && struct_t->name == "parent_t") {
+            parent_accesses.insert(node->field);
+        }
+    }
+
+    std::vector<std::pair<std::string, ir::Expr>> updates() {
+        return parent_updates;
+    }
+
+    std::set<std::string> dependencies() { return parent_accesses; }
+
+  private:
+    std::set<std::string> parent_accesses;
+    std::vector<std::pair<std::string, ir::Expr>> parent_updates;
+};
+
 // TODO(cgyurgyik): there is an underlying assumption that every layout is a
 // chain. This seems in general brittle, and breaks for arms with lookups.
 // https://www.youtube.com/watch?v=C6ZnwuhqALY&ab_channel=2ChainzVEVO
@@ -229,13 +259,14 @@ Member Group::make(std::string name, Expr size, Expr index, Member inner,
     return node;
 }
 
-Member Materialize::make(std::string name, Expr value) {
-    internal_assert(!name.empty()) << "Materialize::make received empty name";
+Member Materialize::make(ir::WriteLoc loc, Expr value) {
+    internal_assert(loc.defined())
+        << "Materialize::make received undefined name";
     internal_assert(value.defined())
-        << "Materialize::make received undefined value for name: " << name;
+        << "Materialize::make received undefined value for name: " << loc;
 
     Materialize *node = new Materialize;
-    node->name = std::move(name);
+    node->loc = std::move(loc);
     node->value = std::move(value);
     return node;
 }
@@ -375,6 +406,19 @@ ir::Member Layout::find_group_for(const std::string &field_name) const {
         }
     }
     return ir::Member();
+}
+
+std::vector<std::pair<std::string, ir::Expr>>
+Layout::tree_carried_updates() const {
+    GatherTreeCarriedDependencies gtcd;
+    body.accept(&gtcd);
+    return gtcd.updates();
+}
+
+std::set<std::string> Layout::tree_carried_dependencies() const {
+    GatherTreeCarriedDependencies gtcd;
+    body.accept(&gtcd);
+    return gtcd.dependencies();
 }
 
 } // namespace ir

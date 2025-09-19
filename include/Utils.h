@@ -47,6 +47,9 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         // Conservatively fail if the bit size is > 64.
         internal_assert(type.bits() <= 64) << type;
     }
+    if (const auto *v = e.as<ir::IdxImm>()) {
+        return std::bit_cast<T>(v->value);
+    }
     if (const auto *v = e.as<ir::UIntImm>()) {
         return std::bit_cast<T>(v->value);
     }

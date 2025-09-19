@@ -106,11 +106,11 @@ std::vector<Path> get_paths(const ir::Layout &layout,
         }
 
         void visit(const Materialize *node) override {
-            for (auto &path : paths) {
+            for (ir::Path &path : paths) {
                 const auto [_, inserted] =
-                    path.try_emplace(node->name, node->value.type());
+                    path.try_emplace(node->loc.name(), node->value.type());
                 internal_assert(inserted)
-                    << "field found twice in same path: " << node->name;
+                    << "field found twice in same path: " << node->loc;
             }
         }
     };
@@ -491,9 +491,9 @@ struct ValidateSplits : public Visitor {
             } else if (const Materialize *materialization =
                            member.as<Materialize>()) {
                 const auto [_, inserted] = defined.try_emplace(
-                    materialization->name, materialization->value.type());
+                    materialization->loc.name(), materialization->value.type());
                 internal_assert(inserted)
-                    << "materialization: " << materialization->name
+                    << "materialization: " << materialization->loc.name()
                     << " is duplicated in member";
             }
         }

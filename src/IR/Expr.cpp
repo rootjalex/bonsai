@@ -612,7 +612,7 @@ Expr Extract::make(Expr vec, Expr idx) {
                 internal_assert(is_const(idx))
                     << "Extract on tuple with non-constant index: " << vec
                     << "[" << idx << "]";
-                return Extract::make(std::move(vec), *as_const_int(idx));
+                return Extract::make(std::move(vec), *get_constant_value(idx));
             }
             type = vec.type().element_of();
         }

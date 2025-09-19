@@ -166,6 +166,8 @@ PassManager register_passes(const CompilerOptions &options) {
     std::vector<std::unique_ptr<Pass>> d;
     d.push_back(std::make_unique<Canonicalize>());
     d.push_back(std::make_unique<VerifyOptions>());
+    // TODO(cgyurgyik): fix this
+    // d.push_back(std::make_unique<VerifyLayouts>());
     d.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     d.push_back(std::make_unique<opt::Fusion>());

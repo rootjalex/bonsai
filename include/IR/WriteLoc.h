@@ -22,7 +22,7 @@ struct WriteLoc {
 
     WriteLoc() {} // required for Accumulate::make to work.
     WriteLoc(ir::Expr e) : b(std::move(e)), type(b.type()) {
-        internal_assert(e.defined());
+        internal_assert(b.defined());
     }
     WriteLoc(std::string b, Type base_type)
         : b(ir::Var::make(base_type, b)), type(base_type) {
@@ -32,6 +32,9 @@ struct WriteLoc {
     bool defined() const { return b.defined(); }
 
     ir::Expr to_expr() const;
+
+    // Returns a unique "name" for this write location.
+    std::string name() const;
 
     const std::string &base() const {
         const ir::Var *v = b.as<ir::Var>();

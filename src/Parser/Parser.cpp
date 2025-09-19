@@ -551,7 +551,7 @@ struct Parser {
         program.externs.emplace_back(name, std::move(type));
     }
 
-    std::vector<ir::Argument> parse_func_args() {
+    std::vector<ir::Argument> parse_func_args(bool is_layout = false) {
         expect(Token::Type::LPAREN);
         std::vector<ir::Argument> args;
         if (peek_type() != Token::Type::RPAREN) {
@@ -575,10 +575,18 @@ struct Parser {
                     // For now, assume that's done in type inference.
                     // TODO: this should not perform computation!
                     // Can we easily prevent that? Enforce is_constant?
-                    default_value = parse_expr();
-                    if (!ir::is_constant_expr(default_value)) {
-                        report_error()
-                            << "Function default values must be constants";
+                    if (is_layout && peek_type() == Token::Type::IDENTIFIER) {
+                        // The root of a layout may refer to layout members.
+                        // This is necessary for, e.g., defining the base case
+                        // of a KD-tree.
+                        std::string id = get_id();
+                        default_value = ir::Var::make(type, id);
+                    } else {
+                        default_value = parse_expr();
+                        if (!ir::is_constant_expr(default_value)) {
+                            report_error()
+                                << "Function default values must be constants";
+                        }
                     }
                 }
 
@@ -1511,6 +1519,10 @@ struct Parser {
 
         if (name == "inf") {
             return ir::Infinity::make(f32);
+        }
+        if (name == "array") {
+            report_error() << "[unimplemented] parsing an array type as an "
+                              "explicit identifier";
         }
 
         if (consume(Token::Type::LPAREN)) {
@@ -2557,8 +2569,7 @@ struct Parser {
     // parse_member()
     ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
         push_frame();
-
-        std::vector<ir::Argument> root = parse_func_args();
+        std::vector<ir::Argument> root = parse_func_args(/*is_layout=*/true);
         {
             std::vector<ir::TypedVar> fields;
             std::map<std::string, ir::Expr> defaults;
@@ -2573,7 +2584,7 @@ struct Parser {
                 ir::Struct_t::make("parent_t", fields, defaults);
             add_type_to_frame("parent", parent_type, /*mutable=*/false);
         }
-        ir::Member member = parse_member();
+        ir::Member member = parse_member(type);
         expect(Token::Type::SEMICOL);
         pop_frame();
 
@@ -2585,7 +2596,7 @@ struct Parser {
         };
     }
 
-    ir::Arm parse_arm() {
+    ir::Arm parse_arm(const ir::Type &abstract_type) {
         std::optional<int64_t> value;
         ir::Arm::Comparator comparator = ir::Arm::Comparator::EQ;
         switch (peek_type()) {
@@ -2629,7 +2640,7 @@ struct Parser {
             };
         }
 
-        ir::Member body = parse_member();
+        ir::Member body = parse_member(abstract_type);
         expect(Token::Type::SEMICOL);
         return ir::Arm{
             .comparator = comparator,
@@ -2639,7 +2650,7 @@ struct Parser {
         };
     }
 
-    ir::Member parse_member() {
+    ir::Member parse_member(const ir::Type &abstract_type) {
         // Default.
         ir::Group::Type group_type = ir::Group::Type::Direct;
         switch (peek_type()) {
@@ -2647,7 +2658,7 @@ struct Parser {
             consume();
             std::vector<ir::Member> members;
             do {
-                members.emplace_back(parse_member());
+                members.emplace_back(parse_member(abstract_type));
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
             return ir::Chain::make(std::move(members));
@@ -2684,35 +2695,55 @@ struct Parser {
                 break;
             }
 
-            ir::Member body = parse_member();
+            ir::Member body = parse_member(abstract_type);
             return ir::Group::make(std::move(name), std::move(size),
                                    std::move(index), std::move(body),
                                    group_type);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();
+            if (peek_type() != Token::Type::COL && !name_in_scope(name)) {
+                // We need to find types for materializations from the ADT.
+                const auto *bvh_t = abstract_type.as<ir::BVH_t>();
+                internal_assert(bvh_t) << abstract_type;
+                ir::Type found_type;
+                for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
+                    for (const auto &[fname, ftype] : variant.fields()) {
+                        if (fname != name) {
+                            continue;
+                        }
+                        found_type = ftype;
+                        break;
+                    }
+                }
+                if (!found_type.defined()) {
+                    report_error() << "no type found for materialization of `"
+                                   << name << "`";
+                }
+                add_type_to_frame(name, found_type, /*mut=*/false);
+            }
+            ir::WriteLoc loc = parse_write_loc(name);
             if (consume(Token::Type::COL)) {
                 ir::Type type = parse_type();
                 if (!type.is_primitive()) {
-                    report_error() << "Layout member received name: " << name
+                    report_error() << "Layout member received name: " << loc
                                    << " with non-primitive type: " << type;
                 }
                 add_type_to_frame(name, type, /*mutable=*/false);
                 return ir::Field::make(std::move(name), std::move(type));
-            } else {
-                expect(Token::Type::ASSIGN);
-                // TODO: insert built-ins to frame, here or somewhere?
-                ir::Expr expr = parse_expr();
-                // if (!expr.defined() || !expr.type().defined() ||
-                //     !expr.type().is_primitive()) {
-                //     report_error()
-                //         << "Layout received materialization of name: " <<
-                //         name
-                //         << " with non-primitive type: " << expr;
-                // }
-                add_type_to_frame(name, expr.type(), /*mutable=*/false);
-                return ir::Materialize::make(std::move(name), std::move(expr));
             }
+            expect(Token::Type::ASSIGN);
+            // TODO: insert built-ins to frame, here or somewhere?
+            ir::Expr expr = parse_expr();
+            const ir::Type &type = expr.type();
+            // if (!expr.defined() || !expr.type().defined() ||
+            //     !expr.type().is_primitive()) {
+            //     report_error()
+            //         << "Layout received materialization of name: " <<
+            //         name
+            //         << " with non-primitive type: " << expr;
+            // }
+            return ir::Materialize::make(std::move(loc), std::move(expr));
         }
         case Token::Type::INT_LITERAL: {
             const int64_t value = parse_int_literal();
@@ -2725,7 +2756,7 @@ struct Parser {
 
             std::vector<ir::Arm> arms;
             do {
-                arms.push_back(parse_arm());
+                arms.push_back(parse_arm(abstract_type));
             } while (!consume(Token::Type::RSQUIGGLE));
             return ir::Split::make(expr, std::move(arms));
         }

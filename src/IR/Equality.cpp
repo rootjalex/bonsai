@@ -723,8 +723,7 @@ Cmp compare_members(const Member &l0, const Member &l1) {
     case IRLayoutEnum::Materialize: {
         const Materialize *m0 = l0.as<Materialize>();
         const Materialize *m1 = l1.as<Materialize>();
-        if (Cmp cmp = compare_primitives(m0->name, m1->name);
-            cmp != Cmp::Equals) {
+        if (Cmp cmp = compare_writelocs(m0->loc, m1->loc); cmp != Cmp::Equals) {
             return cmp;
         }
         return compare_exprs(m0->value, m1->value);

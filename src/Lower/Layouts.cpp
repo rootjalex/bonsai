@@ -174,7 +174,24 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
                 return ir::Var::make(it->type, it->name);
             }
 
-            internal_error << "materialization fill cannot find: " << var->name;
+            const auto *bvh_t = layout.type.as<ir::BVH_t>();
+            internal_assert(bvh_t) << layout.type;
+            ir::Type found_type;
+            for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
+                for (const auto &[fname, ftype] : variant.fields()) {
+                    if (fname != var->name) {
+                        continue;
+                    }
+                    found_type = ftype;
+                    break;
+                }
+            }
+            if (found_type.defined()) {
+                return ir::Var::make(std::move(found_type), var->name);
+            }
+
+            internal_error << "materialization fill cannot find: `" << var->name
+                           << "` of type: " << var->type;
         }
 
         ir::Expr visit(const ir::Call *node) override {
@@ -184,8 +201,15 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             }
             return ir::Call::make(node->func, std::move(args));
         }
-    };
 
+        ir::Expr visit(const ir::Build *node) override {
+            std::vector<ir::Expr> values = node->values;
+            for (ir::Expr &value : values) {
+                value = mutate(value);
+            }
+            return ir::Build::make(node->type, std::move(values));
+        }
+    };
     return Rewrite(frames, layout).mutate(expr);
 }
 
@@ -233,7 +257,9 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
         case ir::IRLayoutEnum::Materialize: {
             const ir::Materialize *node = m.as<ir::Materialize>();
             ir::Expr materialization = fill(frames, node->value, layout);
-            frames.maybe_add_to_frame(node->name, std::move(materialization));
+            frames.maybe_add_to_frame(node->loc.base(),
+                                      std::move(materialization));
+
             continue;
         }
         case ir::IRLayoutEnum::Lookup:
@@ -363,6 +389,7 @@ std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
     };
 
     Visit visit(map);
+    internal_assert(e.defined());
     e.accept(&visit);
     return visit.mapping;
 }
@@ -576,11 +603,9 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
         case ir::IRLayoutEnum::Materialize: {
             const ir::Materialize *node = m.as<ir::Materialize>();
             ir::Expr materialization = fill(frames, node->value, layout);
-            if (node->name == field) {
+            frames.maybe_add_to_frame(node->loc.base(), materialization);
+            if (node->loc.base() == field) {
                 return materialization;
-            } else {
-                frames.maybe_add_to_frame(node->name,
-                                          std::move(materialization));
             }
             continue;
         }
@@ -603,35 +628,42 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
     ir::Expr concretized_field =
         field_from_layout(base, member, frames, iter_name, node_type, field,
                           ltmap, layout, root, is_lookup);
+    if (!concretized_field.defined()) {
+        if (std::optional<ir::Expr> expr = frames.from_frames(field)) {
+            // This was a previously materialized field.
+            return ir::Var::make(expr->type(), field);
+        }
+    }
+    internal_assert(concretized_field.defined())
+        << "no concretized field found for: `" << field << "`";
     return fill_index_holes(std::move(concretized_field), ltmap);
 }
 
-class GatherTreeCarriedDependencies : public ir::Visitor {
+// Removes TCD `parent.` accesses.
+class RemoveTreeCarriedDependencies : public ir::Mutator {
   public:
-    explicit GatherTreeCarriedDependencies() {}
+    explicit RemoveTreeCarriedDependencies(
+        const std::set<std::string> &parents,
+        const std::vector<ir::Argument> &index_list)
+        : parents(parents), index_list(index_list) {}
 
-    void visit(const ir::Materialize *node) override {
-        node->value.accept(this);
-        if (parent_accesses.contains(node->name)) {
-            parent_updates.push_back({node->name, node->value});
+    ir::Expr visit(const ir::Access *node) override {
+        if (!parents.contains(node->field)) {
+            return ir::Access::make(node->field, mutate(node->value));
         }
-    }
-
-    void visit(const ir::Access *node) override {
-        if (const ir::Struct_t *struct_t =
-                node->value.type().as<ir::Struct_t>();
-            struct_t && struct_t->name == "parent_t") {
-            parent_accesses.insert(node->field);
-        }
-    }
-
-    std::vector<std::pair<std::string, ir::Expr>> updates() {
-        return parent_updates;
+        auto it = std::find_if(
+            index_list.begin(), index_list.end(),
+            [&](const ir::Argument &a) { return a.name == node->field; });
+        internal_assert(it != index_list.end())
+            << "[unexpected] tree-carried dependency not found in layout "
+               "arguments: `"
+            << node->field << "`";
+        return ir::Var::make(it->type, node->field);
     }
 
   private:
-    std::set<std::string> parent_accesses;
-    std::vector<std::pair<std::string, ir::Expr>> parent_updates;
+    const std::set<std::string> &parents;
+    const std::vector<ir::Argument> &index_list;
 };
 
 ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
@@ -878,12 +910,25 @@ ir::Expr flatten_tuple(ir::Expr expr,
                 handle_tuple(expr);
             }
             return;
-        } else if (const ir::Var *var = t.as<ir::Var>()) {
+        }
+        if (const ir::Var *var = t.as<ir::Var>()) {
             if (const auto &iter = references.find(var->name);
                 iter != references.cend()) {
                 handle_tuple(iter->second);
                 return;
             }
+        }
+        if (const ir::Extract *ext = t.as<ir::Extract>()) {
+            const ir::Build *vec = ext->vec.as<ir::Build>();
+            if (vec == nullptr) {
+                exprs.push_back(t);
+                return;
+            }
+            internal_assert(vec) << ext->vec;
+            std::optional<uint64_t> idx = get_constant_value(ext->idx);
+            internal_assert(idx.has_value()) << ext->idx;
+            handle_tuple(vec->values[*idx]);
+            return;
         }
         internal_assert(!t.type().is<ir::Tuple_t>())
             << "[unimplemented] flatten_tuple of non-Build: " << t;
@@ -944,12 +989,15 @@ ir::Stmt flatten_yield_froms(ir::Stmt body,
                         << " in recursive function of: " << ir::Stmt(node)
                         << "\n with type: " << type
                         << " of flattened id: " << id;
-
-                    for (size_t i = 0; i < index_list.size(); i++) {
+                    // TODO(cgyurgyik): the fuck is going on --- when is the
+                    // index list being (incorrectly) reversed?
+                    std::vector<ir::Argument> index_list2 = index_list;
+                    std::reverse(index_list2.begin(), index_list2.end());
+                    for (size_t i = 0; i < index_list2.size(); i++) {
                         internal_assert(
-                            ir::equals(index_list[i].type, tuple->etypes[i]))
+                            ir::equals(index_list2[i].type, tuple->etypes[i]))
                             << "Mismatching YieldFroms, expected type: "
-                            << index_list[i].type
+                            << index_list2[i].type
                             << " but found type: " << tuple->etypes[i]
                             << " at index: " << i << " in: " << ir::Stmt(node);
                     }
@@ -1013,6 +1061,10 @@ struct LowerMatches : public ir::Mutator {
         body = flatten_yield_froms(std::move(body), index_list, references,
                                    layout_type_map);
         references.clear();
+        const ir::Layout &layout = get_layout(tree_name);
+        std::set<std::string> parents = layout.tree_carried_dependencies();
+        RemoveTreeCarriedDependencies rtcd(parents, index_list);
+        body = rtcd.mutate(std::move(body));
         return ir::RecLoop::make(std::move(index_list), std::move(body));
     }
 
@@ -1042,9 +1094,7 @@ struct LowerMatches : public ir::Mutator {
         }
         // tree-carried dependencies need to be added to the references for
         // further processing when visiting YieldFrom.
-        GatherTreeCarriedDependencies gtcd;
-        layout.body.accept(&gtcd);
-        for (const auto &[name, expr] : gtcd.updates()) {
+        for (const auto &[name, expr] : layout.tree_carried_updates()) {
             references.insert({name, expr});
         }
 
@@ -1070,6 +1120,20 @@ struct LowerMatches : public ir::Mutator {
         // First time we see a tree, add it's type to the type parameters list.
         if (!matched_objects.contains(tree_name)) {
             std::vector<ir::Argument> node_index_list = layout.root;
+            for (ir::Argument &arg : node_index_list) {
+                if (!arg.default_value.defined()) {
+                    continue;
+                }
+                if (is_const(arg.default_value)) {
+                    continue;
+                }
+                const auto *v = arg.default_value.as<ir::Var>();
+                internal_assert(v) << arg.default_value;
+                ir::Expr base = ir::Var::make(struct_type, tree_name);
+                arg.default_value = field_from_layout(
+                    base, layout.body, /*frames=*/{}, "---", "---", v->name,
+                    layout_type_map, layout, root);
+            }
             std::reverse(node_index_list.begin(), node_index_list.end());
             std::vector<ir::Expr> idxs;
             idxs.reserve(node_index_list.size());
