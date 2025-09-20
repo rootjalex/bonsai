@@ -44,10 +44,8 @@ struct VariantData {
 };
 
 VariantData analyze_node(const ir::BVH_t::Variant &variant,
-                         const ir::Type &primitive_type,
-                         const ir::Type &tree_type) {
-    const ir::BVH_t *bvh = tree_type.as<ir::BVH_t>();
-    internal_assert(bvh) << tree_type;
+                         const ir::Type &primitive_type, const ir::BVH_t *bvh) {
+    internal_assert(bvh);
     ir::Type tree_reference = ir::Ref_t::make(bvh->name);
     std::vector<ir::TypedVar> payload;
     std::vector<VariantData::ChildAccess> children;
@@ -684,65 +682,9 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
             << " does not have associated BVH type, instead received: "
             << expr.type();
         const ir::Type &tree = it->second;
-        const ir::BVH_t *bvh_t = tree.as<ir::BVH_t>();
+        const auto *bvh_t = tree.as<ir::BVH_t>();
         internal_assert(bvh_t) << tree;
-
-        ir::Expr bvh = ir::Var::make(tree, as_var->name);
-        const size_t n_variants = bvh_t->variants.size();
-        ir::Match::Arms arms(n_variants);
-        for (size_t i = 0; i < n_variants; i++) {
-            ir::Expr node = ir::Unwrap::make(/*unwrap_index=*/i, bvh);
-            const auto [payload, children] = analyze_node(
-                bvh_t->variants[i], as_var->type.element_of(), tree);
-
-            std::vector<ir::Stmt> statements;
-            // TODO: visit order should be scheduable?
-            for (size_t i = 0; i < payload.size(); i++) {
-                ir::Expr access = ir::Access::make(payload[i].name, node);
-                statements.push_back(payload[i].type.is_iterable()
-                                         // forall d in data: yield d
-                                         ? ir::Iterate::make(std::move(access))
-                                         // yield d
-                                         : ir::Yield::make(std::move(access)));
-            }
-            if (!children.empty()) {
-                const std::optional<ir::BVH_t::Volume> &volume =
-                    bvh_t->variants[i].volume;
-                internal_assert(volume.has_value())
-                    << "[unexpected] no bounding volume: "
-                    << bvh_t->variants[i];
-                switch (volume->bound_type) {
-                case ir::BVH_t::Volume::BoundType::Enclosing: {
-                    // Since the bounding volume encloses all children, we have
-                    // a single scan encompassing all accesses.
-                    std::vector<ir::Expr> accesses;
-                    accesses.reserve(children.size());
-                    for (const auto &[child, index] : children) {
-                        ir::Expr access = ir::Access::make(child.name, node);
-                        internal_assert(!index.has_value());
-                        accesses.push_back(access);
-                    }
-                    statements.push_back(ir::Scan::make(make_tuple(accesses)));
-                } break;
-                case ir::BVH_t::Volume::BoundType::Childwise: {
-                    // Otherwise, we have a scan per child.
-                    for (const auto &[child, index] : children) {
-                        ir::Expr access = ir::Access::make(child.name, node);
-                        internal_assert(index.has_value());
-                        access = ir::Extract::make(
-                            access,
-                            ir::UIntImm::make(ir::UInt_t::make(32), *index));
-                        statements.push_back(ir::Scan::make(access));
-                    }
-                } break;
-                }
-            }
-
-            arms[i].first = bvh_t->variants[i];
-            arms[i].second = ir::Sequence::make(std::move(statements));
-        }
-        ir::Expr var = ir::Var::make(tree, as_var->name);
-        return ir::Match::make(std::move(var), std::move(arms));
+        return build_base_scan(as_var->name, bvh_t);
     }
 
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
@@ -859,6 +801,63 @@ struct LowerBVH : public ir::Mutator {
 };
 
 } // namespace
+
+ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
+    ir::Expr bvh = ir::Var::make(bvh_t, name);
+    const size_t n_variants = bvh_t->variants.size();
+    ir::Match::Arms arms(n_variants);
+    for (size_t i = 0; i < n_variants; i++) {
+        ir::Expr node = ir::Unwrap::make(/*unwrap_index=*/i, bvh);
+        const auto [payload, children] =
+            analyze_node(bvh_t->variants[i], bvh_t->primitive, bvh_t);
+
+        std::vector<ir::Stmt> statements;
+        // TODO: visit order should be scheduable?
+        for (size_t i = 0; i < payload.size(); i++) {
+            ir::Expr access = ir::Access::make(payload[i].name, node);
+            statements.push_back(payload[i].type.is_iterable()
+                                     // forall d in data: yield d
+                                     ? ir::Iterate::make(std::move(access))
+                                     // yield d
+                                     : ir::Yield::make(std::move(access)));
+        }
+        if (!children.empty()) {
+            const std::optional<ir::BVH_t::Volume> &volume =
+                bvh_t->variants[i].volume;
+            internal_assert(volume.has_value())
+                << "[unexpected] no bounding volume: " << bvh_t->variants[i];
+            switch (volume->bound_type) {
+            case ir::BVH_t::Volume::BoundType::Enclosing: {
+                // Since the bounding volume encloses all children, we have
+                // a single scan encompassing all accesses.
+                std::vector<ir::Expr> accesses;
+                accesses.reserve(children.size());
+                for (const auto &[child, index] : children) {
+                    ir::Expr access = ir::Access::make(child.name, node);
+                    internal_assert(!index.has_value());
+                    accesses.push_back(access);
+                }
+                statements.push_back(ir::Scan::make(make_tuple(accesses)));
+            } break;
+            case ir::BVH_t::Volume::BoundType::Childwise: {
+                // Otherwise, we have a scan per child.
+                for (const auto &[child, index] : children) {
+                    ir::Expr access = ir::Access::make(child.name, node);
+                    internal_assert(index.has_value());
+                    access = ir::Extract::make(
+                        access,
+                        ir::UIntImm::make(ir::UInt_t::make(32), *index));
+                    statements.push_back(ir::Scan::make(access));
+                }
+            } break;
+            }
+        }
+
+        arms[i].first = bvh_t->variants[i];
+        arms[i].second = ir::Sequence::make(std::move(statements));
+    }
+    return ir::Match::make(std::move(bvh), std::move(arms));
+}
 
 ir::Program LowerTrees::run(ir::Program program,
                             const CompilerOptions &options) const {

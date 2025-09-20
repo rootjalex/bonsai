@@ -4,10 +4,10 @@ import stdlib/point;
 import stdlib/distance;
 import stdlib/intersects;
 
-extern points : set[Triangle];
+extern points : set[Point];
 
-// func [[export]] range_query_x(low : f32, high : f32) = filter(|p : Triangle| low <= p.vec.x && p.vec.x <= high, points);
-func [[export]] trace(ray : Ray) = argmin(|pt| distmin(ray, pt), filter(|pt| intersects(ray, pt), points));
+func [[export]] range_query_x(low : f32, high : f32) = filter(|p : Point| low <= p.vec.x && p.vec.x <= high, points);
+// func [[export]] trace(ray : Ray) = argmin(|pt| distmin(ray, pt), filter(|pt| intersects(ray, pt), points));
 
 func split_aabb(v: f32x3, split_axis: u8, coord: f32) -> f32x3 {
   v_ : mut f32x3 = v;
@@ -19,9 +19,9 @@ func split_aabb(v: f32x3, split_axis: u8, coord: f32) -> f32x3 {
 element CCT = array[(u32, f32x3, f32x3), 2];
 
 schedule {
-    tree[[Triangle]] KD
+    tree[[Point]] KD
       = Interior(low: f32x3x2, high: f32x3x2, children: array[KD, 2], split_axis : u8, coord : f32) with AABB(low, high) on children
-      | Leaf(nprims: u16, data : array[Triangle, nprims]);
+      | Leaf(nprims: u16, data : array[Point, nprims]);
 
     points : KD;
 
@@ -29,7 +29,7 @@ schedule {
         primitive_count : u32;
         wlo: f32x3;
         whi: f32x3;
-        primitives : array[Triangle, primitive_count];
+        primitives : array[Point, primitive_count];
         node_count : u32;
         group nodes[node_count] by index {
             coord: f32;
@@ -69,7 +69,7 @@ schedule {
         build offset = children[1] - this;
         return this;
       };
-      build Leaf(nprims: u16, data: array[Triangle, nprims]) {
+      build Leaf(nprims: u16, data: array[Point, nprims]) {
         build nprims;
         build poffset = append(data, nprims);
         return this;

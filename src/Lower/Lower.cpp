@@ -21,6 +21,7 @@
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
 #include "Lower/ReturnToOutParameter.h"
+#include "Lower/Scans.h"
 #include "Lower/Sorts.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
@@ -84,6 +85,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<VerifyBuilds>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
+    manager.register_pass<LowerScans>();
     manager.register_pass<LowerSorts>();
     manager.register_pass<LowerDefers>();
     manager.register_pass<LoopTransforms>();
@@ -139,6 +141,7 @@ PassManager register_passes(const CompilerOptions &options) {
     }
     core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
+    core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
     if (options.target != BackendTarget::CPPX &&
@@ -190,6 +193,10 @@ PassManager register_passes(const CompilerOptions &options) {
     }
     d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
+    // TODO(cgyurgyik): two issues, 1. this goes before yields in the original
+    // code, so check out why. 2. BVH_t is first argument? I probably should
+    // check out `main` and run / print the code.
+    d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
     if (options.target != BackendTarget::CPPX &&
