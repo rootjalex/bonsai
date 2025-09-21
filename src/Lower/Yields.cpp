@@ -36,7 +36,7 @@ struct FindSoloYield : public ir::Visitor {
     // This should have been lowered already.
     RESTRICT_VISITOR(ir::ForEach);
     // TODO: support scans too.
-    RESTRICT_VISITOR(ir::Scan);
+    // RESTRICT_VISITOR(ir::Scan);
     // TODO: support Iterates too
     RESTRICT_VISITOR(ir::Iterate);
 

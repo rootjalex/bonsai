@@ -193,9 +193,6 @@ PassManager register_passes(const CompilerOptions &options) {
     }
     d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
-    // TODO(cgyurgyik): two issues, 1. this goes before yields in the original
-    // code, so check out why. 2. BVH_t is first argument? I probably should
-    // check out `main` and run / print the code.
     d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
