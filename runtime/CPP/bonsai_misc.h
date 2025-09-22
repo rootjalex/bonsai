@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cfenv>
 #include <cmath>
 #include <functional>

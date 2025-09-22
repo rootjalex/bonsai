@@ -75,11 +75,11 @@ std::vector<Triangle> load_obj(const std::string &object) {
             index_offset += fv;
         }
     }
-
     return triangles;
 }
 
-void run_test(const std::string &object_file, const std::string &ray_file) {
+void run_test(const std::string &object_file, const std::string &ray_file,
+              int64_t ray_count) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object_file);
     assert(!triangles.empty());
@@ -94,7 +94,7 @@ void run_test(const std::string &object_file, const std::string &ray_file) {
     free_canonical_tree(canonical_tree);
     auto st_end = clock::now();
 
-    std::vector<Ray> rays = load_rays_binary(ray_file);
+    std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
     std::vector<Triangle> hits;
     auto trace_begin = clock::now();
     for (const Ray &ray : rays) {
@@ -117,18 +117,18 @@ void run_test(const std::string &object_file, const std::string &ray_file) {
     std::cout << "canonical tree   : " << ct_time << "ms\n";
     std::cout << "specialized tree : " << st_time << "ms\n";
     std::cout << "trace time       : " << trace_time << " ms\n";
-    std::cout << "--------------------------------\n";
 }
 
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc == 3);
+    assert(argc == 4);
     std::string object_file = argv[1];
-    std::string ray_file = argv[2];
+    int64_t ray_count = std::atoi(argv[2]);
+    std::string ray_file = argv[3];
     // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
-    run_test(object_file, ray_file);
+    run_test(object_file, ray_file, ray_count);
     return 0;
 }
