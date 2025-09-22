@@ -193,6 +193,7 @@ struct Printer : public Visitor {
     void visit(const Continue *) override;
     void visit(const Launch *) override;
     void visit(const AppendStmt *) override;
+    void visit(const Swap *) override;
     // Layouts
     void visit(const Field *) override;
     void visit(const Pad *) override;

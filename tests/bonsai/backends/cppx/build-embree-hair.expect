@@ -1,6 +1,7 @@
 // Bonsai Header
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cmath>
 #include <optional>
@@ -16,7 +17,7 @@ using BVH = std::variant<AABBNode, OBBNode, Leaf>;
 using vec3_float = vector<float, 3>;
 using vec4_vec3_float = vector<vec3_float, 4>;
 struct AABBNode {
-    BVH* aabb_children[4];
+    std::array<BVH*, 4> aabb_children;
     vec4_vec3_float aabb_low;
     vec4_vec3_float aabb_high;
 };
@@ -27,7 +28,7 @@ struct AABB {
 using vec4_float = vector<float, 4>;
 using vec3_vec4_float = vector<vec4_float, 3>;
 struct OBBNode {
-    BVH* obb_children[4];
+    std::array<BVH*, 4> obb_children;
     vec3_vec4_float orientation;
     vec4_vec3_float obb_low;
     vec4_vec3_float obb_high;
@@ -472,9 +473,10 @@ uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
       (*ST).OBBs[this_index].qlo = quantize_bounds_low((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qhi = quantize_bounds_high((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qorientation = quantize_orientation(node.orientation);
+      std::array<uint64_t, 4> obb_children_index;
       for (int32_t __r = 0; __r < 4; __r += 1) {
-        const uint64_t obb_children_index = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
-        (*ST).OBBs[this_index].obb_children[__r] = obb_children_index;
+        obb_children_index[__r] = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
+        (*ST).OBBs[this_index].obb_children[__r] = obb_children_index[__r];
       }
       return ((this_index << 4) | 3);
     },

@@ -155,6 +155,15 @@ void emit_type(std::ostream &ss, Type type) {
         }
 
         void visit(const Array_t *node) override {
+            if (node->size.defined() && is_const(node->size)) {
+                ss << "std::array<";
+                node->etype.accept(this);
+                ss << ", ";
+                ir::Printer printer(ss);
+                printer.print_no_parens(node->size);
+                ss << ">";
+                return;
+            }
             node->etype.accept(this);
             ss << "*";
         }
@@ -291,14 +300,15 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
                 // The buffer field of dynamic arrays should always be treated
                 // as a pointers, since its capacity may be resized.
                 !is_dynamic_array_struct_type(type)) {
+                std::optional<uint64_t> size =
+                    get_constant_value(array_t->size);
+                internal_assert(size.has_value()) << array_t;
+                ss << "std::array<";
                 emit_type(ss, array_t->etype);
                 if (is_reference_type(array_t->etype)) {
                     ss << "*";
                 }
-                std::optional<uint64_t> size =
-                    get_constant_value(array_t->size);
-                internal_assert(size.has_value());
-                ss << " " << name << "[" << *size << "]";
+                ss << ", " << *size << "> " << name;
             } else {
                 emit_type(ss, child);
                 if (is_reference_type(child)) {
@@ -513,6 +523,7 @@ class BonsaiToCpp : ir::Printer {
         ss << '\n' << '\n';
 
         // Headers for C++ types.
+        ss << "#include <array>" << '\n';    // array
         ss << "#include <cstdint>" << '\n';  // integer
         ss << "#include <cmath>" << '\n';    // math
         ss << "#include <optional>" << '\n'; // optional
@@ -1091,21 +1102,33 @@ class BonsaiToCpp : ir::Printer {
             ss << ";\n";
             return;
         }
-        if (base_type.is_iterable()) {
-            ss << " = ";
-            ss << "reinterpret_cast<";
-            emit_type(ss, base_type.element_of());
-            ss << "*>(";
-            ss << "malloc(";
-            ss << "sizeof(";
-            emit_type(ss, base_type.element_of());
-            ss << ") * ";
-            base_type.size().accept(this);
-            ss << ")";
-            ss << ");\n";
-            return;
+        switch (node->memory) {
+        case ir::Allocate::Memory::Stack:
+            if (base_type.is_iterable()) {
+                internal_assert(base_type.size().defined()) << base_type;
+                ss << ";\n";
+                return;
+            }
+        case ir::Allocate::Memory::Heap:
+            if (base_type.is_iterable()) {
+                ss << " = ";
+                ss << "reinterpret_cast<";
+                emit_type(ss, base_type.element_of());
+                ss << "*>(";
+                ss << "malloc(";
+                ss << "sizeof(";
+                emit_type(ss, base_type.element_of());
+                ss << ") * ";
+                base_type.size().accept(this);
+                ss << ")";
+                ss << ");\n";
+                return;
+            }
+            break;
+        default:
+            internal_error << "unexpected memory for CPPx backend: "
+                           << ir::Stmt(node);
         }
-
         ss << ";\n";
     }
 
@@ -1187,6 +1210,15 @@ class BonsaiToCpp : ir::Printer {
         print_loc(ss, node->loc, /*is_assignment=*/false);
         ss << ".push_back(";
         print_no_parens(node->value);
+        ss << ");\n";
+    }
+
+    void visit(const Swap *node) override {
+        // A bit misleading, we are actually just doing a move.
+        ss << get_indent();
+        print_loc(ss, node->a, /*is_assignment=*/false);
+        ss << " = std::move(";
+        print_loc(ss, node->b, /*is_assignment=*/false);
         ss << ");\n";
     }
 

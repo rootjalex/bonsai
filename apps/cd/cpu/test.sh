@@ -20,7 +20,7 @@ for ((i=0; i<${#OBJECTS[@]}; i++)); do
     OBJECT_A="${OBJECTS[i]}"
     OBJECT_B="${OBJECTS[j]}"
     for LAYOUT in "${LAYOUTS[@]}"; do
-      echo "--- ${LAYOUT} ---"
+      echo "--- ${OBJECT_A} - ${OBJECT_B} - ${LAYOUT} ---"
       # 1. build and compile bonsai
       cmake --build build --config Debug -j > /dev/null
       

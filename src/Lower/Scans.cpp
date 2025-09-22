@@ -94,7 +94,7 @@ build_scan_func(const std::vector<ir::Argument> &args) {
     };
 
     // TODO: support product scans!
-    internal_assert(args.size() == 2);
+    internal_assert(args.size() == 2) << args;
     const BVH_t *bvh_t0 = args.front().type.as<BVH_t>();
     internal_assert(bvh_t0);
     // write argument

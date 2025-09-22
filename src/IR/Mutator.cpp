@@ -713,6 +713,16 @@ Stmt Mutator::visit(const AppendStmt *node) {
     return AppendStmt::make(std::move(loc), std::move(value));
 }
 
+Stmt Mutator::visit(const Swap *node) {
+    auto [a, not_changed1] = mutate_writeloc(node->a);
+    auto [b, not_changed2] = mutate_writeloc(node->b);
+    if (not_changed1 && not_changed2) {
+        return node;
+    }
+
+    return Swap::make(std::move(a), std::move(b));
+}
+
 Member Mutator::visit(const Field *node) {
     internal_error << "[unimplemented] mutate " << ir::Member(node);
 }

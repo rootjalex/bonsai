@@ -95,6 +95,7 @@ struct ForEach;
 struct Continue;
 struct Launch;
 struct AppendStmt;
+struct Swap;
 
 // Layouts
 struct Member;

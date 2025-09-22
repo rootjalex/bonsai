@@ -89,6 +89,7 @@ struct Visitor {
     virtual void visit(const Continue *);
     virtual void visit(const Launch *);
     virtual void visit(const AppendStmt *);
+    virtual void visit(const Swap *);
     // Layouts
     virtual void visit(const Field *);
     virtual void visit(const Pad *);

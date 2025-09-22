@@ -340,5 +340,20 @@ Stmt AppendStmt::make(WriteLoc loc, Expr value) {
     return node;
 }
 
+Stmt Swap::make(WriteLoc a, WriteLoc b) {
+    internal_assert(a.defined()) << "Undefined write location in Swap::make";
+    internal_assert(b.defined()) << "Undefined write location in Swap::make";
+    internal_assert(ir::equals(a.type, b.type));
+    // TODO(cgyurgyik): Support other pointer types.
+    internal_assert((a.type.is<Array_t, DynArray_t>()))
+        << "unsupported Swap type: " << a.type;
+    internal_assert((b.type.is<Array_t, DynArray_t>()))
+        << "unsupported Swap type: " << b.type;
+    Swap *node = new Swap;
+    node->a = std::move(a);
+    node->b = std::move(b);
+    return node;
+}
+
 } // namespace ir
 } // namespace bonsai

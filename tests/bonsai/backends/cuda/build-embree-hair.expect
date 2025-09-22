@@ -468,9 +468,10 @@ __device__ __host__ uint64_t rec_build_triangles(BVH* node, Triangles* ST, size_
       (*ST).OBBs[this_index].qlo = quantize_bounds_low((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qhi = quantize_bounds_high((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qorientation = quantize_orientation(node.orientation);
+      uint64_t obb_children_index[4];
       for (int32_t __r = 0; __r < 4; __r += 1) {
-        uint64_t obb_children_index = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
-        (*ST).OBBs[this_index].obb_children[__r] = obb_children_index;
+        obb_children_index[__r] = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
+        (*ST).OBBs[this_index].obb_children[__r] = obb_children_index[__r];
       }
       return ((this_index << 4u) | 3u);
     }

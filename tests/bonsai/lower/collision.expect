@@ -3,65 +3,82 @@ type BVH = (const BVH&)
 type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const BVH&); right : (const BVH&) }
 type Leaf = struct Leaf{ low : f32x3; high : f32x3; nprims : u16; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[nprims] }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
-type __dyn_array0 = struct __dyn_array0{ buffer : struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
-type __tuple_0 = struct __tuple_0{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
-type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : u32 }
+type __dyn_array0 = struct __dyn_array0{ buffer : struct __tuple_1{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
+type __tuple_0 = struct __tuple_0{ _field0 : u32; _field1 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
 type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
 type arm_Leaf = [[packed]] struct arm_Leaf{ poffset : u32 }
 type f32x3 = f32x3
 type nodes1 = [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
 type nodes2 = [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
+type queue = struct queue{ count : u64 = 0u; stack : struct __tuple_0{ _field0 : u32; _field1 : u32 }[64] }
 type triangles1 = [[packed]] struct triangles1{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes1 : [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 type triangles2 = [[packed]] struct triangles2{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes2 : [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 
 extern triangles1 : [[packed]] struct triangles1{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes1 : [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 extern triangles2 : [[packed]] struct triangles2{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes2 : [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 
-func _recloop_func0(index1 : u32, index2 : u32, triangles1 : (triangles1*), triangles2 : (triangles2*), _dyn_alloc : (__dyn_array0*)) -> void {
-  let _t88 = (*triangles1).nodes1[index1] in
-  let _t92 = (*triangles2).nodes2[index2] in
-  if (intersects_AABB_AABB((&build<AABB>(_t88.low, _t88.high)), (&build<AABB>(_t92.low, _t92.high)))) {
-    let _t86 = _t88.nprims in
-    if (_t86 == 0u) {
-      if (_t92.nprims == 0u) {
-        let _t0 = index1 + 1u in
-        let _t1 = index2 + 1u in
-        _recloop_func0(_t0, _t1, triangles1, triangles2, _dyn_alloc)
-        let _t8 = index2 + reinterpret_cast<arm_Interior>(_t92.split0on_nprims).offset in
-        _recloop_func0(_t0, _t8, triangles1, triangles2, _dyn_alloc)
-        let _t14 = index1 + reinterpret_cast<arm_Interior>(_t88.split0on_nprims).offset in
-        _recloop_func0(_t14, _t1, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(_t14, _t8, triangles1, triangles2, _dyn_alloc)
-      } else {
-        _recloop_func0(index1 + 1u, index2, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(index1 + reinterpret_cast<arm_Interior>(_t88.split0on_nprims).offset, index2, triangles1, triangles2, _dyn_alloc)
-      }
-    } else {
-      let _t82 = _t92.nprims in
-      if (_t82 == 0u) {
-        _recloop_func0(index1, index2 + 1u, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(index1, index2 + reinterpret_cast<arm_Interior>(_t92.split0on_nprims).offset, triangles1, triangles2, _dyn_alloc)
-      } else {
-        let _t71 = reinterpret_cast<arm_Leaf>(_t88.split0on_nprims).poffset in
-        forall _idx0 in [_t71:_t71 + cast<u32>(_t86):1u] {
-          let _t58 = reinterpret_cast<arm_Leaf>(_t92.split0on_nprims).poffset in
-          forall _idx1 in [_t58:_t58 + cast<u32>(_t82):1u] {
-            let _t47 = (*triangles1).primitives[_idx0] in
-            let _t49 = (*triangles2).primitives[_idx1] in
-            if (intersects_Triangle_Triangle((&_t47), (&_t49))) {
-              append<_dyn_alloc>(build<__tuple_0>(_t47, _t49))
+func _traverse_tree0(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> __dyn_array0 {
+  alloc _dyn_alloc : mut __dyn_array0
+  Q : mut queue := build<queue>()
+  Q_buffer : mut queue := build<queue>()
+  Q.stack[0u] = build<__tuple_0>(0u, 0u)
+  Q.count += 1u
+  do {
+    forall q in [0u:Q.count:1u] {
+      let index1 = Q.stack[q]._field0 in
+      let index2 = Q.stack[q]._field1 in
+      let _t88 = (*triangles1).nodes1[index1] in
+      let _t92 = (*triangles2).nodes2[index2] in
+      if (intersects_AABB_AABB((&build<AABB>(_t88.low, _t88.high)), (&build<AABB>(_t92.low, _t92.high)))) {
+        let _t86 = _t88.nprims in
+        if (_t86 == 0u) {
+          if (_t92.nprims == 0u) {
+            let _t0 = index1 + 1u in
+            let _t1 = index2 + 1u in
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t0, _t1)
+            Q_buffer.count += 1u
+            let _t8 = index2 + reinterpret_cast<arm_Interior>(_t92.split0on_nprims).offset in
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t0, _t8)
+            Q_buffer.count += 1u
+            let _t14 = index1 + reinterpret_cast<arm_Interior>(_t88.split0on_nprims).offset in
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t14, _t1)
+            Q_buffer.count += 1u
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t14, _t8)
+            Q_buffer.count += 1u
+          } else {
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1 + 1u, index2)
+            Q_buffer.count += 1u
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1 + reinterpret_cast<arm_Interior>(_t88.split0on_nprims).offset, index2)
+            Q_buffer.count += 1u
+          }
+        } else {
+          let _t82 = _t92.nprims in
+          if (_t82 == 0u) {
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1, index2 + 1u)
+            Q_buffer.count += 1u
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1, index2 + reinterpret_cast<arm_Interior>(_t92.split0on_nprims).offset)
+            Q_buffer.count += 1u
+          } else {
+            let _t71 = reinterpret_cast<arm_Leaf>(_t88.split0on_nprims).poffset in
+            forall _idx0 in [_t71:_t71 + cast<u32>(_t86):1u] {
+              let _t58 = reinterpret_cast<arm_Leaf>(_t92.split0on_nprims).poffset in
+              forall _idx1 in [_t58:_t58 + cast<u32>(_t82):1u] {
+                let _t47 = (*triangles1).primitives[_idx0] in
+                let _t49 = (*triangles2).primitives[_idx1] in
+                if (intersects_Triangle_Triangle((&_t47), (&_t49))) {
+                  append<_dyn_alloc>(build<__tuple_1>(_t47, _t49))
+                }
+              }
             }
           }
         }
       }
     }
-  }
-  return
-}
-
-func _traverse_tree0(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> __dyn_array0 {
-  alloc _dyn_alloc : mut __dyn_array0
-  _recloop_func0(0u, 0u, triangles1, triangles2, (&_dyn_alloc))
+    swap(Q.stack, Q_buffer.stack)
+    Q.count = Q_buffer.count
+    Q_buffer.count = 0u
+  } while (Q.count != 0u)
   return _dyn_alloc
 }
 

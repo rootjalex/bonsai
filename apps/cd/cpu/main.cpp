@@ -287,8 +287,6 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     }
     assert(!v2.empty() && "no vertices found!");
     assert(!T2.empty() && "no triangles found!");
-    std::cout << obj1 << ": " << T1.size() << ", ";
-    std::cout << obj2 << ": " << T2.size() << std::endl;
 
     // ---- FCL tree construction ----
     auto t0 = clock::now();
@@ -358,7 +356,7 @@ void run_test(const std::string &obj1, const std::string &obj2) {
         assert(intersects(ft1, ft2) &&
                "found non-intersecting triangles in fcl!");
     }
-    std::cout << "---\n";
+    std::cout << "\n";
 }
 
 } // namespace

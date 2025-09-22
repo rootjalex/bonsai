@@ -1598,6 +1598,14 @@ void Printer::visit(const AppendStmt *node) {
     os << ")\n";
 }
 
+void Printer::visit(const Swap *node) {
+    os << get_indent() << "swap(";
+    print(node->a);
+    os << ", ";
+    print(node->b);
+    os << ")\n";
+}
+
 void Printer::visit(const Field *node) {
     os << get_indent();
     os << node->name;

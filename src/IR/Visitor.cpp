@@ -307,6 +307,11 @@ void Visitor::visit(const AppendStmt *node) {
     node->value.accept(this);
 }
 
+void Visitor::visit(const Swap *node) {
+    visit_writeloc(this, node->a);
+    visit_writeloc(this, node->b);
+}
+
 void Visitor::visit(const Field *node) {}
 
 void Visitor::visit(const Pad *node) {}

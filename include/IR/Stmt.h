@@ -41,6 +41,7 @@ enum class IRStmtEnum {
     Continue,
     Launch,
     AppendStmt,
+    Swap,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -322,6 +323,18 @@ struct AppendStmt : StmtNode<AppendStmt> {
     static Stmt make(WriteLoc loc, Expr value);
 
     static const IRStmtEnum node_type = IRStmtEnum::AppendStmt;
+};
+
+// t = a;
+// a = b;
+// b = t;
+struct Swap : StmtNode<Swap> {
+    WriteLoc a;
+    WriteLoc b;
+
+    static Stmt make(WriteLoc a, WriteLoc b);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Swap;
 };
 
 } // namespace ir

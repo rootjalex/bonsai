@@ -6,9 +6,9 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("aosoa" "soa" "eq" "pbrt")
-OBJECTS=("cornell-box" "dragon" "hairball" "sponza")
-RAY_COUNT=8192 # (2^16)
+LAYOUTS=("aosoa" "soa" "pbrt") # "eq"
+OBJECTS=("dragon" "hairball" "sponza")
+RAY_COUNT="${1:-65536}"   # default 2^16
 RAY_FILE="RANDOM_GENERATED_RAYS"
 
 # Enable this to be run from either root or 

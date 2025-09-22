@@ -333,7 +333,7 @@ struct HasSideEffects : ir::Visitor {
             return;
         }
         const auto *var = node->func.as<ir::Var>();
-        internal_assert(var) << node;
+        internal_assert(var) << ir::Expr(node) << " : " << node->type;
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;

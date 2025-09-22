@@ -771,6 +771,11 @@ Program LowerDefers::run(Program program,
                 internal_assert(def.queue.names.size() == 1)
                     << "TODO: Multi-location in defer() queue: " << def.queue;
                 const std::string &queue = def.queue.names.front();
+                if (consumer == producer && consumer == responsible &&
+                    loop_idx == "root") {
+                    // Handle after layout concretization.
+                    continue;
+                }
 
                 defer_call(consumer, producer, responsible, loop_idx, queue,
                            program, queue_sizes);
@@ -781,9 +786,6 @@ Program LowerDefers::run(Program program,
                     << makeq.queue;
                 internal_assert(makeq.loop.names.size() == 1)
                     << "Multi-location in make_queue loop name: " << makeq.loop;
-                internal_assert(makeq.queue_size.has_value())
-                    << "TODO: dynamic queue sizes for: " << makeq.queue
-                    << " at " << makeq.loop << " of " << consumer;
                 const std::string location =
                     consumer + "." + makeq.queue.names.front();
                 auto [_, inserted] =

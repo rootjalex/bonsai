@@ -17,6 +17,7 @@
 #include "Lower/Maps.h"
 #include "Lower/Mutability.h"
 #include "Lower/Options.h"
+#include "Lower/PostLayoutDefers.h"
 #include "Lower/Random.h"
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
@@ -88,6 +89,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerScans>();
     manager.register_pass<LowerSorts>();
     manager.register_pass<LowerDefers>();
+    manager.register_pass<LowerPostLayoutDefers>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerMaps>();
@@ -130,6 +132,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
     core.push_back(std::make_unique<LowerLayouts>());
+    core.push_back(std::make_unique<LowerPostLayoutDefers>());
     core.push_back(std::make_unique<LowerBuilds>());
     core.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
@@ -182,6 +185,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerLayouts>());
+    d.push_back(std::make_unique<LowerPostLayoutDefers>());
     d.push_back(std::make_unique<LowerBuilds>());
     d.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.

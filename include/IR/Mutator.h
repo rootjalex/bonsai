@@ -100,6 +100,7 @@ struct Mutator {
     virtual Stmt visit(const Continue *);
     virtual Stmt visit(const Launch *);
     virtual Stmt visit(const AppendStmt *);
+    virtual Stmt visit(const Swap *);
     // Layouts
     virtual Member visit(const Field *);
     virtual Member visit(const Pad *);

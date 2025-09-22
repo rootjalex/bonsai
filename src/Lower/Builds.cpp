@@ -227,11 +227,17 @@ class ConcretizeIndex : public ir::Mutator {
     const ir::Layout &layout;
 
     ir::Expr visit(const ir::Var *node) override {
-        if (!ir::equals(node->type, get_layout_reference_type(layout))) {
+        const ir::Type &layout_type = get_layout_reference_type(layout);
+        if (!ir::equals(node->type, layout_type) &&
+            !(node->type.is_iterable() &&
+              ir::equals(node->type.element_of(), layout_type))) {
             return node;
         }
-        return ir::Var::make(layout.get_index_type(),
-                             get_index_name(node->name));
+        ir::Type type = layout.get_index_type();
+        if (node->type.is_iterable()) {
+            type = ir::Array_t::make(type, node->type.size());
+        }
+        return ir::Var::make(std::move(type), get_index_name(node->name));
     }
 
     // skip
@@ -330,6 +336,7 @@ class ConstructBuild : public ir::Visitor {
         stmts.insert(stmts.begin(),
                      ir::IfElse::make(std::move(is_zero),
                                       ir::Sequence::make(std::move(root))));
+        root.clear(); // for posterity
         return stmts;
     }
 
@@ -449,14 +456,16 @@ class ConstructBuild : public ir::Visitor {
             //
             // for i in 0..n { recurse a[i]; }
             std::string index_name = "__r";
-            ir::WriteLoc let(get_index_name(node->field),
-                             layout.get_index_type());
             ir::Expr size = field.type().size();
+            internal_assert(size.defined());
+            ir::WriteLoc let(get_index_name(node->field),
+                             ir::Array_t::make(layout.get_index_type(), size));
             ir::Expr index = ir::Var::make(size.type(), index_name);
-
+            append(ir::Allocate::make(let, ir::Allocate::Memory::Stack));
             std::vector<ir::Stmt> body;
             // Call the recursive function.
-            body.push_back(ir::LetStmt::make(
+            let.add_index_access(index);
+            body.push_back(ir::Store::make(
                 let, call_recurse(ir::Extract::make(field, index))));
             // Then, update the specialized tree's respective field (...if the
             // field exists).

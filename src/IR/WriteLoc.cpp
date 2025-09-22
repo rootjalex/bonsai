@@ -58,12 +58,13 @@ void WriteLoc::add_index_access(const Expr &index) {
     // that the current type must be a vector...
     const bool infer_types = type_enforcement_enabled() || type.defined();
     if (infer_types) {
-        const bool indexable = type.is<Vector_t, Array_t, Tuple_t>();
+        const bool indexable =
+            type.is<Vector_t, Array_t, DynArray_t, Tuple_t>();
         internal_assert(indexable)
-            << "Write location of non-vector received index: " << index
-            << " but has type: " << type;
+            << "Write location of non-vector: `" << *this
+            << "` received index: " << index << " but has type: " << type;
         ir::Type etype;
-        if (type.is<Vector_t, Array_t>()) {
+        if (type.is<Vector_t, Array_t, DynArray_t>()) {
             etype = type.element_of();
         } else {
             const Tuple_t *tuple_t = type.as<Tuple_t>();

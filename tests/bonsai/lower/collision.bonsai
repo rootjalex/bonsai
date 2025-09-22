@@ -88,6 +88,8 @@ extern triangles2 : set[Triangle];
 func [[export]] collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
 
 schedule {
+    collisions.make_queue(Q, root, 64).defer(collisions, collisions.root, Q);
+
     tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high)
     = Interior(left : BVH, right : BVH)
     | Leaf(nprims: u16, data : array[Triangle, nprims]);
