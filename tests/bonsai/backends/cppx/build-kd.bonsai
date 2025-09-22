@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-builds -p lower-recloops -p lower-generic -p lower-logical-operation
+//! flags: -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-builds -p lower-recloops -p lower-generic -p lower-logical-operation -p lower-foreachs -b cppx
 
 
 // (for range query)

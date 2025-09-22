@@ -265,7 +265,7 @@ void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangle
         _recloop_func0((index + reinterpret<Arm_Interior>(_t37.split0on_nprims).offset), triangles, ray, _best0);
       } else {
         const uint32_t _t17 = reinterpret<Arm_Leaf>(_t37.split0on_nprims).poffset;
-        for (uint32_t _idx0 = _t17; _idx0 < (_t17 + (uint32_t)(_t28)); _idx0 += 1) {
+        for (uint32_t _idx0 = _t17; _idx0 < (_t17 + (uint32_t)(_t28)); ++_idx0) {
           const Triangle _t12 = (*triangles).primitives[_idx0];
           if (intersectsp_ray_tri(ray, (&_t12)).has_value()) {
             const float _t10 = distmin_Ray_Triangle(ray, (&_t12));
@@ -311,7 +311,7 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
       (*ST).nodes[this_index].nprims = node.nprims;
       (*ST).nodes[this_index].axis = argmax((node.high - node.low));
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
-      for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
+      for (uint16_t __p = 0; __p < node.nprims; ++__p) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
       (*primitives_index) += node.nprims;

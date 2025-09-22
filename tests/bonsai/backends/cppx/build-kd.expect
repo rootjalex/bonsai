@@ -1,368 +1,654 @@
-type AABB = struct AABB{ low : f32x3; high : f32x3 }
-type CCT = (u32, f32x3, f32x3)[2]
-type FInterval = struct FInterval{ low : f32; high : f32 }
-type Float = f32
-type Half = f16
-type Interior = struct Interior{ low : f32x3x2; high : f32x3x2; children : (const KD&)[2]; split_axis : u8; coord : f32 }
-type KD = (const KD&)
-type Leaf = struct Leaf{ nprims : u16; data : struct Point{ vec : f32x3 }[nprims] }
-type Point = struct Point{ vec : f32x3 }
-type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
-type Sphere = struct Sphere{ center : f32x3; radius : f32 }
-type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
-type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
-type arm_Leaf = [[packed]] struct arm_Leaf{ poffset : u32 }
-type boolx3 = boolx3
-type f32x2 = f32x2
-type f32x3 = f32x3
-type f32x3x2 = f32x3x2
-type f32x3x4 = f32x3x4
-type f32x4 = f32x4
-type f32x4x3 = f32x4x3
-type f32x5 = f32x5
-type f32x6 = f32x6
-type f32x7 = f32x7
-type f32x8 = f32x8
-type f32x9 = f32x9
-type i8x3 = i8x3
-type i8x4 = i8x4
-type i8x4x3 = i8x4x3
-type i8x9 = i8x9
-type nodes = [[packed]] struct nodes{ coord : f32; split_axis : u8; pad0 : u8; nprims : u16; split0on_nprims : u8x4 }
-type points = [[packed]] struct points{ primitive_count : u32; wlo : f32x3; whi : f32x3; primitives : struct Point{ vec : f32x3 }[primitive_count]; node_count : u32; nodes : [[packed]] struct nodes{ coord : f32; split_axis : u8; pad0 : u8; nprims : u16; split0on_nprims : u8x4 }[node_count] }
-type u64x4 = u64x4
-type u8x3 = u8x3
-type u8x3x4 = u8x3x4
-type vec3f = f32x3
-type vec3h = f16x3
+// Bonsai Header
+#pragma once
 
-extern points : [[packed]] struct points{ primitive_count : u32; wlo : f32x3; whi : f32x3; primitives : struct Point{ vec : f32x3 }[primitive_count]; node_count : u32; nodes : [[packed]] struct nodes{ coord : f32; split_axis : u8; pad0 : u8; nprims : u16; split0on_nprims : u8x4 }[node_count] }
+#include <array>
+#include <cstdint>
+#include <cmath>
+#include <optional>
+#include <iostream>
+#include <string>
+#include <tuple>
+#include "bonsai_cpp.h"
 
-func _recloop_func0(hi : f32x3, lo : f32x3, index : u32, points : points, ray : Ray, _best0 : mut (f32, Point)) -> void {
-  if (points.nodes[index].nprims == 0u) {
-    if (intersects(ray, build<AABB>(build<f32x3x2>(lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord))[0], build<f32x3x2>(split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi)[0]))) {
-      if (distmin(ray, build<AABB>(build<f32x3x2>(lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord))[0], build<f32x3x2>(split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi)[0])) < _best0[0]) {
-        _recloop_func0((index + 1u, lo, split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord))[0], (index + 1u, lo, split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord))[1], (index + 1u, lo, split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord))[2], points, ray, _best0)
+struct Interior;
+struct Leaf;
+using KD = std::variant<Interior, Leaf>;
+using vec3_float = vector<float, 3>;
+using vec2_vec3_float = vector<vec3_float, 2>;
+struct Interior {
+    vec2_vec3_float low;
+    vec2_vec3_float high;
+    std::array<KD*, 2> children;
+    uint8_t split_axis;
+    float coord;
+};
+struct AABB {
+    vec3_float low;
+    vec3_float high;
+};
+struct Point {
+    vec3_float vec;
+};
+struct Leaf {
+    uint16_t nprims;
+    Point* data;
+};
+struct FInterval {
+    float low;
+    float high;
+};
+struct Ray {
+    vec3_float o;
+    vec3_float d;
+    float tmax = std::numeric_limits<float>::infinity();
+};
+struct Sphere {
+    vec3_float center;
+    float radius;
+};
+struct Triangle {
+    vec3_float p0;
+    vec3_float p1;
+    vec3_float p2;
+};
+struct TriangleIntersection {
+    float b0;
+    float b1;
+    float b2;
+    float t;
+};
+struct Arm_Interior {
+    uint32_t offset;
+} __attribute__((packed));
+struct Arm_Leaf {
+    uint32_t poffset;
+} __attribute__((packed));
+using vec3_bool = vector<bool, 3>;
+using vec2_float = vector<float, 2>;
+using vec4_vec3_float = vector<vec3_float, 4>;
+using vec4_float = vector<float, 4>;
+using vec3_vec4_float = vector<vec4_float, 3>;
+using vec5_float = vector<float, 5>;
+using vec6_float = vector<float, 6>;
+using vec7_float = vector<float, 7>;
+using vec8_float = vector<float, 8>;
+using vec9_float = vector<float, 9>;
+using vec3_int8_t = vector<int8_t, 3>;
+using vec4_int8_t = vector<int8_t, 4>;
+using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
+using vec9_int8_t = vector<int8_t, 9>;
+using vec4_uint8_t = vector<uint8_t, 4>;
+struct Nodes {
+    float coord;
+    uint8_t split_axis;
+    uint8_t pad0;
+    uint16_t nprims;
+    vec4_uint8_t split0on_nprims;
+} __attribute__((packed));
+struct Points {
+    uint32_t primitive_count;
+    vec3_float wlo;
+    vec3_float whi;
+    Point* primitives;
+    uint32_t node_count;
+    Nodes* nodes;
+} __attribute__((packed));
+using vec4_uint64_t = vector<uint64_t, 4>;
+using vec3_uint8_t = vector<uint8_t, 3>;
+using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
+using vec3__Float16 = vector<_Float16, 3>;
+
+Points build_points(const KD* __restrict__ CT);
+std::optional<Point> trace(const Ray ray, const Points points);
+
+Point ClosestPtPointAABB(const Point pt, const AABB a) {
+  return Point{.vec=min(max(pt.vec, a.low), a.high)};
+}
+float SqDistPointAABB(const Point pt, const AABB a) {
+  const vec3_float v = pt.vec;
+  const vec3_float sqLow = ((a.low - v) * (a.low - v));
+  const vec3_float low = select((v < a.low), sqLow, vec3_float{0.0f});
+  const vec3_float sqHigh = ((v - a.high) * (v - a.high));
+  const vec3_float high = select((a.high < v), sqHigh, vec3_float{0.0f});
+  return reduce_add((low + high));
+}
+float __prod_diff_f32(const float a, const float b, const float c, const float d) {
+  const float cd = (c * d);
+  const float diff = fmaf(a, b, (-cd));
+  const float err = fmaf((-c), d, cd);
+  return (diff + err);
+}
+float __sqlen_f32(const vec3_float v) {
+  return reduce_add((v * v));
+}
+vec3_float split_aabb(const vec3_float v, const uint8_t split_axis, const float coord) {
+  vec3_float v_ = v;
+  v_[split_axis] = coord;
+  return v_;
+}
+void _recloop_func0(const vec3_float hi, const vec3_float lo, const uint32_t index, const Points points, const Ray ray, std::tuple<float, Point> _best0) {
+  if (points.nodes[index].nprims == 0) {
+    if (intersects(ray, AABB{.low=vec2_vec3_float{lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord)}[0], .high=vec2_vec3_float{split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi}[0]})) {
+      if ((distmin(ray, AABB{.low=vec2_vec3_float{lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord)}[0], .high=vec2_vec3_float{split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi}[0]}) < std::get<0>(_best0))) {
+        _recloop_func0(std::get<0>(std::tuple<uint32_t, vec3_float, vec3_float>{(index + 1), lo, split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord)}), std::get<1>(std::tuple<uint32_t, vec3_float, vec3_float>{(index + 1), lo, split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord)}), std::get<2>(std::tuple<uint32_t, vec3_float, vec3_float>{(index + 1), lo, split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord)}), points, ray, _best0);
       }
     }
-    if (intersects(ray, build<AABB>(build<f32x3x2>(lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord))[1], build<f32x3x2>(split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi)[1]))) {
-      if (distmin(ray, build<AABB>(build<f32x3x2>(lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord))[1], build<f32x3x2>(split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi)[1])) < _best0[0]) {
-        _recloop_func0((index + reinterpret_cast<arm_Interior>(points.nodes[index].split0on_nprims).offset, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord), hi)[0], (index + reinterpret_cast<arm_Interior>(points.nodes[index].split0on_nprims).offset, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord), hi)[1], (index + reinterpret_cast<arm_Interior>(points.nodes[index].split0on_nprims).offset, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord), hi)[2], points, ray, _best0)
+    if (intersects(ray, AABB{.low=vec2_vec3_float{lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord)}[1], .high=vec2_vec3_float{split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi}[1]})) {
+      if ((distmin(ray, AABB{.low=vec2_vec3_float{lo, split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord)}[1], .high=vec2_vec3_float{split_aabb(hi, points.nodes[index].split_axis, points.nodes[index].coord), hi}[1]}) < std::get<0>(_best0))) {
+        _recloop_func0(std::get<0>(std::tuple<uint32_t, vec3_float, vec3_float>{(index + reinterpret<Arm_Interior>(points.nodes[index].split0on_nprims).offset), split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord), hi}), std::get<1>(std::tuple<uint32_t, vec3_float, vec3_float>{(index + reinterpret<Arm_Interior>(points.nodes[index].split0on_nprims).offset), split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord), hi}), std::get<2>(std::tuple<uint32_t, vec3_float, vec3_float>{(index + reinterpret<Arm_Interior>(points.nodes[index].split0on_nprims).offset), split_aabb(lo, points.nodes[index].split_axis, points.nodes[index].coord), hi}), points, ray, _best0);
       }
     }
   } else {
-    foreach _iter0 in points.primitives[reinterpret_cast<arm_Leaf>(points.nodes[index].split0on_nprims).poffset:reinterpret_cast<arm_Leaf>(points.nodes[index].split0on_nprims).poffset + cast<u32>(points.nodes[index].nprims)] {
+    for (uint32_t _idx0 = reinterpret<Arm_Leaf>(points.nodes[index].split0on_nprims).poffset; _idx0 < (reinterpret<Arm_Leaf>(points.nodes[index].split0on_nprims).poffset + (uint32_t)(points.nodes[index].nprims)); ++_idx0) {
       if (true) {
-        if (intersects(ray, _iter0)) {
-          if (distmin(ray, _iter0) < _best0[0]) {
-            _best0 argmin= (distmin(ray, _iter0), _iter0)
+        if (intersects(ray, points.primitives[_idx0])) {
+          if ((distmin(ray, points.primitives[_idx0]) < std::get<0>(_best0))) {
+            _best0 = argmin<float, Point>(_best0, std::tuple<float, Point>{distmin(ray, points.primitives[_idx0]), points.primitives[_idx0]});
           }
         }
       }
     }
   }
-  return
+  return;
 }
-
-func _traverse_tree0(ray : Ray, points : points) -> option<Point> {
-  _best0 : mut (f32, Point) := ((f32)inf, build<Point>())
-  _recloop_func0(points.whi, points.wlo, 0u, points, ray, _best0)
-  yield select(_best0[0] != (f32)inf, build<option<Point>>(_best0[1]), build<option<Point>>())
+std::optional<Point> _traverse_tree0(const Ray ray, const Points points) {
+  std::tuple<float, Point> _best0 = std::tuple<float, Point>{std::numeric_limits<float>::infinity(), Point{}};
+  _recloop_func0(points.whi, points.wlo, 0, points, ray, _best0);
+  yield ((std::get<0>(_best0) != std::numeric_limits<float>::infinity()) ? std::optional<Point>{std::get<1>(_best0)} : std::nullopt)
 }
-
-func [[export]] build_points(CT : (const KD&)) -> points {
-  ST : mut points
-  primitives_index : mut idx
-  nodes_index : mut idx
-  rec_count_points(CT, ST)
-  alloc primitives : mut Point[ST.primitive_count]
-  ST.primitives = primitives
-  alloc nodes : mut nodes[ST.node_count]
-  ST.nodes = nodes
-  rec_build_points(CT, ST, nodes_index, primitives_index)
-  return ST
+bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, const vec3_float v1, const vec3_float v2) {
+  const float R = dot(extents, abs(A));
+  const vec3_float P = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
+  return reduce_and(((P <= vec3_float{R}) & (vec3_float{(-R)} <= P)));
 }
-
-func distmax_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (cast<bool>(interval)) {
-    let extract = cast<FInterval>(interval) in
-    return extract.high
+uint32_t rec_build_points(const KD* __restrict__ node, Points ST, size_t nodes_index, size_t primitives_index) {
+  return std::visit(overloaded{
+    [&](const Interior& node) {
+      const size_t this_index = nodes_index;
+      nodes_index += 1;
+      if (this_index == 0) {
+        ST.wlo = vec3_float{min(node.low[0].x, node.low[1].x), min(node.low[0].y, node.low[1].y), min(node.low[0].z, node.low[1].z)};
+        ST.whi = vec3_float{max(node.high[0].x, node.high[1].x), max(node.high[0].y, node.high[1].y), max(node.high[0].z, node.high[1].z)};
+      }
+      ST.nodes[this_index].coord = node.coord;
+      ST.nodes[this_index].split_axis = node.split_axis;
+      ST.nodes[this_index].nprims = 0;
+      std::array<uint32_t, 2> children_index;
+      for (int32_t __r = 0; __r < 2; ++__r) {
+        children_index[__r] = rec_build_points(node.children[__r], ST, nodes_index, primitives_index);
+      }
+      reinterpret_cast<Arm_Interior *>(&ST.nodes[this_index].split0on_nprims)->offset = (children_index[1] - this_index);
+      return this_index;
+    },
+    [&](const Leaf& node) {
+      const size_t this_index = nodes_index;
+      nodes_index += 1;
+      ST.nodes[this_index].nprims = node.nprims;
+      reinterpret_cast<Arm_Leaf *>(&ST.nodes[this_index].split0on_nprims)->poffset = primitives_index;
+      for (uint16_t __p = 0; __p < node.nprims; ++__p) {
+        ST.primitives[(__p + primitives_index)] = node.data[__p];
+      }
+      primitives_index += node.nprims;
+      return this_index;
+    }
+  }, *node);
+}
+void rec_count_points(const KD* __restrict__ node, Points ST) {
+  return std::visit(overloaded{
+    [&](const Interior& node) {
+      for (int32_t __r = 0; __r < 2; ++__r) {
+        rec_count_points(node.children[__r], ST);
+      }
+      ST.node_count += 1;
+    },
+    [&](const Leaf& node) {
+      ST.primitive_count += node.nprims;
+      ST.node_count += 1;
+    }
+  }, *node);
+}
+Points build_points(const KD* __restrict__ CT) {
+  Points ST;
+  size_t primitives_index = 0;
+  size_t nodes_index = 0;
+  rec_count_points(CT, ST);
+  Point* primitives = reinterpret_cast<Point*>(malloc(sizeof(Point) * ST.primitive_count));
+  ST.primitives = primitives;
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
+  ST.nodes = nodes;
+  rec_build_points(CT, ST, nodes_index, primitives_index);
+  return ST;
+}
+vec3_float clamp(const vec3_float x, const float low, const float high) {
+  return min(max(x, vec3_float{low}), vec3_float{high});
+}
+std::tuple<Point, Point> closestPointonTriangle(const Point pt, const Triangle tri) {
+  const vec3_float p = pt.vec;
+  const vec3_float a = tri.p0;
+  const vec3_float b = tri.p1;
+  const vec3_float c = tri.p2;
+  const vec3_float ab = (b - a);
+  const vec3_float ac = (c - a);
+  const vec3_float ap = (p - a);
+  const float d1 = dot(ab, ap);
+  const float d2 = dot(ac, ap);
+  if ((d1 <= 0.0f)) {
+    if ((d2 <= 0.0f)) {
+      return std::tuple<Point, Point>{Point{.vec=a}, Point{.vec=vec3_float{1.0f, 0.0f, 0.0f}}};
+    }
   }
-  return (f32)inf
-}
-
-func distmax_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
-  let interval = intersectsp_ray_sphere(r, s) in
-  if (cast<bool>(interval)) {
-    let extract = cast<FInterval>(interval) in
-    return extract.high
+  const vec3_float bp = (p - b);
+  const float d3 = dot(ab, bp);
+  const float d4 = dot(ac, bp);
+  if ((0.0f <= d3)) {
+    if ((d4 <= d3)) {
+      return std::tuple<Point, Point>{Point{.vec=b}, Point{.vec=vec3_float{0.0f, 1.0f, 0.0f}}};
+    }
   }
-  return (f32)inf
+  const float vc = ((d1 * d4) - (d3 * d2));
+  if ((vc <= 0.0f)) {
+    if ((0.0f <= d1)) {
+      if ((d3 <= 0.0f)) {
+        const float v0 = (d1 / (d1 - d3));
+        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{v0} * ab))}, Point{.vec=vec3_float{(1.0f - v0), v0, 0.0f}}};
+      }
+    }
+  }
+  const vec3_float cp = (p - c);
+  const float d5 = dot(ab, cp);
+  const float d6 = dot(ac, cp);
+  if ((0.0f <= d6)) {
+    if ((d5 <= d6)) {
+      return std::tuple<Point, Point>{Point{.vec=c}, Point{.vec=vec3_float{0.0f, 0.0f, 1.0f}}};
+    }
+  }
+  const float vb = ((d5 * d2) - (d1 * d6));
+  if ((vb <= 0.0f)) {
+    if ((0.0f <= d2)) {
+      if ((d6 <= 0.0f)) {
+        const float w0 = (d2 / (d2 - d6));
+        return std::tuple<Point, Point>{Point{.vec=(a + (vec3_float{w0} * ac))}, Point{.vec=vec3_float{(1.0f - w0), 0.0f, w0}}};
+      }
+    }
+  }
+  const float va = ((d3 * d6) - (d5 * d4));
+  if ((va <= 0.0f)) {
+    if ((0.0f <= (d4 - d3))) {
+      if ((0.0f <= (d5 - d6))) {
+        const float w1 = ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+        return std::tuple<Point, Point>{Point{.vec=(b + (vec3_float{w1} * (c - b)))}, Point{.vec=vec3_float{0.0f, (1.0f - w1), w1}}};
+      }
+    }
+  }
+  const float denom = (1.0f / ((va + vb) + vc));
+  const float v = (vb * denom);
+  const float w = (vc * denom);
+  const float u = (va * denom);
+  return std::tuple<Point, Point>{Point{.vec=((a + (ab * vec3_float{v})) + (ac * vec3_float{w}))}, Point{.vec=vec3_float{u, v, w}}};
 }
-
-func distmax_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
-  let isect = intersectsp_ray_tri(ray, tri) in
-  if (cast<bool>(isect)) {
-    let isect_ = cast<TriangleIntersection>(isect) in
-    return isect_.t
+vec3_float cross_(const vec3_float v0, const vec3_float v1) {
+  return vec3_float{__prod_diff_f32(v0[1], v1[2], v0[2], v1[1]), __prod_diff_f32(v0[2], v1[0], v0[0], v1[2]), __prod_diff_f32(v0[0], v1[1], v0[1], v1[0])};
+}
+float degrees_to_radians(const float degrees) {
+  return ((degrees * 3.14159274f) / 180.0f);
+}
+float gamma(const int32_t n) {
+  return (((float)(n) * 0.00000006f) / (1.0f - ((float)(n) * 0.00000006f)));
+}
+std::optional<FInterval> intersectsp_ray_aabb(const Ray r, const AABB b) {
+  const vec3_float invDir = (vec3_float{1.0f} / r.d);
+  const vec3_bool dirIsNeg = (invDir < vec3_float{0.0f});
+  const vec3_float low_parts = select(dirIsNeg, b.high, b.low);
+  const vec3_float high_parts = select(dirIsNeg, b.low, b.high);
+  vec3_float tMin = ((low_parts - r.o) * invDir);
+  vec3_float tMax = ((high_parts - r.o) * invDir);
+  tMax *= (1.0f + (2.0f * gamma(3)));
+  if (((tMax[1] < tMin[0]) || (tMax[0] < tMin[1]))) {
+    return std::nullopt;
+  }
+  float tmin = max(tMin[0], tMin[1]);
+  float tmax = min(tMax[0], tMax[1]);
+  if (((tMax[2] < tmin) || (tmax < tMin[2]))) {
+    return std::nullopt;
+  }
+  tmin = max(tmin, tMin[2]);
+  tmax = min(tmax, tMax[2]);
+  return (std::optional<FInterval>)(FInterval{.low=tmin, .high=tmax});
+}
+float distmax_Ray_AABB(const Ray r, const AABB b) {
+  const std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
+  if (interval.has_value()) {
+    const FInterval extract = *interval;
+    return extract.high;
+  }
+  return std::numeric_limits<float>::infinity();
+}
+std::optional<FInterval> intersectsp_ray_sphere(const Ray r, const Sphere s) {
+  const vec3_float oc = (s.center - r.o);
+  const float a = reduce_add((r.d * r.d));
+  const float h = dot(r.d, oc);
+  const float c = (reduce_add((oc * oc)) - (s.radius * s.radius));
+  const float disc = ((h * h) - (a * c));
+  if ((disc < 0.0f)) {
+    return std::nullopt;
+  }
+  const float sqrtd = sqrtf(disc);
+  const float root0 = ((h - sqrtd) / a);
+  const float root1 = ((h + sqrtd) / a);
+  const FInterval interval = FInterval{.low=min(root0, root1), .high=max(root0, root1)};
+  return (std::optional<FInterval>)(interval);
+}
+float distmax_Ray_Sphere(const Ray r, const Sphere s) {
+  const std::optional<FInterval> interval = intersectsp_ray_sphere(r, s);
+  if (interval.has_value()) {
+    const FInterval extract = *interval;
+    return extract.high;
+  }
+  return std::numeric_limits<float>::infinity();
+}
+std::optional<TriangleIntersection> intersectsp_ray_tri(const Ray ray, const Triangle tri) {
+  if (__sqlen_f32(cross_((tri.p2 - tri.p0), (tri.p1 - tri.p0))) == 0.0f) {
+    return std::nullopt;
+  }
+  vec3_float p0t = (tri.p0 - ray.o);
+  vec3_float p1t = (tri.p1 - ray.o);
+  vec3_float p2t = (tri.p2 - ray.o);
+  const uint32_t kz = reduce_idxmax(abs(ray.d));
+  const uint32_t kx = ((kz + 1) % 3);
+  const uint32_t ky = ((kx + 1) % 3);
+  const vec3_float d = shuffle(ray.d, {kx, ky, kz});
+  p0t = shuffle(p0t, {kx, ky, kz});
+  p1t = shuffle(p1t, {kx, ky, kz});
+  p2t = shuffle(p2t, {kx, ky, kz});
+  const float Sx = ((-d[0]) / d[2]);
+  const float Sy = ((-d[1]) / d[2]);
+  const float Sz = (1.0f / d[2]);
+  p0t[0] += (Sx * p0t[2]);
+  p0t[1] += (Sy * p0t[2]);
+  p1t[0] += (Sx * p1t[2]);
+  p1t[1] += (Sy * p1t[2]);
+  p2t[0] += (Sx * p2t[2]);
+  p2t[1] += (Sy * p2t[2]);
+  const float e0 = __prod_diff_f32(p1t[0], p2t[1], p1t[1], p2t[0]);
+  const float e1 = __prod_diff_f32(p2t[0], p0t[1], p2t[1], p0t[0]);
+  const float e2 = __prod_diff_f32(p0t[0], p1t[1], p0t[1], p1t[0]);
+  if ((((e0 < 0.0f) || (e1 < 0.0f)) || (e2 < 0.0f))) {
+    if ((((0.0f < e0) || (0.0f < e1)) || (0.0f < e2))) {
+      return std::nullopt;
+    }
+  }
+  const float det = ((e0 + e1) + e2);
+  if (det == 0.0f) {
+    return std::nullopt;
+  }
+  p0t[2] *= Sz;
+  p1t[2] *= Sz;
+  p2t[2] *= Sz;
+  const float tScaled = (((e0 * p0t[2]) + (e1 * p1t[2])) + (e2 * p2t[2]));
+  if (((det < 0.0f) && ((0.0f <= tScaled) || (tScaled < (ray.tmax * det))))) {
+    return std::nullopt;
+  } else if (((0.0f < det) && ((tScaled <= 0.0f) || ((ray.tmax * det) < tScaled)))) {
+    return std::nullopt;
+  }
+  const float invDet = (1.0f / det);
+  const float b0 = (e0 * invDet);
+  const float b1 = (e1 * invDet);
+  const float b2 = (e2 * invDet);
+  const float t = (tScaled * invDet);
+  const float maxZt = reduce_max(abs(vec3_float{p0t[2], p1t[2], p2t[2]}));
+  const float deltaZ = (gamma(3) * maxZt);
+  const float maxXt = reduce_max(abs(vec3_float{p0t[0], p1t[0], p2t[0]}));
+  const float maxYt = reduce_max(abs(vec3_float{p0t[1], p1t[1], p2t[1]}));
+  const float deltaX = (gamma(5) * (maxXt + maxZt));
+  const float deltaY = (gamma(5) * (maxYt + maxZt));
+  const float deltaE = (2.0f * ((((gamma(2) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  const float maxE = reduce_max(abs(vec3_float{e0, e1, e2}));
+  const float deltaT = ((3.0f * ((((gamma(3) * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * abs(invDet));
+  if ((t <= deltaT)) {
+    return std::nullopt;
+  }
+  return (std::optional<TriangleIntersection>)(TriangleIntersection{.b0=b0, .b1=b1, .b2=b2, .t=t});
+}
+float distmax_Ray_Triangle(const Ray ray, const Triangle tri) {
+  const std::optional<TriangleIntersection> isect = intersectsp_ray_tri(ray, tri);
+  if (isect.has_value()) {
+    const TriangleIntersection isect_ = *isect;
+    return isect_.t;
   } else {
-    return -(f32)inf
+    return (-std::numeric_limits<float>::infinity());
   }
 }
-
-func distmin_Point_AABB(pt : Point, a : AABB) -> f32 {
-  return sqrt(SqDistPointAABB(pt, a))
+float distmin_Point_AABB(const Point pt, const AABB a) {
+  return sqrtf(SqDistPointAABB(pt, a));
 }
-
-func distmin_Point_Triangle(p : Point, tri : Triangle) -> f32 {
-  let pts = closestPointonTriangle(p, tri) in
-  return norm(p.vec - pts[0].vec)
+float distmin_Point_Triangle(const Point p, const Triangle tri) {
+  const std::tuple<Point, Point> pts = closestPointonTriangle(p, tri);
+  return norm((p.vec - std::get<0>(pts).vec));
 }
-
-func distmin_Ray_AABB(r : Ray, b : AABB) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (cast<bool>(interval)) {
-    let extract = cast<FInterval>(interval) in
-    return extract.low
+float distmin_Ray_AABB(const Ray r, const AABB b) {
+  const std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
+  if (interval.has_value()) {
+    const FInterval extract = *interval;
+    return extract.low;
   }
-  return -(f32)inf
+  return (-std::numeric_limits<float>::infinity());
 }
-
-func distmin_Ray_Sphere(r : Ray, s : Sphere) -> f32 {
-  let interval = intersectsp_ray_sphere(r, s) in
-  if (cast<bool>(interval)) {
-    let extract = cast<FInterval>(interval) in
-    return extract.low
+float distmin_Ray_Sphere(const Ray r, const Sphere s) {
+  const std::optional<FInterval> interval = intersectsp_ray_sphere(r, s);
+  if (interval.has_value()) {
+    const FInterval extract = *interval;
+    return extract.low;
   }
-  return -(f32)inf
+  return (-std::numeric_limits<float>::infinity());
 }
-
-func distmin_Ray_Triangle(ray : Ray, tri : Triangle) -> f32 {
-  let isect = intersectsp_ray_tri(ray, tri) in
-  if (cast<bool>(isect)) {
-    let isect_ = cast<TriangleIntersection>(isect) in
-    return isect_.t
+float distmin_Ray_Triangle(const Ray ray, const Triangle tri) {
+  const std::optional<TriangleIntersection> isect = intersectsp_ray_tri(ray, tri);
+  if (isect.has_value()) {
+    const TriangleIntersection isect_ = *isect;
+    return isect_.t;
   } else {
-    return (f32)inf
+    return std::numeric_limits<float>::infinity();
   }
 }
-
-func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
-  let low = max(a.low, b.low) in
-  let high = min(a.high, b.high) in
-  return reduce<all>(low <= high)
+bool intersects_AABB_AABB(const AABB a, const AABB b) {
+  const vec3_float low = max(a.low, b.low);
+  const vec3_float high = min(a.high, b.high);
+  return reduce_and((low <= high));
+}
+bool intersects_AABB_Sphere(const AABB a, const Sphere s) {
+  const vec3_float closest = max(a.low, min(s.center, a.high));
+  const vec3_float d = (s.center - closest);
+  return (dot(d, d) <= (s.radius * s.radius));
+}
+bool intersects_AABB_Triangle(const AABB a, const Triangle b) {
+  const vec3_float center = ((a.low + a.high) * vec3_float{0.50000000f});
+  const vec3_float extents = ((a.high - a.low) * vec3_float{0.50000000f});
+  const vec3_float v0 = (b.p0 - center);
+  const vec3_float v1 = (b.p1 - center);
+  const vec3_float v2 = (b.p2 - center);
+  const vec3_float f0 = (v1 - v0);
+  const vec3_float f1 = (v2 - v1);
+  const vec3_float f2 = (v0 - v2);
+  const vec3_float tri_min = min(min(v0, v1), v2);
+  const vec3_float tri_max = max(max(v0, v1), v2);
+  if ((!reduce_and(((tri_min <= extents) & ((-extents) <= tri_max))))) {
+    return false;
+  }
+  const vec3_float X = vec3_float{1.0f, 0.0f, 0.0f};
+  const vec3_float Y = vec3_float{0.0f, 1.0f, 0.0f};
+  const vec3_float Z = vec3_float{0.0f, 0.0f, 1.0f};
+  const vec3_float A0 = cross(f0, X);
+  const vec3_float A1 = cross(f0, Y);
+  const vec3_float A2 = cross(f0, Z);
+  const vec3_float A3 = cross(f1, X);
+  const vec3_float A4 = cross(f1, Y);
+  const vec3_float A5 = cross(f1, Z);
+  const vec3_float A6 = cross(f2, X);
+  const vec3_float A7 = cross(f2, Y);
+  const vec3_float A8 = cross(f2, Z);
+  if ((!axis(A0, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A1, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A2, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A3, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A4, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A5, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A6, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A7, extents, v0, v1, v2))) {
+    return false;
+  }
+  if ((!axis(A8, extents, v0, v1, v2))) {
+    return false;
+  }
+  const vec3_float N = cross(f0, f1);
+  const float Rn = dot(extents, abs(N));
+  const float dist = dot(v0, N);
+  if (((Rn < dist) || (dist < (-Rn)))) {
+    return false;
+  }
+  return true;
+}
+bool intersects_Ray_AABB(const Ray r, const AABB b) {
+  const std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
+  if (interval.has_value()) {
+    const FInterval extract = *interval;
+    return ((extract.low < r.tmax) & (0.0f < extract.high));
+  }
+  return false;
+}
+bool intersects_Ray_Sphere(const Ray ray, const Sphere s) {
+  const std::optional<FInterval> interval = intersectsp_ray_sphere(ray, s);
+  if (interval.has_value()) {
+    const FInterval extract = *interval;
+    return ((extract.low < ray.tmax) & (0.0f < extract.high));
+  }
+  return false;
+}
+bool intersects_Ray_Triangle(const Ray ray, const Triangle tri) {
+  return intersectsp_ray_tri(ray, tri).has_value();
+}
+bool tri_tri_axis(const vec3_float A, const vec3_float a0, const vec3_float a1, const vec3_float a2, const vec3_float b0, const vec3_float b1, const vec3_float b2) {
+  if (reduce_and(A == vec3_float{0.0f})) {
+    return true;
+  }
+  const float PA0 = dot(a0, A);
+  const float PA1 = dot(a1, A);
+  const float PA2 = dot(a2, A);
+  const float amin = min(min(PA0, PA1), PA2);
+  const float amax = max(max(PA0, PA1), PA2);
+  const float PB0 = dot(b0, A);
+  const float PB1 = dot(b1, A);
+  const float PB2 = dot(b2, A);
+  const float bmin = min(min(PB0, PB1), PB2);
+  const float bmax = max(max(PB0, PB1), PB2);
+  return (!((amax < bmin) | (bmax < amin)));
+}
+bool intersects_Triangle_Triangle(const Triangle a, const Triangle b) {
+  const vec3_float eA0 = (a.p1 - a.p0);
+  const vec3_float eA1 = (a.p2 - a.p1);
+  const vec3_float eA2 = (a.p0 - a.p2);
+  const vec3_float eB0 = (b.p1 - b.p0);
+  const vec3_float eB1 = (b.p2 - b.p1);
+  const vec3_float eB2 = (b.p0 - b.p2);
+  const vec3_float N0 = cross(eA0, eA1);
+  const vec3_float N1 = cross(eB0, eB1);
+  const vec3_float a0 = a.p0;
+  const vec3_float a1 = a.p1;
+  const vec3_float a2 = a.p2;
+  const vec3_float b0 = b.p0;
+  const vec3_float b1 = b.p1;
+  const vec3_float b2 = b.p2;
+  if ((!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  const vec3_float E00 = cross(eA0, eB0);
+  const vec3_float E01 = cross(eA0, eB1);
+  const vec3_float E02 = cross(eA0, eB2);
+  const vec3_float E10 = cross(eA1, eB0);
+  const vec3_float E11 = cross(eA1, eB1);
+  const vec3_float E12 = cross(eA1, eB2);
+  const vec3_float E20 = cross(eA2, eB0);
+  const vec3_float E21 = cross(eA2, eB1);
+  const vec3_float E22 = cross(eA2, eB2);
+  if ((!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  if ((!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2))) {
+    return false;
+  }
+  return true;
+}
+float len_squared(const vec3_float v) {
+  return reduce_add((v * v));
+}
+float linear_to_gamma_f(const float l) {
+  if ((0.0f < l)) {
+    return sqrtf(l);
+  }
+  return (float)(0);
+}
+vec3_float linear_to_gamma_v(const vec3_float l) {
+  return vec3_float{linear_to_gamma_f(l[0]), linear_to_gamma_f(l[1]), linear_to_gamma_f(l[2])};
+}
+bool near_zero(const vec3_float v) {
+  const float s = 0.00000001f;
+  return (((abs(v[0]) < s) & (abs(v[1]) < s)) & (abs(v[2]) < s));
+}
+vec3_float reflect(const vec3_float v, const vec3_float n) {
+  return (v - (vec3_float{(2.0f * dot(v, n))} * n));
+}
+float reflectance(const float cos_theta, const float refract_idx) {
+  const float r0 = ((1.0f - refract_idx) / (1.0f + refract_idx));
+  const float r1 = (r0 * r0);
+  return (r1 + ((1.0f - r1) * powf((1.0f - cos_theta), 5.0f)));
+}
+vec3_float refract(const vec3_float uv, const vec3_float n, const float etai_over_etat) {
+  const float cos_theta = min(dot((-uv), n), 1.0f);
+  const vec3_float r_out_perp = (vec3_float{etai_over_etat} * (uv + (vec3_float{cos_theta} * n)));
+  const vec3_float r_out_parallel = (vec3_float{(-sqrtf(abs((1.0f - len_squared(r_out_perp)))))} * n);
+  return (r_out_perp + r_out_parallel);
+}
+std::optional<Point> trace(const Ray ray, const Points points) {
+  return _traverse_tree0(ray, points);
+}
+vec3_float unit_vector(const vec3_float v) {
+  return (v / vec3_float{norm(v)});
 }
 
-func intersects_AABB_Sphere(a : AABB, s : Sphere) -> bool {
-  let closest = max(a.low, min(s.center, a.high)) in
-  let d = s.center - closest in
-  return dot(d, d) <= (s.radius * s.radius)
-}
-
-func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
-  let center = (a.low + a.high) * f32x3(0.5f) in
-  let extents = (a.high - a.low) * f32x3(0.5f) in
-  let v0 = b.p0 - center in
-  let v1 = b.p1 - center in
-  let v2 = b.p2 - center in
-  let f0 = v1 - v0 in
-  let f1 = v2 - v1 in
-  let f2 = v0 - v2 in
-  let tri_min = min(min(v0, v1), v2) in
-  let tri_max = max(max(v0, v1), v2) in
-  if (!reduce<all>((tri_min <= extents) & (-extents <= tri_max))) {
-    return false
-  }
-  let X = (f32x3)[1f,0f,0f] in
-  let Y = (f32x3)[0f,1f,0f] in
-  let Z = (f32x3)[0f,0f,1f] in
-  let A0 = cross(f0, X) in
-  let A1 = cross(f0, Y) in
-  let A2 = cross(f0, Z) in
-  let A3 = cross(f1, X) in
-  let A4 = cross(f1, Y) in
-  let A5 = cross(f1, Z) in
-  let A6 = cross(f2, X) in
-  let A7 = cross(f2, Y) in
-  let A8 = cross(f2, Z) in
-  if (!axis(A0, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A1, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A2, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A3, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A4, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A5, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A6, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A7, extents, v0, v1, v2)) {
-    return false
-  }
-  if (!axis(A8, extents, v0, v1, v2)) {
-    return false
-  }
-  let N = cross(f0, f1) in
-  let Rn = dot(extents, abs(N)) in
-  let dist = dot(v0, N) in
-  if ((Rn < dist) || (dist < -Rn)) {
-    return false
-  }
-  return true
-}
-
-func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (cast<bool>(interval)) {
-    let extract = cast<FInterval>(interval) in
-    return (extract.low < r.tmax) & (0f < extract.high)
-  }
-  return false
-}
-
-func intersects_Ray_Sphere(ray : Ray, s : Sphere) -> bool {
-  let interval = intersectsp_ray_sphere(ray, s) in
-  if (cast<bool>(interval)) {
-    let extract = cast<FInterval>(interval) in
-    return (extract.low < ray.tmax) & (0f < extract.high)
-  }
-  return false
-}
-
-func intersects_Ray_Triangle(ray : Ray, tri : Triangle) -> bool {
-  return cast<bool>(intersectsp_ray_tri(ray, tri))
-}
-
-func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
-  let eA0 = a.p1 - a.p0 in
-  let eA1 = a.p2 - a.p1 in
-  let eA2 = a.p0 - a.p2 in
-  let eB0 = b.p1 - b.p0 in
-  let eB1 = b.p2 - b.p1 in
-  let eB2 = b.p0 - b.p2 in
-  let N0 = cross(eA0, eA1) in
-  let N1 = cross(eB0, eB1) in
-  let a0 = a.p0 in
-  let a1 = a.p1 in
-  let a2 = a.p2 in
-  let b0 = b.p0 in
-  let b1 = b.p1 in
-  let b2 = b.p2 in
-  if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(N1, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  let E00 = cross(eA0, eB0) in
-  let E01 = cross(eA0, eB1) in
-  let E02 = cross(eA0, eB2) in
-  let E10 = cross(eA1, eB0) in
-  let E11 = cross(eA1, eB1) in
-  let E12 = cross(eA1, eB2) in
-  let E20 = cross(eA2, eB0) in
-  let E21 = cross(eA2, eB1) in
-  let E22 = cross(eA2, eB2) in
-  if (!tri_tri_axis(E00, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E01, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E02, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E10, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E11, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E12, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E20, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E21, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  if (!tri_tri_axis(E22, a0, a1, a2, b0, b1, b2)) {
-    return false
-  }
-  return true
-}
-
-func rec_build_points(node : (const KD&), ST : mut points, nodes_index : mut idx, primitives_index : mut idx) -> u32 {
-  match node {
-  | Interior(low : f32x3x2, high : f32x3x2, children : (const KD&)[2], split_axis : u8, coord : f32) with AABB(low, high) ->
-    let this_index = nodes_index in
-    nodes_index += 1
-    if (this_index == 0) {
-      ST.wlo = build<f32x3>(min(node.low[0].x, node.low[1].x), min(node.low[0].y, node.low[1].y), min(node.low[0].z, node.low[1].z))
-      ST.whi = build<f32x3>(max(node.high[0].x, node.high[1].x), max(node.high[0].y, node.high[1].y), max(node.high[0].z, node.high[1].z))
-    }
-    ST.nodes[this_index].coord = node.coord
-    ST.nodes[this_index].split_axis = node.split_axis
-    ST.nodes[this_index].nprims = 0
-    children_index : mut u32[2]
-    forall __r in [0:2:1] {
-      children_index[__r] = rec_build_points(node.children[__r], ST, nodes_index, primitives_index)
-    }
-    reinterpret_cast<(arm_Interior*)>(ST.nodes[this_index].split0on_nprims).offset = children_index[1] - this_index
-    return this_index
-  | Leaf(nprims : u16, data : Point[nprims]) ->
-    let this_index = nodes_index in
-    nodes_index += 1
-    ST.nodes[this_index].nprims = node.nprims
-    reinterpret_cast<(arm_Leaf*)>(ST.nodes[this_index].split0on_nprims).poffset = primitives_index
-    forall __p in [0u:node.nprims:1u] {
-      ST.primitives[(__p + primitives_index)] = node.data[__p]
-    }
-    primitives_index += node.nprims
-    return this_index
-  }
-}
-
-func rec_count_points(node : (const KD&), ST : mut points) -> void {
-  match node {
-  | Interior(low : f32x3x2, high : f32x3x2, children : (const KD&)[2], split_axis : u8, coord : f32) with AABB(low, high) ->
-    forall __r in [0:2:1] {
-      rec_count_points(node.children[__r], ST)
-    }
-    ST.node_count += 1u
-  | Leaf(nprims : u16, data : Point[nprims]) ->
-    ST.primitive_count += node.nprims
-    ST.node_count += 1u
-  }
-}
-
-func split_aabb(v : f32x3, split_axis : u8, coord : f32) -> f32x3 {
-  v_ : mut f32x3 := v
-  v_[split_axis] = coord
-  return v_
-}
-
-func [[export]] trace(ray : Ray, points : points) -> option<Point> {
-  return _traverse_tree0(ray, points)
-}
-
-
-schedule host {
-    points : tree[[struct Point{ vec : f32x3 }]] KD
-  | Interior(low : f32x3x2, high : f32x3x2, children : (const KD&)[2], split_axis : u8, coord : f32) with AABB(low, high)
-  | Leaf(nprims : u16, data : Point[nprims])
-
-}

@@ -147,7 +147,7 @@ void _recloop_func0(const uint32_t index, const Spheres* __restrict__ spheres, c
       _recloop_func0((index + reinterpret<Arm_Interior>(_t24.split0on_nprims).offset), spheres, a, _dyn_alloc);
     } else {
       const uint32_t _t11 = reinterpret<Arm_Leaf>(_t24.split0on_nprims).poffset;
-      for (uint32_t _idx0 = _t11; _idx0 < (_t11 + (uint32_t)(_t22)); _idx0 += 1) {
+      for (uint32_t _idx0 = _t11; _idx0 < (_t11 + (uint32_t)(_t22)); ++_idx0) {
         const Sphere _t4 = (*spheres).primitives[_idx0];
         if (intersects_AABB_Sphere(a, (&_t4))) {
           _dyn_alloc.push_back(_t4);
@@ -209,7 +209,7 @@ uint32_t rec_build_spheres(const BVH* __restrict__ node, Spheres* __restrict__ S
       (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
-      for (uint16_t __p = 0; __p < node.nprims; __p += 1) {
+      for (uint16_t __p = 0; __p < node.nprims; ++__p) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
       (*primitives_index) += node.nprims;

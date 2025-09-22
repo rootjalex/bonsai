@@ -330,8 +330,8 @@ bool intersects_Ray_OBB(const Ray* __restrict__ r, const OBB* __restrict__ b) {
   return false;
 }
 void _recloop_func0(const uint64_t index, const Ray* __restrict__ ray, const Triangles* __restrict__ triangles, std::tuple<float, Triangle>* __restrict__ _best0) {
-  if (index[0:2] == 2) {
-    const AABBs _t13 = (*triangles).AABBs[index[4:63]];
+  if (slice<0, 2>(index) == 2) {
+    const AABBs _t13 = (*triangles).AABBs[slice<4, 63>(index)];
     const vec4_vec3_float _t14 = _t13.aabb_low;
     const vec4_vec3_float _t18 = _t13.aabb_high;
     const AABB _t20 = AABB{.low=_t14[0], .high=_t18[0]};
@@ -358,8 +358,8 @@ void _recloop_func0(const uint64_t index, const Ray* __restrict__ ray, const Tri
         _recloop_func0(_t13.aabb_children[3], ray, triangles, _best0);
       }
     }
-  } else if (index[0:2] == 3) {
-    const OBBs _t115 = (*triangles).OBBs[index[4:63]];
+  } else if (slice<0, 2>(index) == 3) {
+    const OBBs _t115 = (*triangles).OBBs[slice<4, 63>(index)];
     const vec3_float _t116 = _t115.mlo;
     const vec3_float _t119 = _t115.mex;
     const vec4_vec3_float _t123 = vec4_vec3_float{(_t116 + (vec3_float{((float)(_t115.qlo[0]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qlo[1]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qlo[2]) / 255.0f)} * _t119)), (_t116 + (vec3_float{((float)(_t115.qlo[3]) / 255.0f)} * _t119))};
@@ -390,7 +390,7 @@ void _recloop_func0(const uint64_t index, const Ray* __restrict__ ray, const Tri
       }
     }
   } else {
-    for (uint64_t _idx0 = index[4:63]; _idx0 < (index[4:63] + (uint64_t)((uint8_t)((index[1:4] + 1)))); _idx0 += 1) {
+    for (uint64_t _idx0 = slice<4, 63>(index); _idx0 < (slice<4, 63>(index) + (uint64_t)((uint8_t)((slice<1, 4>(index) + 1)))); ++_idx0) {
       const Triangle _t321 = (*triangles).primitives[_idx0];
       if (intersectsp_ray_tri(ray, (&_t321)).has_value()) {
         const float _t319 = distmin_Ray_Triangle(ray, (&_t321));
@@ -474,14 +474,14 @@ uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
       (*ST).OBBs[this_index].qhi = quantize_bounds_high((*ST).AABBs[this_index].aabb_low, (*ST).AABBs[this_index].aabb_high);
       (*ST).OBBs[this_index].qorientation = quantize_orientation(node.orientation);
       std::array<uint64_t, 4> obb_children_index;
-      for (int32_t __r = 0; __r < 4; __r += 1) {
+      for (int32_t __r = 0; __r < 4; ++__r) {
         obb_children_index[__r] = rec_build_triangles(node.obb_children[__r], ST, AABBs_index, OBBs_index, primitives_index);
         (*ST).OBBs[this_index].obb_children[__r] = obb_children_index[__r];
       }
       return ((this_index << 4) | 3);
     },
     [&](const Leaf& node) {
-      for (uint8_t __p = 0; __p < node.nprims; __p += 1) {
+      for (uint8_t __p = 0; __p < node.nprims; ++__p) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
       (*primitives_index) += node.nprims;
@@ -493,13 +493,13 @@ uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
 void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ size_AABBs, size_t* __restrict__ size_OBBs) {
   return std::visit(overloaded{
     [&](const AABBNode& node) {
-      for (int32_t __r = 0; __r < 4; __r += 1) {
+      for (int32_t __r = 0; __r < 4; ++__r) {
         rec_count_triangles(node.aabb_children[__r], ST, size_AABBs, size_OBBs);
       }
       (*size_AABBs) += 1;
     },
     [&](const OBBNode& node) {
-      for (int32_t __r = 0; __r < 4; __r += 1) {
+      for (int32_t __r = 0; __r < 4; ++__r) {
         rec_count_triangles(node.obb_children[__r], ST, size_AABBs, size_OBBs);
       }
       (*size_OBBs) += 1;

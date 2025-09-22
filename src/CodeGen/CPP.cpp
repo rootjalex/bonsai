@@ -620,6 +620,19 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const Var *node) override { ss << node->name; }
 
+    void visit(const Slice *node) override {
+        ss << "slice";
+        const bool is_constant_bounds =
+            is_const(node->begin) && is_const(node->end);
+        ss << (is_constant_bounds ? "<" : "(");
+        node->begin.accept(this);
+        ss << ", ";
+        node->end.accept(this);
+        ss << (is_constant_bounds ? ">(" : ",");
+        node->value.accept(this);
+        ss << ")";
+    }
+
     void visit(const BinOp *node) override {
         if (node->op != BinOp::OpType::Eq) {
             ss << "(";
@@ -1192,8 +1205,14 @@ class BonsaiToCpp : ir::Printer {
         print_no_parens(node->slice.begin);
         ss << "; " << node->index << " < ";
         print_no_parens(node->slice.end);
-        ss << "; " << node->index << " += ";
-        print_no_parens(node->slice.stride);
+        ss << "; ";
+        if (is_const_one(node->slice.stride)) {
+            ss << "++" << node->index;
+        } else {
+            ss << node->index << " += ";
+            print_no_parens(node->slice.stride);
+        }
+
         ss << ") {\n";
         increment();
         node->body.accept(this);
