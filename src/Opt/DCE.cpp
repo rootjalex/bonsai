@@ -60,8 +60,11 @@ struct NameHygiene : ir::Mutator {
             if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr new_value = mutate(std::get<ir::Expr>(value));
                 new_loc.add_index_access(std::move(new_value));
-            } else {
+            } else if (std::holds_alternative<std::string>(value)) {
                 new_loc.add_struct_access(std::get<std::string>(value));
+            } else if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+                auto [type, mode] = std::get<ir::WriteLoc::Cast>(value);
+                new_loc.add_cast(type, mode);
             }
         }
         ir::Expr value = mutate(node->value);
@@ -149,8 +152,11 @@ struct UnnameHygiene : ir::Mutator {
             if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr new_value = mutate(std::get<ir::Expr>(value));
                 new_loc.add_index_access(std::move(new_value));
-            } else {
+            } else if (std::holds_alternative<std::string>(value)) {
                 new_loc.add_struct_access(std::get<std::string>(value));
+            } else if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+                auto [type, mode] = std::get<ir::WriteLoc::Cast>(value);
+                new_loc.add_cast(type, mode);
             }
         }
         ir::Expr value = mutate(node->value);
@@ -285,8 +291,8 @@ struct ComputeUseCounts : ir::Visitor {
             << "Unexpected nested Store: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
         internal_assert(use_counts.contains(node->loc.base()))
-            << "ComputeUseCounts not active for var: " << node->loc
-            << " in Store: " << ir::Stmt(node);
+            << "use-before-define found for: `" << node->loc << "` in: `"
+            << ir::Stmt(node) << "`";
         internal_assert(dependent_use_counts.contains(node->loc.base()))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
 

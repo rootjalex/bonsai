@@ -1669,11 +1669,15 @@ void Printer::visit(const Group *node) {
     os << get_indent();
     switch (node->type) {
     case Group::Type::Direct:
+        os << "group";
         break;
     case Group::Type::Indirect:
-        os << "indirect ";
+        os << "indirect group";
+        break;
+    case Group::Type::Pointer:
+        os << "ptr";
+        break;
     }
-    os << "group";
     if (!node->name.empty()) {
         os << " " << node->name;
     }

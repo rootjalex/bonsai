@@ -62,7 +62,9 @@ struct WriteLoc {
     void add_cast(const ir::Type &type, ir::Cast::Mode mode);
 
     // After type inference, re-build with a defined base type.
-    WriteLoc rebuild_with_base_type(Type _type) const;
+    WriteLoc rebuild_with_base_type(Type type) const;
+
+    WriteLoc pop_base(std::string name, Type type) const;
 };
 
 } // namespace ir

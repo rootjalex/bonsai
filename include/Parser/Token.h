@@ -45,6 +45,7 @@ class Token {
         LAYOUT,   // layout
         INDIRECT, // indirect
         GROUP,    // group
+        POINTER,  // ptr
         SPLIT,    // split
         ON,       // on
         FROM,     // from

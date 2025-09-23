@@ -140,7 +140,7 @@ struct Group : LayoutMember<Group> {
     std::string name;
     Member inner;
 
-    enum class Type { Direct, Indirect };
+    enum class Type { Direct, Indirect, Pointer };
     Type type;
 
     static Member make(std::string name, Expr size, Expr index, Member inner,
@@ -179,7 +179,7 @@ struct Layout {
 
     std::vector<ir::Member> find_all_fields() const;
 
-    std::vector<ir::Member> find_direct_groups() const;
+    std::vector<ir::Member> find_groups(ir::Group::Type) const;
 
     ir::Type get_index_type() const;
 

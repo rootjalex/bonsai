@@ -143,6 +143,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::GROUP;
     if (token == "indirect")
         return Token::Type::INDIRECT;
+    if (token == "ptr")
+        return Token::Type::POINTER;
     if (token == "split")
         return Token::Type::SPLIT;
     if (token == "for")

@@ -104,7 +104,7 @@ void euler_to_matrix(S a, S b, S c, Matrix3<S> &R) {
 template <typename BV>
 BVHModel<BV> build_tree(const std::vector<Vector3<typename BV::S>> &vertices,
                         const std::vector<Triangle> &triangles) {
-    detail::SplitMethodType method = detail::SPLIT_METHOD_BV_CENTER;
+    detail::SplitMethodType method = detail::SPLIT_METHOD_MEDIAN;
     BVHModel<BV> m;
     m.bv_splitter.reset(new detail::BVSplitter<BV>(method));
     m.beginModel();
@@ -309,9 +309,9 @@ void run_test(const std::string &obj1, const std::string &obj2) {
               << std::endl;
 
     // ---- Bonsai tree construction ----
+    t0 = clock::now();
     std::vector<Triangle> T1s = construct_triangles(T1, v1);
     std::vector<Triangle> T2s = construct_triangles(T2, v2);
-    t0 = clock::now();
     BVH *canonical_tree1 = build_canonical_tree(T1s);
     BVH *canonical_tree2 = build_canonical_tree(T2s);
     Triangles1 tree1 = build_triangles1(canonical_tree1);

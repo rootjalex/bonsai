@@ -5,11 +5,10 @@ schedule {
 
     triangles : BVH;
 
-    layout triangles(index: u32) {
+    layout triangles(root: ptr[node]) {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
-        node_count : u32;
-        group nodes[node_count] by index {
+        ptr node {
             low : f32x3;
             high : f32x3;
             nprims : u16;
@@ -17,12 +16,13 @@ schedule {
             8;
             split nprims {
                 0 -> Interior { 
-                    offset : u32; 
-                    left = index + 1; 
-                    right = index + offset; 
+                    left : ptr[node];
+                    right : ptr[node];
                 };
                 _ -> Leaf { 
                     poffset : u32; 
+                    64;
+                    32;
                     data = primitives[poffset : poffset + nprims]; 
                 };
             };
@@ -37,7 +37,6 @@ schedule {
         build axis = argmax(high - low);
         recurse left;
         recurse right;
-        build offset = right - this;
         return this;
       };
       build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {

@@ -37,8 +37,8 @@ uint32_t Type::bits() const {
     if (this->is<Ref_t>()) {
         return 0;
     }
-    if (this->is<Index_t>()) {
-        return 64; // probably true on most systems
+    if (this->is<Index_t, Ptr_t>()) {
+        return 64;
     }
     internal_error << "Called bits() on bad type: " << *this;
 }

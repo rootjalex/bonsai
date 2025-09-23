@@ -10,6 +10,27 @@ namespace bonsai {
 namespace ir {
 namespace {
 
+std::vector<ir::Member> find_group_with_type(const ir::Group::Type type,
+                                             const ir::Member &body) {
+
+    if (const ir::Group *group = body.as<ir::Group>()) {
+        if (group->type == type) {
+            return {group};
+        }
+    }
+    std::vector<ir::Member> groups;
+    if (const ir::Chain *chain = body.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            if (const ir::Group *group = member.as<ir::Group>()) {
+                if (group->type == type) {
+                    groups.push_back(group);
+                }
+            }
+        }
+    }
+    return groups;
+}
+
 class GatherTreeCarriedDependencies : public ir::Visitor {
   public:
     explicit GatherTreeCarriedDependencies() {}
@@ -121,16 +142,24 @@ uint64_t Member::bits() const {
     }
     case IRLayoutEnum::Group: {
         const Group *node = as<Group>();
-        if (node->size.defined()) {
-            if (std::optional<uint64_t> size = get_constant_value(node->size)) {
-                // treat constant sized groups as "inlined."
-                return *size * node->inner.bits();
+        switch (node->type) {
+        case ir::Group::Type::Direct:
+        case ir::Group::Type::Indirect: {
+            if (node->size.defined()) {
+                if (std::optional<uint64_t> size =
+                        get_constant_value(node->size)) {
+                    // treat constant sized groups as "inlined."
+                    return *size * node->inner.bits();
+                }
+            }
+            if (node->inner.bits() == 0) {
+                return 0;
             }
         }
-        if (node->inner.bits() == 0) {
-            return 0;
+            [[fallthrough]];
+        case ir::Group::Type::Pointer:
+            return 64; // pointer
         }
-        return 64; // pointer
     }
     case IRLayoutEnum::Lookup:
     case IRLayoutEnum::Materialize: {
@@ -235,8 +264,6 @@ Member Chain::make(std::vector<Member> members) {
 Member Group::make(std::string name, Expr size, Expr index, Member inner,
                    Group::Type type) {
     switch (type) {
-    case Group::Type::Indirect:
-        break;
     case Group::Type::Direct:
         if (!index.defined()) {
             // TODO(cgyurgyik): is this too restrictive? What is a realistic
@@ -245,6 +272,9 @@ Member Group::make(std::string name, Expr size, Expr index, Member inner,
                 << "[unexpected] undefined index with non-constant size: "
                 << size;
         }
+        break;
+    case Group::Type::Indirect:
+    case Group::Type::Pointer:
         break;
     }
     internal_assert(inner.defined())
@@ -325,38 +355,39 @@ std::vector<ir::Member> Layout::find_all_fields() const {
     return fields;
 }
 
-std::vector<ir::Member> Layout::find_direct_groups() const {
-    if (const ir::Group *group = body.as<ir::Group>()) {
-        if (group->type == ir::Group::Type::Direct) {
-            return {group};
-        }
-    }
-    std::vector<ir::Member> direct_groups;
-    if (const ir::Chain *chain = body.as<ir::Chain>()) {
-        for (const ir::Member &member : chain->members) {
-            if (const ir::Group *group = member.as<ir::Group>()) {
-                if (group->type == ir::Group::Type::Direct) {
-                    direct_groups.push_back(group);
-                }
-            }
-        }
-    }
-    return direct_groups;
+std::vector<ir::Member> Layout::find_groups(ir::Group::Type type) const {
+    return find_group_with_type(type, body);
 }
 
 ir::Type Layout::get_index_type() const {
     std::set<ir::Expr, ir::ExprLessThan> indexes;
-    std::vector<ir::Member> groups = find_direct_groups();
+    std::vector<ir::Member> groups = find_groups(ir::Group::Type::Direct);
     for (const ir::Member &member : groups) {
         const auto *group = member.as<ir::Group>();
         internal_assert(group) << member;
         indexes.insert(group->index);
     }
-    internal_assert(indexes.size() == 1)
-        << "[unexpected] multiple indexes, expected 1 but found: "
-        << indexes.size();
-    auto it = indexes.begin();
-    return it->type();
+    if (!indexes.empty()) {
+
+        internal_assert(indexes.size() == 1)
+            << "[unexpected] multiple indexes, expected 1 but found: "
+            << indexes.size();
+        auto it = indexes.begin();
+        return it->type();
+    }
+    // Otherwise, look for the pointer group.
+    std::set<std::string> names;
+    groups = find_groups(ir::Group::Type::Pointer);
+    for (const ir::Member &member : groups) {
+        const auto *group = member.as<ir::Group>();
+        internal_assert(group) << member;
+        names.insert(group->name);
+    }
+    internal_assert(names.size() == 1)
+        << "[unexpected] multiple pointer groups, expected 1 but found: "
+        << names.size();
+    auto it = names.begin();
+    return ir::Ptr_t::make(ir::Ref_t::make(*it));
 }
 
 ir::Member Layout::find_primitives_group() const {

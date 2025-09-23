@@ -7,6 +7,7 @@ TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("soa" "pbrt")
+N="${1:-10}"
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.
 OBJECTS=("suzanne" "bunny" "dragon" "teapot")
@@ -47,7 +48,9 @@ for ((i=0; i<${#OBJECTS[@]}; i++)); do
       # run (executable is now in the build directory)
       cd ..       # build directory
       cd ../../.. # PREFIX
-      ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}
+      for ((k=0; k < N; k++)); do
+        ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}
+      done
       
       # clean up
       rm -f ${PREFIX}/${APPLICATION}.h

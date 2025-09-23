@@ -301,8 +301,18 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             // TODO(cgyurgyik): this is incorrect. if two inner groups match,
             // then the second group will received the first group's member,
             // including its name. We need to uniquely match on body *and* name.
-            ir::Type base_t = layout_to_struct(node->name, node->inner, ltmap);
-            ir::Type group_t = ir::Array_t::make(std::move(base_t), node->size);
+            ir::Type base_t = layout_to_struct(node->name, node->inner, ltmap),
+                     group_t;
+            switch (node->type) {
+            case ir::Group::Type::Pointer:
+                internal_assert(!node->size.defined());
+                group_t = ir::Ptr_t::make(std::move(base_t));
+                break;
+            case ir::Group::Type::Direct:
+            case ir::Group::Type::Indirect:
+                group_t = ir::Array_t::make(std::move(base_t), node->size);
+                break;
+            }
             std::string field_name = node->name;
             ltmap.insert_group_layout(m, field_name, group_t);
             if (m.bits() == 0) {
@@ -527,28 +537,42 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
                     if (!index.defined()) {
                         index = ir::Var::make(ir::Index_t::make(), "<hole>");
                     }
-
                     path = ir::Extract::make(std::move(path), index);
                     frames.maybe_add_to_frame(node->name, index);
                 }
-
-                ir::Expr recurse =
-                    field_from_layout(path, node->inner, frames, iter_name,
-                                      node_type, field, ltmap, layout, root);
-                if (recurse.defined()) {
-                    return recurse;
+                if (ir::Expr found = field_from_layout(
+                        path, node->inner, frames, iter_name, node_type, field,
+                        ltmap, layout, root);
+                    found.defined()) {
+                    return found;
                 }
                 break;
             }
-            case ir::Group::Type::Indirect:
+            case ir::Group::Type::Indirect: {
                 if (is_lookup) {
-                    ir::Expr recurse = field_from_layout(
-                        base, node->inner, frames, iter_name, node_type, field,
-                        ltmap, layout, root);
-                    internal_assert(recurse.defined());
-                    return recurse;
+                    if (ir::Expr found = field_from_layout(
+                            base, node->inner, frames, iter_name, node_type,
+                            field, ltmap, layout, root);
+                        found.defined()) {
+                        return found;
+                    }
                 }
                 break;
+            }
+            case ir::Group::Type::Pointer: {
+                ir::Expr path = ir::Access::make(field_name, base);
+                if (field == field_name) {
+                    return path;
+                }
+                path = ir::Deref::make(path);
+                if (ir::Expr found = field_from_layout(
+                        path, node->inner, frames, iter_name, node_type, field,
+                        ltmap, layout, root);
+                    found.defined()) {
+                    return found;
+                }
+                break;
+            }
             }
             continue;
         }
@@ -981,25 +1005,28 @@ ir::Stmt flatten_yield_froms(ir::Stmt body,
                         << index_list[0].type << " but found type: " << type
                         << " in: " << ir::Stmt(node);
                 } else {
-                    const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
-                    internal_assert(tuple &&
-                                    tuple->etypes.size() == index_list.size())
-                        << "Expected " << index_list.size()
-                        << " values, but found: " << type
-                        << " in recursive function of: " << ir::Stmt(node)
-                        << "\n with type: " << type
-                        << " of flattened id: " << id;
-                    // TODO(cgyurgyik): the fuck is going on --- when is the
-                    // index list being (incorrectly) reversed?
-                    std::vector<ir::Argument> index_list2 = index_list;
-                    std::reverse(index_list2.begin(), index_list2.end());
-                    for (size_t i = 0; i < index_list2.size(); i++) {
-                        internal_assert(
-                            ir::equals(index_list2[i].type, tuple->etypes[i]))
-                            << "Mismatching YieldFroms, expected type: "
-                            << index_list2[i].type
-                            << " but found type: " << tuple->etypes[i]
-                            << " at index: " << i << " in: " << ir::Stmt(node);
+                    if (const ir::Tuple_t *tuple = type.as<ir::Tuple_t>()) {
+                        internal_assert(tuple->etypes.size() ==
+                                        index_list.size())
+                            << "expected `" << index_list.size()
+                            << "` values, but found `" << tuple->etypes.size()
+                            << "` values: `" << type
+                            << "` in recursive function of: `" << ir::Stmt(node)
+                            << "`\n with type: `" << type
+                            << "` of flattened id: `" << id << "`";
+                        // TODO(cgyurgyik): the fuck is going on --- when is the
+                        // index list being (incorrectly) reversed?
+                        std::vector<ir::Argument> index_list2 = index_list;
+                        std::reverse(index_list2.begin(), index_list2.end());
+                        for (size_t i = 0; i < index_list2.size(); i++) {
+                            internal_assert(ir::equals(index_list2[i].type,
+                                                       tuple->etypes[i]))
+                                << "Mismatching YieldFroms, expected type: "
+                                << index_list2[i].type
+                                << " but found type: " << tuple->etypes[i]
+                                << " at index: " << i
+                                << " in: " << ir::Stmt(node);
+                        }
                     }
                 }
                 flat_ids.push_back(std::move(value));
@@ -1121,6 +1148,13 @@ struct LowerMatches : public ir::Mutator {
         if (!matched_objects.contains(tree_name)) {
             std::vector<ir::Argument> node_index_list = layout.root;
             for (ir::Argument &arg : node_index_list) {
+                if (const auto *ptr_t = arg.type.as<ir::Ptr_t>()) {
+                    // Add implicit default argument for pointers.
+                    internal_assert(!arg.default_value.defined());
+                    const auto *ref_t = ptr_t->etype.as<ir::Ref_t>();
+                    internal_assert(ref_t) << arg;
+                    arg.default_value = ir::Var::make(ptr_t, ref_t->name);
+                }
                 if (!arg.default_value.defined()) {
                     continue;
                 }
@@ -1131,7 +1165,7 @@ struct LowerMatches : public ir::Mutator {
                 internal_assert(v) << arg.default_value;
                 ir::Expr base = ir::Var::make(struct_type, tree_name);
                 arg.default_value = field_from_layout(
-                    base, layout.body, /*frames=*/{}, "---", "---", v->name,
+                    base, layout.body, /*frames=*/{}, "?", "?", v->name,
                     layout_type_map, layout, root);
             }
             std::reverse(node_index_list.begin(), node_index_list.end());

@@ -57,16 +57,15 @@ std::string cpp_intrinsic(std::string intrinsic, const ir::Type &type) {
 }
 
 uint64_t nearest_power_of_two(uint32_t n) {
-    if (n == 0)
-        return 1;
+    if (n == 0) {
+        return 1; // convention: next power of two of 0 is 1
+    }
+    if ((n & (n - 1)) == 0) {
+        return std::max<uint64_t>(8, n);
+    }
     int msb_pos = 31 - std::countl_zero(n);
-    internal_assert(0 <= msb_pos && msb_pos < 32) << msb_pos;
-
-    uint64_t lower = 1U << msb_pos;
-    uint64_t upper = 1U << (msb_pos + 1);
-
-    // The smallest built-in type for C++ is 8.
-    return std::max<uint64_t>(8U, (n - lower <= upper - n) ? lower : upper);
+    uint64_t upper = 1ULL << (msb_pos + 1);
+    return std::max<uint64_t>(8, upper);
 }
 
 bool is_reference_type(const ir::Type &type) {
@@ -96,17 +95,17 @@ void emit_type(std::ostream &ss, Type type) {
         // TODO(cgyurgyik): use std::float when it is supported:
         // https://en.cppreference.com/w/cpp/types/floating-point
         void visit(const Float_t *type) override {
+            internal_assert(type->is_ieee754())
+                << "[unimplemented]: " << ir::Type(type) << " (e"
+                << type->exponent << "m" << type->mantissa << ")";
             switch (type->bits()) {
             case 64:
-                internal_assert(type->is_ieee754());
                 ss << "double";
                 break;
             case 32:
-                internal_assert(type->is_ieee754());
                 ss << "float";
                 break;
             case 16:
-                internal_assert(type->is_ieee754());
                 ss << "_Float16";
                 break;
             default:
@@ -127,7 +126,11 @@ void emit_type(std::ostream &ss, Type type) {
             ss << " *";
         }
 
-        void visit(const Ref_t *node) override { ss << node->name; }
+        void visit(const Ref_t *node) override {
+            std::string name = node->name;
+            capitalize_first(name);
+            ss << name;
+        }
 
         void visit(const Vector_t *node) override {
             ss << "vec" << node->lanes << "_";
@@ -287,9 +290,35 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
     expr.accept(&emitter);
 }
 
+std::set<std::string> gather_pointer_children(const ir::Type &type) {
+    const auto *struct_t = type.as<ir::Struct_t>();
+    if (struct_t == nullptr) {
+        return {};
+    }
+    std::set<std::string> pointers;
+    for (const auto &[name, child] : struct_t->fields) {
+        const auto *ptr_t = child.as<ir::Ptr_t>();
+        if (ptr_t == nullptr) {
+            continue;
+        }
+        const auto *ref_t = ptr_t->etype.as<ir::Ref_t>();
+        if (ref_t == nullptr) {
+            continue;
+        }
+        pointers.insert(ref_t->name);
+    }
+    return pointers;
+}
+
 void emit_type_declaration(std::stringstream &ss, Type type) {
     auto indent = std::string(4, ' ');
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
+        std::set<std::string> pointers = gather_pointer_children(type);
+        for (const std::string &pointer : pointers) {
+            std::string name = pointer;
+            capitalize_first(name);
+            ss << "struct " << name << ";\n";
+        }
         std::string name = struct_t->name;
         capitalize_first(name);
         ss << "struct" << ' ' << name << ' ' << '{' << '\n';
@@ -1031,7 +1060,12 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void visit(const LetStmt *node) override {
-        ss << get_indent() << "const ";
+        ss << get_indent();
+        if (!node->loc.base_type().is<ir::Ptr_t>()) {
+            // We don't emit const qualifier for pointers since we may need to
+            // assign it to another value, which would result in a type error.
+            ss << "const ";
+        }
         emit_type(ss, node->loc.base_type());
         ss << " " << node->loc.base() << " = ";
         node->value.accept(this);
@@ -1123,6 +1157,12 @@ class BonsaiToCpp : ir::Printer {
                 return;
             }
         case ir::Allocate::Memory::Heap:
+            if (base_type.is<ir::Ptr_t>()) {
+                ss << " = new ";
+                emit_type(ss, base_type.element_of());
+                ss << "();\n";
+                return;
+            }
             if (base_type.is_iterable()) {
                 ss << " = ";
                 ss << "reinterpret_cast<";

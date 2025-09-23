@@ -9,6 +9,33 @@ namespace bonsai {
 namespace ir {
 namespace {
 
+void add_accesses(
+    ir::WriteLoc &loc,
+    const std::vector<std::variant<std::string, Expr, WriteLoc::Cast>>
+        &accesses,
+    int begin = 0) {
+    int i = 0;
+    for (const auto &value : accesses) {
+        if (i++ < begin)
+            continue;
+        if (std::holds_alternative<std::string>(value)) {
+            loc.add_struct_access(std::get<std::string>(value));
+            continue;
+        }
+        if (std::holds_alternative<Expr>(value)) {
+            // holds Expr
+            loc.add_index_access(std::get<Expr>(value));
+            continue;
+        }
+        if (std::holds_alternative<WriteLoc::Cast>(value)) {
+            auto cast = std::get<WriteLoc::Cast>(value);
+            loc.add_cast(cast.type, cast.mode);
+            continue;
+        }
+        internal_error << "[unexpected] variant in WriteLoc";
+    }
+}
+
 // Collects a list of accesses and finally returns the base expression.
 ir::Expr convert(
     ir::Expr e,
@@ -88,30 +115,21 @@ void WriteLoc::add_cast(const ir::Type &type, ir::Cast::Mode mode) {
     accesses.push_back(WriteLoc::Cast{.type = type, .mode = mode});
 }
 
-WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
-    internal_assert(_type.defined())
+WriteLoc WriteLoc::rebuild_with_base_type(Type type) const {
+    internal_assert(type.defined())
         << "Write location rebuild triggered with undefined type for base: "
         << base();
     internal_assert(type_enforcement_enabled())
         << "Write location rebuild triggered without type enforcement enabled";
     WriteLoc rebuilt(this->b);
-    for (const auto &value : this->accesses) {
-        if (std::holds_alternative<std::string>(value)) {
-            rebuilt.add_struct_access(std::get<std::string>(value));
-            continue;
-        }
-        if (std::holds_alternative<Expr>(value)) {
-            // holds Expr
-            rebuilt.add_index_access(std::get<Expr>(value));
-            continue;
-        }
-        if (std::holds_alternative<WriteLoc::Cast>(value)) {
-            auto cast = std::get<WriteLoc::Cast>(value);
-            rebuilt.add_cast(cast.type, cast.mode);
-            continue;
-        }
-        internal_error << "[unexpected] variant in WriteLoc";
-    }
+    add_accesses(rebuilt, this->accesses);
+    return rebuilt;
+}
+
+WriteLoc WriteLoc::pop_base(std::string name, Type type) const {
+    internal_assert(!this->accesses.empty()) << *this;
+    ir::WriteLoc rebuilt(name, std::move(type));
+    add_accesses(rebuilt, this->accesses, /*begin=*/1);
     return rebuilt;
 }
 

@@ -1922,6 +1922,17 @@ struct Parser {
             }
             return ir::Tuple_t::make(std::move(etypes));
         }
+        if (consume(Token::Type::POINTER)) {
+            expect(Token::Type::LBRACKET);
+            ir::Type element;
+            if (peek_type() == Token::Type::IDENTIFIER) {
+                element = ir::Ref_t::make(get_id());
+            } else {
+                element = parse_type();
+            }
+            expect(Token::Type::RBRACKET);
+            return ir::Ptr_t::make(std::move(element));
+        }
         // TODO: support tuples of types! AKA unnamed structs.
         const std::string name = get_id();
         // Signed integer types.
@@ -2652,7 +2663,7 @@ struct Parser {
 
     ir::Member parse_member(const ir::Type &abstract_type) {
         // Default.
-        ir::Group::Type group_type = ir::Group::Type::Direct;
+        std::optional<ir::Group::Type> group_type;
         switch (peek_type()) {
         case Token::Type::LSQUIGGLE: {
             consume();
@@ -2665,12 +2676,21 @@ struct Parser {
         }
         case Token::Type::INDIRECT: {
             group_type = ir::Group::Type::Indirect;
-            consume();
+            consume(); // consume indirect
+            [[fallthrough]];
+        }
+        case Token::Type::POINTER: {
+            if (!group_type.has_value()) {
+                group_type = ir::Group::Type::Pointer;
+            }
             [[fallthrough]];
         }
         case Token::Type::GROUP: {
-            // group <name>[<size>] by <index> { <layout> }
-            consume();
+            if (!group_type.has_value()) {
+                group_type = ir::Group::Type::Direct;
+            }
+            // ptr|group <name>[<size>]+ (by <index>)+ { <layout> }
+            consume(); // consume ptr|group
             std::string name;
             if (peek_type() == Token::Type::IDENTIFIER) {
                 name = get_id();
@@ -2682,7 +2702,7 @@ struct Parser {
             }
 
             ir::Expr index;
-            switch (group_type) {
+            switch (*group_type) {
             case ir::Group::Type::Direct: {
                 if (consume(Token::Type::BY)) {
                     std::string index_name = get_id();
@@ -2692,13 +2712,14 @@ struct Parser {
                 break;
             }
             case ir::Group::Type::Indirect:
+            case ir::Group::Type::Pointer:
                 break;
             }
 
             ir::Member body = parse_member(abstract_type);
             return ir::Group::make(std::move(name), std::move(size),
                                    std::move(index), std::move(body),
-                                   group_type);
+                                   *group_type);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();

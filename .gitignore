@@ -61,4 +61,4 @@ deps/llvm-install
 .DS_Store
 
 # randomly generated rays for ray-tracing app.
-apps/rt/RANDOM_GENERATED_RAYS.txt
+*.rays

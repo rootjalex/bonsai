@@ -101,6 +101,7 @@ std::vector<Path> get_paths(const ir::Layout &layout,
                 node->inner.accept(this);
                 break;
             case Group::Type::Indirect:
+            case Group::Type::Pointer:
                 break; // This can only be accessed via a lookup.
             }
         }

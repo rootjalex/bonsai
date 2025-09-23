@@ -139,6 +139,7 @@ def create_plots(data, ray_count, machine_type, layouts, hit_ratios, input_path,
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
     x_pos = np.arange(len(models))
+    assert len(layouts) > 0, layouts
     width = 0.8 / len(layouts)
 
     model_labels = []

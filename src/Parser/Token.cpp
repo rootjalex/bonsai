@@ -101,6 +101,7 @@ uint64_t Token::size() const {
     case Token::Type::MUT:
     case Token::Type::FOR:
     case Token::Type::LET:
+    case Token::Type::POINTER:
         return 3;
     case Token::Type::ELIF:
     case Token::Type::ELSE:
@@ -189,6 +190,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "layout";
     case Token::Type::GROUP:
         return "group";
+    case Token::Type::POINTER:
+        return "ptr";
     case Token::Type::SPLIT:
         return "split";
     case Token::Type::FOR:

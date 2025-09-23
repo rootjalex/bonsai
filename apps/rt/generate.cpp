@@ -1,10 +1,20 @@
+#include <algorithm>
 #include <assert.h>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <random>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
+
+std::string after_token(const std::string &input, char token) {
+    size_t pos = input.find(token);
+    if (pos == std::string::npos || pos + 1 >= input.size()) {
+        return "";
+    }
+    return input.substr(pos + 1);
+}
 
 struct vec3_float {
     float x, y, z;
@@ -15,18 +25,272 @@ struct vec3_float {
         z = *it;
     }
     vec3_float() : x(0), y(0), z(0) {}
+
+    float &operator[](int i) { return (&x)[i]; }
+
+    const float &operator[](int i) const { return (&x)[i]; }
+
+    vec3_float operator+(const vec3_float &other) const {
+        return {x + other.x, y + other.y, z + other.z};
+    }
+
+    vec3_float operator-(const vec3_float &other) const {
+        return {x - other.x, y - other.y, z - other.z};
+    }
+
+    vec3_float operator*(float scalar) const {
+        return {x * scalar, y * scalar, z * scalar};
+    }
+
+    float dot(const vec3_float &other) const {
+        return x * other.x + y * other.y + z * other.z;
+    }
+
+    vec3_float cross(const vec3_float &other) const {
+        return {y * other.z - z * other.y, z * other.x - x * other.z,
+                x * other.y - y * other.x};
+    }
+
+    float length() const { return std::sqrt(x * x + y * y + z * z); }
+
+    vec3_float normalize() const {
+        float len = length();
+        return len > 0 ? (*this) * (1.0f / len) : vec3_float();
+    }
 };
 
 struct Triangle {
     vec3_float p0, p1, p2;
+
+    vec3_float normal() const { return (p1 - p0).cross(p2 - p0).normalize(); }
+
+    float area() const { return (p1 - p0).cross(p2 - p0).length() * 0.5f; }
 };
 
 struct Ray {
-    vec3_float o; // origin
-    vec3_float d; // direction
+    vec3_float o;
+    vec3_float d;
 };
 
-// TODO(cgyurgyik): duplicated from main.cpp
+struct BoundingBox {
+    vec3_float min, max;
+
+    BoundingBox() {}
+    BoundingBox(const vec3_float &min_pt, const vec3_float &max_pt)
+        : min(min_pt), max(max_pt) {}
+
+    BoundingBox expand(const BoundingBox &other) const {
+        return BoundingBox(
+            {std::min(min.x, other.min.x), std::min(min.y, other.min.y),
+             std::min(min.z, other.min.z)},
+            {std::max(max.x, other.max.x), std::max(max.y, other.max.y),
+             std::max(max.z, other.max.z)});
+    }
+
+    vec3_float center() const {
+        return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f,
+                (min.z + max.z) * 0.5f};
+    }
+
+    float surface_area() const {
+        float dx = max.x - min.x;
+        float dy = max.y - min.y;
+        float dz = max.z - min.z;
+        return 2.0f * (dx * dy + dy * dz + dz * dx);
+    }
+};
+
+struct BVHNode {
+    BoundingBox bbox;
+    std::unique_ptr<BVHNode> left;
+    std::unique_ptr<BVHNode> right;
+    std::vector<int> triangle_indices;
+    bool is_leaf;
+
+    BVHNode() : is_leaf(false) {}
+};
+
+bool ray_triangle_intersect(const Ray &ray, const Triangle &tri, float &t) {
+    constexpr float EPSILON = 0.0000001f;
+
+    vec3_float edge1, edge2, h, s, q;
+    float a, f, u, v;
+
+    edge1.x = tri.p1.x - tri.p0.x;
+    edge1.y = tri.p1.y - tri.p0.y;
+    edge1.z = tri.p1.z - tri.p0.z;
+
+    edge2.x = tri.p2.x - tri.p0.x;
+    edge2.y = tri.p2.y - tri.p0.y;
+    edge2.z = tri.p2.z - tri.p0.z;
+
+    h.x = ray.d.y * edge2.z - ray.d.z * edge2.y;
+    h.y = ray.d.z * edge2.x - ray.d.x * edge2.z;
+    h.z = ray.d.x * edge2.y - ray.d.y * edge2.x;
+
+    a = edge1.x * h.x + edge1.y * h.y + edge1.z * h.z;
+
+    if (a > -EPSILON && a < EPSILON)
+        return false;
+
+    f = 1.0f / a;
+
+    s.x = ray.o.x - tri.p0.x;
+    s.y = ray.o.y - tri.p0.y;
+    s.z = ray.o.z - tri.p0.z;
+
+    u = f * (s.x * h.x + s.y * h.y + s.z * h.z);
+
+    if (u < 0.0f || u > 1.0f)
+        return false;
+
+    q.x = s.y * edge1.z - s.z * edge1.y;
+    q.y = s.z * edge1.x - s.x * edge1.z;
+    q.z = s.x * edge1.y - s.y * edge1.x;
+
+    v = f * (ray.d.x * q.x + ray.d.y * q.y + ray.d.z * q.z);
+
+    if (v < 0.0f || u + v > 1.0f)
+        return false;
+
+    t = f * (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
+
+    return t > EPSILON;
+}
+
+class BVH {
+  private:
+    std::unique_ptr<BVHNode> root;
+    const std::vector<Triangle> *triangles;
+
+    BoundingBox compute_triangle_bbox(const Triangle &tri) const {
+        BoundingBox bbox;
+        bbox.min = bbox.max = tri.p0;
+
+        bbox.min.x = std::min({bbox.min.x, tri.p1.x, tri.p2.x});
+        bbox.min.y = std::min({bbox.min.y, tri.p1.y, tri.p2.y});
+        bbox.min.z = std::min({bbox.min.z, tri.p1.z, tri.p2.z});
+
+        bbox.max.x = std::max({bbox.max.x, tri.p1.x, tri.p2.x});
+        bbox.max.y = std::max({bbox.max.y, tri.p1.y, tri.p2.y});
+        bbox.max.z = std::max({bbox.max.z, tri.p1.z, tri.p2.z});
+
+        return bbox;
+    }
+
+    BoundingBox compute_bbox(const std::vector<int> &indices) const {
+        if (indices.empty())
+            return BoundingBox();
+
+        BoundingBox bbox = compute_triangle_bbox((*triangles)[indices[0]]);
+        for (size_t i = 1; i < indices.size(); i++) {
+            bbox = bbox.expand(compute_triangle_bbox((*triangles)[indices[i]]));
+        }
+        return bbox;
+    }
+
+    std::unique_ptr<BVHNode> build_recursive(std::vector<int> indices) {
+        auto node = std::make_unique<BVHNode>();
+        node->bbox = compute_bbox(indices);
+
+        if (indices.size() <= 8) {
+            node->is_leaf = true;
+            node->triangle_indices = std::move(indices);
+            return node;
+        }
+
+        vec3_float bbox_size = node->bbox.max - node->bbox.min;
+        int split_axis = 0;
+        if (bbox_size.y > bbox_size.x)
+            split_axis = 1;
+        if (bbox_size.z > bbox_size[split_axis])
+            split_axis = 2;
+
+        float split_pos =
+            (node->bbox.min[split_axis] + node->bbox.max[split_axis]) * 0.5f;
+
+        auto partition_point = std::partition(
+            indices.begin(), indices.end(),
+            [this, split_axis, split_pos](int idx) {
+                vec3_float center =
+                    compute_triangle_bbox((*triangles)[idx]).center();
+                return center[split_axis] < split_pos;
+            });
+
+        size_t left_count = partition_point - indices.begin();
+        if (left_count == 0 || left_count == indices.size()) {
+            left_count = indices.size() / 2;
+        }
+
+        std::vector<int> left_indices(indices.begin(),
+                                      indices.begin() + left_count);
+        std::vector<int> right_indices(indices.begin() + left_count,
+                                       indices.end());
+
+        node->left = build_recursive(std::move(left_indices));
+        node->right = build_recursive(std::move(right_indices));
+
+        return node;
+    }
+
+    bool ray_bbox_intersect(const Ray &ray, const BoundingBox &bbox) const {
+        float inv_dx = 1.0f / ray.d.x;
+        float inv_dy = 1.0f / ray.d.y;
+        float inv_dz = 1.0f / ray.d.z;
+
+        float t1 = (bbox.min.x - ray.o.x) * inv_dx;
+        float t2 = (bbox.max.x - ray.o.x) * inv_dx;
+        if (t1 > t2)
+            std::swap(t1, t2);
+
+        float t3 = (bbox.min.y - ray.o.y) * inv_dy;
+        float t4 = (bbox.max.y - ray.o.y) * inv_dy;
+        if (t3 > t4)
+            std::swap(t3, t4);
+
+        float t5 = (bbox.min.z - ray.o.z) * inv_dz;
+        float t6 = (bbox.max.z - ray.o.z) * inv_dz;
+        if (t5 > t6)
+            std::swap(t5, t6);
+
+        float tmin = std::max({t1, t3, t5});
+        float tmax = std::min({t2, t4, t6});
+
+        return tmax >= 0 && tmin <= tmax;
+    }
+
+    bool intersect_recursive(const Ray &ray, const BVHNode *node) const {
+        if (!ray_bbox_intersect(ray, node->bbox)) {
+            return false;
+        }
+
+        if (node->is_leaf) {
+            float t;
+            for (int idx : node->triangle_indices) {
+                if (ray_triangle_intersect(ray, (*triangles)[idx], t)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return intersect_recursive(ray, node->left.get()) ||
+               intersect_recursive(ray, node->right.get());
+    }
+
+  public:
+    void build(const std::vector<Triangle> &tris) {
+        triangles = &tris;
+        std::vector<int> indices(tris.size());
+        std::iota(indices.begin(), indices.end(), 0);
+        root = build_recursive(std::move(indices));
+    }
+
+    bool intersect(const Ray &ray) const {
+        return root ? intersect_recursive(ray, root.get()) : false;
+    }
+};
+
 std::vector<Triangle> load_obj(const std::string &object) {
     std::filesystem::path current_path = std::filesystem::current_path();
     while (current_path.has_parent_path()) {
@@ -54,20 +318,15 @@ std::vector<Triangle> load_obj(const std::string &object) {
     }
 
     std::vector<Triangle> triangles;
-    // Loop over shapes
     for (size_t s = 0; s < shapes.size(); s++) {
         size_t index_offset = 0;
 
-        // Loop over faces (triangles)
         for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
-            int fv =
-                shapes[s]
-                    .mesh.num_face_vertices[f]; // Should be 3 for triangles
+            int fv = shapes[s].mesh.num_face_vertices[f];
 
             if (fv == 3) {
                 Triangle tri;
 
-                // Get vertices
                 for (int v = 0; v < 3; v++) {
                     tinyobj::index_t idx =
                         shapes[s].mesh.indices[index_offset + v];
@@ -94,8 +353,10 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 bool save_rays_binary(const std::vector<Ray> &rays, const std::string &object,
-                      const std::string &path) {
-    std::string file_name = path + "/" + object + ".rays";
+                      const std::string &ray_count,
+                      const std::string &hit_ratio, const std::string &path) {
+    std::string file_name = path + "/" + object + "_" + ray_count + "_" +
+                            after_token(hit_ratio, '.') + ".rays";
     std::ofstream file(file_name, std::ios::binary);
     if (!file) {
         std::cerr << "Error: could not open file " << file_name
@@ -130,7 +391,6 @@ vec3_float random_unit_vector(std::mt19937 &generator) {
     float y = random_float(generator);
     float z = random_float(generator);
 
-    // Normalize the vector
     float length = std::sqrt(x * x + y * y + z * z);
     if (length > 0) {
         x /= length;
@@ -141,10 +401,6 @@ vec3_float random_unit_vector(std::mt19937 &generator) {
     return vec3_float({x, y, z});
 }
 
-struct BoundingBox {
-    vec3_float min, max;
-};
-
 BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
     if (triangles.empty())
         return {};
@@ -153,7 +409,6 @@ BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
     bbox.min = bbox.max = triangles[0].p0;
 
     for (const auto &tri : triangles) {
-        // Check all three vertices
         vec3_float vertices[3] = {tri.p0, tri.p1, tri.p2};
         for (int i = 0; i < 3; i++) {
             bbox.min.x = std::min(bbox.min.x, vertices[i].x);
@@ -167,130 +422,80 @@ BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
     return bbox;
 }
 
-// Ray-triangle intersection using Möller-Trumbore algorithm
-bool ray_triangle_intersect(const Ray &ray, const Triangle &tri, float &t) {
-    constexpr float EPSILON = 0.0000001f;
-
-    vec3_float edge1, edge2, h, s, q;
-    float a, f, u, v;
-
-    edge1.x = tri.p1.x - tri.p0.x;
-    edge1.y = tri.p1.y - tri.p0.y;
-    edge1.z = tri.p1.z - tri.p0.z;
-
-    edge2.x = tri.p2.x - tri.p0.x;
-    edge2.y = tri.p2.y - tri.p0.y;
-    edge2.z = tri.p2.z - tri.p0.z;
-
-    h.x = ray.d.y * edge2.z - ray.d.z * edge2.y;
-    h.y = ray.d.z * edge2.x - ray.d.x * edge2.z;
-    h.z = ray.d.x * edge2.y - ray.d.y * edge2.x;
-
-    a = edge1.x * h.x + edge1.y * h.y + edge1.z * h.z;
-
-    if (a > -EPSILON && a < EPSILON)
-        return false; // Ray is parallel to triangle
-
-    f = 1.0f / a;
-
-    s.x = ray.o.x - tri.p0.x;
-    s.y = ray.o.y - tri.p0.y;
-    s.z = ray.o.z - tri.p0.z;
-
-    u = f * (s.x * h.x + s.y * h.y + s.z * h.z);
-
-    if (u < 0.0f || u > 1.0f)
-        return false;
-
-    q.x = s.y * edge1.z - s.z * edge1.y;
-    q.y = s.z * edge1.x - s.x * edge1.z;
-    q.z = s.x * edge1.y - s.y * edge1.x;
-
-    v = f * (ray.d.x * q.x + ray.d.y * q.y + ray.d.z * q.z);
-
-    if (v < 0.0f || u + v > 1.0f)
-        return false;
-
-    t = f * (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
-
-    return t > EPSILON;
-}
-
-bool ray_intersects_mesh(const Ray &ray,
-                         const std::vector<Triangle> &triangles) {
-    float t;
-    for (const Triangle &triangle : triangles) {
-        if (ray_triangle_intersect(ray, triangle, t)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 std::vector<Ray> generate_rays(const std::vector<Triangle> &triangles,
                                int count, float hit_ratio = 0.75f) {
-    std::vector<Ray> rays;
-    rays.reserve(count);
-
     std::random_device rd;
     std::mt19937 generator(rd());
 
-    const BoundingBox bbox = compute_bounding_box(triangles);
+    std::vector<Ray> rays;
+    rays.reserve(count);
 
     const int target_hits = static_cast<int>(count * hit_ratio);
     const int target_misses = count - target_hits;
 
+    std::cerr << "building bvh..." << std::endl;
+    BVH bvh;
+    bvh.build(triangles);
+    std::cerr << "bvh complete, need " << target_hits << " hits and "
+              << target_misses << " misses..." << std::endl;
+
+    const BoundingBox bbox = compute_bounding_box(triangles);
+
     int hits_generated = 0;
-    int misses_generated = 0;
-    while (hits_generated < target_hits || misses_generated < target_misses) {
+    while (hits_generated < target_hits) {
         Ray candidate_ray;
-        candidate_ray.o = vec3_float(
-            {random_float(generator, bbox.min.x - 10.0f, bbox.max.x + 10.0f),
-             random_float(generator, bbox.min.y - 10.0f, bbox.max.y + 10.0f),
-             random_float(generator, bbox.min.z - 10.0f, bbox.max.z + 10.0f)});
+        candidate_ray.o = vec3_float{
+            random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
+            random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
+            random_float(generator, bbox.min.z - 50.0f, bbox.max.z + 50.0f)};
         candidate_ray.d = random_unit_vector(generator);
 
-        const bool hit_object = ray_intersects_mesh(candidate_ray, triangles);
-        if (hit_object && hits_generated < target_hits) {
+        if (bvh.intersect(candidate_ray)) {
             rays.push_back(candidate_ray);
-            ++hits_generated;
-            continue;
-        }
-        if (!hit_object && misses_generated < target_misses) {
-            rays.push_back(candidate_ray);
-            ++misses_generated;
-            continue;
+            hits_generated++;
+            if (hits_generated % 1000 == 0) {
+                std::cerr << "generated hit ray " << hits_generated << "/"
+                          << target_hits << std::endl;
+            }
         }
     }
+
+    int misses_generated = 0;
+    while (misses_generated < target_misses) {
+        Ray candidate_ray;
+        candidate_ray.o = vec3_float{
+            random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
+            random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
+            random_float(generator, bbox.min.z - 50.0f, bbox.max.z + 50.0f)};
+        candidate_ray.d = random_unit_vector(generator);
+
+        if (!bvh.intersect(candidate_ray)) {
+            rays.push_back(candidate_ray);
+            misses_generated++;
+            if (misses_generated % 1000 == 0) {
+                std::cerr << "generated miss ray " << misses_generated << "/"
+                          << target_misses << std::endl;
+            }
+        }
+    }
+
+    std::cerr << "ray generation complete: " << hits_generated << " hits, "
+              << misses_generated << " misses" << std::endl;
     std::shuffle(rays.begin(), rays.end(), generator);
     return rays;
 }
 
-vec3_float sample_triangle_point(const Triangle &tri, std::mt19937 &generator) {
-    float r1 = random_float(generator, 0.0f, 1.0f);
-    float r2 = random_float(generator, 0.0f, 1.0f);
-
-    // Ensure point is inside triangle using barycentric coordinates
-    if (r1 + r2 > 1.0f) {
-        r1 = 1.0f - r1;
-        r2 = 1.0f - r2;
-    }
-
-    float r3 = 1.0f - r1 - r2;
-
-    return vec3_float({r1 * tri.p0.x + r2 * tri.p1.x + r3 * tri.p2.x,
-                       r1 * tri.p0.y + r2 * tri.p1.y + r3 * tri.p2.y,
-                       r1 * tri.p0.z + r2 * tri.p1.z + r3 * tri.p2.z});
-}
-
 int main(int argc, char *argv[]) {
     assert(argc == 5);
-    std::string object = argv[1];
-    std::string path = argv[2];
-    int64_t ray_count = std::atoi(argv[3]);
-    float hit_ratio = std::stof(argv[4]);
+    const char *object = argv[1];
+    const char *path = argv[2];
+    const char *ray_count = argv[3];
+    const char *hit_ratio = argv[4];
+
+    const int64_t count = std::atoi(ray_count);
+    const float ratio = std::stof(hit_ratio);
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    std::vector<Ray> rays = generate_rays(triangles, ray_count, hit_ratio);
-    save_rays_binary(rays, object, path);
+    std::vector<Ray> rays = generate_rays(triangles, count, ratio);
+    save_rays_binary(rays, object, ray_count, hit_ratio, path);
 }
