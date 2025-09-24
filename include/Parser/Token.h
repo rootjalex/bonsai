@@ -2,6 +2,7 @@
 
 #include "Error.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <list>
 #include <optional>
