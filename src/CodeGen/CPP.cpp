@@ -560,6 +560,7 @@ class BonsaiToCpp : ir::Printer {
         ss << "#include <iostream>" << '\n'; // cout
         ss << "#include <string>" << '\n';   // string
         ss << "#include <tuple>" << '\n';    // tuple
+        ss << "#include <variant>" << '\n';  // variant
 
         ss << "#include \"bonsai_cpp.h\"\n\n";
 
