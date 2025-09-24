@@ -14,7 +14,10 @@
 #include "Log.h"
 #include "Utils.h"
 
+#include <functional>
 #include <ranges>
+#include <string>
+#include <unordered_map>
 
 namespace bonsai {
 namespace lower {

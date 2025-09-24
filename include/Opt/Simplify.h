@@ -4,6 +4,9 @@
 #include "IR/Program.h"
 #include "Lower/Pass.h"
 
+#include <functional>
+#include <unordered_map>
+
 namespace bonsai {
 namespace opt {
 
