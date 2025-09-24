@@ -6,7 +6,7 @@ APPLICATION="rtiow"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("ptr" "soa" "pbrt")
+LAYOUTS=("pbrt" "soa" "ptr")
 
 # Enable this to be run from either root or 
 # the directory where this script exists.
