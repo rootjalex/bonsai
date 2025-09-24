@@ -8,6 +8,10 @@
 // #include "u24.h"
 // #include "u56.h"
 
+#include <cmath>
+#include <type_traits>
+#include <variant>
+
 template <typename T, typename U>
 __attribute__((always_inline)) T reinterpret(const U &bits) {
     static_assert(sizeof(T) == sizeof(U), "Size mismatch in reinterpret");
