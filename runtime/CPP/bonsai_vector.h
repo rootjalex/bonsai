@@ -59,9 +59,7 @@ struct vector {
         }
     }
 
-// Indexing (with bounds checking in debug builds)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+    // Indexing (with bounds checking in debug builds)
     T &operator[](size_t i) {
         assert(i < N && "index out of range!");
         return data[i];
@@ -71,7 +69,6 @@ struct vector {
         assert(i < N && "index out of range!");
         return data[i];
     }
-#pragma GCC diagnostic pop
 
     vector operator-() const {
         vector<T, N> result;
