@@ -107,7 +107,7 @@ void emit_type(std::ostream &ss, Type type) {
                 ss << "float";
                 break;
             case 16:
-                ss << "_Float16";
+                ss << "uint16_t";
                 break;
             default:
                 internal_error << "unimplemented: " << ir::Type(type) << " (e"

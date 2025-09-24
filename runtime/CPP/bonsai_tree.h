@@ -26,11 +26,12 @@ struct tree {
     }
 
   private:
-    // Helper to allow overloaded lambdas
-    template <typename... Fs>
-    struct overload : Fs... {
-        using Fs::operator()...;
-    };
-    template <typename... Fs>
-    overload(Fs...) -> overload<Fs...>;
 };
+
+// Helper to allow overloaded lambdas
+template <typename... Fs>
+struct overload : Fs... {
+    using Fs::operator()...;
+};
+template <typename... Fs>
+overload(Fs...) -> overload<Fs...>;
