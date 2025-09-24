@@ -8,6 +8,7 @@
 *.obj
 *.mtl
 *.png
+license.txt
 copyright.txt
 textures
 

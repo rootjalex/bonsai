@@ -1,6 +1,9 @@
 #include "Parser/Token.h"
 
+#include <cstdint>
 #include <sstream>
+#include <string>
+#include <variant>
 
 #include "Error.h"
 

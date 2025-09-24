@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <assert.h>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>

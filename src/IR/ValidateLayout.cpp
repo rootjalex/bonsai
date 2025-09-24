@@ -8,7 +8,10 @@
 #include "Log.h"
 #include "Utils.h"
 
+#include <iostream>
+#include <limits>
 #include <set>
+#include <string>
 #include <unordered_set>
 
 // TODO(cgyurgyik): add pre-process step that uniquely names all layout members.
