@@ -62,7 +62,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     rm ${PREFIX}/${APPLICATION}.h
     rm ${PREFIX}/${APPLICATION}.cpp
     rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
-    rm -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
+    rm -f -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
   done
   echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
 done
