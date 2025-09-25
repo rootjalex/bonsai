@@ -671,6 +671,9 @@ void Printer::visit(const Struct_t *node) {
         if (node->is_packed()) {
             os << "[[packed]] ";
         }
+        if (node->alignment.has_value()) {
+            os << "[[alignas(" << *node->alignment << ")]] ";
+        }
         os << "struct ";
     }
     os << node->name;
@@ -1684,6 +1687,10 @@ void Printer::visit(const Group *node) {
     if (node->size.defined()) {
         os << "[";
         print_no_parens(node->size);
+        if (node->alignment.defined()) {
+            os << ", ";
+            node->alignment.accept(this);
+        }
         os << "]";
     }
     if (node->index.defined()) {

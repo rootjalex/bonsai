@@ -226,6 +226,7 @@ struct Struct_t : TypeNode<Struct_t> {
     std::string name;
     Map fields;
     DefMap defaults;
+    std::optional<int64_t> alignment;
 
     enum class Attribute {
         packed, // Whether this struct is 1-byte aligned.
@@ -234,9 +235,11 @@ struct Struct_t : TypeNode<Struct_t> {
     std::vector<Attribute> attributes;
 
     static Type make(std::string name, Map fields,
-                     std::vector<Attribute> attributes = {});
+                     std::vector<Attribute> attributes = {},
+                     std::optional<int64_t> alignment = {});
     static Type make(std::string name, Map fields, DefMap defaults,
-                     std::vector<Attribute> attributes = {});
+                     std::vector<Attribute> attributes = {},
+                     std::optional<int64_t> alignment = {});
 
     // Whether this type has the `packed` attribute.
     bool is_packed() const;

@@ -322,7 +322,11 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         }
         std::string name = struct_t->name;
         capitalize_first(name);
-        ss << "struct" << ' ' << name << ' ' << '{' << '\n';
+        ss << "struct";
+        if (std::optional<int64_t> alignment = struct_t->alignment) {
+            ss << " alignas(" << *alignment << ")";
+        }
+        ss << ' ' << name << ' ' << '{' << '\n';
         for (const auto &[name, child] : struct_t->fields) {
             ss << indent;
             if (const Array_t *array_t = child.as<Array_t>();
@@ -1170,13 +1174,30 @@ class BonsaiToCpp : ir::Printer {
                 ss << "reinterpret_cast<";
                 emit_type(ss, base_type.element_of());
                 ss << "*>(";
+                std::optional<int64_t> alignment;
+                if (const auto *struct_t =
+                        base_type.element_of().as<ir::Struct_t>()) {
+                    alignment = struct_t->alignment;
+                }
+                if (alignment.has_value()) {
+                    ss << "std::aligned_alloc(" << *alignment;
+                    ss << ", (((sizeof(";
+                    emit_type(ss, base_type.element_of());
+                    ss << ") * ";
+                    base_type.size().accept(this);
+                    ss << ") + " << *alignment - 1;
+                    ss << ") / ";
+                    ss << *alignment << ") * ";
+                    ss << *alignment << ")";
+                    ss << ");\n";
+                    return;
+                }
                 ss << "malloc(";
                 ss << "sizeof(";
                 emit_type(ss, base_type.element_of());
                 ss << ") * ";
                 base_type.size().accept(this);
-                ss << ")";
-                ss << ");\n";
+                ss << "));\n";
                 return;
             }
             break;

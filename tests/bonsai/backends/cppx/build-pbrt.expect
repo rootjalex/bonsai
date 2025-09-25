@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <tuple>
+#include <variant>
 #include "bonsai_cpp.h"
 
 struct Interior;
@@ -80,7 +81,7 @@ using vec4_int8_t = vector<int8_t, 4>;
 using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
 using vec4_uint8_t = vector<uint8_t, 4>;
-struct Nodes {
+struct alignas(32) Nodes {
     vec3_float low;
     vec3_float high;
     uint16_t nprims;
@@ -97,7 +98,7 @@ struct Triangles {
 using vec4_uint64_t = vector<uint64_t, 4>;
 using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
-using vec3__Float16 = vector<_Float16, 3>;
+using vec3_uint16_t = vector<uint16_t, 3>;
 
 Triangles build_triangles(const BVH* __restrict__ CT);
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles);
@@ -339,7 +340,7 @@ Triangles build_triangles(const BVH* __restrict__ CT) {
   rec_count_triangles(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
+  Nodes* nodes = reinterpret_cast<Nodes*>(std::aligned_alloc(32, (((sizeof(Nodes) * ST.node_count) + 31) / 32) * 32));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;

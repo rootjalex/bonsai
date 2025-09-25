@@ -351,7 +351,8 @@ Type Vector_t::make(Type etype, uint32_t lanes) {
 }
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
-                    std::vector<Attribute> attributes) {
+                    std::vector<Attribute> attributes,
+                    std::optional<int64_t> alignment) {
     internal_assert(!name.empty()) << "Struct_t::make received undefined name";
     internal_assert(std::all_of(fields.cbegin(), fields.cend(),
                                 [](const auto &p) { return p.type.defined(); }))
@@ -361,12 +362,14 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
     node->name = std::move(name);
     node->fields = std::move(fields);
     node->attributes = std::move(attributes);
+    node->alignment = std::move(alignment);
     return node;
 }
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
                     Struct_t::DefMap defaults,
-                    std::vector<Attribute> attributes) {
+                    std::vector<Attribute> attributes,
+                    std::optional<int64_t> alignment) {
     internal_assert(!name.empty()) << "Struct_t::make received undefined name";
     internal_assert(std::all_of(fields.cbegin(), fields.cend(),
                                 [](const auto &p) { return p.type.defined(); }))
@@ -383,6 +386,7 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
     node->fields = std::move(fields);
     node->defaults = std::move(defaults);
     node->attributes = std::move(attributes);
+    node->alignment = std::move(alignment);
     return node;
 }
 

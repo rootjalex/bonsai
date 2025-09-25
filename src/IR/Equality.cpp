@@ -187,6 +187,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         if (s0->fields.size() != s1->fields.size()) {
             return compare_primitives(s0->fields.size(), s1->fields.size());
         }
+        if (const Cmp c = compare_primitives(s0->alignment, s1->alignment);
+            c != ir::Cmp::Equals) {
+            return c;
+        }
         const size_t n = s0->fields.size();
         for (size_t i = 0; i < n; i++) {
             if (s0->fields[i].name != s1->fields[i].name) {
@@ -712,6 +716,14 @@ Cmp compare_members(const Member &l0, const Member &l1) {
             return cmp;
         }
         if (Cmp cmp = compare_primitives(g0->name, g1->name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (Cmp cmp = compare_exprs(g0->alignment, g1->alignment);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (Cmp cmp = compare_primitives(g0->packed, g1->packed);
             cmp != Cmp::Equals) {
             return cmp;
         }

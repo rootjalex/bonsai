@@ -261,8 +261,8 @@ Member Chain::make(std::vector<Member> members) {
     return node;
 }
 
-Member Group::make(std::string name, Expr size, Expr index, Member inner,
-                   Group::Type type) {
+Member Group::make(std::string name, Expr size, Expr alignment, Expr index,
+                   Member inner, bool packed, Group::Type type) {
     switch (type) {
     case Group::Type::Direct:
         if (!index.defined()) {
@@ -282,6 +282,8 @@ Member Group::make(std::string name, Expr size, Expr index, Member inner,
 
     Group *node = new Group;
     node->size = std::move(size);
+    node->alignment = std::move(alignment);
+    node->packed = packed;
     node->name = std::move(name);
     node->index = std::move(index);
     node->inner = std::move(inner);

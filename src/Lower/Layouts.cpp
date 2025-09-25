@@ -41,9 +41,23 @@ class LayoutTypeMap {
   public:
     ir::Type insert_struct_layout(const ir::Member &member,
                                   const std::string &name,
-                                  const ir::Struct_t::Map &fields) {
-        ir::Type type =
-            ir::Struct_t::make(name, fields, {ir::Struct_t::Attribute::packed});
+                                  const ir::Struct_t::Map &fields,
+                                  const ir::Member &parent) {
+        std::optional<int64_t> alignment;
+        bool packed = true;
+        if (const auto *group = parent.as<ir::Group>()) {
+            if (group->alignment.defined()) {
+                alignment = get_constant_value<int64_t>(group->alignment);
+            }
+            packed = group->packed;
+        }
+        std::vector<ir::Struct_t::Attribute> attributes = {};
+        if (packed) {
+            attributes.push_back(ir::Struct_t::Attribute::packed);
+        }
+        ir::Type type = ir::Struct_t::make(name, fields, std::move(attributes),
+                                           std::move(alignment));
+
         {
             auto [_, inserted] = layout_to_type.try_emplace(member, type);
             internal_assert(inserted)
@@ -279,7 +293,8 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
 // Returns the struct equivalent for this layout member, and updates the layout
 // type map respectively.
 ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
-                          LayoutTypeMap &ltmap) {
+                          LayoutTypeMap &ltmap,
+                          ir::Member parent = ir::Member()) {
     if (auto it = ltmap.types().find(member); it != ltmap.types().cend()) {
         return it->second;
     }
@@ -304,7 +319,8 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             // TODO(cgyurgyik): this is incorrect. if two inner groups match,
             // then the second group will received the first group's member,
             // including its name. We need to uniquely match on body *and* name.
-            ir::Type base_t = layout_to_struct(node->name, node->inner, ltmap),
+            ir::Type base_t =
+                         layout_to_struct(node->name, node->inner, ltmap, node),
                      group_t;
             switch (node->type) {
             case ir::Group::Type::Pointer:
@@ -343,7 +359,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
                 std::string name = "arm_";
                 internal_assert(arm.name.has_value()) << arm;
                 name += *arm.name;
-                layout_to_struct(std::move(name), arm.member, ltmap);
+                layout_to_struct(std::move(name), arm.member, ltmap, node);
             }
             continue;
         }
@@ -355,7 +371,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
         }
     }
     return ltmap.insert_struct_layout(member, name.empty() ? "unit" : name,
-                                      std::move(fields));
+                                      std::move(fields), parent);
 }
 
 // TODO(cgyurgyik): misnomer, fix this.

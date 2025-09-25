@@ -131,7 +131,7 @@ Type Mutator::visit(const Struct_t *node) {
         return node;
     }
     return Struct_t::make(node->name, std::move(fields), std::move(defaults),
-                          node->attributes);
+                          node->attributes, node->alignment);
 }
 
 Type Mutator::visit(const Tuple_t *node) {

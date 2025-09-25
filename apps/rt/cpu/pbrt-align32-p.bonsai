@@ -1,13 +1,3 @@
-//! flags: -b cppx
-
-import stdlib/distance;
-import stdlib/intersects;
-import stdlib/triangle;
-
-extern triangles : set[Triangle];
-
-func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
-
 schedule {
     tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high) 
       = Interior(left : BVH, right : BVH, axis : u8)
@@ -40,7 +30,7 @@ schedule {
     };
 
     build triangles {
-      build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
+      build Interior(low: f32x3, high: f32x3, axis: u8, left: BVH, right: BVH) {
         build low;
         build high;
         build nprims = 0;
@@ -59,4 +49,6 @@ schedule {
         return this;
       };
     };
+
+    trace.loopify(64);
 }

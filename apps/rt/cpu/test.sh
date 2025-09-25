@@ -6,7 +6,7 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("ptr" "soa" "pbrt")
+LAYOUTS=("soa-align16-p-v2" "soa-align16-p" "soa-align16-v2" "soa-align16" "soa-align32-p-v2" "soa-align32-p" "soa-align32-v2" "soa-align32" "pbrt-align16-p" "pbrt-align16" "pbrt-align32-p" "pbrt-align32")
 OBJECTS=("san-miguel" "hairball" "dragon" "sponza")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 RAY_COUNT="${2:-65536}"   # default 2^16
@@ -64,21 +64,19 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 3. Compile the lowered C++.
     clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
     # 4. Run it.
-    FLAG=""
+    EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
+    COMMAND="./${EXECUTABLE} ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays"
     if [[ "$(uname)" == "Linux" ]]; then
-      FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
+      COMMAND="numactl --physcpubind 0-15 ${COMMAND}" # only run on performance cores for the Fredwood.
     fi
     if [[ "${TYPE}" == "PERFORMANCE" ]]; then
       # collect
-      perf record -e cycles,instructions,cache-misses,cache-references,\
-      L1-dcache-load-misses,LLC-load-misses,dTLB-load-misses \
-      -g --call-graph dwarf -F 2000 \
+      perf record -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ${COMMAND}
       # report
-      perf report --symbol-filter=trace --sort=overhead,comm,pid >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
-    ${FLAG} ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays
+      perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
     else
       for ((i=0; i < N; i++)); do
-        ${FLAG} ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays >> ${DATA_PATH}/${DATA_FILE}.txt
+        ${COMMAND} >> ${DATA_PATH}/${DATA_FILE}.txt
       done
     fi
     # 5. Clean up

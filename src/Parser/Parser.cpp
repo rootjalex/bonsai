@@ -2695,9 +2695,18 @@ struct Parser {
             if (peek_type() == Token::Type::IDENTIFIER) {
                 name = get_id();
             }
-            ir::Expr size;
+            ir::Expr size, alignment;
+            bool packed = false;
             if (consume(Token::Type::LBRACKET)) {
                 size = parse_expr();
+                if (consume(Token::Type::COMMA)) {
+                    alignment = parse_expr();
+                }
+                if (consume(Token::Type::COL)) {
+                    std::string p = get_id();
+                    internal_assert(p == "p") << p;
+                    packed = true;
+                }
                 expect(Token::Type::RBRACKET);
             }
 
@@ -2718,8 +2727,8 @@ struct Parser {
 
             ir::Member body = parse_member(abstract_type);
             return ir::Group::make(std::move(name), std::move(size),
-                                   std::move(index), std::move(body),
-                                   *group_type);
+                                   std::move(alignment), std::move(index),
+                                   std::move(body), packed, *group_type);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();
