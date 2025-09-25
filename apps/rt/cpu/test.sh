@@ -8,9 +8,10 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("ptr" "soa" "pbrt")
 OBJECTS=("san-miguel" "hairball" "dragon" "sponza")
-RAY_COUNT="${1:-65536}"   # default 2^16
-N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
-HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default 
+TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
+RAY_COUNT="${2:-65536}"   # default 2^16
+N="${3:-14}" # drop lowest 2 and highest 2 runs in processing
+HIT_RATIO="${4:-75}" # n%, e.g., 75% is the default
 RAY_PATH="${PREFIX}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
@@ -41,7 +42,11 @@ for OBJECT in "${OBJECTS[@]}"; do
    echo "object: ${OBJECT}" 
   if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays" ]; then
     echo "no rays found for ${OBJECT}; generating now..."
-    ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
+    FLAG=""
+    if [[ "$(uname)" == "Linux" ]]; then
+      FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
+    fi
+    ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
     echo "...${RAY_COUNT} rays generated for ${OBJECT} with hit ratio: 0.${HIT_RATIO}"
   fi
   echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
@@ -55,9 +60,23 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 3. Compile the lowered C++.
     clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
     # 4. Run it.
-    for ((i=0; i < N; i++)); do
-      ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays >> ${DATA_PATH}/${DATA_FILE}.txt
-    done
+    FLAG=""
+    if [[ "$(uname)" == "Linux" ]]; then
+      FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
+    fi
+    if [[ "${TYPE}" == "PERFORMANCE" ]]; then
+      # collect
+      perf record -e cycles,instructions,cache-misses,cache-references,\
+      L1-dcache-load-misses,LLC-load-misses,dTLB-load-misses \
+      -g --call-graph dwarf -F 2000 \
+      # report
+      perf report --symbol-filter=trace --sort=overhead,comm,pid
+    ${FLAG} ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays
+    else
+      for ((i=0; i < N; i++)); do
+        ${FLAG} ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays >> ${DATA_PATH}/${DATA_FILE}.txt
+      done
+    fi
     # 5. Clean up
     rm ${PREFIX}/${APPLICATION}.h
     rm ${PREFIX}/${APPLICATION}.cpp
