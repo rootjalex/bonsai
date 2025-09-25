@@ -38,6 +38,10 @@ clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cp
 
 echo "rays: ${RAY_COUNT}, runs: ${N}, hit ratio: 0.${HIT_RATIO}"
 echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
+if [[ "$(uname)" == "Linux" ]]; then
+  echo "Running on Linux (presumably Redwood)!"
+fi
+
 for OBJECT in "${OBJECTS[@]}"; do
    echo "object: ${OBJECT}" 
   if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays" ]; then
