@@ -70,7 +70,7 @@ for OBJECT in "${OBJECTS[@]}"; do
       L1-dcache-load-misses,LLC-load-misses,dTLB-load-misses \
       -g --call-graph dwarf -F 2000 \
       # report
-      perf report --symbol-filter=trace --sort=overhead,comm,pid
+      perf report --symbol-filter=trace --sort=overhead,comm,pid >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
     ${FLAG} ./${PREFIX}/${APPLICATION}_${LAYOUT}.out ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays
     else
       for ((i=0; i < N; i++)); do
