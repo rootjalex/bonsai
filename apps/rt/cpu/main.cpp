@@ -2,6 +2,7 @@
 #include "canonical_tree.h"
 #include "rt.h"
 #include "util.h"
+#include <omp.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -97,11 +98,20 @@ void run_test(const std::string &object_file, const std::string &ray_file,
     std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
     std::vector<Triangle> hits;
     auto trace_begin = clock::now();
-    for (const Ray &ray : rays) {
-        if (std::optional<Triangle> tri = trace(&ray, &tree)) {
-            hits.push_back(*tri);
-        }
+    std::vector<std::optional<Triangle>> results(rays.size());
+
+#pragma omp parallel for schedule(dynamic)
+    for (size_t i = 0; i < rays.size(); ++i) {
+        results[i] = trace(&rays[i], &tree);
     }
+    // Collect hits sequentially after parallel work
+    for (const std::optional<Triangle> &result : results) {
+        if (!result.has_value()) {
+            continue;
+        }
+        hits.push_back(*result);
+    }
+
     auto trace_end = clock::now();
 
     auto ct_time =
