@@ -29,7 +29,6 @@ int main(int argc, char **argv) {
 
     std::cout << "-- building specialized tree" << std::endl;
     auto st_begin = clock::now();
-    // TODO(cgyurgyik): free the specialized tree.
     Spheres tree;
     build_spheres(&tree, node);
     auto st_end = clock::now();
