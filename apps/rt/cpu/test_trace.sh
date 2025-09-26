@@ -7,20 +7,45 @@ TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
-OBJECTS=("san-miguel" "hairball")
+OBJECTS=("power-plant" "hairball")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
+HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
 RAY_PATH="${PREFIX}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
+MIN_POWER=15
+MAX_POWER=20 # these should be aligned with the C++ file
+RAY_COUNTS=()
+for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
+    RAY_COUNTS+=($((2**p)))
+done
 
 # Enable this to be run from either root or 
 # the directory where this script exists.
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../../..
 fi
+
+# Save a set of random rays.
+clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
+
+for RAY_COUNT in "${RAY_COUNTS[@]}"; do
+  echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
+  for OBJECT in "${OBJECTS[@]}"; do
+    echo "object: ${OBJECT}" 
+    if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays" ]; then
+      echo "no rays found for ${OBJECT}; generating now..."
+      FLAG=""
+      if [[ "$(uname)" == "Linux" ]]; then
+        FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
+      fi
+      ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
+      echo "...${RAY_COUNT} rays generated for ${OBJECT} with hit ratio: 0.${HIT_RATIO}"
+  done
+done
 
 # Delete previous data.
 rm -f -r ${DATA_PATH}
