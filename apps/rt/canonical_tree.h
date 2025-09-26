@@ -72,7 +72,7 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
             });
         }
 
-        // Compute centroid bounds for splitting
+        // Compute centroid bounds for splitting.
         vec3_float centroid_min = triangle_centroid(triangles[low]);
         vec3_float centroid_max = centroid_min;
 
@@ -87,7 +87,7 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
         float parent_area = surface_area(aabb_min, aabb_max);
         float leaf_cost = intersection_cost * count;
 
-        // Try splitting along each axis
+        // Try splitting along each axis.
         for (int axis = 0; axis < 3; ++axis) {
             float extent = centroid_max[axis] - centroid_min[axis];
             if (extent < 1e-6f)
@@ -97,7 +97,7 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
             float bin_width = extent / num_bins;
             float inv_bin_width = 1.0f / bin_width;
 
-            // Assign triangles to bins
+            // Assign triangles to bins.
             for (uint32_t i = low; i < high; ++i) {
                 vec3_float c = triangle_centroid(triangles[i]);
                 int bin_idx =
@@ -111,7 +111,7 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
                 bins[bin_idx].count++;
             }
 
-            // Compute prefix sums for efficient SAH evaluation
+            // Compute prefix sums for efficient SAH evaluation.
             std::vector<vec3_float> left_min(num_bins), left_max(num_bins);
             std::vector<uint32_t> left_count(num_bins);
 
@@ -241,7 +241,7 @@ BVH *build_canonical_tree_median_split(std::vector<Triangle> &triangles,
         if (extent[2] > extent[axis])
             axis = 2;
 
-        // Partition around midpoint along axis
+        // Partition around midpoint along axis.
         auto mid_it = triangles.begin() + low + count / 2;
         std::nth_element(triangles.begin() + low, mid_it,
                          triangles.begin() + high,

@@ -171,16 +171,9 @@ def create_scaling_plots(data, machine_type, output_path, method='arithmetic'):
 
     # Determine subplot layout based on number of models
     n_models = len(models)
-    if n_models <= 4:
-        fig = plt.figure(figsize=(20, 12))
-        n_cols = 3
-        n_rows = 2
-    else:
-        # For more than 4 models, create a larger grid
-        n_cols = min(4, n_models)
-        # +1 for the combined plot
-        n_rows = ((n_models + 1) + n_cols - 1) // n_cols
-        fig = plt.figure(figsize=(5 * n_cols, 6 * n_rows))
+    fig = plt.figure(figsize=(45, 45))
+    n_rows = 4
+    n_cols = 4
 
     method_str = 'Geometric Mean' if method == 'geometric' else 'Arithmetic Mean'
     title = f'Ray Tracing Performance Scaling ({method_str})'
@@ -188,43 +181,9 @@ def create_scaling_plots(data, machine_type, output_path, method='arithmetic'):
         title += f' - {machine_type}'
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
-    # 1. Combined log-log plot (first subplot)
-    ax1 = plt.subplot(n_rows, n_cols, 1)
-    for model in models:
-        for layout in layouts:
-            if layout in data[model]:
-                ray_counts = sorted(data[model][layout].keys())
-                trace_times = [data[model][layout][rc] for rc in ray_counts]
-
-                # Filter out zero values for log scale
-                valid_indices = [i for i, t in enumerate(trace_times) if t > 0]
-                if valid_indices:
-                    valid_ray_counts = [ray_counts[i] for i in valid_indices]
-                    valid_trace_times = [trace_times[i] for i in valid_indices]
-
-                    label = f'{model}-{layout}'
-                    color = model_colors[model]
-                    style = layout_styles[layout]
-                    marker = layout_markers[layout]
-                    ax1.loglog(valid_ray_counts, valid_trace_times,
-                               marker=marker, markersize=4, linewidth=1.5,
-                               linestyle=style, color=color, label=label, alpha=0.7)
-
-    ax1.set_xlabel('Number of Rays')
-    ax1.set_ylabel('Trace Time (ms)')
-    ax1.set_title('All Configurations (Log-Log Scale)')
-    ax1.grid(True, alpha=0.3, which='both')
-
-    # Adjust legend based on number of items
-    n_legend_items = len(models) * len(layouts)
-    if n_legend_items <= 12:
-        ax1.legend(fontsize=8, ncol=2, loc='upper left')
-    else:
-        ax1.legend(fontsize=6, ncol=3, loc='upper left')
-
     # 2. Per-model plots
     for idx, model in enumerate(models):
-        ax = plt.subplot(n_rows, n_cols, idx + 2)
+        ax = plt.subplot(n_rows, n_cols, idx + 1)
 
         for layout in layouts:
             if layout in data[model]:
