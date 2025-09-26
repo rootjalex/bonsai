@@ -21,6 +21,7 @@ int main(int argc, char **argv) {
     assert(argc == 2);
     std::string output_filename = argv[1];
 
+#ifndef __CUDA_ARCH__ // Host-only guard
     std::vector<MaterialSphere> spheres = setup_spheres();
 
     std::cout << "-- building canonical tree" << std::endl;
@@ -40,6 +41,7 @@ int main(int argc, char **argv) {
     int image_width = camera.width;
     float image_height = (int)(camera.width / camera.aspect_ratio);
     image_height = (image_height < 1) ? 1 : image_height;
+#endif
 
     auto t1 = clock::now();
 
