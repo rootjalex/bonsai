@@ -1,8 +1,6 @@
-#ifdef __CUDACC__
-#include "cuda/rtiow.h"
-#else
+#pragma once
+
 #include "cpu/rtiow.h"
-#endif
 
 #include <cstdint>
 #include <fstream>

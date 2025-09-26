@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     assert(argc == 2);
     std::string output_filename = argv[1];
 
-    std::vector<MaterialSphere> spheres = setup_spheres();
+    const std::vector<MaterialSphere> spheres = setup_spheres();
 
     std::cout << "-- building canonical tree" << std::endl;
     auto ct_begin = clock::now();
