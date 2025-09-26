@@ -7,18 +7,18 @@
 #include <iostream>
 #include <random>
 
-__host__ __device__ inline float random_float() {
+__host__ inline float random_float() {
     static std::uniform_real_distribution<float> distribution(0.0, 1.0);
     static std::mt19937 generator;
     return distribution(generator);
 }
 
-__host__ __device__ inline float random_float(float min, float max) {
+__host__ inline float random_float(float min, float max) {
     // Returns a random real in [min,max).
     return min + (max - min) * random_float();
 }
 
-__host__ __device__ Camera setup_camera() {
+__host__ Camera setup_camera() {
     Camera camera;
     camera.aspect_ratio = 16.0 / 9.0;
     camera.width = 1200; // makes height = 675
@@ -35,7 +35,7 @@ __host__ __device__ Camera setup_camera() {
     return camera;
 }
 
-__host__ __device__ std::vector<MaterialSphere> setup_spheres() {
+__host__ std::vector<MaterialSphere> setup_spheres() {
     constexpr uint32_t LAMBERTIAN = 0;
     constexpr uint32_t METAL = 1;
     constexpr uint32_t DIALECTRIC = 2;

@@ -5,7 +5,7 @@
 using vec3_float = float3;
 using f32 = float;
 
-__host__ __device__ Sphere get_bounding_sphere(const BVH *node) {
+__host__ Sphere get_bounding_sphere(const BVH *node) {
     if (std::holds_alternative<Interior>(*node)) {
         const Interior &interior = std::get<Interior>(*node);
         return {interior.center, interior.radius};
@@ -17,7 +17,7 @@ __host__ __device__ Sphere get_bounding_sphere(const BVH *node) {
     assert(false && "unexpected");
 }
 
-__host__ __device__ void free_canonical_tree(BVH *node) {
+__host__ void free_canonical_tree(BVH *node) {
     if (std::holds_alternative<Interior>(*node)) {
         Interior &interior = std::get<Interior>(*node);
         free_canonical_tree(interior.left);
@@ -37,26 +37,25 @@ __host__ __device__ void free_canonical_tree(BVH *node) {
 }
 
 // Builds the canonical tree using a median split.
-__host__ __device__ BVH *
-build_canonical_tree(std::vector<MaterialSphere> *spheres) {
+__host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
     constexpr uint32_t MAX_TREE_DEPTH = 64;
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth = 0) -> BVH * {
         assert(depth < MAX_TREE_DEPTH);
         uint32_t count = high - low;
         if (count <= 2) {
-            vec3_float center = (*spheres)[low].s.center;
-            f32 radius = (*spheres)[low].s.radius;
+            vec3_float center = spheres[low].s.center;
+            f32 radius = spheres[low].s.radius;
             if (count == 2) {
                 Sphere merged =
-                    bounding_sphere(&(*spheres)[low].s, &(*spheres)[low + 1].s);
+                    bounding_sphere(&spheres[low].s, &spheres[low + 1].s);
                 center = merged.center;
                 radius = merged.radius;
             }
             auto *data =
                 (MaterialSphere *)(malloc(sizeof(MaterialSphere) * count));
             for (int i = 0; i < count; ++i) {
-                data[i] = (*spheres)[low + i];
+                data[i] = spheres[low + i];
             }
             return new BVH(Leaf{
                 .center = center,
@@ -67,12 +66,12 @@ build_canonical_tree(std::vector<MaterialSphere> *spheres) {
         }
 
         // Internal node
-        vec3_float min_bound = (*spheres)[low].s.center;
-        vec3_float max_bound = (*spheres)[low].s.center;
+        vec3_float min_bound = spheres[low].s.center;
+        vec3_float max_bound = spheres[low].s.center;
 
         for (uint32_t i = low + 1; i < high; ++i) {
-            min_bound = min(min_bound, (*spheres)[i].s.center);
-            max_bound = max(max_bound, (*spheres)[i].s.center);
+            min_bound = min(min_bound, spheres[i].s.center);
+            max_bound = max(max_bound, spheres[i].s.center);
         }
 
         // Choose axis with greatest extent
