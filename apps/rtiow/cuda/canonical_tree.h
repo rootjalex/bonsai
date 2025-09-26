@@ -1,10 +1,8 @@
-#ifdef __CUDACC__
-#include "cuda/rtiow.h"
-using vec3_float = float3;
-#else
-#include "cpu/rtiow.h"
-#endif
+#pragma once
 
+#include "cuda/rtiow.h"
+
+using vec3_float = float3;
 using f32 = float;
 
 Sphere get_bounding_sphere(const BVH *node) {
@@ -79,16 +77,24 @@ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
         // Choose axis with greatest extent
         vec3_float extent = max_bound - min_bound;
         int axis = 0;
-        if (extent[1] > extent[0])
+        float ex = extent.x;
+        float ey = extent.y;
+        float ez = extent.z;
+
+        if (ey > ex)
             axis = 1;
-        if (extent[2] > extent[axis])
+        if (ez > ((axis == 0) ? ex : ey))
             axis = 2;
 
         // Partition at midpoint along chosen axis
         auto mid_it = spheres.begin() + low + count / 2;
         std::nth_element(spheres.begin() + low, mid_it, spheres.begin() + high,
                          [&](const MaterialSphere &a, const MaterialSphere &b) {
-                             return a.s.center[axis] < b.s.center[axis];
+                             if (axis == 0)
+                                 return a.s.center.x < b.s.center.x;
+                             if (axis == 1)
+                                 return a.s.center.y < b.s.center.y;
+                             return a.s.center.z < b.s.center.z;
                          });
 
         const uint32_t mid = low + count / 2;
