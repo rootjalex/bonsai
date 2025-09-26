@@ -1,5 +1,5 @@
 #ifdef __CUDACC__
-#include "rtiow.h"
+#include "cuda/rtiow.h"
 #else
 #include "cpu/rtiow.h"
 #endif
