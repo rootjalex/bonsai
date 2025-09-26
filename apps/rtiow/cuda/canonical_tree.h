@@ -5,7 +5,7 @@
 using vec3_float = float3;
 using f32 = float;
 
-Sphere get_bounding_sphere(const BVH *node) {
+__host__ Sphere get_bounding_sphere(const BVH *node) {
     if (std::holds_alternative<Interior>(*node)) {
         const Interior &interior = std::get<Interior>(*node);
         return {interior.center, interior.radius};

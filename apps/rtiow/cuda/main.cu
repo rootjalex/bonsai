@@ -1,7 +1,8 @@
 #include "canonical_tree.h"
+#include "util.h"
+
 #include "helpers.h"
 #include "rtiow.h"
-#include "util.h"
 
 #include <cassert>
 #include <chrono>
