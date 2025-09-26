@@ -96,22 +96,33 @@ void run_test(const std::string &object_file, const std::string &ray_file,
     auto st_end = clock::now();
 
     std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
+    // PARALLEL
+    // std::vector<Triangle> hits;
+    //     std::vector<std::optional<Triangle>> results(rays.size());
+    //     auto trace_begin = clock::now();
+
+    // #pragma omp parallel for schedule(dynamic)
+    //     for (size_t i = 0; i < rays.size(); ++i) {
+    //         results[i] = trace(&rays[i], &tree);
+    //     }
+    //     // Collect hits sequentially after parallel work
+    //     for (const std::optional<Triangle> &result : results) {
+    //         if (!result.has_value()) {
+    //             continue;
+    //         }
+    //         hits.push_back(*result);
+    //     }
+    //     auto trace_end = clock::now();
+
+    // SINGLE-THREAD
     std::vector<Triangle> hits;
+    hits.reserve(rays.size());
     auto trace_begin = clock::now();
-    std::vector<std::optional<Triangle>> results(rays.size());
-
-#pragma omp parallel for schedule(dynamic)
-    for (size_t i = 0; i < rays.size(); ++i) {
-        results[i] = trace(&rays[i], &tree);
-    }
-    // Collect hits sequentially after parallel work
-    for (const std::optional<Triangle> &result : results) {
-        if (!result.has_value()) {
-            continue;
+    for (int i = 0; i < rays.size(); ++i) {
+        if (const std::optional<Triangle> t = trace(&rays[i], &tree)) {
+            hits.push_back(*t);
         }
-        hits.push_back(*result);
     }
-
     auto trace_end = clock::now();
 
     auto ct_time =
