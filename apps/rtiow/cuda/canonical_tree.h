@@ -17,7 +17,7 @@ Sphere get_bounding_sphere(const BVH *node) {
     assert(false && "unexpected");
 }
 
-void free_canonical_tree(BVH *node) {
+__host__ void free_canonical_tree(BVH *node) {
     if (std::holds_alternative<Interior>(*node)) {
         Interior &interior = std::get<Interior>(*node);
         free_canonical_tree(interior.left);
@@ -37,7 +37,7 @@ void free_canonical_tree(BVH *node) {
 }
 
 // Builds the canonical tree using a median split.
-BVH *build_canonical_tree(std::vector<MaterialSphere> *spheres) {
+__host__ BVH *build_canonical_tree(std::vector<MaterialSphere> *spheres) {
     constexpr uint32_t MAX_TREE_DEPTH = 64;
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth = 0) -> BVH * {
