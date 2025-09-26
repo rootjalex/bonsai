@@ -1492,8 +1492,8 @@ void CodeGen_CUDA::print(const Function &function) {
 void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,
                              bool is_assignment) {
     std::string ss;
-    const bool should_deref =
-        loc.base_type().is<ir::Ptr_t>() && !is_context_type(loc.base_type());
+    const bool should_deref = loc.base_type().is<ir::Ptr_t>() &&
+                              !is_context_type(loc.base_type().element_of());
     if (should_deref) {
         ss += "(*";
     }
