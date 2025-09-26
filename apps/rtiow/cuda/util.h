@@ -7,18 +7,18 @@
 #include <iostream>
 #include <random>
 
-inline float random_float() {
+__host__ inline float random_float() {
     static std::uniform_real_distribution<float> distribution(0.0, 1.0);
     static std::mt19937 generator;
     return distribution(generator);
 }
 
-inline float random_float(float min, float max) {
+__host__ inline float random_float(float min, float max) {
     // Returns a random real in [min,max).
     return min + (max - min) * random_float();
 }
 
-Camera setup_camera() {
+__host__ Camera setup_camera() {
     Camera camera;
     camera.aspect_ratio = 16.0 / 9.0;
     camera.width = 1200; // makes height = 675
@@ -35,7 +35,7 @@ Camera setup_camera() {
     return camera;
 }
 
-std::vector<MaterialSphere> setup_spheres() {
+__host__ std::vector<MaterialSphere> setup_spheres() {
     constexpr uint32_t LAMBERTIAN = 0;
     constexpr uint32_t METAL = 1;
     constexpr uint32_t DIALECTRIC = 2;
@@ -90,8 +90,8 @@ std::vector<MaterialSphere> setup_spheres() {
     return spheres;
 }
 
-int save_image(int64_t image_height, int64_t image_width, const int *image,
-               const std::string &output_filename) {
+__host__ int save_image(int64_t image_height, int64_t image_width,
+                        const int *image, const std::string &output_filename) {
     std::ofstream out(output_filename);
 
     if (!out) {
