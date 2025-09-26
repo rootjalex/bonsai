@@ -253,6 +253,11 @@ struct Rename : public ir::Mutator {
     Rename(const ExprSet &to_rename) : to_rename(to_rename) {}
 
     ir::Stmt visit(const ir::LetStmt *node) override {
+        if (node->loc.base() == "tid") {
+            // TODO(cgyurgyik): do *not* rename TID for now; the CUDA backend
+            // assumes this name!
+            return node;
+        }
         if (is_simple(node->value)) {
             // Non-compounding statements can just use the O.G. variable name.
             return node;
