@@ -367,7 +367,11 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
     os << "*";
 }
 
-void CodeGen_CUDA::visit(const Ref_t *node) { os << node->name << "*"; }
+void CodeGen_CUDA::visit(const Ref_t *node) {
+    std::string name = node->name;
+    capitalize_first(name);
+    os << name << "*";
+}
 
 void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
 
@@ -818,7 +822,7 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
 
     node->vec.accept(this);
     os << "[";
-    print_no_parens(node->idx);
+    node->idx.accept(this);
     os << "]";
 }
 
@@ -932,7 +936,10 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     std::string original = base.substr(2, base.size());
     std::string copy = "h_" + original;
     // Make a shallow copy for non-pointer members.
-    os << get_indent() << type << ' ' << copy << ' ';
+
+    os << get_indent();
+    type.accept(this);
+    os << ' ' << copy << ' ';
     os << '=' << ' ' << '*' << original << ';' << '\n';
     // Then copy all the recently device-allocated members.
     for (const auto &[name, type] : types) {
@@ -1272,6 +1279,7 @@ void CodeGen_CUDA::visit(const Match *node) {
         os << "if (std::holds_alternative<const ";
         os << struct_t->name << "&>(*";
         node->loc.accept(this);
+        os << "_"; // differentiate
         os << ")) {\n";
         increment();
         os << get_indent() << "const " << struct_t->name << "& ";
@@ -1279,6 +1287,7 @@ void CodeGen_CUDA::visit(const Match *node) {
         os << " = " << "std::get<const ";
         os << struct_t->name << "&>(*";
         node->loc.accept(this);
+        os << "_"; // differentiate
         os << ");\n";
         body.accept(this);
         decrement();
@@ -1363,6 +1372,8 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
         << function;
 }
 
+void CodeGen_CUDA::print(const Expr &expr) { expr.accept(this); }
+
 void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
@@ -1439,6 +1450,7 @@ void CodeGen_CUDA::print(const Program &program) {
 
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
+    const bool is_recursive_build = function.name.starts_with("rec_");
     function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
@@ -1448,6 +1460,15 @@ void CodeGen_CUDA::print(const Function &function) {
             os << '&';
         }
         os << ' ' << arg.name;
+        if (is_recursive_build && arg.type.is<Ref_t>()) {
+            // TODO(cgyurgyik): another ugly hack, we use std::variant's
+            // `holds_alternative`/`get` so we need to avoid the case:
+            //
+            //   if (holds_alernative<T>(*node)) {
+            //     const T& node = get<T>(*node); <-- duplicate `node` name
+            //   }
+            os << '_';
+        }
         if (ir::Expr value = arg.default_value; value.defined()) {
             os << '=';
             value.accept(this);
@@ -1471,11 +1492,13 @@ void CodeGen_CUDA::print(const Function &function) {
 void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,
                              bool is_assignment) {
     std::string ss;
-    if (loc.base_type().is<ir::Ptr_t>()) {
+    const bool should_deref =
+        loc.base_type().is<ir::Ptr_t>() && !is_context_type(loc.base_type());
+    if (should_deref) {
         ss += "(*";
     }
     ss += loc.base();
-    if (loc.base_type().is<ir::Ptr_t>()) {
+    if (should_deref) {
         ss += ")";
     }
     bool is_pointer = false;
@@ -1498,7 +1521,10 @@ void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,
                 continue;
             }
             ss += "[";
-            ss += to_string(idx);
+            std::stringstream stream;
+            CodeGen_CUDA printer(stream);
+            printer.print(idx);
+            ss += stream.str();
             ss += "]";
             continue;
         }

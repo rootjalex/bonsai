@@ -24,8 +24,9 @@ class CodeGen_CUDA : public ir::Printer {
   public:
     explicit CodeGen_CUDA(std::ostream &os) : ir::Printer(os), os(os) {}
 
-    void print(const ir::Program &program);
-    void print(const ir::Function &function);
+    void print(const ir::Program &);
+    void print(const ir::Function &);
+    void print(const ir::Expr &);
 
     // Types
     void visit(const ir::Float_t *) override;

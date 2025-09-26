@@ -268,9 +268,9 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
   return ((cuda::std::get<0>(_best0) != INFINITY) ? cuda::std::optional<Triangle>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
 }
 
-__device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
-    if (std::holds_alternative<const Interior&>(*node)) {
-      const Interior& node = std::get<const Interior&>(*node);
+__device__ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
+    if (std::holds_alternative<const Interior&>(*node_)) {
+      const Interior& node = std::get<const Interior&>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].low = node.low;
@@ -282,8 +282,8 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     }
-    else if (std::holds_alternative<const Leaf&>(*node)) {
-      const Leaf& node = std::get<const Leaf&>(*node);
+    else if (std::holds_alternative<const Leaf&>(*node_)) {
+      const Leaf& node = std::get<const Leaf&>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].low = node.low;
@@ -299,15 +299,15 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_
     }
 }
 
-__device__ __host__ void rec_count_triangles(BVH* node, Triangles* ST) {
-    if (std::holds_alternative<const Interior&>(*node)) {
-      const Interior& node = std::get<const Interior&>(*node);
+__device__ __host__ void rec_count_triangles(BVH* node_, Triangles* ST) {
+    if (std::holds_alternative<const Interior&>(*node_)) {
+      const Interior& node = std::get<const Interior&>(*node_);
       rec_count_triangles(node.left, ST);
       rec_count_triangles(node.right, ST);
       (*ST).node_count += 1u;
     }
-    else if (std::holds_alternative<const Leaf&>(*node)) {
-      const Leaf& node = std::get<const Leaf&>(*node);
+    else if (std::holds_alternative<const Leaf&>(*node_)) {
+      const Leaf& node = std::get<const Leaf&>(*node_);
       (*ST).primitive_count += node.nprims;
       (*ST).node_count += 1u;
     }

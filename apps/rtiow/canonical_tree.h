@@ -1,5 +1,6 @@
 #ifdef __CUDACC__
 #include "cuda/rtiow.h"
+using vec3_float = float3;
 #else
 #include "cpu/rtiow.h"
 #endif
