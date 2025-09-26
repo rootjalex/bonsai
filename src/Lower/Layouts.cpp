@@ -44,17 +44,13 @@ class LayoutTypeMap {
                                   const ir::Struct_t::Map &fields,
                                   const ir::Member &parent) {
         std::optional<int64_t> alignment;
-        bool packed = true;
         if (const auto *group = parent.as<ir::Group>()) {
             if (group->alignment.defined()) {
                 alignment = get_constant_value<int64_t>(group->alignment);
             }
-            packed = group->packed;
         }
         std::vector<ir::Struct_t::Attribute> attributes = {};
-        if (packed) {
-            attributes.push_back(ir::Struct_t::Attribute::packed);
-        }
+        attributes.push_back(ir::Struct_t::Attribute::packed);
         ir::Type type = ir::Struct_t::make(name, fields, std::move(attributes),
                                            std::move(alignment));
 

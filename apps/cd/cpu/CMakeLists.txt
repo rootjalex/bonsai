@@ -23,8 +23,8 @@ target_include_directories(main_library PUBLIC
     ${CMAKE_SOURCE_DIR}/../../../..
     ${CMAKE_SOURCE_DIR}/../../../runtime/CPP    
 )
-target_compile_options(main_library PUBLIC -fsanitize=address)
-target_link_options(main_library PUBLIC -fsanitize=address)
+target_compile_options(main_library PUBLIC)
+target_link_options(main_library PUBLIC)
 
 
 
@@ -42,9 +42,6 @@ target_include_directories(${APPLICATION}_${LAYOUT} PRIVATE
     ${CMAKE_SOURCE_DIR}/../../../apps/${APPLICATION}
     ${CMAKE_SOURCE_DIR}/../../../runtime/CPP        
 )
-target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -fsanitize=address)
-target_link_options(${APPLICATION}_${LAYOUT} PRIVATE -fsanitize=address)
-
 
 target_link_libraries(${APPLICATION}_${LAYOUT} PRIVATE Eigen3::Eigen fcl)
 

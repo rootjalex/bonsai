@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <tuple>
+#include <variant>
 #include "bonsai_cpp.h"
 
 struct Interior;
@@ -98,7 +99,7 @@ struct Triangles {
 using vec4_uint64_t = vector<uint64_t, 4>;
 using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
-using vec3__Float16 = vector<_Float16, 3>;
+using vec3_uint16_t = vector<uint16_t, 3>;
 
 Triangles build_triangles(const BVH* __restrict__ CT);
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles);

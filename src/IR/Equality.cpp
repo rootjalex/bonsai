@@ -723,10 +723,6 @@ Cmp compare_members(const Member &l0, const Member &l1) {
             cmp != Cmp::Equals) {
             return cmp;
         }
-        if (Cmp cmp = compare_primitives(g0->packed, g1->packed);
-            cmp != Cmp::Equals) {
-            return cmp;
-        }
         if (Cmp cmp = compare_exprs(g0->index, g1->index); cmp != Cmp::Equals) {
             return cmp;
         }

@@ -13,7 +13,7 @@ schedule {
             low : f32x3;
             high : f32x3;
         };
-        group nodes[node_count, 32:p] by index {
+        group nodes[node_count] by index {
             nprims : u16;
             axis : u8;
             8;

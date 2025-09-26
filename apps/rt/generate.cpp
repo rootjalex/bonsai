@@ -301,8 +301,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
         current_path = current_path.parent_path();
     }
 
-    std::string object_path = "apps/data/" + object + ".obj";
-    std::string material_path = "apps/data/" + object;
+    std::string object_path = "apps/rt/data/" + object + ".obj";
+    std::string material_path = "apps/rt/data/" + object;
 
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;

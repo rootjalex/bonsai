@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <tuple>
+#include <variant>
 #include "bonsai_cpp.h"
 
 struct AABBNode;
@@ -103,7 +104,7 @@ struct Triangles {
     AABBs* AABBs;
     OBBs* OBBs;
 } __attribute__((packed));
-using vec3__Float16 = vector<_Float16, 3>;
+using vec3_uint16_t = vector<uint16_t, 3>;
 
 Triangles build_triangles(const BVH* __restrict__ CT);
 std::optional<Triangle> trace(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles);

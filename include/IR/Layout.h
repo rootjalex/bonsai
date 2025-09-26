@@ -137,7 +137,6 @@ struct Chain : LayoutMember<Chain> {
 struct Group : LayoutMember<Group> {
     Expr size;
     Expr alignment;
-    bool packed;
     Expr index;
     std::string name;
     Member inner;
@@ -146,7 +145,7 @@ struct Group : LayoutMember<Group> {
     Type type;
 
     static Member make(std::string name, Expr size, Expr alignment, Expr index,
-                       Member inner, bool packed, Type type = Type::Direct);
+                       Member inner, Type type = Type::Direct);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };
