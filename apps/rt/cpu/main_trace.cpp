@@ -79,77 +79,52 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-void run_test(const std::string &object_file, const std::string &ray_file,
-              int64_t ray_count) {
+void run_test(const std::string &object) {
     using clock = std::chrono::high_resolution_clock;
-    std::vector<Triangle> triangles = load_obj(object_file);
+    std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
-    auto ct_begin = clock::now();
-    BVH *canonical_tree = build_canonical_tree(triangles);
-    auto ct_end = clock::now();
+    BVH *canonical_tree = build_canonical_tree_sah(triangles);
 
     Triangles tree = build_triangles(canonical_tree);
-
-    auto st_begin = clock::now();
     free_canonical_tree(canonical_tree);
-    auto st_end = clock::now();
 
-    std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
-    // PARALLEL
-    // std::vector<Triangle> hits;
-    //     std::vector<std::optional<Triangle>> results(rays.size());
-    //     auto trace_begin = clock::now();
-
-    // #pragma omp parallel for schedule(dynamic)
-    //     for (size_t i = 0; i < rays.size(); ++i) {
-    //         results[i] = trace(&rays[i], &tree);
-    //     }
-    //     // Collect hits sequentially after parallel work
-    //     for (const std::optional<Triangle> &result : results) {
-    //         if (!result.has_value()) {
-    //             continue;
-    //         }
-    //         hits.push_back(*result);
-    //     }
-    //     auto trace_end = clock::now();
-
-    // SINGLE-THREAD
-    std::vector<Triangle> hits;
-    hits.reserve(rays.size());
-    auto trace_begin = clock::now();
-    for (int i = 0; i < rays.size(); ++i) {
-        if (const std::optional<Triangle> t = trace(&rays[i], &tree)) {
-            hits.push_back(*t);
+    std::vector<int64_t> ray_counts = {
+        1 << 8,  1 << 9,  1 << 10, 1 << 11, 1 << 12,
+        1 << 13, 1 << 14, 1 << 15, 1 << 16,
+    };
+    for (const int64_t ray_count : ray_counts) {
+        std::cout << ray_count << std::endl;
+        std::string ray_file = "apps/rt/cpu/rays/" + object + "_" +
+                               std::to_string(ray_count) + "_" +
+                               std::to_string(75) + ".rays";
+        std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
+        assert(!rays.empty());
+        // SINGLE-THREAD
+        std::vector<Triangle> hits;
+        hits.reserve(rays.size());
+        auto trace_begin = clock::now();
+        for (int i = 0; i < rays.size(); ++i) {
+            if (const std::optional<Triangle> t = trace(&rays[i], &tree)) {
+                hits.push_back(*t);
+            }
         }
+        auto trace_end = clock::now();
+        auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              trace_end - trace_begin)
+                              .count();
+        std::cout << "trace time       : " << trace_time << " ms\n";
     }
-    auto trace_end = clock::now();
-
-    auto ct_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(ct_end - ct_begin)
-            .count();
-    auto st_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(st_end - st_begin)
-            .count();
-    auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          trace_end - trace_begin)
-                          .count();
-    std::cout << "hits             : " << hits.size() << "\n";
-    std::cout << "canonical tree   : " << ct_time << "ms\n";
-    std::cout << "specialized tree : " << st_time << "ms\n";
-    std::cout << "trace time       : " << trace_time << " ms\n";
 }
 
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc == 4);
+    assert(argc == 2);
     std::string object_file = argv[1];
-    int64_t ray_count = std::atoi(argv[2]);
-    std::string ray_file = argv[3];
     // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
-    run_test(object_file, ray_file, ray_count);
+    run_test(object_file);
     return 0;
 }

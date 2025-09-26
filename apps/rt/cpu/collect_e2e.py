@@ -218,8 +218,9 @@ def create_plots(data, ray_count, machine_type, layouts, hit_ratios, input_path,
                  bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.7))
 
     plt.tight_layout()
-    method_suffix = '_geomean' if method == 'geometric' else '_arithmetic'
-    output_path = os.path.join(results_dir, f'chrt{method_suffix}.png')
+    method_suffix = 'geomean' if method == 'geometric' else 'arithmetic'
+    output_path = os.path.join(
+        results_dir, f'chrt_{ray_count}_{method_suffix}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Figure saved to: {output_path}")
     plt.close()
