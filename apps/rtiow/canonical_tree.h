@@ -1,4 +1,8 @@
+#ifdef __CUDACC__
+#include "rtiow.h"
+#else
 #include "cpu/rtiow.h"
+#endif
 
 using f32 = float;
 
