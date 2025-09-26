@@ -35,7 +35,6 @@ clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cp
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
   for OBJECT in "${OBJECTS[@]}"; do
-    echo "object: ${OBJECT}" 
     if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays" ]; then
       echo "no rays found for ${OBJECT}; generating now..."
       FLAG=""
@@ -44,6 +43,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       fi
       ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
       echo "...${RAY_COUNT} rays generated for ${OBJECT} with hit ratio: 0.${HIT_RATIO}"
+    fi
   done
 done
 

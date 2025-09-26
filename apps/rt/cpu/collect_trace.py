@@ -245,22 +245,23 @@ def create_scaling_plots(data, machine_type, output_path, method='arithmetic'):
         ax.legend(fontsize=9)
 
         # Use log scale for x-axis if range is large
-        if ray_counts and max(ray_counts) / min(ray_counts) > 100:
-            ax.set_xscale('log')
-            ax.set_xticks(ray_counts)
-            ax.set_xticklabels([format_ray_count(rc).replace('$', '').replace('{', '').replace('}', '')
-                               for rc in ray_counts], rotation=45)
+        ax.set_xscale('log')
+        ax.set_xticks(ray_counts)
+        ax.set_xticklabels([format_ray_count(rc).replace('$', '').replace('{', '').replace('}', '')
+                            for rc in ray_counts], rotation=45)
 
     # 3. Additional analysis plot (if space available)
     if n_models <= 4:
-        # Speedup analysis plot for small number of models
-        ax_speedup = plt.subplot(n_rows, n_cols, 6)
+        idx = 4
+        for model in models:
+            # Speedup analysis plot for small number of models
+            ax_speedup = plt.subplot(n_rows, n_cols, idx + 1)
+            idx += 1
 
-        # Calculate speedup relative to first layout (as baseline)
-        baseline_layout = layouts[0] if layouts else None
+            # Calculate speedup relative to first layout (as baseline)
+            baseline_layout = "ptr"
 
-        if baseline_layout:
-            for model in models:
+            if baseline_layout:
                 if baseline_layout in data[model]:
                     baseline_data = data[model][baseline_layout]
 
@@ -290,19 +291,22 @@ def create_scaling_plots(data, machine_type, output_path, method='arithmetic'):
                                 color = model_colors[model]
                                 style = layout_styles[layout]
                                 marker = layout_markers[layout]
-                                ax_speedup.semilogx(ray_counts, speedups,
-                                                    marker=marker, markersize=4, linewidth=1.5,
-                                                    linestyle=style, color=color,
-                                                    label=f'{model}-{layout}', alpha=0.7)
+                                ax_speedup.plot(ray_counts, speedups,
+                                                marker=marker, markersize=4, linewidth=1.5,
+                                                linestyle=style, color=color,
+                                                label=f'{model}-{layout}', alpha=0.7)
 
-            ax_speedup.axhline(y=1.0, color='black',
-                               linestyle='-', linewidth=0.5, alpha=0.5)
-            ax_speedup.set_xlabel('Number of Rays')
-            ax_speedup.set_ylabel(f'Speedup vs {baseline_layout.upper()}')
-            ax_speedup.set_title(
-                f'Layout Performance Relative to {baseline_layout.upper()}')
-            ax_speedup.grid(True, alpha=0.3, which='both')
-            ax_speedup.legend(fontsize=8, ncol=2, loc='best')
+                                ax_speedup.set_xscale(
+                                    'log', base=2)   # log2 scaling
+
+                ax_speedup.axhline(y=1.0, color='black',
+                                   linestyle='-', linewidth=0.5, alpha=0.5)
+                ax_speedup.set_xlabel('Number of Rays')
+                ax_speedup.set_ylabel(f'Speedup vs {baseline_layout.upper()}')
+                ax_speedup.set_title(
+                    f'Layout Performance Relative to {baseline_layout.upper()} ({model})')
+                ax_speedup.grid(True, alpha=0.3, which='both')
+                ax_speedup.legend(fontsize=8, ncol=2, loc='best')
 
     plt.tight_layout()
 
