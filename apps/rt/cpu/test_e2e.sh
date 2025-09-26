@@ -97,7 +97,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   done
 
   # Process data
-  python3.11 ${PREFIX}/collect.py ${DATA_PATH}/${DATA_FILE}.txt
+  python3.11 ${PREFIX}/collect_e2e.py ${DATA_PATH}/${DATA_FILE}.txt
 done
 
 rm ${RAY_PATH}/${RAY_FILE}.out
