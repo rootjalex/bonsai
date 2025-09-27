@@ -515,6 +515,7 @@ __host__ uint32_t rec_build_spheres(BVH *node_, Spheres *ST,
                                     size_t *nodes_index,
                                     size_t *primitives_index) {
     if (std::holds_alternative<Interior>(*node_)) {
+        printf("visiting Interior\n");
         const Interior &node = std::get<Interior>(*node_);
         size_t this_index = (*nodes_index);
         (*nodes_index) += 1;
@@ -530,6 +531,7 @@ __host__ uint32_t rec_build_spheres(BVH *node_, Spheres *ST,
             ->offset = (right_index - this_index);
         return this_index;
     } else if (std::holds_alternative<Leaf>(*node_)) {
+        printf("visiting Leaf\n");
         const Leaf &node = std::get<Leaf>(*node_);
         size_t this_index = (*nodes_index);
         (*nodes_index) += 1;
@@ -571,6 +573,7 @@ __host__ Spheres build_spheres(BVH *CT) {
     Nodes *nodes;
     (void)cudaMalloc((void **)&nodes, ST.node_count * sizeof(Nodes));
     ST.nodes = nodes;
+    printf("REACHED\n");
     rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
     return ST;
 }
