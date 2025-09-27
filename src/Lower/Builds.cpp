@@ -1,5 +1,6 @@
 #include "Lower/Builds.h"
 
+#include "CompilerOptions.h"
 #include "IR/Analysis.h"
 #include "IR/Build.h"
 #include "IR/Equality.h"
@@ -915,7 +916,8 @@ std::shared_ptr<ir::Function> construct_count_recursive(
 std::shared_ptr<ir::Function>
 construct_build_full(const ir::Type &concretized_type,
                      const ir::BuildLayout &build, const ir::Layout &layout,
-                     const ir::Program &program) {
+                     const ir::Program &program,
+                     const CompilerOptions &options) {
 
     std::vector<ir::Stmt> stmts;
     std::vector<ir::Stmt> stack;
@@ -1050,8 +1052,19 @@ construct_build_full(const ir::Type &concretized_type,
     }
 
     // 5. Return `ST`
-    stmts.push_back(
-        ir::Return::make(ir::Var::make(concretized_type, SPECIALIZED_TREE)));
+    ir::Expr tree =
+        ir::Var::make(concretized_type, std::string(SPECIALIZED_TREE));
+    if (options.target == BackendTarget::CUDA) {
+        // For GPU, we copy to device.
+        std::string device = "d_" + std::string(SPECIALIZED_TREE);
+        stmts.push_back(
+            ir::Allocate::make(ir::WriteLoc(device, concretized_type), tree,
+                               ir::Allocate::Memory::Device));
+        stmts.push_back(
+            ir::Return::make(ir::Var::make(concretized_type, device)));
+    } else {
+        stmts.push_back(ir::Return::make(tree));
+    }
 
     std::vector<ir::Argument> args = {
         ir::Argument(CANONICAL_TREE, get_layout_reference_type(layout)),
@@ -1160,8 +1173,8 @@ ir::Program LowerBuilds::run(ir::Program program,
         functions.push_back(construct_count_recursive(concretized_type, build,
                                                       it->second, program));
         // Finally, construct the final build algorithm.
-        functions.push_back(
-            construct_build_full(concretized_type, build, it->second, program));
+        functions.push_back(construct_build_full(concretized_type, build,
+                                                 it->second, program, options));
         functions.back()->attributes.push_back(
             ir::Function::Attribute::exported);
 

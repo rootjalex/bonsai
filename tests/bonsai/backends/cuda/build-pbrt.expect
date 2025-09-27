@@ -320,12 +320,21 @@ __host__ Triangles build_triangles(BVH* CT) {
   ST.primitive_count = 0u;
   ST.node_count = 0u;
   rec_count_triangles(CT, (&ST));
-  Triangle* primitives = malloc(sizeof(Triangle) * ST.primitive_count);
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes = malloc(sizeof(Nodes) * ST.node_count);
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
-  return ST;
+  Triangle* primitives;
+  cudaMallocAndCopyToDevice((void**)&primitives, ST.primitives, (*ST).primitive_count * sizeof(Triangle));
+  Nodes* nodes;
+  cudaMallocAndCopyToDevice((void**)&nodes, ST.nodes, (*ST).node_count * sizeof(Nodes));
+  Triangles h_ST = ST;
+  h_ST.primitives = primitives;
+  h_ST.nodes = nodes;
+  Triangles* d_ST;
+  cudaMallocAndCopyToDevice((void**)&d_ST, &h_ST, sizeof(Triangles));
+  return d_ST;
 }
 
 __host__ cuda::std::optional<Triangle> trace(Ray* ray, Triangles* triangles) {

@@ -912,7 +912,10 @@ void CodeGen_CUDA::visit(const Free *node) {
 }
 
 void CodeGen_CUDA::emit_to_device(const Allocate *node) {
-    const Expr &value = node->value;
+    Expr value = node->value;
+    if (value.type().is<ir::Ptr_t>()) {
+        value = Deref::make(value);
+    }
     const std::string &base = node->loc.base();
     Type type = node->loc.type;
     if (type.is<Ptr_t>()) {
@@ -927,7 +930,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     std::vector<TypedVar> types = get_immediate_addressed_children(type);
     // copy the children to the device...
     for (const auto &[name, type] : types) {
-        emit_to_device(name, type, Access::make(name, Deref::make(value)),
+        emit_to_device(name, type, Access::make(name, value),
                        /*parent=*/value);
         device_allocated.push_back(TypedVar(name, type));
     }
@@ -940,7 +943,10 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     os << get_indent();
     type.accept(this);
     os << ' ' << copy << ' ';
-    os << '=' << ' ' << '*' << original << ';' << '\n';
+    os << '=' << ' ';
+    if (type.is<ir::Ptr_t>())
+        os << '*';
+    os << original << ';' << '\n';
     // Then copy all the recently device-allocated members.
     for (const auto &[name, type] : types) {
         os << get_indent() << copy << '.' << name << ' ';
