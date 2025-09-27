@@ -21,7 +21,7 @@ for LAYOUT in "${LAYOUTS[@]}"; do
   cmake --build build --config Debug -j
   ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/rtiow.h
   module load cuda
-  nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main.cu ${PREFIX}/canonical_tree.h ${PREFIX}/util.h -o ${PREFIX}/main
+  nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main.cu -o ${PREFIX}/main
   # Run
   time ./${PREFIX}/main ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
 
