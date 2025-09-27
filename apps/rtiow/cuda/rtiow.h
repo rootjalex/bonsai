@@ -574,14 +574,19 @@ __host__ Spheres build_spheres(BVH *CT) {
     printf("node count: %d\n", ST.node_count);
     fflush(stdout);
     MaterialSphere *primitives;
-    (void)cudaMalloc((void **)&primitives,
-                     ST.primitive_count * sizeof(MaterialSphere));
+    cudaError_t err = cudaMalloc((void **)&primitives,
+                                 ST.primitive_count * sizeof(MaterialSphere));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed: for primitives %s\n",
+                cudaGetErrorString(err));
+        fflush(stderr);
+    }
     ST.primitives = primitives;
     Nodes *nodes;
-    cudaError_t err =
-        cudaMalloc((void **)&nodes, ST.node_count * sizeof(Nodes));
+    err = cudaMalloc((void **)&nodes, ST.node_count * sizeof(Nodes));
     if (err != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "cudaMalloc failed for nodes: %s\n",
+                cudaGetErrorString(err));
         fflush(stderr);
     }
     ST.nodes = nodes;
