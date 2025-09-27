@@ -266,6 +266,7 @@ int main(int argc, char **argv) {
 
     if (save_image(image_height, image_width, im, output_filename)) {
         cudaFree(im);
+        std::cout << "save image failed!\n";
         return 1;
     }
 

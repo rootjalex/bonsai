@@ -564,16 +564,12 @@ __host__ Spheres build_spheres(BVH *CT) {
     size_t primitives_index = 0;
     size_t nodes_index = 0;
     rec_count_spheres(CT, (&ST));
-    printf("prim count: %d\n", ST.primitive_count);
-    printf("node count: %d\n", ST.node_count);
     MaterialSphere *primitives;
     (void)cudaMalloc((void **)&primitives,
                      ST.primitive_count * sizeof(MaterialSphere));
-    printf("SUCCESS1\n");
     ST.primitives = primitives;
     Nodes *nodes;
     (void)cudaMalloc((void **)&nodes, ST.node_count * sizeof(Nodes));
-    printf("SUCCESS2\n");
     ST.nodes = nodes;
     rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
     return ST;
