@@ -1000,13 +1000,14 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
         << "allocation to device expects a value (what is copied)";
     value.accept(this);
     os << ',' << ' ';
+
     if (parent.has_value()) {
         // The size needs to be correctly accessed from the struct.
-        if (!parent->is<ir::Deref>()) {
+        if (parent->is<ir::Deref>() || parent->type().is<ir::Ptr_t>()) {
             os << "(*";
         }
         parent->accept(this);
-        if (!parent->is<ir::Deref>()) {
+        if (parent->is<ir::Deref>() || parent->type().is<ir::Ptr_t>()) {
             os << ')';
         }
         os << '.';
