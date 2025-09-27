@@ -1065,14 +1065,16 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
             type.accept(this);
-            os << ' ' << b << ';' << '\n';
-            // TODO(cgyurgyik): check the status of the CUDA malloc.
-            os << get_indent() << "(void)" << "cudaMalloc" << '(';
-            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
-            array_t->size.accept(this);
-            os << ' ' << '*' << ' ' << "sizeof" << '(';
-            array_t->etype.accept(this);
-            os << ')' << ')' << ';' << '\n';
+            os << ' ' << b << ' ' << '=' << ' ';
+            os << "reinterpret_cast<";
+            type.accept(this);
+            os << ">(";
+            os << "malloc(";
+            os << "sizeof(";
+            type.element_of().accept(this);
+            os << ") * ";
+            type.size().accept(this);
+            os << "));\n";
             return;
         }
         if (const auto *dyn_array_t = type.as<DynArray_t>()) {

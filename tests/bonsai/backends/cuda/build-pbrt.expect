@@ -320,11 +320,9 @@ __host__ Triangles build_triangles(BVH* CT) {
   ST.primitive_count = 0u;
   ST.node_count = 0u;
   rec_count_triangles(CT, (&ST));
-  Triangle* primitives;
-  (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Triangle));
+  Triangle* primitives = malloc(sizeof(Triangle) * ST.primitive_count);
   ST.primitives = primitives;
-  Nodes* nodes;
-  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(Nodes));
+  Nodes* nodes = malloc(sizeof(Nodes) * ST.node_count);
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
