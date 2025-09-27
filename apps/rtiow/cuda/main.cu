@@ -242,8 +242,6 @@ __host__ BVH *copy_to_device(BVH *node) {
         BVH temp_bvh_variant = temp_interior;
         cudaMemcpy(root, &temp_bvh_variant, sizeof(BVH),
                    cudaMemcpyHostToDevice);
-        free(h_interior.left);
-        free(h_interior.right);
     } else if (std::holds_alternative<Leaf>(*node)) {
         const Leaf &h_leaf = std::get<Leaf>(*node);
         Leaf temp_leaf = h_leaf;
