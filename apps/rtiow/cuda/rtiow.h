@@ -1,5 +1,7 @@
 #include "helpers.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <stdio.h>
 
 #include <cuda/std/array>
@@ -570,12 +572,18 @@ __host__ Spheres build_spheres(BVH *CT) {
     std::cout << "node count: " << ST.node_count << std::endl;
     printf("prim count: %d\n", ST.primitive_count);
     printf("node count: %d\n", ST.node_count);
+    fflush(stdout);
     MaterialSphere *primitives;
     (void)cudaMalloc((void **)&primitives,
                      ST.primitive_count * sizeof(MaterialSphere));
     ST.primitives = primitives;
     Nodes *nodes;
-    (void)cudaMalloc((void **)&nodes, ST.node_count * sizeof(Nodes));
+    cudaError_t err =
+        cudaMalloc((void **)&nodes, ST.node_count * sizeof(Nodes));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed: %s\n", cudaGetErrorString(err));
+        fflush(stderr);
+    }
     ST.nodes = nodes;
     printf("REACHED\n");
     rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
