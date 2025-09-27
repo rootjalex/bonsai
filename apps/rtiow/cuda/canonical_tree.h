@@ -7,7 +7,7 @@ using f32 = float;
 
 __host__ Sphere get_bounding_sphere(const BVH *node);
 #ifndef __CUDA_ARCH__
-__host__ Sphere get_bounding_sphere(const BVH *node) {
+__host__ inline Sphere get_bounding_sphere(const BVH *node) {
     if (std::holds_alternative<Interior>(*node)) {
         const Interior &interior = std::get<Interior>(*node);
         return {interior.center, interior.radius};
@@ -22,7 +22,7 @@ __host__ Sphere get_bounding_sphere(const BVH *node) {
 
 __host__ void free_canonical_tree(BVH *node);
 #ifndef __CUDA_ARCH__
-__host__ void free_canonical_tree(BVH *node) {
+__host__ inline void free_canonical_tree(BVH *node) {
     if (std::holds_alternative<Interior>(*node)) {
         Interior &interior = std::get<Interior>(*node);
         free_canonical_tree(interior.left);
@@ -45,7 +45,8 @@ __host__ void free_canonical_tree(BVH *node) {
 // Builds the canonical tree using a median split.
 __host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres);
 #ifndef __CUDA_ARCH__
-__host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
+__host__ inline BVH *
+build_canonical_tree(std::vector<MaterialSphere> &spheres) {
     constexpr uint32_t MAX_TREE_DEPTH = 64;
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth = 0) -> BVH * {
