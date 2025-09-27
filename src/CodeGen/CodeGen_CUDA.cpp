@@ -894,7 +894,7 @@ void CodeGen_CUDA::visit(const Free *node) {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
         for (const auto &[name, type] : device_allocated) {
-            frees.push_back(Free::make(Var::make(type, name)));
+            frees.push_back(Free::make(Var::make(type, "__" + name)));
         }
         device_allocated.clear();
         for (const Stmt &free : frees) {
