@@ -7,18 +7,27 @@
 #include <iostream>
 #include <random>
 
-inline inline float random_float() {
+__host__ float random_float();
+
+#ifndef __CUDA_ARCH__
+__host__ float random_float() {
     static std::uniform_real_distribution<float> distribution(0.0, 1.0);
     static std::mt19937 generator;
     return distribution(generator);
 }
+#endif // __CUDA_ARCH__
 
-inline inline float random_float(float min, float max) {
+__host__ float random_float(float min, float max);
+#ifndef __CUDA_ARCH__
+__host__ float random_float(float min, float max) {
     // Returns a random real in [min,max).
     return min + (max - min) * random_float();
 }
+#endif // __CUDA_ARCH__
 
-inline Camera setup_camera() {
+__host__ Camera setup_camera();
+#ifndef __CUDA_ARCH__
+__host__ Camera setup_camera() {
     Camera camera;
     camera.aspect_ratio = 16.0 / 9.0;
     camera.width = 1200; // makes height = 675
@@ -34,8 +43,11 @@ inline Camera setup_camera() {
     camera.focus_dist = 10.0;
     return camera;
 }
+#endif // __CUDA_ARCH__
 
-inline std::vector<MaterialSphere> setup_spheres() {
+__host__ std::vector<MaterialSphere> setup_spheres();
+#ifndef __CUDA_ARCH__
+__host__ std::vector<MaterialSphere> setup_spheres() {
     constexpr uint32_t LAMBERTIAN = 0;
     constexpr uint32_t METAL = 1;
     constexpr uint32_t DIALECTRIC = 2;
@@ -89,9 +101,13 @@ inline std::vector<MaterialSphere> setup_spheres() {
     }
     return spheres;
 }
+#endif // __CUDA_ARCH__
 
-inline int save_image(int64_t image_height, int64_t image_width,
-                      const int *image, const std::string &output_filename) {
+__host__ int save_image(int64_t image_height, int64_t image_width,
+                        const int *image, const std::string &output_filename);
+#ifndef __CUDA_ARCH__
+__host__ int save_image(int64_t image_height, int64_t image_width,
+                        const int *image, const std::string &output_filename) {
     std::ofstream out(output_filename);
 
     if (!out) {
@@ -112,3 +128,4 @@ inline int save_image(int64_t image_height, int64_t image_width,
     }
     return 0;
 }
+#endif // __CUDA_ARCH__

@@ -1276,16 +1276,16 @@ void CodeGen_CUDA::visit(const Match *node) {
         if (i > 0) {
             os << "else ";
         }
-        os << "if (std::holds_alternative<const ";
-        os << struct_t->name << "&>(*";
+        os << "if (std::holds_alternative<" << struct_t->name << ">";
+        os << "(*";
         node->loc.accept(this);
         os << "_"; // differentiate
         os << ")) {\n";
         increment();
         os << get_indent() << "const " << struct_t->name << "& ";
         node->loc.accept(this);
-        os << " = " << "std::get<const ";
-        os << struct_t->name << "&>(*";
+        os << " = " << "std::get<" << struct_t->name << ">";
+        os << "(*";
         node->loc.accept(this);
         os << "_"; // differentiate
         os << ");\n";

@@ -269,8 +269,8 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
 }
 
 __device__ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
-    if (std::holds_alternative<const Interior&>(*node_)) {
-      const Interior& node = std::get<const Interior&>(*node_);
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].low = node.low;
@@ -282,8 +282,8 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     }
-    else if (std::holds_alternative<const Leaf&>(*node_)) {
-      const Leaf& node = std::get<const Leaf&>(*node_);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].low = node.low;
@@ -300,14 +300,14 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size
 }
 
 __device__ __host__ void rec_count_triangles(BVH* node_, Triangles* ST) {
-    if (std::holds_alternative<const Interior&>(*node_)) {
-      const Interior& node = std::get<const Interior&>(*node_);
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       rec_count_triangles(node.left, ST);
       rec_count_triangles(node.right, ST);
       (*ST).node_count += 1u;
     }
-    else if (std::holds_alternative<const Leaf&>(*node_)) {
-      const Leaf& node = std::get<const Leaf&>(*node_);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       (*ST).primitive_count += node.nprims;
       (*ST).node_count += 1u;
     }
