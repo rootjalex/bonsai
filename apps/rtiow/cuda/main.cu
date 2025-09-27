@@ -249,7 +249,7 @@ int main(int argc, char **argv) {
     Spheres tree = build_spheres(node);
     auto st_end = clock::now();
 
-    free_canonical_tree(node);
+    // free_canonical_tree(node);
     std::cout << "-- canonical tree free" << std::endl;
 
     Camera camera = setup_camera();
