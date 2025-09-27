@@ -23,7 +23,7 @@ for LAYOUT in "${LAYOUTS[@]}"; do
   module load cuda
   nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main.cu -o ${PREFIX}/main
   # Run
-  compute-sanitizer ./${PREFIX}/main ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
+  ./${PREFIX}/main ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
 
   # Clean up
   rm $PREFIX/rtiow.h

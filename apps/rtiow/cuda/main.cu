@@ -250,10 +250,8 @@ int main(int argc, char **argv) {
     auto st_end = clock::now();
 
     free_canonical_tree(node);
-    std::cout << "-- canonical tree free" << std::endl;
 
     Camera camera = setup_camera();
-    std::cout << "-- camera set up" << std::endl;
 
     int image_width = camera.width;
     float image_height = (int)(camera.width / camera.aspect_ratio);
