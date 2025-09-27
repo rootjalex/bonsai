@@ -456,8 +456,9 @@ __global__ void _parfunc0(_ctx0 ctx0) {
 }
 
 __host__ int3 *_traverse_array0(Camera *c, int32_t height, Spheres *spheres) {
-    int32_t *_alloc0 = reinterpret_cast<int32_t *>(
-        malloc(sizeof(int32_t) * ((height * (*c).width) * 3)));
+    int32_t *_alloc0;
+    (void)cudaMalloc((void **)&_alloc0,
+                     ((height * (*c).width) * 3) * sizeof(int32_t));
     printf("Image: %d x %d = %d pixels\n", (*c).width, height,
            height * (*c).width);
     printf("Array size: %d int32_t elements\n", height * (*c).width * 3);
