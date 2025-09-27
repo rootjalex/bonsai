@@ -55,31 +55,29 @@ __host__ std::vector<MaterialSphere> setup_spheres() {
     for (int a = -11; a < 11; a++) {
         for (int b = -11; b < 11; b++) {
             auto choose_mat = random_float();
-            vec3_float center = {static_cast<float>(a + 0.9 * random_float()),
-                                 0.2,
-                                 static_cast<float>(b + 0.9 * random_float())};
+            float3 center = {static_cast<float>(a + 0.9 * random_float()), 0.2,
+                             static_cast<float>(b + 0.9 * random_float())};
 
-            vec3_float a = {4, 0.2, 0};
+            float3 a = {4, 0.2, 0};
 
-            vec3_float diff = (center - a);
+            float3 diff = (center - a);
             float len =
                 sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
 
             if (len > 0.9) {
                 if (choose_mat < 0.8) {
                     // diffuse
-                    vec3_float r0 = {random_float(), random_float(),
-                                     random_float()};
-                    vec3_float r1 = {random_float(), random_float(),
-                                     random_float()};
+                    float3 r0 = {random_float(), random_float(),
+                                 random_float()};
+                    float3 r1 = {random_float(), random_float(),
+                                 random_float()};
                     auto albedo = r0 * r1;
                     spheres.push_back(
                         {Sphere{center, 0.2}, LAMBERTIAN, albedo, 0.0});
                 } else if (choose_mat < 0.95) {
                     // metal
-                    vec3_float albedo = {random_float(0.5, 1),
-                                         random_float(0.5, 1),
-                                         random_float(0.5, 1)};
+                    float3 albedo = {random_float(0.5, 1), random_float(0.5, 1),
+                                     random_float(0.5, 1)};
                     float fuzz = random_float(0, 0.5);
                     spheres.push_back(
                         {Sphere{center, 0.2}, METAL, albedo, fuzz});
@@ -156,8 +154,8 @@ __host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
         assert(depth < MAX_TREE_DEPTH);
         uint32_t count = high - low;
         if (count <= 2) {
-            vec3_float center = spheres[low].s.center;
-            f32 radius = spheres[low].s.radius;
+            float3 center = spheres[low].s.center;
+            float radius = spheres[low].s.radius;
             if (count == 2) {
                 Sphere merged =
                     bounding_sphere(&spheres[low].s, &spheres[low + 1].s);
@@ -178,8 +176,8 @@ __host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
         }
 
         // Internal node
-        vec3_float min_bound = spheres[low].s.center;
-        vec3_float max_bound = spheres[low].s.center;
+        float3 min_bound = spheres[low].s.center;
+        float3 max_bound = spheres[low].s.center;
 
         for (uint32_t i = low + 1; i < high; ++i) {
             min_bound = min(min_bound, spheres[i].s.center);
@@ -187,7 +185,7 @@ __host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
         }
 
         // Choose axis with greatest extent
-        vec3_float extent = max_bound - min_bound;
+        float3 extent = max_bound - min_bound;
         int axis = 0;
         float ex = extent.x;
         float ey = extent.y;
