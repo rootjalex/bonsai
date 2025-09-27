@@ -231,10 +231,6 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
         const std::string &name = topological_order[i];
         auto it = funcs.find(name);
         internal_assert(it != funcs.end()) << name;
-        const auto &func = *it->second;
-        if (func.is_kernel()) {
-            continue;
-        }
         auto cit = call_graph.find(name);
         internal_assert(cit != call_graph.end()) << name;
         const auto &graph = cit->second;

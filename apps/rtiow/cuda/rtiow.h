@@ -352,7 +352,7 @@ __device__ float3 sample(Ray* r, int32_t depth, float3 mult, Spheres* spheres, c
   } while (true);
 }
 
-float3 _traverse_array1(int32_t i, int32_t j, Camera* c, Spheres* spheres, curandState* _rng_state) {
+__device__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, Spheres* spheres, curandState* _rng_state) {
   float3 _alloc1 = make_float3(0);
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
     Ray _lv0 = build_ray(i, j, c, _rng_state);
@@ -368,7 +368,7 @@ __device__ float linear_to_gamma_f(float l) {
   return 0;
 }
 
-int3 to_rgb(float3 v) {
+__device__ int3 to_rgb(float3 v) {
   float3 corrected = float3{linear_to_gamma_f(v.x), linear_to_gamma_f(v.y), linear_to_gamma_f(v.z)};
   return make_int3((make_float3((float)256) * min(max(corrected, make_float3(0)), make_float3((float)0.999))).x, (make_float3((float)256) * min(max(corrected, make_float3(0)), make_float3((float)0.999))).y, (make_float3((float)256) * min(max(corrected, make_float3(0)), make_float3((float)0.999))).z);
 }

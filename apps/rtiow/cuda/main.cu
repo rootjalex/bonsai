@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
 
     std::cout << "-- building canonical tree" << std::endl;
     auto ct_begin = clock::now();
-    BVH *node = build_canonical_tree(&spheres);
+    BVH *node = build_canonical_tree(spheres);
     auto ct_end = clock::now();
 
     std::cout << "-- building specialized tree" << std::endl;
