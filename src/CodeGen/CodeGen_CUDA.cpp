@@ -1002,9 +1002,13 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
     os << ',' << ' ';
     if (parent.has_value()) {
         // The size needs to be correctly accessed from the struct.
-        os << '(' << '*';
+        if (!parent->is<ir::Deref>()) {
+            os << "(*";
+        }
         parent->accept(this);
-        os << ')';
+        if (!parent->is<ir::Deref>()) {
+            os << ')';
+        }
         os << '.';
     }
     array_t->size.accept(this);
