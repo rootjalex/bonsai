@@ -480,7 +480,7 @@ __host__ int3 *_traverse_array0(Camera *c, int32_t height, Spheres *spheres) {
     cudaMallocAndCopyToDevice((void **)&d_spheres, &h_spheres, sizeof(Spheres));
     _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
     _parfunc0<<<(((height * (*c).width) + 511) / 512), 512>>>(ctx);
-    cudaDeviceSynchronize();
+    cudaDeviceSynchronize(); //
     cudaFree(__primitives);
     cudaFree(__nodes);
     cudaFree(d_c);
