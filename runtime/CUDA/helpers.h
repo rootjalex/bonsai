@@ -1772,6 +1772,50 @@ __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
     return &update;
 }
 
+template <typename T, typename U>
+__forceinline__ __host__ __device__ T &
+argmin(std::function<U(const U &, const T &)> metric, const set<T> &input) {
+    if (input.data.empty()) {
+        throw std::invalid_argument("Input set must not be empty for argmin.");
+    }
+
+    U best = std::numeric_limits<U>::infinity();
+    T &result = input.data[0];
+    input.for_each([&](T &item) {
+        if (metric(item) < best) {
+            result = item;
+        }
+    });
+    return result;
+}
+
+template <typename T1, typename T2>
+__forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
+argmin(const cuda::std::tuple<T1, T2> *a, const cuda::std::tuple<T1, T2> &b) {
+    if (std::get<0>(*a) < std::get<0>(b)) {
+        return *a;
+    }
+    return b;
+}
+
+template <typename T1, typename T2>
+__forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
+argmin(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
+    if (cuda::std::get<0>(a) < cuda::std::get<0>(b)) {
+        return a;
+    }
+    return b;
+}
+
+template <typename T1, typename T2>
+__forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
+argmax(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
+    if (cuda::std::get<0>(a) > cuda::std::get<0>(b)) {
+        return a;
+    }
+    return b;
+}
+
 size_t argmax(float3 a) {
     size_t p = 0;
     float r = a.x;
