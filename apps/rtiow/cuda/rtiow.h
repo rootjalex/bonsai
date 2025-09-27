@@ -563,9 +563,9 @@ __host__ Spheres build_spheres(BVH *CT) {
     Spheres ST;
     size_t primitives_index = 0;
     size_t nodes_index = 0;
+    rec_count_spheres(CT, (&ST));
     printf("prim count: %d\n", ST.primitive_count);
     printf("node count: %d\n", ST.node_count);
-    rec_count_spheres(CT, (&ST));
     MaterialSphere *primitives;
     (void)cudaMalloc((void **)&primitives,
                      ST.primitive_count * sizeof(MaterialSphere));
