@@ -104,9 +104,9 @@ struct Nodes {
 } __attribute__((packed));
 
 struct Spheres {
-    uint32_t primitive_count;
+    uint32_t primitive_count = 0;
     MaterialSphere *primitives;
-    uint32_t node_count;
+    uint32_t node_count = 0;
     Nodes *nodes;
 } __attribute__((packed));
 
@@ -590,7 +590,6 @@ __host__ Spheres build_spheres(BVH *CT) {
         fflush(stderr);
     }
     ST.nodes = nodes;
-    printf("REACHED\n");
     rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
     return ST;
 }
