@@ -566,6 +566,8 @@ __host__ Spheres build_spheres(BVH *CT) {
     size_t primitives_index = 0;
     size_t nodes_index = 0;
     rec_count_spheres(CT, (&ST));
+    std::cout << "prim count: " << ST.primitive_count << std::endl;
+    std::cout << "node count: " << ST.node_count << std::endl;
     printf("prim count: %d\n", ST.primitive_count);
     printf("node count: %d\n", ST.node_count);
     MaterialSphere *primitives;
