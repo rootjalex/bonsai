@@ -5,6 +5,7 @@
 
 #include "cuda_runtime.h"
 #include "curand_kernel.h"
+#include <cuda/std/tuple>
 #include <cuda_fp16.h>
 
 #include <algorithm>
@@ -1770,23 +1771,6 @@ __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
         return current;
     }
     return &update;
-}
-
-template <typename T, typename U>
-__forceinline__ __host__ __device__ T &
-argmin(std::function<U(const U &, const T &)> metric, const set<T> &input) {
-    if (input.data.empty()) {
-        throw std::invalid_argument("Input set must not be empty for argmin.");
-    }
-
-    U best = std::numeric_limits<U>::infinity();
-    T &result = input.data[0];
-    input.for_each([&](T &item) {
-        if (metric(item) < best) {
-            result = item;
-        }
-    });
-    return result;
 }
 
 template <typename T1, typename T2>
