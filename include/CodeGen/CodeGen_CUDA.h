@@ -111,6 +111,11 @@ class CodeGen_CUDA : public ir::Printer {
     // for correct usage of rand, which is different for __host__ and
     // __device__.
     bool on_device = false;
+    // Whether this is a recursive build or count function for tree-building.
+    // TODO(cgyurgyik): really, this is a hack since it is the only place we
+    // call malloc instead of cudaMalloc. We need a better way to distinguish
+    // this.
+    bool is_build = false;
     // We need to also device allocate inner children, a concept that is
     // (currently) foreign to bonsai so is done here. This list tracks all the
     // device allocated children of a struct.

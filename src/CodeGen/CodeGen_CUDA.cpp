@@ -1053,8 +1053,6 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ';' << '\n';
             return;
         }
-        // // Bonsai assumes *everything*, including stack allocated elements,
-        // // are pointers. So first we "stack" allocate,
         os << ' ' << b;
         if (!node->value.defined() && type.is_scalar()) {
             os << ' ' << '=' << ' ';
@@ -1064,28 +1062,35 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             node->value.accept(this);
         }
         os << ';' << '\n';
-        // os << ';' << '\n';
-        // // ...and then we take its address.
-        // os << get_indent();
-        // type.accept(this);
-        // os << '*';
-        // os << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';' << '\n';
         return;
     }
     case Allocate::Memory::Heap: {
         os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
+            if (is_build) {
+                type.accept(this);
+                os << ' ' << b << ' ' << '=' << ' ';
+                os << "reinterpret_cast<";
+                type.accept(this);
+                os << ">(";
+                os << "malloc(";
+                os << "sizeof(";
+                type.element_of().accept(this);
+                os << ") * ";
+                type.size().accept(this);
+                os << "));\n";
+                return;
+            }
             type.accept(this);
-            os << ' ' << b << ' ' << '=' << ' ';
-            os << "reinterpret_cast<";
-            type.accept(this);
-            os << ">(";
-            os << "malloc(";
-            os << "sizeof(";
-            type.element_of().accept(this);
-            os << ") * ";
-            type.size().accept(this);
-            os << "));\n";
+            os << ' ' << b << ';' << '\n';
+            // TODO(cgyurgyik): check the status of the CUDA malloc.
+            os << get_indent() << "(void)" << "cudaMalloc" << '(';
+            os << '(' << "void" << '*' << '*' << ')' << '&' << b << ',' << ' ';
+            array_t->size.accept(this);
+            os << ' ' << '*' << ' ' << "sizeof" << '(';
+            array_t->etype.accept(this);
+            os << ')' << ')' << ';' << '\n';
+            return;
             return;
         }
         if (const auto *dyn_array_t = type.as<DynArray_t>()) {
@@ -1465,6 +1470,7 @@ void CodeGen_CUDA::print(const Program &program) {
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
     const bool is_recursive_build = function.name.starts_with("rec_");
+    is_build = function.name.starts_with("build_");
     function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
@@ -1501,6 +1507,7 @@ void CodeGen_CUDA::print(const Function &function) {
     }
     decrement();
     os << get_indent() << '}';
+    is_build = false;
 }
 
 void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,

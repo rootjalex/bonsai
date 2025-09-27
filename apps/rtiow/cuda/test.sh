@@ -19,7 +19,7 @@ for LAYOUT in "${LAYOUTS[@]}"; do
   # Compile
   rm -f ${PREFIX}/${APPLICATION}-${LAYOUT}.ppm
   cmake --build build --config Debug -j
-  # ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/rtiow.h
+  ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/rtiow.h
   module load cuda
   nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main.cu -o ${PREFIX}/main
   # Run
