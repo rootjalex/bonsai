@@ -1098,7 +1098,9 @@ void CodeGen_CUDA::visit(const Allocate *node) {
                        << Stmt(node);
     }
     case Allocate::Memory::Device: {
+        os << get_indent() << "{\n";
         emit_to_device(node);
+        os << get_indent() << "}\n";
         return;
     }
     case Allocate::Memory::Host: {

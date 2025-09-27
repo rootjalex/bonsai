@@ -1060,8 +1060,8 @@ construct_build_full(const ir::Type &concretized_type,
         stmts.push_back(
             ir::Allocate::make(ir::WriteLoc(device, concretized_type), tree,
                                ir::Allocate::Memory::Device));
-        stmts.push_back(
-            ir::Return::make(ir::Var::make(concretized_type, device)));
+        stmts.push_back(ir::Return::make(ir::Deref::make(
+            ir::Var::make(ir::Ptr_t::make(concretized_type), device))));
     } else {
         stmts.push_back(ir::Return::make(tree));
     }
