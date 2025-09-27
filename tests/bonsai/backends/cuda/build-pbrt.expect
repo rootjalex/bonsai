@@ -325,17 +325,15 @@ __host__ Triangles build_triangles(BVH* CT) {
   Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
-  {
-  Triangle* primitives;
-  cudaMallocAndCopyToDevice((void**)&primitives, ST.primitives, (*ST).primitive_count * sizeof(Triangle));
-  Nodes* nodes;
-  cudaMallocAndCopyToDevice((void**)&nodes, ST.nodes, (*ST).node_count * sizeof(Nodes));
+  Triangle* __primitives;
+  cudaMallocAndCopyToDevice((void**)&__primitives, ST.primitives, (*ST).primitive_count * sizeof(Triangle));
+  Nodes* __nodes;
+  cudaMallocAndCopyToDevice((void**)&__nodes, ST.nodes, (*ST).node_count * sizeof(Nodes));
   Triangles h_ST = ST;
-  h_ST.primitives = primitives;
-  h_ST.nodes = nodes;
+  h_ST.primitives = __primitives;
+  h_ST.nodes = __nodes;
   Triangles* d_ST;
   cudaMallocAndCopyToDevice((void**)&d_ST, &h_ST, sizeof(Triangles));
-  }
   return (*d_ST);
 }
 

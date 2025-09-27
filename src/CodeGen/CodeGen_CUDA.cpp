@@ -950,7 +950,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     // Then copy all the recently device-allocated members.
     for (const auto &[name, type] : types) {
         os << get_indent() << copy << '.' << name << ' ';
-        os << '=' << ' ' << name << ';' << '\n';
+        os << '=' << ' ' << "__" + name << ';' << '\n';
     }
     // Finally, emit the base struct.
     emit_to_device(base, type, Var::make(type, copy));
@@ -991,9 +991,10 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
         << "[unimplemented] array with pointers: " << array_t;
     os << get_indent();
     array_t->accept(this);
-    os << ' ' << base << ';' << '\n';
+    os << ' ' << "__" + base << ';' << '\n';
     os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << "__" + base << ','
+       << ' ';
     internal_assert(value.defined())
         << "allocation to device expects a value (what is copied)";
     value.accept(this);
@@ -1098,9 +1099,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
                        << Stmt(node);
     }
     case Allocate::Memory::Device: {
-        os << get_indent() << "{\n";
         emit_to_device(node);
-        os << get_indent() << "}\n";
         return;
     }
     case Allocate::Memory::Host: {
