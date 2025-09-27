@@ -389,7 +389,7 @@ __global__ void _parfunc0(_ctx0 ctx0) {
   return;
 }
 
-__device__ __host__ int3* _traverse_array0(Camera* c, int32_t height, Spheres* spheres) {
+__host__ int3* _traverse_array0(Camera* c, int32_t height, Spheres* spheres) {
   int32_t* _alloc0;
   (void)cudaMalloc((void**)&_alloc0, ((height * (*c).width) * 3) * sizeof(int32_t));
   Camera* d_c;
@@ -437,9 +437,9 @@ __host__ Sphere bounding_sphere(Sphere* a, Sphere* b) {
   return Sphere{new_center, _t13};
 }
 
-__device__ __host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
-    if (std::holds_alternative<const Interior&>(*node_)) {
-      const Interior& node = std::get<const Interior&>(*node_);
+__host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].center = node.center;
@@ -450,8 +450,8 @@ __device__ __host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* 
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     }
-    else if (std::holds_alternative<const Leaf&>(*node_)) {
-      const Leaf& node = std::get<const Leaf&>(*node_);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].center = node.center;
@@ -466,15 +466,15 @@ __device__ __host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* 
     }
 }
 
-__device__ __host__ void rec_count_spheres(BVH* node_, Spheres* ST) {
-    if (std::holds_alternative<const Interior&>(*node_)) {
-      const Interior& node = std::get<const Interior&>(*node_);
+__host__ void rec_count_spheres(BVH* node_, Spheres* ST) {
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       rec_count_spheres(node.left, ST);
       rec_count_spheres(node.right, ST);
       (*ST).node_count += 1u;
     }
-    else if (std::holds_alternative<const Leaf&>(*node_)) {
-      const Leaf& node = std::get<const Leaf&>(*node_);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       (*ST).primitive_count += node.nprims;
       (*ST).node_count += 1u;
     }

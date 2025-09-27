@@ -1412,8 +1412,9 @@ void CodeGen_CUDA::print(const Program &program) {
     const std::vector<std::string> topological_order =
         lower::func_topological_order(program.funcs,
                                       /*undef_calls=*/false);
-    std::set<std::string> devices = lower::find_device_functions(program.funcs);
     std::set<std::string> hosts = lower::find_host_functions(program.funcs);
+    std::set<std::string> devices =
+        lower::find_device_functions(program.funcs, hosts);
     for (int i = 0, e = topological_order.size(); i < e; ++i) {
         const std::string &name = topological_order[i];
         const auto &it = program.funcs.find(name);

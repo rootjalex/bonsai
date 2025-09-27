@@ -220,7 +220,9 @@ std::ostream &operator<<(std::ostream &os, const CallGraph &call_graph) {
     return os;
 }
 
-std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
+std::set<std::string>
+find_device_functions(const ir::FuncMap &funcs,
+                      const std::set<std::string> &hosts) {
     std::set<std::string> devices;
     lower::CallGraph call_graph = lower::build_call_graph(funcs);
 
@@ -231,6 +233,10 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
         const std::string &name = topological_order[i];
         auto it = funcs.find(name);
         internal_assert(it != funcs.end()) << name;
+        const auto &func = *it->second;
+        if (hosts.contains(func.name)) {
+            continue;
+        }
         auto cit = call_graph.find(name);
         internal_assert(cit != call_graph.end()) << name;
         const auto &graph = cit->second;

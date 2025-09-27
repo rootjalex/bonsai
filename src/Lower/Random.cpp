@@ -98,8 +98,8 @@ bool calls_rand(const Function &f, const std::set<std::string> &funcs_call_rand,
 // Splits functions that exist on both host and device and use rand() on CUDA.
 // There are two separate paths for these, since cuRAND is only allowed on host.
 void split_functions_with_rand(FuncMap &funcs) {
-    std::set<std::string> devices = find_device_functions(funcs),
-                          hosts = find_host_functions(funcs);
+    std::set<std::string> hosts = find_host_functions(funcs);
+    std::set<std::string> devices = find_device_functions(funcs, hosts);
     std::vector<std::string> intersection;
     std::set_intersection(devices.begin(), devices.end(), hosts.begin(),
                           hosts.end(), std::back_inserter(intersection));
