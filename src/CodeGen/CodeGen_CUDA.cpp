@@ -944,8 +944,9 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     type.accept(this);
     os << ' ' << copy << ' ';
     os << '=' << ' ';
-    if (type.is<ir::Ptr_t>())
+    if (value.is<ir::Deref>()) {
         os << '*';
+    }
     os << original << ';' << '\n';
     // Then copy all the recently device-allocated members.
     for (const auto &[name, type] : types) {

@@ -391,21 +391,17 @@ __global__ void _parfunc0(_ctx0 ctx0) {
 
 __host__ int3* _traverse_array0(Camera* c, int32_t height, Spheres* spheres) {
   int32_t* _alloc0 = reinterpret_cast<int32_t*>(malloc(sizeof(int32_t) * ((height * (*c).width) * 3)));
-  {
   Camera* d_c;
   cudaMallocAndCopyToDevice((void**)&d_c, &(*c), sizeof(Camera));
-  }
-  {
-  MaterialSphere* primitives;
-  cudaMallocAndCopyToDevice((void**)&primitives, (*spheres).primitives, (*(*spheres)).primitive_count * sizeof(MaterialSphere));
-  Nodes* nodes;
-  cudaMallocAndCopyToDevice((void**)&nodes, (*spheres).nodes, (*(*spheres)).node_count * sizeof(Nodes));
-  Spheres h_spheres = spheres;
-  h_spheres.primitives = primitives;
-  h_spheres.nodes = nodes;
+  MaterialSphere* __primitives;
+  cudaMallocAndCopyToDevice((void**)&__primitives, (*spheres).primitives, (*(*spheres)).primitive_count * sizeof(MaterialSphere));
+  Nodes* __nodes;
+  cudaMallocAndCopyToDevice((void**)&__nodes, (*spheres).nodes, (*(*spheres)).node_count * sizeof(Nodes));
+  Spheres h_spheres = *spheres;
+  h_spheres.primitives = __primitives;
+  h_spheres.nodes = __nodes;
   Spheres* d_spheres;
   cudaMallocAndCopyToDevice((void**)&d_spheres, &h_spheres, sizeof(Spheres));
-  }
   _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
   _parfunc0<<<(((height * (*c).width) + 511) / 512), 512>>>(ctx);
   cudaDeviceSynchronize();
@@ -495,17 +491,15 @@ __host__ Spheres build_spheres(BVH* CT) {
   Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
-  {
-  MaterialSphere* primitives;
-  cudaMallocAndCopyToDevice((void**)&primitives, ST.primitives, (*ST).primitive_count * sizeof(MaterialSphere));
-  Nodes* nodes;
-  cudaMallocAndCopyToDevice((void**)&nodes, ST.nodes, (*ST).node_count * sizeof(Nodes));
+  MaterialSphere* __primitives;
+  cudaMallocAndCopyToDevice((void**)&__primitives, ST.primitives, (*ST).primitive_count * sizeof(MaterialSphere));
+  Nodes* __nodes;
+  cudaMallocAndCopyToDevice((void**)&__nodes, ST.nodes, (*ST).node_count * sizeof(Nodes));
   Spheres h_ST = ST;
-  h_ST.primitives = primitives;
-  h_ST.nodes = nodes;
+  h_ST.primitives = __primitives;
+  h_ST.nodes = __nodes;
   Spheres* d_ST;
   cudaMallocAndCopyToDevice((void**)&d_ST, &h_ST, sizeof(Spheres));
-  }
   return (*d_ST);
 }
 
