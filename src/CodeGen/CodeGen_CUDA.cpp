@@ -1104,7 +1104,6 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     }
     case Allocate::Memory::Device: {
         emit_to_device(node);
-        free_host_memory();
         return;
     }
     case Allocate::Memory::Host: {
