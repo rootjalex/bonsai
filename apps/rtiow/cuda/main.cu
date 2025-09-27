@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
     auto t2 = clock::now();
 
     if (save_image(image_height, image_width, im, output_filename)) {
-        cudaFree(im);
+        free(im);
         std::cout << "save image failed!\n";
         return 1;
     }
@@ -289,6 +289,6 @@ int main(int argc, char **argv) {
     std::cout << "render time      : " << render_ms << " ms\n";
     std::cout << "write time       : " << write_ms << " ms\n";
 
-    cudaFree(im);
+    free(im);
     return 0;
 }
