@@ -925,6 +925,7 @@ construct_build_full(const ir::Type &concretized_type,
         ir::Allocate::make(specialized_tree, ir::Allocate::Memory::Stack));
 
     // 2. Pre-process: call to function gathering counts for each group.
+    const int64_t count_position = stmts.size();
     {
         std::string name = get_recursive_count_function_name(layout);
         ir::Type type =
@@ -935,6 +936,7 @@ construct_build_full(const ir::Type &concretized_type,
         stmts.push_back(ir::CallStmt::make(func, {arg1, arg2}));
     }
 
+    std::vector<ir::Stmt> zeros;
     // 3. malloc all groups (to include arrays) with the given counts.
     std::vector<ir::Member> groups = layout.find_all_groups();
     for (const ir::Member &member : groups) {
@@ -945,6 +947,9 @@ construct_build_full(const ir::Type &concretized_type,
                 ir::WriteLoc base(SPECIALIZED_TREE, concretized_type);
                 ir::WriteLoc location = get_write_loc(base, size_variable->name,
                                                       build, layout, program);
+                // zero-initialize counts.
+                zeros.push_back(
+                    ir::Store::make(location, make_zero(size.type())));
                 internal_assert(location.defined());
                 size = location.to_expr();
             }
@@ -995,6 +1000,9 @@ construct_build_full(const ir::Type &concretized_type,
                 ir::WriteLoc location = get_write_loc(base, size_variable->name,
                                                       build, layout, program);
                 internal_assert(location.defined());
+                // zero-initialize counts.
+                zeros.push_back(
+                    ir::Store::make(location, make_zero(size.type())));
                 size = location.to_expr();
             }
             ir::WriteLoc location(group->name,
@@ -1012,6 +1020,7 @@ construct_build_full(const ir::Type &concretized_type,
 
         internal_error << "[unexpected] group: " << member;
     }
+    stmts.insert(stmts.begin() + count_position, zeros.begin(), zeros.end());
 
     // 4. Call `__build_<name>` on CT
     {

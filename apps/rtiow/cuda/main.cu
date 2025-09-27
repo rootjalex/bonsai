@@ -132,14 +132,14 @@ __host__ void free_canonical_tree(BVH *node) {
         Interior &interior = std::get<Interior>(*node);
         free_canonical_tree(interior.left);
         free_canonical_tree(interior.right);
-        free(&interior);
+        cudaFree(&interior);
         return;
     }
 
     if (std::holds_alternative<Leaf>(*node)) {
         Leaf &leaf = std::get<Leaf>(*node);
-        free(leaf.data);
-        free(&leaf);
+        cudaFree(leaf.data);
+        cudaFree(&leaf);
         return;
     }
 
@@ -226,6 +226,44 @@ __host__ BVH *build_canonical_tree(std::vector<MaterialSphere> &spheres) {
     return partition(/*low=*/0, /*high=*/spheres.size(), /*depth=*/0);
 }
 
+__host__ BVH *copy_to_device(BVH *node) {
+    if (node == nullptr) {
+        return nullptr;
+    }
+
+    BVH *root;
+    cudaMalloc(&root, sizeof(BVH));
+
+    if (std::holds_alternative<Interior>(*node)) {
+        const Interior &h_interior = std::get<Interior>(*node);
+        Interior temp_interior = h_interior;
+        temp_interior.left = copy_to_device(h_interior.left);
+        temp_interior.right = copy_to_device(h_interior.right);
+        BVH temp_bvh_variant = temp_interior;
+        cudaMemcpy(root, &temp_bvh_variant, sizeof(BVH),
+                   cudaMemcpyHostToDevice);
+        free(h_interior.left);
+        free(h_interior.right);
+        free(h_interior);
+    } else if (std::holds_alternative<Leaf>(*node)) {
+        const Leaf &h_leaf = std::get<Leaf>(*node);
+        Leaf temp_leaf = h_leaf;
+        if (h_leaf.nprims > 0 && h_leaf.data != nullptr) {
+            size_t data_size = h_leaf.nprims * sizeof(MaterialSphere);
+            cudaMalloc(&temp_leaf.data, data_size);
+            cudaMemcpy(temp_leaf.data, h_leaf.data, data_size,
+                       cudaMemcpyHostToDevice);
+            free(h_leaf);
+        } else {
+            temp_leaf.data = nullptr;
+        }
+        BVH temp_bvh_variant = temp_leaf;
+        cudaMemcpy(root, &temp_bvh_variant, sizeof(BVH),
+                   cudaMemcpyHostToDevice);
+    }
+    return root;
+}
+
 } // namespace
 
 // ---------------------------
@@ -242,6 +280,7 @@ int main(int argc, char **argv) {
     std::cout << "-- building canonical tree" << std::endl;
     auto ct_begin = clock::now();
     BVH *node = build_canonical_tree(spheres);
+    node = copy_to_device(node);
     auto ct_end = clock::now();
 
     std::cout << "-- building specialized tree" << std::endl;
@@ -249,7 +288,7 @@ int main(int argc, char **argv) {
     Spheres tree = build_spheres(node);
     auto st_end = clock::now();
 
-    // free_canonical_tree(node);
+    free_canonical_tree(node);
     std::cout << "-- canonical tree free" << std::endl;
 
     Camera camera = setup_camera();
