@@ -889,8 +889,7 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << ';' << '\n';
 }
 
-// TODO(cgyurgyik): Verify this is coming from device memory.
-void CodeGen_CUDA::visit(const Free *node) {
+void CodeGen_CUDA::free_host_memory() {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
         for (const auto &[name, type] : device_allocated) {
@@ -901,6 +900,11 @@ void CodeGen_CUDA::visit(const Free *node) {
             free.accept(this);
         }
     }
+}
+
+// TODO(cgyurgyik): Verify this is coming from device memory.
+void CodeGen_CUDA::visit(const Free *node) {
+    free_host_memory();
     os << get_indent() << "cudaFree" << '(';
     ir::Expr value = node->value;
     if (const auto *d = value.as<Deref>(); d && d->expr.type().is<Ptr_t>()) {
@@ -1100,6 +1104,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
     }
     case Allocate::Memory::Device: {
         emit_to_device(node);
+        free_host_memory();
         return;
     }
     case Allocate::Memory::Host: {

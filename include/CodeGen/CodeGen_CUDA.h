@@ -131,6 +131,7 @@ class CodeGen_CUDA : public ir::Printer {
     void emit_to_device(std::string base, const ir::Struct_t *, ir::Expr);
     void emit_to_device(std::string base, const ir::Array_t *, ir::Expr,
                         std::optional<ir::Expr> = {});
+    void free_host_memory();
 
     void print_loc(std::ostream &os, const ir::WriteLoc &loc,
                    bool is_assignment);
