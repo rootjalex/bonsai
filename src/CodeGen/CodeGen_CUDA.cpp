@@ -1433,6 +1433,7 @@ void CodeGen_CUDA::print(const Program &program) {
                 << func->ret_type;
         } else {
             if (devices.contains(func->name)) {
+                os << "__forceinline__" << ' ';
                 os << "__device__" << ' ';
             }
             if (hosts.contains(func->name)) {
