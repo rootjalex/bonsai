@@ -244,7 +244,6 @@ __host__ BVH *copy_to_device(BVH *node) {
                    cudaMemcpyHostToDevice);
         free(h_interior.left);
         free(h_interior.right);
-        free(h_interior);
     } else if (std::holds_alternative<Leaf>(*node)) {
         const Leaf &h_leaf = std::get<Leaf>(*node);
         Leaf temp_leaf = h_leaf;
@@ -253,7 +252,6 @@ __host__ BVH *copy_to_device(BVH *node) {
             cudaMalloc(&temp_leaf.data, data_size);
             cudaMemcpy(temp_leaf.data, h_leaf.data, data_size,
                        cudaMemcpyHostToDevice);
-            free(h_leaf);
         } else {
             temp_leaf.data = nullptr;
         }
@@ -261,6 +259,7 @@ __host__ BVH *copy_to_device(BVH *node) {
         cudaMemcpy(root, &temp_bvh_variant, sizeof(BVH),
                    cudaMemcpyHostToDevice);
     }
+    free(node);
     return root;
 }
 
