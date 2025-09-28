@@ -39,9 +39,29 @@ using namespace ir;
 
 namespace {
 
+std::set<std::string> gather_pointer_children(const ir::Type &type) {
+    const auto *struct_t = type.as<ir::Struct_t>();
+    if (struct_t == nullptr) {
+        return {};
+    }
+    std::set<std::string> pointers;
+    for (const auto &[name, child] : struct_t->fields) {
+        const auto *ptr_t = child.as<ir::Ptr_t>();
+        if (ptr_t == nullptr) {
+            continue;
+        }
+        const auto *ref_t = ptr_t->etype.as<ir::Ref_t>();
+        if (ref_t == nullptr) {
+            continue;
+        }
+        pointers.insert(ref_t->name);
+    }
+    return pointers;
+}
+
 std::string recursive_malloc() {
     return R"(
-std::function<void(Node*, Node**)> cudaMallocAndCopyToDeviceRecursive = [&](Node** device_node_ptr, Node* host_node) {
+std::function<void(Node**, Node*)> cudaMallocAndCopyToDeviceRecursive = [&](Node** device_node_ptr, Node* host_node) {
     if (!host_node) {
         *device_node_ptr = nullptr;
         return;
@@ -347,6 +367,12 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     if (!is_declaration) {
         os << name;
         return;
+    }
+    std::set<std::string> pointers = gather_pointer_children(ir::Type(node));
+    for (const std::string &pointer : pointers) {
+        std::string name = pointer;
+        capitalize_first(name);
+        os << get_indent() << "struct " << name << ";\n";
     }
     os << get_indent();
     os << "struct" << ' ';
