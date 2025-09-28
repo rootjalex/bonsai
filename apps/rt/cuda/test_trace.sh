@@ -3,14 +3,13 @@
 set -euo pipefail
 
 APPLICATION="rt"
-TARGET="cpu"
+TARGET="cuda"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
 OBJECTS=("power-plant" "hairball")
-TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
-N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
-HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
+N="${1:-14}" # drop lowest 2 and highest 2 runs in processing
+HIT_RATIO="${2:-75}" # n%, e.g., 75% is the default
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
@@ -54,11 +53,6 @@ mkdir ${DATA_PATH}
 # Install python dependencies for data processing.
 pip install -r ${KERNEL_PATH}/requirements.txt
 
-if [[ "$(uname)" == "Linux" ]]; then
-  echo "Running on Linux (presumably Redwood)!"
-fi
-
-
 echo "runs: ${N}"
 > ${DATA_PATH}/${DATA_FILE}.txt # clear
 for OBJECT in "${OBJECTS[@]}"; do
@@ -69,31 +63,20 @@ for OBJECT in "${OBJECTS[@]}"; do
     echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     # 1. Build the Bonsai compiler.
     cmake --build build --config Debug -j > /dev/null
-    # 2. Lower to C++.
-    ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
-    # 3. Compile the lowered C++.
-    clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_trace.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
+    # 2. Lower to cuda.
+    ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
+    # 3. Compile the lowered cuda.
+    module load cuda
+    nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
     # 4. Run it.
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
     COMMAND="./${EXECUTABLE} ${OBJECT}"
-    if [[ "$(uname)" == "Linux" ]]; then
-      COMMAND="numactl --physcpubind 0-15 ${COMMAND}" # only run on performance cores for the Fredwood.
-    fi
-    if [[ "${TYPE}" == "PERFORMANCE" ]]; then
-      # collect
-      perf record -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ${COMMAND}
-      # report
-      perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
-    else
-      for ((i=0; i < N; i++)); do
-        ${COMMAND} >> ${DATA_PATH}/${DATA_FILE}.txt
-      done
-    fi
+    for ((i=0; i < N; i++)); do
+      ${COMMAND} >> ${DATA_PATH}/${DATA_FILE}.txt
+    done
     # 5. Clean up
     rm ${PREFIX}/${APPLICATION}.h
-    rm ${PREFIX}/${APPLICATION}.cpp
     rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
-    rm -f -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
   done
   echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
 done

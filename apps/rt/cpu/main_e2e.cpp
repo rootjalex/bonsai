@@ -146,9 +146,6 @@ int main(int argc, char *argv[]) {
     std::string object_file = argv[1];
     int64_t ray_count = std::atoi(argv[2]);
     std::string ray_file = argv[3];
-    // Wavefront OBJ files are taken from FCL [1] from `prims` [2].
-    // [1] https://github.com/flexible-collision-library/fcl
-    // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
     run_test(object_file, ray_file, ray_count);
     return 0;
 }

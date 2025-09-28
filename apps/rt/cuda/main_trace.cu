@@ -2,7 +2,6 @@
 #include "canonical_tree.h"
 #include "rt.h"
 #include "util.h"
-#include <omp.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -99,7 +98,6 @@ void run_test(const std::string &object) {
                                std::to_string(75) + ".rays";
         std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
-        // SINGLE-THREAD
         std::vector<Triangle> hits;
         hits.reserve(rays.size());
         auto trace_begin = clock::now();

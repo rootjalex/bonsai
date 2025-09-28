@@ -11,7 +11,7 @@ OBJECTS=("san-miguel" "hairball" "dragon" "sponza")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
 HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
-RAY_PATH="${PREFIX}/rays"
+RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
@@ -97,7 +97,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   done
 
   # Process data
-  python3.11 ${PREFIX}/collect_e2e.py ${DATA_PATH}/${DATA_FILE}.txt
+  python3.11 ${KERNEL_PATH}/collect_e2e.py ${DATA_PATH}/${DATA_FILE}.txt
 done
 
 rm ${RAY_PATH}/${RAY_FILE}.out
