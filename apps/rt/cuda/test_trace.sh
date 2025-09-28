@@ -67,7 +67,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
     # 3. Compile the lowered cuda.
     module load cuda
-    nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
+    nvcc -Iapps/rtiow -Iruntime/CUDA -O3 ${PREFIX}/main_trace.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
     # 4. Run it.
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
     COMMAND="./${EXECUTABLE} ${OBJECT}"
