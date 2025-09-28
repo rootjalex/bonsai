@@ -145,7 +145,7 @@ def format_ray_count(ray_count):
     return f"{ray_count:,}"
 
 
-def create_scaling_plots(data, machine_type, output_path, method='arithmetic'):
+def create_scaling_plots(data, machine_type, output_path, baseline_layout, method='arithmetic'):
     """Create comprehensive scaling plots."""
     models = sorted(data.keys())
     all_layouts = set()
@@ -218,54 +218,50 @@ def create_scaling_plots(data, machine_type, output_path, method='arithmetic'):
             idx += 1
 
             # Calculate speedup relative to first layout (as baseline)
-            baseline_layout = "ptr"
+            assert baseline_layout in data[model], baseline_layout
+            baseline_data = data[model][baseline_layout]
+            for layout in layouts:
+                if layout != baseline_layout and layout in data[model]:
+                    ray_counts = sorted(set(baseline_data.keys()) & set(
+                        data[model][layout].keys()))
+                    speedups = []
 
-            if baseline_layout:
-                if baseline_layout in data[model]:
-                    baseline_data = data[model][baseline_layout]
+                    for rc in ray_counts:
+                        if baseline_data[rc] > 0 and data[model][layout][rc] > 0:
+                            speedup = baseline_data[rc] / \
+                                data[model][layout][rc]
+                            speedups.append(speedup)
+                        elif data[model][layout][rc] == 0 and baseline_data[rc] == 0:
+                            # Both are 0, treat as equal
+                            speedups.append(1.0)
+                        elif data[model][layout][rc] == 0:
+                            # Don't add infinite speedup, skip this point
+                            pass
+                        else:
+                            # baseline is 0, can't compute speedup
+                            speedups.append(1.0)
 
-                    for layout in layouts:
-                        if layout != baseline_layout and layout in data[model]:
-                            ray_counts = sorted(set(baseline_data.keys()) & set(
-                                data[model][layout].keys()))
-                            speedups = []
+                    if speedups and len(speedups) == len(ray_counts):
+                        # Only plot if we have speedup values for all ray counts
+                        color = model_colors[model]
+                        style = layout_styles[layout]
+                        marker = layout_markers[layout]
+                        ax_speedup.plot(ray_counts, speedups,
+                                        marker=marker, markersize=4, linewidth=1.5,
+                                        linestyle=style, color=color,
+                                        label=f'{model}-{layout}', alpha=0.7)
 
-                            for rc in ray_counts:
-                                if baseline_data[rc] > 0 and data[model][layout][rc] > 0:
-                                    speedup = baseline_data[rc] / \
-                                        data[model][layout][rc]
-                                    speedups.append(speedup)
-                                elif data[model][layout][rc] == 0 and baseline_data[rc] == 0:
-                                    # Both are 0, treat as equal
-                                    speedups.append(1.0)
-                                elif data[model][layout][rc] == 0:
-                                    # Don't add infinite speedup, skip this point
-                                    pass
-                                else:
-                                    # baseline is 0, can't compute speedup
-                                    speedups.append(1.0)
+                        ax_speedup.set_xscale(
+                            'log', base=2)   # log2 scaling
 
-                            if speedups and len(speedups) == len(ray_counts):
-                                # Only plot if we have speedup values for all ray counts
-                                color = model_colors[model]
-                                style = layout_styles[layout]
-                                marker = layout_markers[layout]
-                                ax_speedup.plot(ray_counts, speedups,
-                                                marker=marker, markersize=4, linewidth=1.5,
-                                                linestyle=style, color=color,
-                                                label=f'{model}-{layout}', alpha=0.7)
-
-                                ax_speedup.set_xscale(
-                                    'log', base=2)   # log2 scaling
-
-                ax_speedup.axhline(y=1.0, color='black',
-                                   linestyle='-', linewidth=0.5, alpha=0.5)
-                ax_speedup.set_xlabel('Number of Rays')
-                ax_speedup.set_ylabel(f'Speedup vs {baseline_layout.upper()}')
-                ax_speedup.set_title(
-                    f'Layout Performance Relative to {baseline_layout.upper()} ({model})')
-                ax_speedup.grid(True, alpha=0.3, which='both')
-                ax_speedup.legend(fontsize=8, ncol=2, loc='best')
+        ax_speedup.axhline(y=1.0, color='black',
+                           linestyle='-', linewidth=0.5, alpha=0.5)
+        ax_speedup.set_xlabel('Number of Rays')
+        ax_speedup.set_ylabel(f'Speedup vs {baseline_layout.upper()}')
+        ax_speedup.set_title(
+            f'Layout Performance Relative to {baseline_layout.upper()} ({model})')
+        ax_speedup.grid(True, alpha=0.3, which='both')
+        ax_speedup.legend(fontsize=8, ncol=2, loc='best')
 
     plt.tight_layout()
 
@@ -374,16 +370,17 @@ def analyze_scaling_behavior(data):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2 or len(sys.argv) > 3:
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
         print(
             "Usage: python trace_scaling.py <data_file> [arithmetic|geometric]")
         sys.exit(1)
 
     filename = sys.argv[1]
+    baseline_layout = sys.argv[2]
     method = 'arithmetic'
-    if len(sys.argv) == 3:
-        if sys.argv[2] in ['arithmetic', 'geometric']:
-            method = sys.argv[2]
+    if len(sys.argv) == 4:
+        if sys.argv[3] in ['arithmetic', 'geometric']:
+            method = sys.argv[3]
         else:
             print("Method must be 'arithmetic' or 'geometric'")
             sys.exit(1)
@@ -423,4 +420,5 @@ if __name__ == "__main__":
     # Generate outputs
     print_scaling_table(processed_data, method)
     analyze_scaling_behavior(processed_data)
-    create_scaling_plots(processed_data, machine_type, filename, method)
+    create_scaling_plots(processed_data, machine_type,
+                         filename, baseline_layout, method)

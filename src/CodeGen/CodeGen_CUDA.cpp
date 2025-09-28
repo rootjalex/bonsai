@@ -903,7 +903,10 @@ void CodeGen_CUDA::visit(const ir::LetStmt *node) {
 void CodeGen_CUDA::free_host_memory() {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
-        for (const auto &[name, type] : device_allocated) {
+        for (auto &[name, type] : device_allocated) {
+            if (!type.is<Ptr_t, Array_t>()) {
+                continue;
+            }
             frees.push_back(Free::make(Var::make(type, compilerfy_name(name))));
         }
         device_allocated.clear();
