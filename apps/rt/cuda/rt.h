@@ -438,6 +438,7 @@ __host__ Triangles build_triangles(BVH *CT) {
     size_t primitives_index = 0;
     ST.primitive_count = 0u;
     rec_count_triangles(CT, (&ST));
+    printf("primitive_count: %d\n", ST.primitive_count);
     Triangle *primitives = reinterpret_cast<Triangle *>(
         malloc(sizeof(Triangle) * ST.primitive_count));
     ST.primitives = primitives;
