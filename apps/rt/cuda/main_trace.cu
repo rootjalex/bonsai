@@ -33,7 +33,7 @@ std::vector<Ray> load_rays_binary(const std::string &filename,
     size_t count;
     file.read(reinterpret_cast<char *>(&count), sizeof(count));
     if (ray_count > count) {
-        std::cout << "the requested ray count: " << ray_count
+        std::cerr << "the requested ray count: " << ray_count
                   << " is greater than the total ray count: " << count
                   << " You need to re-generate the rays.";
     }
@@ -373,12 +373,9 @@ void run_test(const std::string &object) {
     assert(!triangles.empty());
 
     BVH *canonical_tree = build_canonical_tree_sah(triangles);
-    std::cout << "canonical tree built" << std::endl;
 
     Triangles tree = build_triangles(canonical_tree);
-    std::cout << "specialized tree built" << std::endl;
     free_canonical_tree(canonical_tree);
-    std::cout << "canonical tree freed" << std::endl;
 
     std::vector<int64_t> ray_counts = {
         1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
@@ -396,12 +393,9 @@ void run_test(const std::string &object) {
             std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
-        std::cout << "rays loaded" << std::endl;
-        std::cout << "begin trace" << std::endl;
         auto trace_begin = clock::now();
         cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
-        std::cout << "end trace" << std::endl;
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
