@@ -1,0 +1,101 @@
+
+// dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
+func dequantize(v: i30, bins: f32x3) -> f32x3 {
+  return f32x3 {
+    fmul_rd(cast[[f32]]((v >> 20) & 1023), bins.x), 
+    fmul_rd(cast[[f32]]((v >> 10) & 1023), bins.y), 
+    fmul_rd(cast[[f32]]((v >> 00) & 1023), bins.z)};
+}
+
+// build tree bins inverse.
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L72
+func build_bins_inverse(low: f32x3, high: f32x3) -> f32x3 {
+        L1: f32x3 = f32x3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
+        L2: f32x3 = select(L1 <= 0.0, 1.0, L1);
+        return f32x3{fdiv_rd(1023.0, L2.x), fdiv_rd(1023.0, L2.y), fdiv_rd(1023.0, L2.z)};
+}
+
+// build tree bins.
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L123
+func build_bins(low: f32x3, high: f32x3) -> f32x3 {
+  bins_inverse: f32x3 = build_bins_inverse(low, high);
+  return f32x3 {frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
+}
+
+// quantization of snapped BVH grid with 2^10 - 1 bins. Reference:
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L100-L103
+func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) -> i30 {
+    // const unsigned int lo_bin3 = (lo_bin.x << 20) +  (lo_bin.y << 10) + lo_bin.z;
+    x: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x)));
+    y: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y)));
+    z: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z)));
+    return (x << 20) | (y << 10) | z;
+}
+
+schedule {
+    // extent quantization, as defined in
+    // https://www.sciencedirect.com/science/article/pii/S092702561930206X
+    tree[[Triangle]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
+      = Interior(left : BVH, right : BVH)
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(index: u32) {
+        wlow: f32x3;
+        whigh: f32x3;
+        bins: f32x3;
+        bins_inv: f32x3;
+
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group nodes[node_count] by index {
+            q_min: i30;
+            q_max: i30;
+            nprims : u4;
+            low  = fadd_rd(wlow,  dequantize(q_min, bins));
+            high = fsub_ru(whigh, dequantize(q_max, bins));
+            split nprims {
+                0 -> Interior {
+                    offset : u32;
+                    left = index + 1;
+                    right = index + offset;
+                };
+                _ -> Leaf {
+                    poffset : u32;
+                    data = primitives[poffset : poffset + nprims];
+                };
+            };
+        };
+    };
+
+    build triangles {
+      build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
+        build root {
+          build wlow = low;
+          build whigh = high;
+          build bins_inv = build_bins_inverse(low, high);
+          build bins = build_bins(low, high);
+        }
+        build q_min = quantize(low, wlow, bins_inv);
+        build q_max = quantize(high, whigh, bins_inv);
+        build nprims = 0;
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build q_min = quantize(low, wlow, bins_inv);
+        build q_max = quantize(high, whigh, bins_inv);
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+
+    trace.loopify(64);
+    chrt.gpu_thread(i0);
+}

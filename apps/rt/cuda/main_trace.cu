@@ -378,7 +378,7 @@ void run_test(const std::string &object) {
     free_canonical_tree(canonical_tree);
 
     std::vector<int64_t> ray_counts = {
-        1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
+        1 << 16 // , 1 << 17, 1 << 18, 1 << 19, 1 << 20,
     };
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
