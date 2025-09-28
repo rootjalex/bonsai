@@ -98,7 +98,7 @@ std::function<void(Node**, Node*)> cudaMallocAndCopyToDeviceRecursive = [&](Node
     *device_node_ptr = d_node;
 };
 
-cudaMallocAndCopyToDeviceRecursive(__node, (*triangles).node);)";
+cudaMallocAndCopyToDeviceRecursive(&__node, (*triangles).node);)";
 }
 
 std::string compilerfy_name(std::string name) {
@@ -420,7 +420,7 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
         os << "cuda::std::array<";
         internal_assert(!vector_t->etype.is<Vector_t>())
             << "[unimplemented]: " << ir::Type(node);
-        os << vector_prefix(vector_t->etype) << vector_t->lanes;
+        os << bonsai_scalar_type_to_cpp(vector_t->etype) << vector_t->lanes;
         os << ", " << std::to_string(node->lanes) + ">";
         return;
     }
@@ -429,7 +429,7 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
         os << vector_prefix(node->etype) << node->lanes;
         return;
     }
-    os << "cuda::std::array<" << vector_prefix(node->etype) << ", ";
+    os << "cuda::std::array<" << bonsai_scalar_type_to_cpp(node->etype) << ", ";
     os << node->lanes << ">";
 }
 
@@ -1426,6 +1426,7 @@ void CodeGen_CUDA::emit_prologue() {
     os << '#' << "include" << ' ' << "<cuda/std/tuple>" << '\n';
     os << '\n';
     // STL headers
+    os << '#' << "include" << ' ' << "<stdint.h>" << '\n';
     os << '#' << "include" << ' ' << "<variant>" << '\n';
     os << '\n';
 }
