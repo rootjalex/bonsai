@@ -44,12 +44,12 @@ std::vector<Ray> load_rays_binary(const std::string &filename,
     // Read ray data
     for (size_t i = 0; i < ray_count; ++i) {
         Ray ray;
-        file.read(reinterpret_cast<char *>(&ray.o[0]), sizeof(float));
-        file.read(reinterpret_cast<char *>(&ray.o[1]), sizeof(float));
-        file.read(reinterpret_cast<char *>(&ray.o[2]), sizeof(float));
-        file.read(reinterpret_cast<char *>(&ray.d[0]), sizeof(float));
-        file.read(reinterpret_cast<char *>(&ray.d[1]), sizeof(float));
-        file.read(reinterpret_cast<char *>(&ray.d[2]), sizeof(float));
+        file.read(reinterpret_cast<char *>(&ray.o.x), sizeof(float));
+        file.read(reinterpret_cast<char *>(&ray.o.y), sizeof(float));
+        file.read(reinterpret_cast<char *>(&ray.o.z), sizeof(float));
+        file.read(reinterpret_cast<char *>(&ray.d.x), sizeof(float));
+        file.read(reinterpret_cast<char *>(&ray.d.y), sizeof(float));
+        file.read(reinterpret_cast<char *>(&ray.d.z), sizeof(float));
         rays.push_back(ray);
     }
 
