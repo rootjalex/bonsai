@@ -414,7 +414,7 @@ __host__ Node *rec_build_triangles(BVH *node_, Triangles *ST,
         (*this_index).axis = argmax(node.high - node.low);
         reinterpret_cast<Arm_Leaf *>(&(*this_index).split0on_nprims)->poffset =
             (*primitives_index);
-        printf("primitives index: %d, nprims: %d", *primitives_index,
+        printf("primitives index: %d, nprims: %d\n", *primitives_index,
                nodenprims);
         for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
             (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
