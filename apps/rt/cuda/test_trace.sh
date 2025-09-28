@@ -72,7 +72,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
     COMMAND="./${EXECUTABLE} ${OBJECT}"
     for ((i=0; i < N; i++)); do
-      compute-sanitizer ${COMMAND} >> ${DATA_PATH}/${DATA_FILE}.txt
+      compute-sanitizer ${COMMAND} # >> ${DATA_PATH}/${DATA_FILE}.txt
     done
     # 5. Clean up
     rm ${PREFIX}/${APPLICATION}.h
