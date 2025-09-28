@@ -385,16 +385,17 @@ void run_test(const std::string &object) {
         std::string ray_file = "apps/rt/cpu/rays/" + object + "_" +
                                std::to_string(ray_count) + "_" +
                                std::to_string(75) + ".rays";
-        std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
-        assert(!rays.empty());
-        std::vector<Triangle> hits;
-        hits.reserve(rays.size());
-        auto trace_begin = clock::now();
-        for (int i = 0; i < rays.size(); ++i) {
-            if (cuda::std::optional<Triangle> t = trace(&rays[i], &tree)) {
-                hits.push_back(*t);
-            }
+        Ray *rays = nullptr;
+        {
+            std::vector<Ray> r = load_rays_binary(ray_file, ray_count);
+            assert(!r.empty());
+            rays = reinterpret_cast<Ray *>(malloc(sizeof(Ray) * ray_count));
+            std::copy(r.begin(), r.end(), data);
+            r.clear();
         }
+
+        auto trace_begin = clock::now();
+        cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
