@@ -1,6 +1,7 @@
-#include "bonsai_cpp.h"
-#include "canonical_tree.h"
 #include "rt.h"
+
+#include "canonical_tree.h"
+#include "helpers.h"
 #include "util.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
