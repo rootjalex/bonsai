@@ -5,9 +5,16 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
+#include <cassert>
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <random>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -67,8 +74,8 @@ std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
 
 float surface_area(const float3 &min, const float3 &max) {
     float3 extent = max - min;
-    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
-                   extent[1] * extent[2]);
+    return 2.0f *
+           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
 }
 
 float3 triangle_centroid(const Triangle &tri) {
@@ -134,7 +141,9 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
 
         // Try splitting along each axis.
         for (int axis = 0; axis < 3; ++axis) {
-            float extent = centroid_max[axis] - centroid_min[axis];
+            float extent = (axis == 0)   ? centroid_max.x - centroid_min.x
+                           : (axis == 1) ? centroid_max.y - centroid_min.y
+                                         : centroid_max.z - centroid_min.z;
             if (extent < 1e-6f)
                 continue; // Skip degenerate axis.
 
@@ -145,9 +154,13 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
             // Assign triangles to bins.
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
+                float c_axis = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
+                float centroid_min_axis = (axis == 0)   ? centroid_min.x
+                                          : (axis == 1) ? centroid_min.y
+                                                        : centroid_min.z;
                 int bin_idx =
                     std::min(num_bins - 1,
-                             static_cast<int>((c[axis] - centroid_min[axis]) *
+                             static_cast<int>((c_axis - centroid_min_axis) *
                                               inv_bin_width));
 
                 auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
@@ -197,8 +210,11 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
 
                 if (cost < best_split.cost) {
                     best_split.axis = axis;
+                    float centroid_min_axis = (axis == 0)   ? centroid_min.x
+                                              : (axis == 1) ? centroid_min.y
+                                                            : centroid_min.z;
                     best_split.position =
-                        centroid_min[axis] + (split + 1) * bin_width;
+                        centroid_min_axis + (split + 1) * bin_width;
                     best_split.cost = cost;
                     best_split.left_count = left_count[split];
                 }
@@ -223,7 +239,10 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
             std::partition(triangles.begin() + low, triangles.begin() + high,
                            [&](const Triangle &tri) {
                                float3 c = triangle_centroid(tri);
-                               return c[best_split.axis] < best_split.position;
+                               float c_axis = (best_split.axis == 0)   ? c.x
+                                              : (best_split.axis == 1) ? c.y
+                                                                       : c.z;
+                               return c_axis < best_split.position;
                            });
 
         uint32_t mid = std::distance(triangles.begin(), mid_it);
@@ -237,8 +256,15 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
                              [&](const Triangle &a, const Triangle &b) {
                                  float3 ca = triangle_centroid(a);
                                  float3 cb = triangle_centroid(b);
-                                 return ca[best_split.axis] <
-                                        cb[best_split.axis];
+                                 float ca_axis = (best_split.axis == 0) ? ca.x
+                                                 : (best_split.axis == 1)
+                                                     ? ca.y
+                                                     : ca.z;
+                                 float cb_axis = (best_split.axis == 0) ? cb.x
+                                                 : (best_split.axis == 1)
+                                                     ? cb.y
+                                                     : cb.z;
+                                 return ca_axis < cb_axis;
                              });
         }
 
@@ -365,7 +391,7 @@ void run_test(const std::string &object) {
         hits.reserve(rays.size());
         auto trace_begin = clock::now();
         for (int i = 0; i < rays.size(); ++i) {
-            if (const std::optional<Triangle> t = trace(&rays[i], &tree)) {
+            if (cuda::std::optional<Triangle> t = trace(&rays[i], &tree)) {
                 hits.push_back(*t);
             }
         }
