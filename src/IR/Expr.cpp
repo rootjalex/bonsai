@@ -1126,7 +1126,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected lhs of filter to be a boolean function, instead "
                    "received: "
                 << a << " : " << a.type();
-            internal_assert((b.type().is<Set_t, BVH_t>()))
+            internal_assert((b.type().is<Array_t, Set_t, BVH_t>()))
                 << "Expected rhs of filter to be a (set|bvh), instead "
                    "received: "
                 << b << " : " << b.type();
