@@ -39,6 +39,48 @@ using namespace ir;
 
 namespace {
 
+std::string recursive_malloc() {
+    return R"(
+std::function<void(Node*, Node**)> cudaMallocAndCopyToDeviceRecursive = [&](Node** device_node_ptr, Node* host_node) {
+    if (!host_node) {
+        *device_node_ptr = nullptr;
+        return;
+    }
+
+    Node* d_node;
+    cudaMalloc((void**)&d_node, sizeof(Node));
+    cudaMemcpy(d_node, host_node, sizeof(Node), cudaMemcpyHostToDevice);
+
+    if (host_node->nprims == 0) {
+        Arm_Interior* arm = reinterpret_cast<Arm_Interior*>(
+            host_node->split0on_nprims.data());
+
+        Node* d_left = nullptr;
+        Node* d_right = nullptr;
+
+        if (arm->left) {
+            cudaMallocAndCopyToDeviceRecursive(&d_left, arm->left);
+        }
+        if (arm->right) {
+            cudaMallocAndCopyToDeviceRecursive(&d_right, arm->right);
+        }
+
+        Node temp_node = *host_node;
+        Arm_Interior* temp_arm = reinterpret_cast<Arm_Interior*>(
+            temp_node.split0on_nprims.data());
+        temp_arm->left = d_left;
+        temp_arm->right = d_right;
+
+        cudaMemcpy(d_node, &temp_node, sizeof(Node),
+                   cudaMemcpyHostToDevice);
+    }
+
+    *device_node_ptr = d_node;
+};
+
+cudaMallocAndCopyToDeviceRecursive(__node, (*triangles).node);)";
+}
+
 std::string compilerfy_name(std::string name) {
     if (name.starts_with("d_")) {
         return name;
@@ -361,13 +403,13 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
         os << vector_prefix(node->etype) << node->lanes;
         return;
     }
-    os << "universal::thrust::vector<" << vector_prefix(node->etype) << ", ";
+    os << "cuda::std::array<" << vector_prefix(node->etype) << ", ";
     os << node->lanes << ">";
 }
 
 void CodeGen_CUDA::visit(const Ptr_t *node) {
     // TODO(cgyurgyik): This isn't constant for an argument return type.
-    // os << "const" << ' ';
+    // os << "const" << ' ' << "__restrict__" << ' ';
     // Unlike the Bonsai printer, we cannot print () in argument parameters.
     Type etype = node->etype;
     if (is_context_type(etype)) {
@@ -375,6 +417,9 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
         return;
     }
     etype.accept(this);
+    if (etype.is<Ref_t>()) {
+        return;
+    }
     os << "*";
 }
 
@@ -904,10 +949,11 @@ void CodeGen_CUDA::free_host_memory() {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
         for (auto &[name, type] : device_allocated) {
-            if (!type.is<Ptr_t, Array_t>()) {
-                continue;
+            ir::Expr e = Var::make(type, compilerfy_name(name));
+            if (!has_address(type)) {
+                continue; // TODO(cgyurgyik): fix
             }
-            frees.push_back(Free::make(Var::make(type, compilerfy_name(name))));
+            frees.push_back(Free::make(std::move(e)));
         }
         device_allocated.clear();
         for (const Stmt &free : frees) {
@@ -990,9 +1036,15 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Struct_t *struct_t,
                                   Expr value) {
     os << get_indent();
     struct_t->accept(this);
-    os << '*' << ' ' << base << ';' << '\n';
+    os << '*' << ' ' << compilerfy_name(base) << ';' << '\n';
+    if (struct_t->name == "node") {
+        // TODO(cgyurgyik): ultra hack to get cuda `ptr` to work.
+        os << recursive_malloc() << "\n";
+        return;
+    }
     os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << compilerfy_name(base)
+       << ',' << ' ';
     internal_assert(value.defined())
         << "allocation to device expects a value (what is copied)";
     if (!value.type().is<Ptr_t>()) {

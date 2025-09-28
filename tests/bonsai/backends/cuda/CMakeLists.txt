@@ -6,6 +6,7 @@ add_bonsai_tests(
     build-extent-quantization.bonsai
     build-inner-group.bonsai
     build-pbrt.bonsai
+    build-ptr.bonsai
     parallel.bonsai
     rand.bonsai
     rtiow-primer.bonsai

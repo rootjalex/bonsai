@@ -1052,19 +1052,9 @@ construct_build_full(const ir::Type &concretized_type,
     }
 
     // 5. Return `ST`
-    ir::Expr tree =
+    ir::Expr st =
         ir::Var::make(concretized_type, std::string(SPECIALIZED_TREE));
-    // if (options.target == BackendTarget::CUDA) {
-    //     // For GPU, we copy to device.
-    //     std::string device = "d_" + std::string(SPECIALIZED_TREE);
-    //     stmts.push_back(
-    //         ir::Allocate::make(ir::WriteLoc(device, concretized_type), tree,
-    //                            ir::Allocate::Memory::Device));
-    //     stmts.push_back(ir::Return::make(ir::Deref::make(
-    //         ir::Var::make(ir::Ptr_t::make(concretized_type), device))));
-    // } else {
-    stmts.push_back(ir::Return::make(tree));
-    // }
+    stmts.push_back(ir::Return::make(std::move(st)));
 
     std::vector<ir::Argument> args = {
         ir::Argument(CANONICAL_TREE, get_layout_reference_type(layout)),
