@@ -445,6 +445,7 @@ __host__ Triangles build_triangles(BVH *CT) {
         malloc(sizeof(Triangle) * ST.primitive_count));
     ST.primitives = primitives;
     ST.node = rec_build_triangles(CT, (&ST), (&primitives_index));
+    printf("BUILD COMPLETE\n");
     return ST;
 }
 
