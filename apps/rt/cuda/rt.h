@@ -368,7 +368,7 @@ __host__ cuda::std::optional<Triangle> *_traverse_array0(int64_t n, Ray *rays,
 
     cudaMallocAndCopyToDeviceRecursive(&__node, (*triangles).node);
     printf("recursive cuda malloc complete!\n");
-    c Triangles h_triangles = *triangles;
+    Triangles h_triangles = *triangles;
     h_triangles.primitives = __primitives;
     h_triangles.node = __node;
     Triangles *d_triangles;
