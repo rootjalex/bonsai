@@ -6,7 +6,7 @@ APPLICATION="rt"
 TARGET="cuda"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
+LAYOUTS=("pbrt")
 OBJECTS=("power-plant" "hairball")
 N="${1:-14}" # drop lowest 2 and highest 2 runs in processing
 HIT_RATIO="${2:-75}" # n%, e.g., 75% is the default
@@ -31,6 +31,10 @@ fi
 # Save a set of random rays.
 clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
 
+# Delete previous data.
+rm -f -r ${DATA_PATH}
+mkdir ${DATA_PATH}
+
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
   for OBJECT in "${OBJECTS[@]}"; do
@@ -45,10 +49,6 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
     fi
   done
 done
-
-# Delete previous data.
-rm -f -r ${DATA_PATH}
-mkdir ${DATA_PATH}
 
 # Install python dependencies for data processing.
 pip install -r ${KERNEL_PATH}/requirements.txt
