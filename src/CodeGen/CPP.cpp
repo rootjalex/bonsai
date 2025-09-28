@@ -1162,13 +1162,14 @@ class BonsaiToCpp : ir::Printer {
                 ss << ";\n";
                 return;
             }
-        case ir::Allocate::Memory::Heap:
             if (base_type.is<ir::Ptr_t>()) {
                 ss << " = new ";
                 emit_type(ss, base_type.element_of());
                 ss << "();\n";
                 return;
             }
+            break;
+        case ir::Allocate::Memory::Heap:
             if (base_type.is_iterable()) {
                 ss << " = ";
                 ss << "reinterpret_cast<";

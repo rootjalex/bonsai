@@ -1125,6 +1125,14 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ';' << '\n';
             return;
         }
+        if (type.is<ir::Ptr_t>()) {
+            type->accept(this);
+            os << ' ' << b;
+            os << " = new ";
+            type.element_of().accept(this);
+            os << "();\n";
+            return;
+        }
         if (const auto *array_type = type.as<Array_t>()) {
             // <type> <name>[<size>];
             array_type->etype.accept(this);
@@ -1155,7 +1163,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
         }
         os << ';' << '\n';
         return;
-    }
+    } break;
     case Allocate::Memory::Heap: {
         os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
@@ -1183,7 +1191,6 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             array_t->etype.accept(this);
             os << ')' << ')' << ';' << '\n';
             return;
-            return;
         }
         if (const auto *dyn_array_t = type.as<DynArray_t>()) {
             type.accept(this);
@@ -1196,13 +1203,11 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             }
             return;
         }
-        internal_error << "[unimplemented] Allocate CUDA codegen: "
-                       << Stmt(node);
-    }
+    } break;
     case Allocate::Memory::Device: {
         emit_to_device(node);
         return;
-    }
+    } break;
     case Allocate::Memory::Host: {
         os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
@@ -1220,10 +1225,9 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ')' << ')' << ';' << '\n';
             return;
         }
-        internal_error << "[unimplemented] Allocate CUDA codegen: "
-                       << Stmt(node);
+    } break;
     }
-    }
+    internal_error << "[unimplemented] Allocate CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
