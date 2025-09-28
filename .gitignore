@@ -12,6 +12,10 @@ license.txt
 copyright.txt
 textures
 
+# benchmarks
+apps/rt/cpu/results/*
+apps/rt/cuda/results/*
+
 # Precompiled Headers
 *.gch
 *.pch

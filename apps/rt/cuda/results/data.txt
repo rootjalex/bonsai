@@ -1,2 +1,0 @@
-power-plant
-rt, cuda, pbrt
