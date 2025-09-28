@@ -7,8 +7,8 @@ TARGET="cuda"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
-OBJECTS=("hairball") # ("power-plant" "hairball")
-N="${1:-5}" # drop lowest 2 and highest 2 runs in processing
+OBJECTS=("power-plant" "hairball")
+N="${1:-14}" # drop lowest 2 and highest 2 runs in processing
 HIT_RATIO="${2:-75}" # n%, e.g., 75% is the default
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
@@ -16,7 +16,7 @@ DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
 MIN_POWER=16
-MAX_POWER=16 # 20 # these should be aligned with the C++ file
+MAX_POWER=20 # these should be aligned with the C++ file
 RAY_COUNTS=()
 for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
     RAY_COUNTS+=($((2**p)))

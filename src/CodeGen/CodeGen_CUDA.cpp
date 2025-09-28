@@ -309,7 +309,7 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     os << get_indent();
     os << "struct" << ' ';
     if (std::optional<int64_t> alignment = node->alignment) {
-        os << " alignas(" << *alignment << ") ";
+        os << "alignas(" << *alignment << ") ";
     }
     os << name << ' ' << '{' << '\n';
     ScopedValue<bool> _(is_declaration, false);

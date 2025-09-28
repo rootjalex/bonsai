@@ -72,7 +72,7 @@ struct Arm_Leaf {
   uint32_t poffset;
 } __attribute__((packed));
 
-struct Nodes {
+struct alignas(32) Nodes {
   float3 low;
   float3 high;
   uint16_t nprims;
@@ -325,16 +325,7 @@ __host__ Triangles build_triangles(BVH* CT) {
   Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
-  Triangle* __primitives;
-  cudaMallocAndCopyToDevice((void**)&__primitives, ST.primitives, (*ST).primitive_count * sizeof(Triangle));
-  Nodes* __nodes;
-  cudaMallocAndCopyToDevice((void**)&__nodes, ST.nodes, (*ST).node_count * sizeof(Nodes));
-  Triangles h_ST = ST;
-  h_ST.primitives = __primitives;
-  h_ST.nodes = __nodes;
-  Triangles* d_ST;
-  cudaMallocAndCopyToDevice((void**)&d_ST, &h_ST, sizeof(Triangles));
-  return (*d_ST);
+  return ST;
 }
 
 __host__ cuda::std::optional<Triangle> trace(Ray* ray, Triangles* triangles) {
