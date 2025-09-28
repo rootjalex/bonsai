@@ -390,7 +390,7 @@ void run_test(const std::string &object) {
             std::vector<Ray> r = load_rays_binary(ray_file, ray_count);
             assert(!r.empty());
             rays = reinterpret_cast<Ray *>(malloc(sizeof(Ray) * ray_count));
-            std::copy(r.begin(), r.end(), data);
+            std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
 

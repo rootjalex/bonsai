@@ -39,6 +39,13 @@ using namespace ir;
 
 namespace {
 
+std::string compilerfy_name(std::string name) {
+    if (name.starts_with("d_")) {
+        return name;
+    }
+    return "__" + name;
+}
+
 // Capitalizes the first letter of `name`.
 void capitalize_first(std::string &name) {
     if (!name.empty() && std::isalpha(name.front())) {
@@ -893,7 +900,7 @@ void CodeGen_CUDA::free_host_memory() {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
         for (const auto &[name, type] : device_allocated) {
-            frees.push_back(Free::make(Var::make(type, "__" + name)));
+            frees.push_back(Free::make(Var::make(type, compilerfy_name(name))));
         }
         device_allocated.clear();
         for (const Stmt &free : frees) {
@@ -955,7 +962,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     // Then copy all the recently device-allocated members.
     for (const auto &[name, type] : types) {
         os << get_indent() << copy << '.' << name << ' ';
-        os << '=' << ' ' << "__" + name << ';' << '\n';
+        os << '=' << ' ' << compilerfy_name(name) << ';' << '\n';
     }
     // Finally, emit the base struct.
     emit_to_device(base, type, Var::make(type, copy));
@@ -996,10 +1003,10 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
         << "[unimplemented] array with pointers: " << array_t;
     os << get_indent();
     array_t->accept(this);
-    os << ' ' << "__" + base << ';' << '\n';
+    os << ' ' << compilerfy_name(base) << ';' << '\n';
     os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-    os << '(' << "void" << '*' << '*' << ')' << '&' << "__" + base << ','
-       << ' ';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << compilerfy_name(base)
+       << ',' << ' ';
     internal_assert(value.defined())
         << "allocation to device expects a value (what is copied)";
     value.accept(this);
