@@ -5,6 +5,7 @@
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
 
+#include <stdint.h>
 #include <variant>
 
 struct Interior;
@@ -18,8 +19,8 @@ struct AABB {
 
 struct DOP14 {
   uint8_t early_exit;
-  universal::thrust::vector<float, 7> low;
-  universal::thrust::vector<float, 7> high;
+  cuda::std::array<float, 7> low;
+  cuda::std::array<float, 7> high;
 };
 
 struct FInterval {
@@ -28,8 +29,8 @@ struct FInterval {
 };
 
 struct Interior {
-  universal::thrust::vector<float, 7> lo;
-  universal::thrust::vector<float, 7> hi;
+  cuda::std::array<float, 7> lo;
+  cuda::std::array<float, 7> hi;
   uint8_t ee;
   BVH* left;
   BVH* right;
@@ -42,8 +43,8 @@ struct Triangle {
 };
 
 struct Leaf {
-  universal::thrust::vector<float, 7> lo;
-  universal::thrust::vector<float, 7> hi;
+  cuda::std::array<float, 7> lo;
+  cuda::std::array<float, 7> hi;
   uint8_t ee;
   uint8_t leaf_size;
   Triangle* data;
@@ -103,14 +104,14 @@ struct Triangles {
   Nodes* nodes;
 } __attribute__((packed));
 
-__device__ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
+__host__ float __prod_diff_f32(float a, float b, float c, float d) {
   float cd = (c * d);
   float diff = fmaf(a, b, -cd);
   float err = fmaf(-c, d, cd);
   return (diff + err);
 }
 
-__device__ __host__ FInterval clip(Ray* r, float tmin, float tmax, float3 normal, float d_low, float d_high) {
+__host__ FInterval clip(Ray* r, float tmin, float tmax, float3 normal, float d_low, float d_high) {
   float _t1 = dot((*r).d, normal);
   float _t3 = dot((*r).o, normal);
   float _t5 = ((d_low - _t3) / _t1);
@@ -120,12 +121,12 @@ __device__ __host__ FInterval clip(Ray* r, float tmin, float tmax, float3 normal
   return FInterval{new_tmin, new_tmax};
 }
 
-__device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_dop14(Ray* r, DOP14* d) {
+__host__ cuda::std::optional<FInterval> intersectsp_ray_dop14(Ray* r, DOP14* d) {
   float3 _t1 = (make_float3(1) / (*r).d);
   bool3 dirIsNeg = (_t1 < make_float3(0));
-  universal::thrust::vector<float, 7> _t2 = (*d).low;
+  cuda::std::array<float, 7> _t2 = (*d).low;
   float3 b_low = float3{_t2[0], _t2[1], _t2[2]};
-  universal::thrust::vector<float, 7> _t5 = (*d).high;
+  cuda::std::array<float, 7> _t5 = (*d).high;
   float3 b_high = float3{_t5[0], _t5[1], _t5[2]};
   float3 low_parts = make_float3((dirIsNeg.x ? b_high.x : b_low.x),(dirIsNeg.y ? b_high.y : b_low.y),(dirIsNeg.z ? b_high.z : b_low.z));
   float3 high_parts = make_float3((dirIsNeg.x ? b_low.x : b_high.x),(dirIsNeg.y ? b_low.y : b_high.y),(dirIsNeg.z ? b_low.z : b_high.z));
@@ -162,7 +163,7 @@ __device__ __host__ cuda::std::optional<FInterval> intersectsp_ray_dop14(Ray* r,
   return n6;
 }
 
-__device__ __host__ float distmin_Ray_DOP14(Ray* r, DOP14* b) {
+__host__ float distmin_Ray_DOP14(Ray* r, DOP14* b) {
   cuda::std::optional<FInterval> interval = intersectsp_ray_dop14(r, b);
   if (interval.has_value()) {
     FInterval extract = *interval;
@@ -171,7 +172,7 @@ __device__ __host__ float distmin_Ray_DOP14(Ray* r, DOP14* b) {
   return -INFINITY;
 }
 
-__device__ __host__ float3 cross_(float3 v0, float3 v1) {
+__host__ float3 cross_(float3 v0, float3 v1) {
   float _t0 = v0.y;
   float _t1 = v1.z;
   float _t2 = v0.z;
@@ -181,12 +182,12 @@ __device__ __host__ float3 cross_(float3 v0, float3 v1) {
   return float3{__prod_diff_f32(_t0, _t1, _t2, _t3), __prod_diff_f32(_t2, _t5, _t6, _t1), __prod_diff_f32(_t6, _t3, _t0, _t5)};
 }
 
-__device__ __host__ float gamma(int32_t n) {
+__host__ float gamma(int32_t n) {
   float _t1 = ((float)n * (float)5.96046e-08);
   return (_t1 / (1 - _t1));
 }
 
-__device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tri(Ray* ray, Triangle* tri) {
+__host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tri(Ray* ray, Triangle* tri) {
   float3 _t0 = (*tri).p2;
   float3 _t1 = (*tri).p0;
   float3 _t2 = (*tri).p1;
@@ -260,7 +261,7 @@ __device__ __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tr
   return TriangleIntersection{b0, b1, b2, t};
 }
 
-__device__ __host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
+__host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
   cuda::std::optional<TriangleIntersection> isect = intersectsp_ray_tri(ray, tri);
   if (isect.has_value()) {
     TriangleIntersection isect_ = *isect;
@@ -270,7 +271,7 @@ __device__ __host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
   }
 }
 
-__device__ __host__ bool intersects_Ray_DOP14(Ray* r, DOP14* d) {
+__host__ bool intersects_Ray_DOP14(Ray* r, DOP14* d) {
   cuda::std::optional<FInterval> interval = intersectsp_ray_dop14(r, d);
   if (interval.has_value()) {
     FInterval extract = *interval;
@@ -279,14 +280,14 @@ __device__ __host__ bool intersects_Ray_DOP14(Ray* r, DOP14* d) {
   return false;
 }
 
-__device__ __host__ void _recloop_func0(uint32_t index, Triangles* triangles, Ray* ray, cuda::std::tuple<float, Triangle>* _best0) {
+__host__ void _recloop_func0(uint32_t index, Triangles* triangles, Ray* ray, cuda::std::tuple<float, Triangle>* _best0) {
   Nodes _t94 = (*triangles).nodes[index];
   float3 _t98 = _t94.lo1;
   Dop36 _t109 = (*triangles).dop36[index];
   float4 _t110 = _t109.lo2;
   float3 _t127 = _t94.hi1;
   float4 _t139 = _t109.hi2;
-  DOP14 _t154 = DOP14{_t94.ee, universal::thrust::vector<float, 7>{_t98.x, _t98.y, _t98.z, _t110.x, _t110.y, _t110.z, _t110.w}, universal::thrust::vector<float, 7>{_t127.x, _t127.y, _t127.z, _t139.x, _t139.y, _t139.z, _t139.w}};
+  DOP14 _t154 = DOP14{_t94.ee, cuda::std::array<float, 7>{_t98.x, _t98.y, _t98.z, _t110.x, _t110.y, _t110.z, _t110.w}, cuda::std::array<float, 7>{_t127.x, _t127.y, _t127.z, _t139.x, _t139.y, _t139.z, _t139.w}};
   if (intersects_Ray_DOP14(ray, (&_t154))) {
     if (distmin_Ray_DOP14(ray, (&_t154)) < cuda::std::get<0>((*_best0))) {
       if (_t94.is_leaf_flag == 0u) {
@@ -310,15 +311,15 @@ __device__ __host__ void _recloop_func0(uint32_t index, Triangles* triangles, Ra
   return;
 }
 
-__device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* triangles) {
+__host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* triangles) {
   cuda::std::tuple<float, Triangle> _best0 = cuda::std::tuple<float, Triangle>{INFINITY, Triangle{}};
   _recloop_func0(0u, triangles, ray, (&_best0));
   return ((cuda::std::get<0>(_best0) != INFINITY) ? cuda::std::optional<Triangle>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
 }
 
-__device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
-    if (std::holds_alternative<const Interior&>(*node)) {
-      const Interior& node = std::get<const Interior&>(*node);
+__host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].lo1 = float3{node.lo[0], node.lo[1], node.lo[2]};
@@ -333,8 +334,8 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_
       (*ST).nodes[this_index].right = right_index;
       return this_index;
     }
-    else if (std::holds_alternative<const Leaf&>(*node)) {
-      const Leaf& node = std::get<const Leaf&>(*node);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].is_leaf_flag = 1;
@@ -348,15 +349,15 @@ __device__ __host__ uint32_t rec_build_triangles(BVH* node, Triangles* ST, size_
     }
 }
 
-__device__ __host__ void rec_count_triangles(BVH* node, Triangles* ST) {
-    if (std::holds_alternative<const Interior&>(*node)) {
-      const Interior& node = std::get<const Interior&>(*node);
+__host__ void rec_count_triangles(BVH* node_, Triangles* ST) {
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       rec_count_triangles(node.left, ST);
       rec_count_triangles(node.right, ST);
       (*ST).node_count += 1u;
     }
-    else if (std::holds_alternative<const Leaf&>(*node)) {
-      const Leaf& node = std::get<const Leaf&>(*node);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       (*ST).primitive_count += node.leaf_size;
       (*ST).node_count += 1u;
     }
@@ -366,15 +367,15 @@ __host__ Triangles build_triangles(BVH* CT) {
   Triangles ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;
+  ST.primitive_count = 0u;
+  ST.node_count = 0u;
+  ST.node_count = 0u;
   rec_count_triangles(CT, (&ST));
-  Triangle* primitives;
-  (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Triangle));
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Dop36* dop36;
-  (void)cudaMalloc((void**)&dop36, ST.node_count * sizeof(Dop36));
+  Dop36* dop36 = reinterpret_cast<Dop36*>(malloc(sizeof(Dop36) * ST.node_count));
   ST.dop36 = dop36;
-  Nodes* nodes;
-  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(Nodes));
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;

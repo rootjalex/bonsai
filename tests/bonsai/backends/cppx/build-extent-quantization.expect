@@ -234,6 +234,8 @@ Spheres build_spheres(const BVH* __restrict__ CT) {
   Spheres ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;
+  ST.primitive_count = 0;
+  ST.node_count = 0;
   rec_count_spheres(CT, (&ST));
   Sphere* primitives = reinterpret_cast<Sphere*>(malloc(sizeof(Sphere) * ST.primitive_count));
   ST.primitives = primitives;

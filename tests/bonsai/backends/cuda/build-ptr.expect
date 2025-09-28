@@ -5,6 +5,7 @@
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
 
+#include <stdint.h>
 #include <variant>
 
 struct Interior;
@@ -64,6 +65,7 @@ struct TriangleIntersection {
   float t;
 };
 
+struct Node;
 struct Arm_Interior {
   Node* left;
   Node* right;
@@ -79,7 +81,7 @@ struct Node {
   uint16_t nprims;
   uint8_t axis;
   uint8_t pad0;
-  cuda::std::array<uchar, 16> split0on_nprims;
+  cuda::std::array<uint8_t, 16> split0on_nprims;
 } __attribute__((packed));
 
 struct Triangles {
@@ -270,7 +272,7 @@ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* tria
 __host__ Node* rec_build_triangles(BVH* node_, Triangles* ST, size_t* primitives_index) {
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
-      Node* this_index;
+      Node* this_index = new Node();
       (*this_index).low = node.low;
       (*this_index).high = node.high;
       (*this_index).nprims = 0;
@@ -283,7 +285,7 @@ __host__ Node* rec_build_triangles(BVH* node_, Triangles* ST, size_t* primitives
     }
     else if (std::holds_alternative<Leaf>(*node_)) {
       const Leaf& node = std::get<Leaf>(*node_);
-      Node* this_index;
+      Node* this_index = new Node();
       (*this_index).low = node.low;
       (*this_index).high = node.high;
       (*this_index).nprims = node.nprims;

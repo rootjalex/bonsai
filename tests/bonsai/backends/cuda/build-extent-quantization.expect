@@ -5,6 +5,7 @@
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
 
+#include <stdint.h>
 #include <variant>
 
 struct Interior;
@@ -91,20 +92,20 @@ struct Spheres {
   Nodes* nodes;
 } __attribute__((packed));
 
-__device__ __host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
+__host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
   float3 low = max((*a).low, (*b).low);
   float3 high = min((*a).high, (*b).high);
   return reduce_and((low <= high));
 }
 
-__device__ __host__ bool intersects_AABB_Sphere(AABB* a, Sphere* s) {
+__host__ bool intersects_AABB_Sphere(AABB* a, Sphere* s) {
   float3 _t1 = (*s).center;
   float3 _t6 = (_t1 - max((*a).low, min(_t1, (*a).high)));
   float _t7 = (*s).radius;
   return (dot(_t6, _t6) <= (_t7 * _t7));
 }
 
-__device__ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
+__host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
   Nodes _t24 = (*spheres).nodes[index];
   float3 _t25 = (*spheres).bins;
   AABB _lv0 = AABB{__fadd_rd((*spheres).wlow, float3{__fmul_rd((float)(_t24.q_min >> 20) & 1023, _t25.x), __fmul_rd((float)(_t24.q_min >> 10) & 1023, _t25.y), __fmul_rd((float)(_t24.q_min >> 0) & 1023, _t25.z)}), __fsub_ru((*spheres).whigh, float3{__fmul_rd((float)(_t24.q_max >> 20) & 1023, _t25.x), __fmul_rd((float)(_t24.q_max >> 10) & 1023, _t25.y), __fmul_rd((float)(_t24.q_max >> 0) & 1023, _t25.z)})};
@@ -126,34 +127,34 @@ __device__ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* 
   return;
 }
 
-__device__ __host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* spheres) {
+__host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* spheres) {
   thrust::universal_vector<Sphere> _dyn_alloc;
   _dyn_alloc.reserve(16);
   _recloop_func0(0u, spheres, a, _dyn_alloc);
   return _dyn_alloc;
 }
 
-__device__ __host__ float3 build_bins_inverse(float3 low, float3 high) {
+__host__ float3 build_bins_inverse(float3 low, float3 high) {
   float3 L1 = float3{__fsub_ru(high.x, low.x), __fsub_ru(high.y, low.y), __fsub_ru(high.z, low.z)};
   float3 L2 = make_float3(((L1 <= make_float3(0)).x ? make_float3(1).x : L1.x),((L1 <= make_float3(0)).y ? make_float3(1).y : L1.y),((L1 <= make_float3(0)).z ? make_float3(1).z : L1.z));
   return float3{__fdiv_rd((float)1023, L2.x), __fdiv_rd((float)1023, L2.y), __fdiv_rd((float)1023, L2.z)};
 }
 
-__device__ __host__ float3 build_bins(float3 low, float3 high) {
+__host__ float3 build_bins(float3 low, float3 high) {
   float3 bins_inverse = build_bins_inverse(low, high);
   return float3{__frcp_rd(bins_inverse.x), __frcp_rd(bins_inverse.y), __frcp_rd(bins_inverse.z)};
 }
 
-__device__ __host__ int32_t quantize(float3 current, float3 world, float3 bin_inverse) {
+__host__ int32_t quantize(float3 current, float3 world, float3 bin_inverse) {
   uint32_t x = (uint32_t)floorf(__fmul_rd(__fsub_rd(current.x, world.x), bin_inverse.x));
   uint32_t y = (uint32_t)floorf(__fmul_rd(__fsub_rd(current.y, world.y), bin_inverse.y));
   uint32_t z = (uint32_t)floorf(__fmul_rd(__fsub_rd(current.z, world.z), bin_inverse.z));
   return (int32_t)(((x << 20u) | (y << 10u)) | z);
 }
 
-__device__ __host__ uint32_t rec_build_spheres(BVH* node, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
-    if (std::holds_alternative<const Interior&>(*node)) {
-      const Interior& node = std::get<const Interior&>(*node);
+__host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       if (this_index == 0) {
@@ -170,8 +171,8 @@ __device__ __host__ uint32_t rec_build_spheres(BVH* node, Spheres* ST, size_t* n
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     }
-    else if (std::holds_alternative<const Leaf&>(*node)) {
-      const Leaf& node = std::get<const Leaf&>(*node);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
       (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
@@ -186,15 +187,15 @@ __device__ __host__ uint32_t rec_build_spheres(BVH* node, Spheres* ST, size_t* n
     }
 }
 
-__device__ __host__ void rec_count_spheres(BVH* node, Spheres* ST) {
-    if (std::holds_alternative<const Interior&>(*node)) {
-      const Interior& node = std::get<const Interior&>(*node);
+__host__ void rec_count_spheres(BVH* node_, Spheres* ST) {
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
       rec_count_spheres(node.left, ST);
       rec_count_spheres(node.right, ST);
       (*ST).node_count += 1u;
     }
-    else if (std::holds_alternative<const Leaf&>(*node)) {
-      const Leaf& node = std::get<const Leaf&>(*node);
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
       (*ST).node_count += 1u;
     }
 }
@@ -203,12 +204,12 @@ __host__ Spheres build_spheres(BVH* CT) {
   Spheres ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;
+  ST.primitive_count = 0u;
+  ST.node_count = 0u;
   rec_count_spheres(CT, (&ST));
-  Sphere* primitives;
-  (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Sphere));
+  Sphere* primitives = reinterpret_cast<Sphere*>(malloc(sizeof(Sphere) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes;
-  (void)cudaMalloc((void**)&nodes, ST.node_count * sizeof(Nodes));
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;

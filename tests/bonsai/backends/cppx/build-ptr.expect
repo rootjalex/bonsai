@@ -333,6 +333,7 @@ void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ S
 Triangles build_triangles(const BVH* __restrict__ CT) {
   Triangles ST;
   size_t primitives_index = 0;
+  ST.primitive_count = 0;
   rec_count_triangles(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;

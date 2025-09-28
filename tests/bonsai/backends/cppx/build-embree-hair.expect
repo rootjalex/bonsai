@@ -515,6 +515,7 @@ Triangles build_triangles(const BVH* __restrict__ CT) {
   size_t primitives_index = 0;
   size_t size_AABBs = 0;
   size_t size_OBBs = 0;
+  ST.primitive_count = 0;
   rec_count_triangles(CT, (&ST), (&size_AABBs), (&size_OBBs));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
