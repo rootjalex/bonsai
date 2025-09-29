@@ -371,6 +371,8 @@ class BonsaiToCpp : ir::Printer {
                     }
                 }
             }
+        } else if (const Set_t *set_t = type.as<Set_t>()) {
+            get_declared_types(set_t->etype, deduplicate, types);
         }
     }
 

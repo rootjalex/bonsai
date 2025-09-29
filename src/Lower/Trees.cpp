@@ -717,6 +717,9 @@ struct LowerBVH : public ir::Mutator {
                 func_args.emplace_back(var.name, var.type);
             }
         }
+        if (trees.empty()) {
+            return expr;
+        }
         // TODO(ajr): relax this, when we lower trees before arrays.
         internal_assert(!trees.empty())
             << "Lowering of: " << expr << " does not contain any tree types.";
