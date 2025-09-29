@@ -6,7 +6,7 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("qbvh8" "bvh8")
+LAYOUTS=("bvh8-align32" "qbvh8-align32" "qbvh8" "bvh8")
 OBJECTS=("power-plant" "hairball")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
@@ -72,7 +72,19 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 2. Lower to C++.
     ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
     # 3. Compile the lowered C++.
-    clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_trace_8.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
+    COMMON_FLAGS="-std=c++20 -O3 -I. -Iapps/${APPLICATION} -Iruntime/CPP"
+
+    # Generate LLVM IR for combined sources
+    clang++ ${COMMON_FLAGS} -S -emit-llvm ${PREFIX}/main_trace_8.cpp ${PREFIX}/${APPLICATION}.cpp
+    cat main_trace_8.ll ${APPLICATION}.ll > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.ll
+
+    # Generate assembly for combined sources
+    clang++ ${COMMON_FLAGS} -S ${PREFIX}/main_trace_8.cpp ${PREFIX}/${APPLICATION}.cpp
+    cat main_trace_8.s ${APPLICATION}.s > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.asm
+
+    # Compile executable
+    clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_trace_8.cpp ${PREFIX}/${APPLICATION}.cpp
+
     # 4. Run it.
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
     COMMAND="./${EXECUTABLE} ${OBJECT}"

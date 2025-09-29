@@ -2697,9 +2697,17 @@ struct Parser {
             }
             ir::Expr size, alignment;
             if (consume(Token::Type::LBRACKET)) {
-                size = parse_expr();
-                if (consume(Token::Type::COMMA)) {
+                // [align:<N>]
+                if (peek_type() == Token::Type::IDENTIFIER) {
+                    internal_assert(get_id() == "align");
+                    expect(Token::Type::COL);
                     alignment = parse_expr();
+                } else {
+                    // Otherwise, this is `[<M>, <N>]`
+                    size = parse_expr();
+                    if (consume(Token::Type::COMMA)) {
+                        alignment = parse_expr();
+                    }
                 }
                 expect(Token::Type::RBRACKET);
             }
