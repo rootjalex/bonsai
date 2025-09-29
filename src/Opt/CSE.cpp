@@ -95,6 +95,13 @@ class RenameAnalysis : public ir::Visitor {
         substitute(node->value).accept(this);
     }
 
+    void visit(const ir::Slice *node) override {
+        update_count(node);
+        substitute(node->value).accept(this);
+        substitute(node->begin).accept(this);
+        substitute(node->end).accept(this);
+    }
+
     void visit(const ir::Build *node) override {
         update_count(node);
         for (const ir::Expr &v : node->values) {
@@ -386,6 +393,21 @@ struct Rename : public ir::Mutator {
         return ir::Var::make(node->type, location.base());
     }
 
+    ir::Expr visit(const ir::Slice *node) override {
+        const bool rename = should_rename(node);
+        ir::Expr value = mutate(node->value);
+        ir::Expr begin = mutate(node->begin);
+        ir::Expr end = mutate(node->end);
+        ir::Expr slice =
+            ir::Slice::make(std::move(value), std::move(begin), std::move(end));
+        if (!rename) {
+            return slice;
+        }
+        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
+        stmts.push_back(ir::LetStmt::make(location, std::move(slice)));
+        return ir::Var::make(node->type, location.base());
+    }
+
     ir::Expr visit(const ir::Build *node) override {
         const bool rename = should_rename(node);
         std::vector<ir::Expr> values;
@@ -451,6 +473,10 @@ struct Rename : public ir::Mutator {
     bool is_simple(const ir::Expr &e) {
         if (is_trivial(e)) {
             return true;
+        }
+        if (const auto *slice = e.as<ir::Slice>()) {
+            return is_simple(slice->value) && is_trivial(slice->begin) &&
+                   is_trivial(slice->end);
         }
         if (const auto *unop = e.as<ir::UnOp>()) {
             return is_trivial(unop->a);

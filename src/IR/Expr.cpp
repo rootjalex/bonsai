@@ -261,8 +261,10 @@ void try_match_types(Expr &a, Expr &b) {
         if (equals(a.type(), b.type())) {
             return;
         }
-        if (a.type().is<Ref_t>() || b.type().is<Ref_t>()) {
-            return; // For the build language.
+        // TODO(cgyurgyik): hot fix
+        if (a.type().is<Ref_t, BVH_t, Ptr_t>() ||
+            b.type().is<Ref_t, BVH_t, Ptr_t>()) {
+            return; // ... for the build language.
         }
         if (a.type().is<Option_t>() && b.type().is_bool()) {
             a = Cast::make(Bool_t::make(), a);
@@ -304,6 +306,9 @@ void try_match_types(Expr &a, Expr &b) {
             a = cast_to(b.type(), a);
             return;
         }
+        if (a.type().is<ir::Ptr_t>()) {
+            return;
+        }
         internal_error << "[unexpected] unsure how to cast " << a << " : "
                        << a.type() << " to " << b << " : " << b.type();
     } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
@@ -324,14 +329,19 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
         << "BinOp of undefined: " << a << to_string(op) << b;
 
     BinOp *node = new BinOp;
-
     try_match_types(a, b);
 
     const bool infer_types = type_enforcement_enabled() ||
                              (a.type().defined() && b.type().defined());
-    if (infer_types) {
-        // TODO(cgyurgyik): for the build language.
-        internal_assert(a.type().is<Ref_t>() || equals(a.type(), b.type()))
+    // TODO(cgyurgyik): hot fix for the build language / nullptr.
+    if (a.type().is<Ref_t, BVH_t, Ptr_t>() &&
+        b.type().is<Ref_t, BVH_t, Ptr_t>()) {
+        node->type = ir::Bool_t::make();
+    } else if (a.type().is<Ref_t, BVH_t, Ptr_t>() &&
+               !equals(a.type(), b.type())) {
+        node->type = b.type();
+    } else if (infer_types) {
+        internal_assert(equals(a.type(), b.type()))
             << "BinOp of mismatched types: " << a << " : " << a.type() << " "
             << to_string(op) << " " << b << " : " << b.type();
 
@@ -351,13 +361,10 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
                 node->type = a.type();
             }
         } else {
-            // TODO(cgyurgyik): for build language
-            internal_assert(a.type().is_numeric() || a.type().is_bool() ||
-                            a.type().is<Ref_t>())
+            internal_assert(a.type().is_numeric() || a.type().is_bool())
                 << "BinOp of non-number or boolean types: " << a << " : "
                 << a.type() << " " << to_string(op) << " " << b << " : "
                 << b.type();
-
             if (BinOp::is_numeric_op(op)) {
                 node->type = a.type();
             } else if (BinOp::is_boolean_op(op)) {
@@ -383,15 +390,22 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
-            internal_assert(is_valid_logical_operation(a.type())) << a.type();
-            if (a.type().is<Option_t>()) {
-                a = Cast::make(Bool_t::make(), a);
+            if (a.type().is<Ref_t, Ptr_t>()) {
+                node->type = ir::Bool_t::make(); // nullptr check
+            } else {
+                internal_assert(is_valid_logical_operation(a.type()))
+                    << a.type();
+                if (a.type().is<Option_t>()) {
+                    a = Cast::make(Bool_t::make(), a);
+                }
+                // not on only integers and boolean? what does not of float mean
+                internal_assert(a.type().is_int_or_uint() || a.type().is_bool())
+                    << "Cannot not non-([u]int | bool): " << to_string(op) << a;
+                node->type = a.type();
             }
-            // not on only integers and boolean? what does not of float mean
-            internal_assert(a.type().is_int_or_uint() || a.type().is_bool())
-                << "Cannot not non-([u]int | bool): " << to_string(op) << a;
-            node->type = a.type();
+
         } else {
+            internal_assert(op == UnOp::Neg);
             // Must be signed int or float?
             internal_assert(a.type().is_float() || a.type().is_int())
                 << "Cannot negate non-(int | float): " << to_string(op) << a;

@@ -108,6 +108,8 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
     } else if (t.is<ir::Vector_t>()) {
         ir::Expr r = make_const(t.as<ir::Vector_t>()->etype, v);
         return ir::Broadcast::make(t.as<ir::Vector_t>()->lanes, std::move(r));
+    } else if (t.is<ir::Ref_t, ir::Ptr_t>() && v == T{}) {
+        return ir::Var::make(t, "nullptr");
     } else {
         internal_error
             << "make_const does not know how to build constant of type: " << t

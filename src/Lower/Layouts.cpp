@@ -951,6 +951,7 @@ ir::Expr flatten_tuple(ir::Expr expr,
             return;
         }
         if (const ir::Var *var = t.as<ir::Var>()) {
+
             if (const auto &iter = references.find(var->name);
                 iter != references.cend()) {
                 handle_tuple(iter->second);
@@ -1106,7 +1107,19 @@ struct LowerMatches : public ir::Mutator {
         const ir::Layout &layout = get_layout(tree_name);
         std::set<std::string> parents = layout.tree_carried_dependencies();
         RemoveTreeCarriedDependencies rtcd(parents, index_list);
-        body = rtcd.mutate(std::move(body));
+        std::vector<ir::Stmt> statements;
+        for (const ir::Argument &index : index_list) {
+            ir::Expr v = ir::Var::make(index.type, index.name);
+            ir::Expr is_sentinel =
+                index.type.is<ir::Ptr_t>()
+                    ? ir::UnOp::make(ir::UnOp::OpType::Not, v)
+                    : v == make_all_ones(index.type);
+            statements.push_back(
+                ir::IfElse::make(std::move(is_sentinel), ir::Return::make()));
+        }
+        statements.push_back(std::move(body));
+        body =
+            rtcd.mutate(std::move(ir::Sequence::make(std::move(statements))));
         return ir::RecLoop::make(std::move(index_list), std::move(body));
     }
 
@@ -1294,7 +1307,11 @@ struct LowerMatches : public ir::Mutator {
 std::map<std::string, ir::Member> get_group_map(const ir::Layout &layout) {
     struct GetGroupMap : ir::Visitor {
         void visit(const ir::Group *node) override {
-            const auto [_, inserted] = map.insert({node->name, node});
+            std::string name = node->name;
+            if (node->type == ir::Group::Type::Indirect) {
+                name.front() = std::toupper(name.front());
+            }
+            const auto [_, inserted] = map.insert({std::move(name), node});
             internal_assert(inserted)
                 << "unexpected duplicate group name: " << node->name;
 
@@ -1307,6 +1324,39 @@ std::map<std::string, ir::Member> get_group_map(const ir::Layout &layout) {
     GetGroupMap ggm;
     layout.body.accept(&ggm);
     return ggm.map;
+}
+
+ir::Stmt replace_sentinel(const ir::Stmt &body, const ir::LayoutMap &map) {
+    struct Replace : public ir::Mutator {
+        const ir::LayoutMap &map;
+        Replace(const ir::LayoutMap &map) : map(map) {}
+
+        ir::Expr visit(const ir::BinOp *node) override {
+            const ir::Expr &a = node->a;
+            const ir::Expr &b = node->b;
+            if (!(a.is<ir::Var>() && b.is<ir::Var>())) {
+                return node;
+            }
+
+            const auto *av = a.as<ir::Var>();
+            internal_assert(av) << a;
+            const auto *bv = b.as<ir::Var>();
+            internal_assert(bv) << b;
+            if (bv->name == "nullptr") {
+                const auto *bvh_t = bv->type.as<ir::BVH_t>();
+                internal_assert(bvh_t) << bv->type;
+                internal_assert(map.size() == 1);
+                const auto &[_, layout] = *map.begin();
+                ir::Expr lhs = ir::Var::make(layout.get_index_type(), av->name);
+                if (layout.get_index_type().is<ir::Ptr_t>()) {
+                    return lhs == make_zero(layout.get_index_type());
+                }
+                return lhs == make_all_ones(layout.get_index_type());
+            }
+            return node;
+        }
+    };
+    return Replace(map).mutate(body);
 }
 
 } // namespace
@@ -1367,6 +1417,7 @@ ir::Program LowerLayouts::run(ir::Program program,
             }
         }
         func->body = lower.mutate(func->body);
+        func->body = replace_sentinel(func->body, tree_layouts);
     }
     return program;
 }

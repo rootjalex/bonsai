@@ -19,6 +19,10 @@ struct GatherFreeVars : public Visitor {
     std::set<std::string> seen_vars;
 
     void visit(const Var *node) override {
+        if (node->name == "nullptr") {
+            // global variable, ignore this
+            return;
+        }
         // Function calls are not free vars.
         if (seen_vars.count(node->name) == 0 && !node->type.is_func()) {
             // Visit sizes, might be a free var

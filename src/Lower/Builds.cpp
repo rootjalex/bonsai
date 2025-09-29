@@ -534,7 +534,11 @@ class ConstructBuild : public ir::Visitor {
     }
 
     void visit(const ir::BuildReturn *node) {
-        append(ir::Return::make(node->expr));
+        ir::Expr value = node->expr;
+        if (ir::Type type = layout.get_index_type(); !type.is<ir::Ptr_t>()) {
+            value = cast_to(type, std::move(value));
+        }
+        append(ir::Return::make(std::move(value)));
         node->expr.accept(this);
     }
 
@@ -678,7 +682,6 @@ ir::Stmt construct_build_recursive_body(const ir::BuildFunction &function,
 
     std::vector<ir::Stmt> visitor_stmts = visitor.statements();
     stmts.insert(stmts.end(), visitor_stmts.begin(), visitor_stmts.end());
-
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = ConcretizeAppend(layout).mutate(std::move(sequence));
     sequence = ConcretizeVar(layout, variant, concretized_type, program)
@@ -698,7 +701,16 @@ std::shared_ptr<ir::Function> construct_build_recursive(
                                            program),
         });
     }
-    ir::Stmt body = ir::Match::make(self(layout), std::move(arms));
+    const ir::Type &type = layout.get_index_type();
+    ir::Expr is_sentinel = ir::UnOp::make(
+        ir::UnOp::OpType::Not,
+        ir::Var::make(get_layout_reference_type(layout), "node"));
+    ir::Expr value =
+        type.is<ir::Ptr_t>() ? make_zero(type) : make_all_ones(type);
+    ir::Stmt sentinel_check = ir::IfElse::make(
+        std::move(is_sentinel), ir::Return::make(std::move(value)));
+    ir::Stmt body = ir::Sequence::make(
+        {sentinel_check, ir::Match::make(self(layout), std::move(arms))});
     ir::Expr default_value;
     std::vector<ir::Argument> args = {
         ir::Argument("node", get_layout_reference_type(layout)),
@@ -877,7 +889,13 @@ std::shared_ptr<ir::Function> construct_count_recursive(
     }
 
     std::string name = get_recursive_count_function_name(layout);
-    ir::Stmt body = ir::Match::make(self(layout), std::move(arms));
+    ir::Expr is_sentinel = ir::UnOp::make(
+        ir::UnOp::OpType::Not,
+        ir::Var::make(get_layout_reference_type(layout), "node"));
+    ir::Stmt sentinel_check =
+        ir::IfElse::make(std::move(is_sentinel), ir::Return::make());
+    ir::Stmt body = ir::Sequence::make(
+        {sentinel_check, ir::Match::make(self(layout), std::move(arms))});
     std::vector<ir::Argument> args = {
         ir::Argument("node", get_layout_reference_type(layout)),
         ir::Argument(SPECIALIZED_TREE, concretized_type,
@@ -986,10 +1004,19 @@ construct_build_full(const ir::Type &concretized_type,
             if (!size.defined()) {
                 // Not all indirect groups may have a size. We write to a
                 // local variable in this case for element counting.
-                ir::WriteLoc index(size_name(member.name()),
-                                   ir::Index_t::make());
-                stack.push_back(ir::Allocate::make(index, ir::Allocate::Stack));
-                size = index.to_expr();
+                ir::Type index_t = ir::Index_t::make();
+                {
+                    ir::WriteLoc index(size_name(member.name()), index_t);
+                    stack.push_back(
+                        ir::Allocate::make(index, ir::Allocate::Stack));
+                    size = index.to_expr();
+                }
+                { // initialize the group's index.
+                    ir::WriteLoc index(get_index_name(member.name()), index_t);
+                    stack.push_back(ir::Allocate::make(
+                        index, make_zero(index_t), ir::Allocate::Stack));
+                }
+                std::string group_name = group->name;
                 ir::WriteLoc location(group->name,
                                       ir::Array_t::make(it->second, size));
                 stmts.push_back(ir::Allocate::make(location));

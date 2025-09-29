@@ -2715,6 +2715,8 @@ struct Parser {
                 break;
             }
             case ir::Group::Type::Indirect:
+                name.front() = std::tolower(name.front());
+                break;
             case ir::Group::Type::Pointer:
                 break;
             }

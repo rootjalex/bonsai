@@ -16,6 +16,13 @@ namespace ir {
 TypedVar::operator Expr() const { return Var::make(type, name); }
 
 uint32_t Type::bits() const {
+    if (auto *as_struct = this->as<Struct_t>()) {
+        uint32_t size = 0;
+        for (const auto &[_, type] : as_struct->fields) {
+            size += type.bits();
+        }
+        return size;
+    }
     if (auto *as_int = this->as<Int_t>()) {
         return as_int->bits;
     }

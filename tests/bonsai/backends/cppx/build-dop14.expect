@@ -82,6 +82,7 @@ struct Dop36 {
 using vec2_float = vector<float, 2>;
 using vec2_vec3_float = vector<vec3_float, 2>;
 using vec4_vec3_float = vector<vec3_float, 4>;
+using vec8_vec3_float = vector<vec3_float, 8>;
 using vec3_vec4_float = vector<vec4_float, 3>;
 using vec5_float = vector<float, 5>;
 using vec6_float = vector<float, 6>;
@@ -296,6 +297,9 @@ bool intersects_Ray_DOP14(const Ray* __restrict__ r, const DOP14* __restrict__ d
   return false;
 }
 void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangles, const Ray* __restrict__ ray, std::tuple<float, Triangle>* __restrict__ _best0) {
+  if (index == 4294967295) {
+    return;
+  }
   const Nodes _t94 = (*triangles).nodes[index];
   const vec3_float _t98 = _t94.lo1;
   const Dop36 _t109 = (*triangles).dop36[index];
@@ -336,6 +340,9 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
   return reduce_and(((_t3 <= vec3_float{R}) & (vec3_float{(-R)} <= _t3)));
 }
 uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
+  if ((!node)) {
+    return 4294967295;
+  }
   return std::visit(overloaded{
     [&](const Interior& node) {
       const size_t this_index = (*nodes_index);
@@ -367,6 +374,9 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
   }, *node);
 }
 void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST) {
+  if ((!node)) {
+    return;
+  }
   return std::visit(overloaded{
     [&](const Interior& node) {
       rec_count_triangles(node.left, ST);

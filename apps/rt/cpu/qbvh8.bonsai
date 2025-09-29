@@ -1,13 +1,3 @@
-//! flags: -b cppx
-
-import stdlib/distance;
-import stdlib/intersects;
-import stdlib/triangle;
-
-extern triangles : set[Triangle];
-
-func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
-
 element qbox3 {
   lo: u8x3;
   hi: u8x3;
@@ -53,14 +43,14 @@ func compute_merged_extent(lo: f32x3x8, hi: f32x3x8) -> f32x3 {
 }
 
 func to_u8_floor(f: f32x3) -> u8x3 {
-    f1: f32 = floorf(f);
-    f2: f32 = max(0.0, min(f1, 255.0));
+    f1: f32x3 = floorf(f);
+    f2: f32x3 = max(0.0, min(f1, 255.0));
     return cast[[u8x3]](f2);
 }
 
 func to_u8_ceil(f: f32x3) -> u8x3 {
-    f1: f32 = ceilf(f);
-    f2: f32 = max(0.0, min(f1, 255.0));
+    f1: f32x3 = ceilf(f);
+    f2: f32x3 = max(0.0, min(f1, 255.0));
     return cast[[u8x3]](f2);
 }
 
@@ -80,8 +70,6 @@ func quantize_bounds(low: f32x3x8, high: f32x3x8) -> qbox3x8 {
   };
 }
 
-// quantized AABB used by both Embree's "CLBVH" and Ylitie et. al. "CWBVH".
-// additionally, in "CLBVH": `| CLBVHNode(clbh_lo: f32x3x8, clbvh_hix3x8, data: array[Triangle, 32])`
 schedule {
     tree[[Triangle]] BVH 
       = Interior(children: array[BVH, 8], lo: f32x3x8, hi: f32x3x8) with AABB(lo, hi) on children

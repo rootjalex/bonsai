@@ -71,6 +71,7 @@ using vec3_bool = vector<bool, 3>;
 using vec2_float = vector<float, 2>;
 using vec2_vec3_float = vector<vec3_float, 2>;
 using vec4_vec3_float = vector<vec3_float, 4>;
+using vec8_vec3_float = vector<vec3_float, 8>;
 using vec4_float = vector<float, 4>;
 using vec3_vec4_float = vector<vec4_float, 3>;
 using vec5_float = vector<float, 5>;
@@ -257,6 +258,9 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
   return false;
 }
 void _recloop_func0(const Node* __restrict__ root, const Triangles* __restrict__ triangles, const Ray* __restrict__ ray, std::tuple<float, Triangle>* __restrict__ _best0) {
+  if ((!root)) {
+    return;
+  }
   Node * _t33 = (*triangles).node;
   const AABB _lv1 = AABB{.low=(*_t33).low, .high=(*_t33).high};
   if (intersects_Ray_AABB(ray, (&_lv1))) {
@@ -291,6 +295,9 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
   return reduce_and(((_t3 <= vec3_float{R}) & (vec3_float{(-R)} <= _t3)));
 }
 Node* __restrict__ rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ primitives_index) {
+  if ((!node)) {
+    return nullptr;
+  }
   return std::visit(overloaded{
     [&](const Interior& node) {
       Node * this_index = new Node();
@@ -320,6 +327,9 @@ Node* __restrict__ rec_build_triangles(const BVH* __restrict__ node, Triangles* 
   }, *node);
 }
 void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST) {
+  if ((!node)) {
+    return;
+  }
   return std::visit(overloaded{
     [&](const Interior& node) {
       rec_count_triangles(node.left, ST);

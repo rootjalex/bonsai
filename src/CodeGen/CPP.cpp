@@ -235,8 +235,8 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         }
 
         void visit(const IntImm *node) override { ss << node->value; }
-
-        void visit(const UIntImm *node) override { ss << node->value; }
+        void visit(const IdxImm *node) override { ss << node->value << "u"; }
+        void visit(const UIntImm *node) override { ss << node->value << "u"; }
 
         void visit(const FloatImm *node) override {
             if (double x = node->value; x == std::floor(x)) {
@@ -605,8 +605,8 @@ class BonsaiToCpp : ir::Printer {
 
     // Exprs
     void visit(const IntImm *node) override { ss << node->value; }
-    void visit(const UIntImm *node) override { ss << node->value; }
-    void visit(const IdxImm *node) override { ss << node->value; }
+    void visit(const UIntImm *node) override { ss << node->value << "u"; }
+    void visit(const IdxImm *node) override { ss << node->value << "u"; }
     void visit(const FloatImm *node) override {
         if (double x = node->value; x == std::floor(x)) {
             ss << static_cast<int64_t>(x) << ".0";
@@ -1073,6 +1073,9 @@ class BonsaiToCpp : ir::Printer {
             ss << "const ";
         }
         emit_type(ss, node->loc.base_type());
+        if (node->loc.type.is<Struct_t>() && !node->value.is<ir::Build>()) {
+            ss << "&"; // let's avoid copies
+        }
         ss << " " << node->loc.base() << " = ";
         node->value.accept(this);
         ss << ";\n";

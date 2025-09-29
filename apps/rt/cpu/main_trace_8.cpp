@@ -1,5 +1,5 @@
 #include "bonsai_cpp.h"
-#include "canonical_tree.h"
+#include "canonical_8_tree.h"
 #include "rt.h"
 #include "util.h"
 #include <omp.h>
@@ -84,10 +84,10 @@ void run_test(const std::string &object) {
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
-    BVH *canonical_tree = build_canonical_tree_sah(triangles);
+    BVH *canonical_tree = build_canonical_tree_8_sah(triangles);
 
     Triangles tree = build_triangles(canonical_tree);
-    free_canonical_tree(canonical_tree);
+    free_canonical_tree_8(canonical_tree);
 
     std::vector<int64_t> ray_counts = {
         1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,

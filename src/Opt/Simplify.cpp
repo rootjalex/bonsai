@@ -157,6 +157,9 @@ struct Simplifier : ir::Mutator {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
             << "a: " << a.type() << ", " << "b: " << b.type();
+        if (a.type().is<ir::Ptr_t>() || b.type().is<ir::Ptr_t>()) {
+            return make(node, std::move(a), std::move(b));
+        }
 
         const ir::Type type = a.type();
         const ir::Expr zero = make_zero(type), one = make_one(type);
