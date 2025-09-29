@@ -8,6 +8,7 @@
 #include <math.h>
 #include <tuple>
 
+// [M, N]
 template <int M, int N, typename T>
 T slice(T value) {
     static_assert(std::is_unsigned_v<T>);
@@ -18,6 +19,7 @@ T slice(T value) {
     return (value >> M) & mask;
 }
 
+// [M, N]
 template <typename T>
 T slice(int M, int N, T value) {
     static_assert(std::is_unsigned_v<T>);

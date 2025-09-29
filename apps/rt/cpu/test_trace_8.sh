@@ -6,7 +6,7 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("qbvh8")
+LAYOUTS=("qbvh8" "bvh8")
 OBJECTS=("power-plant" "hairball")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
@@ -86,7 +86,7 @@ for OBJECT in "${OBJECTS[@]}"; do
       perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
     else
       for ((i=0; i < N; i++)); do
-        ${COMMAND} >> ${DATA_PATH}/${DATA_FILE}.txt
+        ${COMMAND} # >> ${DATA_PATH}/${DATA_FILE}.txt
       done
     fi
     # 5. Clean up

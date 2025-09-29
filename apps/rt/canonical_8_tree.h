@@ -39,7 +39,7 @@ std::pair<vec3_float, vec3_float> triangle_bounds(const Triangle &tri) {
 }
 
 BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
-                                int max_prims_per_leaf = 15,
+                                int max_prims_per_leaf = 8,
                                 int max_tree_depth = 64, int num_bins = 32,
                                 float traversal_cost = 1.0f,
                                 float intersection_cost = 1.5f) {
@@ -111,11 +111,10 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
             // Assign triangles to groups and compute bounds
             for (uint32_t i = low; i < high; ++i) {
                 vec3_float c = triangle_centroid(triangles[i]);
-                int group = 0;
+                int group = 7; // defaults to last group
                 for (int j = 0; j < 7; ++j) {
-                    if (c[axis] >= split_positions[j]) {
-                        group = j + 1;
-                    } else {
+                    if (c[axis] < split_positions[j]) {
+                        group = j;
                         break;
                     }
                 }
@@ -138,7 +137,7 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
             if (split_cost < best_split.cost) {
                 best_split.axis = axis;
-                for (int i = 0; i < 8; ++i)
+                for (int i = 0; i < 7; ++i)
                     best_split.positions[i] = split_positions[i];
                 best_split.cost = split_cost;
             }

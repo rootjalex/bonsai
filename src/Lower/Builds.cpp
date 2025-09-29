@@ -543,6 +543,15 @@ class ConstructBuild : public ir::Visitor {
     }
 
     void visit(const ir::BuildLet *node) {
+        if (const auto *stmt = node->stmt.as<ir::LetStmt>()) {
+            if (stmt->value.is<ir::Append>()) {
+                // We flip these because we want the index to be the begin of
+                // the slice, i.e., saved before the offset is updated.
+                append(node->stmt);
+                node->stmt.accept(this);
+                return;
+            }
+        }
         node->stmt.accept(this);
         append(node->stmt);
     }

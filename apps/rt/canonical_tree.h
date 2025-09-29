@@ -67,8 +67,8 @@ BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
                 data[i] = triangles[low + i];
             }
             return new BVH(Leaf{
-                .lo = aabb_min,
-                .hi = aabb_max,
+                .low = aabb_min,
+                .high = aabb_max,
                 .nprims = static_cast<uint8_t>(count),
                 .data = data,
             });

@@ -7,28 +7,30 @@ element qbox3x8 = vector[qbox3, 8];
 element u64x8 = vector[u64, 8];
 
 func dequantize_bounds_lo(mlo: f32x3, mex: f32x3, bound: qbox3x8) -> f32x3x8 {
+  rcp: f32 = 1 / 255.0;
   return f32x3x8 { 
-    mlo + (cast[[f32x3]](bound[0].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[1].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[2].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[3].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[4].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[5].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[6].lo) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[7].lo) / 255.0) * mex
+    mlo + (cast[[f32x3]](bound[0].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[1].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[2].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[3].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[4].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[5].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[6].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[7].lo) * rcp) * mex
   };
 }
 
 func dequantize_bounds_hi(mlo: f32x3, mex: f32x3, bound: qbox3x8) -> f32x3x8 {
+  rcp: f32 = 1 / 255.0;
   return f32x3x8 { 
-    mlo + (cast[[f32x3]](bound[0].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[1].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[2].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[3].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[4].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[5].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[6].hi) / 255.0) * mex,
-    mlo + (cast[[f32x3]](bound[7].hi) / 255.0) * mex
+    mlo + (cast[[f32x3]](bound[0].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[1].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[2].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[3].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[4].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[5].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[6].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[7].hi) * rcp) * mex
   };
 }
 
@@ -77,7 +79,7 @@ schedule {
 
     triangles : BVH;
 
-    layout triangles(I: u64) {
+    layout triangles(I: u64 = 1u) {
         primitive_count: u64;
         primitives : array[Triangle, primitive_count];
 
@@ -93,9 +95,13 @@ schedule {
         };
 
         group _ by I {
+            // bits (inclusive)
+            //   0-2  : node type [[reserved: 111 for SENTINEL, 000 reserved for LEAF]]
+            //   3-6  : primitive count - 1
+            //   7-63 : offset
             split I[0:2] {
-                2 -> Interior from Interiors[I[4:63]];
-                _ -> Leaf { nprims = cast[[u8]](I[1:4] + 1); data = primitives[I[4:63] : I[4:63] + nprims]; };
+                1 -> Interior from Interiors[I[7:63]];
+                _ -> Leaf { nprims = cast[[u8]](I[3:6] + 1); data = primitives[I[7:63] : I[7:63] + nprims]; };
             };
         };
     };
@@ -106,12 +112,12 @@ schedule {
         build mex = compute_merged_extent(lo, hi);
         build child_bounds = quantize_bounds(lo, hi);
         recurse children;
-        return (this << cast[[u64]](4)) | cast[[u64]](2);
+        return (this << cast[[u64]](7)) | cast[[u64]](1);
       };
 
       build Leaf(nprims: u8, data: array[Triangle, nprims]) {
         let poffset: u64 = append(data, nprims);
-        return (poffset << cast[[u64]](4)) | (nprims << cast[[u64]](2));
+        return (poffset << cast[[u64]](7)) | ((nprims - cast[[u64]](1)) << cast[[u64]](3));
       };
     };
 }

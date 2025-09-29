@@ -112,6 +112,7 @@ void run_test(const std::string &object) {
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
+        std::cout << "hits             : " << hits.size() << "\n";
         std::cout << "trace time       : " << trace_time << " ms\n";
     }
 }
