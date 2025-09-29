@@ -86,7 +86,7 @@ for OBJECT in "${OBJECTS[@]}"; do
       perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
     else
       for ((i=0; i < N; i++)); do
-        ${COMMAND} # >> ${DATA_PATH}/${DATA_FILE}.txt
+        ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
     fi
     # 5. Clean up
