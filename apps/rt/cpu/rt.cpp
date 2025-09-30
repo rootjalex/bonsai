@@ -160,7 +160,7 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
 std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
   std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
   int32_t _queue_count0 = 1;
-  std::array<uint32_t, 256> _queue0;
+  std::array<uint32_t, 64> _queue0;
   _queue0[0] = 0u;
   do {
     _queue_count0 -= 1;
