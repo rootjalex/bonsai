@@ -64,7 +64,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 1. Build the Bonsai compiler.
     cmake --build build --config Debug -j > /dev/null
     # 2. Lower to cuda.
-    # ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
+    ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
     # 3. Compile the lowered cuda.
     module load cuda
     nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/main_trace_8.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
@@ -72,8 +72,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
     COMMAND="./${EXECUTABLE} ${OBJECT}"
     for ((i=0; i < N; i++)); do
-      compute-sanitizer ${COMMAND} # | tee -a ${DATA_PATH}/${DATA_FILE}.txt
-      ${COMMAND}
+      compute-sanitizer ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
     done
     # 5. Clean up
     rm ${PREFIX}/${APPLICATION}.h

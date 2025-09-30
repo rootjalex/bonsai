@@ -1545,7 +1545,8 @@ void CodeGen_CUDA::print(const Program &program) {
 
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
-    is_build = function.name.starts_with("rec_");
+    is_build =
+        function.name.starts_with("rec_") || function.name.starts_with("build");
     function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
