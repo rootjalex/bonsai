@@ -120,19 +120,17 @@ BVH *build_canonical_tree_median_split(std::vector<Triangle> &triangles,
 
         // Partition around midpoint along axis.
         auto mid_it = triangles.begin() + low + count / 2;
-        std::nth_element(triangles.begin() + low, triangles.begin() + mid,
-                         triangles.begin() + high,
-                         [&](const Triangle &a, const Triangle &b) {
-                             float3 ca = triangle_centroid(a);
-                             float3 cb = triangle_centroid(b);
-                             float ca_axis = (best_split.axis == 0)   ? ca.x
-                                             : (best_split.axis == 1) ? ca.y
-                                                                      : ca.z;
-                             float cb_axis = (best_split.axis == 0)   ? cb.x
-                                             : (best_split.axis == 1) ? cb.y
-                                                                      : cb.z;
-                             return ca_axis < cb_axis;
-                         });
+        std::nth_element(
+            triangles.begin() + low, mid_it, triangles.begin() + high,
+            [&](const Triangle &a, const Triangle &b) {
+                float ca = (axis == 0)   ? (a.p0.x + a.p1.x + a.p2.x)
+                           : (axis == 1) ? (a.p0.y + a.p1.y + a.p2.y)
+                                         : (a.p0.z + a.p1.z + a.p2.z);
+                float cb = (axis == 0)   ? (b.p0.x + b.p1.x + b.p2.x)
+                           : (axis == 1) ? (b.p0.y + b.p1.y + b.p2.y)
+                                         : (b.p0.z + b.p1.z + b.p2.z);
+                return ca < cb;
+            });
 
         const uint32_t mid = low + count / 2;
         BVH *left = partition(low, mid, depth + 1);
