@@ -407,7 +407,7 @@ std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
             const auto *g = group.as<ir::Group>();
             mapping.push_back({
                 ac->field,
-                is_const(g->size) ? g->size : g->index,
+                g->size.defined() && is_const(g->size) ? g->size : g->index,
             });
             ac->value.accept(this);
         }

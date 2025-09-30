@@ -10,11 +10,11 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group aabbs_1[node_count, 16] by index1 {
+        group aabbs_1[size=node_count, algin=16] by index1 {
             low : f32x3;
             high : f32x3;
         };
-        group nodes_1[node_count, 16] by index1 {
+        group nodes_1[size=node_count, align=16] by index1 {
             nprims : u16;
             axis : u8;
             8;
@@ -36,7 +36,7 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group aabbs_2[node_count, 16] by index2 {
+        group aabbs_2[size=node_count, align=16] by index2 {
             // TODO(cgyurgyik): we add a no-op materialization because the layout 
             // cache will otherwise incorrectly mark this as equal to aabbs_1.
             // I need to fix this.
@@ -44,7 +44,7 @@ schedule {
             low = L;
             high : f32x3;
         };
-        group nodes_2[node_count, 16] by index2 {
+        group nodes_2[size=node_count, align=16] by index2 {
             nprims : u16;
             axis : u8;
             8;

@@ -19,11 +19,11 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group volumes[node_count] by index {
+        group volumes[size=node_count] by index {
             group lows[4]  { low : f32x3;  };
             group highs[4] { high : f32x3; };
         };
-        group nodes[node_count] by index {
+        group nodes[size=node_count] by index {
             nprims : u16;
             axis : u8;
             8;

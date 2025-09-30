@@ -31,7 +31,7 @@ schedule {
         whi: f32x3;
         primitives : array[Point, primitive_count];
         node_count : u32;
-        group nodes[node_count] by index {
+        group nodes[size=node_count] by index {
             coord: f32;
             split_axis : u8;
             8;

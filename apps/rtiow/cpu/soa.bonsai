@@ -9,11 +9,11 @@ schedule {
         primitive_count : u32;
         primitives : array[MaterialSphere, primitive_count];
         node_count : u32;
-        group a[node_count] by index {
+        group a[size=node_count] by index {
             center : f32x3;
             radius : f32;
         };
-        group b[node_count] by index {
+        group b[size=node_count] by index {
             nprims : u8;
             8;
             split nprims {

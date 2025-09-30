@@ -861,11 +861,14 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
     case ir::Intrinsic::OpType::fmul_ru:
     case ir::Intrinsic::OpType::frcp_rd:
     case ir::Intrinsic::OpType::frcp_ru: {
-        os << "__" << to_string(node->op) << "(";
-        print_expr_list(node->args);
-        os << ")";
-        return;
+        if (on_device) {
+            os << "__" << to_string(node->op) << "(";
+            print_expr_list(node->args);
+            os << ")";
+            return;
+        }
     }
+        [[fallthrough]];
     case ir::Intrinsic::OpType::floorf:
     case ir::Intrinsic::OpType::roundf:
     case ir::Intrinsic::OpType::ceilf: {

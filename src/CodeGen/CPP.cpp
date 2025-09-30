@@ -1065,6 +1065,10 @@ class BonsaiToCpp : ir::Printer {
         ss << ";\n";
     }
 
+    void visit(const Continue *node) override {
+        ss << get_indent() << "continue;\n";
+    }
+
     void visit(const LetStmt *node) override {
         ss << get_indent();
         if (!node->loc.base_type().is<ir::Ptr_t>()) {

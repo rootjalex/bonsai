@@ -192,6 +192,12 @@ __host__ thrust::universal_vector<cuda::std::tuple<Triangle, Triangle>> _travers
     for (uint64_t q = 0u; q < Q.count; q += 1u) {
       uint32_t index1 = cuda::std::get<0>(Q.stack[q]);
       uint32_t index2 = cuda::std::get<1>(Q.stack[q]);
+      if (index1 == 4294967295u) {
+        return;
+      }
+      if (index2 == 4294967295u) {
+        return;
+      }
       Nodes1 _t88 = (*triangles1).nodes1[index1];
       Nodes2 _t92 = (*triangles2).nodes2[index2];
       AABB _lv0 = AABB{_t88.low, _t88.high};
@@ -249,6 +255,9 @@ __host__ thrust::universal_vector<cuda::std::tuple<Triangle, Triangle>> _travers
 }
 
 __host__ uint32_t rec_build_triangles1(BVH* node_, Triangles1* ST, size_t* nodes1_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes1_index);
@@ -280,6 +289,9 @@ __host__ uint32_t rec_build_triangles1(BVH* node_, Triangles1* ST, size_t* nodes
 }
 
 __host__ void rec_count_triangles1(BVH* node_, Triangles1* ST) {
+  if (!node_) {
+    return;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       rec_count_triangles1(node.left, ST);
@@ -309,6 +321,9 @@ __host__ Triangles1 build_triangles1(BVH* CT) {
 }
 
 __host__ uint32_t rec_build_triangles2(BVH* node_, Triangles2* ST, size_t* nodes2_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes2_index);
@@ -340,6 +355,9 @@ __host__ uint32_t rec_build_triangles2(BVH* node_, Triangles2* ST, size_t* nodes
 }
 
 __host__ void rec_count_triangles2(BVH* node_, Triangles2* ST) {
+  if (!node_) {
+    return;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       rec_count_triangles2(node.left, ST);

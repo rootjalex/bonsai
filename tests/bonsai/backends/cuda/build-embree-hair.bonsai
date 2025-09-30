@@ -204,14 +204,16 @@ schedule {
         primitive_count: u64;
         primitives : array[Triangle, primitive_count];
 
-        indirect group AABBs {
+        aabb_count: u64;
+        indirect group Aabbs[size=aabb_count] {
             aabb_low: f32x3x4;
             aabb_high: f32x3x4;
             aabb_children: u64x4;
         };
 
         // quantized, per section 3.5
-        indirect group OBBs {
+        obb_count: u64;
+        indirect group Obbs[size=obb_count] {
             mlo: f32x3;           // low of the merged AABB.
             mex: f32x3;           // extent of the merged AABB.
             qlo: u8x3x4;          // quantized low offset of each child.
@@ -226,8 +228,8 @@ schedule {
 
         group _ by index {
             split index[0:2] {
-                2 -> AABBNode from AABBs[index[4:63]];
-                3 -> OBBNode from OBBs[index[4:63]];
+              2 -> AABBNode from Aabbs[index[4:63]];
+                3 -> OBBNode from Obbs[index[4:63]];
                 _ -> Leaf {
                     nprims = cast[[u8]](index[1:4] + 1);
                     data = primitives[index[4:63] : index[4:63] + nprims];

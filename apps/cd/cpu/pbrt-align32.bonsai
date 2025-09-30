@@ -11,7 +11,7 @@ schedule {
         primitives : array[Triangle, primitive_count];
         node_count : u32;
         
-        group nodes1[node_count, 32] by index1 {
+        group nodes1[size=node_count, align=32] by index1 {
             low : f32x3;
             high : f32x3;
             nprims : u16;
@@ -56,7 +56,7 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group nodes2[node_count, 32] by index2 {
+        group nodes2[size=node_count, align=32] by index2 {
             low : f32x3;
             high : f32x3;
             nprims : u16;

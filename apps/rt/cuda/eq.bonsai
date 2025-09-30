@@ -51,7 +51,7 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group nodes[node_count] by index {
+        group nodes[size=node_count] by index {
             q_min: i30;
             q_max: i30;
             nprims : u4;

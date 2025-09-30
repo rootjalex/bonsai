@@ -1768,6 +1768,87 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
     return r;
 }
 
+// rounding operations
+
+__host__ float3 next_after_element_wise(const float3 &from, T to) {
+    float3 result;
+    result.x = std::nextafter(from.x, to);
+    result.y = std::nextafter(from.y, to);
+    result.z = std::nextafter(from.z, to);
+    return result;
+}
+
+template <typename T>
+__host__ T next_after(T from, T to) {
+    return std::nextafterf(from, to);
+}
+
+// Template function to perform operations with specific rounding modes.
+template <int RoundingMode, typename T, typename Op>
+__host__ T directed_operation(T a, T b, Op &&op) {
+    using E = element_type_t<T>;
+    constexpr E MAX = std::numeric_limits<E>::max();
+    T result = op(a, b);
+
+    if constexpr (RoundingMode == FE_DOWNWARD) {
+        if constexpr (std::is_same_v<T, float3>) {
+            return next_after_element_wise(result, -MAX);
+        } else {
+            return std::nextafter(result, -MAX);
+        }
+    }
+    if constexpr (std::is_same_v<T, float3>) {
+        return next_after_element_wise(result, MAX);
+    } else {
+        return std::nextafter(result, MAX);
+    }
+}
+
+template <typename T>
+__host__ T fadd_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::plus<T>{});
+}
+
+template <typename T>
+__host__ T fsub_ru(T a, T b) {
+    return directed_operation<FE_UPWARD>(a, b, std::minus<T>{});
+}
+
+template <typename T>
+__host__ T fsub_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::minus<T>{});
+}
+
+template <typename T>
+__host__ T fmul_ru(T a, T b) {
+    return directed_operation<FE_UPWARD>(a, b, std::multiplies<T>{});
+}
+
+template <typename T>
+__host__ T fmul_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::multiplies<T>{});
+}
+
+template <typename T>
+__host__ T fdiv_ru(T a, T b) {
+    return directed_operation<FE_UPWARD>(a, b, std::divides<T>{});
+}
+
+template <typename T>
+__host__ T fdiv_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::divides<T>{});
+}
+
+template <typename T>
+__host__ T frcp_ru(T x) {
+    return directed_operation<FE_UPWARD>(T{1}, x, std::divides<T>{});
+}
+
+template <typename T>
+__host__ T frcp_rd(T x) {
+    return directed_operation<FE_DOWNWARD>(T{1}, x, std::divides<T>{});
+}
+
 template <typename T>
 __forceinline__ __host__ __device__ T argmin(T *current, T update) {
     if (cuda::std::get<0>(*current) < cuda::std::get<0>(update)) {

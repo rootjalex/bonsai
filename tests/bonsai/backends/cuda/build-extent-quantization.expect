@@ -106,9 +106,12 @@ __host__ bool intersects_AABB_Sphere(AABB* a, Sphere* s) {
 }
 
 __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
+  if (index == 4294967295u) {
+    return;
+  }
   Nodes _t24 = (*spheres).nodes[index];
   float3 _t25 = (*spheres).bins;
-  AABB _lv0 = AABB{__fadd_rd((*spheres).wlow, float3{__fmul_rd((float)(_t24.q_min >> 20) & 1023, _t25.x), __fmul_rd((float)(_t24.q_min >> 10) & 1023, _t25.y), __fmul_rd((float)(_t24.q_min >> 0) & 1023, _t25.z)}), __fsub_ru((*spheres).whigh, float3{__fmul_rd((float)(_t24.q_max >> 20) & 1023, _t25.x), __fmul_rd((float)(_t24.q_max >> 10) & 1023, _t25.y), __fmul_rd((float)(_t24.q_max >> 0) & 1023, _t25.z)})};
+  AABB _lv0 = AABB{fadd_rd((*spheres).wlow, float3{fmul_rd((float)(_t24.q_min >> 20) & 1023, _t25.x), fmul_rd((float)(_t24.q_min >> 10) & 1023, _t25.y), fmul_rd((float)(_t24.q_min >> 0) & 1023, _t25.z)}), fsub_ru((*spheres).whigh, float3{fmul_rd((float)(_t24.q_max >> 20) & 1023, _t25.x), fmul_rd((float)(_t24.q_max >> 10) & 1023, _t25.y), fmul_rd((float)(_t24.q_max >> 0) & 1023, _t25.z)})};
   if (intersects_AABB_AABB(a, (&_lv0))) {
     uint16_t _t22 = _t24.nprims;
     if (_t22 == 0u) {
@@ -135,24 +138,27 @@ __host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* sphe
 }
 
 __host__ float3 build_bins_inverse(float3 low, float3 high) {
-  float3 L1 = float3{__fsub_ru(high.x, low.x), __fsub_ru(high.y, low.y), __fsub_ru(high.z, low.z)};
+  float3 L1 = float3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
   float3 L2 = make_float3(((L1 <= make_float3(0)).x ? make_float3(1).x : L1.x),((L1 <= make_float3(0)).y ? make_float3(1).y : L1.y),((L1 <= make_float3(0)).z ? make_float3(1).z : L1.z));
-  return float3{__fdiv_rd((float)1023, L2.x), __fdiv_rd((float)1023, L2.y), __fdiv_rd((float)1023, L2.z)};
+  return float3{fdiv_rd((float)1023, L2.x), fdiv_rd((float)1023, L2.y), fdiv_rd((float)1023, L2.z)};
 }
 
 __host__ float3 build_bins(float3 low, float3 high) {
   float3 bins_inverse = build_bins_inverse(low, high);
-  return float3{__frcp_rd(bins_inverse.x), __frcp_rd(bins_inverse.y), __frcp_rd(bins_inverse.z)};
+  return float3{frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
 }
 
 __host__ int32_t quantize(float3 current, float3 world, float3 bin_inverse) {
-  uint32_t x = (uint32_t)floorf(__fmul_rd(__fsub_rd(current.x, world.x), bin_inverse.x));
-  uint32_t y = (uint32_t)floorf(__fmul_rd(__fsub_rd(current.y, world.y), bin_inverse.y));
-  uint32_t z = (uint32_t)floorf(__fmul_rd(__fsub_rd(current.z, world.z), bin_inverse.z));
+  uint32_t x = (uint32_t)floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x));
+  uint32_t y = (uint32_t)floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y));
+  uint32_t z = (uint32_t)floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z));
   return (int32_t)(((x << 20u) | (y << 10u)) | z);
 }
 
 __host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes_index);
@@ -188,6 +194,9 @@ __host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* nodes_index
 }
 
 __host__ void rec_count_spheres(BVH* node_, Spheres* ST) {
+  if (!node_) {
+    return;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       rec_count_spheres(node.left, ST);

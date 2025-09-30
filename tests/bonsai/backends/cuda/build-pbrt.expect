@@ -238,6 +238,9 @@ __host__ bool intersects_Ray_AABB(Ray* r, AABB* b) {
 }
 
 __host__ void _recloop_func0(uint32_t index, Triangles* triangles, Ray* ray, cuda::std::tuple<float, Triangle>* _best0) {
+  if (index == 4294967295u) {
+    return;
+  }
   Nodes _t37 = (*triangles).nodes[index];
   AABB _t42 = AABB{_t37.low, _t37.high};
   if (intersects_Ray_AABB(ray, (&_t42))) {
@@ -270,6 +273,9 @@ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* tria
 }
 
 __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       size_t this_index = (*nodes_index);
@@ -301,6 +307,9 @@ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_i
 }
 
 __host__ void rec_count_triangles(BVH* node_, Triangles* ST) {
+  if (!node_) {
+    return;
+  }
     if (std::holds_alternative<Interior>(*node_)) {
       const Interior& node = std::get<Interior>(*node_);
       rec_count_triangles(node.left, ST);

@@ -96,11 +96,11 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group dop36[node_count] by index {
+        group dop36[size=node_count] by index {
             lo2: f32x4; // planes 3-6
             hi2: f32x4; // planes 3-6
         };
-        group nodes[node_count] by index {
+        group nodes[size=node_count] by index {
             lo1: f32x3; // planes 0-2
             hi1: f32x3; // planes 0-2
             ee: u1; // whether to early exit per section 4.4

@@ -2707,8 +2707,9 @@ struct Parser {
                         expect(Token::Type::ASSIGN);
                         internal_assert(!alignment.defined());
                         alignment = parse_expr();
+                    } else {
+                        report_error() << "unexpected group attribute: " << key;
                     }
-
                 } while (consume(Token::Type::COMMA));
 
                 expect(Token::Type::RBRACKET);

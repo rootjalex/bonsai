@@ -109,8 +109,8 @@ class CodeGen_CUDA : public ir::Printer {
     // `struct P { int x; int y; int z; }` versus `P`
     bool is_declaration = false;
     // Whether the next function definition exists on device. This is necessary
-    // for correct usage of rand, which is different for __host__ and
-    // __device__.
+    // for correct usage of rand and other intrinsics, which is different for
+    // __host__ and __device__.
     bool on_device = false;
     // Whether this is a recursive build or count function for tree-building.
     // TODO(cgyurgyik): really, this is a hack since it is the only place we

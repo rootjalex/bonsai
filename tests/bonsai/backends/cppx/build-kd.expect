@@ -1,0 +1,18 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Utils.cpp:484
+
+--> 0 < n && n <= 64
+96
+[stack trace]
+  #9: bonsai::bit_mask(unsigned long long)
+  #8: bonsai::make_all_ones(bonsai::ir::Type const&)
+  #7: bonsai::lower::(anonymous namespace)::LowerMatches::visit(bonsai::ir::RecLoop const*)
+  #6: bonsai::ir::StmtNode<bonsai::ir::RecLoop>::mutate_stmt(bonsai::ir::Mutator*) const
+  #5: bonsai::ir::Mutator::mutate(bonsai::ir::Stmt const&)
+  #4: bonsai::lower::LowerLayouts::run(bonsai::ir::Program, bonsai::CompilerOptions const&) const
+  #3: bonsai::lower::lower(bonsai::ir::Program&, bonsai::CompilerOptions const&)
+  #2: bonsai::cli::run(bonsai::cli::Flags const&)
+  #1: main
+  #0: start
