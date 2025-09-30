@@ -137,7 +137,7 @@ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::
   return;
 }
 
-thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* spheres) {
+__host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* spheres) {
   thrust::universal_vector<Sphere> _dyn_alloc;
   _dyn_alloc.reserve(16);
   _recloop_func0(0u, spheres, a, _dyn_alloc);
