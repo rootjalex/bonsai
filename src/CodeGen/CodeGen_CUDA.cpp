@@ -909,52 +909,16 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
 }
 
 void CodeGen_CUDA::visit(const ir::Slice *node) {
-    if (node->value.type().is_scalar()) {
-        internal_assert(node->value.type().is_int_or_uint())
-            << "bit slicing only supported for integral types: "
-            << node->value.type();
-        internal_assert(is_const(node->begin) && is_const(node->end))
-            << "bit slicing requires constant indices: slice(" << node->begin
-            << ", " << node->end << ")";
-
-        const int64_t begin = *get_constant_value(node->begin);
-        const int64_t end = *get_constant_value(node->end);
-        const int64_t width = node->value.type().bits();
-        internal_assert(begin >= 0 && end > begin && end <= width)
-            << "Invalid bit slice range: [" << begin << ", " << end << ") for "
-            << width << "-bit type";
-
-        const int64_t slice_width = end - begin;
-
-        if (begin == 0 && end == width) {
-            node->value.accept(this);
-        } else if (begin == 0) {
-            // truncation
-            os << '(';
-            node->value.accept(this);
-            os << " & ";
-            uint64_t mask = (1ULL << slice_width) - 1;
-            os << "0x" << std::hex << mask << std::dec;
-            os << ')';
-        } else {
-            // General case: (value >> begin) & ((1U << slice_width) - 1)
-            os << '(';
-            os << '(';
-            node->value.accept(this);
-            os << " >> " << begin;
-            os << ')';
-            if (slice_width < width - begin) {
-                // Need to mask if we're not taking all remaining bits
-                os << " & ";
-                uint64_t mask = (1ULL << slice_width) - 1;
-                os << "0x" << std::hex << mask << std::dec;
-            }
-            os << ')';
-        }
-        return;
-    }
-    internal_error << "[unimplemented] Slice CUDA codegen for type: "
-                   << node->value.type();
+    os << "slice";
+    const bool is_constant_bounds =
+        is_const(node->begin) && is_const(node->end);
+    os << (is_constant_bounds ? "<" : "(");
+    node->begin.accept(this);
+    os << ", ";
+    node->end.accept(this);
+    os << (is_constant_bounds ? ">(" : ",");
+    node->value.accept(this);
+    os << ")";
 }
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
@@ -1115,7 +1079,9 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
         parent->accept(this);
         os << '.';
     }
-    array_t->size.accept(this);
+    if (array_t->size.defined()) {
+        array_t->size.accept(this);
+    }
     os << ' ' << '*' << ' ' << "sizeof" << '(';
     array_t->etype.accept(this);
     os << ')' << ')' << ';' << '\n';

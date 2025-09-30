@@ -2699,16 +2699,22 @@ struct Parser {
             if (consume(Token::Type::LBRACKET)) {
                 // [align:<N>]
                 if (peek_type() == Token::Type::IDENTIFIER) {
-                    internal_assert(get_id() == "align");
-                    expect(Token::Type::COL);
-                    alignment = parse_expr();
-                } else {
-                    // Otherwise, this is `[<M>, <N>]`
-                    size = parse_expr();
-                    if (consume(Token::Type::COMMA)) {
+                    std::string identifier = get_id();
+                    if (identifier == "align") {
+                        expect(Token::Type::COL);
                         alignment = parse_expr();
+                    } else {
+                        size = ir::Var::make(get_type_from_frame(identifier),
+                                             identifier);
                     }
                 }
+                // Otherwise, this is `[<M>, <N>]`
+                if (!size.defined())
+                    size = parse_expr();
+                if (consume(Token::Type::COMMA) && !alignment.defined()) {
+                    alignment = parse_expr();
+                }
+
                 expect(Token::Type::RBRACKET);
             }
 

@@ -1759,7 +1759,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
 
 template <typename T>
 __forceinline__ __host__ __device__ T argmin(T *current, T update) {
-    if (std::get<0>(*current) < std::get<0>(update)) {
+    if (cuda::std::get<0>(*current) < cuda::std::get<0>(update)) {
         return *current;
     }
     return update;
@@ -1767,7 +1767,7 @@ __forceinline__ __host__ __device__ T argmin(T *current, T update) {
 
 template <typename T>
 __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
-    if (std::get<0>(*current) > std::get<0>(update)) {
+    if (cuda::std::get<0>(*current) > cuda::std::get<0>(update)) {
         return current;
     }
     return &update;
@@ -1776,7 +1776,7 @@ __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
 template <typename T1, typename T2>
 __forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
 argmin(const cuda::std::tuple<T1, T2> *a, const cuda::std::tuple<T1, T2> &b) {
-    if (std::get<0>(*a) < std::get<0>(b)) {
+    if (cuda::std::get<0>(*a) < cuda::std::get<0>(b)) {
         return *a;
     }
     return b;
@@ -1785,7 +1785,7 @@ argmin(const cuda::std::tuple<T1, T2> *a, const cuda::std::tuple<T1, T2> &b) {
 template <typename T1, typename T2>
 __forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
 argmin(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
-    if (cuda::std::get<0>(a) < cuda::std::get<0>(b)) {
+    if (cuda::cuda::std::get<0>(a) < cuda::cuda::std::get<0>(b)) {
         return a;
     }
     return b;
@@ -1794,7 +1794,7 @@ argmin(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
 template <typename T1, typename T2>
 __forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
 argmax(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
-    if (cuda::std::get<0>(a) > cuda::std::get<0>(b)) {
+    if (cuda::cuda::std::get<0>(a) > cuda::cuda::std::get<0>(b)) {
         return a;
     }
     return b;
@@ -1861,4 +1861,29 @@ __forceinline__ __host__ void
 mallocAndCopyFromDevice(void **host, const void *device, size_t size) {
     *host = malloc(size);
     cudaMemcpy(*host, device, size, cudaMemcpyDeviceToHost);
+}
+
+// [M, N]
+template <int M, int N, typename T>
+T slice(T value) {
+    static_assert(std::is_unsigned_v<T>);
+    constexpr int bits = std::numeric_limits<T>::digits;
+    static_assert(M >= 0 && N >= 0 && M < N && N < bits);
+    constexpr int width = N - M + 1;
+    constexpr T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
+    return (value >> M) & mask;
+}
+
+// [M, N]
+template <typename T>
+T slice(int M, int N, T value) {
+    static_assert(std::is_unsigned_v<T>);
+    const int bits = std::numeric_limits<T>::digits;
+    assert(M >= 0);
+    assert(N >= 0);
+    assert(M <= N);
+    assert(N < bits);
+    int width = N - M + 1;
+    T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
+    return (value >> M) & mask;
 }

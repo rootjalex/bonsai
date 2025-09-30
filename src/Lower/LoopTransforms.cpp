@@ -207,7 +207,7 @@ Stmt rewrite_yieldfroms(Stmt body, const ir::Type &ret_type, WriteLoc count_loc,
                 internal_assert(ret_type.is<Option_t>()) << ret_type;
                 value = ir::Build::make(ret_type);
             }
-            return Return::make(std::move(value));
+            return Continue::make();
         }
 
         Stmt visit(const YieldFrom *node) override {
