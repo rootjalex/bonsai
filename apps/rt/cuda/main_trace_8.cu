@@ -362,15 +362,11 @@ void run_test(const std::string &object) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    std::cout << "loaded " << triangles.size() << " triangles\n";
 
     BVH *canonical_tree = build_canonical_tree_8_sah(triangles);
-    std::cout << "built canonical tree\n";
 
     Triangles tree = build_triangles(canonical_tree);
-    std::cout << "built specialized tree\n";
     free_canonical_tree_8(canonical_tree);
-    std::cout << "freed canonical tree\n";
 
     std::vector<int64_t> ray_counts = {
         1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
@@ -380,7 +376,6 @@ void run_test(const std::string &object) {
         std::string ray_file = "apps/rt/rays/" + object + "_" +
                                std::to_string(ray_count) + "_" +
                                std::to_string(75) + ".rays";
-        std::cout << ray_file << std::endl;
         Ray *rays = nullptr;
         {
             std::vector<Ray> r = load_rays_binary(ray_file, ray_count);
@@ -389,7 +384,6 @@ void run_test(const std::string &object) {
             std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
-        std::cout << "rays built" << std::endl;
         auto trace_begin = clock::now();
         cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
