@@ -204,6 +204,11 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
 }
 
 std::string bonsai_scalar_type_to_cpp(Type type) {
+    if (const auto *struct_t = type.as<Struct_t>()) {
+        std::string name = struct_t->name;
+        capitalize_first(name);
+        return name;
+    }
     if (const auto *index_t = type.as<Index_t>()) {
         return "size_t";
     }
