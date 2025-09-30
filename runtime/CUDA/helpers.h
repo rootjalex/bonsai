@@ -65,32 +65,32 @@ __forceinline__ __host__ __device__ bool4 make_bool4(bool s) {
     return bool4{.x = s, .y = s, .z = s, .w = s};
 }
 
-__forceinline__ bool4 operator<(float4 a, float4 b) {
+__forceinline__ __host__ __device__ bool4 operator<(float4 a, float4 b) {
     return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
 }
-__forceinline__ bool4 operator<(int4 a, int4 b) {
+__forceinline__ __host__ __device__ bool4 operator<(int4 a, int4 b) {
     return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
 }
-__forceinline__ bool4 operator<(uint4 a, uint4 b) {
+__forceinline__ __host__ __device__ bool4 operator<(uint4 a, uint4 b) {
     return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
 }
 
-__forceinline__ bool2 operator<(float2 a, float2 b) {
+__forceinline__ __host__ __device__ bool2 operator<(float2 a, float2 b) {
     return make_bool2(a.x < b.x, a.y < b.y);
 }
-__forceinline__ bool2 operator<(int2 a, int2 b) {
+__forceinline__ __host__ __device__ bool2 operator<(int2 a, int2 b) {
     return make_bool2(a.x < b.x, a.y < b.y);
 }
-__forceinline__ bool2 operator<(uint2 a, uint2 b) {
+__forceinline__ __host__ __device__ bool2 operator<(uint2 a, uint2 b) {
     return make_bool2(a.x < b.x, a.y < b.y);
 }
-__forceinline__ bool3 operator<(float3 a, float3 b) {
+__forceinline__ __host__ __device__ bool3 operator<(float3 a, float3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
-__forceinline__ bool3 operator<(int3 a, int3 b) {
+__forceinline__ __host__ __device__ bool3 operator<(int3 a, int3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
-__forceinline__ bool3 operator<(uint3 a, uint3 b) {
+__forceinline__ __host__ __device__ bool3 operator<(uint3 a, uint3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
 
