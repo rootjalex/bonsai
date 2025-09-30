@@ -387,6 +387,7 @@ __host__ void rec_count_triangles(BVH *node_, Triangles *ST) {
 }
 
 __host__ Triangles build_triangles(BVH *CT) {
+    printf("building triangles!\n");
     Triangles ST;
     size_t primitives_index = 0;
     size_t interiors_index = 0;
@@ -394,12 +395,25 @@ __host__ Triangles build_triangles(BVH *CT) {
     ST.interior_count = 0u;
     rec_count_triangles(CT, (&ST));
     Triangle *primitives;
-    (void)cudaMalloc((void **)&primitives,
-                     ST.primitive_count * sizeof(Triangle));
+    cudaError_t err =
+        cudaMalloc((void **)&primitives, ST.primitive_count * sizeof(Triangle));
+    if (err != cudaSuccess) {
+        std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
+        std::cerr << "Tried to allocate: " << ST.primitive_count
+                  << " triangles\n";
+        exit(1);
+    }
+
     ST.primitives = primitives;
     Interiors *interiors;
-    (void)cudaMalloc((void **)&interiors,
-                     ST.interior_count * sizeof(Interiors));
+    err =
+        cudaMalloc((void **)&interiors, ST.interior_count * sizeof(Interiors));
+    if (err != cudaSuccess) {
+        std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << "\n";
+        std::cerr << "Tried to allocate: " << ST.interior_count
+                  << " interiors\n";
+        exit(1);
+    }
     ST.interiors = interiors;
     rec_build_triangles(CT, (&ST), (&interiors_index), (&primitives_index));
     return ST;
