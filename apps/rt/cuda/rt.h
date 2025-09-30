@@ -309,7 +309,7 @@ __host__ cuda::std::optional<Triangle>* _traverse_array0(int64_t n, Ray* rays, T
 }
 
 __host__ uint64_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* interiors_index, size_t* primitives_index) {
-  if (!node) {
+  if (!node_) {
     return 18446744073709551615u;
   }
     if (std::holds_alternative<Interior>(*node_)) {
@@ -337,7 +337,7 @@ __host__ uint64_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* interio
 }
 
 __host__ void rec_count_triangles(BVH* node_, Triangles* ST, size_t* size_interiors) {
-  if (!node) {
+  if (!node_) {
     return;
   }
     if (std::holds_alternative<Interior>(*node_)) {
@@ -360,9 +360,11 @@ __host__ Triangles build_triangles(BVH* CT) {
   size_t interiors_index = 0;
   ST.primitive_count = 0u;
   rec_count_triangles(CT, (&ST), (&size_interiors));
-  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
+  Triangle* primitives;
+  (void)cudaMalloc((void**)&primitives, ST.primitive_count * sizeof(Triangle));
   ST.primitives = primitives;
-  Interiors* interiors = reinterpret_cast<Interiors*>(malloc(sizeof(Interiors) * size_interiors));
+  Interiors* interiors;
+  (void)cudaMalloc((void**)&interiors, size_interiors * sizeof(Interiors));
   ST.interiors = interiors;
   rec_build_triangles(CT, (&ST), (&interiors_index), (&primitives_index));
   return ST;

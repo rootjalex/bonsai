@@ -1001,6 +1001,19 @@ void CodeGen_CUDA::visit(const Free *node) {
     os << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Var *node) {
+    os << node->name;
+    if (is_build && node->name == "node" && node->type.is<Ref_t>()) {
+        // TODO(cgyurgyik): another ugly hack, we use std::variant's
+        // `holds_alternative`/`get` so we need to avoid the case:
+        //
+        //   if (holds_alernative<T>(*node)) {
+        //     const T& node = get<T>(*node); <-- duplicate `node` name
+        //   }
+        os << "_";
+    }
+}
+
 void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     Expr value = node->value;
     if (value.type().is<ir::Ptr_t>()) {
@@ -1393,7 +1406,7 @@ void CodeGen_CUDA::visit(const Match *node) {
         os << "if (std::holds_alternative<" << struct_t->name << ">";
         os << "(*";
         node->loc.accept(this);
-        os << "_"; // differentiate
+        os << "_";
         os << ")) {\n";
         increment();
         os << get_indent() << "const " << struct_t->name << "& ";
@@ -1401,7 +1414,7 @@ void CodeGen_CUDA::visit(const Match *node) {
         os << " = " << "std::get<" << struct_t->name << ">";
         os << "(*";
         node->loc.accept(this);
-        os << "_"; // differentiate
+        os << "_";
         os << ");\n";
         body.accept(this);
         decrement();
@@ -1566,8 +1579,7 @@ void CodeGen_CUDA::print(const Program &program) {
 
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
-    const bool is_recursive_build = function.name.starts_with("rec_");
-    is_build = function.name.starts_with("build_");
+    is_build = function.name.starts_with("rec_");
     function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
@@ -1577,13 +1589,7 @@ void CodeGen_CUDA::print(const Function &function) {
             os << '&';
         }
         os << ' ' << arg.name;
-        if (is_recursive_build && arg.type.is<Ref_t>()) {
-            // TODO(cgyurgyik): another ugly hack, we use std::variant's
-            // `holds_alternative`/`get` so we need to avoid the case:
-            //
-            //   if (holds_alernative<T>(*node)) {
-            //     const T& node = get<T>(*node); <-- duplicate `node` name
-            //   }
+        if (is_build && arg.name == "node" && arg.type.is<Ref_t>()) {
             os << '_';
         }
         if (ir::Expr value = arg.default_value; value.defined()) {
