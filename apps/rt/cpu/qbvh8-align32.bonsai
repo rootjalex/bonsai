@@ -83,7 +83,7 @@ schedule {
         primitive_count: u64;
         primitives : array[Triangle, primitive_count];
 
-        indirect group Interiors [align:32] {
+        indirect group Interiors [align=32] {
             // full bounding box of the parent is stored directly next to
             // quantized children to reduce memory bandwidth requirements.
             mlo: f32x3;

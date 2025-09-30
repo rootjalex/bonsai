@@ -11,7 +11,8 @@ schedule {
         primitive_count: u64;
         primitives : array[Triangle, primitive_count];
 
-        indirect group Interiors [align:32] {
+        interior_count: u64;
+        indirect group Interiors[size=interior_count, align=32] {
             lo: f32x3x8;
             hi: f32x3x8;
             children: u64x8;
