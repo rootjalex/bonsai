@@ -82,8 +82,8 @@ using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
 using vec4_uint8_t = vector<uint8_t, 4>;
 struct Nodes {
-    int32_t q_min : 30;
-    int32_t q_max : 30;
+    uint32_t q_min : 30;
+    uint32_t q_max : 30;
     uint8_t pad0 : 4;
     uint16_t nprims;
     uint16_t pad1;
@@ -144,7 +144,7 @@ void _recloop_func0(const uint32_t index, const Spheres* __restrict__ spheres, c
   }
   const Nodes& _t24 = (*spheres).nodes[index];
   const vec3_float _t25 = (*spheres).bins;
-  const AABB _lv0 = AABB{.low=fadd_rd((*spheres).wlow, vec3_float{fmul_rd((float)(((_t24.q_min >> 20) & 1023)), _t25[0u]), fmul_rd((float)(((_t24.q_min >> 10) & 1023)), _t25[1u]), fmul_rd((float)(((_t24.q_min >> 0) & 1023)), _t25[2u])}), .high=fsub_ru((*spheres).whigh, vec3_float{fmul_rd((float)(((_t24.q_max >> 20) & 1023)), _t25[0u]), fmul_rd((float)(((_t24.q_max >> 10) & 1023)), _t25[1u]), fmul_rd((float)(((_t24.q_max >> 0) & 1023)), _t25[2u])})};
+  const AABB _lv0 = AABB{.low=fadd_rd((*spheres).wlow, vec3_float{fmul_rd((float)(((_t24.q_min >> 20u) & 1023u)), _t25[0u]), fmul_rd((float)(((_t24.q_min >> 10u) & 1023u)), _t25[1u]), fmul_rd((float)(((_t24.q_min >> 0u) & 1023u)), _t25[2u])}), .high=fsub_ru((*spheres).whigh, vec3_float{fmul_rd((float)(((_t24.q_max >> 20u) & 1023u)), _t25[0u]), fmul_rd((float)(((_t24.q_max >> 10u) & 1023u)), _t25[1u]), fmul_rd((float)(((_t24.q_max >> 0u) & 1023u)), _t25[2u])})};
   if (intersects_AABB_AABB(a, (&_lv0))) {
     const uint16_t _t22 = _t24.nprims;
     if (_t22 == 0u) {
@@ -175,18 +175,27 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
 }
 vec3_float build_bins_inverse(const vec3_float low, const vec3_float high) {
   const vec3_float L1 = vec3_float{fsub_ru(high[0u], low[0u]), fsub_ru(high[1u], low[1u]), fsub_ru(high[2u], low[2u])};
-  const vec3_float L2 = select((L1 <= vec3_float{0.0f}), vec3_float{1.0f}, L1);
+  vec3_float L2 = vec3_float{1.0f};
+  if ((0.0f < L1[0u])) {
+    L2[0u] = L1[0u];
+  }
+  if ((0.0f < L1[1u])) {
+    L2[1u] = L1[1u];
+  }
+  if ((0.0f < L1[2u])) {
+    L2[2u] = L1[2u];
+  }
   return vec3_float{fdiv_rd(1023.0f, L2[0u]), fdiv_rd(1023.0f, L2[1u]), fdiv_rd(1023.0f, L2[2u])};
 }
 vec3_float build_bins(const vec3_float low, const vec3_float high) {
   const vec3_float bins_inverse = build_bins_inverse(low, high);
   return vec3_float{frcp_rd(bins_inverse[0u]), frcp_rd(bins_inverse[1u]), frcp_rd(bins_inverse[2u])};
 }
-int32_t quantize(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
+uint32_t quantize(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
   const uint32_t x = (uint32_t)(floor(fmul_rd(fsub_rd(current[0u], world[0u]), bin_inverse[0u])));
   const uint32_t y = (uint32_t)(floor(fmul_rd(fsub_rd(current[1u], world[1u]), bin_inverse[1u])));
   const uint32_t z = (uint32_t)(floor(fmul_rd(fsub_rd(current[2u], world[2u]), bin_inverse[2u])));
-  return (int32_t)((((x << 20u) | (y << 10u)) | z));
+  return (uint32_t)((((x << 20u) | (y << 10u)) | z));
 }
 uint32_t rec_build_spheres(const BVH* __restrict__ node, Spheres* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
   if ((!node)) {
@@ -335,8 +344,8 @@ vec3_float cross_(const vec3_float v0, const vec3_float v1) {
 float degrees_to_radians(const float degrees) {
   return ((degrees * 3.14159274f) / 180.0f);
 }
-vec3_float dequantize(const int32_t v, const vec3_float bins) {
-  return vec3_float{fmul_rd((float)(((v >> 20) & 1023)), bins[0u]), fmul_rd((float)(((v >> 10) & 1023)), bins[1u]), fmul_rd((float)(((v >> 0) & 1023)), bins[2u])};
+vec3_float dequantize(const uint32_t v, const vec3_float bins) {
+  return vec3_float{fmul_rd((float)(((v >> 20u) & 1023u)), bins[0u]), fmul_rd((float)(((v >> 10u) & 1023u)), bins[1u]), fmul_rd((float)(((v >> 0u) & 1023u)), bins[2u])};
 }
 float gamma(const int32_t n) {
   const float _t1 = ((float)(n) * 0.00000006f);

@@ -73,9 +73,9 @@ struct Arm_Leaf {
 } __attribute__((packed));
 
 struct Nodes {
-  int32_t q_min;
-  int32_t q_max;
-  uint8_t nprims;
+  uint32_t q_min : 30;
+  uint32_t q_max : 30;
+  uint8_t nprims : 4;
   uchar4 split0on_nprims;
 } __attribute__((packed));
 
@@ -258,7 +258,7 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
     }
     Nodes _t48 = (*triangles).nodes[index];
     float3 _t50 = (*triangles).bins;
-    AABB _t60 = AABB{__fadd_rd((*triangles).wlow, float3{__fmul_rd((float)(_t48.q_min >> 20) & 1023, _t50.x), __fmul_rd((float)(_t48.q_min >> 10) & 1023, _t50.y), __fmul_rd((float)(_t48.q_min >> 0) & 1023, _t50.z)}), __fsub_ru((*triangles).whigh, float3{__fmul_rd((float)(_t48.q_max >> 20) & 1023, _t50.x), __fmul_rd((float)(_t48.q_max >> 10) & 1023, _t50.y), __fmul_rd((float)(_t48.q_max >> 0) & 1023, _t50.z)})};
+    AABB _t60 = AABB{__fadd_rd((*triangles).wlow, float3{__fmul_rd((float)(_t48.q_min >> 20u) & 1023u, _t50.x), __fmul_rd((float)(_t48.q_min >> 10u) & 1023u, _t50.y), __fmul_rd((float)(_t48.q_min >> 0u) & 1023u, _t50.z)}), __fsub_ru((*triangles).whigh, float3{__fmul_rd((float)(_t48.q_max >> 20u) & 1023u, _t50.x), __fmul_rd((float)(_t48.q_max >> 10u) & 1023u, _t50.y), __fmul_rd((float)(_t48.q_max >> 0u) & 1023u, _t50.z)})};
     if (intersects_Ray_AABB(ray, (&_t60))) {
       if (distmin_Ray_AABB(ray, (&_t60)) < cuda::std::get<0>(_best0)) {
         uint8_t _t29 = _t48.nprims;
@@ -325,7 +325,16 @@ __host__ cuda::std::optional<Triangle>* _traverse_array0(int64_t n, Ray* rays, T
 
 __host__ float3 build_bins_inverse(float3 low, float3 high) {
   float3 L1 = float3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
-  float3 L2 = make_float3(((L1 <= make_float3(0)).x ? make_float3(1).x : L1.x),((L1 <= make_float3(0)).y ? make_float3(1).y : L1.y),((L1 <= make_float3(0)).z ? make_float3(1).z : L1.z));
+  float3 L2 = make_float3(1);
+  if (0 < L1.x) {
+    L2.x = L1.x;
+  }
+  if (0 < L1.y) {
+    L2.y = L1.y;
+  }
+  if (0 < L1.z) {
+    L2.z = L1.z;
+  }
   return float3{fdiv_rd((float)1023, L2.x), fdiv_rd((float)1023, L2.y), fdiv_rd((float)1023, L2.z)};
 }
 
@@ -334,11 +343,11 @@ __host__ float3 build_bins(float3 low, float3 high) {
   return float3{frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
 }
 
-__host__ int32_t quantize(float3 current, float3 world, float3 bin_inverse) {
+__host__ uint32_t quantize(float3 current, float3 world, float3 bin_inverse) {
   uint32_t x = (uint32_t)floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x));
   uint32_t y = (uint32_t)floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y));
   uint32_t z = (uint32_t)floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z));
-  return (int32_t)(((x << 20u) | (y << 10u)) | z);
+  return (uint32_t)(((x << 20u) | (y << 10u)) | z);
 }
 
 __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {

@@ -139,7 +139,16 @@ __host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* sphe
 
 __host__ float3 build_bins_inverse(float3 low, float3 high) {
   float3 L1 = float3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
-  float3 L2 = make_float3(((L1 <= make_float3(0)).x ? make_float3(1).x : L1.x),((L1 <= make_float3(0)).y ? make_float3(1).y : L1.y),((L1 <= make_float3(0)).z ? make_float3(1).z : L1.z));
+  float3 L2 = make_float3(1);
+  if (0 < L1.x) {
+    L2.x = L1.x;
+  }
+  if (0 < L1.y) {
+    L2.y = L1.y;
+  }
+  if (0 < L1.z) {
+    L2.z = L1.z;
+  }
   return float3{fdiv_rd((float)1023, L2.x), fdiv_rd((float)1023, L2.y), fdiv_rd((float)1023, L2.z)};
 }
 
