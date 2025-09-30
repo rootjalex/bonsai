@@ -4,9 +4,9 @@ import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;
 
-extern spheres : set[Triangle];
+extern triangles : set[Triangle];
 
-func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), spheres);
+func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), triangles);
 
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
@@ -41,7 +41,7 @@ func build_bins(low: f32x3, high: f32x3) -> f32x3 {
 
 // quantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L100-L103
-func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) -> u30 {
+func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) -> u32 {
     // const unsigned int lo_bin3 = (lo_bin.x << 20) +  (lo_bin.y << 10) + lo_bin.z;
     x: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x)));
     y: u32 = cast[[u32]](floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y)));
@@ -56,9 +56,9 @@ schedule {
       = Interior(left : BVH, right : BVH)
       | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
-    spheres : BVH;
+    triangles : BVH;
 
-    layout spheres(index: u32) {
+    layout triangles(index: u32) {
         wlow: f32x3;
         whigh: f32x3;
         bins: f32x3;
@@ -89,7 +89,7 @@ schedule {
         };
     };
 
-    build spheres {
+    build triangles {
       build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
         build root {
           build wlow = low;

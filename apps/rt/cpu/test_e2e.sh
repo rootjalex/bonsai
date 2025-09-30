@@ -6,7 +6,7 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
+LAYOUTS=("eq" "ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
 OBJECTS=("san-miguel" "hairball" "dragon" "sponza")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
@@ -68,7 +68,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       # 1. Build the Bonsai compiler.
       cmake --build build --config Debug -j > /dev/null
       # 2. Lower to C++.
-      ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
+      ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
       # 3. Compile the lowered C++.
       clang++ -std=c++20 -O3 -march=native -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_e2e.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
       # 4. Run it.

@@ -89,7 +89,7 @@ struct Nodes {
     uint16_t pad1;
     vec4_uint8_t split0on_nprims;
 } __attribute__((packed));
-struct Spheres {
+struct Triangles {
     vec3_float wlow;
     vec3_float whigh;
     vec3_float bins;
@@ -104,8 +104,8 @@ using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
 using vec3_uint16_t = vector<uint16_t, 3>;
 
-Spheres build_spheres(const BVH* __restrict__ CT);
-std::vector<Triangle> find_neighbors(const AABB* __restrict__ a, const Spheres* __restrict__ spheres);
+Triangles build_triangles(const BVH* __restrict__ CT);
+std::vector<Triangle> find_neighbors(const AABB* __restrict__ a, const Triangles* __restrict__ triangles);
 
 Point ClosestPtPointAABB(const Point* __restrict__ pt, const AABB* __restrict__ a) {
   return Point{.vec=min(max((*pt).vec, (*a).low), (*a).high)};
@@ -203,22 +203,22 @@ bool intersects_AABB_Triangle(const AABB* __restrict__ a, const Triangle* __rest
   }
   return true;
 }
-void _recloop_func0(const uint32_t index, const Spheres* __restrict__ spheres, const AABB* __restrict__ a, std::vector<Triangle>& _dyn_alloc) {
+void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangles, const AABB* __restrict__ a, std::vector<Triangle>& _dyn_alloc) {
   if (index == 4294967295u) {
     return;
   }
-  const Nodes& _t24 = (*spheres).nodes[index];
-  const vec3_float _t25 = (*spheres).bins;
-  const AABB _lv0 = AABB{.low=fadd_rd((*spheres).wlow, dequantize(_t24.q_min, _t25)), .high=fsub_ru((*spheres).whigh, dequantize(_t24.q_max, _t25))};
+  const Nodes& _t24 = (*triangles).nodes[index];
+  const vec3_float _t25 = (*triangles).bins;
+  const AABB _lv0 = AABB{.low=fadd_rd((*triangles).wlow, dequantize(_t24.q_min, _t25)), .high=fsub_ru((*triangles).whigh, dequantize(_t24.q_max, _t25))};
   if (intersects_AABB_AABB(a, (&_lv0))) {
     const uint16_t _t22 = _t24.nprims;
     if (_t22 == 0u) {
-      _recloop_func0((index + 1u), spheres, a, _dyn_alloc);
-      _recloop_func0((index + reinterpret<Arm_Interior>(_t24.split0on_nprims).offset), spheres, a, _dyn_alloc);
+      _recloop_func0((index + 1u), triangles, a, _dyn_alloc);
+      _recloop_func0((index + reinterpret<Arm_Interior>(_t24.split0on_nprims).offset), triangles, a, _dyn_alloc);
     } else {
       const uint32_t _t11 = reinterpret<Arm_Leaf>(_t24.split0on_nprims).poffset;
       for (uint32_t _idx0 = _t11; _idx0 < (_t11 + (uint32_t)(_t22)); ++_idx0) {
-        const Triangle& _t4 = (*spheres).primitives[_idx0];
+        const Triangle& _t4 = (*triangles).primitives[_idx0];
         if (intersects_AABB_Triangle(a, (&_t4))) {
           _dyn_alloc.push_back(_t4);
         }
@@ -227,10 +227,10 @@ void _recloop_func0(const uint32_t index, const Spheres* __restrict__ spheres, c
   }
   return;
 }
-std::vector<Triangle> _traverse_tree0(const AABB* __restrict__ a, const Spheres* __restrict__ spheres) {
+std::vector<Triangle> _traverse_tree0(const AABB* __restrict__ a, const Triangles* __restrict__ triangles) {
   std::vector<Triangle> _dyn_alloc;
   _dyn_alloc.reserve(16);
-  _recloop_func0(0u, spheres, a, _dyn_alloc);
+  _recloop_func0(0u, triangles, a, _dyn_alloc);
   return _dyn_alloc;
 }
 vec3_float build_bins_inverse(const vec3_float low, const vec3_float high) {
@@ -255,9 +255,9 @@ uint32_t quantize(const vec3_float current, const vec3_float world, const vec3_f
   const uint32_t x = (uint32_t)(floor(fmul_rd(fsub_rd(current[0u], world[0u]), bin_inverse[0u])));
   const uint32_t y = (uint32_t)(floor(fmul_rd(fsub_rd(current[1u], world[1u]), bin_inverse[1u])));
   const uint32_t z = (uint32_t)(floor(fmul_rd(fsub_rd(current[2u], world[2u]), bin_inverse[2u])));
-  return (uint32_t)((((x << 20u) | (y << 10u)) | z));
+  return (((x << 20u) | (y << 10u)) | z);
 }
-uint32_t rec_build_spheres(const BVH* __restrict__ node, Spheres* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
+uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
   if ((!node)) {
     return 4294967295u;
   }
@@ -274,8 +274,8 @@ uint32_t rec_build_spheres(const BVH* __restrict__ node, Spheres* __restrict__ S
       (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
       (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = 0;
-      const uint32_t left_index = rec_build_spheres(node.left, ST, nodes_index, primitives_index);
-      const uint32_t right_index = rec_build_spheres(node.right, ST, nodes_index, primitives_index);
+      const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
+      const uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
       return this_index;
     },
@@ -294,14 +294,14 @@ uint32_t rec_build_spheres(const BVH* __restrict__ node, Spheres* __restrict__ S
     }
   }, *node);
 }
-void rec_count_spheres(const BVH* __restrict__ node, Spheres* __restrict__ ST) {
+void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST) {
   if ((!node)) {
     return;
   }
   return std::visit(overloaded{
     [&](const Interior& node) {
-      rec_count_spheres(node.left, ST);
-      rec_count_spheres(node.right, ST);
+      rec_count_triangles(node.left, ST);
+      rec_count_triangles(node.right, ST);
       (*ST).node_count += 1u;
     },
     [&](const Leaf& node) {
@@ -310,18 +310,18 @@ void rec_count_spheres(const BVH* __restrict__ node, Spheres* __restrict__ ST) {
     }
   }, *node);
 }
-Spheres build_spheres(const BVH* __restrict__ CT) {
-  Spheres ST;
+Triangles build_triangles(const BVH* __restrict__ CT) {
+  Triangles ST;
   size_t primitives_index = 0;
   size_t nodes_index = 0;
   ST.primitive_count = 0u;
   ST.node_count = 0u;
-  rec_count_spheres(CT, (&ST));
+  rec_count_triangles(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
   Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
-  rec_build_spheres(CT, (&ST), (&nodes_index), (&primitives_index));
+  rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;
 }
 vec3_float clamp(const vec3_float x, const float low, const float high) {
@@ -576,8 +576,8 @@ float distmin_Ray_Triangle(const Ray* __restrict__ ray, const Triangle* __restri
     return std::numeric_limits<float>::infinity();
   }
 }
-std::vector<Triangle> find_neighbors(const AABB* __restrict__ a, const Spheres* __restrict__ spheres) {
-  return _traverse_tree0(a, spheres);
+std::vector<Triangle> find_neighbors(const AABB* __restrict__ a, const Triangles* __restrict__ triangles) {
+  return _traverse_tree0(a, triangles);
 }
 bool intersects_AABB_Sphere(const AABB* __restrict__ a, const Sphere* __restrict__ s) {
   const vec3_float _t1 = (*s).center;

@@ -19,7 +19,6 @@ struct Interior {
     vec3_float high;
     BVH* left;
     BVH* right;
-    uint8_t axis;
 };
 struct AABB {
     vec3_float low;
@@ -58,15 +57,11 @@ struct TriangleIntersection {
     float b2;
     float t;
 };
-struct Node;
 struct Arm_Interior {
-    Node * left;
-    Node * right;
+    uint32_t offset;
 } __attribute__((packed));
 struct Arm_Leaf {
     uint32_t poffset;
-    uint64_t pad0;
-    uint32_t pad1;
 } __attribute__((packed));
 using vec3_bool = vector<bool, 3>;
 using vec2_float = vector<float, 2>;
@@ -84,19 +79,22 @@ using vec3_int8_t = vector<int8_t, 3>;
 using vec4_int8_t = vector<int8_t, 4>;
 using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
-using vec16_uint8_t = vector<uint8_t, 16>;
-struct Node {
-    vec3_float low;
-    vec3_float high;
-    uint16_t nprims;
-    uint8_t axis;
-    uint8_t pad0;
-    vec16_uint8_t split0on_nprims;
+using vec4_uint8_t = vector<uint8_t, 4>;
+struct alignas(32) Nodes {
+    uint32_t q_min : 30;
+    uint32_t q_max : 30;
+    uint8_t nprims;
+    vec4_uint8_t split0on_nprims;
 } __attribute__((packed));
 struct Triangles {
+    vec3_float wlow;
+    vec3_float whigh;
+    vec3_float bins;
+    vec3_float bins_inv;
     uint32_t primitive_count;
     Triangle* primitives;
-    Node * node;
+    uint32_t node_count;
+    Nodes* nodes;
 } __attribute__((packed));
 using vec4_uint64_t = vector<uint64_t, 4>;
 using vec3_uint8_t = vector<uint8_t, 3>;
