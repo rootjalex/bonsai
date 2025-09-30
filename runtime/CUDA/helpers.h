@@ -1759,7 +1759,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
 
 template <typename T>
 __forceinline__ __host__ __device__ T argmin(T *current, T update) {
-    if (current->_field0 < update._field0) {
+    if (std::get<0>(*current) < std::get<0>(update)) {
         return *current;
     }
     return update;
@@ -1767,7 +1767,7 @@ __forceinline__ __host__ __device__ T argmin(T *current, T update) {
 
 template <typename T>
 __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
-    if (current->_field0 > update._field0) {
+    if (std::get<0>(*current) > std::get<0>(update)) {
         return current;
     }
     return &update;
