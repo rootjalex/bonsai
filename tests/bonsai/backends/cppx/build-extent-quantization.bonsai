@@ -80,8 +80,8 @@ schedule {
             4;
             nprims : u16;
             16;
-            low  = fadd_rd(wlow,  dequantize_lo(q_min, bins));
-            high = fsub_ru(whigh, dequantize_hi(q_max, bins));
+            low  = fadd_rd(wlow,  dequantize(q_min, bins));
+            high = fsub_ru(whigh, dequantize(q_max, bins));
             split nprims {
                 0 -> Interior {
                     offset : u32;
@@ -104,8 +104,8 @@ schedule {
           build bins_inv = build_bins_inverse(low, high);
           build bins = build_bins(low, high);
         }
-        build q_min = dequantize_lo(low, wlow, bins_inv);
-        build q_max = dequantize_hi(high, whigh, bins_inv);
+        build q_min = quantize_lo(low, wlow, bins_inv);
+        build q_max = quantize_hi(high, whigh, bins_inv);
         build nprims = 0;
         recurse left;
         recurse right;
@@ -113,8 +113,8 @@ schedule {
         return this;
       };
       build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
-        build q_min = quantize(low, wlow, bins_inv);
-        build q_max = quantize(high, whigh, bins_inv);
+        build q_min = quantize_lo(low, wlow, bins_inv);
+        build q_max = quantize_hi(high, whigh, bins_inv);
         build nprims;
         build poffset = append(data, nprims);
         return this;

@@ -19,6 +19,14 @@ float __prod_diff_f32(const float a, const float b, const float c, const float d
 float __sqlen_f32(const vec3_float v) {
   return reduce_add((v * v));
 }
+vec8_vec3_float dequantize_bounds_hi(const vec3_float mlo, const vec3_float mex, const vec8_Qbox3 bound) {
+  const float rcp = (1.0f / 255.0f);
+  return vec8_vec3_float{(mlo + (((vec3_float)(bound[0].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[1].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[2].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[3].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[4].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[5].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[6].hi) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[7].hi) * vec3_float{rcp}) * mex))};
+}
+vec8_vec3_float dequantize_bounds_lo(const vec3_float mlo, const vec3_float mex, const vec8_Qbox3 bound) {
+  const float rcp = (1.0f / 255.0f);
+  return vec8_vec3_float{(mlo + (((vec3_float)(bound[0].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[1].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[2].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[3].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[4].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[5].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[6].lo) * vec3_float{rcp}) * mex)), (mlo + (((vec3_float)(bound[7].lo) * vec3_float{rcp}) * mex))};
+}
 float gamma(const int32_t n) {
   const float _t1 = ((float)(n) * 0.00000006f);
   return (_t1 / (1.0f - _t1));
@@ -151,85 +159,124 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
   }
   return false;
 }
-void _recloop_func0(const uint64_t I, const Ray* __restrict__ ray, const Triangles* __restrict__ triangles, std::tuple<float, Triangle>* __restrict__ _best0) {
-  if (I == 18446744073709551615u) {
-    return;
-  }
-  if (slice<0, 2>(I) == 1u) {
-    const Interiors& _t17 = (*triangles).interiors[slice<7, 63>(I)];
-    const vec8_vec3_float _t18 = _t17.lo;
-    const vec8_vec3_float _t23 = _t17.hi;
-    const AABB _t25 = AABB{.low=_t18[0], .high=_t23[0]};
-    if (intersects_Ray_AABB(ray, (&_t25))) {
-      if ((distmin_Ray_AABB(ray, (&_t25)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[0u], ray, triangles, _best0);
+std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
+  std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
+  int32_t _queue_count0 = 1;
+  std::array<uint64_t, 64> _queue0;
+  _queue0[0] = 1u;
+  do {
+    _queue_count0 -= 1;
+    const uint64_t I = _queue0[_queue_count0];
+    if (I == 18446744073709551615u) {
+      if ((_queue_count0 <= 0)) {
+        break;
+      } else {
+        continue;
       }
     }
-    const AABB _t51 = AABB{.low=_t18[1], .high=_t23[1]};
-    if (intersects_Ray_AABB(ray, (&_t51))) {
-      if ((distmin_Ray_AABB(ray, (&_t51)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[1u], ray, triangles, _best0);
+    if (slice<0, 2>(I) == 1u) {
+      const Interiors& _t36 = (*triangles).interiors[slice<7, 63>(I)];
+      const vec3_float _t37 = _t36.mlo;
+      const vec3_float _t41 = _t36.mex;
+      const vec8_Qbox3 _t45 = _t36.child_bounds;
+      const vec8_vec3_float _t46 = dequantize_bounds_lo(_t37, _t41, _t45);
+      const vec8_vec3_float _t60 = dequantize_bounds_hi(_t37, _t41, _t45);
+      const AABB _t62 = AABB{.low=_t46[0], .high=_t60[0]};
+      if (intersects_Ray_AABB(ray, (&_t62))) {
+        if ((distmin_Ray_AABB(ray, (&_t62)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[0u];
+          _queue_count0 += 1;
+        }
       }
-    }
-    const AABB _t77 = AABB{.low=_t18[2], .high=_t23[2]};
-    if (intersects_Ray_AABB(ray, (&_t77))) {
-      if ((distmin_Ray_AABB(ray, (&_t77)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[2u], ray, triangles, _best0);
+      const AABB _t125 = AABB{.low=_t46[1], .high=_t60[1]};
+      if (intersects_Ray_AABB(ray, (&_t125))) {
+        if ((distmin_Ray_AABB(ray, (&_t125)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[1u];
+          _queue_count0 += 1;
+        }
       }
-    }
-    const AABB _t103 = AABB{.low=_t18[3], .high=_t23[3]};
-    if (intersects_Ray_AABB(ray, (&_t103))) {
-      if ((distmin_Ray_AABB(ray, (&_t103)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[3u], ray, triangles, _best0);
+      const AABB _t188 = AABB{.low=_t46[2], .high=_t60[2]};
+      if (intersects_Ray_AABB(ray, (&_t188))) {
+        if ((distmin_Ray_AABB(ray, (&_t188)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[2u];
+          _queue_count0 += 1;
+        }
       }
-    }
-    const AABB _t129 = AABB{.low=_t18[4], .high=_t23[4]};
-    if (intersects_Ray_AABB(ray, (&_t129))) {
-      if ((distmin_Ray_AABB(ray, (&_t129)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[4u], ray, triangles, _best0);
+      const AABB _t251 = AABB{.low=_t46[3], .high=_t60[3]};
+      if (intersects_Ray_AABB(ray, (&_t251))) {
+        if ((distmin_Ray_AABB(ray, (&_t251)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[3u];
+          _queue_count0 += 1;
+        }
       }
-    }
-    const AABB _t155 = AABB{.low=_t18[5], .high=_t23[5]};
-    if (intersects_Ray_AABB(ray, (&_t155))) {
-      if ((distmin_Ray_AABB(ray, (&_t155)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[5u], ray, triangles, _best0);
+      const AABB _t314 = AABB{.low=_t46[4], .high=_t60[4]};
+      if (intersects_Ray_AABB(ray, (&_t314))) {
+        if ((distmin_Ray_AABB(ray, (&_t314)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[4u];
+          _queue_count0 += 1;
+        }
       }
-    }
-    const AABB _t181 = AABB{.low=_t18[6], .high=_t23[6]};
-    if (intersects_Ray_AABB(ray, (&_t181))) {
-      if ((distmin_Ray_AABB(ray, (&_t181)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[6u], ray, triangles, _best0);
+      const AABB _t377 = AABB{.low=_t46[5], .high=_t60[5]};
+      if (intersects_Ray_AABB(ray, (&_t377))) {
+        if ((distmin_Ray_AABB(ray, (&_t377)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[5u];
+          _queue_count0 += 1;
+        }
       }
-    }
-    const AABB _t207 = AABB{.low=_t18[7], .high=_t23[7]};
-    if (intersects_Ray_AABB(ray, (&_t207))) {
-      if ((distmin_Ray_AABB(ray, (&_t207)) < std::get<0>((*_best0)))) {
-        _recloop_func0(_t17.children[7u], ray, triangles, _best0);
+      const AABB _t440 = AABB{.low=_t46[6], .high=_t60[6]};
+      if (intersects_Ray_AABB(ray, (&_t440))) {
+        if ((distmin_Ray_AABB(ray, (&_t440)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[6u];
+          _queue_count0 += 1;
+        }
       }
-    }
-  } else {
-    const uint64_t _t218 = slice<7, 63>(I);
-    for (uint64_t _idx0 = _t218; _idx0 < (_t218 + (uint64_t)((uint8_t)((slice<3, 6>(I) + 1u)))); ++_idx0) {
-      const Triangle& _t217 = (*triangles).primitives[_idx0];
-      if (intersectsp_ray_tri(ray, (&_t217)).has_value()) {
-        const float _t215 = distmin_Ray_Triangle(ray, (&_t217));
-        if ((_t215 < std::get<0>((*_best0)))) {
-          (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t215, _t217});
+      const AABB _t503 = AABB{.low=_t46[7], .high=_t60[7]};
+      if (intersects_Ray_AABB(ray, (&_t503))) {
+        if ((distmin_Ray_AABB(ray, (&_t503)) < std::get<0>(_best0))) {
+          _queue0[_queue_count0] = _t36.children[7u];
+          _queue_count0 += 1;
+        }
+      }
+    } else {
+      const uint64_t _t515 = slice<7, 63>(I);
+      for (uint64_t _idx0 = _t515; _idx0 < (_t515 + (uint64_t)((uint8_t)((slice<3, 6>(I) + 1u)))); ++_idx0) {
+        const Triangle& _t514 = (*triangles).primitives[_idx0];
+        if (intersectsp_ray_tri(ray, (&_t514)).has_value()) {
+          const float _t511 = distmin_Ray_Triangle(ray, (&_t514));
+          if ((_t511 < std::get<0>(_best0))) {
+            _best0 = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t511, _t514});
+          }
         }
       }
     }
-  }
-  return;
-}
-std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
-  std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
-  _recloop_func0(1u, ray, triangles, (&_best0));
+} while ((_queue_count0 != 0));
   return ((std::get<0>(_best0) != std::numeric_limits<float>::infinity()) ? std::optional<Triangle>{std::get<1>(_best0)} : std::nullopt);
 }
 bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, const vec3_float v1, const vec3_float v2) {
   const float R = dot(extents, abs(A));
   const vec3_float _t3 = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
   return reduce_and(((_t3 <= vec3_float{R}) & (vec3_float{(-R)} <= _t3)));
+}
+vec3_float compute_merged_extent(const vec8_vec3_float lo, const vec8_vec3_float hi) {
+  const vec3_float mlo = min(lo[0], min(lo[1], min(lo[2], min(lo[3], min(lo[4], min(lo[5], min(lo[6], lo[7])))))));
+  const vec3_float mhi = max(hi[0], max(hi[1], max(hi[2], max(hi[3], max(hi[4], max(hi[5], max(hi[6], hi[7])))))));
+  return (mhi - mlo);
+}
+vec3_uint8_t to_u8_ceil(const vec3_float f) {
+  const vec3_float f1 = ceil(f);
+  const vec3_float f2 = max(vec3_float{0.0f}, min(f1, vec3_float{255.0f}));
+  return (vec3_uint8_t)(f2);
+}
+vec3_uint8_t to_u8_floor(const vec3_float f) {
+  const vec3_float f1 = floor(f);
+  const vec3_float f2 = max(vec3_float{0.0f}, min(f1, vec3_float{255.0f}));
+  return (vec3_uint8_t)(f2);
+}
+vec8_Qbox3 quantize_bounds(const vec8_vec3_float low, const vec8_vec3_float high) {
+  const vec3_float mlo = min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
+  const vec3_float mex = compute_merged_extent(low, high);
+  const vec3_float _t1 = ((vec3_float{1.0f} / mex) * vec3_float{255.0f});
+  return vec8_Qbox3{Qbox3{.lo=to_u8_floor(((low[0] - mlo) * _t1)), .hi=to_u8_ceil(((high[0] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[1] - mlo) * _t1)), .hi=to_u8_ceil(((high[1] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[2] - mlo) * _t1)), .hi=to_u8_ceil(((high[2] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[3] - mlo) * _t1)), .hi=to_u8_ceil(((high[3] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[4] - mlo) * _t1)), .hi=to_u8_ceil(((high[4] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[5] - mlo) * _t1)), .hi=to_u8_ceil(((high[5] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[6] - mlo) * _t1)), .hi=to_u8_ceil(((high[6] - mlo) * _t1))}, Qbox3{.lo=to_u8_floor(((low[7] - mlo) * _t1)), .hi=to_u8_ceil(((high[7] - mlo) * _t1))}};
 }
 uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ interiors_index, size_t* __restrict__ primitives_index) {
   if ((!node)) {
@@ -239,8 +286,9 @@ uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
     [&](const Interior& node) {
       const size_t this_index = (*interiors_index);
       (*interiors_index) += 1u;
-      (*ST).interiors[this_index].lo = node.lo;
-      (*ST).interiors[this_index].hi = node.hi;
+      (*ST).interiors[this_index].mlo = min(node.lo[0], min(node.lo[1], min(node.lo[2], min(node.lo[3], min(node.lo[4], min(node.lo[5], min(node.lo[6], node.lo[7])))))));
+      (*ST).interiors[this_index].mex = compute_merged_extent(node.lo, node.hi);
+      (*ST).interiors[this_index].child_bounds = quantize_bounds(node.lo, node.hi);
       std::array<uint64_t, 8> children_index;
       for (int32_t __r = 0; __r < 8; ++__r) {
         children_index[__r] = rec_build_triangles(node.children[__r], ST, interiors_index, primitives_index);
@@ -356,6 +404,9 @@ std::tuple<Point, Point> closestPointonTriangle(const Point* __restrict__ pt, co
   const float w = (_t2 * _t22);
   const float u = (_t12 * _t22);
   return std::tuple<Point, Point>{Point{.vec=((a + (ab * vec3_float{v})) + (ac * vec3_float{w}))}, Point{.vec=vec3_float{u, v, w}}};
+}
+vec3_float compute_merged_low(const vec8_vec3_float low) {
+  return min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
 }
 float degrees_to_radians(const float degrees) {
   return ((degrees * 3.14159274f) / 180.0f);

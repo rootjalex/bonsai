@@ -13,6 +13,7 @@ copyright.txt
 textures
 
 # benchmarks
+apps/cd/cpu/results/*
 apps/rt/cpu/results/*
 apps/rt/cuda/results/*
 

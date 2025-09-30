@@ -84,7 +84,7 @@ void run_test(const std::string &object) {
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
-    BVH *canonical_tree = build_canonical_tree_median_split(triangles);
+    BVH *canonical_tree = build_canonical_tree_sah(triangles);
 
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree(canonical_tree);

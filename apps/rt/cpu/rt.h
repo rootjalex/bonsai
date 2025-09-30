@@ -70,10 +70,17 @@ using vec3_int8_t = vector<int8_t, 3>;
 using vec4_int8_t = vector<int8_t, 4>;
 using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
+using vec3_uint8_t = vector<uint8_t, 3>;
+struct Qbox3 {
+    vec3_uint8_t lo;
+    vec3_uint8_t hi;
+};
+using vec8_Qbox3 = vector<Qbox3, 8>;
 using vec8_uint64_t = vector<uint64_t, 8>;
 struct Interiors {
-    vec8_vec3_float lo;
-    vec8_vec3_float hi;
+    vec3_float mlo;
+    vec3_float mex;
+    vec8_Qbox3 child_bounds;
     vec8_uint64_t children;
 } __attribute__((packed));
 struct Triangles {
@@ -83,7 +90,6 @@ struct Triangles {
     Interiors* interiors;
 } __attribute__((packed));
 using vec4_uint64_t = vector<uint64_t, 4>;
-using vec3_uint8_t = vector<uint8_t, 3>;
 using vec4_vec3_uint8_t = vector<vec3_uint8_t, 4>;
 using vec3_uint16_t = vector<uint16_t, 3>;
 
