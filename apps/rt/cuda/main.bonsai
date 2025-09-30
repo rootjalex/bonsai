@@ -4,8 +4,9 @@ import stdlib/triangle;
 
 extern triangles : set[Triangle];
 
+// We don't want to export this in the query below, otherwise we can't use __device__ functions for the GPU backend.
 func trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 func [[export]] chrt(n: i64, rays : array[Ray, n]) -> array[option[Triangle], n] {
-    return map(|i : i64| trace(rays[i]), iter(n));
+    return map(|i : i64| trace_(rays[i]), iter(n));
 }

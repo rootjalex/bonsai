@@ -1,0 +1,7 @@
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));

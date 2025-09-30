@@ -387,9 +387,16 @@ void run_test(const std::string &object) {
         auto trace_begin = clock::now();
         cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
+        int64_t count = 0;
+        for (int i = 0; i < ray_count; ++i) {
+            if (hits[i].has_value()) {
+                ++count;
+            }
+        }
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
+        std::cout << "hits             : " << count << "\n";
         std::cout << "trace time       : " << trace_time << " ms\n";
     }
 }
