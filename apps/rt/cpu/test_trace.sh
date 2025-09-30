@@ -6,7 +6,7 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
+LAYOUTS=("eq" "ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
 OBJECTS=("power-plant" "hairball")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
@@ -61,6 +61,7 @@ fi
 
 echo "runs: ${N}"
 > ${DATA_PATH}/${DATA_FILE}.txt # clear
+
 for OBJECT in "${OBJECTS[@]}"; do
   echo "object: ${OBJECT}" 
   echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
