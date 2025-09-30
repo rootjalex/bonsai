@@ -29,16 +29,17 @@ struct Interior {
   BVH* right;
 };
 
-struct Sphere {
-  float3 center;
-  float radius;
+struct Triangle {
+  float3 p0;
+  float3 p1;
+  float3 p2;
 };
 
 struct Leaf {
   float3 low;
   float3 high;
   uint16_t nprims;
-  Sphere* data;
+  Triangle* data;
 };
 
 struct Point {
@@ -51,10 +52,9 @@ struct Ray {
   float tmax = INFINITY;
 };
 
-struct Triangle {
-  float3 p0;
-  float3 p1;
-  float3 p2;
+struct Sphere {
+  float3 center;
+  float radius;
 };
 
 struct TriangleIntersection {
@@ -87,7 +87,7 @@ struct Spheres {
   float3 bins;
   float3 bins_inv;
   uint32_t primitive_count;
-  Sphere* primitives;
+  Triangle* primitives;
   uint32_t node_count;
   Nodes* nodes;
 } __attribute__((packed));
@@ -105,14 +105,74 @@ __host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
   return reduce_and((low <= high));
 }
 
-__host__ bool intersects_AABB_Sphere(AABB* a, Sphere* s) {
-  float3 _t1 = (*s).center;
-  float3 _t6 = (_t1 - max((*a).low, min(_t1, (*a).high)));
-  float _t7 = (*s).radius;
-  return (dot(_t6, _t6) <= (_t7 * _t7));
+__host__ bool axis(float3 A, float3 extents, float3 v0, float3 v1, float3 v2) {
+  float R = dot(extents, abs(A));
+  float3 _t3 = float3{dot(v0, A), dot(v1, A), dot(v2, A)};
+  return reduce_and(((_t3 <= make_float3(R)) & (make_float3(-R) <= _t3)));
 }
 
-__host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Sphere>& _dyn_alloc) {
+__host__ bool intersects_AABB_Triangle(AABB* a, Triangle* b) {
+  float3 _t0 = (*a).low;
+  float3 _t1 = (*a).high;
+  float3 _t3 = ((_t0 + _t1) * make_float3((float)0.5));
+  float3 _t7 = ((_t1 - _t0) * make_float3((float)0.5));
+  float3 _t9 = ((*b).p0 - _t3);
+  float3 _t11 = ((*b).p1 - _t3);
+  float3 _t13 = ((*b).p2 - _t3);
+  float3 f0 = (_t11 - _t9);
+  float3 f1 = (_t13 - _t11);
+  float3 f2 = (_t9 - _t13);
+  float3 tri_min = min(min(_t9, _t11), _t13);
+  float3 tri_max = max(max(_t9, _t11), _t13);
+  if (!reduce_and(((tri_min <= _t7) & (-_t7 <= tri_max)))) {
+    return false;
+  }
+  float3 A0 = cross(f0, make_float3(1, 0, 0));
+  float3 A1 = cross(f0, make_float3(0, 1, 0));
+  float3 A2 = cross(f0, make_float3(0, 0, 1));
+  float3 A3 = cross(f1, make_float3(1, 0, 0));
+  float3 A4 = cross(f1, make_float3(0, 1, 0));
+  float3 A5 = cross(f1, make_float3(0, 0, 1));
+  float3 A6 = cross(f2, make_float3(1, 0, 0));
+  float3 A7 = cross(f2, make_float3(0, 1, 0));
+  float3 A8 = cross(f2, make_float3(0, 0, 1));
+  if (!axis(A0, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A1, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A2, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A3, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A4, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A5, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A6, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A7, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  if (!axis(A8, _t7, _t9, _t11, _t13)) {
+    return false;
+  }
+  float3 N = cross(f0, f1);
+  float Rn = dot(_t7, abs(N));
+  float dist = dot(_t9, N);
+  if ((Rn < dist) || (dist < -Rn)) {
+    return false;
+  }
+  return true;
+}
+
+__host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::universal_vector<Triangle>& _dyn_alloc) {
   if (index == 4294967295u) {
     return;
   }
@@ -127,8 +187,8 @@ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::
     } else {
       uint32_t _t11 = bonsai_reinterpret<Arm_Leaf>(_t24.split0on_nprims).poffset;
       for (uint32_t _idx0 = _t11; _idx0 < (_t11 + (uint32_t)_t22); _idx0 += 1u) {
-        Sphere _t4 = (*spheres).primitives[_idx0];
-        if (intersects_AABB_Sphere(a, (&_t4))) {
+        Triangle _t4 = (*spheres).primitives[_idx0];
+        if (intersects_AABB_Triangle(a, (&_t4))) {
           _dyn_alloc.push_back(_t4);
         }
       }
@@ -137,8 +197,8 @@ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::
   return;
 }
 
-__host__ thrust::universal_vector<Sphere> _traverse_tree0(AABB* a, Spheres* spheres) {
-  thrust::universal_vector<Sphere> _dyn_alloc;
+__host__ thrust::universal_vector<Triangle> _traverse_tree0(AABB* a, Spheres* spheres) {
+  thrust::universal_vector<Triangle> _dyn_alloc;
   _dyn_alloc.reserve(16);
   _recloop_func0(0u, spheres, a, _dyn_alloc);
   return _dyn_alloc;
@@ -221,6 +281,7 @@ __host__ void rec_count_spheres(BVH* node_, Spheres* ST) {
     }
     else if (std::holds_alternative<Leaf>(*node_)) {
       const Leaf& node = std::get<Leaf>(*node_);
+      (*ST).primitive_count += node.nprims;
       (*ST).node_count += 1u;
     }
 }
@@ -232,7 +293,7 @@ __host__ Spheres build_spheres(BVH* CT) {
   ST.primitive_count = 0u;
   ST.node_count = 0u;
   rec_count_spheres(CT, (&ST));
-  Sphere* primitives = reinterpret_cast<Sphere*>(malloc(sizeof(Sphere) * ST.primitive_count));
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
   Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
@@ -240,6 +301,6 @@ __host__ Spheres build_spheres(BVH* CT) {
   return ST;
 }
 
-__host__ thrust::universal_vector<Sphere> find_neighbors(AABB* a, Spheres* spheres) {
+__host__ thrust::universal_vector<Triangle> find_neighbors(AABB* a, Spheres* spheres) {
   return _traverse_tree0(a, spheres);
 }

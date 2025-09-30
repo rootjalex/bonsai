@@ -4,7 +4,7 @@ import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;
 
-extern spheres : set[Sphere];
+extern spheres : set[Triangle];
 
 func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), spheres);
 
@@ -52,9 +52,9 @@ func quantize(current: f32x3, world: f32x3, bin_inverse: f32x3) -> u30 {
 schedule {
     // extent quantization, as defined in
     // https://www.sciencedirect.com/science/article/pii/S092702561930206X
-    tree[[Sphere]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
+    tree[[Triangle]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
       = Interior(left : BVH, right : BVH)
-      | Leaf(nprims: u16, data : array[Sphere, nprims]);
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
 
     spheres : BVH;
 
@@ -65,7 +65,7 @@ schedule {
         bins_inv: f32x3;
 
         primitive_count : u32;
-        primitives : array[Sphere, primitive_count];
+        primitives : array[Triangle, primitive_count];
         node_count : u32;
         group nodes[size=node_count] by index {
             q_min: u30;

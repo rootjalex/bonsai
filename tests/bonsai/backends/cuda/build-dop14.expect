@@ -18,7 +18,7 @@ struct AABB {
 };
 
 struct DOP14 {
-  uint8_t early_exit;
+  uint8_t early_exit : 1;
   cuda::std::array<float, 7> low;
   cuda::std::array<float, 7> high;
 };
@@ -31,7 +31,7 @@ struct FInterval {
 struct Interior {
   cuda::std::array<float, 7> lo;
   cuda::std::array<float, 7> hi;
-  uint8_t ee;
+  uint8_t ee : 1;
   BVH* left;
   BVH* right;
 };
@@ -45,8 +45,8 @@ struct Triangle {
 struct Leaf {
   cuda::std::array<float, 7> lo;
   cuda::std::array<float, 7> hi;
-  uint8_t ee;
-  uint8_t leaf_size;
+  uint8_t ee : 1;
+  uint8_t leaf_size : 4;
   Triangle* data;
 };
 
@@ -77,8 +77,8 @@ struct Arm_Interior {
 } __attribute__((packed));
 
 struct Arm_Leaf {
-  uint8_t leaf_size;
-  uint32_t tri_address;
+  uint8_t leaf_size : 4;
+  uint32_t tri_address : 28;
 } __attribute__((packed));
 
 struct Dop36 {
@@ -89,9 +89,9 @@ struct Dop36 {
 struct Nodes {
   float3 lo1;
   float3 hi1;
-  uint8_t ee;
-  uint8_t is_leaf_flag;
-  uint32_t pad0;
+  uint8_t ee : 1;
+  uint8_t is_leaf_flag : 1;
+  uint32_t pad0 : 30;
   uint32_t right;
   uchar4 split0on_is_leaf_flag;
 } __attribute__((packed));
