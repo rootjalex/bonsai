@@ -67,12 +67,12 @@ for OBJECT in "${OBJECTS[@]}"; do
     ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
     # 3. Compile the lowered cuda.
     module load cuda
-    # nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/main_trace_8.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
+    nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/main_trace_8.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
     # 4. Run it.
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
     COMMAND="./${EXECUTABLE} ${OBJECT}"
     for ((i=0; i < N; i++)); do
-      ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
+      compute-sanitizer ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
     done
     # 5. Clean up
     rm ${PREFIX}/${APPLICATION}.h
