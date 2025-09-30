@@ -73,6 +73,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     COMMAND="./${EXECUTABLE} ${OBJECT}"
     for ((i=0; i < N; i++)); do
       compute-sanitizer ${COMMAND} # | tee -a ${DATA_PATH}/${DATA_FILE}.txt
+      ${COMMAND}
     done
     # 5. Clean up
     rm ${PREFIX}/${APPLICATION}.h
