@@ -364,9 +364,12 @@ void run_test(const std::string &object) {
     assert(!triangles.empty());
 
     BVH *canonical_tree = build_canonical_tree_8_sah(triangles);
+    std::cout << "built canonical tree\n";
 
     Triangles tree = build_triangles(canonical_tree);
+    std::cout << "built specialized tree\n";
     free_canonical_tree_8(canonical_tree);
+    std::cout << "freed canonical tree\n";
 
     std::vector<int64_t> ray_counts = {
         1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
@@ -384,6 +387,7 @@ void run_test(const std::string &object) {
             std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
+        std::cout << "built rays\n";
         auto trace_begin = clock::now();
         cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
