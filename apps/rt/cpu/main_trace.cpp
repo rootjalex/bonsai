@@ -92,6 +92,7 @@ void run_test(const std::string &object) {
     std::vector<int64_t> ray_counts = {
         1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
     };
+    bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
         std::string ray_file = "apps/rt/rays/" + object + "_" +
@@ -99,6 +100,12 @@ void run_test(const std::string &object) {
                                std::to_string(75) + ".rays";
         std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
+        if (is_first_run) {
+            for (int i = 0; i < std::max<size_t>(rays.size(), 512u); ++i)
+                (void)trace(&rays[i], &tree); // warmup
+            is_first_run = false;
+        }
+
         // SINGLE-THREAD
         std::vector<Triangle> hits;
         hits.reserve(rays.size());

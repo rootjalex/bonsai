@@ -443,6 +443,7 @@ void run_test(const std::string &object) {
     std::vector<int64_t> ray_counts = {
         1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
     };
+    bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
         std::string ray_file = "apps/rt/rays/" + object + "_" +
@@ -456,6 +457,11 @@ void run_test(const std::string &object) {
             std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
+        if (is_first_run) {
+            (void)chrt(ray_count, rays, &tree); // warm-up run
+            is_first_run = false;
+        }
+
         auto trace_begin = clock::now();
         cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
