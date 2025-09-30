@@ -72,7 +72,7 @@ struct Arm_Leaf {
   uint32_t poffset;
 } __attribute__((packed));
 
-struct alignas(32) Nodes {
+struct Nodes {
   uint32_t q_min;
   uint32_t q_max;
   uint8_t nprims;

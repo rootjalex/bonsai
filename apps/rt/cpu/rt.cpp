@@ -205,7 +205,13 @@ vec3_float build_bins(const vec3_float low, const vec3_float high) {
   const vec3_float bins_inverse = build_bins_inverse(low, high);
   return vec3_float{frcp_rd(bins_inverse[0u]), frcp_rd(bins_inverse[1u]), frcp_rd(bins_inverse[2u])};
 }
-uint32_t quantize(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
+uint32_t quantize_hi(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
+  const uint32_t x = (uint32_t)(floor(fmul_rd(fsub_rd(world[0u], current[0u]), bin_inverse[0u])));
+  const uint32_t y = (uint32_t)(floor(fmul_rd(fsub_rd(world[1u], current[1u]), bin_inverse[1u])));
+  const uint32_t z = (uint32_t)(floor(fmul_rd(fsub_rd(world[2u], current[2u]), bin_inverse[2u])));
+  return (((x << 20u) | (y << 10u)) | z);
+}
+uint32_t quantize_lo(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
   const uint32_t x = (uint32_t)(floor(fmul_rd(fsub_rd(current[0u], world[0u]), bin_inverse[0u])));
   const uint32_t y = (uint32_t)(floor(fmul_rd(fsub_rd(current[1u], world[1u]), bin_inverse[1u])));
   const uint32_t z = (uint32_t)(floor(fmul_rd(fsub_rd(current[2u], world[2u]), bin_inverse[2u])));
@@ -225,8 +231,8 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
         (*ST).bins_inv = build_bins_inverse(node.low, node.high);
         (*ST).bins = build_bins(node.low, node.high);
       }
-      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = 0;
       const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
       const uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
@@ -236,8 +242,8 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
     [&](const Leaf& node) {
       const size_t this_index = (*nodes_index);
       (*nodes_index) += 1u;
-      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
       for (uint8_t __p = 0u; __p < node.nprims; ++__p) {
