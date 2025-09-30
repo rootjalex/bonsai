@@ -9,6 +9,7 @@
 #include <cuda_fp16.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
