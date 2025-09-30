@@ -104,6 +104,13 @@ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
   return (diff + err);
 }
 
+__host__ float3 dequantize(uint32_t v, float3 bins) {
+  uint32_t x_ = ((v >> 20u) & 1023u);
+  uint32_t y_ = ((v >> 10u) & 1023u);
+  uint32_t z_ = ((v >> 0u) & 1023u);
+  return float3{fmul_rd((float)x_, bins.x), fmul_rd((float)y_, bins.y), fmul_rd((float)z_, bins.z)};
+}
+
 __host__ float gamma(int32_t n) {
   float _t1 = ((float)n * (float)5.96046e-08);
   return (_t1 / (1 - _t1));
@@ -258,7 +265,7 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
     }
     Nodes _t48 = (*triangles).nodes[index];
     float3 _t50 = (*triangles).bins;
-    AABB _t60 = AABB{__fadd_rd((*triangles).wlow, float3{__fmul_rd((float)(_t48.q_min >> 20u) & 1023u, _t50.x), __fmul_rd((float)(_t48.q_min >> 10u) & 1023u, _t50.y), __fmul_rd((float)(_t48.q_min >> 0u) & 1023u, _t50.z)}), __fsub_ru((*triangles).whigh, float3{__fmul_rd((float)(_t48.q_max >> 20u) & 1023u, _t50.x), __fmul_rd((float)(_t48.q_max >> 10u) & 1023u, _t50.y), __fmul_rd((float)(_t48.q_max >> 0u) & 1023u, _t50.z)})};
+    AABB _t60 = AABB{__fadd_rd((*triangles).wlow, dequantize(_t48.q_min, _t50)), __fsub_ru((*triangles).whigh, dequantize(_t48.q_max, _t50))};
     if (intersects_Ray_AABB(ray, (&_t60))) {
       if (distmin_Ray_AABB(ray, (&_t60)) < cuda::std::get<0>(_best0)) {
         uint8_t _t29 = _t48.nprims;
