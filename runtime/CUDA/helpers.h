@@ -1053,7 +1053,7 @@ __forceinline__ __host__ __device__ float4 normalize(float4 v) {
 // ceilf, floorf
 ////////////////////////////////////////////////////////////////////////////////
 
-__forceinline__ __host__ __device__ float2 floorf(float2 v) {
+__forceinline__ __host__ __device__ float2 ceilf(float2 v) {
     return make_float2(ceilf(v.x), ceilf(v.y));
 }
 __forceinline__ __host__ __device__ float3 ceilf(float3 v) {
