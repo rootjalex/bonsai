@@ -394,6 +394,7 @@ __host__ Triangles build_triangles(BVH *CT) {
     ST.primitive_count = 0u;
     ST.interior_count = 0u;
     rec_count_triangles(CT, (&ST));
+    printf("p: %d, i: %d\n", ST.primitive_count, ST.interior_count);
     Triangle *primitives;
     cudaError_t err =
         cudaMalloc((void **)&primitives, ST.primitive_count * sizeof(Triangle));
