@@ -305,17 +305,41 @@ uint32_t rec_build_triangles(const BVH *__restrict__ node,
                     (*ST).bins = build_bins(node.low, node.high);
                 }
                 if (this_index == 0) {
-                    printf("Root bounds: low=[%f,%f,%f] high=[%f,%f,%f]\n",
-                           node.low[0], node.low[1], node.low[2], node.high[0],
-                           node.high[1], node.high[2]);
-                    printf("wlow=[%f,%f,%f] whigh=[%f,%f,%f]\n", (*ST).wlow[0],
-                           (*ST).wlow[1], (*ST).wlow[2], (*ST).whigh[0],
-                           (*ST).whigh[1], (*ST).whigh[2]);
-                    printf("bins_inv=[%f,%f,%f]\n", (*ST).bins_inv[0],
-                           (*ST).bins_inv[1], (*ST).bins_inv[2]);
-                    printf("q_min_raw=%u q_max_raw=%u\n",
-                           quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv),
-                           quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv));
+                    if (this_index == 0) {
+                        // For q_min
+                        float dx = fsub_rd(node.low[0], (*ST).wlow[0]);
+                        float dy = fsub_rd(node.low[1], (*ST).wlow[1]);
+                        float dz = fsub_rd(node.low[2], (*ST).wlow[2]);
+                        printf("q_min deltas: dx=%f dy=%f dz=%f\n", dx, dy, dz);
+
+                        float mx = fmul_rd(dx, (*ST).bins_inv[0]);
+                        float my = fmul_rd(dy, (*ST).bins_inv[1]);
+                        float mz = fmul_rd(dz, (*ST).bins_inv[2]);
+                        printf("q_min products: mx=%f my=%f mz=%f\n", mx, my,
+                               mz);
+
+                        uint32_t x = (uint32_t)floorf(mx);
+                        uint32_t y = (uint32_t)floorf(my);
+                        uint32_t z = (uint32_t)floorf(mz);
+                        printf("q_min components: x=%u y=%u z=%u\n", x, y, z);
+
+                        // For q_max
+                        dx = fsub_rd((*ST).whigh[0], node.high[0]);
+                        dy = fsub_rd((*ST).whigh[1], node.high[1]);
+                        dz = fsub_rd((*ST).whigh[2], node.high[2]);
+                        printf("q_max deltas: dx=%f dy=%f dz=%f\n", dx, dy, dz);
+
+                        mx = fmul_rd(dx, (*ST).bins_inv[0]);
+                        my = fmul_rd(dy, (*ST).bins_inv[1]);
+                        mz = fmul_rd(dz, (*ST).bins_inv[2]);
+                        printf("q_max products: mx=%f my=%f mz=%f\n", mx, my,
+                               mz);
+
+                        x = (uint32_t)floorf(mx);
+                        y = (uint32_t)floorf(my);
+                        z = (uint32_t)floorf(mz);
+                        printf("q_max components: x=%u y=%u z=%u\n", x, y, z);
+                    }
                 }
                 (*ST).nodes[this_index].q =
                     (((uint64_t)(quantize_lo(node.low, (*ST).wlow,
