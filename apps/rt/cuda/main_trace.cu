@@ -111,21 +111,27 @@ BVH *build_canonical_tree_median_split(std::vector<Triangle> &triangles,
             });
         }
 
-        vec3_float extent = aabb_max - aabb_min;
+        float3 extent = aabb_max - aabb_min;
         int axis = 0;
-        if (extent[1] > extent[0])
+        if (extent.y > extent.x)
             axis = 1;
-        if (extent[2] > extent[axis])
+        if (extent.z > extent[axis == 0 ? extent.x : extent.y])
             axis = 2;
 
         // Partition around midpoint along axis.
         auto mid_it = triangles.begin() + low + count / 2;
-        std::nth_element(triangles.begin() + low, mid_it,
+        std::nth_element(triangles.begin() + low, triangles.begin() + mid,
                          triangles.begin() + high,
                          [&](const Triangle &a, const Triangle &b) {
-                             float ca = (a.p0[axis] + a.p1[axis] + a.p2[axis]);
-                             float cb = (b.p0[axis] + b.p1[axis] + b.p2[axis]);
-                             return ca < cb;
+                             float3 ca = triangle_centroid(a);
+                             float3 cb = triangle_centroid(b);
+                             float ca_axis = (best_split.axis == 0)   ? ca.x
+                                             : (best_split.axis == 1) ? ca.y
+                                                                      : ca.z;
+                             float cb_axis = (best_split.axis == 0)   ? cb.x
+                                             : (best_split.axis == 1) ? cb.y
+                                                                      : cb.z;
+                             return ca_axis < cb_axis;
                          });
 
         const uint32_t mid = low + count / 2;
