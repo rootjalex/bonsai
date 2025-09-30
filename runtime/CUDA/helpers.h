@@ -1921,17 +1921,17 @@ bool reduce_or(bool3 a) {
     return t;
 }
 
-__device__ inline float3 __fadd_rd(const float3 &a, const float3 &b) {
+__device__ __host__ inline float3 __fadd_rd(const float3 &a, const float3 &b) {
     return float3{__fadd_rd(a.x, b.x), __fadd_rd(a.y, b.y),
                   __fadd_rd(a.z, b.z)};
 }
 
-__device__ inline float3 __fsub_ru(const float3 &a, const float3 &b) {
+__device__ __host__ inline float3 __fsub_ru(const float3 &a, const float3 &b) {
     return float3{__fsub_ru(a.x, b.x), __fsub_ru(a.y, b.y),
                   __fsub_ru(a.z, b.z)};
 }
 
-__device__ inline float3 __fmul_rd(const float3 &a, const float3 &b) {
+__device__ __host__ inline float3 __fmul_rd(const float3 &a, const float3 &b) {
     return float3{__fmul_rd(a.x, b.x), __fmul_rd(a.y, b.y),
                   __fmul_rd(a.z, b.z)};
 }
