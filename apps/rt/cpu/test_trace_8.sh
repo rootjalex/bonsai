@@ -30,7 +30,7 @@ if [[ "$(pwd)" == */${PREFIX} ]]; then
 fi
 
 # Save a set of random rays.
-clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
+clang++ -std=c++20 -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
 
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
@@ -72,7 +72,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 2. Lower to C++.
     ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
     # 3. Compile the lowered C++.
-    COMMON_FLAGS="-std=c++20 -O3 -I. -Iapps/${APPLICATION} -Iruntime/CPP"
+    COMMON_FLAGS="-std=c++20 -O3 -march=native -I. -Iapps/${APPLICATION} -Iruntime/CPP"
 
     # Generate LLVM IR for combined sources
     clang++ ${COMMON_FLAGS} -S -emit-llvm ${PREFIX}/main_trace_8.cpp ${PREFIX}/${APPLICATION}.cpp

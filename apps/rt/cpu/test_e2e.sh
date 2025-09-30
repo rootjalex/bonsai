@@ -40,7 +40,7 @@ mkdir -p ${RAY_PATH}
 pip install -r ${KERNEL_PATH}/requirements.txt
 
 # Save a set of random rays.
-clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
+clang++ -std=c++20 -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
 
 if [[ "$(uname)" == "Linux" ]]; then
   echo "Running on Linux (presumably Redwood)!"
@@ -70,7 +70,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       # 2. Lower to C++.
       ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
       # 3. Compile the lowered C++.
-      clang++ -std=c++20 -O3 -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_e2e.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
+      clang++ -std=c++20 -O3 -march=native -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_e2e.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
       COMMAND="./${EXECUTABLE} ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays"

@@ -29,7 +29,7 @@ if [[ "$(pwd)" == */${PREFIX} ]]; then
 fi
 
 # Save a set of random rays.
-clang++ -std=c++20 -O3 -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
+clang++ -std=c++20 -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
 
 # Delete previous data.
 rm -f -r ${DATA_PATH}
