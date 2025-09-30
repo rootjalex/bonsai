@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cfenv>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
@@ -1770,7 +1771,7 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
 
 // rounding operations
 
-__host__ float3 next_after_element_wise(const float3 &from, T to) {
+__host__ float3 next_after_element_wise(const float3 &from, float to) {
     float3 result;
     result.x = std::nextafter(from.x, to);
     result.y = std::nextafter(from.y, to);
@@ -1786,8 +1787,7 @@ __host__ T next_after(T from, T to) {
 // Template function to perform operations with specific rounding modes.
 template <int RoundingMode, typename T, typename Op>
 __host__ T directed_operation(T a, T b, Op &&op) {
-    using E = element_type_t<T>;
-    constexpr E MAX = std::numeric_limits<E>::max();
+    constexpr float MAX = std::numeric_limits<float>::max();
     T result = op(a, b);
 
     if constexpr (RoundingMode == FE_DOWNWARD) {

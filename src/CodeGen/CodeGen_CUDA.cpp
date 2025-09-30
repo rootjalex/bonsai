@@ -409,6 +409,11 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
             os << " = ";
             print_no_parens(it->second);
         }
+        if (type.is_scalar()) {
+            if (uint64_t b = type.bits(); b < 8 || !is_power_of_two(b)) {
+                os << " : " << b;
+            }
+        }
         os << ';';
         os << '\n';
     }

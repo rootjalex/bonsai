@@ -73,9 +73,9 @@ struct Arm_Leaf {
 } __attribute__((packed));
 
 struct Nodes {
-  int32_t q_min;
-  int32_t q_max;
-  uint8_t pad0;
+  uint32_t q_min : 30;
+  uint32_t q_max : 30;
+  uint8_t pad0 : 4;
   uint16_t nprims;
   uint16_t pad1;
   uchar4 split0on_nprims;
@@ -111,7 +111,7 @@ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::
   }
   Nodes _t24 = (*spheres).nodes[index];
   float3 _t25 = (*spheres).bins;
-  AABB _lv0 = AABB{fadd_rd((*spheres).wlow, float3{fmul_rd((float)(_t24.q_min >> 20) & 1023, _t25.x), fmul_rd((float)(_t24.q_min >> 10) & 1023, _t25.y), fmul_rd((float)(_t24.q_min >> 0) & 1023, _t25.z)}), fsub_ru((*spheres).whigh, float3{fmul_rd((float)(_t24.q_max >> 20) & 1023, _t25.x), fmul_rd((float)(_t24.q_max >> 10) & 1023, _t25.y), fmul_rd((float)(_t24.q_max >> 0) & 1023, _t25.z)})};
+  AABB _lv0 = AABB{fadd_rd((*spheres).wlow, float3{fmul_rd((float)(_t24.q_min >> 20u) & 1023u, _t25.x), fmul_rd((float)(_t24.q_min >> 10u) & 1023u, _t25.y), fmul_rd((float)(_t24.q_min >> 0u) & 1023u, _t25.z)}), fsub_ru((*spheres).whigh, float3{fmul_rd((float)(_t24.q_max >> 20u) & 1023u, _t25.x), fmul_rd((float)(_t24.q_max >> 10u) & 1023u, _t25.y), fmul_rd((float)(_t24.q_max >> 0u) & 1023u, _t25.z)})};
   if (intersects_AABB_AABB(a, (&_lv0))) {
     uint16_t _t22 = _t24.nprims;
     if (_t22 == 0u) {
@@ -148,11 +148,11 @@ __host__ float3 build_bins(float3 low, float3 high) {
   return float3{frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
 }
 
-__host__ int32_t quantize(float3 current, float3 world, float3 bin_inverse) {
+__host__ uint32_t quantize(float3 current, float3 world, float3 bin_inverse) {
   uint32_t x = (uint32_t)floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x));
   uint32_t y = (uint32_t)floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y));
   uint32_t z = (uint32_t)floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z));
-  return (int32_t)(((x << 20u) | (y << 10u)) | z);
+  return (uint32_t)(((x << 20u) | (y << 10u)) | z);
 }
 
 __host__ uint32_t rec_build_spheres(BVH* node_, Spheres* ST, size_t* nodes_index, size_t* primitives_index) {
