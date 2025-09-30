@@ -71,7 +71,7 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 1. Build the Bonsai compiler.
     cmake --build build --config Debug -j > /dev/null
     # 2. Lower to C++.
-    # ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
+    ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
     # 3. Compile the lowered C++.
     clang++ -std=c++20 -O3 -march=native -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_trace.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
     # 4. Run it.
