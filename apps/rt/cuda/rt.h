@@ -70,6 +70,7 @@ struct alignas(32) Interiors {
 struct Triangles {
     uint64_t primitive_count;
     Triangle *primitives;
+    uint64_t interior_count;
     Interiors *interiors;
 } __attribute__((packed));
 
@@ -240,8 +241,8 @@ __host__ void _recloop_func0(uint64_t I, Ray *ray, Triangles *triangles,
     if (I == 18446744073709551615u) {
         return;
     }
-    if ((I & 0x3) == 1u) {
-        Interiors _t17 = (*triangles).interiors[((I >> 7) & 0xffffffffffffff)];
+    if (slice<0, 2>(I) == 1u) {
+        Interiors _t17 = (*triangles).interiors[slice<7, 63>(I)];
         cuda::std::array<float3, 8> _t18 = _t17.lo;
         cuda::std::array<float3, 8> _t23 = _t17.hi;
         AABB _t25 = AABB{_t18[0], _t23[0]};
@@ -298,9 +299,9 @@ __host__ void _recloop_func0(uint64_t I, Ray *ray, Triangles *triangles,
             }
         }
     } else {
-        uint64_t _t218 = ((I >> 7) & 0xffffffffffffff);
+        uint64_t _t218 = slice<7, 63>(I);
         for (uint64_t _idx0 = _t218;
-             _idx0 < (_t218 + (uint64_t)(uint8_t)(((I >> 3) & 0x7) + 1u));
+             _idx0 < (_t218 + (uint64_t)(uint8_t)(slice<3, 6>(I) + 1u));
              _idx0 += 1u) {
             Triangle _t217 = (*triangles).primitives[_idx0];
             if (intersectsp_ray_tri(ray, (&_t217)).has_value()) {
@@ -369,17 +370,16 @@ __host__ uint64_t rec_build_triangles(BVH *node_, Triangles *ST,
     }
 }
 
-__host__ void rec_count_triangles(BVH *node_, Triangles *ST,
-                                  size_t *size_interiors) {
+__host__ void rec_count_triangles(BVH *node_, Triangles *ST) {
     if (!node_) {
         return;
     }
     if (std::holds_alternative<Interior>(*node_)) {
         const Interior &node = std::get<Interior>(*node_);
         for (int32_t __r = 0; __r < 8; __r += 1) {
-            rec_count_triangles(node.children[__r], ST, size_interiors);
+            rec_count_triangles(node.children[__r], ST);
         }
-        (*size_interiors) += 1;
+        (*ST).interior_count += 1u;
     } else if (std::holds_alternative<Leaf>(*node_)) {
         const Leaf &node = std::get<Leaf>(*node_);
         (*ST).primitive_count += node.nprims;
@@ -389,16 +389,17 @@ __host__ void rec_count_triangles(BVH *node_, Triangles *ST,
 __host__ Triangles build_triangles(BVH *CT) {
     Triangles ST;
     size_t primitives_index = 0;
-    size_t size_interiors = 0;
     size_t interiors_index = 0;
     ST.primitive_count = 0u;
-    rec_count_triangles(CT, (&ST), (&size_interiors));
+    ST.interior_count = 0u;
+    rec_count_triangles(CT, (&ST));
     Triangle *primitives;
     (void)cudaMalloc((void **)&primitives,
                      ST.primitive_count * sizeof(Triangle));
     ST.primitives = primitives;
     Interiors *interiors;
-    (void)cudaMalloc((void **)&interiors, size_interiors * sizeof(Interiors));
+    (void)cudaMalloc((void **)&interiors,
+                     ST.interior_count * sizeof(Interiors));
     ST.interiors = interiors;
     rec_build_triangles(CT, (&ST), (&interiors_index), (&primitives_index));
     return ST;
@@ -406,7 +407,6 @@ __host__ Triangles build_triangles(BVH *CT) {
 
 __host__ cuda::std::optional<Triangle> *chrt(int64_t n, Ray *rays,
                                              Triangles *triangles) {
-    printf("REACHED CHRT!\n");
     return _traverse_array0(n, rays, triangles);
 }
 
