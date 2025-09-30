@@ -380,6 +380,7 @@ void run_test(const std::string &object) {
         std::string ray_file = "apps/rt/rays/" + object + "_" +
                                std::to_string(ray_count) + "_" +
                                std::to_string(75) + ".rays";
+        std::cout << ray_file << std::endl;
         Ray *rays = nullptr;
         {
             std::vector<Ray> r = load_rays_binary(ray_file, ray_count);
@@ -388,7 +389,7 @@ void run_test(const std::string &object) {
             std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
-        std::cout << "built rays\n";
+        std::cout << "rays built" << std::endl;
         auto trace_begin = clock::now();
         cuda::std::optional<Triangle> *hits = chrt(ray_count, rays, &tree);
         auto trace_end = clock::now();
