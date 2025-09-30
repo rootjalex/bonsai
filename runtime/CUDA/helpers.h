@@ -1814,6 +1814,22 @@ size_t argmax(float3 a) {
     return p;
 }
 
+float3 ceilf(const float3 &in) {
+    float3 r;
+    r.x = ceilf(in.x);
+    r.y = ceilf(in.y);
+    r.z = ceilf(in.z);
+    return r;
+}
+
+float3 floorf(const float3 &in) {
+    float3 r;
+    r.x = floorf(in.x);
+    r.y = floorf(in.y);
+    r.z = floorf(in.z);
+    return r;
+}
+
 template <size_t N>
 bool reduce_and(bool3 a) {
     bool t = a.x;
