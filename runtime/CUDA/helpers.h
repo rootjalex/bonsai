@@ -1866,7 +1866,7 @@ mallocAndCopyFromDevice(void **host, const void *device, size_t size) {
 
 // [M, N]
 template <int M, int N, typename T>
-T slice(T value) {
+__forceinline__ __host__ __device__ T slice(T value) {
     static_assert(std::is_unsigned_v<T>);
     constexpr int bits = std::numeric_limits<T>::digits;
     static_assert(M >= 0 && N >= 0 && M < N && N < bits);
@@ -1877,13 +1877,9 @@ T slice(T value) {
 
 // [M, N]
 template <typename T>
-T slice(int M, int N, T value) {
+__forceinline__ __host__ __device__ T slice(int M, int N, T value) {
     static_assert(std::is_unsigned_v<T>);
     const int bits = std::numeric_limits<T>::digits;
-    assert(M >= 0);
-    assert(N >= 0);
-    assert(M <= N);
-    assert(N < bits);
     int width = N - M + 1;
     T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
     return (value >> M) & mask;
