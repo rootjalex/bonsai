@@ -385,7 +385,6 @@ void run_test(const std::string &object) {
         std::string ray_file = "apps/rt/rays/" + object + "_" +
                                std::to_string(ray_count) + "_" +
                                std::to_string(75) + ".rays";
-        std::cout << ray_file << std::endl;
         Ray *rays = nullptr;
         {
             std::vector<Ray> r = load_rays_binary(ray_file, ray_count);
