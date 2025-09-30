@@ -142,15 +142,19 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
         // Try splitting along each axis
         for (int axis = 0; axis < 3; ++axis) {
-            float extent = centroid_max[axis] - centroid_min[axis];
+            float extent = (axis == 0   ? centroid_max.x - centroid_min.x
+                            : axis == 1 ? centroid_max.y - centroid_min.y
+                                        : centroid_max.z - centroid_min.z);
             if (extent < 1e-6f)
                 continue;
 
             // Simple approach: divide into 8 equal parts
             float split_positions[7];
+            float axis_min = (axis == 0   ? centroid_min.x
+                              : axis == 1 ? centroid_min.y
+                                          : centroid_min.z);
             for (int i = 0; i < 7; ++i) {
-                split_positions[i] =
-                    centroid_min[axis] + (i + 1) * extent / 8.0f;
+                split_positions[i] = axis_min + (i + 1) * extent / 8.0f;
             }
 
             // Evaluate this 8-way split
@@ -161,9 +165,10 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
             // Assign triangles to groups and compute bounds
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
+                float c_axis = (axis == 0 ? c.x : axis == 1 ? c.y : c.z);
                 int group = 7; // defaults to last group
                 for (int j = 0; j < 7; ++j) {
-                    if (c[axis] < split_positions[j]) {
+                    if (c_axis < split_positions[j]) {
                         group = j;
                         break;
                     }
@@ -207,9 +212,12 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         std::vector<std::vector<uint32_t>> groups(8);
         for (uint32_t i = low; i < high; ++i) {
             float3 c = triangle_centroid(triangles[i]);
+            float c_axis = (best_split.axis == 0   ? c.x
+                            : best_split.axis == 1 ? c.y
+                                                   : c.z);
             int group = 0;
             for (int j = 0; j < 7; ++j) {
-                if (c[best_split.axis] >= best_split.positions[j]) {
+                if (c_axis >= best_split.positions[j]) {
                     group = j + 1;
                 } else {
                     break;
@@ -358,7 +366,7 @@ void run_test(const std::string &object) {
     BVH *canonical_tree = build_canonical_tree_sah(triangles);
 
     Triangles tree = build_triangles(canonical_tree);
-    free_canonical_tree(canonical_tree);
+    free_canonical_tree_8(canonical_tree);
 
     std::vector<int64_t> ray_counts = {
         1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
