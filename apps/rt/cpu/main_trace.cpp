@@ -89,13 +89,6 @@ void run_test(const std::string &object) {
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree(canonical_tree);
 
-    for (size_t i = 0; i < 5; i++) {
-        printf("Node %zu: q=%llu, offset=%u, sizeof=%zu\n", i, tree.nodes[i].q,
-               reinterpret_cast<Arm_Interior *>(&tree.nodes[i].split0on_nprims)
-                   ->offset,
-               sizeof(Nodes));
-    }
-
     std::vector<int64_t> ray_counts = {
         1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
     };

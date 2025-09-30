@@ -1,6 +1,6 @@
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
-func dequantize(v: u32, bins: f32x3) -> f32x3 {
+func dequantize(v: u30, bins: f32x3) -> f32x3 {
   x_: u32 = (v >> 20) & 1023;
   y_: u32 = (v >> 10) & 1023;
   z_: u32 = (v >> 00) & 1023;
@@ -61,10 +61,11 @@ schedule {
         primitives : array[Triangle, primitive_count];
         node_count : u32;
         group nodes[size=node_count] by index {
-            q: u64;
-            low  = fadd_rd(wlow,  dequantize(cast[[u32]](q & 1073741823), bins));
-            high = fsub_ru(whigh, dequantize(cast[[u32]]((q >> 30) & 1073741823), bins));
-            nprims = cast[[u8]]((q >> 60) & 15);
+            q_min: u30;
+            q_max: u30;
+            nprims: u4;
+            low  = fadd_rd(wlow,  dequantize(q_min, bins));
+            high = fsub_ru(whigh, dequantize(q_max, bins));
             split nprims {
                 0 -> Interior {
                     offset : u32;
@@ -87,18 +88,22 @@ schedule {
           build bins_inv = build_bins_inverse(low, high);
           build bins = build_bins(low, high);
         }
-        build q = cast[[u64]](quantize_lo(low, wlow, bins_inv)) | (cast[[u64]](quantize_hi(high, whigh, bins_inv)) << 30) | (cast[[u64]](0) << 60);
+        build q_min = quantize_lo(low, wlow, bins_inv);
+        build q_max = quantize_hi(high, whigh, bins_inv);
+        build nprims = 0;
         recurse left;
         recurse right;
         build offset = right - this;
         return this;
       };
       build Leaf(low: f32x3, high: f32x3, nprims: u8, data: array[Triangle, nprims]) {
-        build q = cast[[u64]](quantize_lo(low, wlow, bins_inv)) | (cast[[u64]](quantize_hi(high, whigh, bins_inv)) << 30) | (cast[[u64]](nprims) << 60);
+        build q_min = quantize_lo(low, wlow, bins_inv);
+        build q_max = quantize_hi(high, whigh, bins_inv);
+        build nprims;
         build poffset = append(data, nprims);
         return this;
       };
     };
 
-    trace.loopify(256);
+    trace.loopify(64);
 }
