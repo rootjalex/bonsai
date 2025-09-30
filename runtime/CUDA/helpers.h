@@ -1785,7 +1785,7 @@ argmin(const cuda::std::tuple<T1, T2> *a, const cuda::std::tuple<T1, T2> &b) {
 template <typename T1, typename T2>
 __forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
 argmin(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
-    if (cuda::cuda::std::get<0>(a) < cuda::cuda::std::get<0>(b)) {
+    if (cuda::std::get<0>(a) < cuda::std::get<0>(b)) {
         return a;
     }
     return b;
@@ -1794,7 +1794,7 @@ argmin(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
 template <typename T1, typename T2>
 __forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
 argmax(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
-    if (cuda::cuda::std::get<0>(a) > cuda::cuda::std::get<0>(b)) {
+    if (cuda::std::get<0>(a) > cuda::std::get<0>(b)) {
         return a;
     }
     return b;
