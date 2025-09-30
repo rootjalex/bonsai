@@ -252,7 +252,7 @@ __host__ bool intersects_Ray_AABB(Ray* r, AABB* b) {
   return false;
 }
 
-__device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* triangles) {
+__device__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* triangles) {
   cuda::std::tuple<float, Triangle> _best0 = cuda::std::tuple<float, Triangle>{INFINITY, Triangle{}};
   int32_t _queue_count0 = 1;
   uint32_t _queue0[64];

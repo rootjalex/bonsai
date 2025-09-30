@@ -1543,7 +1543,8 @@ void CodeGen_CUDA::print(const Program &program) {
             if (devices.contains(func->name)) {
                 os << "__device__" << ' ';
             }
-            if (hosts.contains(func->name)) {
+            if (hosts.contains(func->name) &&
+                !func->name.starts_with("_traverse_tree")) {
                 os << "__host__" << ' ';
             }
         }
