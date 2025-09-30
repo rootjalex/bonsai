@@ -15,7 +15,10 @@ func dequantize(v: u30, bins: f32x3) -> f32x3 {
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L72
 func build_bins_inverse(low: f32x3, high: f32x3) -> f32x3 {
         L1: f32x3 = f32x3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
-        L2: f32x3 = select(L1 <= 0.0, 1.0, L1);
+        L2: mut f32x3 = {1.0, 1.0, 1.0};
+        if (L1.x > 0.0) { L2.x = L1.x; }
+        if (L1.y > 0.0) { L2.y = L1.y; }
+        if (L1.z > 0.0) { L2.z = L1.z; }
         return f32x3{fdiv_rd(1023.0, L2.x), fdiv_rd(1023.0, L2.y), fdiv_rd(1023.0, L2.z)};
 }
 
