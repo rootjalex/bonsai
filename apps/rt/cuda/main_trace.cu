@@ -113,10 +113,14 @@ BVH *build_canonical_tree_median_split(std::vector<Triangle> &triangles,
 
         float3 extent = aabb_max - aabb_min;
         int axis = 0;
-        if (extent.y > extent.x)
+        float max_extent = extent.x;
+        if (extent.y > max_extent) {
             axis = 1;
-        if (extent.z > extent[axis == 0 ? extent.x : extent.y])
+            max_extent = extent.y;
+        }
+        if (extent.z > max_extent) {
             axis = 2;
+        }
 
         // Partition around midpoint along axis.
         auto mid_it = triangles.begin() + low + count / 2;
