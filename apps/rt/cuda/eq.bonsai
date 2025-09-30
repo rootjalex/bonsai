@@ -1,7 +1,7 @@
 
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
-func dequantize(v: u30, bins: f32x3) -> f32x3 {
+func dequantize(v: u32, bins: f32x3) -> f32x3 {
   x_: u32 = (v >> 20) & 1023;
   y_: u32 = (v >> 10) & 1023;
   z_: u32 = (v >> 00) & 1023;
@@ -59,8 +59,8 @@ schedule {
         primitives : array[Triangle, primitive_count];
         node_count : u32;
         group nodes[size=node_count, align=32] by index {
-            q_min: u30;
-            q_max: u30;
+            q_min: u32;
+            q_max: u32;
             nprims : u4;
             low  = fadd_rd(wlow,  dequantize(q_min, bins));
             high = fsub_ru(whigh, dequantize(q_max, bins));
