@@ -92,6 +92,13 @@ struct Spheres {
   Nodes* nodes;
 } __attribute__((packed));
 
+__host__ float3 dequantize(uint32_t v, float3 bins) {
+  uint32_t x_ = ((v >> 20u) & 1023u);
+  uint32_t y_ = ((v >> 10u) & 1023u);
+  uint32_t z_ = ((v >> 0u) & 1023u);
+  return float3{fmul_rd((float)x_, bins.x), fmul_rd((float)y_, bins.y), fmul_rd((float)z_, bins.z)};
+}
+
 __host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
   float3 low = max((*a).low, (*b).low);
   float3 high = min((*a).high, (*b).high);
@@ -111,7 +118,7 @@ __host__ void _recloop_func0(uint32_t index, Spheres* spheres, AABB* a, thrust::
   }
   Nodes _t24 = (*spheres).nodes[index];
   float3 _t25 = (*spheres).bins;
-  AABB _lv0 = AABB{fadd_rd((*spheres).wlow, float3{fmul_rd((float)(_t24.q_min >> 20u) & 1023u, _t25.x), fmul_rd((float)(_t24.q_min >> 10u) & 1023u, _t25.y), fmul_rd((float)(_t24.q_min >> 0u) & 1023u, _t25.z)}), fsub_ru((*spheres).whigh, float3{fmul_rd((float)(_t24.q_max >> 20u) & 1023u, _t25.x), fmul_rd((float)(_t24.q_max >> 10u) & 1023u, _t25.y), fmul_rd((float)(_t24.q_max >> 0u) & 1023u, _t25.z)})};
+  AABB _lv0 = AABB{fadd_rd((*spheres).wlow, dequantize(_t24.q_min, _t25)), fsub_ru((*spheres).whigh, dequantize(_t24.q_max, _t25))};
   if (intersects_AABB_AABB(a, (&_lv0))) {
     uint16_t _t22 = _t24.nprims;
     if (_t22 == 0u) {

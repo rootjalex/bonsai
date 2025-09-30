@@ -127,6 +127,12 @@ float __prod_diff_f32(const float a, const float b, const float c, const float d
 float __sqlen_f32(const vec3_float v) {
   return reduce_add((v * v));
 }
+vec3_float dequantize(const uint32_t v, const vec3_float bins) {
+  const uint32_t x_ = ((v >> 20u) & 1023u);
+  const uint32_t y_ = ((v >> 10u) & 1023u);
+  const uint32_t z_ = ((v >> 0u) & 1023u);
+  return vec3_float{fmul_rd((float)(x_), bins[0u]), fmul_rd((float)(y_), bins[1u]), fmul_rd((float)(z_), bins[2u])};
+}
 bool intersects_AABB_AABB(const AABB* __restrict__ a, const AABB* __restrict__ b) {
   const vec3_float low = max((*a).low, (*b).low);
   const vec3_float high = min((*a).high, (*b).high);
@@ -144,7 +150,7 @@ void _recloop_func0(const uint32_t index, const Spheres* __restrict__ spheres, c
   }
   const Nodes& _t24 = (*spheres).nodes[index];
   const vec3_float _t25 = (*spheres).bins;
-  const AABB _lv0 = AABB{.low=fadd_rd((*spheres).wlow, vec3_float{fmul_rd((float)(((_t24.q_min >> 20u) & 1023u)), _t25[0u]), fmul_rd((float)(((_t24.q_min >> 10u) & 1023u)), _t25[1u]), fmul_rd((float)(((_t24.q_min >> 0u) & 1023u)), _t25[2u])}), .high=fsub_ru((*spheres).whigh, vec3_float{fmul_rd((float)(((_t24.q_max >> 20u) & 1023u)), _t25[0u]), fmul_rd((float)(((_t24.q_max >> 10u) & 1023u)), _t25[1u]), fmul_rd((float)(((_t24.q_max >> 0u) & 1023u)), _t25[2u])})};
+  const AABB _lv0 = AABB{.low=fadd_rd((*spheres).wlow, dequantize(_t24.q_min, _t25)), .high=fsub_ru((*spheres).whigh, dequantize(_t24.q_max, _t25))};
   if (intersects_AABB_AABB(a, (&_lv0))) {
     const uint16_t _t22 = _t24.nprims;
     if (_t22 == 0u) {
@@ -343,9 +349,6 @@ vec3_float cross_(const vec3_float v0, const vec3_float v1) {
 }
 float degrees_to_radians(const float degrees) {
   return ((degrees * 3.14159274f) / 180.0f);
-}
-vec3_float dequantize(const uint32_t v, const vec3_float bins) {
-  return vec3_float{fmul_rd((float)(((v >> 20u) & 1023u)), bins[0u]), fmul_rd((float)(((v >> 10u) & 1023u)), bins[1u]), fmul_rd((float)(((v >> 0u) & 1023u)), bins[2u])};
 }
 float gamma(const int32_t n) {
   const float _t1 = ((float)(n) * 0.00000006f);

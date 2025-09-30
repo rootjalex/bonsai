@@ -11,10 +11,14 @@ func [[export]] find_neighbors(a : AABB) = filter(|p| intersects(a, p), spheres)
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
 func dequantize(v: u30, bins: f32x3) -> f32x3 {
+  x_: u32 = (v >> 20) & 1023;
+  y_: u32 = (v >> 10) & 1023;
+  z_: u32 = (v >> 00) & 1023;
   return f32x3 {
-    fmul_rd(cast[[f32]]((v >> 20) & 1023), bins.x), 
-    fmul_rd(cast[[f32]]((v >> 10) & 1023), bins.y), 
-    fmul_rd(cast[[f32]]((v >> 00) & 1023), bins.z)};
+    fmul_rd(cast[[f32]](x_), bins.x), 
+    fmul_rd(cast[[f32]](y_), bins.y), 
+    fmul_rd(cast[[f32]](z_), bins.z)
+  };
 }
 
 // build tree bins inverse.
