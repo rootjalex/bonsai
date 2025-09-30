@@ -1,6 +1,6 @@
 // dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
-func dequantize(v: u30, bins: f32x3) -> f32x3 {
+func dequantize(v: u32, bins: f32x3) -> f32x3 {
   x_: u32 = (v >> 20) & 1023;
   y_: u32 = (v >> 10) & 1023;
   z_: u32 = (v >> 00) & 1023;
@@ -15,7 +15,10 @@ func dequantize(v: u30, bins: f32x3) -> f32x3 {
 // https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L72
 func build_bins_inverse(low: f32x3, high: f32x3) -> f32x3 {
         L1: f32x3 = f32x3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
-        L2: f32x3 = select(L1 <= 0.0, 1.0, L1);
+        L2: mut f32x3 = {1.0, 1.0, 1.0};
+        if (L1.x > 0.0) { L2.x = L1.x; }
+        if (L1.y > 0.0) { L2.y = L1.y; }
+        if (L1.z > 0.0) { L2.z = L1.z; }
         return f32x3{fdiv_rd(1023.0, L2.x), fdiv_rd(1023.0, L2.y), fdiv_rd(1023.0, L2.z)};
 }
 
@@ -42,8 +45,6 @@ func quantize_hi(current: f32x3, world: f32x3, bin_inverse: f32x3) -> u32 {
 }
 
 schedule {
-    // extent quantization, as defined in
-    // https://www.sciencedirect.com/science/article/pii/S092702561930206X
     tree[[Triangle]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
       = Interior(left : BVH, right : BVH)
       | Leaf(nprims: u8, data : array[Triangle, nprims]);
@@ -60,11 +61,10 @@ schedule {
         primitives : array[Triangle, primitive_count];
         node_count : u32;
         group nodes[size=node_count, align=32] by index {
-            q_min: u30;
-            q_max: u30;
-            nprims : u4;
-            low  = fadd_rd(wlow,  dequantize(q_min, bins));
-            high = fsub_ru(whigh, dequantize(q_max, bins));
+            q: u64;
+            low  = fadd_rd(wlow,  dequantize(cast[[u32]](q & 1073741823), bins));
+            high = fsub_ru(whigh, dequantize(cast[[u32]]((q >> 30) & 1073741823), bins));
+            nprims = cast[[u8]]((q >> 60) & 15);
             split nprims {
                 0 -> Interior {
                     offset : u32;
@@ -87,20 +87,18 @@ schedule {
           build bins_inv = build_bins_inverse(low, high);
           build bins = build_bins(low, high);
         }
-        build q_min = quantize_lo(low, wlow, bins_inv);
-        build q_max = quantize_hi(high, whigh, bins_inv);
-        build nprims = 0;
+        build q = cast[[u64]](quantize_lo(low, wlow, bins_inv)) | (cast[[u64]](quantize_hi(high, whigh, bins_inv)) << 30) | (cast[[u64]](0) << 60);
         recurse left;
         recurse right;
         build offset = right - this;
         return this;
       };
       build Leaf(low: f32x3, high: f32x3, nprims: u8, data: array[Triangle, nprims]) {
-        build q_min = quantize_lo(low, wlow, bins_inv);
-        build q_max = quantize_hi(high, whigh, bins_inv);
-        build nprims;
+        build q = cast[[u64]](quantize_lo(low, wlow, bins_inv)) | (cast[[u64]](quantize_hi(high, whigh, bins_inv)) << 30) | (cast[[u64]](nprims) << 60);
         build poffset = append(data, nprims);
         return this;
       };
     };
+
+    trace.loopify(64);
 }

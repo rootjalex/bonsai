@@ -81,9 +81,7 @@ using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
 using vec4_uint8_t = vector<uint8_t, 4>;
 struct alignas(32) Nodes {
-    uint32_t q_min : 30;
-    uint32_t q_max : 30;
-    uint8_t nprims : 4;
+    uint64_t q;
     vec4_uint8_t split0on_nprims;
 } __attribute__((packed));
 struct Triangles {

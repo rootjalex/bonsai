@@ -157,38 +157,43 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
   }
   return false;
 }
-void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangles, const Ray* __restrict__ ray, std::tuple<float, Triangle>* __restrict__ _best0) {
-  if (index == 4294967295u) {
-    return;
-  }
-  const Nodes& _t46 = (*triangles).nodes[index];
-  const vec3_float _t48 = (*triangles).bins;
-  const AABB _t58 = AABB{.low=fadd_rd((*triangles).wlow, dequantize(_t46.q_min, _t48)), .high=fsub_ru((*triangles).whigh, dequantize(_t46.q_max, _t48))};
-  if (intersects_Ray_AABB(ray, (&_t58))) {
-    if ((distmin_Ray_AABB(ray, (&_t58)) < std::get<0>((*_best0)))) {
-      const uint8_t _t28 = _t46.nprims;
-      if (_t28 == 0u) {
-        _recloop_func0((index + 1u), triangles, ray, _best0);
-        _recloop_func0((index + reinterpret<Arm_Interior>(_t46.split0on_nprims).offset), triangles, ray, _best0);
-      } else {
-        const uint32_t _t17 = reinterpret<Arm_Leaf>(_t46.split0on_nprims).poffset;
-        for (uint32_t _idx0 = _t17; _idx0 < (_t17 + (uint32_t)(_t28)); ++_idx0) {
-          const Triangle& _t12 = (*triangles).primitives[_idx0];
-          if (intersectsp_ray_tri(ray, (&_t12)).has_value()) {
-            const float _t10 = distmin_Ray_Triangle(ray, (&_t12));
-            if ((_t10 < std::get<0>((*_best0)))) {
-              (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t10, _t12});
+std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
+  std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
+  int32_t _queue_count0 = 1;
+  std::array<uint32_t, 64> _queue0;
+  _queue0[0] = 0u;
+  do {
+    _queue_count0 -= 1;
+    const uint32_t index = _queue0[_queue_count0];
+    if (index == 4294967295u) {
+      continue;
+    }
+    const Nodes& _t59 = (*triangles).nodes[index];
+    const uint64_t _t60 = _t59.q;
+    const vec3_float _t63 = (*triangles).bins;
+    const AABB _t76 = AABB{.low=fadd_rd((*triangles).wlow, dequantize((uint32_t)((_t60 & 1073741823u)), _t63)), .high=fsub_ru((*triangles).whigh, dequantize((uint32_t)(((_t60 >> 30u) & 1073741823u)), _t63))};
+    if (intersects_Ray_AABB(ray, (&_t76))) {
+      if ((distmin_Ray_AABB(ray, (&_t76)) < std::get<0>(_best0))) {
+        const uint8_t _t35 = (uint8_t)(((_t60 >> 60u) & 15u));
+        if (_t35 == 0u) {
+          _queue0[_queue_count0] = (index + 1u);
+          _queue0[(_queue_count0 + 1)] = (index + reinterpret<Arm_Interior>(_t59.split0on_nprims).offset);
+          _queue_count0 += 2;
+        } else {
+          const uint32_t _t18 = reinterpret<Arm_Leaf>(_t59.split0on_nprims).poffset;
+          for (uint32_t _idx0 = _t18; _idx0 < (_t18 + (uint32_t)(_t35)); ++_idx0) {
+            const Triangle& _t13 = (*triangles).primitives[_idx0];
+            if (intersectsp_ray_tri(ray, (&_t13)).has_value()) {
+              const float _t10 = distmin_Ray_Triangle(ray, (&_t13));
+              if ((_t10 < std::get<0>(_best0))) {
+                _best0 = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t10, _t13});
+              }
             }
           }
         }
       }
     }
-  }
-  return;
-}
-std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
-  std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
-  _recloop_func0(0u, triangles, ray, (&_best0));
+} while ((_queue_count0 != 0));
   return ((std::get<0>(_best0) != std::numeric_limits<float>::infinity()) ? std::optional<Triangle>{std::get<1>(_best0)} : std::nullopt);
 }
 bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, const vec3_float v1, const vec3_float v2) {
@@ -198,7 +203,16 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
 }
 vec3_float build_bins_inverse(const vec3_float low, const vec3_float high) {
   const vec3_float L1 = vec3_float{fsub_ru(high[0u], low[0u]), fsub_ru(high[1u], low[1u]), fsub_ru(high[2u], low[2u])};
-  const vec3_float L2 = select((L1 <= vec3_float{0.0f}), vec3_float{1.0f}, L1);
+  vec3_float L2 = vec3_float{1.0f};
+  if ((0.0f < L1[0u])) {
+    L2[0u] = L1[0u];
+  }
+  if ((0.0f < L1[1u])) {
+    L2[1u] = L1[1u];
+  }
+  if ((0.0f < L1[2u])) {
+    L2[2u] = L1[2u];
+  }
   return vec3_float{fdiv_rd(1023.0f, L2[0u]), fdiv_rd(1023.0f, L2[1u]), fdiv_rd(1023.0f, L2[2u])};
 }
 vec3_float build_bins(const vec3_float low, const vec3_float high) {
@@ -231,9 +245,7 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
         (*ST).bins_inv = build_bins_inverse(node.low, node.high);
         (*ST).bins = build_bins(node.low, node.high);
       }
-      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
-      (*ST).nodes[this_index].nprims = 0;
+      (*ST).nodes[this_index].q = (((uint64_t)(quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv)) | ((uint64_t)(quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv)) << 30u)) | ((uint64_t)(0) << 60u));
       const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
       const uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
       reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
@@ -242,9 +254,7 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
     [&](const Leaf& node) {
       const size_t this_index = (*nodes_index);
       (*nodes_index) += 1u;
-      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
-      (*ST).nodes[this_index].nprims = node.nprims;
+      (*ST).nodes[this_index].q = (((uint64_t)(quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv)) | ((uint64_t)(quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv)) << 30u)) | ((uint64_t)(node.nprims) << 60u));
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
       for (uint8_t __p = 0u; __p < node.nprims; ++__p) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
