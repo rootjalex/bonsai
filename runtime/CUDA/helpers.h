@@ -1050,8 +1050,18 @@ __forceinline__ __host__ __device__ float4 normalize(float4 v) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// floor
+// ceilf, floorf
 ////////////////////////////////////////////////////////////////////////////////
+
+__forceinline__ __host__ __device__ float2 floorf(float2 v) {
+    return make_float2(ceilf(v.x), ceilf(v.y));
+}
+__forceinline__ __host__ __device__ float3 ceilf(float3 v) {
+    return make_float3(ceilf(v.x), ceilf(v.y), ceilf(v.z));
+}
+__forceinline__ __host__ __device__ float4 ceilf(float4 v) {
+    return make_float4(ceilf(v.x), ceilf(v.y), ceilf(v.z), ceilf(v.w));
+}
 
 __forceinline__ __host__ __device__ float2 floorf(float2 v) {
     return make_float2(floorf(v.x), floorf(v.y));
@@ -1812,22 +1822,6 @@ size_t argmax(float3 a) {
         p = 2;
     }
     return p;
-}
-
-float3 ceilf(const float3 &in) {
-    float3 r;
-    r.x = ceilf(in.x);
-    r.y = ceilf(in.y);
-    r.z = ceilf(in.z);
-    return r;
-}
-
-float3 floorf(const float3 &in) {
-    float3 r;
-    r.x = floorf(in.x);
-    r.y = floorf(in.y);
-    r.z = floorf(in.z);
-    return r;
 }
 
 template <size_t N>
