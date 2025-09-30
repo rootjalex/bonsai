@@ -224,11 +224,18 @@ __host__ float3 build_bins(float3 low, float3 high) {
   return float3{frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
 }
 
-__host__ uint32_t quantize(float3 current, float3 world, float3 bin_inverse) {
-  uint32_t x = (uint32_t)floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x));
-  uint32_t y = (uint32_t)floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y));
-  uint32_t z = (uint32_t)floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z));
-  return (((x << 20u) | (y << 10u)) | z);
+__host__ uint32_t quantize_hi(float3 current, float3 world, float3 bin_inverse) {
+  uint32_t x = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(world.x, current.x), bin_inverse.x)));
+  uint32_t y = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(world.y, current.y), bin_inverse.y)));
+  uint32_t z = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(world.z, current.z), bin_inverse.z)));
+  return ((((x & 1023u) << 20u) | ((y & 1023u) << 10u)) | (z & 1023u));
+}
+
+__host__ uint32_t quantize_lo(float3 current, float3 world, float3 bin_inverse) {
+  uint32_t x = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x)));
+  uint32_t y = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y)));
+  uint32_t z = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z)));
+  return ((((x & 1023u) << 20u) | ((y & 1023u) << 10u)) | (z & 1023u));
 }
 
 __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
@@ -245,8 +252,8 @@ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_i
         (*ST).bins_inv = build_bins_inverse(node.low, node.high);
         (*ST).bins = build_bins(node.low, node.high);
       }
-      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = 0;
       uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
       uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
@@ -257,8 +264,8 @@ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_i
       const Leaf& node = std::get<Leaf>(*node_);
       size_t this_index = (*nodes_index);
       (*nodes_index) += 1;
-      (*ST).nodes[this_index].q_min = quantize(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
       for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {

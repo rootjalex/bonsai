@@ -238,7 +238,11 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
     _queue_count0 -= 1;
     uint64_t I = _queue0[_queue_count0];
     if (I == 18446744073709551615u) {
-      continue;
+      if (_queue_count0 <= 0) {
+        break;
+      } else {
+        continue;
+      }
     }
     if (slice<0, 1>(I) == 2u) {
       Interiors _t18 = (*triangles).interiors[slice<5, 63>(I)];
