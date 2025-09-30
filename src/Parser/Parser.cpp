@@ -2697,27 +2697,22 @@ struct Parser {
             }
             ir::Expr size, alignment;
             if (consume(Token::Type::LBRACKET)) {
-                // [align:<N>]
-                if (peek_type() == Token::Type::IDENTIFIER) {
-                    std::string identifier = get_id();
-                    if (identifier == "align") {
-                        expect(Token::Type::COL);
+                do {
+                    std::string key = get_id();
+                    if (key == "size") {
+                        expect(Token::Type::ASSIGN);
+                        internal_assert(!size.defined());
+                        size = parse_expr();
+                    } else if (key == "align") {
+                        expect(Token::Type::ASSIGN);
+                        internal_assert(!alignment.defined());
                         alignment = parse_expr();
-                    } else {
-                        size = ir::Var::make(get_type_from_frame(identifier),
-                                             identifier);
                     }
-                }
-                // Otherwise, this is `[<M>, <N>]`
-                if (!size.defined())
-                    size = parse_expr();
-                if (consume(Token::Type::COMMA) && !alignment.defined()) {
-                    alignment = parse_expr();
-                }
+
+                } while (consume(Token::Type::COMMA));
 
                 expect(Token::Type::RBRACKET);
             }
-
             ir::Expr index;
             switch (*group_type) {
             case ir::Group::Type::Direct: {
