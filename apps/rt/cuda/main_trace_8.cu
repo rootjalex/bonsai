@@ -362,7 +362,7 @@ void run_test(const std::string &object) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    std::cout << "loaded triangles\n";
+    std::cout << "loaded " << triangles.size() << " triangles\n";
 
     BVH *canonical_tree = build_canonical_tree_8_sah(triangles);
     std::cout << "built canonical tree\n";
