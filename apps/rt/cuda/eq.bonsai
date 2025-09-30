@@ -61,7 +61,7 @@ schedule {
         group nodes[size=node_count, align=32] by index {
             q_min: u32;
             q_max: u32;
-            nprims : u4;
+            nprims : u8;
             low  = fadd_rd(wlow,  dequantize(q_min, bins));
             high = fsub_ru(whigh, dequantize(q_max, bins));
             split nprims {
