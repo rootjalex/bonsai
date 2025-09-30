@@ -93,6 +93,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Label *) override;
     void visit(const ir::ForAll *) override;
     void visit(const ir::Continue *) override;
+    void visit(const ir::Break *) override;
     void visit(const ir::Launch *) override;
     void visit(const ir::Match *) override;
     void visit(const ir::AppendStmt *) override;

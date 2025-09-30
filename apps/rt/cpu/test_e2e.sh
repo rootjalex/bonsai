@@ -16,8 +16,8 @@ RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
-MIN_POWER=8
-MAX_POWER=16
+MIN_POWER=15
+MAX_POWER=20
 RAY_COUNTS=()
 for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
     RAY_COUNTS+=($((2**p)))
@@ -70,7 +70,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       # 2. Lower to C++.
       ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
       # 3. Compile the lowered C++.
-      clang++ -std=c++20 -O3 -march=native -g -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_e2e.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
+      clang++ -std=c++20 -O3 -march=native -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_e2e.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
       COMMAND="./${EXECUTABLE} ${OBJECT} ${RAY_COUNT} ${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays"

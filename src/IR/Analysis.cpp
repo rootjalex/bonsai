@@ -187,6 +187,7 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
+    RESTRICT_VISITOR(Break);
     RESTRICT_VISITOR(Launch);
 };
 

@@ -173,6 +173,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Scan);
     virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
+    RESTRICT_VISITOR(ir::Break); // TODO: support
     virtual void visit(const ir::Continue *) override;
     virtual void visit(const ir::Launch *) override;
 

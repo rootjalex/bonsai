@@ -80,7 +80,7 @@ using vec4_int8_t = vector<int8_t, 4>;
 using vec3_vec4_int8_t = vector<vec4_int8_t, 3>;
 using vec9_int8_t = vector<int8_t, 9>;
 using vec4_uint8_t = vector<uint8_t, 4>;
-struct alignas(32) Nodes {
+struct Nodes {
     uint64_t q;
     vec4_uint8_t split0on_nprims;
 } __attribute__((packed));

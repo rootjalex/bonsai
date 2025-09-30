@@ -60,7 +60,7 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group nodes[size=node_count, align=32] by index {
+        group nodes[size=node_count] by index {
             q: u64;
             low  = fadd_rd(wlow,  dequantize(cast[[u32]](q & 1073741823), bins));
             high = fsub_ru(whigh, dequantize(cast[[u32]]((q >> 30) & 1073741823), bins));
@@ -100,5 +100,5 @@ schedule {
       };
     };
 
-    trace.loopify(64);
+    trace.loopify(256);
 }

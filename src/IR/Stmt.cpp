@@ -308,7 +308,12 @@ Expr ForAll::count() const {
 }
 
 Stmt Continue::make() {
-    static Stmt global_break = new Continue;
+    static Stmt global_continue = new Continue;
+    return global_continue;
+}
+
+Stmt Break::make() {
+    static Stmt global_break = new Break;
     return global_break;
 }
 

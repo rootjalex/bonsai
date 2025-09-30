@@ -695,6 +695,8 @@ Stmt Mutator::visit(const ForAll *node) {
 
 Stmt Mutator::visit(const Continue *node) { return node; }
 
+Stmt Mutator::visit(const Break *node) { return node; }
+
 Stmt Mutator::visit(const Launch *node) {
     Expr n = mutate(node->n);
     auto [args, not_changed] = visit_list(this, node->args);

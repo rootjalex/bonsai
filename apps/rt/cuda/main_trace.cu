@@ -88,6 +88,61 @@ std::pair<float3, float3> triangle_bounds(const Triangle &tri) {
     return {min_, max_};
 }
 
+BVH *build_canonical_tree_median_split(std::vector<Triangle> &triangles,
+                                       int max_prims_per_leaf = 15,
+                                       int max_tree_depth = 64) {
+    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
+        [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
+        assert(depth < max_tree_depth);
+        uint32_t count = high - low;
+
+        auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
+
+        if (count <= max_prims_per_leaf) {
+            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
+            for (int i = 0; i < count; ++i) {
+                data[i] = triangles[low + i];
+            }
+            return new BVH(Leaf{
+                .low = aabb_min,
+                .high = aabb_max,
+                .nprims = static_cast<uint8_t>(count),
+                .data = data,
+            });
+        }
+
+        vec3_float extent = aabb_max - aabb_min;
+        int axis = 0;
+        if (extent[1] > extent[0])
+            axis = 1;
+        if (extent[2] > extent[axis])
+            axis = 2;
+
+        // Partition around midpoint along axis.
+        auto mid_it = triangles.begin() + low + count / 2;
+        std::nth_element(triangles.begin() + low, mid_it,
+                         triangles.begin() + high,
+                         [&](const Triangle &a, const Triangle &b) {
+                             float ca = (a.p0[axis] + a.p1[axis] + a.p2[axis]);
+                             float cb = (b.p0[axis] + b.p1[axis] + b.p2[axis]);
+                             return ca < cb;
+                         });
+
+        const uint32_t mid = low + count / 2;
+        BVH *left = partition(low, mid, depth + 1);
+        BVH *right = partition(mid, high, depth + 1);
+
+        return new BVH(Interior{
+            .low = aabb_min,
+            .high = aabb_max,
+            .left = left,
+            .right = right,
+        });
+    };
+
+    return partition(0, triangles.size(), /*depth=*/0);
+}
+
 BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
                               int max_prims_per_leaf = 15,
                               int max_tree_depth = 64, int num_bins = 32,
@@ -372,7 +427,7 @@ void run_test(const std::string &object) {
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
-    BVH *canonical_tree = build_canonical_tree_sah(triangles);
+    BVH *canonical_tree = build_canonical_tree_median_split(triangles);
 
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree(canonical_tree);

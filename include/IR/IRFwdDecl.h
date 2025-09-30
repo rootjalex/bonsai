@@ -93,6 +93,7 @@ struct YieldFrom;
 struct ForAll;
 struct ForEach;
 struct Continue;
+struct Break;
 struct Launch;
 struct AppendStmt;
 struct Swap;

@@ -160,13 +160,17 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
 std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
   std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
   int32_t _queue_count0 = 1;
-  std::array<uint32_t, 64> _queue0;
+  std::array<uint32_t, 256> _queue0;
   _queue0[0] = 0u;
   do {
     _queue_count0 -= 1;
     const uint32_t index = _queue0[_queue_count0];
     if (index == 4294967295u) {
-      continue;
+      if ((_queue_count0 <= 0)) {
+        break;
+      } else {
+        continue;
+      }
     }
     const Nodes& _t59 = (*triangles).nodes[index];
     const uint64_t _t60 = _t59.q;
@@ -289,7 +293,7 @@ Triangles build_triangles(const BVH* __restrict__ CT) {
   rec_count_triangles(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes = reinterpret_cast<Nodes*>(std::aligned_alloc(32, (((sizeof(Nodes) * ST.node_count) + 31) / 32) * 32));
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
   ST.nodes = nodes;
   rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
   return ST;

@@ -39,6 +39,7 @@ enum class IRStmtEnum {
     ForAll,
     ForEach,
     Continue,
+    Break,
     Launch,
     AppendStmt,
     Swap,
@@ -305,6 +306,12 @@ struct Continue : StmtNode<Continue> {
     static Stmt make();
 
     static const IRStmtEnum node_type = IRStmtEnum::Continue;
+};
+
+struct Break : StmtNode<Break> {
+    static Stmt make();
+
+    static const IRStmtEnum node_type = IRStmtEnum::Break;
 };
 
 // Launch n calls to func with arguments

@@ -207,7 +207,11 @@ Stmt rewrite_yieldfroms(Stmt body, const ir::Type &ret_type, WriteLoc count_loc,
                 internal_assert(ret_type.is<Option_t>()) << ret_type;
                 value = ir::Build::make(ret_type);
             }
-            return Continue::make();
+            ir::Expr zero = make_zero(count_var.type());
+            // We need to exit the loop if we're at the bottom of the stack
+            return ir::IfElse::make(count_var <= zero,
+                                    /*then_body=*/ir::Break::make(),
+                                    /*else_body=*/ir::Continue::make());
         }
 
         Stmt visit(const YieldFrom *node) override {

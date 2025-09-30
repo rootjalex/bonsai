@@ -1356,6 +1356,10 @@ void CodeGen_CUDA::visit(const Continue *node) {
     os << get_indent() << "continue" << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Break *node) {
+    os << get_indent() << "break" << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << node->func;
     os << '<' << '<' << '<';
