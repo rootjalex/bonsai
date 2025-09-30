@@ -81,10 +81,10 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
         # collect
         perf record -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ${COMMAND}
         # report
-        perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
+        perf report --symbol-filter=*trace* --sort=overhead,symbol | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       else
         for ((i=0; i < N; i++)); do
-          ${COMMAND} >> ${DATA_PATH}/${DATA_FILE}.txt
+          ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
         done
       fi
       # 5. Clean up
@@ -93,7 +93,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
       rm -f -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
     done
-    echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
+    echo -e "---\n" | tee -a ${DATA_PATH}/${DATA_FILE}.txt
   done
 
   # Process data

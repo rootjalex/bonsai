@@ -38,7 +38,7 @@ struct Triangle {
 struct Leaf {
   float3 low;
   float3 high;
-  uint16_t nprims;
+  uint8_t nprims;
   Triangle* data;
 };
 
@@ -72,10 +72,10 @@ struct Arm_Leaf {
   uint32_t poffset;
 } __attribute__((packed));
 
-struct Nodes {
-  uint32_t q_min : 30;
-  uint32_t q_max : 30;
-  uint8_t nprims : 4;
+struct alignas(32) Nodes {
+  uint32_t q_min;
+  uint32_t q_max;
+  uint8_t nprims;
   uchar4 split0on_nprims;
 } __attribute__((packed));
 
@@ -354,7 +354,7 @@ __host__ uint32_t quantize(float3 current, float3 world, float3 bin_inverse) {
   uint32_t x = (uint32_t)floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x));
   uint32_t y = (uint32_t)floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y));
   uint32_t z = (uint32_t)floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z));
-  return (uint32_t)(((x << 20u) | (y << 10u)) | z);
+  return (((x << 20u) | (y << 10u)) | z);
 }
 
 __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
@@ -387,7 +387,7 @@ __host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_i
       (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
-      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
+      for (uint8_t __p = 0u; __p < node.nprims; __p += 1u) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
       (*primitives_index) += node.nprims;
