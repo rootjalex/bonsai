@@ -123,12 +123,14 @@ def calculate_average(values, method='arithmetic'):
         return sum(filtered_values) / len(filtered_values)
 
 
-def process_trace_data(raw_data, method='arithmetic'):
+def process_trace_data(raw_data, blacklist, method):
     """Process raw data to compute averages."""
     processed_data = defaultdict(lambda: defaultdict(dict))
 
     for model in raw_data:
         for layout in raw_data[model]:
+            if layout in blacklist:
+                continue
             for ray_count in raw_data[model][layout]:
                 values = raw_data[model][layout][ray_count]
                 avg_value = calculate_average(values, method)
@@ -377,10 +379,11 @@ if __name__ == "__main__":
 
     filename = sys.argv[1]
     baseline_layout = sys.argv[2]
+    blacklist = sys.argv[3]
     method = 'arithmetic'
-    if len(sys.argv) == 4:
-        if sys.argv[3] in ['arithmetic', 'geometric']:
-            method = sys.argv[3]
+    if len(sys.argv) == 5:
+        if sys.argv[4] in ['arithmetic', 'geometric']:
+            method = sys.argv[4]
         else:
             print("Method must be 'arithmetic' or 'geometric'")
             sys.exit(1)
@@ -398,7 +401,7 @@ if __name__ == "__main__":
 
     # Parse and process data
     raw_data, machine_type = parse_trace_scaling_data(data_text)
-    processed_data = process_trace_data(raw_data, method)
+    processed_data = process_trace_data(raw_data, blacklist, method)
 
     # Print summary with details about runs per configuration
     print(f"Found {len(processed_data)} models")

@@ -43,4 +43,6 @@ schedule {
         return (poffset << cast[[u64]](7)) | ((nprims - cast[[u64]](1)) << cast[[u64]](3));
       };
     };
+
+    trace.loopify(64);
 }

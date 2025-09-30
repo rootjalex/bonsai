@@ -246,7 +246,7 @@ std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Trian
   std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
   int32_t _queue_count0 = 1;
   std::array<uint64_t, 64> _queue0;
-  _queue0[0] = 0u;
+  _queue0[0] = 2u;
   do {
     _queue_count0 -= 1;
     const uint64_t I = _queue0[_queue_count0];

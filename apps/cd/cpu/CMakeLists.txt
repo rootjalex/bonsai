@@ -33,7 +33,7 @@ add_executable(${APPLICATION}_${LAYOUT}
     ${CMAKE_SOURCE_DIR}/${APPLICATION}.cpp
 )
 
-target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -O3 -march=native -g)
+target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -O3 -march=native)
 target_include_directories(${APPLICATION}_${LAYOUT} PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/..

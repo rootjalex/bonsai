@@ -521,8 +521,6 @@ Stmt loopify(std::string name, Stmt stmt, const ir::Type &ret_type,
         const ir::TypeMap &map;
         const ir::Type &ret_type;
 
-        bool in_recloop = false;
-
         LoopifyImpl(std::optional<Expr> queue_size, FuncMap &funcs,
                     const ir::TypeMap &map, const ir::Type &ret_type)
             : queue_size(std::move(queue_size)), funcs(funcs), map(map),
@@ -571,9 +569,10 @@ Stmt loopify(std::string name, Stmt stmt, const ir::Type &ret_type,
             queue_top.add_index_access(make_zero(count_type));
 
             const std::vector<ir::Argument> &args = node->args;
-            ir::Expr zero = !args.empty() && args.front().type.is<ir::Ptr_t>()
-                                ? args.front().default_value
-                                : make_zero(queue_etype);
+            ir::Expr zero =
+                !args.empty() && args.front().default_value.defined()
+                    ? args.front().default_value
+                    : make_zero(queue_etype);
             stmts.push_back(Store::make(queue_top, zero));
 
             std::vector<Stmt> loop_body;

@@ -233,7 +233,7 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
   cuda::std::tuple<float, Triangle> _best0 = cuda::std::tuple<float, Triangle>{INFINITY, Triangle{}};
   int32_t _queue_count0 = 1;
   uint64_t _queue0[64];
-  _queue0[0] = 0u;
+  _queue0[0] = 2u;
   do {
     _queue_count0 -= 1;
     uint64_t I = _queue0[_queue_count0];

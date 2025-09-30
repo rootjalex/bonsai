@@ -6,7 +6,7 @@ APPLICATION="cd"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("ptr" "pbrt" "pbrt-align16" "pbrt-align32" "soa" "soa-align16" "soa-align32")
+LAYOUTS=("pbrt-align32")
 N="${1:-10}"
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.

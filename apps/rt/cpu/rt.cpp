@@ -19,12 +19,6 @@ float __prod_diff_f32(const float a, const float b, const float c, const float d
 float __sqlen_f32(const vec3_float v) {
   return reduce_add((v * v));
 }
-vec3_float dequantize(const uint32_t v, const vec3_float bins) {
-  const uint32_t x_ = ((v >> 20u) & 1023u);
-  const uint32_t y_ = ((v >> 10u) & 1023u);
-  const uint32_t z_ = ((v >> 0u) & 1023u);
-  return vec3_float{fmul_rd((float)(x_), bins[0u]), fmul_rd((float)(y_), bins[1u]), fmul_rd((float)(z_), bins[2u])};
-}
 float gamma(const int32_t n) {
   const float _t1 = ((float)(n) * 0.00000006f);
   return (_t1 / (1.0f - _t1));
@@ -157,46 +151,79 @@ bool intersects_Ray_AABB(const Ray* __restrict__ r, const AABB* __restrict__ b) 
   }
   return false;
 }
-std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
-  std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
-  int32_t _queue_count0 = 1;
-  std::array<uint32_t, 64> _queue0;
-  _queue0[0] = 0u;
-  do {
-    _queue_count0 -= 1;
-    const uint32_t index = _queue0[_queue_count0];
-    if (index == 4294967295u) {
-      if ((_queue_count0 <= 0)) {
-        break;
-      } else {
-        continue;
+void _recloop_func0(const uint64_t I, const Ray* __restrict__ ray, const Triangles* __restrict__ triangles, std::tuple<float, Triangle>* __restrict__ _best0) {
+  if (I == 18446744073709551615u) {
+    return;
+  }
+  if (slice<0, 2>(I) == 1u) {
+    const Interiors& _t17 = (*triangles).interiors[slice<7, 63>(I)];
+    const vec8_vec3_float _t18 = _t17.lo;
+    const vec8_vec3_float _t23 = _t17.hi;
+    const AABB _t25 = AABB{.low=_t18[0], .high=_t23[0]};
+    if (intersects_Ray_AABB(ray, (&_t25))) {
+      if ((distmin_Ray_AABB(ray, (&_t25)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[0u], ray, triangles, _best0);
       }
     }
-    const Nodes& _t48 = (*triangles).nodes[index];
-    const vec3_float _t50 = (*triangles).bins;
-    const AABB _t60 = AABB{.low=fadd_rd((*triangles).wlow, dequantize(_t48.q_min, _t50)), .high=fsub_ru((*triangles).whigh, dequantize(_t48.q_max, _t50))};
-    if (intersects_Ray_AABB(ray, (&_t60))) {
-      if ((distmin_Ray_AABB(ray, (&_t60)) < std::get<0>(_best0))) {
-        const uint8_t _t29 = _t48.nprims;
-        if (_t29 == 0u) {
-          _queue0[_queue_count0] = (index + 1u);
-          _queue0[(_queue_count0 + 1)] = (index + reinterpret<Arm_Interior>(_t48.split0on_nprims).offset);
-          _queue_count0 += 2;
-        } else {
-          const uint32_t _t18 = reinterpret<Arm_Leaf>(_t48.split0on_nprims).poffset;
-          for (uint32_t _idx0 = _t18; _idx0 < (_t18 + (uint32_t)(_t29)); ++_idx0) {
-            const Triangle& _t13 = (*triangles).primitives[_idx0];
-            if (intersectsp_ray_tri(ray, (&_t13)).has_value()) {
-              const float _t10 = distmin_Ray_Triangle(ray, (&_t13));
-              if ((_t10 < std::get<0>(_best0))) {
-                _best0 = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t10, _t13});
-              }
-            }
-          }
+    const AABB _t51 = AABB{.low=_t18[1], .high=_t23[1]};
+    if (intersects_Ray_AABB(ray, (&_t51))) {
+      if ((distmin_Ray_AABB(ray, (&_t51)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[1u], ray, triangles, _best0);
+      }
+    }
+    const AABB _t77 = AABB{.low=_t18[2], .high=_t23[2]};
+    if (intersects_Ray_AABB(ray, (&_t77))) {
+      if ((distmin_Ray_AABB(ray, (&_t77)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[2u], ray, triangles, _best0);
+      }
+    }
+    const AABB _t103 = AABB{.low=_t18[3], .high=_t23[3]};
+    if (intersects_Ray_AABB(ray, (&_t103))) {
+      if ((distmin_Ray_AABB(ray, (&_t103)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[3u], ray, triangles, _best0);
+      }
+    }
+    const AABB _t129 = AABB{.low=_t18[4], .high=_t23[4]};
+    if (intersects_Ray_AABB(ray, (&_t129))) {
+      if ((distmin_Ray_AABB(ray, (&_t129)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[4u], ray, triangles, _best0);
+      }
+    }
+    const AABB _t155 = AABB{.low=_t18[5], .high=_t23[5]};
+    if (intersects_Ray_AABB(ray, (&_t155))) {
+      if ((distmin_Ray_AABB(ray, (&_t155)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[5u], ray, triangles, _best0);
+      }
+    }
+    const AABB _t181 = AABB{.low=_t18[6], .high=_t23[6]};
+    if (intersects_Ray_AABB(ray, (&_t181))) {
+      if ((distmin_Ray_AABB(ray, (&_t181)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[6u], ray, triangles, _best0);
+      }
+    }
+    const AABB _t207 = AABB{.low=_t18[7], .high=_t23[7]};
+    if (intersects_Ray_AABB(ray, (&_t207))) {
+      if ((distmin_Ray_AABB(ray, (&_t207)) < std::get<0>((*_best0)))) {
+        _recloop_func0(_t17.children[7u], ray, triangles, _best0);
+      }
+    }
+  } else {
+    const uint64_t _t218 = slice<7, 63>(I);
+    for (uint64_t _idx0 = _t218; _idx0 < (_t218 + (uint64_t)((uint8_t)((slice<3, 6>(I) + 1u)))); ++_idx0) {
+      const Triangle& _t217 = (*triangles).primitives[_idx0];
+      if (intersectsp_ray_tri(ray, (&_t217)).has_value()) {
+        const float _t215 = distmin_Ray_Triangle(ray, (&_t217));
+        if ((_t215 < std::get<0>((*_best0)))) {
+          (*_best0) = argmin<float, Triangle>(_best0, std::tuple<float, Triangle>{_t215, _t217});
         }
       }
     }
-} while ((_queue_count0 != 0));
+  }
+  return;
+}
+std::optional<Triangle> _traverse_tree0(const Ray* __restrict__ ray, const Triangles* __restrict__ triangles) {
+  std::tuple<float, Triangle> _best0 = std::tuple<float, Triangle>{std::numeric_limits<float>::infinity(), Triangle{}};
+  _recloop_func0(1u, ray, triangles, (&_best0));
   return ((std::get<0>(_best0) != std::numeric_limits<float>::infinity()) ? std::optional<Triangle>{std::get<1>(_best0)} : std::nullopt);
 }
 bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, const vec3_float v1, const vec3_float v2) {
@@ -204,70 +231,30 @@ bool axis(const vec3_float A, const vec3_float extents, const vec3_float v0, con
   const vec3_float _t3 = vec3_float{dot(v0, A), dot(v1, A), dot(v2, A)};
   return reduce_and(((_t3 <= vec3_float{R}) & (vec3_float{(-R)} <= _t3)));
 }
-vec3_float build_bins_inverse(const vec3_float low, const vec3_float high) {
-  const vec3_float L1 = vec3_float{fsub_ru(high[0u], low[0u]), fsub_ru(high[1u], low[1u]), fsub_ru(high[2u], low[2u])};
-  vec3_float L2 = vec3_float{1.0f};
-  if ((0.0f < L1[0u])) {
-    L2[0u] = L1[0u];
-  }
-  if ((0.0f < L1[1u])) {
-    L2[1u] = L1[1u];
-  }
-  if ((0.0f < L1[2u])) {
-    L2[2u] = L1[2u];
-  }
-  return vec3_float{fdiv_rd(1023.0f, L2[0u]), fdiv_rd(1023.0f, L2[1u]), fdiv_rd(1023.0f, L2[2u])};
-}
-vec3_float build_bins(const vec3_float low, const vec3_float high) {
-  const vec3_float bins_inverse = build_bins_inverse(low, high);
-  return vec3_float{frcp_rd(bins_inverse[0u]), frcp_rd(bins_inverse[1u]), frcp_rd(bins_inverse[2u])};
-}
-uint32_t quantize_hi(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
-  const uint32_t x = (uint32_t)(max(0.0f, floor(fmul_rd(fsub_rd(world[0u], current[0u]), bin_inverse[0u]))));
-  const uint32_t y = (uint32_t)(max(0.0f, floor(fmul_rd(fsub_rd(world[1u], current[1u]), bin_inverse[1u]))));
-  const uint32_t z = (uint32_t)(max(0.0f, floor(fmul_rd(fsub_rd(world[2u], current[2u]), bin_inverse[2u]))));
-  return ((((x & 1023u) << 20u) | ((y & 1023u) << 10u)) | (z & 1023u));
-}
-uint32_t quantize_lo(const vec3_float current, const vec3_float world, const vec3_float bin_inverse) {
-  const uint32_t x = (uint32_t)(max(0.0f, floor(fmul_rd(fsub_rd(current[0u], world[0u]), bin_inverse[0u]))));
-  const uint32_t y = (uint32_t)(max(0.0f, floor(fmul_rd(fsub_rd(current[1u], world[1u]), bin_inverse[1u]))));
-  const uint32_t z = (uint32_t)(max(0.0f, floor(fmul_rd(fsub_rd(current[2u], world[2u]), bin_inverse[2u]))));
-  return ((((x & 1023u) << 20u) | ((y & 1023u) << 10u)) | (z & 1023u));
-}
-uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ nodes_index, size_t* __restrict__ primitives_index) {
+uint64_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict__ ST, size_t* __restrict__ interiors_index, size_t* __restrict__ primitives_index) {
   if ((!node)) {
-    return 4294967295u;
+    return 18446744073709551615u;
   }
   return std::visit(overloaded{
     [&](const Interior& node) {
-      const size_t this_index = (*nodes_index);
-      (*nodes_index) += 1u;
-      if (this_index == 0u) {
-        (*ST).wlow = node.low;
-        (*ST).whigh = node.high;
-        (*ST).bins_inv = build_bins_inverse(node.low, node.high);
-        (*ST).bins = build_bins(node.low, node.high);
+      const size_t this_index = (*interiors_index);
+      (*interiors_index) += 1u;
+      (*ST).interiors[this_index].lo = node.lo;
+      (*ST).interiors[this_index].hi = node.hi;
+      std::array<uint64_t, 8> children_index;
+      for (int32_t __r = 0; __r < 8; ++__r) {
+        children_index[__r] = rec_build_triangles(node.children[__r], ST, interiors_index, primitives_index);
+        (*ST).interiors[this_index].children[__r] = children_index[__r];
       }
-      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
-      (*ST).nodes[this_index].nprims = 0;
-      const uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
-      const uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
-      reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
-      return this_index;
+      return ((this_index << (uint64_t)(7)) | (uint64_t)(1));
     },
     [&](const Leaf& node) {
-      const size_t this_index = (*nodes_index);
-      (*nodes_index) += 1u;
-      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
-      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
-      (*ST).nodes[this_index].nprims = node.nprims;
-      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
+      const uint64_t poffset = (*primitives_index);
       for (uint8_t __p = 0u; __p < node.nprims; ++__p) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
       (*primitives_index) += node.nprims;
-      return this_index;
+      return ((poffset << (uint64_t)(7)) | (((uint64_t)(node.nprims) - (uint64_t)(1)) << (uint64_t)(3)));
     }
   }, *node);
 }
@@ -277,28 +264,28 @@ void rec_count_triangles(const BVH* __restrict__ node, Triangles* __restrict__ S
   }
   return std::visit(overloaded{
     [&](const Interior& node) {
-      rec_count_triangles(node.left, ST);
-      rec_count_triangles(node.right, ST);
-      (*ST).node_count += 1u;
+      for (int32_t __r = 0; __r < 8; ++__r) {
+        rec_count_triangles(node.children[__r], ST);
+      }
+      (*ST).interior_count += 1u;
     },
     [&](const Leaf& node) {
       (*ST).primitive_count += node.nprims;
-      (*ST).node_count += 1u;
     }
   }, *node);
 }
 Triangles build_triangles(const BVH* __restrict__ CT) {
   Triangles ST;
   size_t primitives_index = 0;
-  size_t nodes_index = 0;
+  size_t interiors_index = 0;
   ST.primitive_count = 0u;
-  ST.node_count = 0u;
+  ST.interior_count = 0u;
   rec_count_triangles(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
   ST.primitives = primitives;
-  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
-  ST.nodes = nodes;
-  rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
+  Interiors* interiors = reinterpret_cast<Interiors*>(malloc(sizeof(Interiors) * ST.interior_count));
+  ST.interiors = interiors;
+  rec_build_triangles(CT, (&ST), (&interiors_index), (&primitives_index));
   return ST;
 }
 vec3_float clamp(const vec3_float x, const float low, const float high) {
