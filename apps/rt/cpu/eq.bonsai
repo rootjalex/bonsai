@@ -41,7 +41,7 @@ schedule {
     // https://www.sciencedirect.com/science/article/pii/S092702561930206X
     tree[[Triangle]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
       = Interior(left : BVH, right : BVH)
-      | Leaf(nprims: u16, data : array[Triangle, nprims]);
+      | Leaf(nprims: u8, data : array[Triangle, nprims]);
 
     triangles : BVH;
 
@@ -57,7 +57,7 @@ schedule {
         group nodes[size=node_count, align=32] by index {
             q_min: u30;
             q_max: u30;
-            nprims : u8;
+            nprims : u4;
             low  = fadd_rd(wlow,  dequantize(q_min, bins));
             high = fsub_ru(whigh, dequantize(q_max, bins));
             split nprims {
@@ -90,7 +90,7 @@ schedule {
         build offset = right - this;
         return this;
       };
-      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+      build Leaf(low: f32x3, high: f32x3, nprims: u8, data: array[Triangle, nprims]) {
         build q_min = quantize(low, wlow, bins_inv);
         build q_max = quantize(high, whigh, bins_inv);
         build nprims;

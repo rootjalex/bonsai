@@ -240,7 +240,7 @@ uint32_t rec_build_triangles(const BVH* __restrict__ node, Triangles* __restrict
       (*ST).nodes[this_index].q_max = quantize(node.high, (*ST).whigh, (*ST).bins_inv);
       (*ST).nodes[this_index].nprims = node.nprims;
       reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
-      for (uint16_t __p = 0u; __p < node.nprims; ++__p) {
+      for (uint8_t __p = 0u; __p < node.nprims; ++__p) {
         (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
       }
       (*primitives_index) += node.nprims;

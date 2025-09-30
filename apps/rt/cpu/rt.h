@@ -32,7 +32,7 @@ struct Triangle {
 struct Leaf {
     vec3_float low;
     vec3_float high;
-    uint16_t nprims;
+    uint8_t nprims;
     Triangle* data;
 };
 struct FInterval {
@@ -83,7 +83,7 @@ using vec4_uint8_t = vector<uint8_t, 4>;
 struct alignas(32) Nodes {
     uint32_t q_min : 30;
     uint32_t q_max : 30;
-    uint8_t nprims;
+    uint8_t nprims : 4;
     vec4_uint8_t split0on_nprims;
 } __attribute__((packed));
 struct Triangles {
