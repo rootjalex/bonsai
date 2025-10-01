@@ -200,7 +200,7 @@ bool intersects_AABB_Triangle(const AABB* __restrict__ a, const Triangle* __rest
   const float dist = dot(_t9, N);
   if (((Rn < dist) || (dist < (-Rn)))) {
     return false;
-  }
+}
   return true;
 }
 void _recloop_func0(const uint32_t index, const Triangles* __restrict__ triangles, const AABB* __restrict__ a, std::vector<Triangle>& _dyn_alloc) {
