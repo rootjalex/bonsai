@@ -166,9 +166,9 @@ int main(int argc, char *argv[]) {
     const bool is_single_threaded = schedule == "single-thread";
 
     std::vector<int64_t> ray_counts;
-    const int64_t size = std::atoi(argv[4]);
+    const int64_t size = std::atoi(argv[3]);
     ray_counts.reserve(size);
-    for (int i = 5; i < 5 + size; ++i) {
+    for (int i = 4; i < 4 + size; ++i) {
         ray_counts.push_back(std::atoi(argv[i]));
     }
     run(object_file, is_single_threaded, ray_counts);
