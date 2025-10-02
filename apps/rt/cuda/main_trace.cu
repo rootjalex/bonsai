@@ -477,6 +477,16 @@ void run(const std::string &object, const std::vector<int64_t> &ray_counts) {
     }
 }
 
+bool is_digit(std::string s) {
+    for (char c : s) {
+        if (std::isdigit(c)) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
