@@ -142,6 +142,9 @@ run_tests() {
       
       # Compile executable
       COMPILE="clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
+      if [[ "$(uname)" == "Linux" ]]; then 
+        COMPILE="${COMPILE} -Wl,-rpath,$CONDA_PREFIX/lib"
+      fi
       echo "${COMPILE}"
       ${COMPILE}
       
