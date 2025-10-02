@@ -174,13 +174,13 @@ run_tests() {
   done
 }
 
-echo "running tests for 2-BVH..."
-run_tests "main_trace" "${LAYOUTS_2BVH[@]}"
-echo "... tests complete for 2-BVH"
-
 echo "running tests with 8-BVH..."
 run_tests "main_trace_8" "${LAYOUTS_8BVH[@]}"
 echo "... tests complete for 8-BVH"
+
+echo "running tests for 2-BVH..."
+run_tests "main_trace" "${LAYOUTS_2BVH[@]}"
+echo "... tests complete for 2-BVH"
 
 # Process data
 python3.11 ${KERNEL_PATH}/collect_trace.py ${DATA_PATH}/${DATA_FILE}.txt
