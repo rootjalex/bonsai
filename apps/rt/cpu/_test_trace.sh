@@ -142,7 +142,7 @@ run_tests() {
       
       # Compile executable
       COMPILE="clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
-      echo "${COMMAND}"
+      echo "${COMPILE}"
       ${COMPILE}
       
       # 4. Run it.
