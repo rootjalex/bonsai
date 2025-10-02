@@ -171,6 +171,6 @@ int main(int argc, char *argv[]) {
     for (int i = 5; i < 5 + size; ++i) {
         ray_counts.push_back(std::atoi(argv[i]));
     }
-    std::string run(object_file, is_single_threaded, ray_counts);
+    run(object_file, is_single_threaded, ray_counts);
     return 0;
 }
