@@ -144,7 +144,7 @@ run_tests() {
       COMPILE="${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
       if [[ "$(uname)" == "Linux" ]]; then
         # add additional flags for linking openmp...
-        COMPILE="${COMPILE} -L/scratch/cpg/miniconda3/envs/bonsai_env/lib -lomp"
+        COMPILE="${COMPILE} -L/scratch/cpg/miniconda3/envs/bonsai_env/lib"
       fi
       echo ${COMPILE}
       clang++ ${COMPILE}
