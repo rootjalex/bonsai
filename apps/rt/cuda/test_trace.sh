@@ -39,7 +39,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
   for OBJECT in "${OBJECTS[@]}"; do
     if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays" ]; then
-      echo "no rays found for ${OBJECT}; generating now..."
+      echo "no rays found for ${OBJECT} with count ${RAY_COUNT} and ratio ${HIT_RATIO}; generating now..."
       FLAG=""
       if [[ "$(uname)" == "Linux" ]]; then
         FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
