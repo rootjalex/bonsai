@@ -46,7 +46,7 @@ MAX_POWER=24 # these should be aligned with the C++ file
 
 # Override for dry run.
 if [[ "${DRY_RUN}" == true ]]; then
-  echo "*** DRY RUN MODE: testing with MIN_POWER=${MIN_POWER} only ***"
+  echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
   N=2  # Only 2 iterations for dry run.
   LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}" "${LAYOUTS_2BVH[1]}")  # Only first two layouts.
@@ -141,7 +141,7 @@ run_tests() {
       rm ${APPLICATION}.s
       
       # Compile executable
-      COMPILE="clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
+      COMPILE="clang++ -fsanitize=address ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
       if [[ "$(uname)" == "Linux" ]]; then 
         COMPILE="${COMPILE} -Wl,-rpath,$CONDA_PREFIX/lib"
       fi
