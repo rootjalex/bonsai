@@ -141,22 +141,28 @@ run_tests() {
       rm ${APPLICATION}.s
       
       # Compile executable
-      clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp
+      COMPILE="${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
+      if [[ "$(uname)" == "Linux" ]]; then
+        # add additional flags for linking openmp...
+        COMPILE="${COMPILE} -L/scratch/cpg/miniconda3/envs/bonsai_env/lib -lomp"
+      fi
+      echo ${COMPILE}
+      clang++ ${COMPILE}
       
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      COMMAND="./${EXECUTABLE} ${OBJECT} ${SCHEDULE} ${ARGV}"
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${SCHEDULE} ${ARGV}"
       if [[ "$(uname)" == "Linux" ]]; then
-        COMMAND="numactl --physcpubind 0-15 ${COMMAND}" # only run on performance cores for the Fredwood.
+        EXECUTE="numactl --physcpubind 0-15 ${EXECUTE}" # only run on performance cores for the Fredwood.
       fi
       #   if [[ "${TYPE}" == "PERFORMANCE" ]]; then
       #     # collect
-      #     perf record -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ${COMMAND}
+      #     perf record -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ${EXECUTE}
       #     # report
       #     perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
       #   else
       for ((i=0; i < N; i++)); do
-        ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
+        ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
       #  fi
 
