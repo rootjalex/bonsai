@@ -358,7 +358,7 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-void run_test(const std::string &object) {
+void run(const std::string &object, std::vector<int64_t> &ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -368,9 +368,6 @@ void run_test(const std::string &object) {
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_8(canonical_tree);
 
-    std::vector<int64_t> ray_counts = {
-        1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
-    };
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
@@ -410,8 +407,17 @@ void run_test(const std::string &object) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc == 2);
+    assert(argc > 3);
     std::string object_file = argv[1];
-    run_test(object_file);
+    std::vector<int64_t> ray_counts;
+    assert(is_digit(argv[2]));
+    const int64_t size = std::atoi(argv[2]);
+
+    ray_counts.reserve(size);
+    for (int i = 3; i < 3 + size; ++i) {
+        assert(is_digit(argv[i]));
+        ray_counts.push_back(std::atoi(argv[i]));
+    }
+    run(object_file, ray_counts);
     return 0;
 }
