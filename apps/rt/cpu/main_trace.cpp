@@ -10,6 +10,7 @@
 #include <chrono>
 #include <iostream>
 #include <random>
+#include <vector>
 
 namespace {
 
@@ -79,7 +80,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-void run_test(const std::string &object) {
+void run(std::string object, bool is_single_threaded,
+         std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -89,9 +91,6 @@ void run_test(const std::string &object) {
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree(canonical_tree);
 
-    std::vector<int64_t> ray_counts = {
-        1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20,
-    };
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
@@ -106,20 +105,54 @@ void run_test(const std::string &object) {
             is_first_run = false;
         }
 
-        // SINGLE-THREAD
-        std::vector<Triangle> hits;
-        hits.reserve(rays.size());
-        auto trace_begin = clock::now();
-        for (int i = 0; i < rays.size(); ++i) {
-            if (const std::optional<Triangle> t = trace(&rays[i], &tree)) {
-                hits.push_back(*t);
+        size_t hit_count = 0;
+        auto trace_begin = clock::now(), trace_end = clock::now();
+        if (is_single_threaded) {
+            std::vector<Triangle> hits;
+            hits.reserve(rays.size());
+            trace_begin = clock::now();
+            for (int i = 0; i < rays.size(); ++i) {
+                if (const std::optional<Triangle> t = trace(&rays[i], &tree)) {
+                    hits.push_back(*t);
+                }
+            }
+            trace_end = clock::now();
+
+            hit_count = hits.size();
+        } else {
+            // parallel
+            const size_t max_threads = omp_get_max_threads();
+            std::vector<std::vector<Triangle>> hits_per_thread(max_threads);
+            for (std::vector<Triangle> &v : hits_per_thread) {
+                v.reserve(rays.size() / max_threads + 64);
+            }
+            trace_begin = clock::now();
+
+#pragma omp parallel
+            {
+                const int tid = omp_get_thread_num();
+                auto &hits = hits_per_thread[tid];
+
+#pragma omp for schedule(dynamic, 64) nowait
+                for (int i = 0; i < rays.size(); ++i) {
+                    if (const std::optional<Triangle> t =
+                            trace(&rays[i], &tree)) {
+                        hits.push_back(*t);
+                    }
+                }
+            }
+
+            trace_end = clock::now();
+
+            for (const std::vector<Triangle> &v : hits_per_thread) {
+                hit_count += v.size();
             }
         }
-        auto trace_end = clock::now();
+
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
-        std::cout << "hits             : " << hits.size() << "\n";
+        std::cout << "hits             : " << hit_count << "\n";
         std::cout << "trace time       : " << trace_time << " ms\n";
     }
 }
@@ -127,8 +160,18 @@ void run_test(const std::string &object) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc == 2);
+    assert(argc > 4);
     std::string object_file = argv[1];
-    run_test(object_file);
+    std::string schedule = argv[2];
+    assert(schedule == "single-thread" || schedule == "parallel");
+    const bool is_single_threaded = schedule == "single-thread";
+
+    std::vector<int64_t> ray_counts;
+    const int64_t size = std::atoi(argv[3]);
+    ray_counts.reserve(size);
+    for (int i = 4; i < 4 + size; ++i) {
+        ray_counts.push_back(std::atoi(argv[i]));
+    }
+    run(object_file, is_single_threaded, ray_counts);
     return 0;
 }

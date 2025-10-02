@@ -10,6 +10,7 @@
 #include <chrono>
 #include <iostream>
 #include <random>
+#include <vector>
 
 namespace {
 
@@ -79,7 +80,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-void run_test(const std::string &object, bool is_single_threaded) {
+void run(std::string object, bool is_single_threaded,
+         std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -89,10 +91,6 @@ void run_test(const std::string &object, bool is_single_threaded) {
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_8(canonical_tree);
 
-    std::vector<int64_t> ray_counts = {
-        1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14, 1 << 15, 1 << 16, 1 << 17,
-        1 << 18, 1 << 19, 1 << 20, 1 << 21, 1 << 22, 1 << 23, 1 << 24,
-    };
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
@@ -107,7 +105,7 @@ void run_test(const std::string &object, bool is_single_threaded) {
             is_first_run = false;
         }
         size_t hit_count = 0;
-        std::chrono::steady_clock::time_point trace_begin, trace_end;
+        auto trace_begin = clock::now(), trace_end = clock::now();
         if (is_single_threaded) {
             std::vector<Triangle> hits;
             hits.reserve(rays.size());
@@ -161,11 +159,18 @@ void run_test(const std::string &object, bool is_single_threaded) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc == 3);
+    assert(argc > 4);
     std::string object_file = argv[1];
     std::string schedule = argv[2];
     assert(schedule == "single-thread" || schedule == "parallel");
     const bool is_single_threaded = schedule == "single-thread";
-    std::string run_test(object_file, is_single_threaded);
+
+    std::vector<int64_t> ray_counts;
+    const int64_t size = std::atoi(argv[4]);
+    ray_counts.reserve(size);
+    for (int i = 5; i < 5 + size; ++i) {
+        ray_counts.push_back(std::atoi(argv[i]));
+    }
+    std::string run(object_file, is_single_threaded, ray_counts);
     return 0;
 }

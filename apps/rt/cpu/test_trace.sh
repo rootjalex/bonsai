@@ -7,17 +7,18 @@ TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
-OBJECTS=("power-plant" "hairball")
+OBJECTS=("power-plant" "hairball" "sponza")
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
-N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
-HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
+N="${2:-9}" # drop lowest 2 and highest 2 runs in processing
+SCHEDULE="${3:-parallel}" # or single-thread
+HIT_RATIO="${4:-75}" # n%, e.g., 75% is the default
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
-MIN_POWER=15
-MAX_POWER=20 # these should be aligned with the C++ file
+MIN_POWER=10
+MAX_POWER=24 # these should be aligned with the C++ file
 RAY_COUNTS=()
 for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
     RAY_COUNTS+=($((2**p)))
@@ -59,7 +60,7 @@ if [[ "$(uname)" == "Linux" ]]; then
 fi
 
 
-echo "runs: ${N}"
+echo "runs: ${N}, schedule: ${SCHEDULE}"
 > ${DATA_PATH}/${DATA_FILE}.txt # clear
 
 for OBJECT in "${OBJECTS[@]}"; do
@@ -73,10 +74,21 @@ for OBJECT in "${OBJECTS[@]}"; do
     # 2. Lower to C++.
     ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
     # 3. Compile the lowered C++.
-    clang++ -std=c++20 -O3 -march=native -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_trace.cpp ${PREFIX}/${APPLICATION}.cpp -I. -Iapps/${APPLICATION} -Iruntime/CPP 
+    COMMON_FLAGS="-std=c++20 -O3 -march=native -I. -Iapps/${APPLICATION} -Iruntime/CPP"
+    if [[ "${SCHEDULE}" == "parallel" ]]; then
+      COMMON_FLAGS="-fopenmp ${COMMON_FLAGS}"
+    fi
+    # Generate LLVM IR for combined sources.
+    clang++ ${COMMON_FLAGS} -S -emit-llvm ${PREFIX}/main_trace.cpp ${PREFIX}/${APPLICATION}.cpp
+    cat main_trace.ll ${APPLICATION}.ll > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.ll
+    # Generate assembly for combined sources.
+    clang++ ${COMMON_FLAGS} -S ${PREFIX}/main_trace.cpp ${PREFIX}/${APPLICATION}.cpp
+    cat main_trace.s ${APPLICATION}.s > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.asm
+    # Compile executable.
+    clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/main_trace.cpp ${PREFIX}/${APPLICATION}.cpp
     # 4. Run it.
     EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-    COMMAND="./${EXECUTABLE} ${OBJECT}"
+    COMMAND="./${EXECUTABLE} ${OBJECT} ${SCHEDULE}"
     if [[ "$(uname)" == "Linux" ]]; then
       COMMAND="numactl --physcpubind 0-15 ${COMMAND}" # only run on performance cores for the Fredwood.
     fi
