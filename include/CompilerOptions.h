@@ -49,6 +49,10 @@ struct CompilerOptions {
     // the order they are passed on the command line.
     std::vector<std::string> passes;
 
+    // An optional Bonsai pass that should run all passes to this point
+    // (inclusive).
+    std::string up_to;
+
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
 

@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 
 LAYOUTS_2BVH=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
-LAYOUTS_8BVH=("bvh8" "qbvh8" "bvh8-align32" "qbvh8-align32")
+LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
 
 OBJECTS=("power-plant" "hairball" "sponza")
 

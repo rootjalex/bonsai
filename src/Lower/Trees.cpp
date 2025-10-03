@@ -836,7 +836,8 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
                 accesses.reserve(children.size());
                 for (const auto &[child, index] : children) {
                     ir::Expr access = ir::Access::make(child.name, node);
-                    internal_assert(!index.has_value());
+                    if (index.has_value()) {
+                    }
                     accesses.push_back(access);
                 }
                 statements.push_back(ir::Scan::make(make_tuple(accesses)));

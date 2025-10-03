@@ -39,6 +39,12 @@ void verify_options(const CompilerOptions &options) {
     case BackendTarget::LLVM:
         break;
     }
+
+    if (!options.up_to.empty()) {
+        internal_assert(options.passes.size() == 1)
+            << "uenxpected: multiple passes and an --up-to command: `"
+            << options.up_to << "`";
+    }
 }
 
 std::string backend_to_string(BackendTarget target) {

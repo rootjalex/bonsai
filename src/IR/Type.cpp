@@ -194,6 +194,16 @@ Type Type::to_uint() const {
     }
 }
 
+Type Type::get_element_type() const {
+    if (!is_iterable()) {
+        return *this;
+    }
+    if (element_of().is_iterable()) {
+        return element_of().get_element_type();
+    }
+    return element_of();
+}
+
 Type Type::element_of() const {
     if (this->is<Vector_t>()) {
         return this->as<Vector_t>()->etype;

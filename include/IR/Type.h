@@ -92,6 +92,8 @@ struct Type : public IRHandle<IRTypeNode> {
     Type to_uint() const;
     // returns (Vector_t | Set_t)'s etype
     Type element_of() const;
+    // returns the inner most etype.
+    Type get_element_type() const;
     // Changes the element type to etype
     Type with_etype(Type etype) const;
 

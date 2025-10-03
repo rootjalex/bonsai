@@ -47,6 +47,7 @@ std::string command_help() {
     s << "Bonsai Command Line:\n"
       << "-b   | --backend <backend>         | e.g., `-b llvm`\n"
       << "-p   | --pass <pass>               | e.g., `-p dce`\n"
+      << "     | --up-to <pass>              | e.g., `--up-to lower-trees"
       << "-e   | --execute,                  | e.g., `-e`\n"
       << "-i   | --input <input file name>   | e.g., `-i in.bonsai`\n"
       << "-l   | --layout <layout file name> | e.g., `-l pbrt.bonsai`\n"
@@ -147,6 +148,11 @@ Flags parse(const std::vector<std::string> &args) {
             internal_assert(i + 1 < args.size());
             internal_assert(!target.has_value());
             target = string_to_backend(args[i + 1]);
+            ++i;
+            continue;
+        }
+        if (arg == "--up-to") {
+            options.up_to = args[i + 1];
             ++i;
             continue;
         }

@@ -66,6 +66,9 @@ void lower(ir::Program &program, const CompilerOptions &options) {
     // Run the passes.
     for (Pass *pass : passes) {
         program = pass->run(std::move(program), options);
+        if (pass->name() == options.up_to) {
+            break;
+        }
     }
 }
 
