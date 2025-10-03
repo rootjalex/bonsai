@@ -1512,7 +1512,7 @@ void CodeGen_CUDA::print(const Program &program) {
     for (const ir::Expr &global : program.globals) {
         internal_assert(global.type().is_scalar())
             << "[unimplemented] non-scalar globals: `" << global << "`";
-        os << get_indent() << "__managed__ ";
+        os << get_indent() << "inline __managed__ ";
         global.type().accept(this);
         os << " ";
         global.accept(this);

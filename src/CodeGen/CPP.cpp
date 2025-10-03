@@ -409,6 +409,7 @@ class BonsaiToCpp : ir::Printer {
     // struct definitions.
     std::string create_header(bool allow_mangling) {
         emit_prologue(allow_mangling);
+        emit_globals(program, /*is_header=*/true);
         emit_program(program);
         emit_epilogue(allow_mangling);
         return ss.str();
@@ -419,7 +420,7 @@ class BonsaiToCpp : ir::Printer {
             ss << "#include \"" << header_name << "\""
                << '\n'; // c++ runtime types.
         }
-        emit_globals(program);
+        emit_globals(program, /*is_header=*/false);
         emit_funcs(program.funcs);
         return ss.str();
     }
@@ -517,17 +518,24 @@ class BonsaiToCpp : ir::Printer {
         }
     }
 
-    void emit_globals(const Program &program) {
+    void emit_globals(const Program &program, bool is_header) {
         for (const ir::Expr &global : program.globals) {
             internal_assert(global.type().is_scalar())
                 << "[unimplemented] non-scalar globals: `" << global << "`";
-            ss << get_indent() << "std::atomic<";
-            global.type().accept(this);
+            ss << get_indent();
+            if (is_header) {
+                ss << "extern ";
+            }
+            ss << "std::atomic<";
+            emit_type(ss, global.type());
             ss << "> ";
             global.accept(this);
-            ss << "{";
-            make_zero(global.type()).accept(this);
-            ss << "};\n";
+            if (!is_header) {
+                ss << "{";
+                make_zero(global.type()).accept(this);
+                ss << "}";
+            }
+            ss << ";\n";
         }
     }
 
@@ -1172,6 +1180,9 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Sequence *) override;
 
     void visit(const Allocate *node) override {
+        if (node->memory == ir::Allocate::Memory::Global) {
+            return; // handled in prologue
+        }
         ss << get_indent();
         const ir::Type &base_type = node->loc.base_type();
         emit_type(ss, base_type);
