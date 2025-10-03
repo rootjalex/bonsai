@@ -33,7 +33,7 @@ done
 
 
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
-N="${2:-9}" # drop lowest 2 and highest 2 runs in processing
+N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
 SCHEDULE="${3:-parallel}" # or single-thread
 HIT_RATIO="${4:-75}" # n%, e.g., 75% is the default
 RAY_PATH="${KERNEL_PATH}/rays"
@@ -42,7 +42,7 @@ DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
 MIN_POWER=10
-MAX_POWER=24 # these should be aligned with the C++ file
+MAX_POWER=25 # these should be aligned with the C++ file
 
 # Override for dry run.
 if [[ "${DRY_RUN}" == true ]]; then

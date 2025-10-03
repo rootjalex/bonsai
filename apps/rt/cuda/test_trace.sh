@@ -39,7 +39,7 @@ DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
 MIN_POWER=10
-MAX_POWER=24
+MAX_POWER=25
 
 # Override for dry run
 if [[ "${DRY_RUN}" == true ]]; then
