@@ -940,6 +940,21 @@ struct Parser {
                 expect(Token::Type::SEMICOL);
                 return ir::Allocate::make(loc);
             }
+            if (id == "global") {
+                // Useful for gather program statistics.
+                id = get_id();
+                expect(Token::Type::COL);
+                ir::Type type = parse_type();
+                add_type_to_frame(id, type, /*mutable=*/true);
+                ir::WriteLoc loc(id, type);
+                expect(Token::Type::SEMICOL);
+                auto [_, inserted] = program.globals.insert(loc.to_expr());
+                if (!inserted) {
+                    report_error()
+                        << "global variable: `" << id << "` already exists";
+                }
+                return ir::Allocate::make(loc, ir::Allocate::Memory::Global);
+            }
             // TODO(cgyurgyik): This assumes that functions are declared before
             // they're called. This isn't the only place this constraint holds,
             // we should eventual support mutual recursion.

@@ -22,13 +22,13 @@ namespace bonsai {
 namespace codegen {
 void to_cuda(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
-        CodeGen_CUDA codegen(std::cout);
+        CodeGen_CUDA codegen(std::cout, program);
         codegen.print(program);
         return;
     }
     std::ofstream os(options.output_file);
     internal_assert(os.is_open()) << "failed to open: " << options.output_file;
-    CodeGen_CUDA codegen(os);
+    CodeGen_CUDA codegen(os, program);
     codegen.print(program);
     os.close();
 }
@@ -934,6 +934,14 @@ void CodeGen_CUDA::visit(const ir::Slice *node) {
     os << ")";
 }
 
+void CodeGen_CUDA::visit(const AtomicAdd *node) {
+    os << "atomicAdd(";
+    node->ptr.accept(this);
+    os << ", ";
+    node->value.accept(this);
+    os << ")";
+}
+
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
@@ -1218,6 +1226,10 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             return;
         }
     } break;
+    case Allocate::Memory::Global: {
+        // do nothing; globals are handled in the program prologue.
+        return;
+    }
     }
     internal_error << "[unimplemented] Allocate CUDA codegen: " << Stmt(node);
 }
@@ -1234,6 +1246,15 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
+    if (program.globals.contains(current.to_expr())) {
+        // __managed__ memory must be atomically accumulated.
+        internal_assert(node->op == Accumulate::OpType::Add);
+        ir::AtomicAdd::make(ir::PtrTo::make(current.to_expr()), update)
+            .accept(this);
+        os << ";\n";
+        return;
+    }
+
     print_loc(os, current, /*is_assignment=*/true);
     os << ' ';
     switch (node->op) {
@@ -1488,6 +1509,17 @@ void CodeGen_CUDA::print(const Expr &expr) { expr.accept(this); }
 void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
+    for (const ir::Expr &global : program.globals) {
+        internal_assert(global.type().is_scalar())
+            << "[unimplemented] non-scalar globals: `" << global << "`";
+        os << get_indent() << "__managed__ ";
+        global.type().accept(this);
+        os << " ";
+        global.accept(this);
+        os << " = ";
+        make_zero(global.type()).accept(this);
+        os << ";\n";
+    }
     std::set<Type> visited;
     auto it = program.schedules.find(ir::Target::Host);
     internal_assert(it != program.schedules.end());
@@ -1630,7 +1662,7 @@ void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,
             }
             ss += "[";
             std::stringstream stream;
-            CodeGen_CUDA printer(stream);
+            CodeGen_CUDA printer(stream, program);
             printer.print(idx);
             ss += stream.str();
             ss += "]";

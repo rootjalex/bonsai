@@ -279,6 +279,9 @@ struct ComputeUseCounts : ir::Visitor {
             << node->loc;
 
         use_counts[node->loc.base()] = 0;
+        if (node->memory == ir::Allocate::Global) {
+            use_counts[node->loc.base()] += 1; // don't erase globals
+        }
         dependent_use_counts[node->loc.base()] = {};
 
         if (node->value.defined()) {
@@ -422,6 +425,9 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Allocate *node) override {
+        if (node->memory == ir::Allocate::Global) {
+            return node; // don't erase globals.
+        }
         if (use_counts[node->loc.base()] != 0) {
             return node;
         }

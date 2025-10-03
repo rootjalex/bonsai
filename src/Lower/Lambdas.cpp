@@ -195,6 +195,7 @@ ir::Program LowerLambdas::run(ir::Program program,
                               const CompilerOptions &options) const {
     ir::Program new_program = lower_program(program);
     new_program.schedules = std::move(program.schedules);
+    new_program.globals = std::move(program.globals);
     return new_program;
 }
 

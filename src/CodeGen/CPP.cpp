@@ -402,29 +402,31 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
 
 class BonsaiToCpp : ir::Printer {
   public:
-    BonsaiToCpp() : ir::Printer(ss, 1) {}
+    BonsaiToCpp(const ir::Program &program)
+        : ir::Printer(ss, 1), program(program) {}
 
     // Creates the bonsai header with external functions and their respective
     // struct definitions.
-    std::string create_header(const Program &program, bool allow_mangling) {
+    std::string create_header(bool allow_mangling) {
         emit_prologue(allow_mangling);
         emit_program(program);
         emit_epilogue(allow_mangling);
         return ss.str();
     }
 
-    std::string create_source(const Program &program,
-                              std::string header_name = "") {
+    std::string create_source(std::string header_name = "") {
         if (!header_name.empty()) {
             ss << "#include \"" << header_name << "\""
                << '\n'; // c++ runtime types.
         }
+        emit_globals(program);
         emit_funcs(program.funcs);
         return ss.str();
     }
 
   private:
     std::stringstream ss;
+    const ir::Program &program;
 
     void emit_signature_type(const Type &type, bool is_mutating = false,
                              bool is_return_type = false) {
@@ -515,6 +517,20 @@ class BonsaiToCpp : ir::Printer {
         }
     }
 
+    void emit_globals(const Program &program) {
+        for (const ir::Expr &global : program.globals) {
+            internal_assert(global.type().is_scalar())
+                << "[unimplemented] non-scalar globals: `" << global << "`";
+            ss << get_indent() << "std::atomic<";
+            global.type().accept(this);
+            ss << "> ";
+            global.accept(this);
+            ss << "{";
+            make_zero(global.type()).accept(this);
+            ss << "};\n";
+        }
+    }
+
     void emit_program(const Program &program) {
         std::set<Type, ir::TypeLessThan> deduplicate;
         std::vector<Type> types;
@@ -558,6 +574,7 @@ class BonsaiToCpp : ir::Printer {
 
         // Headers for C++ types.
         ss << "#include <array>" << '\n';    // array
+        ss << "#include <atomic>" << '\n';   // atomic
         ss << "#include <cstdint>" << '\n';  // integer
         ss << "#include <cmath>" << '\n';    // math
         ss << "#include <optional>" << '\n'; // optional
@@ -1022,7 +1039,15 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Call *) override;
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
-    // void visit(const AtomicAdd *) override;
+    void visit(const AtomicAdd *node) override {
+        const auto *ptr_to = node->ptr.as<ir::PtrTo>();
+        internal_assert(ptr_to) << node->ptr;
+        ptr_to->expr.accept(this);
+        ss << ".fetch_add(";
+        node->value.accept(this);
+        ss << ", std::memory_order_relaxed)";
+    }
+
     // Stmts
     void visit(const CallStmt *node) override {
         ss << get_indent();
@@ -1091,6 +1116,13 @@ class BonsaiToCpp : ir::Printer {
         const WriteLoc &current = node->loc;
         const ir::Expr &update = node->value;
         ss << get_indent();
+        if (program.globals.contains(current.to_expr())) {
+            internal_assert(node->op == Accumulate::OpType::Add);
+            ir::AtomicAdd::make(PtrTo::make(current.to_expr()), update)
+                .accept(this);
+            ss << ";\n";
+            return;
+        }
         current.to_expr().accept(this);
         ss << ' ';
         switch (node->op) {
@@ -1389,8 +1421,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp().create_header(program,
-                                                    /*allow_mangling=*/false)
+        llvm::outs() << BonsaiToCpp(program).create_header(
+                            /*allow_mangling=*/false)
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -1415,8 +1447,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream file;
     file.open(options.output_file + ".h");
-    file << BonsaiToCpp().create_header(program,
-                                        /*allow_mangling=*/false);
+    file << BonsaiToCpp(program).create_header(/*allow_mangling=*/false);
     file.close();
 }
 
@@ -1426,24 +1457,22 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         std::cout << "// Bonsai Header" << std::endl;
-        std::cout << BonsaiToCpp().create_header(program,
-                                                 /*allow_mangling=*/true)
+        std::cout << BonsaiToCpp(program).create_header(/*allow_mangling=*/true)
                   << std::endl;
-        std::cout << BonsaiToCpp().create_source(program) << std::endl;
+        std::cout << BonsaiToCpp(program).create_source() << std::endl;
         return;
     }
 
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream h_file;
     h_file.open(options.output_file + ".h");
-    h_file << BonsaiToCpp().create_header(program, /*allow_mangling=*/true);
+    h_file << BonsaiToCpp(program).create_header(/*allow_mangling=*/true);
     h_file.close();
 
     // Write C++ source file with struct and function declarations (`.cpp`).
     std::ofstream src_file;
     src_file.open(options.output_file + ".cpp");
-    src_file << BonsaiToCpp().create_source(program,
-                                            options.output_file + ".h");
+    src_file << BonsaiToCpp(program).create_source(options.output_file + ".h");
     src_file.close();
 }
 

@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 
+#include "Equality.h"
 #include "Function.h"
 #include "Schedule.h"
 #include "Target.h"
@@ -29,6 +30,7 @@ struct Program {
     // TODO: what is the right interface for this?
     ScheduleMap schedules;
     // TODO: interfaces / inheritance?
+    std::set<ir::Expr, ir::ExprLessThan> globals;
 
     Program() {}
 
@@ -41,7 +43,7 @@ struct Program {
 
     Program(const Program &other)
         : externs(other.externs), funcs(other.funcs), types(other.types),
-          schedules(other.schedules) {}
+          schedules(other.schedules), globals(other.globals) {}
 
     Program &operator=(const Program &other) {
         if (this != &other) {
@@ -49,14 +51,15 @@ struct Program {
             funcs = other.funcs;
             types = other.types;
             schedules = other.schedules;
+            globals = other.globals;
         }
         return *this;
     }
 
     Program(Program &&other) noexcept
         : externs(std::move(other.externs)), funcs(std::move(other.funcs)),
-          types(std::move(other.types)), schedules(std::move(other.schedules)) {
-    }
+          types(std::move(other.types)), schedules(std::move(other.schedules)),
+          globals(std::move(other.globals)) {}
 
     Program &operator=(Program &&other) noexcept {
         if (this != &other) {
@@ -64,6 +67,7 @@ struct Program {
             funcs = std::move(other.funcs);
             types = std::move(other.types);
             schedules = std::move(other.schedules);
+            globals = std::move(other.globals);
         }
         return *this;
     }

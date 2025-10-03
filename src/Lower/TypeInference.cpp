@@ -530,6 +530,7 @@ ir::Program infer_types(const ir::Program &program) {
     new_program.externs = program.externs;
     new_program.types = program.types;
     new_program.schedules = program.schedules;
+    new_program.globals = program.globals;
     ir::global_enable_type_enforcement();
 
     std::vector<std::string> topo_order =

@@ -14,6 +14,7 @@ ir::Program Pass::run(ir::Program program,
     new_program.externs = run(std::move(program.externs), options);
     new_program.funcs = run(program.funcs, options);
     new_program.schedules = run(std::move(program.schedules), options);
+    new_program.globals = program.globals;
     return new_program;
 }
 

@@ -22,7 +22,8 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options);
 
 class CodeGen_CUDA : public ir::Printer {
   public:
-    explicit CodeGen_CUDA(std::ostream &os) : ir::Printer(os), os(os) {}
+    explicit CodeGen_CUDA(std::ostream &os, const ir::Program &program)
+        : ir::Printer(os), os(os), program(program) {}
 
     void print(const ir::Program &);
     void print(const ir::Function &);
@@ -60,7 +61,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::StringImm *) override;
     void visit(const ir::Infinity *) override;
     void visit(const ir::Deref *) override;
-    RESTRICT_VISITOR(ir::AtomicAdd); // TODO
+    void visit(const ir::AtomicAdd *) override;
     void visit(const ir::Select *) override;
     void visit(const ir::Cast *) override;
     void visit(const ir::Broadcast *) override;
@@ -126,6 +127,7 @@ class CodeGen_CUDA : public ir::Printer {
     std::vector<ir::TypedVar> device_allocated;
     //  The stream that is printed to.
     std::ostream &os;
+    const ir::Program &program;
 
     // Necessary prologue code.
     void emit_prologue();

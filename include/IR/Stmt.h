@@ -156,6 +156,7 @@ struct Allocate : StmtNode<Allocate> {
         Stack,
         Device,
         Host,
+        Global,
     };
     Memory memory;
 
