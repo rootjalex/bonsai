@@ -200,7 +200,7 @@ schedule {
 
     triangles : BVH;
 
-    layout triangles(index: u64) {
+    layout triangles(index: u64 = 2) {
         primitive_count: u64;
         primitives : array[Triangle, primitive_count];
 
@@ -264,4 +264,6 @@ schedule {
         return (poffset << 4) | (nprims << 2);
       };
     };
+
+    trace.loopify(64);
 }

@@ -545,10 +545,11 @@ class BonsaiToCpp : ir::Printer {
 
         // Any generated structs might be used in code generated,
         // and therefore must be emitted.
-        auto it = program.schedules.find(ir::Target::Host);
-        internal_assert(it != program.schedules.end());
-        for (const auto &[_, type] : it->second.tree_types) {
-            get_declared_types(type, deduplicate, types);
+        if (auto it = program.schedules.find(ir::Target::Host);
+            it != program.schedules.end()) {
+            for (const auto &[_, type] : it->second.tree_types) {
+                get_declared_types(type, deduplicate, types);
+            }
         }
         for (const auto &[_, type] : program.types) {
             get_declared_types(type, deduplicate, types);

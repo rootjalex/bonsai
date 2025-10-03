@@ -1521,11 +1521,13 @@ void CodeGen_CUDA::print(const Program &program) {
         os << ";\n";
     }
     std::set<Type> visited;
-    auto it = program.schedules.find(ir::Target::Host);
-    internal_assert(it != program.schedules.end());
-    for (const auto &[name, type] : it->second.tree_types) {
-        type.accept(this);
-        os << '\n';
+
+    if (auto it = program.schedules.find(ir::Target::Host);
+        it != program.schedules.end()) {
+        for (const auto &[name, type] : it->second.tree_types) {
+            type.accept(this);
+            os << '\n';
+        }
     }
 
     const ir::TypeMap &types = program.types;

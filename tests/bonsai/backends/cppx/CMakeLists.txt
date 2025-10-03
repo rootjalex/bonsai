@@ -9,5 +9,6 @@ add_bonsai_tests(
     build-pbrt.bonsai
     build-ptr.bonsai
     build-cl-bvh8.bonsai
+    global.bonsai
     # build-cw-bvh8.bonsai
 )

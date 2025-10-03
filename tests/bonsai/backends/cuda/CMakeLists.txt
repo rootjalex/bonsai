@@ -9,6 +9,7 @@ add_bonsai_tests(
     build-inner-group.bonsai
     build-pbrt.bonsai
     build-ptr.bonsai
+    global.bonsai
     parallel.bonsai
     rand.bonsai
     rtiow-primer.bonsai
