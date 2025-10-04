@@ -1,20 +1,12 @@
-#pragma once
-
-#include "cpu/rt.h"
-
-#include <cstdint>
-#include <limits>
-#include <vector>
-
-std::pair<vec3_float, vec3_float>
+inline std::pair<float3, float3>
 compute_aabb(uint32_t low, uint32_t high,
              const std::vector<Triangle> &triangles) {
     Triangle tri = triangles[low];
-    vec3_float aabb_min = tri.p0;
-    vec3_float aabb_max = tri.p0;
+    float3 aabb_min = tri.p0;
+    float3 aabb_max = tri.p0;
     for (uint32_t i = low; i < high; ++i) {
         Triangle t = triangles[i];
-        for (vec3_float v : {t.p0, t.p1, t.p2}) {
+        for (float3 v : {t.p0, t.p1, t.p2}) {
             aabb_min = min(aabb_min, v);
             aabb_max = max(aabb_max, v);
         }
@@ -22,27 +14,28 @@ compute_aabb(uint32_t low, uint32_t high,
     return {aabb_min, aabb_max};
 }
 
-float surface_area(const vec3_float &min, const vec3_float &max) {
-    vec3_float extent = max - min;
-    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
-                   extent[1] * extent[2]);
+inline float surface_area(const float3 &min, const float3 &max) {
+    float3 extent = max - min;
+    return 2.0f *
+           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
 }
 
-vec3_float triangle_centroid(const Triangle &tri) {
+inline float3 triangle_centroid(const Triangle &tri) {
     return (tri.p0 + tri.p1 + tri.p2) * (1.0f / 3.0f);
 }
 
-std::pair<vec3_float, vec3_float> triangle_bounds(const Triangle &tri) {
-    vec3_float min_ = min(min(tri.p0, tri.p1), tri.p2);
-    vec3_float max_ = max(max(tri.p0, tri.p1), tri.p2);
+inline std::pair<float3, float3> triangle_bounds(const Triangle &tri) {
+    float3 min_ = min(min(tri.p0, tri.p1), tri.p2);
+    float3 max_ = max(max(tri.p0, tri.p1), tri.p2);
     return {min_, max_};
 }
 
-BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
-                                int max_prims_per_leaf = 8,
-                                int max_tree_depth = 64, int num_bins = 32,
-                                float traversal_cost = 1.0f,
-                                float intersection_cost = 1.5f) {
+inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
+                                       int max_prims_per_leaf = 8,
+                                       int max_tree_depth = 64,
+                                       int num_bins = 32,
+                                       float traversal_cost = 1.0f,
+                                       float intersection_cost = 1.5f) {
 
     struct Split {
         int axis;
@@ -53,8 +46,8 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
     constexpr auto MAX = std::numeric_limits<float>::max();
 
     struct Bin {
-        vec3_float min = vec3_float{MAX, MAX, MAX};
-        vec3_float max = vec3_float{-MAX, -MAX, -MAX};
+        float3 min = float3{MAX, MAX, MAX};
+        float3 max = float3{-MAX, -MAX, -MAX};
         uint32_t count = 0;
     };
 
@@ -75,11 +68,11 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         }
 
         // Compute centroid bounds
-        vec3_float centroid_min = triangle_centroid(triangles[low]);
-        vec3_float centroid_max = centroid_min;
+        float3 centroid_min = triangle_centroid(triangles[low]);
+        float3 centroid_max = centroid_min;
 
         for (uint32_t i = low + 1; i < high; ++i) {
-            vec3_float c = triangle_centroid(triangles[i]);
+            float3 c = triangle_centroid(triangles[i]);
             centroid_min = min(centroid_min, c);
             centroid_max = max(centroid_max, c);
         }
@@ -92,28 +85,33 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
         // Try splitting along each axis
         for (int axis = 0; axis < 3; ++axis) {
-            float extent = centroid_max[axis] - centroid_min[axis];
+            float extent = (axis == 0   ? centroid_max.x - centroid_min.x
+                            : axis == 1 ? centroid_max.y - centroid_min.y
+                                        : centroid_max.z - centroid_min.z);
             if (extent < 1e-6f)
                 continue;
 
             // Simple approach: divide into 8 equal parts
             float split_positions[7];
+            float axis_min = (axis == 0   ? centroid_min.x
+                              : axis == 1 ? centroid_min.y
+                                          : centroid_min.z);
             for (int i = 0; i < 7; ++i) {
-                split_positions[i] =
-                    centroid_min[axis] + (i + 1) * extent / 8.0f;
+                split_positions[i] = axis_min + (i + 1) * extent / 8.0f;
             }
 
             // Evaluate this 8-way split
-            std::vector<vec3_float> group_mins(8, vec3_float{MAX, MAX, MAX});
-            std::vector<vec3_float> group_maxs(8, vec3_float{-MAX, -MAX, -MAX});
+            std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
+            std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
             std::vector<uint32_t> group_counts(8, 0);
 
             // Assign triangles to groups and compute bounds
             for (uint32_t i = low; i < high; ++i) {
-                vec3_float c = triangle_centroid(triangles[i]);
+                float3 c = triangle_centroid(triangles[i]);
+                float c_axis = (axis == 0 ? c.x : axis == 1 ? c.y : c.z);
                 int group = 7; // defaults to last group
                 for (int j = 0; j < 7; ++j) {
-                    if (c[axis] < split_positions[j]) {
+                    if (c_axis < split_positions[j]) {
                         group = j;
                         break;
                     }
@@ -156,10 +154,13 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         // Partition triangles into 8 groups
         std::vector<std::vector<uint32_t>> groups(8);
         for (uint32_t i = low; i < high; ++i) {
-            vec3_float c = triangle_centroid(triangles[i]);
+            float3 c = triangle_centroid(triangles[i]);
+            float c_axis = (best_split.axis == 0   ? c.x
+                            : best_split.axis == 1 ? c.y
+                                                   : c.z);
             int group = 0;
             for (int j = 0; j < 7; ++j) {
-                if (c[best_split.axis] >= best_split.positions[j]) {
+                if (c_axis >= best_split.positions[j]) {
                     group = j + 1;
                 } else {
                     break;
@@ -195,8 +196,8 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
             } else {
                 // empty child
                 node->children[i] = nullptr;
-                node->lo[i] = vec3_float{MAX, MAX, MAX};
-                node->hi[i] = vec3_float{-MAX, -MAX, -MAX};
+                node->lo[i] = float3{MAX, MAX, MAX};
+                node->hi[i] = float3{-MAX, -MAX, -MAX};
             }
         }
 
@@ -206,7 +207,7 @@ BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
     return partition(0, triangles.size(), 0);
 }
 
-void free_canonical_tree_8(BVH *node) {
+inline void free_canonical_tree_8(BVH *node) {
     if (node == nullptr) {
         return;
     }
@@ -232,4 +233,19 @@ void free_canonical_tree_8(BVH *node) {
     }
 
     assert(false && "unexpected");
+}
+
+enum class Heuristic {
+    SurfaceArea = 0,
+    MedianSplit = 1,
+};
+
+BVH *build_canonical_tree_8(std::vector<Triangle> &triangles,
+                            Heuristic heuristic = Heuristic::SurfaceArea) {
+    switch (heuristic) {
+    case Heuristic::SurfaceArea:
+        return build_canonical_tree_8_sah(triangles);
+    case Heuristic::MedianSplit:
+        assert(false && "unimplemented");
+    }
 }

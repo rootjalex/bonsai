@@ -374,7 +374,7 @@ def analyze_scaling_behavior(data):
 if __name__ == "__main__":
     if len(sys.argv) < 3 or len(sys.argv) > 4:
         print(
-            "Usage: python trace_scaling.py <data_file> [arithmetic|geometric]")
+            "Usage: python trace_scaling.py <data_file> <baseline-layout> <blacklist-layout> [arithmetic|geometric]")
         sys.exit(1)
 
     filename = sys.argv[1]

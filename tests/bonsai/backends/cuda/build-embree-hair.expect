@@ -19,9 +19,9 @@ struct AABB {
 };
 
 struct AABBNode {
-  cuda::std::array<BVH*, 4> aabb_children;
-  cuda::std::array<float3, 4> aabb_low;
-  cuda::std::array<float3, 4> aabb_high;
+  cuda::std::array<BVH*, 8> aabb_children;
+  cuda::std::array<float3, 8> aabb_low;
+  cuda::std::array<float3, 8> aabb_high;
 };
 
 struct FInterval {
@@ -47,10 +47,10 @@ struct OBB {
 };
 
 struct OBBNode {
-  cuda::std::array<BVH*, 4> obb_children;
+  cuda::std::array<BVH*, 8> obb_children;
   cuda::std::array<float4, 3> orientation;
-  cuda::std::array<float3, 4> obb_low;
-  cuda::std::array<float3, 4> obb_high;
+  cuda::std::array<float3, 8> obb_low;
+  cuda::std::array<float3, 8> obb_high;
 };
 
 struct Point {
@@ -76,18 +76,18 @@ struct TriangleIntersection {
 };
 
 struct Aabbs {
-  cuda::std::array<float3, 4> aabb_low;
-  cuda::std::array<float3, 4> aabb_high;
-  ulonglong4 aabb_children;
+  cuda::std::array<float3, 8> aabb_low;
+  cuda::std::array<float3, 8> aabb_high;
+  cuda::std::array<uint64_t, 8> aabb_children;
 } __attribute__((packed));
 
 struct Obbs {
   float3 mlo;
   float3 mex;
-  cuda::std::array<uint8_t3, 4> qlo;
-  cuda::std::array<uint8_t3, 4> qhi;
+  cuda::std::array<uint8_t3, 8> qlo;
+  cuda::std::array<uint8_t3, 8> qhi;
   cuda::std::array<int8_t4, 3> qorientation;
-  ulonglong4 obb_children;
+  cuda::std::array<uint64_t, 8> obb_children;
 } __attribute__((packed));
 
 struct Triangles {
@@ -324,75 +324,123 @@ __host__ void _recloop_func0(uint64_t index, Ray* ray, Triangles* triangles, cud
   if (index == 18446744073709551615u) {
     return;
   }
-  uint64_t _t405 = slice<0, 2>(index);
-  if (_t405 == 2u) {
+  uint64_t _t797 = slice<0, 2>(index);
+  if (_t797 == 2u) {
     Aabbs _t17 = (*triangles).aabbs[slice<4, 63>(index)];
-    cuda::std::array<float3, 4> _t18 = _t17.aabb_low;
-    cuda::std::array<float3, 4> _t23 = _t17.aabb_high;
-    AABB _t25 = AABB{_t18.x, _t23.x};
+    cuda::std::array<float3, 8> _t18 = _t17.aabb_low;
+    cuda::std::array<float3, 8> _t23 = _t17.aabb_high;
+    AABB _t25 = AABB{_t18[0], _t23[0]};
     if (intersects_Ray_AABB(ray, (&_t25))) {
       if (distmin_Ray_AABB(ray, (&_t25)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0(_t17.aabb_children.x, ray, triangles, _best0);
+        _recloop_func0(_t17.aabb_children[0u], ray, triangles, _best0);
       }
     }
-    AABB _t51 = AABB{_t18.y, _t23.y};
+    AABB _t51 = AABB{_t18[1], _t23[1]};
     if (intersects_Ray_AABB(ray, (&_t51))) {
       if (distmin_Ray_AABB(ray, (&_t51)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0(_t17.aabb_children.y, ray, triangles, _best0);
+        _recloop_func0(_t17.aabb_children[1u], ray, triangles, _best0);
       }
     }
-    AABB _t77 = AABB{_t18.z, _t23.z};
+    AABB _t77 = AABB{_t18[2], _t23[2]};
     if (intersects_Ray_AABB(ray, (&_t77))) {
       if (distmin_Ray_AABB(ray, (&_t77)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0(_t17.aabb_children.z, ray, triangles, _best0);
+        _recloop_func0(_t17.aabb_children[2u], ray, triangles, _best0);
       }
     }
-    AABB _t103 = AABB{_t18.w, _t23.w};
+    AABB _t103 = AABB{_t18[3], _t23[3]};
     if (intersects_Ray_AABB(ray, (&_t103))) {
       if (distmin_Ray_AABB(ray, (&_t103)) < cuda::std::get<0>((*_best0))) {
-        _recloop_func0(_t17.aabb_children.w, ray, triangles, _best0);
+        _recloop_func0(_t17.aabb_children[3u], ray, triangles, _best0);
+      }
+    }
+    AABB _t129 = AABB{_t18[4], _t23[4]};
+    if (intersects_Ray_AABB(ray, (&_t129))) {
+      if (distmin_Ray_AABB(ray, (&_t129)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t17.aabb_children[4u], ray, triangles, _best0);
+      }
+    }
+    AABB _t155 = AABB{_t18[5], _t23[5]};
+    if (intersects_Ray_AABB(ray, (&_t155))) {
+      if (distmin_Ray_AABB(ray, (&_t155)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t17.aabb_children[5u], ray, triangles, _best0);
+      }
+    }
+    AABB _t181 = AABB{_t18[6], _t23[6]};
+    if (intersects_Ray_AABB(ray, (&_t181))) {
+      if (distmin_Ray_AABB(ray, (&_t181)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t17.aabb_children[6u], ray, triangles, _best0);
+      }
+    }
+    AABB _t207 = AABB{_t18[7], _t23[7]};
+    if (intersects_Ray_AABB(ray, (&_t207))) {
+      if (distmin_Ray_AABB(ray, (&_t207)) < cuda::std::get<0>((*_best0))) {
+        _recloop_func0(_t17.aabb_children[7u], ray, triangles, _best0);
       }
     }
   } else {
-    if (_t405 == 3u) {
-      Obbs _t144 = (*triangles).obbs[slice<4, 63>(index)];
-      float3 _t145 = _t144.mlo;
-      float3 _t149 = _t144.mex;
-      cuda::std::array<float3, 4> _t154 = cuda::std::array<float3, 4>{_t145 + (make_float3(((float)_t144.qlo.x / (float)255)) * _t149), _t145 + (make_float3(((float)_t144.qlo.y / (float)255)) * _t149), _t145 + (make_float3(((float)_t144.qlo.z / (float)255)) * _t149), _t145 + (make_float3(((float)_t144.qlo.w / (float)255)) * _t149)};
-      cuda::std::array<float3, 4> _t168 = cuda::std::array<float3, 4>{_t145 + (make_float3(((float)_t144.qhi.x / (float)255)) * _t149), _t145 + (make_float3(((float)_t144.qhi.y / (float)255)) * _t149), _t145 + (make_float3(((float)_t144.qhi.z / (float)255)) * _t149), _t145 + (make_float3(((float)_t144.qhi.w / (float)255)) * _t149)};
-      cuda::std::array<float4, 3> _t174 = dequantize_orientation(_t144.qorientation);
-      OBB _t175 = OBB{_t154.x, _t168.x, _t174};
-      if (intersects_Ray_OBB(ray, (&_t175))) {
-        if (distmin_Ray_OBB(ray, (&_t175)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0(_t144.obb_children.x, ray, triangles, _best0);
+    if (_t797 == 3u) {
+      Obbs _t248 = (*triangles).obbs[slice<4, 63>(index)];
+      float3 _t249 = _t248.mlo;
+      float3 _t253 = _t248.mex;
+      cuda::std::array<float3, 8> _t258 = cuda::std::array<float3, 8>{_t249 + (make_float3(((float)_t248.qlo[0] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[1] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[2] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[3] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[4] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[5] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[6] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qlo[7] / (float)255)) * _t253)};
+      cuda::std::array<float3, 8> _t272 = cuda::std::array<float3, 8>{_t249 + (make_float3(((float)_t248.qhi[0] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[1] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[2] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[3] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[4] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[5] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[6] / (float)255)) * _t253), _t249 + (make_float3(((float)_t248.qhi[7] / (float)255)) * _t253)};
+      cuda::std::array<float4, 3> _t278 = dequantize_orientation(_t248.qorientation);
+      OBB _t279 = OBB{_t258[0], _t272[0], _t278};
+      if (intersects_Ray_OBB(ray, (&_t279))) {
+        if (distmin_Ray_OBB(ray, (&_t279)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[0u], ray, triangles, _best0);
         }
       }
-      OBB _t247 = OBB{_t154.y, _t168.y, _t174};
-      if (intersects_Ray_OBB(ray, (&_t247))) {
-        if (distmin_Ray_OBB(ray, (&_t247)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0(_t144.obb_children.y, ray, triangles, _best0);
+      OBB _t351 = OBB{_t258[1], _t272[1], _t278};
+      if (intersects_Ray_OBB(ray, (&_t351))) {
+        if (distmin_Ray_OBB(ray, (&_t351)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[1u], ray, triangles, _best0);
         }
       }
-      OBB _t319 = OBB{_t154.z, _t168.z, _t174};
-      if (intersects_Ray_OBB(ray, (&_t319))) {
-        if (distmin_Ray_OBB(ray, (&_t319)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0(_t144.obb_children.z, ray, triangles, _best0);
+      OBB _t423 = OBB{_t258[2], _t272[2], _t278};
+      if (intersects_Ray_OBB(ray, (&_t423))) {
+        if (distmin_Ray_OBB(ray, (&_t423)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[2u], ray, triangles, _best0);
         }
       }
-      OBB _t391 = OBB{_t154.w, _t168.w, _t174};
-      if (intersects_Ray_OBB(ray, (&_t391))) {
-        if (distmin_Ray_OBB(ray, (&_t391)) < cuda::std::get<0>((*_best0))) {
-          _recloop_func0(_t144.obb_children.w, ray, triangles, _best0);
+      OBB _t495 = OBB{_t258[3], _t272[3], _t278};
+      if (intersects_Ray_OBB(ray, (&_t495))) {
+        if (distmin_Ray_OBB(ray, (&_t495)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[3u], ray, triangles, _best0);
+        }
+      }
+      OBB _t567 = OBB{_t258[4], _t272[4], _t278};
+      if (intersects_Ray_OBB(ray, (&_t567))) {
+        if (distmin_Ray_OBB(ray, (&_t567)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[4u], ray, triangles, _best0);
+        }
+      }
+      OBB _t639 = OBB{_t258[5], _t272[5], _t278};
+      if (intersects_Ray_OBB(ray, (&_t639))) {
+        if (distmin_Ray_OBB(ray, (&_t639)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[5u], ray, triangles, _best0);
+        }
+      }
+      OBB _t711 = OBB{_t258[6], _t272[6], _t278};
+      if (intersects_Ray_OBB(ray, (&_t711))) {
+        if (distmin_Ray_OBB(ray, (&_t711)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[6u], ray, triangles, _best0);
+        }
+      }
+      OBB _t783 = OBB{_t258[7], _t272[7], _t278};
+      if (intersects_Ray_OBB(ray, (&_t783))) {
+        if (distmin_Ray_OBB(ray, (&_t783)) < cuda::std::get<0>((*_best0))) {
+          _recloop_func0(_t248.obb_children[7u], ray, triangles, _best0);
         }
       }
     } else {
-      uint64_t _t402 = slice<4, 63>(index);
-      for (uint64_t _idx0 = _t402; _idx0 < (_t402 + (uint64_t)(uint8_t)(slice<1, 4>(index) + 1u)); _idx0 += 1u) {
-        Triangle _t401 = (*triangles).primitives[_idx0];
-        if (intersectsp_ray_tri(ray, (&_t401)).has_value()) {
-          float _t399 = distmin_Ray_Triangle(ray, (&_t401));
-          if (_t399 < cuda::std::get<0>((*_best0))) {
-            (*_best0) = argmin(_best0, cuda::std::tuple<float, Triangle>{_t399, _t401});
+      uint64_t _t794 = slice<4, 63>(index);
+      for (uint64_t _idx0 = _t794; _idx0 < (_t794 + (uint64_t)(uint8_t)(slice<1, 8>(index) + 1u)); _idx0 += 1u) {
+        Triangle _t793 = (*triangles).primitives[_idx0];
+        if (intersectsp_ray_tri(ray, (&_t793)).has_value()) {
+          float _t791 = distmin_Ray_Triangle(ray, (&_t793));
+          if (_t791 < cuda::std::get<0>((*_best0))) {
+            (*_best0) = argmin(_best0, cuda::std::tuple<float, Triangle>{_t791, _t793});
           }
         }
       }
@@ -407,9 +455,9 @@ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* tria
   return ((cuda::std::get<0>(_best0) != INFINITY) ? cuda::std::optional<Triangle>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
 }
 
-__host__ float3 calculate_merged_extent(cuda::std::array<float3, 4> low, cuda::std::array<float3, 4> high) {
-  float3 mlo = min(low.x, min(low.y, min(low.z, low.w)));
-  float3 mhi = max(high.x, max(high.y, max(high.z, high.w)));
+__host__ float3 compute_merged_extent(cuda::std::array<float3, 8> lo, cuda::std::array<float3, 8> hi) {
+  float3 mlo = min(lo[0], min(lo[1], min(lo[2], min(lo[3], min(lo[4], min(lo[5], min(lo[6], lo[7])))))));
+  float3 mhi = max(hi[0], max(hi[1], max(hi[2], max(hi[3], max(hi[4], max(hi[5], max(hi[6], hi[7])))))));
   return (mhi - mlo);
 }
 
@@ -419,10 +467,10 @@ __host__ uchar3 to_u8_ceil(float3 f) {
   return (uchar3)f2;
 }
 
-__host__ cuda::std::array<uint8_t3, 4> quantize_bounds_high(cuda::std::array<float3, 4> low, cuda::std::array<float3, 4> high) {
-  float3 mlo = min(low.x, min(low.y, min(low.z, low.w)));
-  float3 mex = calculate_merged_extent(low, high);
-  return cuda::std::array<uint8_t3, 4>{to_u8_ceil(((high.x - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high.y - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high.z - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high.w - mlo) / mex) * make_float3((float)255))};
+__host__ cuda::std::array<uint8_t3, 8> quantize_bounds_high(cuda::std::array<float3, 8> low, cuda::std::array<float3, 8> high) {
+  float3 mlo = min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
+  float3 mex = compute_merged_extent(low, high);
+  return cuda::std::array<uint8_t3, 8>{to_u8_ceil(((high[0] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[1] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[2] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[3] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[4] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[5] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[6] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[7] - mlo) / mex) * make_float3((float)255))};
 }
 
 __host__ uchar3 to_u8_floor(float3 f) {
@@ -431,10 +479,10 @@ __host__ uchar3 to_u8_floor(float3 f) {
   return (uchar3)f2;
 }
 
-__host__ cuda::std::array<uint8_t3, 4> quantize_bounds_low(cuda::std::array<float3, 4> low, cuda::std::array<float3, 4> high) {
-  float3 mlo = min(low.x, min(low.y, min(low.z, low.w)));
-  float3 mex = calculate_merged_extent(low, high);
-  return cuda::std::array<uint8_t3, 4>{to_u8_floor(((low.x - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low.y - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low.z - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low.w - mlo) / mex) * make_float3((float)255))};
+__host__ cuda::std::array<uint8_t3, 8> quantize_bounds_low(cuda::std::array<float3, 8> low, cuda::std::array<float3, 8> high) {
+  float3 mlo = min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
+  float3 mex = compute_merged_extent(low, high);
+  return cuda::std::array<uint8_t3, 8>{to_u8_floor(((low[0] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[1] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[2] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[3] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[4] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[5] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[6] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[7] - mlo) / mex) * make_float3((float)255))};
 }
 
 __host__ int8_t to_i8(float f) {
@@ -460,27 +508,24 @@ __host__ uint64_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* aabbs_i
       (*aabbs_index) += 1;
       (*ST).aabbs[this_index].aabb_low = node.aabb_low;
       (*ST).aabbs[this_index].aabb_high = node.aabb_high;
-      uint64_t aabb_children_index0 = rec_build_triangles(node.aabb_children[0], ST, aabbs_index, obbs_index, primitives_index);
-      (*ST).aabbs[this_index].aabb_children[0] = aabb_children_index0;
-      uint64_t aabb_children_index1 = rec_build_triangles(node.aabb_children[1], ST, aabbs_index, obbs_index, primitives_index);
-      (*ST).aabbs[this_index].aabb_children[1] = aabb_children_index1;
-      uint64_t aabb_children_index2 = rec_build_triangles(node.aabb_children[2], ST, aabbs_index, obbs_index, primitives_index);
-      (*ST).aabbs[this_index].aabb_children[2] = aabb_children_index2;
-      uint64_t aabb_children_index3 = rec_build_triangles(node.aabb_children[3], ST, aabbs_index, obbs_index, primitives_index);
-      (*ST).aabbs[this_index].aabb_children[3] = aabb_children_index3;
+      uint64_t aabb_children_index[8];
+      for (int32_t __r = 0; __r < 8; __r += 1) {
+        aabb_children_index[__r] = rec_build_triangles(node.aabb_children[__r], ST, aabbs_index, obbs_index, primitives_index);
+        (*ST).aabbs[this_index].aabb_children[__r] = aabb_children_index[__r];
+      }
       return ((this_index << 4u) | 2u);
     }
     else if (std::holds_alternative<OBBNode>(*node_)) {
       const OBBNode& node = std::get<OBBNode>(*node_);
       size_t this_index = (*obbs_index);
       (*obbs_index) += 1;
-      (*ST).obbs[this_index].mlo = min((*ST).aabbs[this_index].aabb_low.x, min((*ST).aabbs[this_index].aabb_low.y, min((*ST).aabbs[this_index].aabb_low.z, (*ST).aabbs[this_index].aabb_low.w)));
-      (*ST).obbs[this_index].mex = calculate_merged_extent((*ST).aabbs[this_index].aabb_low, (*ST).aabbs[this_index].aabb_high);
+      (*ST).obbs[this_index].mlo = min((*ST).aabbs[this_index].aabb_low[0], min((*ST).aabbs[this_index].aabb_low[1], min((*ST).aabbs[this_index].aabb_low[2], min((*ST).aabbs[this_index].aabb_low[3], min((*ST).aabbs[this_index].aabb_low[4], min((*ST).aabbs[this_index].aabb_low[5], min((*ST).aabbs[this_index].aabb_low[6], (*ST).aabbs[this_index].aabb_low[7])))))));
+      (*ST).obbs[this_index].mex = compute_merged_extent((*ST).aabbs[this_index].aabb_low, (*ST).aabbs[this_index].aabb_high);
       (*ST).obbs[this_index].qlo = quantize_bounds_low((*ST).aabbs[this_index].aabb_low, (*ST).aabbs[this_index].aabb_high);
       (*ST).obbs[this_index].qhi = quantize_bounds_high((*ST).aabbs[this_index].aabb_low, (*ST).aabbs[this_index].aabb_high);
       (*ST).obbs[this_index].qorientation = quantize_orientation(node.orientation);
-      uint64_t obb_children_index[4];
-      for (int32_t __r = 0; __r < 4; __r += 1) {
+      uint64_t obb_children_index[8];
+      for (int32_t __r = 0; __r < 8; __r += 1) {
         obb_children_index[__r] = rec_build_triangles(node.obb_children[__r], ST, aabbs_index, obbs_index, primitives_index);
         (*ST).obbs[this_index].obb_children[__r] = obb_children_index[__r];
       }
@@ -503,14 +548,14 @@ __host__ void rec_count_triangles(BVH* node_, Triangles* ST) {
   }
     if (std::holds_alternative<AABBNode>(*node_)) {
       const AABBNode& node = std::get<AABBNode>(*node_);
-      for (int32_t __r = 0; __r < 4; __r += 1) {
+      for (int32_t __r = 0; __r < 8; __r += 1) {
         rec_count_triangles(node.aabb_children[__r], ST);
       }
       (*ST).aabb_count += 1u;
     }
     else if (std::holds_alternative<OBBNode>(*node_)) {
       const OBBNode& node = std::get<OBBNode>(*node_);
-      for (int32_t __r = 0; __r < 4; __r += 1) {
+      for (int32_t __r = 0; __r < 8; __r += 1) {
         rec_count_triangles(node.obb_children[__r], ST);
       }
       (*ST).obb_count += 1u;

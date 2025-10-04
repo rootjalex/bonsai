@@ -1,5 +1,5 @@
 #include "bonsai_cpp.h"
-#include "canonical_tree.h"
+#include "canonical_tree_$N$.h"
 #include "rt.h"
 #include "util.h"
 #include <omp.h>
@@ -86,10 +86,10 @@ void run(std::string object, bool is_single_threaded,
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
-    BVH *canonical_tree = build_canonical_tree_sah(triangles);
+    BVH *canonical_tree = build_canonical_tree_$N$(triangles);
 
     Triangles tree = build_triangles(canonical_tree);
-    free_canonical_tree(canonical_tree);
+    free_canonical_tree_$N$(canonical_tree);
 
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
@@ -104,7 +104,6 @@ void run(std::string object, bool is_single_threaded,
                 (void)trace(&rays[i], &tree); // warmup
             is_first_run = false;
         }
-
         size_t hit_count = 0;
         auto trace_begin = clock::now(), trace_end = clock::now();
         if (is_single_threaded) {
@@ -157,16 +156,6 @@ void run(std::string object, bool is_single_threaded,
     }
 }
 
-bool is_digit(std::string s) {
-    for (char c : s) {
-        if (std::isdigit(c)) {
-            continue;
-        }
-        return false;
-    }
-    return true;
-}
-
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -177,12 +166,9 @@ int main(int argc, char *argv[]) {
     const bool is_single_threaded = schedule == "single-thread";
 
     std::vector<int64_t> ray_counts;
-    assert(is_digit(argv[3]));
     const int64_t size = std::atoi(argv[3]);
-
     ray_counts.reserve(size);
     for (int i = 4; i < 4 + size; ++i) {
-        assert(is_digit(argv[i]));
         ray_counts.push_back(std::atoi(argv[i]));
     }
     run(object_file, is_single_threaded, ray_counts);

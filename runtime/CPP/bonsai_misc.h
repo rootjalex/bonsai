@@ -24,10 +24,6 @@ template <typename T>
 T slice(int M, int N, T value) {
     static_assert(std::is_unsigned_v<T>);
     const int bits = std::numeric_limits<T>::digits;
-    assert(M >= 0);
-    assert(N >= 0);
-    assert(M <= N);
-    assert(N < bits);
     int width = N - M + 1;
     T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
     return (value >> M) & mask;

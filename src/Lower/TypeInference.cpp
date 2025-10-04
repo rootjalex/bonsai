@@ -208,7 +208,8 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 internal_assert(vector->lanes == build->values.size())
                     << "Received different number of values: "
                     << build->values.size()
-                    << " than lanes in the vector: " << vector->lanes;
+                    << " than lanes in the vector: " << vector->lanes << ": `"
+                    << ir::Type(vector) << "`, `" << ir::Expr(build) << "`";
                 for (int i = 0, e = vector->lanes; i < e; ++i) {
                     ir::Expr value = build->values[i];
                     if (value.type().defined()) {

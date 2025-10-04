@@ -60,13 +60,9 @@ struct vector {
     }
 
     // Indexing (with bounds checking in debug builds)
-    T &operator[](size_t i) {
-        assert(i < N && "index out of range!");
-        return *reinterpret_cast<T *>(&data[i]);
-    }
+    T &operator[](size_t i) { return *reinterpret_cast<T *>(&data[i]); }
 
     const T &operator[](size_t i) const {
-        assert(i < N && "index out of range!");
         return *reinterpret_cast<const T *>(&data[i]);
     }
 

@@ -9,6 +9,7 @@ PREFIX="${KERNEL_PATH}/${TARGET}"
 
 LAYOUTS_2BVH=("eq" "eq-align32" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32" "ptr")
 LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
+LAYOUTS_8_MIXED_BVH=("eb" "ebq")
 
 OBJECTS=("power-plant" "hairball" "sponza")
 
@@ -20,7 +21,6 @@ while [[ $# -gt 0 ]]; do
     --dry-run)
       DRY_RUN=true
       shift
-      # If dry-run is passed, clear any previously collected args and break
       POSITIONAL_ARGS=()
       break
       ;;
@@ -43,12 +43,13 @@ MAX_POWER=25
 
 # Override for dry run
 if [[ "${DRY_RUN}" == true ]]; then
-  echo "*** DRY RUN MODE: Testing with MIN_POWER=${MIN_POWER} only ***"
+  echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=1  # Only 1 iteration for dry run
-  LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}")  # Only first layout
-  LAYOUTS_8BVH=("${LAYOUTS_8BVH[0]}")  # Only first layout
-  OBJECTS=("${OBJECTS[0]}")  # Only first object
+  N=2  # Only 2 iterations for dry run.
+  LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}" "${LAYOUTS_2BVH[1]}")
+  LAYOUTS_8BVH=("${LAYOUTS_8BVH[0]}" "${LAYOUTS_8BVH[1]}")
+  LAYOUTS_8_MIXED_BVH=("${LAYOUTS_8_MIXED_BVH[0]}" "${LAYOUTS_8_MIXED_BVH[1]}")
+  OBJECTS=("${OBJECTS[0]}")  # Only first object.
 fi
 
 RAY_COUNTS=()
@@ -56,10 +57,10 @@ for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
     RAY_COUNTS+=($((2**p)))
 done
 
-# Build ray counts argument: size followed by all counts.
+# Argument for ray counts passed to main.
 ARGV="${#RAY_COUNTS[@]}"
 for COUNT in "${RAY_COUNTS[@]}"; do
-  ARGV="${ARGV} ${COUNT}"
+    ARGV="${ARGV} ${COUNT}"
 done
 
 # Enable this to be run from either root or 
@@ -70,10 +71,6 @@ fi
 
 # Save a set of random rays.
 clang++ -std=c++20 -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
-
-# Delete previous data.
-rm -f -r ${DATA_PATH}
-mkdir ${DATA_PATH}
 
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   echo ${RAY_COUNT} >> ${DATA_PATH}/${DATA_FILE}.txt
@@ -90,6 +87,10 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   done
 done
 
+# Delete previous data.
+rm -f -r ${DATA_PATH}
+mkdir ${DATA_PATH}
+
 # Install python dependencies for data processing.
 pip install -r ${KERNEL_PATH}/requirements.txt
 
@@ -98,9 +99,20 @@ echo "runs: ${N}"
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  local MAIN_FILE=$1
+  local BVH_SUFFIX="$1" # e.g., `2` or `8_mixed`. 
   shift
   local LAYOUTS=("$@")
+  
+  MAIN_FILE="main_trace"
+  # replace `$N$` with BVH_SUFFIX.
+  sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cu > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cu
+  MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
+  if [[ "$(uname)" == "Linux" ]]; then
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree_\$N\$.h/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
+  else
+    # macos
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree_\$N\$.h/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
+  fi
   
   for OBJECT in "${OBJECTS[@]}"; do
     echo "object: ${OBJECT}" 
@@ -118,9 +130,9 @@ run_tests() {
       
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      COMMAND="./${EXECUTABLE} ${OBJECT} ${ARGV}"
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${ARGV}"
       for ((i=0; i < N; i++)); do
-        ${COMMAND} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
+        ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
       
       # 5. Clean up
@@ -129,16 +141,21 @@ run_tests() {
     done
     echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
   done
+
+  rm ${PREFIX}/${MAIN_FILE}.cu # remove the old cu file
 }
 
-# Run tests for both main_trace and main_trace_8
-echo "running tests for 2-BVH..."
-run_tests "main_trace" "${LAYOUTS_2BVH[@]}"
-echo "... tests complete for 2-BVH"
+echo "running tests with 8-mixed-BVH..."
+run_tests "8_mixed" "${LAYOUTS_8_MIXED_BVH[@]}"
+echo "... tests complete for 8-mixed-BVH"
 
 echo "running tests with 8-BVH..."
-run_tests "main_trace_8" "${LAYOUTS_8BVH[@]}"
+run_tests "8" "${LAYOUTS_8BVH[@]}"
 echo "... tests complete for 8-BVH"
+
+echo "running tests with 2-BVH..."
+run_tests "2" "${LAYOUTS_2BVH[@]}"
+echo "... tests complete for 2-BVH"
 
 # Process data
 python3.11 ${KERNEL_PATH}/collect_trace.py ${DATA_PATH}/${DATA_FILE}.txt

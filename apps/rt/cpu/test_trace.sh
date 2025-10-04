@@ -9,8 +9,9 @@ PREFIX="${KERNEL_PATH}/${TARGET}"
 
 LAYOUTS_2BVH=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
 LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
+LAYOUTS_8_MIXED_BVH=("eb" "ebq")
 
-OBJECTS=("power-plant" "hairball" "sponza")
+OBJECTS=("hairball" "power-plant" "sponza")
 
 # Parse flags
 DRY_RUN=false
@@ -49,8 +50,10 @@ if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
   N=2  # Only 2 iterations for dry run.
-  LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}" "${LAYOUTS_2BVH[1]}")  # Only first two layouts.
-  LAYOUTS_8BVH=("${LAYOUTS_8BVH[0]}" "${LAYOUTS_8BVH[1]}")  # Only first two layouts.
+  # Only first two layouts.
+  LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}" "${LAYOUTS_2BVH[1]}")
+  LAYOUTS_8BVH=("${LAYOUTS_8BVH[0]}" "${LAYOUTS_8BVH[1]}")
+  LAYOUTS_8_MIXED_BVH=("${LAYOUTS_8_MIXED_BVH[0]}" "${LAYOUTS_8_MIXED_BVH[1]}")  
   OBJECTS=("${OBJECTS[0]}")  # Only first object.
 fi
 
@@ -72,7 +75,7 @@ if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../../..
 fi
 
-# Save a set of random rays.
+# For saving a set of random rays.
 clang++ -std=c++20 -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
 
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
@@ -106,10 +109,14 @@ echo "runs: ${N}, schedule: ${SCHEDULE}"
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  local MAIN_FILE=$1
+  local BVH_SUFFIX="$1" # e.g., `2` or `8_mixed`. 
   shift
   local LAYOUTS=("$@")
   
+  MAIN_FILE="main_trace"
+  # replace `$N$` with BVH_SUFFIX.
+  sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cpp > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cpp
+  MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
   for OBJECT in "${OBJECTS[@]}"; do
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
@@ -172,18 +179,21 @@ run_tests() {
     done
     echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
   done
+
+  rm ${PREFIX}/${MAIN_FILE}.cpp # remove the old c++ file
 }
 
-echo "running tests with 8-BVH..."
-run_tests "main_trace_8" "${LAYOUTS_8BVH[@]}"
+echo "running tests with 8-mixed-BVH..."
+run_tests "8_mixed" "${LAYOUTS_8_MIXED_BVH[@]}"
+echo "... tests complete for 8-mixed-BVH"
+
+echo "running tests with 8-mixed-BVH..."
+run_tests "8" "${LAYOUTS_8BVH[@]}"
 echo "... tests complete for 8-BVH"
 
-echo "running tests for 2-BVH..."
-run_tests "main_trace" "${LAYOUTS_2BVH[@]}"
+echo "running tests with 2-BVH..."
+run_tests "2" "${LAYOUTS_2BVH[@]}"
 echo "... tests complete for 2-BVH"
-
-# Process data
-python3.11 ${KERNEL_PATH}/collect_trace.py ${DATA_PATH}/${DATA_FILE}.txt
 
 rm ${RAY_PATH}/${RAY_FILE}.out
 
