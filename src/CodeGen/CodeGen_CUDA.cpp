@@ -902,7 +902,8 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
     std::optional<uint32_t> index = get_constant_value(node->idx);
 
     if (const auto *vector_t = node->vec.type().as<Vector_t>();
-        vector_t && vector_t->lanes <= 4 && index.has_value()) {
+        vector_t && vector_t->lanes <= 4 && index.has_value() &&
+        !vector_t->etype.is_iterable()) {
         Access::make(vector_lane_to_field(*index), node->vec).accept(this);
         return;
     }
