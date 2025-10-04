@@ -135,7 +135,7 @@ run_tests() {
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
       EXECUTE="./${EXECUTABLE} ${OBJECT} ${ARGV}"
       for ((i=0; i < N; i++)); do
-        core-sanitizer ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
+        compute-sanitizer ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
       
       # 5. Clean up
