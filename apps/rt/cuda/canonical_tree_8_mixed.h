@@ -1,3 +1,4 @@
+// CUDA
 constexpr float gamma(int n) {
     constexpr float E = std::numeric_limits<float>::epsilon() * 0.5f;
     return (n * E) / (1.0f - n * E);
@@ -114,6 +115,7 @@ OBB compute_obb(uint32_t low, uint32_t high,
 
     float3 extent = obb_max - obb_min;
     obb_max = obb_max + extent * gamma(3);
+    obb_min = obb_min - extent * gamma(3);
 
     return OBB{obb_min, obb_max, orientation};
 }
