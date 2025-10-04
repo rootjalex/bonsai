@@ -33,8 +33,8 @@ compute_aabb(uint32_t low, uint32_t high,
 
 float surface_area(const vec3_float &min, const vec3_float &max) {
     vec3_float extent = max - min;
-    return 2.0f *
-           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
+    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
+                   extent[1] * extent[2]);
 }
 
 vec3_float triangle_centroid(const Triangle &tri) {
@@ -75,32 +75,32 @@ OBB compute_obb(uint32_t low, uint32_t high,
                 v_new[i] += cov[i][j] * v[j];
             }
         }
-        float len =
-            sqrt(v_new.x * v_new.x + v_new.y * v_new.y + v_new.z * v_new.z);
+        float len = sqrt(v_new[0] * v_new[0] + v_new[1] * v_new[1] +
+                         v_new[2] * v_new[2]);
         if (len > 1e-6f) {
             v = v_new / len;
         }
     }
 
     vec3_float x_axis = v;
-    vec3_float y_axis = {-v.y, v.x, 0.0f};
-    float y_len = sqrt(y_axis.x * y_axis.x + y_axis.y * y_axis.y);
+    vec3_float y_axis = {-v[1], v[0], 0.0f};
+    float y_len = sqrt(y_axis[0] * y_axis[0] + y_axis[1] * y_axis[1]);
     if (y_len < 1e-6f) {
         y_axis = {0.0f, 1.0f, 0.0f};
     } else {
         y_axis = y_axis / y_len;
     }
     vec3_float z_axis = cross(x_axis, y_axis);
-    float z_len =
-        sqrt(z_axis.x * z_axis.x + z_axis.y * z_axis.y + z_axis.z * z_axis.z);
+    float z_len = sqrt(z_axis[0] * z_axis[0] + z_axis[1] * z_axis[1] +
+                       z_axis[2] * z_axis[2]);
     if (z_len > 1e-6f) {
         z_axis = z_axis / z_len;
     }
 
     vec3_vec4_float orientation;
-    orientation[0] = {x_axis.x, x_axis.y, x_axis.z, 0.0f};
-    orientation[1] = {y_axis.x, y_axis.y, y_axis.z, 0.0f};
-    orientation[2] = {z_axis.x, z_axis.y, z_axis.z, 0.0f};
+    orientation[0] = {x_axis[0], x_axis[1], x_axis[2], 0.0f};
+    orientation[1] = {y_axis[0], y_axis[1], y_axis[2], 0.0f};
+    orientation[2] = {z_axis[0], z_axis[1], z_axis[2], 0.0f};
 
     constexpr auto MAX = std::numeric_limits<float>::max();
     vec3_float obb_min = {MAX, MAX, MAX};
@@ -109,9 +109,9 @@ OBB compute_obb(uint32_t low, uint32_t high,
     for (uint32_t i = low; i < high; ++i) {
         auto [tri_min, tri_max] = triangle_bounds(tris[i]);
         for (int corner = 0; corner < 8; ++corner) {
-            vec3_float p = {(corner & 1) ? tri_max.x : tri_min.x,
-                            (corner & 2) ? tri_max.y : tri_min.y,
-                            (corner & 4) ? tri_max.z : tri_min.z};
+            vec3_float p = {(corner & 1) ? tri_max[0] : tri_min[0],
+                            (corner & 2) ? tri_max[1] : tri_min[1],
+                            (corner & 4) ? tri_max[2] : tri_min[2]};
             vec3_float p_obb = {dot(x_axis, p), dot(y_axis, p), dot(z_axis, p)};
             obb_min = min(obb_min, p_obb);
             obb_max = max(obb_max, p_obb);
@@ -127,8 +127,9 @@ OBB compute_obb(uint32_t low, uint32_t high,
 float compute_tightness(uint32_t low, uint32_t high,
                         const std::vector<Triangle> &tris) {
     auto [aabb_min, aabb_max] = compute_aabb(low, high, tris);
-    float aabb_volume = (aabb_max.x - aabb_min.x) * (aabb_max.y - aabb_min.y) *
-                        (aabb_max.z - aabb_min.z);
+    float aabb_volume = (aabb_max[0] - aabb_min[0]) *
+                        (aabb_max[1] - aabb_min[1]) *
+                        (aabb_max[2] - aabb_min[2]);
 
     if (aabb_volume < 1e-6f)
         return 1.0f;
@@ -307,9 +308,9 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                     vec3_float obb_max = {-MAX, -MAX, -MAX};
 
                     for (int corner = 0; corner < 8; ++corner) {
-                        vec3_float p = {(corner & 1) ? tri_max.x : tri_min.x,
-                                        (corner & 2) ? tri_max.y : tri_min.y,
-                                        (corner & 4) ? tri_max.z : tri_min.z};
+                        vec3_float p = {(corner & 1) ? tri_max[0] : tri_min[0],
+                                        (corner & 2) ? tri_max[1] : tri_min[1],
+                                        (corner & 4) ? tri_max[2] : tri_min[2]};
                         vec3_float p_obb;
                         for (int d = 0; d < 3; ++d) {
                             vec3_float axis_vec = {obb.orientation[d][0],
@@ -424,9 +425,9 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                         auto [tri_min, tri_max] = triangle_bounds(triangles[j]);
                         for (int corner = 0; corner < 8; ++corner) {
                             vec3_float p = {
-                                (corner & 1) ? tri_max.x : tri_min.x,
-                                (corner & 2) ? tri_max.y : tri_min.y,
-                                (corner & 4) ? tri_max.z : tri_min.z};
+                                (corner & 1) ? tri_max[0] : tri_min[0],
+                                (corner & 2) ? tri_max[1] : tri_min[1],
+                                (corner & 4) ? tri_max[2] : tri_min[2]};
                             vec3_float p_obb;
                             for (int d = 0; d < 3; ++d) {
                                 vec3_float axis = {
