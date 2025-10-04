@@ -136,11 +136,15 @@ float compute_tightness(uint32_t low, uint32_t high,
     float cov[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     for (uint32_t i = low; i < high; ++i) {
         float3 c = triangle_centroid(tris[i]) - centroid;
-        for (int j = 0; j < 3; ++j) {
-            for (int k = 0; k < 3; ++k) {
-                cov[j][k] += c[j] * c[k];
-            }
-        }
+        cov[0][0] += c.x * c.x;
+        cov[0][1] += c.x * c.y;
+        cov[0][2] += c.x * c.z;
+        cov[1][0] += c.y * c.x;
+        cov[1][1] += c.y * c.y;
+        cov[1][2] += c.y * c.z;
+        cov[2][0] += c.z * c.x;
+        cov[2][1] += c.z * c.y;
+        cov[2][2] += c.z * c.z;
     }
 
     float trace = cov[0][0] + cov[1][1] + cov[2][2];
@@ -380,9 +384,12 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         } else {
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
+                float c_val = (best_split.axis == 0)   ? c.x
+                              : (best_split.axis == 1) ? c.y
+                                                       : c.z;
                 int group = 0;
                 for (int j = 0; j < 7; ++j) {
-                    if (c[best_split.axis] >= best_split.positions[j]) {
+                    if (c_val >= best_split.positions[j]) {
                         group = j + 1;
                     } else {
                         break;
@@ -427,13 +434,17 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                             float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
                                         (corner & 2) ? tri_max.y : tri_min.y,
                                         (corner & 4) ? tri_max.z : tri_min.z};
-                            float3 p_obb;
-                            for (int d = 0; d < 3; ++d) {
-                                float3 axis = {parent_obb.orientation[d].x,
-                                               parent_obb.orientation[d].y,
-                                               parent_obb.orientation[d].z};
-                                p_obb[d] = dot(p, axis);
-                            }
+                            float3 axis_x = {parent_obb.orientation[0].x,
+                                             parent_obb.orientation[0].y,
+                                             parent_obb.orientation[0].z};
+                            float3 axis_y = {parent_obb.orientation[1].x,
+                                             parent_obb.orientation[1].y,
+                                             parent_obb.orientation[1].z};
+                            float3 axis_z = {parent_obb.orientation[2].x,
+                                             parent_obb.orientation[2].y,
+                                             parent_obb.orientation[2].z};
+                            float3 p_obb = {dot(p, axis_x), dot(p, axis_y),
+                                            dot(p, axis_z)};
                             child_min = min(child_min, p_obb);
                             child_max = max(child_max, p_obb);
                         }
