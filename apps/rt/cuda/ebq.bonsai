@@ -262,4 +262,7 @@ schedule {
         return (poffset << cast[[u64]](4)) | (nprims << cast[[u64]](2));
       };
     };
+
+    trace.loopify(64);
+    chrt.gpu_thread(i0);
 }
