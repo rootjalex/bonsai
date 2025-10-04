@@ -132,12 +132,9 @@ void run(const std::string &object, const std::vector<int64_t> &ray_counts) {
     assert(!triangles.empty());
 
     BVH *canonical_tree = build_canonical_tree_$N$(triangles);
-    std::cout << "canonical tree built..." << std::endl;
 
     Triangles tree = build_triangles(canonical_tree);
-    std::cout << "specialized tree built..." << std::endl;
     free_canonical_tree_$N$(canonical_tree);
-    std::cout << "canonical tree freed..." << std::endl;
 
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
@@ -153,7 +150,6 @@ void run(const std::string &object, const std::vector<int64_t> &ray_counts) {
             std::copy(r.begin(), r.end(), rays);
             r.clear();
         }
-        std::cout << ray_count << " rays built..." << std::endl;
         if (is_first_run) {
             (void)chrt(ray_count, rays, &tree); // warm-up run
             is_first_run = false;

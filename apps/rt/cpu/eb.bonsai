@@ -254,4 +254,6 @@ schedule {
         return cast[[u64]]((poffset << 4) | (nprims << 2));
       };
     };
+
+    trace.loopify(64);
 }
