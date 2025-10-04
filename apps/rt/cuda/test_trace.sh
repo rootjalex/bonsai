@@ -107,11 +107,14 @@ run_tests() {
   # replace `$N$` with BVH_SUFFIX.
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cu > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cu
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
+  # Replace `// AUTO-GENERATED canonical_tree_8_mixed.h` with the respective tree construction code.
+  # We need this diabolical hack because there's cyclic dependencies between the generated code and 
+  # construction code. The correct fix is to generate header and source files instead of just a header.
   if [[ "$(uname)" == "Linux" ]]; then
-    sed -i "/\/\/ AUTO-GENERATED canonical_tree_\$N\$.h/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
   else
     # macos
-    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree_\$N\$.h/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
   fi
   
   for OBJECT in "${OBJECTS[@]}"; do

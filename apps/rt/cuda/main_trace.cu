@@ -19,7 +19,7 @@
 namespace {
 
 // (do not touch)
-// AUTO-GENERATED canonical_tree_$N$.h
+// AUTO-GENERATED canonical_tree
 
 std::vector<Ray> load_rays_binary(const std::string &filename,
                                   int64_t ray_count) {

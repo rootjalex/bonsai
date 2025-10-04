@@ -1,11 +1,3 @@
-#pragma once
-
-#include "cpu/rt.h"
-
-#include <cstdint>
-#include <limits>
-#include <vector>
-
 constexpr float gamma(int n) {
     constexpr float E = std::numeric_limits<float>::epsilon() * 0.5f;
     return (n * E) / (1.0f - n * E);
