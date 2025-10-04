@@ -430,7 +430,7 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
         os << "cuda::std::array<";
         internal_assert(!vector_t->etype.is<Vector_t>())
             << "[unimplemented]: " << ir::Type(node);
-        os << bonsai_scalar_type_to_cpp(vector_t->etype) << vector_t->lanes;
+        os << vector_prefix(vector_t->etype) << vector_t->lanes;
         os << ", " << std::to_string(node->lanes) + ">";
         return;
     }
