@@ -263,6 +263,6 @@ schedule {
       };
     };
 
-    trace.loopify(16);
+    trace.loopify(64);
     chrt.gpu_thread(i0);
 }
