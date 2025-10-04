@@ -91,7 +91,7 @@ OBB compute_obb(uint32_t low, uint32_t high,
         z_axis = z_axis / z_len;
     }
 
-    vec3_vec4_float orientation;
+    cuda::std::array<float4, 3> orientation;
     orientation[0] = {x_axis.x, x_axis.y, x_axis.z, 0.0f};
     orientation[1] = {y_axis.x, y_axis.y, y_axis.z, 0.0f};
     orientation[2] = {z_axis.x, z_axis.y, z_axis.z, 0.0f};
