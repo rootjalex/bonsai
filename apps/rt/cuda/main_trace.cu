@@ -132,9 +132,11 @@ void run(const std::string &object, const std::vector<int64_t> &ray_counts) {
     assert(!triangles.empty());
 
     BVH *canonical_tree = build_canonical_tree_$N$(triangles);
-
+    std::cout << "canonical tree built\n";
     Triangles tree = build_triangles(canonical_tree);
+    std::cout << "specialized tree built\n";
     free_canonical_tree_$N$(canonical_tree);
+    std::cout << "canonical tree freed\n";
 
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
