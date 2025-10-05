@@ -29,9 +29,9 @@ std::pair<float3, float3> triangle_bounds(const Triangle &tri) {
     return {min_, max_};
 }
 
-BVH *build_canonical_tree_ms(std::vector<Triangle> &triangles,
-                             int max_prims_per_leaf = 15,
-                             int max_tree_depth = 64) {
+BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
+                               int max_prims_per_leaf = 15,
+                               int max_tree_depth = 64) {
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
         assert(depth < max_tree_depth);
@@ -92,11 +92,11 @@ BVH *build_canonical_tree_ms(std::vector<Triangle> &triangles,
     return partition(0, triangles.size(), /*depth=*/0);
 }
 
-BVH *build_canonical_tree_sah(std::vector<Triangle> &triangles,
-                              int max_prims_per_leaf = 15,
-                              int max_tree_depth = 64, int num_bins = 32,
-                              float traversal_cost = 1.0f,
-                              float intersection_cost = 1.5f) {
+BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
+                                int max_prims_per_leaf = 15,
+                                int max_tree_depth = 64, int num_bins = 32,
+                                float traversal_cost = 1.0f,
+                                float intersection_cost = 1.5f) {
     struct Split {
         int axis;
         float position;
