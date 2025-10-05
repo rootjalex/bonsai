@@ -373,7 +373,7 @@ __device__ cuda::std::optional<Triangle> _traverse_tree0(Ray *ray,
         }
         uint64_t _t814 = slice<0, 2>(index);
         if (_t814 == 2u) {
-            if (slice<4, 63>(index) > 16496) {
+            if (slice<4, 63>(index) >= 16496) {
                 printf("aabb:%lu\n", slice<4, 63>(index));
                 return cuda::std::nullopt;
             }
