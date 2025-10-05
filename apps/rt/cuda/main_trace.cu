@@ -137,7 +137,7 @@ void run(const std::string &object, const std::string &partition,
     } else if (partition == "ms") {
         heuristic = Heuristic::MedianSplit;
     } else {
-        std::cout << "unexpected construction partitioning strategy: "
+        std::cerr << "unexpected construction partitioning strategy: "
                   << partition << std::endl;
         exit(1);
     }
