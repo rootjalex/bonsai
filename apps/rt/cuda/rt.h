@@ -621,7 +621,8 @@ __host__ cuda::std::optional<Triangle> *_traverse_array0(int64_t n, Ray *rays,
         fprintf(stderr, "cudaMalloc failed:\n");
         fprintf(stderr, "  Error name: %s\n", cudaGetErrorName(err));
         fprintf(stderr, "  Error string: %s\n", cudaGetErrorString(err));
-        fprintf(stderr, "  Requested size: %zu bytes\n", size);
+        fprintf(stderr, "  Requested size: %zu bytes\n",
+                n * sizeof(cuda::std::optional<Triangle>));
         assert(false);
     }
     Ray *d_rays;
