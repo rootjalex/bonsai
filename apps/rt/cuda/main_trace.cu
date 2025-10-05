@@ -179,6 +179,7 @@ void run(const std::string &object, const std::string &partition,
                               .count();
         std::cout << "hits             : " << count << "\n";
         std::cout << "trace time       : " << trace_time << " ms\n";
+        std::cout << std::flush;
     }
 }
 
