@@ -27,7 +27,7 @@ std::vector<Ray> load_rays_binary(const std::string &filename,
     std::ifstream file(filename, std::ios::binary);
 
     if (!file) {
-        std::cerr << "Error: Could not open file " << filename
+        std::cout << "Error: Could not open file " << filename
                   << " for reading\n";
         return rays;
     }
@@ -36,7 +36,7 @@ std::vector<Ray> load_rays_binary(const std::string &filename,
     size_t count;
     file.read(reinterpret_cast<char *>(&count), sizeof(count));
     if (ray_count > count) {
-        std::cerr << "the requested ray count: " << ray_count
+        std::cout << "the requested ray count: " << ray_count
                   << " is greater than the total ray count: " << count
                   << " You need to re-generate the rays.";
     }
@@ -79,10 +79,10 @@ std::vector<Triangle> load_obj(const std::string &object) {
     bool result = tinyobj::LoadObj(&attrib, &shapes, &materials, &_, &err,
                                    object_path.c_str(), material_path.c_str());
     if (!err.empty()) {
-        std::cerr << "error: " << err << std::endl;
+        std::cout << "error: " << err << std::endl;
     }
     if (!result) {
-        std::cerr << "failed to load " << object_path << std::endl;
+        std::cout << "failed to load " << object_path << std::endl;
         return {};
     }
 
@@ -137,7 +137,7 @@ void run(const std::string &object, const std::string &partition,
     } else if (partition == "ms") {
         heuristic = Heuristic::MedianSplit;
     } else {
-        std::cerr << "unexpected construction partitioning strategy: "
+        std::cout << "unexpected construction partitioning strategy: "
                   << partition << std::endl;
         exit(1);
     }

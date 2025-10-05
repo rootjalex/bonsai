@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("power-plant" "hairball" "sponza")
+OBJECTS=("hairball" "power-plant" "sponza")
 
 # Parse flags
 DRY_RUN=false
