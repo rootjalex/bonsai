@@ -26,7 +26,7 @@ BVH *build_canonical_tree(std::vector<Triangle> &triangles,
 
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
-        if (count <= max_prims_per_leaf) {
+        if (count < max_prims_per_leaf) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (int i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];

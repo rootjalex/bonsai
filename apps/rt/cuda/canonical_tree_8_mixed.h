@@ -178,7 +178,9 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         assert(depth < max_tree_depth);
         uint32_t count = high - low;
 
-        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
+        if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
+            assert(count > 0);
+            assert(count < max_prims_per_leaf);
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             std::copy(triangles.begin() + low, triangles.begin() + high, data);
             return new BVH(Leaf{

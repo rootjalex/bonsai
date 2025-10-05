@@ -39,9 +39,8 @@ std::pair<vec3_float, vec3_float> triangle_bounds(const Triangle &tri) {
 }
 
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
-                                int max_prims_per_leaf = 15,
-                                int max_tree_depth = 64, int num_bins = 32,
-                                float traversal_cost = 1.0f,
+                                int max_prims_per_leaf, int max_tree_depth,
+                                int num_bins = 64, float traversal_cost = 1.0f,
                                 float intersection_cost = 1.5f) {
     struct Split {
         int axis;
@@ -61,7 +60,9 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
         assert(depth < max_tree_depth);
         uint32_t count = high - low;
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
-        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
+        if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
+            assert(count > 0);
+            assert(count < max_prims_per_leaf);
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
@@ -163,6 +164,32 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
         }
 
         if (best_split.axis == -1 || best_split.cost >= leaf_cost) {
+            if (count > max_prims_per_leaf) {
+                uint32_t mid = low + count / 2;
+                vec3_float extent = aabb_max - aabb_min;
+                int axis = (extent[0] > extent[1] && extent[0] > extent[2]) ? 0
+                           : (extent[1] > extent[2])                        ? 1
+                                                                            : 2;
+
+                std::nth_element(triangles.begin() + low,
+                                 triangles.begin() + mid,
+                                 triangles.begin() + high,
+                                 [&](const Triangle &a, const Triangle &b) {
+                                     vec3_float ca = triangle_centroid(a);
+                                     vec3_float cb = triangle_centroid(b);
+                                     return ca[axis] < cb[axis];
+                                 });
+
+                BVH *left = partition(low, mid, depth + 1);
+                BVH *right = partition(mid, high, depth + 1);
+                return new BVH(Interior{
+                    .low = aabb_min,
+                    .high = aabb_max,
+                    .left = left,
+                    .right = right,
+                });
+            }
+
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
@@ -214,8 +241,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
 }
 
 BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
-                               int max_prims_per_leaf = 15,
-                               int max_tree_depth = 64) {
+                               int max_prims_per_leaf, int max_tree_depth) {
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
         assert(depth < max_tree_depth);
@@ -223,7 +249,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
-        if (count <= max_prims_per_leaf) {
+        if (count < max_prims_per_leaf) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (int i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
@@ -293,11 +319,15 @@ enum class Heuristic {
 };
 
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
-                            Heuristic heuristic = Heuristic::SurfaceArea) {
+                            Heuristic heuristic = Heuristic::SurfaceArea,
+                            int max_prims_per_leaf = 15,
+                            int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
-        return build_canonical_tree_2_sah(triangles);
+        return build_canonical_tree_2_sah(triangles, max_prims_per_leaf,
+                                          max_tree_depth);
     case Heuristic::MedianSplit:
-        return build_canonical_tree_2_ms(triangles);
+        return build_canonical_tree_2_ms(triangles, max_prims_per_leaf,
+                                         max_tree_depth);
     }
 }

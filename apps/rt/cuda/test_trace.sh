@@ -163,12 +163,6 @@ run_tests() {
       ./build/compiler -i ${PREFIX}/main.bonsai -l ${LAYOUT_FILE} -b cuda -o ${PREFIX}/${APPLICATION}.h
       module load cuda
       nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
-
-      # TODO(cgyurgyik): segmentation fault for eq + sah. Why?
-      if [[ "${LAYOUT}" == "eq" ]]; then
-        SAVED_PARTITION=${PARTITION}
-        PARTITION="ms"
-      fi
       
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
       EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${ARGV}"
@@ -179,10 +173,6 @@ run_tests() {
       for ((i=0; i < N; i++)); do
         ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
-
-      if [[ "${LAYOUT}" == "eq" ]]; then
-        PARTITION=${SAVED_PARTITION}
-      fi
       
       rm ${PREFIX}/${APPLICATION}.h
       rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out

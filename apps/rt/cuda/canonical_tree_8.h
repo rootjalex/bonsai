@@ -33,7 +33,6 @@ inline std::pair<float3, float3> triangle_bounds(const Triangle &tri) {
 inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                                        int max_prims_per_leaf = 8,
                                        int max_tree_depth = 64,
-                                       int num_bins = 32,
                                        float traversal_cost = 1.0f,
                                        float intersection_cost = 1.5f) {
 
@@ -45,12 +44,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
     constexpr auto MAX = std::numeric_limits<float>::max();
 
-    struct Bin {
-        float3 min = float3{MAX, MAX, MAX};
-        float3 max = float3{-MAX, -MAX, -MAX};
-        uint32_t count = 0;
-    };
-
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
         assert(depth < max_tree_depth);
@@ -58,7 +51,9 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
         // Create leaf if below threshold
-        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
+        if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
+            assert(count > 0);
+            assert(count < max_prims_per_leaf);
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             std::copy(triangles.begin() + low, triangles.begin() + high, data);
             return new BVH(Leaf{

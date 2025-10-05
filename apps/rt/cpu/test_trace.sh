@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("hairball" "power-plant" "sponza")
+OBJECTS=("power-plant" "hairball" "sponza")
 
 # Parse flags
 DRY_RUN=false
@@ -174,9 +174,9 @@ run_tests() {
       if [[ "${SCHEDULE}" == "parallel" ]]; then
         COMMON_FLAGS="-fopenmp ${COMMON_FLAGS}"
       fi
-      if [[ "${DEBUG_MODE}" == true ]]; then
-        COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
-      fi
+      # if [[ "${DEBUG_MODE}" == true ]]; then
+      #   COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
+      # fi
       
       if [[ "${DEBUG_MODE}" == true ]]; then
         # Generate LLVM IR for combined sources
@@ -200,12 +200,6 @@ run_tests() {
         COMPILE="${COMPILE} -Wl,-rpath,$CONDA_PREFIX/lib"
       fi
       ${COMPILE}
-
-      # TODO(cgyurgyik): segmentation fault for eq + sah. Why?
-      if [[ "${LAYOUT}" == "eq" ]]; then
-        SAVED_PARTITION=${PARTITION}
-        PARTITION="ms"
-      fi
       
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
@@ -217,10 +211,6 @@ run_tests() {
       for ((i=0; i < N; i++)); do
         ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
-
-      if [[ "${LAYOUT}" == "eq" ]]; then
-        PARTITION=${SAVED_PARTITION}
-      fi
 
       # 5. Clean up
       rm ${PREFIX}/${APPLICATION}.h
