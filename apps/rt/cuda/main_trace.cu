@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
     const int64_t size = std::atoi(argv[i++]);
 
     ray_counts.reserve(size);
-    for (; i < 3 + size; ++i) {
+    for (; i < 4 + size; ++i) {
         assert(is_digit(argv[i]));
         ray_counts.push_back(std::atoi(argv[i]));
     }
