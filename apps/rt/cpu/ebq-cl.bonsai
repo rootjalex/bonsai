@@ -231,7 +231,7 @@ schedule {
             qorientation: i8x4x3; // common orientation for all 8 OBB bounds.
             obb_children: u64x8;
 
-            obb_low = dequantize_bounds(obb_mlo, obb_mex, qobb_lo);
+            obb_low = dequantize_bounds(obb_mlo, obb_mex, obb_qlo);
             obb_high = dequantize_bounds(obb_mlo, obb_mex, obb_qhi);
             orientation = dequantize_orientation(qorientation);
         };
