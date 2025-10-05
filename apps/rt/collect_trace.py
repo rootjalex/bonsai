@@ -129,7 +129,7 @@ def process_trace_data(raw_data, blacklist, method):
 
     for model in raw_data:
         for layout in raw_data[model]:
-            if layout in blacklist:
+            if blacklist is not None and layout == blacklist:
                 continue
             for ray_count in raw_data[model][layout]:
                 values = raw_data[model][layout][ray_count]
@@ -177,9 +177,7 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
     n_rows = (n_models + n_cols - 1) // n_cols
 
     fig = plt.figure(figsize=(12 * n_cols, 8 * n_rows))
-
-    method_str = 'Geometric Mean' if method == 'geometric' else 'Arithmetic Mean'
-    title = f'Layout Speedup vs {baseline_layout.upper()} ({method_str})'
+    title = f'Layout Speedup vs {baseline_layout.upper()}'
     if machine_type:
         title += f' - {machine_type}'
     fig.suptitle(title, fontsize=16, fontweight='bold')
@@ -237,22 +235,76 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
     plt.close()
 
 
+def check_hits_consistency(data_text):
+    """
+    Parse the raw data text and aggregate 'hits' per ray count.
+    Reports any ray count where hits differ by more than 1 across runs/layouts.
+    """
+    lines = data_text.strip().split('\n')
+    current_model = None
+    current_layout = None
+    current_ray_count = None
+    # model -> ray_count -> [hits]
+    hits_data = defaultdict(lambda: defaultdict(list))
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+
+        if ',' not in line and ':' not in line and not line.isdigit() and line != '---':
+            current_model = line
+            current_layout = None
+            i += 1
+            continue
+
+        if ',' in line:
+            config_parts = [part.strip() for part in line.split(',')]
+            if len(config_parts) >= 3:
+                current_layout = config_parts[2]
+            i += 1
+            continue
+
+        if line.isdigit():
+            current_ray_count = int(line)
+            i += 1
+            continue
+
+        if 'hits' in line.lower():
+            match = re.search(r'(\d+)', line)
+            if match and current_model and current_ray_count is not None:
+                hits = int(match.group(1))
+                hits_data[current_model][current_ray_count].append(hits)
+            i += 1
+            continue
+
+        i += 1
+
+    # Aggregate and check consistency per run
+    for model, ray in hits_data.items():
+        print(f"model: {model}")
+        for ray_count, hits_list in sorted(ray.items()):
+            first_run = hits_list[0]  # Take the first run as reference
+
+            # Check each run individually against reference
+            for run_idx, hits in enumerate(hits_list[1:], start=1):
+                if abs(hits - first_run) > 0:  # outside ±1
+                    print(
+                        f"  [WARNING] ray count {ray_count}, run {run_idx+1}: {hits} (first run: {first_run})")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or len(sys.argv) > 4:
+    if len(sys.argv) == 4:
         print(
-            "Usage: python trace_scaling.py <data_file> <baseline-layout> <blacklist-layout> [arithmetic|geometric]")
+            "Usage: python trace_scaling.py <data_file> <baseline-layout> <blacklist-layout>? ")
         sys.exit(1)
 
     filename = sys.argv[1]
     baseline_layout = sys.argv[2]
-    blacklist = sys.argv[3]
+    blacklist = sys.argv[3] if len(sys.argv) > 3 else None
     method = 'arithmetic'
-    if len(sys.argv) == 5:
-        if sys.argv[4] in ['arithmetic', 'geometric']:
-            method = sys.argv[4]
-        else:
-            print("Method must be 'arithmetic' or 'geometric'")
-            sys.exit(1)
 
     try:
         with open(filename, 'r') as file:
@@ -267,6 +319,7 @@ if __name__ == "__main__":
 
     # Parse and process data
     raw_data, machine_type = parse_trace_scaling_data(data_text)
+    check_hits_consistency(data_text=data_text)
     processed_data = process_trace_data(raw_data, blacklist, method)
 
     # Print summary with details about runs per configuration
