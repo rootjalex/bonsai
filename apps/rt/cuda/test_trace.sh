@@ -11,7 +11,7 @@ LAYOUTS_2BVH=("eq" "eq-align32" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-a
 LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
 LAYOUTS_8_MIXED_BVH=("ebq" "eb")
 
-OBJECTS=("power-plant" "hairball" "sponza")
+OBJECTS=("sponza" "power-plant" "hairball")
 
 # Parse flags
 DRY_RUN=false
