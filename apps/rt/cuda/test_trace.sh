@@ -172,6 +172,9 @@ run_tests() {
       
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
       EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${ARGV}"
+      echo "TRYING: "
+      ${EXECUTE}
+      echo " YAY?"
       if [[ "${DEBUG_MODE}" == true ]]; then
         EXECUTE="compute sanitizer ${EXECUTE}"
       fi

@@ -139,6 +139,7 @@ void run(const std::string &object, const std::string &partition,
     } else {
         std::cout << "unexpected construction partitioning strategy: "
                   << partition << std::endl;
+        std::cout << std::flush;
         exit(1);
     }
     BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
