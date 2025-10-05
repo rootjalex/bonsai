@@ -9,7 +9,7 @@ PREFIX="${KERNEL_PATH}/${TARGET}"
 
 LAYOUTS_2BVH=("eq" "eq-align32" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32" "ptr")
 LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
-LAYOUTS_8_MIXED_BVH=("ebq" "eb")
+LAYOUTS_8_MIXED_BVH=("ebq-cl" "ebq" "eb")
 
 OBJECTS=("power-plant" "hairball" "sponza")
 
