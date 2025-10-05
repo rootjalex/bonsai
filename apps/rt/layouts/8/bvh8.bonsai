@@ -12,7 +12,7 @@ schedule {
         primitives : array[Triangle, primitive_count];
 
         interior_count: u64;
-        indirect group Interiors[size=interior_count, align=32] {
+        indirect group Interiors[size=interior_count] {
             lo: f32x3x8;
             hi: f32x3x8;
             children: u64x8;
@@ -43,7 +43,3 @@ schedule {
         return (poffset << cast[[u64]](7)) | ((nprims - cast[[u64]](1)) << cast[[u64]](3));
       };
     };
-
-    trace.loopify(64);
-    chrt.gpu_thread(i0);
-}

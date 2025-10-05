@@ -6,10 +6,7 @@ APPLICATION="rt"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-
-LAYOUTS_2BVH=("ptr" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32")
-LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
-LAYOUTS_8_MIXED_BVH=("ebq-cl" "ebq" "eb")
+LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
 OBJECTS=("hairball" "power-plant" "sponza")
 
@@ -43,17 +40,13 @@ DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 
 MIN_POWER=10
-MAX_POWER=25 # these should be aligned with the C++ file
+MAX_POWER=25
 
 # Override for dry run.
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
   N=2  # Only 2 iterations for dry run.
-  # Only first two layouts.
-  LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}" "${LAYOUTS_2BVH[1]}")
-  LAYOUTS_8BVH=("${LAYOUTS_8BVH[0]}" "${LAYOUTS_8BVH[1]}")
-  LAYOUTS_8_MIXED_BVH=("${LAYOUTS_8_MIXED_BVH[0]}" "${LAYOUTS_8_MIXED_BVH[1]}")  
   OBJECTS=("${OBJECTS[0]}")  # Only first object.
 fi
 
@@ -110,8 +103,13 @@ echo "runs: ${N}, schedule: ${SCHEDULE}"
 # Function to run tests for a given main file and layouts
 run_tests() {
   local BVH_SUFFIX="$1" # e.g., `2` or `8_mixed`. 
-  shift
-  local LAYOUTS=("$@")
+  
+  LAYOUTS=()
+  for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
+    NAME=$(basename "$file" .bonsai)
+    LAYOUTS+=("${NAME}")
+  done
+  echo "-- layouts: ${LAYOUTS[@]}"
   
   MAIN_FILE="main_trace"
   # replace `$N$` with BVH_SUFFIX.
@@ -123,10 +121,16 @@ run_tests() {
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
+      # 0. Combine the layout and schedule into a single file.
+      LAYOUT_FILE=$(mktemp).bonsai
+      cat ${LAYOUT_PATH}/${BVH_SUFFIX}/${LAYOUT}.bonsai > ${LAYOUT_FILE}
+      cat ${PREFIX}/schedule.bonsai >> ${LAYOUT_FILE}
+      echo "}" >> "${LAYOUT_FILE}"
+
       # 1. Build the Bonsai compiler.
       cmake --build build --config Debug -j > /dev/null
       # 2. Lower to C++.
-      ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
+      ./build/compiler -i ${PREFIX}/main.bonsai -l ${LAYOUT_FILE} -b cppx -o ${PREFIX}/${APPLICATION}
       # 3. Compile the lowered C++.
       COMMON_FLAGS="-std=c++20 -O3 -march=native -I. -Iapps/${APPLICATION} -Iruntime/CPP"
       if [[ "${SCHEDULE}" == "parallel" ]]; then
@@ -176,6 +180,7 @@ run_tests() {
       rm ${PREFIX}/${APPLICATION}.cpp
       rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
       rm -f -r ${PREFIX}/${APPLICATION}_${LAYOUT}.out.dSYM
+      rm ${LAYOUT_FILE}
     done
     echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
   done
@@ -184,15 +189,15 @@ run_tests() {
 }
 
 echo "running tests with 8-mixed-BVH..."
-run_tests "8_mixed" "${LAYOUTS_8_MIXED_BVH[@]}"
+run_tests "8_mixed"
 echo "... tests complete for 8-mixed-BVH"
 
 echo "running tests with 8-mixed-BVH..."
-run_tests "8" "${LAYOUTS_8BVH[@]}"
+run_tests "8"
 echo "... tests complete for 8-BVH"
 
 echo "running tests with 2-BVH..."
-run_tests "2" "${LAYOUTS_2BVH[@]}"
+run_tests "2"
 echo "... tests complete for 2-BVH"
 
 rm ${RAY_PATH}/${RAY_FILE}.out

@@ -104,6 +104,3 @@ schedule {
         return this;
       };
     };
-
-    trace.loopify(64);
-}

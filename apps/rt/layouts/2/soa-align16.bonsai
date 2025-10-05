@@ -9,11 +9,11 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group aabbs[size=node_count, align=32] by index {
+        group aabbs[size=node_count, align=16] by index {
             low : f32x3;
             high : f32x3;
         };
-        group nodes[size=node_count, align=32] by index {
+        group nodes[size=node_count, align=16] by index {
             nprims : u16;
             axis : u8;
             8;
@@ -51,7 +51,3 @@ schedule {
         return this;
       };
     };
-
-    trace.loopify(64);
-    chrt.gpu_thread(i0);
-}

@@ -6,10 +6,7 @@ APPLICATION="rt"
 TARGET="cuda"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-
-LAYOUTS_2BVH=("eq" "eq-align32" "soa" "soa-align16" "soa-align32" "pbrt" "pbrt-align16" "pbrt-align32" "ptr")
-LAYOUTS_8BVH=("bvh8" "cl-bvh8" "bvh8-align32" "cl-bvh8-align32")
-LAYOUTS_8_MIXED_BVH=("ebq-cl" "ebq" "eb")
+LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
 OBJECTS=("power-plant" "hairball" "sponza")
 
@@ -21,6 +18,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run)
       DRY_RUN=true
       shift
+      # If dry-run is passed, clear any previously collected args and break
       POSITIONAL_ARGS=()
       break
       ;;
@@ -46,9 +44,6 @@ if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
   N=2  # Only 2 iterations for dry run.
-  LAYOUTS_2BVH=("${LAYOUTS_2BVH[0]}" "${LAYOUTS_2BVH[1]}")
-  LAYOUTS_8BVH=("${LAYOUTS_8BVH[0]}" "${LAYOUTS_8BVH[1]}")
-  LAYOUTS_8_MIXED_BVH=("${LAYOUTS_8_MIXED_BVH[0]}" "${LAYOUTS_8_MIXED_BVH[1]}")
   OBJECTS=("${OBJECTS[0]}")  # Only first object.
 fi
 
@@ -100,8 +95,13 @@ echo "runs: ${N}"
 # Function to run tests for a given main file and layouts
 run_tests() {
   local BVH_SUFFIX="$1" # e.g., `2` or `8_mixed`. 
-  shift
-  local LAYOUTS=("$@")
+
+  LAYOUTS=()
+  for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
+    NAME=$(basename "$file" .bonsai)
+    LAYOUTS+=("${NAME}")
+  done
+  echo "-- with layouts: ${LAYOUTS[@]}"
   
   MAIN_FILE="main_trace"
   # replace `$N$` with BVH_SUFFIX.
@@ -123,10 +123,16 @@ run_tests() {
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
+      # 0. Combine the layout and schedule into a single file.
+      LAYOUT_FILE=$(mktemp).bonsai
+      cat ${LAYOUT_PATH}/${BVH_SUFFIX}/${LAYOUT}.bonsai > ${LAYOUT_FILE}
+      cat ${PREFIX}/schedule.bonsai >> ${LAYOUT_FILE}
+      echo "}" >> "${LAYOUT_FILE}"
+
       # 1. Build the Bonsai compiler.
       cmake --build build --config Debug -j > /dev/null
       # 2. Lower to cuda.
-      ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
+      ./build/compiler -i ${PREFIX}/main.bonsai -l ${LAYOUT_FILE} -b cuda -o ${PREFIX}/${APPLICATION}.h
       # 3. Compile the lowered cuda.
       module load cuda
       nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
@@ -141,6 +147,7 @@ run_tests() {
       # 5. Clean up
       rm ${PREFIX}/${APPLICATION}.h
       rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
+      rm ${LAYOUT_FILE}
     done
     echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
   done
@@ -149,15 +156,15 @@ run_tests() {
 }
 
 echo "running tests with 8-mixed-BVH..."
-run_tests "8_mixed" "${LAYOUTS_8_MIXED_BVH[@]}"
+run_tests "8_mixed"
 echo "... tests complete for 8-mixed-BVH"
 
 echo "running tests with 8-BVH..."
-run_tests "8" "${LAYOUTS_8BVH[@]}"
+run_tests "8"
 echo "... tests complete for 8-BVH"
 
 echo "running tests with 2-BVH..."
-run_tests "2" "${LAYOUTS_2BVH[@]}"
+run_tests "2"
 echo "... tests complete for 2-BVH"
 
 # Process data
