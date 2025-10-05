@@ -130,13 +130,9 @@ void run(const std::string &object, const std::vector<int64_t> &ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    std::cout << "object loaded" << std::endl;
     BVH *canonical_tree = build_canonical_tree_$N$(triangles);
-    std::cout << "canonical tree built" << std::endl;
     Triangles tree = build_triangles(canonical_tree);
-    std::cout << "specialized tree built" << std::endl;
     free_canonical_tree_$N$(canonical_tree);
-    std::cout << "canonical tree freed" << std::endl;
 
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
