@@ -80,13 +80,23 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-void run(std::string object, bool is_single_threaded,
+void run(std::string object, std::string partition, bool is_single_threaded,
          std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
-    BVH *canonical_tree = build_canonical_tree_$N$(triangles);
+    Heuristic heuristic;
+    if (partition == "sah") {
+        heuristic = Heuristic::SurfaceArea;
+    } else if (partition == "ms") {
+        heuristic = Heuristic::MedianSplit;
+    } else {
+        std::cout << "unexpected construction partitioning strategy: "
+                  << partition << std::endl;
+        exit(1);
+    }
+    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
 
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
@@ -159,18 +169,20 @@ void run(std::string object, bool is_single_threaded,
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 4);
-    std::string object_file = argv[1];
-    std::string schedule = argv[2];
+    assert(argc > 5);
+    int i = 1;
+    std::string object_file = argv[i++];
+    std::string partition = argv[i++];
+    std::string schedule = argv[i++];
     assert(schedule == "single-thread" || schedule == "parallel");
     const bool is_single_threaded = schedule == "single-thread";
 
     std::vector<int64_t> ray_counts;
-    const int64_t size = std::atoi(argv[3]);
+    const int64_t size = std::atoi(argv[i++]);
     ray_counts.reserve(size);
-    for (int i = 4; i < 4 + size; ++i) {
+    for (; i < 5 + size; ++i) {
         ray_counts.push_back(std::atoi(argv[i]));
     }
-    run(object_file, is_single_threaded, ray_counts);
+    run(object_file, partition, is_single_threaded, ray_counts);
     return 0;
 }

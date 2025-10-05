@@ -12,15 +12,21 @@ OBJECTS=("power-plant" "hairball" "sponza")
 
 # Parse flags
 DRY_RUN=false
+DEBUG_MODE=false
+DEBUG_LAYOUT=""
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run)
       DRY_RUN=true
       shift
-      # If dry-run is passed, clear any previously collected args and break
       POSITIONAL_ARGS=()
       break
+      ;;
+    --debug)
+      DEBUG_MODE=true
+      DEBUG_LAYOUT="$2"
+      shift 2
       ;;
     *)
       POSITIONAL_ARGS+=("$1")
@@ -29,12 +35,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${1:-14}" # drop lowest 2 and highest 2 runs in processing
-HIT_RATIO="${2:-75}" # n%, e.g., 75% is the default
+N="${1:-14}"
+HIT_RATIO="${2:-75}"
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
+PARTITION="sah"
 
 MIN_POWER=10
 MAX_POWER=25
@@ -43,8 +50,31 @@ MAX_POWER=25
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=2  # Only 2 iterations for dry run.
-  OBJECTS=("${OBJECTS[0]}")  # Only first object.
+  N=2
+  OBJECTS=("${OBJECTS[0]}")
+fi
+
+# Override for debug mode
+if [[ "${DEBUG_MODE}" == true ]]; then
+  echo "*** DEBUG MODE: testing layout ${DEBUG_LAYOUT} only ***"
+  MAX_POWER=${MIN_POWER}
+  N=2
+  OBJECTS=("${OBJECTS[0]}")
+  
+  # Find which folder contains this layout
+  DEBUG_BVH_SUFFIX=""
+  for folder in "${LAYOUT_PATH}"/*; do
+    if [[ -d "$folder" && -f "${folder}/${DEBUG_LAYOUT}.bonsai" ]]; then
+      DEBUG_BVH_SUFFIX=$(basename "$folder")
+      break
+    fi
+  done
+  
+  if [[ -z "${DEBUG_BVH_SUFFIX}" ]]; then
+    echo "ERROR: Layout '${DEBUG_LAYOUT}' not found in ${LAYOUT_PATH}"
+    exit 1
+  fi
+  echo "found ${DEBUG_LAYOUT} in ${LAYOUT_PATH}/${DEBUG_BVH_SUFFIX}/"
 fi
 
 RAY_COUNTS=()
@@ -52,14 +82,11 @@ for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
     RAY_COUNTS+=($((2**p)))
 done
 
-# Argument for ray counts passed to main.
 ARGV="${#RAY_COUNTS[@]}"
 for COUNT in "${RAY_COUNTS[@]}"; do
     ARGV="${ARGV} ${COUNT}"
 done
 
-# Enable this to be run from either root or 
-# the directory where this script exists.
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../../..
 fi
@@ -74,7 +101,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       echo "no rays found for ${OBJECT} with count ${RAY_COUNT} and ratio ${HIT_RATIO}; generating now..."
       FLAG=""
       if [[ "$(uname)" == "Linux" ]]; then
-        FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
+        FLAG="${FLAG} numactl --physcpubind 0-15"
       fi
       ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
       echo "...${RAY_COUNT} rays generated for ${OBJECT} with hit ratio: 0.${HIT_RATIO}"
@@ -90,30 +117,33 @@ mkdir ${DATA_PATH}
 pip install -r ${KERNEL_PATH}/requirements.txt
 
 echo "runs: ${N}"
-> ${DATA_PATH}/${DATA_FILE}.txt # clear
+> ${DATA_PATH}/${DATA_FILE}.txt
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  local BVH_SUFFIX="$1" # e.g., `2` or `8_mixed`. 
+  local BVH_SUFFIX="$1"
+  local SPECIFIC_LAYOUT="${2:-}" # optional: specific layout to test
 
   LAYOUTS=()
-  for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
-    NAME=$(basename "$file" .bonsai)
-    LAYOUTS+=("${NAME}")
-  done
+  if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
+    # (debug mode) test a single layout
+    LAYOUTS=("${SPECIFIC_LAYOUT}")
+  else
+    # test *all* layouts in the folder
+    for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
+      NAME=$(basename "$file" .bonsai)
+      LAYOUTS+=("${NAME}")
+    done
+  fi
   echo "-- with layouts: ${LAYOUTS[@]}"
   
   MAIN_FILE="main_trace"
-  # replace `$N$` with BVH_SUFFIX.
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cu > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cu
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
-  # Replace `// AUTO-GENERATED canonical_tree_8_mixed.h` with the respective tree construction code.
-  # We need this diabolical hack because there's cyclic dependencies between the generated code and 
-  # construction code. The correct fix is to generate header and source files instead of just a header.
+  
   if [[ "$(uname)" == "Linux" ]]; then
     sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
   else
-    # macos
     sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
   fi
   
@@ -123,28 +153,34 @@ run_tests() {
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
-      # 0. Combine the layout and schedule into a single file.
+      
       LAYOUT_FILE=$(mktemp).bonsai
       cat ${LAYOUT_PATH}/${BVH_SUFFIX}/${LAYOUT}.bonsai > ${LAYOUT_FILE}
       cat ${PREFIX}/schedule.bonsai >> ${LAYOUT_FILE}
       echo "}" >> "${LAYOUT_FILE}"
 
-      # 1. Build the Bonsai compiler.
       cmake --build build --config Debug -j > /dev/null
-      # 2. Lower to cuda.
       ./build/compiler -i ${PREFIX}/main.bonsai -l ${LAYOUT_FILE} -b cuda -o ${PREFIX}/${APPLICATION}.h
-      # 3. Compile the lowered cuda.
       module load cuda
       nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
+
+      # TODO(cgyurgyik): segmentation fault for eq + sah. Why?
+      if [[ "${LAYOUT}" == "eq" ]]; then
+        SAVED_PARTITION=${PARTITION}
+        PARTITION="ms"
+      fi
       
-      # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      EXECUTE="./${EXECUTABLE} ${OBJECT} ${ARGV}"
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${ARGV}"
+      echo "${EXECUTE}"
       for ((i=0; i < N; i++)); do
         ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
+
+      if [[ "${LAYOUT}" == "eq" ]]; then
+        PARTITION=${SAVED_PARTITION}
+      fi
       
-      # 5. Clean up
       rm ${PREFIX}/${APPLICATION}.h
       rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
       rm ${LAYOUT_FILE}
@@ -152,23 +188,26 @@ run_tests() {
     echo -e "---\n" >> ${DATA_PATH}/${DATA_FILE}.txt
   done
 
-  rm ${PREFIX}/${MAIN_FILE}.cu # remove the old cu file
+  rm ${PREFIX}/${MAIN_FILE}.cu
 }
 
-echo "running tests with 8-mixed-BVH..."
-run_tests "8_mixed"
-echo "... tests complete for 8-mixed-BVH"
+if [[ "${DEBUG_MODE}" == true ]]; then
+  echo "running debug test for ${DEBUG_LAYOUT} in ${DEBUG_BVH_SUFFIX}..."
+  run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
+  echo "... debug test complete"
+else
+  echo "running tests with 8-mixed-BVH..."
+  run_tests "8_mixed"
+  echo "... tests complete for 8-mixed-BVH"
 
-echo "running tests with 8-BVH..."
-run_tests "8"
-echo "... tests complete for 8-BVH"
+  echo "running tests with 8-BVH..."
+  run_tests "8"
+  echo "... tests complete for 8-BVH"
 
-echo "running tests with 2-BVH..."
-run_tests "2"
-echo "... tests complete for 2-BVH"
-
-# Process data
-python3.11 ${KERNEL_PATH}/collect_trace.py ${DATA_PATH}/${DATA_FILE}.txt
+  echo "running tests with 2-BVH..."
+  run_tests "2"
+  echo "... tests complete for 2-BVH"
+fi
 
 rm ${RAY_PATH}/${RAY_FILE}.out
 

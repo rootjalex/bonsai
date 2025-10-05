@@ -34,7 +34,6 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
                                int max_tree_depth = 64) {
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
-        assert(depth < max_tree_depth);
         uint32_t count = high - low;
 
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
@@ -44,6 +43,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
             for (int i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
             }
+            assert(depth != 0);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,
@@ -120,6 +120,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
             }
+            assert(depth != 0);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,
@@ -230,6 +231,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
             }
+            assert(depth != 0);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,

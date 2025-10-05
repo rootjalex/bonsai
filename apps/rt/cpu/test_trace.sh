@@ -12,15 +12,21 @@ OBJECTS=("hairball" "power-plant" "sponza")
 
 # Parse flags
 DRY_RUN=false
+DEBUG_MODE=false
+DEBUG_LAYOUT=""
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run)
       DRY_RUN=true
       shift
-      # If dry-run is passed, clear any previously collected args and break
       POSITIONAL_ARGS=()
       break
+      ;;
+    --debug)
+      DEBUG_MODE=true
+      DEBUG_LAYOUT="$2"
+      shift 2
       ;;
     *)
       POSITIONAL_ARGS+=("$1")
@@ -28,7 +34,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
 
 TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
 N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
@@ -38,18 +43,44 @@ RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
+PARTITION="sah"
 
 MIN_POWER=10
 MAX_POWER=25
+
+# only run on performance cores for the Fredwood.
+FREDWOOD_FLAG="numactl --physcpubind 0-15" 
 
 # Override for dry run.
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=2  # Only 2 iterations for dry run.
-  OBJECTS=("${OBJECTS[0]}")  # Only first object.
+  N=2
+  OBJECTS=("${OBJECTS[0]}")
 fi
 
+# Override for debug mode
+if [[ "${DEBUG_MODE}" == true ]]; then
+  echo "*** DEBUG MODE: testing layout ${DEBUG_LAYOUT} only ***"
+  MAX_POWER=${MIN_POWER}
+  N=2
+  OBJECTS=("${OBJECTS[0]}")
+  
+  # Find which folder contains this layout
+  DEBUG_BVH_SUFFIX=""
+  for folder in "${LAYOUT_PATH}"/*; do
+    if [[ -d "$folder" && -f "${folder}/${DEBUG_LAYOUT}.bonsai" ]]; then
+      DEBUG_BVH_SUFFIX=$(basename "$folder")
+      break
+    fi
+  done
+  
+  if [[ -z "${DEBUG_BVH_SUFFIX}" ]]; then
+    echo "ERROR: Layout '${DEBUG_LAYOUT}' not found in ${LAYOUT_PATH}"
+    exit 1
+  fi
+  echo "found ${DEBUG_LAYOUT} in ${LAYOUT_PATH}/${DEBUG_BVH_SUFFIX}/"
+fi
 
 RAY_COUNTS=()
 for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
@@ -78,7 +109,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
       echo "no rays found for ${OBJECT} with count ${RAY_COUNT} and ratio ${HIT_RATIO}; generating now..."
       FLAG=""
       if [[ "$(uname)" == "Linux" ]]; then
-        FLAG="${FLAG} numactl --physcpubind 0-15" # only run on performance cores for the Fredwood.
+        FLAG="${FLAG} ${FREDWOOD_FLAG}"  
       fi
       ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
       echo "...${RAY_COUNT} rays generated for ${OBJECT} with hit ratio: 0.${HIT_RATIO}"
@@ -102,14 +133,21 @@ echo "runs: ${N}, schedule: ${SCHEDULE}"
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  local BVH_SUFFIX="$1" # e.g., `2` or `8_mixed`. 
+  local BVH_SUFFIX="$1"
+  local SPECIFIC_LAYOUT="${2:-}" # optional: specific layout to test
   
   LAYOUTS=()
-  for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
-    NAME=$(basename "$file" .bonsai)
-    LAYOUTS+=("${NAME}")
-  done
-  echo "-- layouts: ${LAYOUTS[@]}"
+  if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
+    # (debug mode) test a single layout
+    LAYOUTS=("${SPECIFIC_LAYOUT}")
+  else
+    # test *all* layouts in the folder
+    for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
+      NAME=$(basename "$file" .bonsai)
+      LAYOUTS+=("${NAME}")
+    done
+  fi
+  echo "-- with layouts: ${LAYOUTS[@]}"
   
   MAIN_FILE="main_trace"
   # replace `$N$` with BVH_SUFFIX.
@@ -136,20 +174,25 @@ run_tests() {
       if [[ "${SCHEDULE}" == "parallel" ]]; then
         COMMON_FLAGS="-fopenmp ${COMMON_FLAGS}"
       fi
+      if [[ "${DEBUG_MODE}" == true ]]; then
+        COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
+      fi
       
-      # Generate LLVM IR for combined sources
-      clang++ ${COMMON_FLAGS} -S -emit-llvm ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp
-      MAIN_LL="${MAIN_FILE}.ll"
-      cat ${MAIN_LL} ${APPLICATION}.ll > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.ll
-      rm ${MAIN_LL}
-      rm ${APPLICATION}.ll
-      
-      # Generate assembly for combined sources
-      clang++ ${COMMON_FLAGS} -S ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp
-      MAIN_S="${MAIN_FILE}.s"
-      cat ${MAIN_S} ${APPLICATION}.s > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.asm
-      rm ${MAIN_S}
-      rm ${APPLICATION}.s
+      if [[ "${DEBUG_MODE}" == true ]]; then
+        # Generate LLVM IR for combined sources
+        clang++ ${COMMON_FLAGS} -S -emit-llvm ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp
+        MAIN_LL="${MAIN_FILE}.ll"
+        cat ${MAIN_LL} ${APPLICATION}.ll > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.ll
+        rm ${MAIN_LL}
+        rm ${APPLICATION}.ll
+        
+        # Generate assembly for combined sources
+        clang++ ${COMMON_FLAGS} -S ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp
+        MAIN_S="${MAIN_FILE}.s"
+        cat ${MAIN_S} ${APPLICATION}.s > ${DATA_PATH}/${APPLICATION}_${LAYOUT}.asm
+        rm ${MAIN_S}
+        rm ${APPLICATION}.s
+      fi 
       
       # Compile executable
       COMPILE="clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
@@ -157,23 +200,27 @@ run_tests() {
         COMPILE="${COMPILE} -Wl,-rpath,$CONDA_PREFIX/lib"
       fi
       ${COMPILE}
+
+      # TODO(cgyurgyik): segmentation fault for eq + sah. Why?
+      if [[ "${LAYOUT}" == "eq" ]]; then
+        SAVED_PARTITION=${PARTITION}
+        PARTITION="ms"
+      fi
       
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      EXECUTE="./${EXECUTABLE} ${OBJECT} ${SCHEDULE} ${ARGV}"
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${SCHEDULE} ${ARGV}"
+      echo "${EXECUTE}"
       if [[ "$(uname)" == "Linux" ]]; then
-        EXECUTE="numactl --physcpubind 0-15 ${EXECUTE}" # only run on performance cores for the Fredwood.
+        EXECUTE="${FREDWOOD_FLAG} ${EXECUTE}"
       fi
-      #   if [[ "${TYPE}" == "PERFORMANCE" ]]; then
-      #     # collect
-      #     perf record -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ${EXECUTE}
-      #     # report
-      #     perf report --symbol-filter=*trace* --sort=overhead,symbol >> ${DATA_PATH}/${OBJECT}_${LAYOUT}.txt
-      #   else
       for ((i=0; i < N; i++)); do
         ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       done
-      #  fi
+
+      if [[ "${LAYOUT}" == "eq" ]]; then
+        PARTITION=${SAVED_PARTITION}
+      fi
 
       # 5. Clean up
       rm ${PREFIX}/${APPLICATION}.h
@@ -188,17 +235,23 @@ run_tests() {
   rm ${PREFIX}/${MAIN_FILE}.cpp # remove the old c++ file
 }
 
-echo "running tests with 8-mixed-BVH..."
-run_tests "8_mixed"
-echo "... tests complete for 8-mixed-BVH"
+if [[ "${DEBUG_MODE}" == true ]]; then
+  echo "running debug test for ${DEBUG_LAYOUT} in ${DEBUG_BVH_SUFFIX}..."
+  run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
+  echo "... debug test complete"
+else
+  echo "running tests with 8-mixed-BVH..."
+  run_tests "8_mixed"
+  echo "... tests complete for 8-mixed-BVH"
 
-echo "running tests with 8-mixed-BVH..."
-run_tests "8"
-echo "... tests complete for 8-BVH"
+  echo "running tests with 8-BVH..."
+  run_tests "8"
+  echo "... tests complete for 8-BVH"
 
-echo "running tests with 2-BVH..."
-run_tests "2"
-echo "... tests complete for 2-BVH"
+  echo "running tests with 2-BVH..."
+  run_tests "2"
+  echo "... tests complete for 2-BVH"
+fi
 
 rm ${RAY_PATH}/${RAY_FILE}.out
 

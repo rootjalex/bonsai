@@ -148,7 +148,7 @@ def format_ray_count(ray_count):
 
 
 def create_scaling_plots(data, machine_type, output_path, baseline_layout, method='arithmetic'):
-    """Create comprehensive scaling plots."""
+    """Create speedup plots comparing layouts to baseline."""
     models = sorted(data.keys())
     all_layouts = set()
     for model in data:
@@ -171,99 +171,56 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
         layout_styles[layout] = line_styles[i % len(line_styles)]
         layout_markers[layout] = marker_styles[i % len(marker_styles)]
 
-    # Determine subplot layout based on number of models
+    # Create figure with one speedup plot per model
     n_models = len(models)
-    fig = plt.figure(figsize=(45, 45))
-    n_rows = 4
-    n_cols = 4
+    n_cols = min(4, n_models)
+    n_rows = (n_models + n_cols - 1) // n_cols
+
+    fig = plt.figure(figsize=(12 * n_cols, 8 * n_rows))
 
     method_str = 'Geometric Mean' if method == 'geometric' else 'Arithmetic Mean'
-    title = f'Ray Tracing Performance Scaling ({method_str})'
+    title = f'Layout Speedup vs {baseline_layout.upper()} ({method_str})'
     if machine_type:
         title += f' - {machine_type}'
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
-    # 2. Per-model plots
     for idx, model in enumerate(models):
         ax = plt.subplot(n_rows, n_cols, idx + 1)
 
+        assert baseline_layout in data[
+            model], f"Baseline layout '{baseline_layout}' not found for model '{model}'"
+        baseline_data = data[model][baseline_layout]
+
         for layout in layouts:
-            if layout in data[model]:
-                ray_counts = sorted(data[model][layout].keys())
-                trace_times = [data[model][layout][rc] for rc in ray_counts]
+            if layout != baseline_layout and layout in data[model]:
+                ray_counts = sorted(set(baseline_data.keys())
+                                    & set(data[model][layout].keys()))
+                speedups = []
+                valid_ray_counts = []
 
-                # Plot with both linear and markers
-                style = layout_styles[layout]
-                marker = layout_markers[layout]
-                ax.plot(ray_counts, trace_times,
-                        marker=marker, markersize=6, linewidth=2,
-                        linestyle=style, label=layout.upper(), alpha=0.8)
+                for rc in ray_counts:
+                    if baseline_data[rc] > 0 and data[model][layout][rc] > 0:
+                        speedup = baseline_data[rc] / data[model][layout][rc]
+                        speedups.append(speedup)
+                        valid_ray_counts.append(rc)
+                    elif data[model][layout][rc] == 0 and baseline_data[rc] == 0:
+                        speedups.append(1.0)
+                        valid_ray_counts.append(rc)
 
-        ax.set_xlabel('Number of Rays')
-        ax.set_ylabel('Trace Time (ms)')
-        ax.set_title(f'{model.title()}')
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=9)
+                if speedups:
+                    style = layout_styles[layout]
+                    marker = layout_markers[layout]
+                    ax.plot(valid_ray_counts, speedups,
+                            marker=marker, markersize=6, linewidth=2,
+                            linestyle=style, label=layout.upper(), alpha=0.8)
 
-        # Use log scale for x-axis if range is large
+        ax.axhline(y=1.0, color='black', linestyle='-', linewidth=1, alpha=0.5)
         ax.set_xscale('log')
-        ax.set_xticks(ray_counts)
-        ax.set_xticklabels([format_ray_count(rc).replace('$', '').replace('{', '').replace('}', '')
-                            for rc in ray_counts], rotation=45)
-
-    # 3. Additional analysis plot (if space available)
-    if n_models <= 4:
-        idx = 4
-        for model in models:
-            # Speedup analysis plot for small number of models
-            ax_speedup = plt.subplot(n_rows, n_cols, idx + 1)
-            idx += 1
-
-            # Calculate speedup relative to first layout (as baseline)
-            assert baseline_layout in data[model], baseline_layout
-            baseline_data = data[model][baseline_layout]
-            for layout in layouts:
-                if layout != baseline_layout and layout in data[model]:
-                    ray_counts = sorted(set(baseline_data.keys()) & set(
-                        data[model][layout].keys()))
-                    speedups = []
-
-                    for rc in ray_counts:
-                        if baseline_data[rc] > 0 and data[model][layout][rc] > 0:
-                            speedup = baseline_data[rc] / \
-                                data[model][layout][rc]
-                            speedups.append(speedup)
-                        elif data[model][layout][rc] == 0 and baseline_data[rc] == 0:
-                            # Both are 0, treat as equal
-                            speedups.append(1.0)
-                        elif data[model][layout][rc] == 0:
-                            # Don't add infinite speedup, skip this point
-                            pass
-                        else:
-                            # baseline is 0, can't compute speedup
-                            speedups.append(1.0)
-
-                    if speedups and len(speedups) == len(ray_counts):
-                        # Only plot if we have speedup values for all ray counts
-                        color = model_colors[model]
-                        style = layout_styles[layout]
-                        marker = layout_markers[layout]
-                        ax_speedup.plot(ray_counts, speedups,
-                                        marker=marker, markersize=4, linewidth=1.5,
-                                        linestyle=style, color=color,
-                                        label=f'{model}-{layout}', alpha=0.7)
-
-                        ax_speedup.set_xscale(
-                            'log', base=2)   # log2 scaling
-
-        ax_speedup.axhline(y=1.0, color='black',
-                           linestyle='-', linewidth=0.5, alpha=0.5)
-        ax_speedup.set_xlabel('Number of Rays')
-        ax_speedup.set_ylabel(f'Speedup vs {baseline_layout.upper()}')
-        ax_speedup.set_title(
-            f'Layout Performance Relative to {baseline_layout.upper()} ({model})')
-        ax_speedup.grid(True, alpha=0.3, which='both')
-        ax_speedup.legend(fontsize=8, ncol=2, loc='best')
+        ax.set_xlabel('Number of Rays')
+        ax.set_ylabel(f'Speedup vs {baseline_layout.upper()}')
+        ax.set_title(f'{model.title()}')
+        ax.grid(True, alpha=0.3, which='both')
+        ax.legend(fontsize=9)
 
     plt.tight_layout()
 
@@ -274,101 +231,10 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
 
     method_suffix = '_geomean' if method == 'geometric' else '_arithmetic'
     output_file = os.path.join(
-        results_dir, f'trace_scaling{method_suffix}.png')
+        results_dir, f'speedup_vs_{baseline_layout}{method_suffix}.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Figure saved to: {output_file}")
     plt.close()
-
-
-def print_scaling_table(data, method='arithmetic'):
-    """Print summary table of trace times."""
-    models = sorted(data.keys())
-    all_layouts = set()
-    all_ray_counts = set()
-
-    for model in data:
-        all_layouts.update(data[model].keys())
-        for layout in data[model]:
-            all_ray_counts.update(data[model][layout].keys())
-
-    layouts = sorted(all_layouts)
-    ray_counts = sorted(all_ray_counts)
-
-    method_str = 'Geometric Mean' if method == 'geometric' else 'Arithmetic Mean'
-    print(f"\nTrace Time Scaling Summary ({method_str}):")
-    print("=" * 120)
-
-    for model in models:
-        print(f"\n{model.upper()}")
-        print("-" * 120)
-
-        # Header
-        header = f"{'Layout':<12}"
-        for rc in ray_counts:
-            header += f"{format_ray_count(rc).replace('$', '').replace('{', '').replace('}', ''):>10}"
-        print(header)
-        print("-" * 120)
-
-        # Data rows
-        for layout in layouts:
-            if layout in data[model]:
-                row = f"{layout.upper():<12}"
-                for rc in ray_counts:
-                    if rc in data[model][layout]:
-                        value = data[model][layout][rc]
-                        if value == 0:
-                            row += f"{'<1':>10}"  # Show <1 instead of 0
-                        else:
-                            row += f"{value:>10.1f}"
-                    else:
-                        row += f"{'--':>10}"
-                print(row)
-
-    print("\n")
-
-
-def analyze_scaling_behavior(data):
-    """Analyze and report scaling behavior."""
-    print("\nScaling Analysis:")
-    print("=" * 80)
-
-    for model in sorted(data.keys()):
-        print(f"\n{model.upper()}:")
-
-        for layout in sorted(data[model].keys()):
-            ray_counts = sorted(data[model][layout].keys())
-            trace_times = [data[model][layout][rc] for rc in ray_counts]
-
-            # Filter valid data points (non-zero times)
-            valid_points = [(rc, tt) for rc, tt in zip(
-                ray_counts, trace_times) if tt > 0]
-
-            if len(valid_points) >= 2:
-                # Calculate scaling exponent (log-log regression)
-                log_rays = np.log([p[0] for p in valid_points])
-                log_times = np.log([p[1] for p in valid_points])
-
-                # Linear regression in log-log space
-                coeffs = np.polyfit(log_rays, log_times, 1)
-                scaling_exponent = coeffs[0]
-
-                # Determine scaling behavior
-                if scaling_exponent < 0.9:
-                    behavior = "Sub-linear"
-                elif scaling_exponent < 1.1:
-                    behavior = "Linear"
-                elif scaling_exponent < 1.5:
-                    behavior = "Super-linear"
-                else:
-                    behavior = "Quadratic or worse"
-
-                print(
-                    f"  {layout.upper():<15} Exponent: {scaling_exponent:.3f} ({behavior})")
-            else:
-                print(
-                    f"  {layout.upper():<15} Insufficient non-zero data points for analysis")
-
-    print("\n")
 
 
 if __name__ == "__main__":
@@ -421,7 +287,5 @@ if __name__ == "__main__":
                 print(f"    {layout}: {n_runs} runs per ray count")
 
     # Generate outputs
-    print_scaling_table(processed_data, method)
-    analyze_scaling_behavior(processed_data)
     create_scaling_plots(processed_data, machine_type,
                          filename, baseline_layout, method)

@@ -126,11 +126,22 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-void run(const std::string &object, const std::vector<int64_t> &ray_counts) {
+void run(const std::string &object, const std::string &partition,
+         const std::vector<int64_t> &ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    BVH *canonical_tree = build_canonical_tree_$N$(triangles);
+    Heuristic heuristic;
+    if (partition == "sah") {
+        heuristic = Heuristic::SurfaceArea;
+    } else if (partition == "ms") {
+        heuristic = Heuristic::MedianSplit;
+    } else {
+        std::cout << "unexpected construction partitioning strategy: "
+                  << partition << std::endl;
+        exit(1);
+    }
+    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
 
@@ -184,17 +195,19 @@ bool is_digit(std::string s) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 3);
-    std::string object_file = argv[1];
+    assert(argc > 4);
+    int i = 1;
+    std::string object_file = argv[i++];
+    std::string partition = argv[i++];
     std::vector<int64_t> ray_counts;
-    assert(is_digit(argv[2]));
-    const int64_t size = std::atoi(argv[2]);
+    assert(is_digit(argv[i]));
+    const int64_t size = std::atoi(argv[i++]);
 
     ray_counts.reserve(size);
-    for (int i = 3; i < 3 + size; ++i) {
+    for (i < 3 + size; ++i) {
         assert(is_digit(argv[i]));
         ray_counts.push_back(std::atoi(argv[i]));
     }
-    run(object_file, ray_counts);
+    run(object_file, partition, ray_counts);
     return 0;
 }
