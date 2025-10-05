@@ -212,27 +212,27 @@ schedule {
         indirect group Aabbs[size=aabb_count] {
             // full bounding box of the parent is stored directly next to
             // quantized children to reduce memory bandwidth requirements.
-            mlo: f32x3;
-            mex: f32x3; // stored as full precision in CLBVH, but not CWBVH.
-            qlo: u8x3x8;
-            qhi: u8x3x8;
-            aabb_low = dequantize_bounds(mlo, mex, qlo);
-            aabb_high = dequantize_bounds(mlo, mex, qhi);
+            aabb_mlo: f32x3;
+            aabb_mex: f32x3; // stored as full precision in CLBVH, but not CWBVH.
+            aabb_qlo: u8x3x8;
+            aabb_qhi: u8x3x8;
+            aabb_low = dequantize_bounds(aabb_mlo, aabb_mex, aabb_qlo);
+            aabb_high = dequantize_bounds(aabb_mlo, aabb_mex, aabb_qhi);
             aabb_children: u64x8;
         };
 
         // quantized, per section 3.5
         obb_count: u64;
         indirect group Obbs[size=obb_count] {
-            mlo: f32x3;           // low of the merged AABB.
-            mex: f32x3;           // extent of the merged AABB.
-            qlo: u8x3x8;          // quantized low offset of each child.
-            qhi: u8x3x8;          // quantized high offset of each child.
+            obb_mlo: f32x3;           // low of the merged AABB.
+            obb_mex: f32x3;           // extent of the merged AABB.
+            obb_qlo: u8x3x8;          // quantized low offset of each child.
+            obb_qhi: u8x3x8;          // quantized high offset of each child.
             qorientation: i8x4x3; // common orientation for all 8 OBB bounds.
             obb_children: u64x8;
 
-            obb_low = dequantize_bounds(mlo, mex, qlo);
-            obb_high = dequantize_bounds(mlo, mex, qhi);
+            obb_low = dequantize_bounds(obb_mlo, obb_mex, qobb_lo);
+            obb_high = dequantize_bounds(obb_mlo, obb_mex, obb_qhi);
             orientation = dequantize_orientation(qorientation);
         };
 
@@ -250,19 +250,19 @@ schedule {
 
     build triangles {
       build AABBNode(aabb_children: array[BVH, 8], aabb_low: f32x3x8, aabb_high: f32x3x8) {
-        build mlo = compute_merged_low(aabb_low);
-        build mex = compute_merged_extent(aabb_low, aabb_high);
-        build qlo = quantize_bounds_low(aabb_low, aabb_high);
-        build qhi = quantize_bounds_high(aabb_low, aabb_high);
+        build aabb_mlo = compute_merged_low(aabb_low);
+        build aabb_mex = compute_merged_extent(aabb_low, aabb_high);
+        build aabb_qlo = quantize_bounds_low(aabb_low, aabb_high);
+        build aabb_qhi = quantize_bounds_high(aabb_low, aabb_high);
         recurse aabb_children;
         return (this << cast[[u64]](2)) | cast[[u64]](1);
       };
 
       build OBBNode(obb_children: array[BVH, 8], orientation: f32x4x3, obb_low: f32x3x8, obb_high: f32x3x8) {
-        build mlo = compute_merged_low(obb_low);
-        build mex = compute_merged_extent(obb_low, obb_high);
-        build qlo = quantize_bounds_low(obb_low, obb_high);
-        build qhi = quantize_bounds_high(obb_low, obb_high);
+        build obb_mlo = compute_merged_low(obb_low);
+        build obb_mex = compute_merged_extent(obb_low, obb_high);
+        build obb_qlo = quantize_bounds_low(obb_low, obb_high);
+        build obb_qhi = quantize_bounds_high(obb_low, obb_high);
         build qorientation = quantize_orientation(orientation);
         recurse obb_children;
         return (this << cast[[u64]](2)) | cast[[u64]](2);
