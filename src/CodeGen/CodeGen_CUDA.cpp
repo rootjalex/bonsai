@@ -1387,8 +1387,8 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
     // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full
-    // block size was causing resource launch errors.
-    Expr block_size = make_const(n.type(), 512);
+    // block sizes (512, 1024) were causing resource launch errors.
+    Expr block_size = make_const(n.type(), 256);
     opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';
     block_size.accept(this);
