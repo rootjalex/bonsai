@@ -126,7 +126,7 @@ run_tests() {
       # 1. Build the Bonsai compiler.
       cmake --build build --config Debug -j > /dev/null
       # 2. Lower to cuda.
-      # ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
+      ./build/compiler -i ${PREFIX}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cuda -o ${PREFIX}/${APPLICATION}.h
       # 3. Compile the lowered cuda.
       module load cuda
       nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
