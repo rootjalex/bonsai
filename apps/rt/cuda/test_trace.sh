@@ -50,7 +50,7 @@ MAX_POWER=25
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=2
+  N=1
   OBJECTS=("${OBJECTS[0]}")
 fi
 
@@ -132,6 +132,9 @@ run_tests() {
     # test *all* layouts in the folder
     for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
       NAME=$(basename "$file" .bonsai)
+      if [[ "$(uname)" == "ptr" ]]; then
+        continue
+      fi
       LAYOUTS+=("${NAME}")
     done
   fi

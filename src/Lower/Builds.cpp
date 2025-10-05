@@ -23,6 +23,9 @@ namespace {
 static constexpr char CANONICAL_TREE[] = "CT";
 static constexpr char SPECIALIZED_TREE[] = "ST";
 
+// TODO(cgyurgyik): (For gathering memory utilization)
+// static constexpr bool PRINT_MEMORY_UTILIZATION = false;
+
 // Returns a reference to the "self", used when referencing fields of the
 // currently visited BVH node.
 ir::Expr self(const ir::Layout &layout) {
