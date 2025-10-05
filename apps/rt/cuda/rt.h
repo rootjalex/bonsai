@@ -375,7 +375,7 @@ __device__ cuda::std::optional<Triangle> _traverse_tree0(Ray *ray,
         if (_t814 == 2u) {
             if (slice<4, 63>(index) > 16496) {
                 printf("aabb:%lu\n", slice<4, 63>(index));
-                assert(false && "AABB");
+                return std::nullopt;
             }
 
             Aabbs _t18 = (*triangles).aabbs[slice<4, 63>(index)];
@@ -449,7 +449,7 @@ __device__ cuda::std::optional<Triangle> _traverse_tree0(Ray *ray,
             if (_t814 == 3u) {
                 if (slice<4, 63>(index) > 1) {
                     printf("obb:%lu\n", slice<4, 63>(index));
-                    assert(false && "OBB");
+                    return std::nullopt;
                 }
                 Obbs _t257 = (*triangles).obbs[slice<4, 63>(index)];
                 float3 _t258 = _t257.mlo;
