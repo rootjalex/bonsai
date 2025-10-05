@@ -371,14 +371,14 @@ __device__ cuda::std::optional<Triangle> _traverse_tree0(Ray *ray,
                 continue;
             }
         }
-        uint64_t _t814 = slice<0, 2>(index);
+        uint64_t _t814 = slice<0, 1>(index);
         if (_t814 == 2u) {
-            if (slice<4, 63>(index) >= 16496) {
-                printf("aabb:%lu\n", slice<4, 63>(index));
+            if (slice<2, 63>(index) >= 16496) {
+                printf("aabb:%lu\n", slice<2, 63>(index));
                 return cuda::std::nullopt;
             }
 
-            Aabbs _t18 = (*triangles).aabbs[slice<4, 63>(index)];
+            Aabbs _t18 = (*triangles).aabbs[slice<2, 63>(index)];
             cuda::std::array<float3, 8> _t19 = _t18.aabb_low;
             cuda::std::array<float3, 8> _t24 = _t18.aabb_high;
             AABB _t26 = AABB{_t19[0], _t24[0]};
@@ -447,11 +447,11 @@ __device__ cuda::std::optional<Triangle> _traverse_tree0(Ray *ray,
             }
         } else {
             if (_t814 == 3u) {
-                if (slice<4, 63>(index) > 1) {
-                    printf("obb:%lu\n", slice<4, 63>(index));
+                if (slice<2, 63>(index) > 1) {
+                    printf("obb:%lu\n", slice<2, 63>(index));
                     return cuda::std::nullopt;
                 }
-                Obbs _t257 = (*triangles).obbs[slice<4, 63>(index)];
+                Obbs _t257 = (*triangles).obbs[slice<2, 63>(index)];
                 float3 _t258 = _t257.mlo;
                 float3 _t262 = _t257.mex;
                 cuda::std::array<float3, 8> _t267 = cuda::std::array<float3, 8>{
@@ -587,10 +587,10 @@ __device__ cuda::std::optional<Triangle> _traverse_tree0(Ray *ray,
                     }
                 }
             } else {
-                uint64_t _t811 = slice<4, 63>(index);
+                uint64_t _t811 = slice<2, 63>(index);
                 for (uint64_t _idx0 = _t811;
                      _idx0 <
-                     (_t811 + (uint64_t)(uint8_t)(slice<1, 8>(index) + 1u));
+                     (_t811 + (uint64_t)(uint8_t)(slice<2, 9>(index) + 1u));
                      _idx0 += 1u) {
                     Triangle _t810 = (*triangles).primitives[_idx0];
                     if (intersectsp_ray_tri(ray, (&_t810)).has_value()) {
