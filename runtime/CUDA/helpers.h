@@ -1960,7 +1960,14 @@ __forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
 
 __forceinline__ __host__ void
 cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
-    cudaMalloc(device, size);
+    cudaError_t err = cudaMalloc(device, size);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed:\n");
+        fprintf(stderr, "  Error name: %s\n", cudaGetErrorName(err));
+        fprintf(stderr, "  Error string: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "  Requested size: %zu bytes\n", size);
+        assert(false);
+    }
     cudaMemcpy(*device, host, size, cudaMemcpyHostToDevice);
 }
 
