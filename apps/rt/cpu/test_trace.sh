@@ -35,10 +35,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TYPE="${1:-COMPARISON}" # other option, PERFORMANCE
-N="${2:-14}" # drop lowest 2 and highest 2 runs in processing
-SCHEDULE="${3:-parallel}" # or single-thread
-HIT_RATIO="${4:-75}" # n%, e.g., 75% is the default
+N="${1:-14}" # drop lowest 2 and highest 2 runs in processing
+SCHEDULE="${2:-parallel}" # or single-thread
+HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
+TYPE="${4:-COMPARISON}" # other option, PERFORMANCE
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
