@@ -224,8 +224,8 @@ schedule {
         // quantized, per section 3.5
         obb_count: u64;
         indirect group Obbs[size=obb_count, align=16] {
-            obb_mlo: f32x3;           // low of the merged AABB.
-            obb_mex: f32x3;           // extent of the merged AABB.
+            obb_mlo: f32x3;           // low of the merged OBB.
+            obb_mex: f32x3;           // extent of the merged OBB.
             obb_qlo: u8x3x8;          // quantized low offset of each child.
             obb_qhi: u8x3x8;          // quantized high offset of each child.
             qorientation: i8x4x3; // common orientation for all 8 OBB bounds.

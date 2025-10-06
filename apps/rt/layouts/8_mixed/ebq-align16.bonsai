@@ -180,15 +180,16 @@ func dequantize_orientation(x: i8x4x3) -> f32x4x3 {
 }
 
 func dequantize_bounds(mlo: f32x3, mex: f32x3, q: u8x3x8) -> f32x3x8 {
+  rcp: f32 = 1.0 / 255.0;
   return f32x3x8 { 
-    mlo + (cast[[f32x3]](q[0]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[1]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[2]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[3]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[4]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[5]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[6]) / 255.0) * mex,
-    mlo + (cast[[f32x3]](q[7]) / 255.0) * mex
+    mlo + (cast[[f32x3]](q[0]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[1]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[2]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[3]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[4]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[5]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[6]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[7]) * rcp) * mex
 
   };
 }

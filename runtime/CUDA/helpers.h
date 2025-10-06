@@ -1997,3 +1997,9 @@ __forceinline__ __host__ __device__ T slice(int M, int N, T value) {
     T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
     return (value >> M) & mask;
 }
+
+__forceinline__ __host__ inline int frexpf(float f) {
+    int x;
+    std::frexpf(f, &x);
+    return x;
+}

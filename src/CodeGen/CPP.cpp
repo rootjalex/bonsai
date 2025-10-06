@@ -36,7 +36,7 @@ namespace codegen {
 namespace {
 
 // TODO(cgyurgyik): (For gathering memory utilization)
-static constexpr bool PRINT_MEMORY_UTILIZATION = false;
+static constexpr bool PRINT_MEMORY_UTILIZATION = true;
 
 void capitalize_first(std::string &name) {
     if (!name.empty() && std::isalpha(name.front())) {
@@ -935,6 +935,18 @@ class BonsaiToCpp : ir::Printer {
         }
         case ir::Intrinsic::OpType::roundf: {
             ss << "round(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::frexpf: {
+            ss << "frexpf(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::exp2f: {
+            ss << "exp2f(";
             print_expr_list(node->args);
             ss << ")";
             return;

@@ -1212,6 +1212,10 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rand";
     case Intrinsic::roundf:
         return "roundf";
+    case Intrinsic::frexpf:
+        return "frexpf";
+    case Intrinsic::exp2f:
+        return "exp2f";
     case Intrinsic::sin:
         return "sin";
     case Intrinsic::sqrt:

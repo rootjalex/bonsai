@@ -123,6 +123,12 @@ Expr round(Expr a) {
     return Intrinsic::make(Intrinsic::roundf, {std::move(a)});
 }
 
+Expr frexpf(Expr a) {
+    return Intrinsic::make(Intrinsic::frexpf, {std::move(a)});
+}
+
+Expr exp2f(Expr a) { return Intrinsic::make(Intrinsic::exp2f, {std::move(a)}); }
+
 Expr sqrt(Expr a) { return Intrinsic::make(Intrinsic::sqrt, {std::move(a)}); }
 
 Expr norm(Expr a) { return Intrinsic::make(Intrinsic::norm, {std::move(a)}); }

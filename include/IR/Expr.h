@@ -366,6 +366,8 @@ struct Intrinsic : ExprNode<Intrinsic> {
         pow,
         rand,
         roundf,
+        frexpf,
+        exp2f,
         sin,
         sqrt,
         tan,

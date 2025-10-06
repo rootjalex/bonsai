@@ -8,9 +8,15 @@
 #include <math.h>
 #include <tuple>
 
+inline int frexpf(float f) {
+    int x;
+    std::frexpf(f, &x);
+    return x;
+}
+
 // [M, N]
 template <int M, int N, typename T>
-T slice(T value) {
+inline T slice(T value) {
     static_assert(std::is_unsigned_v<T>);
     constexpr int bits = std::numeric_limits<T>::digits;
     static_assert(M >= 0 && N >= 0 && M < N && N < bits);
@@ -21,7 +27,7 @@ T slice(T value) {
 
 // [M, N]
 template <typename T>
-T slice(int M, int N, T value) {
+inline T slice(int M, int N, T value) {
     static_assert(std::is_unsigned_v<T>);
     const int bits = std::numeric_limits<T>::digits;
     int width = N - M + 1;

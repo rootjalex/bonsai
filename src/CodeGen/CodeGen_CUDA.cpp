@@ -876,6 +876,8 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         [[fallthrough]];
     case ir::Intrinsic::OpType::floorf:
     case ir::Intrinsic::OpType::roundf:
+    case ir::Intrinsic::OpType::frexpf:
+    case ir::Intrinsic::OpType::exp2f:
     case ir::Intrinsic::OpType::ceilf: {
         os << to_string(node->op) << "(";
         print_expr_list(node->args);
