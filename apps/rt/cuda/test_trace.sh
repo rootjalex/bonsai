@@ -170,7 +170,7 @@ run_tests() {
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
       EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${ARGV}"
       if [[ "${DEBUG_MODE}" == true ]]; then
-        EXECUTE="compute sanitizer ${EXECUTE}"
+        EXECUTE="compute-sanitizer ${EXECUTE}"
       fi
       echo "${EXECUTE}"
       for ((i=0; i < N; i++)); do
