@@ -233,9 +233,9 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                     triangles.begin() + low, triangles.begin() + mid,
                     triangles.begin() + high,
                     [&](const Triangle &a, const Triangle &b) {
-                        vec3_float ca = triangle_centroid(a);
-                        vec3_float cb = triangle_centroid(b);
-                        vec3_float extent = aabb_max - aabb_min;
+                        float3 ca = triangle_centroid(a);
+                        float3 cb = triangle_centroid(b);
+                        float3 extent = aabb_max - aabb_min;
                         int axis = (extent.x > extent.y && extent.x > extent.z)
                                        ? 0
                                    : (extent.y > extent.z) ? 1
