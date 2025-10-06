@@ -8,7 +8,8 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("white-oak" "sheep" "hairball" "power-plant" "sponza")
+OBJECTS=("white-oak" "hairball" "power-plant" "sponza")
+# "sheep"
 
 # Parse flags
 DRY_RUN=false
