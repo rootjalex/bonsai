@@ -108,15 +108,23 @@ OBB compute_obb(uint32_t low, uint32_t high,
     float3 obb_max = {-MAX, -MAX, -MAX};
 
     for (uint32_t i = low; i < high; ++i) {
-        auto [tri_min, tri_max] = triangle_bounds(tris[i]);
-        for (int corner = 0; corner < 8; ++corner) {
-            float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
-                        (corner & 2) ? tri_max.y : tri_min.y,
-                        (corner & 4) ? tri_max.z : tri_min.z};
-            float3 p_obb = {dot(x_axis, p), dot(y_axis, p), dot(z_axis, p)};
-            obb_min = min(obb_min, p_obb);
-            obb_max = max(obb_max, p_obb);
-        }
+        const Triangle &tri = tris[i];
+
+        // Extract OBB axes from the orientation matrix.
+        float3 axis_x = {orientation[0].x, orientation[0].y, orientation[0].z};
+        float3 axis_y = {orientation[1].x, orientation[1].y, orientation[1].z};
+        float3 axis_z = {orientation[2].x, orientation[2].y, orientation[2].z};
+
+        // Transform the 3 actual vertices to OBB space
+        float3 v0_obb = {dot(tri.p0, axis_x), dot(tri.p0, axis_y),
+                         dot(tri.p0, axis_z)};
+        float3 v1_obb = {dot(tri.p1, axis_x), dot(tri.p1, axis_y),
+                         dot(tri.p1, axis_z)};
+        float3 v2_obb = {dot(tri.p2, axis_x), dot(tri.p2, axis_y),
+                         dot(tri.p2, axis_z)};
+
+        obb_min = min(obb_min, min(v0_obb, min(v1_obb, v2_obb)));
+        obb_max = max(obb_max, max(v0_obb, max(v1_obb, v2_obb)));
     }
 
     float3 extent = obb_max - obb_min;
@@ -126,64 +134,336 @@ OBB compute_obb(uint32_t low, uint32_t high,
     return OBB{obb_min, obb_max, orientation};
 }
 
-float compute_tightness(uint32_t low, uint32_t high,
-                        const std::vector<Triangle> &tris) {
-    auto [aabb_min, aabb_max] = compute_aabb(low, high, tris);
-    float aabb_volume = (aabb_max.x - aabb_min.x) * (aabb_max.y - aabb_min.y) *
-                        (aabb_max.z - aabb_min.z);
+struct AABBSplitResult {
+    float cost;
+    float positions[7];
+    std::vector<float3> group_mins;
+    std::vector<float3> group_maxs;
+    std::vector<uint32_t> group_counts;
+};
 
-    if (aabb_volume < 1e-6f)
-        return 1.0f;
-
-    float3 centroid = {0.0f, 0.0f, 0.0f};
-    for (uint32_t i = low; i < high; ++i) {
-        centroid = centroid + triangle_centroid(tris[i]);
-    }
-    centroid = centroid / static_cast<float>(high - low);
-
-    float cov[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
-    for (uint32_t i = low; i < high; ++i) {
-        float3 c = triangle_centroid(tris[i]) - centroid;
-        cov[0][0] += c.x * c.x;
-        cov[0][1] += c.x * c.y;
-        cov[0][2] += c.x * c.z;
-        cov[1][0] += c.y * c.x;
-        cov[1][1] += c.y * c.y;
-        cov[1][2] += c.y * c.z;
-        cov[2][0] += c.z * c.x;
-        cov[2][1] += c.z * c.y;
-        cov[2][2] += c.z * c.z;
-    }
-
-    float trace = cov[0][0] + cov[1][1] + cov[2][2];
-    float obb_volume_estimate = std::pow(trace / 3.0f, 1.5f);
-
-    return obb_volume_estimate / aabb_volume;
-}
-
-BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
-                                      int max_prims_per_leaf = 8,
-                                      int max_tree_depth = 64,
-                                      float traversal_cost_aabb = 1.0f,
-                                      float traversal_cost_obb = 1.5f,
-                                      float intersection_cost = 1.5f,
-                                      int obb_depth_threshold = 3) {
-
-    struct Split {
-        int axis;
-        float positions[7];
-        float cost;
-        bool use_obb;
-    };
+AABBSplitResult evaluate_aabb_split(int axis, uint32_t low, uint32_t high,
+                                    const std::vector<Triangle> &triangles,
+                                    float3 centroid_min, float3 centroid_max,
+                                    float parent_area, float traversal_cost,
+                                    float intersection_cost) {
 
     constexpr auto MAX = std::numeric_limits<float>::max();
     constexpr float EPSILON = 1e-6f;
+
+    AABBSplitResult result;
+    result.cost = MAX;
+
+    float centroid_min_val = (axis == 0)   ? centroid_min.x
+                             : (axis == 1) ? centroid_min.y
+                                           : centroid_min.z;
+    float centroid_max_val = (axis == 0)   ? centroid_max.x
+                             : (axis == 1) ? centroid_max.y
+                                           : centroid_max.z;
+    float extent = centroid_max_val - centroid_min_val;
+
+    if (extent < EPSILON)
+        return result;
+
+    // Divide into 8 equal parts
+    for (int i = 0; i < 7; ++i) {
+        result.positions[i] = centroid_min_val + (i + 1) * extent / 8.0f;
+    }
+
+    // Assign triangles to groups and compute bounds
+    result.group_mins.assign(8, float3{MAX, MAX, MAX});
+    result.group_maxs.assign(8, float3{-MAX, -MAX, -MAX});
+    result.group_counts.assign(8, 0);
+
+    for (uint32_t i = low; i < high; ++i) {
+        float3 c = triangle_centroid(triangles[i]);
+        float c_val = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
+
+        int group = 7;
+        for (int j = 0; j < 7; ++j) {
+            if (c_val < result.positions[j]) {
+                group = j;
+                break;
+            }
+        }
+
+        const Triangle &tri = triangles[i];
+        result.group_mins[group] =
+            min(result.group_mins[group], min(tri.p0, min(tri.p1, tri.p2)));
+        result.group_maxs[group] =
+            max(result.group_maxs[group], max(tri.p0, max(tri.p1, tri.p2)));
+        result.group_counts[group]++;
+    }
+
+    // Calculate SAH cost
+    result.cost = traversal_cost * 7;
+    for (int i = 0; i < 8; ++i) {
+        if (result.group_counts[i] > 0) {
+            float area =
+                surface_area(result.group_mins[i], result.group_maxs[i]);
+            result.cost += (area / parent_area) * intersection_cost *
+                           result.group_counts[i];
+        }
+    }
+
+    return result;
+}
+
+struct OBBSplitResult {
+    float cost;
+    float positions[7];
+    std::vector<float3> group_mins;
+    std::vector<float3> group_maxs;
+    std::vector<uint32_t> group_counts;
+};
+
+OBBSplitResult evaluate_obb_split(int axis, uint32_t low, uint32_t high,
+                                  const std::vector<Triangle> &triangles,
+                                  const OBB &obb, float parent_area,
+                                  float traversal_cost,
+                                  float intersection_cost) {
+
+    constexpr auto MAX = std::numeric_limits<float>::max();
+    constexpr float EPSILON = 1e-6f;
+
+    OBBSplitResult result;
+    result.cost = MAX;
+
+    float3 world_axis = {obb.orientation[axis].x, obb.orientation[axis].y,
+                         obb.orientation[axis].z};
+
+    // Project centroids onto OBB axis
+    float min_proj = MAX, max_proj = -MAX;
+    for (uint32_t i = low; i < high; ++i) {
+        float3 c = triangle_centroid(triangles[i]);
+        float proj = dot(c, world_axis);
+        min_proj = std::min(min_proj, proj);
+        max_proj = std::max(max_proj, proj);
+    }
+
+    float extent = max_proj - min_proj;
+    if (extent < EPSILON)
+        return result;
+
+    // Divide into 8 equal parts along OBB axis
+    for (int i = 0; i < 7; ++i) {
+        result.positions[i] = min_proj + (i + 1) * extent / 8.0f;
+    }
+
+    // Assign triangles to groups and compute bounds in OBB space
+    result.group_mins.assign(8, float3{MAX, MAX, MAX});
+    result.group_maxs.assign(8, float3{-MAX, -MAX, -MAX});
+    result.group_counts.assign(8, 0);
+
+    float3 axis_x = {obb.orientation[0].x, obb.orientation[0].y,
+                     obb.orientation[0].z};
+    float3 axis_y = {obb.orientation[1].x, obb.orientation[1].y,
+                     obb.orientation[1].z};
+    float3 axis_z = {obb.orientation[2].x, obb.orientation[2].y,
+                     obb.orientation[2].z};
+
+    for (uint32_t i = low; i < high; ++i) {
+        float3 c = triangle_centroid(triangles[i]);
+        float proj = dot(c, world_axis);
+
+        int group = 7;
+        for (int j = 0; j < 7; ++j) {
+            if (proj < result.positions[j]) {
+                group = j;
+                break;
+            }
+        }
+
+        // Transform triangle AABB corners to OBB space
+        auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
+        float3 obb_min = {MAX, MAX, MAX};
+        float3 obb_max = {-MAX, -MAX, -MAX};
+
+        for (int corner = 0; corner < 8; ++corner) {
+            float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
+                        (corner & 2) ? tri_max.y : tri_min.y,
+                        (corner & 4) ? tri_max.z : tri_min.z};
+            float3 p_obb = {dot(p, axis_x), dot(p, axis_y), dot(p, axis_z)};
+            obb_min = min(obb_min, p_obb);
+            obb_max = max(obb_max, p_obb);
+        }
+
+        result.group_mins[group] = min(result.group_mins[group], obb_min);
+        result.group_maxs[group] = max(result.group_maxs[group], obb_max);
+        result.group_counts[group]++;
+    }
+
+    // Calculate SAH cost
+    result.cost = traversal_cost * 7;
+    for (int i = 0; i < 8; ++i) {
+        if (result.group_counts[i] > 0) {
+            float area =
+                surface_area(result.group_mins[i], result.group_maxs[i]);
+            result.cost += (area / parent_area) * intersection_cost *
+                           result.group_counts[i];
+        }
+    }
+
+    return result;
+}
+
+struct Split {
+    int axis;
+    float positions[7];
+    float cost;
+    bool use_obb;
+    OBB obb;
+};
+
+std::vector<std::vector<uint32_t>>
+partition_triangles(uint32_t low, uint32_t high,
+                    const std::vector<Triangle> &triangles,
+                    const Split &split) {
+
+    std::vector<std::vector<uint32_t>> groups(8);
+
+    if (split.use_obb) {
+        float3 world_axis = {split.obb.orientation[split.axis].x,
+                             split.obb.orientation[split.axis].y,
+                             split.obb.orientation[split.axis].z};
+
+        for (uint32_t i = low; i < high; ++i) {
+            float3 c = triangle_centroid(triangles[i]);
+            float proj = dot(c, world_axis);
+
+            int group = 0;
+            for (int j = 0; j < 7; ++j) {
+                if (proj >= split.positions[j]) {
+                    group = j + 1;
+                } else {
+                    break;
+                }
+            }
+            groups[group].push_back(i);
+        }
+    } else {
+        for (uint32_t i = low; i < high; ++i) {
+            float3 c = triangle_centroid(triangles[i]);
+            float c_val = (split.axis == 0)   ? c.x
+                          : (split.axis == 1) ? c.y
+                                              : c.z;
+
+            int group = 0;
+            for (int j = 0; j < 7; ++j) {
+                if (c_val >= split.positions[j]) {
+                    group = j + 1;
+                } else {
+                    break;
+                }
+            }
+            groups[group].push_back(i);
+        }
+    }
+
+    return groups;
+}
+
+BVH *build_obb_node(
+    const std::vector<std::vector<uint32_t>> &groups,
+    const std::vector<uint32_t> &group_starts, std::vector<Triangle> &triangles,
+    const OBB &obb, uint32_t depth,
+    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition) {
+
+    constexpr auto MAX = std::numeric_limits<float>::max();
+
+    OBBNode *node = new OBBNode();
+    node->orientation = obb.orientation;
+
+    float3 axis_x = {obb.orientation[0].x, obb.orientation[0].y,
+                     obb.orientation[0].z};
+    float3 axis_y = {obb.orientation[1].x, obb.orientation[1].y,
+                     obb.orientation[1].z};
+    float3 axis_z = {obb.orientation[2].x, obb.orientation[2].y,
+                     obb.orientation[2].z};
+
+    for (int i = 0; i < 8; ++i) {
+        if (group_starts[i] < group_starts[i + 1]) {
+            node->obb_children[i] =
+                partition(group_starts[i], group_starts[i + 1], depth + 1);
+
+            // Compute OBB bounds for child in parent OBB space
+            float3 child_min = {MAX, MAX, MAX};
+            float3 child_max = {-MAX, -MAX, -MAX};
+
+            for (uint32_t j = group_starts[i]; j < group_starts[i + 1]; ++j) {
+                auto [tri_min, tri_max] = triangle_bounds(triangles[j]);
+                for (int corner = 0; corner < 8; ++corner) {
+                    float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
+                                (corner & 2) ? tri_max.y : tri_min.y,
+                                (corner & 4) ? tri_max.z : tri_min.z};
+                    float3 p_obb = {dot(p, axis_x), dot(p, axis_y),
+                                    dot(p, axis_z)};
+                    child_min = min(child_min, p_obb);
+                    child_max = max(child_max, p_obb);
+                }
+            }
+
+            // Add small expansion for numerical robustness
+            float3 extent = child_max - child_min;
+            float3 expansion = extent * gamma(3);
+            child_max = child_max + expansion;
+            child_min = child_min - expansion;
+
+            node->obb_low[i] = child_min;
+            node->obb_high[i] = child_max;
+        } else {
+            node->obb_children[i] = nullptr;
+            node->obb_low[i] = {MAX, MAX, MAX};
+            node->obb_high[i] = {-MAX, -MAX, -MAX};
+        }
+    }
+
+    return new BVH(*node);
+}
+
+BVH *build_aabb_node(
+    const std::vector<std::vector<uint32_t>> &groups,
+    const std::vector<uint32_t> &group_starts, std::vector<Triangle> &triangles,
+    uint32_t depth,
+    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition) {
+
+    constexpr auto MAX = std::numeric_limits<float>::max();
+
+    AABBNode *node = new AABBNode();
+
+    for (int i = 0; i < 8; ++i) {
+        if (group_starts[i] < group_starts[i + 1]) {
+            node->aabb_children[i] =
+                partition(group_starts[i], group_starts[i + 1], depth + 1);
+            auto [child_min, child_max] =
+                compute_aabb(group_starts[i], group_starts[i + 1], triangles);
+            node->aabb_low[i] = child_min;
+            node->aabb_high[i] = child_max;
+        } else {
+            node->aabb_children[i] = nullptr;
+            node->aabb_low[i] = {MAX, MAX, MAX};
+            node->aabb_high[i] = {-MAX, -MAX, -MAX};
+        }
+    }
+
+    return new BVH(*node);
+}
+
+BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
+                                      int max_prims_per_leaf,
+                                      int max_tree_depth,
+                                      float traversal_cost = 1.0f,
+                                      float intersection_cost = 15.0f,
+                                      int obb_depth_threshold = 4) {
+
+    constexpr auto MAX = std::numeric_limits<float>::max();
 
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
         assert(depth < max_tree_depth);
         uint32_t count = high - low;
 
+        // Create leaf if below threshold
         if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
             assert(count > 0);
             assert(count < max_prims_per_leaf);
@@ -199,15 +479,9 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         float parent_area = surface_area(aabb_min, aabb_max);
         float leaf_cost = intersection_cost * count;
 
-        bool consider_obb = (depth >= obb_depth_threshold);
-        if (consider_obb) {
-            float tightness = compute_tightness(low, high, triangles);
-            consider_obb = (tightness < 0.7f);
-        }
-
+        // Compute centroid bounds
         float3 centroid_min = triangle_centroid(triangles[low]);
         float3 centroid_max = centroid_min;
-
         for (uint32_t i = low + 1; i < high; ++i) {
             float3 c = triangle_centroid(triangles[i]);
             centroid_min = min(centroid_min, c);
@@ -218,148 +492,42 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         best_split.cost = MAX;
         best_split.use_obb = false;
 
+        // Try AABB-based splits for all axes
         for (int axis = 0; axis < 3; ++axis) {
-            float centroid_min_val = (axis == 0)   ? centroid_min.x
-                                     : (axis == 1) ? centroid_min.y
-                                                   : centroid_min.z;
-            float centroid_max_val = (axis == 0)   ? centroid_max.x
-                                     : (axis == 1) ? centroid_max.y
-                                                   : centroid_max.z;
-            float extent = centroid_max_val - centroid_min_val;
-            if (extent < EPSILON)
-                continue;
+            auto result = evaluate_aabb_split(
+                axis, low, high, triangles, centroid_min, centroid_max,
+                parent_area, traversal_cost, intersection_cost);
 
-            float split_positions[7];
-            for (int i = 0; i < 7; ++i) {
-                split_positions[i] = centroid_min_val + (i + 1) * extent / 8.0f;
-            }
-
-            std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
-            std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
-            std::vector<uint32_t> group_counts(8, 0);
-
-            for (uint32_t i = low; i < high; ++i) {
-                float3 c = triangle_centroid(triangles[i]);
-                float c_val = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
-                int group = 7;
-                for (int j = 0; j < 7; ++j) {
-                    if (c_val < split_positions[j]) {
-                        group = j;
-                        break;
-                    }
-                }
-
-                auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
-                group_mins[group] = min(group_mins[group], tri_min);
-                group_maxs[group] = max(group_maxs[group], tri_max);
-                group_counts[group]++;
-            }
-
-            float split_cost = traversal_cost_aabb * 7;
-            for (int i = 0; i < 8; ++i) {
-                if (group_counts[i] > 0) {
-                    float area = surface_area(group_mins[i], group_maxs[i]);
-                    split_cost += (area / parent_area) * intersection_cost *
-                                  group_counts[i];
-                }
-            }
-
-            if (split_cost < best_split.cost) {
+            if (result.cost < best_split.cost) {
                 best_split.axis = axis;
                 for (int i = 0; i < 7; ++i)
-                    best_split.positions[i] = split_positions[i];
-                best_split.cost = split_cost;
+                    best_split.positions[i] = result.positions[i];
+                best_split.cost = result.cost;
                 best_split.use_obb = false;
             }
         }
 
-        if (consider_obb) {
+        // Try OBB-based splits if at sufficient depth
+        if (depth >= obb_depth_threshold) {
             OBB obb = compute_obb(low, high, triangles);
 
             for (int axis = 0; axis < 3; ++axis) {
-                float3 world_axis = {obb.orientation[axis].x,
-                                     obb.orientation[axis].y,
-                                     obb.orientation[axis].z};
+                auto result = evaluate_obb_split(
+                    axis, low, high, triangles, obb, parent_area,
+                    traversal_cost, intersection_cost);
 
-                float min_proj = MAX, max_proj = -MAX;
-                for (uint32_t i = low; i < high; ++i) {
-                    float3 c = triangle_centroid(triangles[i]);
-                    float proj = dot(c, world_axis);
-                    min_proj = std::min(min_proj, proj);
-                    max_proj = std::max(max_proj, proj);
-                }
-
-                float extent = max_proj - min_proj;
-                if (extent < EPSILON)
-                    continue;
-
-                float split_positions[7];
-                for (int i = 0; i < 7; ++i) {
-                    split_positions[i] = min_proj + (i + 1) * extent / 8.0f;
-                }
-
-                std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
-                std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
-                std::vector<uint32_t> group_counts(8, 0);
-
-                for (uint32_t i = low; i < high; ++i) {
-                    float3 c = triangle_centroid(triangles[i]);
-                    float proj = dot(c, world_axis);
-
-                    int group = 7;
-                    for (int j = 0; j < 7; ++j) {
-                        if (proj < split_positions[j]) {
-                            group = j;
-                            break;
-                        }
-                    }
-
-                    auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
-                    float3 obb_min = {MAX, MAX, MAX};
-                    float3 obb_max = {-MAX, -MAX, -MAX};
-
-                    for (int corner = 0; corner < 8; ++corner) {
-                        float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
-                                    (corner & 2) ? tri_max.y : tri_min.y,
-                                    (corner & 4) ? tri_max.z : tri_min.z};
-                        float3 p_obb = {0.0f, 0.0f, 0.0f};
-                        p_obb.x = dot(p, float3{obb.orientation[0].x,
-                                                obb.orientation[0].y,
-                                                obb.orientation[0].z});
-                        p_obb.y = dot(p, float3{obb.orientation[1].x,
-                                                obb.orientation[1].y,
-                                                obb.orientation[1].z});
-                        p_obb.z = dot(p, float3{obb.orientation[2].x,
-                                                obb.orientation[2].y,
-                                                obb.orientation[2].z});
-                        obb_min = min(obb_min, p_obb);
-                        obb_max = max(obb_max, p_obb);
-                    }
-
-                    group_mins[group] = min(group_mins[group], obb_min);
-                    group_maxs[group] = max(group_maxs[group], obb_max);
-                    group_counts[group]++;
-                }
-
-                float split_cost = traversal_cost_obb * 7;
-                for (int i = 0; i < 8; ++i) {
-                    if (group_counts[i] > 0) {
-                        float area = surface_area(group_mins[i], group_maxs[i]);
-                        split_cost += (area / parent_area) * intersection_cost *
-                                      group_counts[i];
-                    }
-                }
-
-                if (split_cost < best_split.cost) {
+                if (result.cost < best_split.cost) {
                     best_split.axis = axis;
                     for (int i = 0; i < 7; ++i)
-                        best_split.positions[i] = split_positions[i];
-                    best_split.cost = split_cost;
+                        best_split.positions[i] = result.positions[i];
+                    best_split.cost = result.cost;
                     best_split.use_obb = true;
+                    best_split.obb = obb;
                 }
             }
         }
 
+        // Check if splitting is worth it
         if (best_split.cost >= leaf_cost) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             std::copy(triangles.begin() + low, triangles.begin() + high, data);
@@ -369,131 +537,31 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
             });
         }
 
-        std::vector<std::vector<uint32_t>> groups(8);
+        // Partition triangles into groups
+        auto groups = partition_triangles(low, high, triangles, best_split);
 
-        if (best_split.use_obb) {
-            OBB obb = compute_obb(low, high, triangles);
-            float3 world_axis = {obb.orientation[best_split.axis].x,
-                                 obb.orientation[best_split.axis].y,
-                                 obb.orientation[best_split.axis].z};
-
-            for (uint32_t i = low; i < high; ++i) {
-                float3 c = triangle_centroid(triangles[i]);
-                float proj = dot(c, world_axis);
-
-                int group = 0;
-                for (int j = 0; j < 7; ++j) {
-                    if (proj >= best_split.positions[j]) {
-                        group = j + 1;
-                    } else {
-                        break;
-                    }
-                }
-                groups[group].push_back(i);
-            }
-        } else {
-            for (uint32_t i = low; i < high; ++i) {
-                float3 c = triangle_centroid(triangles[i]);
-                float c_val = (best_split.axis == 0)   ? c.x
-                              : (best_split.axis == 1) ? c.y
-                                                       : c.z;
-                int group = 0;
-                for (int j = 0; j < 7; ++j) {
-                    if (c_val >= best_split.positions[j]) {
-                        group = j + 1;
-                    } else {
-                        break;
-                    }
-                }
-                groups[group].push_back(i);
-            }
-        }
-
-        std::vector<Triangle> temp_triangles;
-        temp_triangles.reserve(count);
+        // Reorder triangles based on groups
+        std::vector<Triangle> temporary;
+        temporary.reserve(count);
         std::vector<uint32_t> group_starts(9);
         group_starts[0] = low;
 
         for (int g = 0; g < 8; ++g) {
             for (uint32_t idx : groups[g]) {
-                temp_triangles.push_back(triangles[idx]);
+                temporary.push_back(triangles[idx]);
             }
             group_starts[g + 1] = group_starts[g] + groups[g].size();
         }
 
-        std::copy(temp_triangles.begin(), temp_triangles.end(),
-                  triangles.begin() + low);
+        std::copy(temporary.begin(), temporary.end(), triangles.begin() + low);
 
+        // Build appropriate node type
         if (best_split.use_obb) {
-            OBB parent_obb = compute_obb(low, high, triangles);
-            OBBNode *node = new OBBNode();
-            node->orientation = parent_obb.orientation;
-
-            for (int i = 0; i < 8; ++i) {
-                if (group_starts[i] < group_starts[i + 1]) {
-                    node->obb_children[i] = partition(
-                        group_starts[i], group_starts[i + 1], depth + 1);
-
-                    float3 child_min = {MAX, MAX, MAX};
-                    float3 child_max = {-MAX, -MAX, -MAX};
-
-                    for (uint32_t j = group_starts[i]; j < group_starts[i + 1];
-                         ++j) {
-                        auto [tri_min, tri_max] = triangle_bounds(triangles[j]);
-                        for (int corner = 0; corner < 8; ++corner) {
-                            float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
-                                        (corner & 2) ? tri_max.y : tri_min.y,
-                                        (corner & 4) ? tri_max.z : tri_min.z};
-                            float3 axis_x = {parent_obb.orientation[0].x,
-                                             parent_obb.orientation[0].y,
-                                             parent_obb.orientation[0].z};
-                            float3 axis_y = {parent_obb.orientation[1].x,
-                                             parent_obb.orientation[1].y,
-                                             parent_obb.orientation[1].z};
-                            float3 axis_z = {parent_obb.orientation[2].x,
-                                             parent_obb.orientation[2].y,
-                                             parent_obb.orientation[2].z};
-                            float3 p_obb = {dot(p, axis_x), dot(p, axis_y),
-                                            dot(p, axis_z)};
-                            child_min = min(child_min, p_obb);
-                            child_max = max(child_max, p_obb);
-                        }
-                    }
-
-                    float3 extent = child_max - child_min;
-                    float3 expansion = extent * gamma(3);
-                    child_max = child_max + expansion;
-                    child_min = child_min - expansion;
-
-                    node->obb_low[i] = child_min;
-                    node->obb_high[i] = child_max;
-                } else {
-                    node->obb_children[i] = nullptr;
-                    node->obb_low[i] = {MAX, MAX, MAX};
-                    node->obb_high[i] = {-MAX, -MAX, -MAX};
-                }
-            }
-
-            return new BVH(*node);
+            return build_obb_node(groups, group_starts, triangles,
+                                  best_split.obb, depth, partition);
         } else {
-            AABBNode *node = new AABBNode();
-
-            for (int i = 0; i < 8; ++i) {
-                if (group_starts[i] < group_starts[i + 1]) {
-                    node->aabb_children[i] = partition(
-                        group_starts[i], group_starts[i + 1], depth + 1);
-                    auto [child_min, child_max] = compute_aabb(
-                        group_starts[i], group_starts[i + 1], triangles);
-                    node->aabb_low[i] = child_min;
-                    node->aabb_high[i] = child_max;
-                } else {
-                    node->aabb_children[i] = nullptr;
-                    node->aabb_low[i] = {MAX, MAX, MAX};
-                    node->aabb_high[i] = {-MAX, -MAX, -MAX};
-                }
-            }
-
-            return new BVH(*node);
+            return build_aabb_node(groups, group_starts, triangles, depth,
+                                   partition);
         }
     };
 
@@ -546,12 +614,14 @@ enum class Heuristic {
     MedianSplit = 1,
 };
 
-BVH *build_canonical_tree_8_mixed(
-    std::vector<Triangle> &triangles,
-    Heuristic heuristic = Heuristic::SurfaceArea) {
+BVH *build_canonical_tree_8_mixed(std::vector<Triangle> &triangles,
+                                  Heuristic heuristic = Heuristic::SurfaceArea,
+                                  int max_prims_per_leaf = 8,
+                                  int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
-        return build_canonical_tree_8_mixed_sah(triangles);
+        return build_canonical_tree_8_mixed_sah(triangles, max_prims_per_leaf,
+                                                max_tree_depth);
     case Heuristic::MedianSplit:
         assert(false && "unimplemented");
     }

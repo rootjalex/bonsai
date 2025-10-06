@@ -93,26 +93,22 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                                 int max_prims_per_leaf, int max_tree_depth,
-                                int num_bins = 64, float traversal_cost = 1.0f,
-                                float intersection_cost = 1.5f) {
+                                float traversal_cost = 1.0f,
+                                float intersection_cost = 15.0f) {
     struct Split {
         int axis;
         float position;
         float cost;
-        uint32_t left_count;
     };
+
     constexpr auto MAX = std::numeric_limits<float>::max();
-    struct Bin {
-        float3 min = float3{MAX, MAX, MAX};
-        float3 max = float3{-MAX, -MAX, -MAX};
-        uint32_t count = 0;
-    };
 
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
         assert(depth < max_tree_depth);
         uint32_t count = high - low;
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
+
         if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
             assert(count > 0);
             assert(count < max_prims_per_leaf);
@@ -140,7 +136,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
         }
 
         // Find best split using SAH.
-        Split best_split = {-1, 0.0f, MAX, 0};
+        Split best_split = {-1, 0.0f, MAX};
         float parent_area = surface_area(aabb_min, aabb_max);
         float leaf_cost = intersection_cost * count;
 
@@ -152,77 +148,55 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             if (extent < 1e-6f)
                 continue; // Skip degenerate axis.
 
-            std::vector<Bin> bins(num_bins);
-            float bin_width = extent / num_bins;
-            float inv_bin_width = 1.0f / bin_width;
+            // Simple approach: split at midpoint
+            float axis_min = (axis == 0)   ? centroid_min.x
+                             : (axis == 1) ? centroid_min.y
+                                           : centroid_min.z;
+            float split_position = axis_min + extent / 2.0f;
 
-            // Assign triangles to bins.
+            // Evaluate this split
+            float3 left_min = float3{MAX, MAX, MAX};
+            float3 left_max = float3{-MAX, -MAX, -MAX};
+            uint32_t left_count = 0;
+            float3 right_min = float3{MAX, MAX, MAX};
+            float3 right_max = float3{-MAX, -MAX, -MAX};
+            uint32_t right_count = 0;
+
+            // Assign triangles to left/right and compute bounds
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
-                float centroid_min_axis = (axis == 0)   ? centroid_min.x
-                                          : (axis == 1) ? centroid_min.y
-                                                        : centroid_min.z;
-                int bin_idx =
-                    std::min(num_bins - 1,
-                             static_cast<int>((c_axis - centroid_min_axis) *
-                                              inv_bin_width));
 
                 auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
-                bins[bin_idx].min = min(bins[bin_idx].min, tri_min);
-                bins[bin_idx].max = max(bins[bin_idx].max, tri_max);
-                bins[bin_idx].count++;
+
+                if (c_axis < split_position) {
+                    left_min = min(left_min, tri_min);
+                    left_max = max(left_max, tri_max);
+                    left_count++;
+                } else {
+                    right_min = min(right_min, tri_min);
+                    right_max = max(right_max, tri_max);
+                    right_count++;
+                }
             }
 
-            // Compute prefix sums for efficient SAH evaluation.
-            std::vector<float3> left_min(num_bins), left_max(num_bins);
-            std::vector<uint32_t> left_count(num_bins);
+            // Skip if all triangles end up on one side
+            if (left_count == 0 || right_count == 0)
+                continue;
 
-            left_min[0] = bins[0].min;
-            left_max[0] = bins[0].max;
-            left_count[0] = bins[0].count;
+            // Calculate SAH cost for this split
+            float left_area = surface_area(left_min, left_max);
+            float right_area = surface_area(right_min, right_max);
 
-            for (int i = 1; i < num_bins; ++i) {
-                left_min[i] = min(left_min[i - 1], bins[i].min);
-                left_max[i] = max(left_max[i - 1], bins[i].max);
-                left_count[i] = left_count[i - 1] + bins[i].count;
-            }
+            float cost =
+                traversal_cost +
+                (left_area / parent_area) * intersection_cost * left_count +
+                (right_area / parent_area) * intersection_cost * right_count;
 
-            for (int split = 0; split < num_bins - 1; ++split) {
-                if (left_count[split] == 0 || left_count[split] == count)
-                    continue;
-                float3 right_min = bins[split + 1].min;
-                float3 right_max = bins[split + 1].max;
-                uint32_t right_count = bins[split + 1].count;
-
-                for (int i = split + 2; i < num_bins; ++i) {
-                    if (bins[i].count > 0) {
-                        right_min = min(right_min, bins[i].min);
-                        right_max = max(right_max, bins[i].max);
-                        right_count += bins[i].count;
-                    }
-                }
-
-                float left_area =
-                    surface_area(left_min[split], left_max[split]);
-                float right_area = surface_area(right_min, right_max);
-
-                float cost = traversal_cost +
-                             (left_area / parent_area) * intersection_cost *
-                                 left_count[split] +
-                             (right_area / parent_area) * intersection_cost *
-                                 right_count;
-
-                if (cost < best_split.cost) {
-                    best_split.axis = axis;
-                    float centroid_min_axis = (axis == 0)   ? centroid_min.x
-                                              : (axis == 1) ? centroid_min.y
-                                                            : centroid_min.z;
-                    best_split.position =
-                        centroid_min_axis + (split + 1) * bin_width;
-                    best_split.cost = cost;
-                    best_split.left_count = left_count[split];
-                }
+            if (cost < best_split.cost) {
+                best_split.axis = axis;
+                best_split.position = split_position;
+                best_split.cost = cost;
             }
         }
 
