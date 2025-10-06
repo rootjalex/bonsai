@@ -1998,8 +1998,8 @@ __forceinline__ __host__ __device__ T slice(int M, int N, T value) {
     return (value >> M) & mask;
 }
 
-__forceinline__ __host__ inline int frexpf(float f) {
+__forceinline__ __host__ int frexpf(float f) {
     int x;
-    std::frexpf(f, &x);
+    frexpf(f, &x);
     return x;
 }
