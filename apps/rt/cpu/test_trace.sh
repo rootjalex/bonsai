@@ -55,8 +55,7 @@ FREDWOOD_FLAG="numactl --physcpubind 0-15"
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=2
-  OBJECTS=("${OBJECTS[0]}")
+  N=1
 fi
 
 # Override for debug mode

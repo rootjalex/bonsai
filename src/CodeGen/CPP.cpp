@@ -35,6 +35,9 @@ namespace bonsai {
 namespace codegen {
 namespace {
 
+// TODO(cgyurgyik): (For gathering memory utilization)
+static constexpr bool PRINT_MEMORY_UTILIZATION = false;
+
 void capitalize_first(std::string &name) {
     if (!name.empty() && std::isalpha(name.front())) {
         name.front() = std::toupper(name.front());
@@ -1180,6 +1183,18 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const IfElse *) override;
     // void visit(const Sequence *) override;
 
+    void print_utilization(const std::string &name, const ir::Type &type,
+                           const ir::Expr &size) {
+        ss << get_indent() << "std::cout << \";; " << name << ": \" << ";
+        ss << "sizeof(";
+        emit_type(ss, type);
+        ss << ") << ";
+        ss << " \",\" << ";
+        size.accept(this);
+        ss << "<< \"\\n\"";
+        ss << ";\n";
+    }
+
     void visit(const Allocate *node) override {
         if (node->memory == ir::Allocate::Memory::Global) {
             return; // handled in prologue
@@ -1244,6 +1259,11 @@ class BonsaiToCpp : ir::Printer {
                     ss << *alignment << ") * ";
                     ss << *alignment << ")";
                     ss << ");\n";
+                    if constexpr (PRINT_MEMORY_UTILIZATION) {
+                        print_utilization(node->loc.base(),
+                                          base_type.element_of(),
+                                          base_type.size());
+                    }
                     return;
                 }
                 ss << "malloc(";
@@ -1252,6 +1272,13 @@ class BonsaiToCpp : ir::Printer {
                 ss << ") * ";
                 base_type.size().accept(this);
                 ss << "));\n";
+                if constexpr (PRINT_MEMORY_UTILIZATION) {
+                    if constexpr (PRINT_MEMORY_UTILIZATION) {
+                        print_utilization(node->loc.base(),
+                                          base_type.element_of(),
+                                          base_type.size());
+                    }
+                }
                 return;
             }
             break;

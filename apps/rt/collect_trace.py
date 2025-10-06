@@ -147,6 +147,87 @@ def format_ray_count(ray_count):
     return f"{ray_count:,}"
 
 
+def parse_layout_memory_and_nodes(data_text):
+    """
+    Parse layout data to extract memory utilization and node counts per model.
+
+    Returns:
+        dict: {model: {layout: {'memory': int, 'nodes': {node_type: count}}}}
+    """
+    lines = data_text.strip().split('\n')
+
+    # Structure: model -> layout -> {'memory': int, 'nodes': {node_type: count}}
+    data = defaultdict(lambda: defaultdict(lambda: {'memory': 0, 'nodes': {}}))
+
+    current_model = None
+    current_layout = None
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Skip empty lines and separator
+        if not line or line == '---':
+            i += 1
+            continue
+
+        # Check if it's a model name (no commas, no colons, not a number, not starting with ;;)
+        if (',' not in line and ':' not in line and not line.isdigit()
+                and not line.startswith(';;') and not line.startswith('./')):
+            current_model = line
+            current_layout = None
+            i += 1
+            continue
+
+        # Check if it's a configuration line (rt, cpu, layout)
+        if line.startswith('rt, cpu,'):
+            parts = [part.strip() for part in line.split(',')]
+            if len(parts) >= 3:
+                current_layout = parts[2]
+                # Reset for new layout
+                if current_model and current_layout:
+                    data[current_model][current_layout] = {
+                        'memory': 0, 'nodes': {}}
+            i += 1
+            continue
+
+        # Check if it's a node definition line
+        if line.startswith(';;') and current_model and current_layout:
+            # Parse node line: ";; node_type: size,count"
+            match = re.match(r';;\s*(\S+):\s*(\d+),(\d+)', line)
+            if match:
+                node_type = match.group(1)
+                size = int(match.group(2))
+                count = int(match.group(3))
+
+                # Store node count
+                data[current_model][current_layout]['nodes'][node_type] = count
+
+                # Add to memory utilization (exclude primitives)
+                if node_type != 'primitives':
+                    data[current_model][current_layout]['memory'] += size * count
+
+            i += 1
+            continue
+
+        # Skip other lines (ray counts, hits, trace time)
+        i += 1
+
+    # Convert defaultdict to regular dict for cleaner output
+    result = {}
+    for model in data:
+        result[model] = {}
+        for layout in data[model]:
+            if data[model][layout]['memory'] == 0:
+                continue
+            result[model][layout] = {
+                'memory': data[model][layout]['memory'],
+                'nodes': dict(data[model][layout]['nodes'])
+            }
+
+    return result
+
+
 def create_scaling_plots(data, machine_type, output_path, baseline_layout, method='arithmetic'):
     """Create speedup plots comparing layouts to baseline."""
     models = sorted(data.keys())
@@ -235,64 +316,207 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
     plt.close()
 
 
-def check_hits_consistency(data_text):
+def plot_pareto_raw(processed_data, memory_data, ray_count=None, output_path='.'):
     """
-    Parse the raw data text and aggregate 'hits' per ray count.
-    Reports any ray count where hits differ by more than 1 across runs/layouts.
+    Plot Pareto frontier of trace time vs memory utilization for each model separately.
     """
-    lines = data_text.strip().split('\n')
-    current_model = None
-    current_layout = None
-    current_ray_count = None
-    # model -> ray_count -> [hits]
-    hits_data = defaultdict(lambda: defaultdict(list))
+    import os
+    results_dir = os.path.dirname(
+        output_path) if os.path.dirname(output_path) else '.'
+    os.makedirs(results_dir, exist_ok=True)
 
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if not line:
-            i += 1
+    all_results = {}
+
+    for model in sorted(processed_data.keys()):
+        print(f"\nProcessing Pareto frontier for model: {model}")
+
+        points = []
+        labels = []
+        point_metadata = []
+
+        # Collect data points for all layouts in this model
+        for layout in processed_data[model]:
+            # Get trace time
+            if ray_count is not None:
+                if ray_count not in processed_data[model][layout]:
+                    continue
+                avg_time = processed_data[model][layout][ray_count]
+            else:
+                times = [t for t in processed_data[model]
+                         [layout].values() if t > 0]
+                if not times:
+                    continue
+                avg_time = math.exp(sum(math.log(t)
+                                    for t in times) / len(times))
+
+            # Get memory utilization
+            if model not in memory_data or layout not in memory_data[model]:
+                print(
+                    f"Warning: Memory data not found for model '{model}', layout '{layout}'")
+                continue
+
+            memory = memory_data[model][layout]['memory']
+
+            if avg_time > 0 and memory > 0:
+                points.append((memory, avg_time))
+                labels.append(layout)
+                point_metadata.append({
+                    'model': model,
+                    'layout': layout,
+                    'memory': memory,
+                    'time': avg_time
+                })
+
+        if len(points) == 0:
+            print(f"Error: No valid data points to plot for model '{model}'.")
             continue
 
-        if ',' not in line and ':' not in line and not line.isdigit() and line != '---':
-            current_model = line
-            current_layout = None
-            i += 1
-            continue
+        points = np.array(points)
+        x = points[:, 0]  # memory
+        y = points[:, 1]  # time (ms)
 
-        if ',' in line:
-            config_parts = [part.strip() for part in line.split(',')]
-            if len(config_parts) >= 3:
-                current_layout = config_parts[2]
-            i += 1
-            continue
+        # Compute Pareto frontier for this model
+        # Lower memory AND lower time is better
+        # A point dominates another if it has (lower/equal memory AND lower/equal time)
+        # with at least one strictly better
+        is_pareto = np.ones(len(points), dtype=bool)
+        for i in range(len(points)):
+            if not is_pareto[i]:
+                continue
+            for j in range(len(points)):
+                if i == j:
+                    continue
+                # Point j dominates point i if it has lower/equal memory and lower/equal time
+                if (points[j, 0] <= points[i, 0] and points[j, 1] <= points[i, 1] and
+                        (points[j, 0] < points[i, 0] or points[j, 1] < points[i, 1])):
+                    is_pareto[i] = False
+                    break
 
-        if line.isdigit():
-            current_ray_count = int(line)
-            i += 1
-            continue
+        # Create matplotlib figure for this model
+        fig, ax = plt.subplots(figsize=(14, 10))
 
-        if 'hits' in line.lower():
-            match = re.search(r'(\d+)', line)
-            if match and current_model and current_ray_count is not None:
-                hits = int(match.group(1))
-                hits_data[current_model][current_ray_count].append(hits)
-            i += 1
-            continue
+        # Plot dominated points
+        if np.any(~is_pareto):
+            ax.scatter(x[~is_pareto], y[~is_pareto],
+                       c='lightgray', s=100, alpha=0.6,
+                       label='Dominated Configurations',
+                       zorder=1, marker='o')
 
-        i += 1
+        # Plot Pareto frontier points
+        ax.scatter(x[is_pareto], y[is_pareto],
+                   c='#A23B72', s=200,
+                   edgecolors='black', linewidth=2.5,
+                   label='Pareto Frontier',
+                   zorder=3, marker='o')
 
-    # Aggregate and check consistency per run
-    for model, ray in hits_data.items():
-        print(f"model: {model}")
-        for ray_count, hits_list in sorted(ray.items()):
-            first_run = hits_list[0]  # Take the first run as reference
+        # Sort Pareto points by memory for connecting line
+        pareto_indices = np.where(is_pareto)[0]
+        dominated_indices = np.where(~is_pareto)[0]
+        pareto_sorted = sorted(pareto_indices, key=lambda i: x[i])
 
-            # Check each run individually against reference
-            for run_idx, hits in enumerate(hits_list[1:], start=1):
-                if abs(hits - first_run) > 0:  # outside ±1
-                    print(
-                        f"  [WARNING] ray count {ray_count}, run {run_idx+1}: {hits} (first run: {first_run})")
+        # Draw line connecting Pareto points
+        if len(pareto_sorted) > 1:
+            pareto_x = [x[i] for i in pareto_sorted]
+            pareto_y = [y[i] for i in pareto_sorted]
+            ax.plot(pareto_x, pareto_y,
+                    'k--', alpha=0.4, linewidth=2,
+                    zorder=2)
+
+        # Annotate all Pareto frontier points with layout names
+        for i in pareto_indices:
+            layout_name = labels[i].upper()
+
+            # Add text annotation with background box
+            ax.annotate(layout_name,
+                        xy=(x[i], y[i]),
+                        textcoords="offset points",
+                        xytext=(0, 15),
+                        ha='center',
+                        fontsize=10,
+                        fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.5',
+                                  facecolor='yellow',
+                                  alpha=0.8,
+                                  edgecolor='black',
+                                  linewidth=1.5),
+                        zorder=4)
+
+        # Annotate all dominated points with layout names
+        for i in dominated_indices:
+            layout_name = labels[i].upper()
+
+            # Add text annotation with lighter background box
+            ax.annotate(layout_name,
+                        xy=(x[i], y[i]),
+                        textcoords="offset points",
+                        xytext=(0, 15),
+                        ha='center',
+                        fontsize=9,
+                        fontweight='normal',
+                        bbox=dict(boxstyle='round,pad=0.4',
+                                  facecolor='lightgray',
+                                  alpha=0.6,
+                                  edgecolor='gray',
+                                  linewidth=1),
+                        zorder=2)
+
+        # Set axis labels
+        ax.set_xlabel("Memory Utilization (bytes, excluding primitives)",
+                      fontsize=13, fontweight='bold')
+        ax.set_ylabel("Trace Time (ms)",
+                      fontsize=13, fontweight='bold')
+
+        # Set title
+        title = f"{model.title()} - Trace Time vs Memory (Pareto Frontier)"
+        if ray_count is not None:
+            title += f"\nRay Count: {ray_count}"
+        else:
+            title += "\nGeometric Mean Across All Ray Counts"
+        ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+
+        # Add grid
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
+
+        # Add legend
+        ax.legend(fontsize=12, loc='best', framealpha=0.9)
+
+        # Format x-axis with commas for large numbers
+        ax.ticklabel_format(style='plain', axis='x')
+        ax.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+
+        # Adjust layout
+        plt.tight_layout()
+
+        # Save the plot
+        output_path = os.path.dirname(
+            output_path) if os.path.dirname(output_path) else '.'
+        os.makedirs(output_path, exist_ok=True)
+        if ray_count is not None:
+            output_path = os.path.join(
+                output_path, f'pareto_time_{model}_rc{ray_count}.png')
+        else:
+            output_path = os.path.join(
+                output_path, f'pareto_time_{model}_geomean.png')
+
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"  Saved: {output_path}")
+        plt.close()
+
+        # Store results for this model
+        pareto_points = []
+        for i in pareto_indices:
+            pareto_points.append(point_metadata[i])
+
+        pareto_points.sort(key=lambda p: p['memory'])
+
+        all_results[model] = {
+            'pareto_points': pareto_points,
+            'total_points': len(points),
+            'pareto_count': len(pareto_indices)
+        }
+
+    return all_results
 
 
 if __name__ == "__main__":
@@ -319,7 +543,6 @@ if __name__ == "__main__":
 
     # Parse and process data
     raw_data, machine_type = parse_trace_scaling_data(data_text)
-    check_hits_consistency(data_text=data_text)
     processed_data = process_trace_data(raw_data, blacklist, method)
 
     # Print summary with details about runs per configuration
@@ -339,6 +562,17 @@ if __name__ == "__main__":
                 n_runs = len(raw_data[model][layout][first_ray_count])
                 print(f"    {layout}: {n_runs} runs per ray count")
 
+    # Generate pareto
+    # parse_layout_memory_and_nodes(data_text))
+    memory_utilization = {
+        'white-oak': {'eb-align32': {'memory': 670464, 'nodes': {'primitives': 36760, 'aabbs': 2619, 'obbs': 0}}, 'eb': {'memory': 670464, 'nodes': {'primitives': 36760, 'aabbs': 2619, 'obbs': 0}}, 'ebq-align32': {'memory': 670464, 'nodes': {'primitives': 36760, 'aabbs': 2619, 'obbs': 0}}, 'ebq-cl-align32': {'memory': 419040, 'nodes': {'primitives': 36760, 'aabbs': 2619, 'obbs': 0}}, 'ebq-cl': {'memory': 356184, 'nodes': {'primitives': 36760, 'aabbs': 2619, 'obbs': 0}}, 'bvh8-align32': {'memory': 670464, 'nodes': {'primitives': 36760, 'interiors': 2619}}, 'bvh8': {'memory': 670464, 'nodes': {'primitives': 36760, 'interiors': 2619}}, 'cl-bvh8-align32': {'memory': 419040, 'nodes': {'primitives': 36760, 'interiors': 2619}}, 'cl-bvh8': {'memory': 356184, 'nodes': {'primitives': 36760, 'interiors': 2619}}, 'eq': {'memory': 94428, 'nodes': {'primitives': 36760, 'nodes': 7869}}, 'pbrt-align16': {'memory': 251808, 'nodes': {'primitives': 36760, 'nodes': 7869}}, 'pbrt-align32': {'memory': 251808, 'nodes': {'primitives': 36760, 'nodes': 7869}}, 'pbrt': {'memory': 251808, 'nodes': {'primitives': 36760, 'nodes': 7869}}, 'soa-align16': {'memory': 377712, 'nodes': {'primitives': 36760, 'aabbs': 7869, 'nodes': 7869}}, 'soa-align32': {'memory': 503616, 'nodes': {'primitives': 36760, 'aabbs': 7869, 'nodes': 7869}}, 'soa': {'memory': 251808, 'nodes': {'primitives': 36760, 'aabbs': 7869, 'nodes': 7869}}},
+        'power-plant': {'eb-align32': {'memory': 248223040, 'nodes': {'primitives': 12759246, 'aabbs': 969430, 'obbs': 153}}, 'eb': {'memory': 248220592, 'nodes': {'primitives': 12759246, 'aabbs': 969430, 'obbs': 153}}, 'ebq-align32': {'memory': 248198560, 'nodes': {'primitives': 12759246, 'aabbs': 969430, 'obbs': 153}}, 'ebq-cl-align32': {'memory': 155133280, 'nodes': {'primitives': 12759246, 'aabbs': 969430, 'obbs': 153}}, 'ebq-cl': {'memory': 131865124, 'nodes': {'primitives': 12759246, 'aabbs': 969430, 'obbs': 153}}, 'bvh8-align32': {'memory': 248230656, 'nodes': {'primitives': 12759246, 'interiors': 969651}}, 'bvh8': {'memory': 248230656, 'nodes': {'primitives': 12759246, 'interiors': 969651}}, 'cl-bvh8-align32': {'memory': 155144160, 'nodes': {'primitives': 12759246, 'interiors': 969651}}, 'cl-bvh8': {'memory': 131872536, 'nodes': {'primitives': 12759246, 'interiors': 969651}}, 'eq': {'memory': 32525292, 'nodes': {'primitives': 12759246, 'nodes': 2710441}}, 'pbrt-align16': {'memory': 86734112, 'nodes': {'primitives': 12759246, 'nodes': 2710441}}, 'pbrt-align32': {'memory': 86734112, 'nodes': {'primitives': 12759246, 'nodes': 2710441}}, 'pbrt': {'memory': 86734112, 'nodes': {'primitives': 12759246, 'nodes': 2710441}}, 'soa-align16': {'memory': 130101168, 'nodes': {'primitives': 12759246, 'aabbs': 2710441, 'nodes': 2710441}}, 'soa-align32': {'memory': 173468224, 'nodes': {'primitives': 12759246, 'aabbs': 2710441, 'nodes': 2710441}}, 'soa': {'memory': 86734112, 'nodes': {'primitives': 12759246, 'aabbs': 2710441, 'nodes': 2710441}}},
+        'hairball': {'eb-align32': {'memory': 46909632, 'nodes': {'primitives': 2880000, 'aabbs': 183232, 'obbs': 7}}, 'eb': {'memory': 46909520, 'nodes': {'primitives': 2880000, 'aabbs': 183232, 'obbs': 7}}, 'ebq-align32': {'memory': 46908512, 'nodes': {'primitives': 2880000, 'aabbs': 183232, 'obbs': 7}}, 'ebq-cl-align32': {'memory': 29318240, 'nodes': {'primitives': 2880000, 'aabbs': 183232, 'obbs': 7}}, 'ebq-cl': {'memory': 24920588, 'nodes': {'primitives': 2880000, 'aabbs': 183232, 'obbs': 7}}, 'bvh8-align32': {'memory': 46909952, 'nodes': {'primitives': 2880000, 'interiors': 183242}}, 'bvh8': {'memory': 46909952, 'nodes': {'primitives': 2880000, 'interiors': 183242}}, 'cl-bvh8-align32': {'memory': 29318720, 'nodes': {'primitives': 2880000, 'interiors': 183242}}, 'cl-bvh8': {'memory': 24920912, 'nodes': {'primitives': 2880000, 'interiors': 183242}}, 'eq': {'memory': 7323972, 'nodes': {'primitives': 2880000, 'nodes': 610331}}, 'pbrt-align16': {'memory': 19530592, 'nodes': {'primitives': 2880000, 'nodes': 610331}}, 'pbrt-align32': {'memory': 19530592, 'nodes': {'primitives': 2880000, 'nodes': 610331}}, 'pbrt': {'memory': 19530592, 'nodes': {'primitives': 2880000, 'nodes': 610331}}, 'soa-align16': {'memory': 29295888, 'nodes': {'primitives': 2880000, 'aabbs': 610331, 'nodes': 610331}}, 'soa-align32': {'memory': 39061184, 'nodes': {'primitives': 2880000, 'aabbs': 610331, 'nodes': 610331}}, 'soa': {'memory': 19530592, 'nodes': {'primitives': 2880000, 'aabbs': 610331, 'nodes': 610331}}},
+        'sponza': {'eb-align32': {'memory': 4855360, 'nodes': {'primitives': 262267, 'aabbs': 18965, 'obbs': 1}}, 'eb': {'memory': 4855344, 'nodes': {'primitives': 262267, 'aabbs': 18965, 'obbs': 1}}, 'ebq-align32': {'memory': 4855200, 'nodes': {'primitives': 262267, 'aabbs': 18965, 'obbs': 1}}, 'ebq-cl-align32': {'memory': 3034560, 'nodes': {'primitives': 262267, 'aabbs': 18965, 'obbs': 1}}, 'ebq-cl': {'memory': 2579388, 'nodes': {'primitives': 262267, 'aabbs': 18965, 'obbs': 1}}, 'bvh8-align32': {'memory': 4855296, 'nodes': {'primitives': 262267, 'interiors': 18966}}, 'bvh8': {'memory': 4855296, 'nodes': {'primitives': 262267, 'interiors': 18966}}, 'cl-bvh8-align32': {'memory': 3034560, 'nodes': {'primitives': 262267, 'interiors': 18966}}, 'cl-bvh8': {'memory': 2579376, 'nodes': {'primitives': 262267, 'interiors': 18966}}, 'eq': {'memory': 658140, 'nodes': {'primitives': 262267, 'nodes': 54845}}, 'pbrt-align16': {'memory': 1755040, 'nodes': {'primitives': 262267, 'nodes': 54845}}, 'pbrt-align32': {'memory': 1755040, 'nodes': {'primitives': 262267, 'nodes': 54845}}, 'pbrt': {'memory': 1755040, 'nodes': {'primitives': 262267, 'nodes': 54845}}, 'soa-align16': {'memory': 2632560, 'nodes': {'primitives': 262267, 'aabbs': 54845, 'nodes': 54845}}, 'soa-align32': {'memory': 3510080, 'nodes': {'primitives': 262267, 'aabbs': 54845, 'nodes': 54845}}, 'soa': {'memory': 1755040, 'nodes': {'primitives': 262267, 'aabbs': 54845, 'nodes': 54845}}}
+    }
+    # plot_pareto_speedup(processed_data, memory_utilization, baseline_layout)
+    ray_count = None
+    plot_pareto_raw(processed_data, memory_utilization, ray_count, filename)
     # Generate outputs
     create_scaling_plots(processed_data, machine_type,
                          filename, baseline_layout, method)
