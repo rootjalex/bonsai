@@ -15,7 +15,14 @@ struct vector {
     static_assert(std::is_trivially_copyable_v<T>,
                   "T must be trivially copyable");
 
-    T data[N] = {}; // Zero-initialize
+    union {
+        T data[N];
+        struct {
+            T x;
+            T y;
+            T z;
+        };
+    };
 
     // Allow initialization from a single scalar value
     explicit vector(const T &value) {

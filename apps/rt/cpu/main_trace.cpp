@@ -1,5 +1,4 @@
 #include "bonsai_cpp.h"
-#include "canonical_tree_$N$.h"
 #include "rt.h"
 #include "util.h"
 #include <omp.h>
@@ -13,6 +12,9 @@
 #include <vector>
 
 namespace {
+
+// (do not touch)
+// AUTO-GENERATED canonical_tree
 
 std::vector<Triangle> load_obj(const std::string &object) {
     std::filesystem::path current_path = std::filesystem::current_path();

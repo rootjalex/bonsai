@@ -137,10 +137,15 @@ void emit_type(std::ostream &ss, Type type) {
         }
 
         void visit(const Vector_t *node) override {
-            ss << "vec" << node->lanes << "_";
             // TODO: this breaks on vectors of ptrs.
             internal_assert(!contains<Ptr_t>(node->etype));
+            if (node->etype.is<Vector_t>()) {
+                node->etype.accept(this);
+                ss << "x" << node->lanes;
+                return;
+            }
             node->etype.accept(this);
+            ss << node->lanes;
         }
 
         void visit(const Struct_t *node) override {

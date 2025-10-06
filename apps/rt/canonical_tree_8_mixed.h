@@ -1,57 +1,48 @@
-#pragma once
-
-#include "cpu/rt.h"
-
-#include <cstdint>
-#include <limits>
-#include <vector>
-
 constexpr float gamma(int n) {
     constexpr float E = std::numeric_limits<float>::epsilon() * 0.5f;
     return (n * E) / (1.0f - n * E);
 }
 
-std::pair<vec3_float, vec3_float>
-compute_aabb(uint32_t low, uint32_t high,
-             const std::vector<Triangle> &triangles) {
+std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
+                                       const std::vector<Triangle> &triangles) {
     Triangle tri = triangles[low];
-    vec3_float aabb_min = tri.p0;
-    vec3_float aabb_max = tri.p0;
+    float3 aabb_min = tri.p0;
+    float3 aabb_max = tri.p0;
     for (uint32_t i = low; i < high; ++i) {
         Triangle t = triangles[i];
-        for (vec3_float v : {t.p0, t.p1, t.p2}) {
+        for (float3 v : {t.p0, t.p1, t.p2}) {
             aabb_min = min(aabb_min, v);
             aabb_max = max(aabb_max, v);
         }
     }
-    vec3_float extent = aabb_max - aabb_min;
-    vec3_float expansion = extent * gamma(3);
+    float3 extent = aabb_max - aabb_min;
+    float3 expansion = extent * gamma(3);
     aabb_max = aabb_max + expansion;
     aabb_min = aabb_min - expansion;
     return {aabb_min, aabb_max};
 }
 
-float surface_area(const vec3_float &min, const vec3_float &max) {
-    vec3_float extent = max - min;
-    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
-                   extent[1] * extent[2]);
+float surface_area(const float3 &min, const float3 &max) {
+    float3 extent = max - min;
+    return 2.0f *
+           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
 }
 
-vec3_float triangle_centroid(const Triangle &tri) {
+float3 triangle_centroid(const Triangle &tri) {
     return (tri.p0 + tri.p1 + tri.p2) * (1.0f / 3.0f);
 }
 
-std::pair<vec3_float, vec3_float> triangle_bounds(const Triangle &tri) {
-    vec3_float min_ = min(min(tri.p0, tri.p1), tri.p2);
-    vec3_float max_ = max(max(tri.p0, tri.p1), tri.p2);
-    vec3_float extent = max_ - min_;
+std::pair<float3, float3> triangle_bounds(const Triangle &tri) {
+    float3 min_ = min(min(tri.p0, tri.p1), tri.p2);
+    float3 max_ = max(max(tri.p0, tri.p1), tri.p2);
+    float3 extent = max_ - min_;
     max_ = max_ + extent * gamma(3);
     return {min_, max_};
 }
 
 OBB compute_obb(uint32_t low, uint32_t high,
                 const std::vector<Triangle> &tris) {
-    vec3_float centroid = {0.0f, 0.0f, 0.0f};
+    float3 centroid = {0.0f, 0.0f, 0.0f};
     for (uint32_t i = low; i < high; ++i) {
         centroid = centroid + triangle_centroid(tris[i]);
     }
@@ -59,83 +50,85 @@ OBB compute_obb(uint32_t low, uint32_t high,
 
     float cov[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     for (uint32_t i = low; i < high; ++i) {
-        vec3_float c = triangle_centroid(tris[i]) - centroid;
-        for (int j = 0; j < 3; ++j) {
-            for (int k = 0; k < 3; ++k) {
-                cov[j][k] += c[j] * c[k];
-            }
-        }
+        float3 c = triangle_centroid(tris[i]) - centroid;
+        cov[0][0] += c.x * c.x;
+        cov[0][1] += c.x * c.y;
+        cov[0][2] += c.x * c.z;
+        cov[1][0] += c.y * c.x;
+        cov[1][1] += c.y * c.y;
+        cov[1][2] += c.y * c.z;
+        cov[2][0] += c.z * c.x;
+        cov[2][1] += c.z * c.y;
+        cov[2][2] += c.z * c.z;
     }
 
-    vec3_float v = {1.0f, 0.0f, 0.0f};
+    float3 v = {1.0f, 0.0f, 0.0f};
     for (int iter = 0; iter < 10; ++iter) {
-        vec3_float v_new = {0.0f, 0.0f, 0.0f};
-        for (int i = 0; i < 3; ++i) {
-            for (int j = 0; j < 3; ++j) {
-                v_new[i] += cov[i][j] * v[j];
-            }
-        }
-        float len = sqrt(v_new[0] * v_new[0] + v_new[1] * v_new[1] +
-                         v_new[2] * v_new[2]);
+        float3 v_new = {0.0f, 0.0f, 0.0f};
+        v_new.x = cov[0][0] * v.x + cov[0][1] * v.y + cov[0][2] * v.z;
+        v_new.y = cov[1][0] * v.x + cov[1][1] * v.y + cov[1][2] * v.z;
+        v_new.z = cov[2][0] * v.x + cov[2][1] * v.y + cov[2][2] * v.z;
+
+        float len =
+            sqrt(v_new.x * v_new.x + v_new.y * v_new.y + v_new.z * v_new.z);
         if (len > 1e-6f) {
             v = v_new / len;
         }
     }
 
-    vec3_float x_axis = v;
-    vec3_float y_axis = {-v[1], v[0], 0.0f};
-    float y_len = sqrt(y_axis[0] * y_axis[0] + y_axis[1] * y_axis[1]);
+    float3 x_axis = v;
+    float3 y_axis = {-v.y, v.x, 0.0f};
+    float y_len = sqrt(y_axis.x * y_axis.x + y_axis.y * y_axis.y);
     if (y_len < 1e-6f) {
         y_axis = {0.0f, 1.0f, 0.0f};
     } else {
         y_axis = y_axis / y_len;
     }
-    vec3_float z_axis = cross(x_axis, y_axis);
-    float z_len = sqrt(z_axis[0] * z_axis[0] + z_axis[1] * z_axis[1] +
-                       z_axis[2] * z_axis[2]);
+    float3 z_axis = cross(x_axis, y_axis);
+    float z_len =
+        sqrt(z_axis.x * z_axis.x + z_axis.y * z_axis.y + z_axis.z * z_axis.z);
     if (z_len > 1e-6f) {
         z_axis = z_axis / z_len;
     }
 
-    vec3_vec4_float orientation;
-    orientation[0] = {x_axis[0], x_axis[1], x_axis[2], 0.0f};
-    orientation[1] = {y_axis[0], y_axis[1], y_axis[2], 0.0f};
-    orientation[2] = {z_axis[0], z_axis[1], z_axis[2], 0.0f};
+    float4x3 orientation;
+    orientation[0] = {x_axis.x, x_axis.y, x_axis.z, 0.0f};
+    orientation[1] = {y_axis.x, y_axis.y, y_axis.z, 0.0f};
+    orientation[2] = {z_axis.x, z_axis.y, z_axis.z, 0.0f};
 
     constexpr auto MAX = std::numeric_limits<float>::max();
-    vec3_float obb_min = {MAX, MAX, MAX};
-    vec3_float obb_max = {-MAX, -MAX, -MAX};
+    float3 obb_min = {MAX, MAX, MAX};
+    float3 obb_max = {-MAX, -MAX, -MAX};
 
     for (uint32_t i = low; i < high; ++i) {
         auto [tri_min, tri_max] = triangle_bounds(tris[i]);
         for (int corner = 0; corner < 8; ++corner) {
-            vec3_float p = {(corner & 1) ? tri_max[0] : tri_min[0],
-                            (corner & 2) ? tri_max[1] : tri_min[1],
-                            (corner & 4) ? tri_max[2] : tri_min[2]};
-            vec3_float p_obb = {dot(x_axis, p), dot(y_axis, p), dot(z_axis, p)};
+            float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
+                        (corner & 2) ? tri_max.y : tri_min.y,
+                        (corner & 4) ? tri_max.z : tri_min.z};
+            float3 p_obb = {dot(x_axis, p), dot(y_axis, p), dot(z_axis, p)};
             obb_min = min(obb_min, p_obb);
             obb_max = max(obb_max, p_obb);
         }
     }
 
-    vec3_float extent = obb_max - obb_min;
+    float3 extent = obb_max - obb_min;
     obb_max = obb_max + extent * gamma(3);
     obb_min = obb_min - extent * gamma(3);
 
     return OBB{obb_min, obb_max, orientation};
-};
+}
 
 float compute_tightness(uint32_t low, uint32_t high,
                         const std::vector<Triangle> &tris) {
     auto [aabb_min, aabb_max] = compute_aabb(low, high, tris);
-    float aabb_volume = (aabb_max[0] - aabb_min[0]) *
-                        (aabb_max[1] - aabb_min[1]) *
-                        (aabb_max[2] - aabb_min[2]);
+    float aabb_volume = (aabb_max.x - aabb_min.x) * (aabb_max.y - aabb_min.y) *
+                        (aabb_max.z - aabb_min.z);
 
     if (aabb_volume < 1e-6f)
         return 1.0f;
 
-    vec3_float centroid = {0.0f, 0.0f, 0.0f};
+    float3 centroid = {0.0f, 0.0f, 0.0f};
     for (uint32_t i = low; i < high; ++i) {
         centroid = centroid + triangle_centroid(tris[i]);
     }
@@ -143,12 +136,16 @@ float compute_tightness(uint32_t low, uint32_t high,
 
     float cov[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     for (uint32_t i = low; i < high; ++i) {
-        vec3_float c = triangle_centroid(tris[i]) - centroid;
-        for (int j = 0; j < 3; ++j) {
-            for (int k = 0; k < 3; ++k) {
-                cov[j][k] += c[j] * c[k];
-            }
-        }
+        float3 c = triangle_centroid(tris[i]) - centroid;
+        cov[0][0] += c.x * c.x;
+        cov[0][1] += c.x * c.y;
+        cov[0][2] += c.x * c.z;
+        cov[1][0] += c.y * c.x;
+        cov[1][1] += c.y * c.y;
+        cov[1][2] += c.y * c.z;
+        cov[2][0] += c.z * c.x;
+        cov[2][1] += c.z * c.y;
+        cov[2][2] += c.z * c.z;
     }
 
     float trace = cov[0][0] + cov[1][1] + cov[2][2];
@@ -201,11 +198,11 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
             consider_obb = (tightness < 0.7f);
         }
 
-        vec3_float centroid_min = triangle_centroid(triangles[low]);
-        vec3_float centroid_max = centroid_min;
+        float3 centroid_min = triangle_centroid(triangles[low]);
+        float3 centroid_max = centroid_min;
 
         for (uint32_t i = low + 1; i < high; ++i) {
-            vec3_float c = triangle_centroid(triangles[i]);
+            float3 c = triangle_centroid(triangles[i]);
             centroid_min = min(centroid_min, c);
             centroid_max = max(centroid_max, c);
         }
@@ -215,25 +212,31 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         best_split.use_obb = false;
 
         for (int axis = 0; axis < 3; ++axis) {
-            float extent = centroid_max[axis] - centroid_min[axis];
+            float centroid_min_val = (axis == 0)   ? centroid_min.x
+                                     : (axis == 1) ? centroid_min.y
+                                                   : centroid_min.z;
+            float centroid_max_val = (axis == 0)   ? centroid_max.x
+                                     : (axis == 1) ? centroid_max.y
+                                                   : centroid_max.z;
+            float extent = centroid_max_val - centroid_min_val;
             if (extent < EPSILON)
                 continue;
 
             float split_positions[7];
             for (int i = 0; i < 7; ++i) {
-                split_positions[i] =
-                    centroid_min[axis] + (i + 1) * extent / 8.0f;
+                split_positions[i] = centroid_min_val + (i + 1) * extent / 8.0f;
             }
 
-            std::vector<vec3_float> group_mins(8, vec3_float{MAX, MAX, MAX});
-            std::vector<vec3_float> group_maxs(8, vec3_float{-MAX, -MAX, -MAX});
+            std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
+            std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
             std::vector<uint32_t> group_counts(8, 0);
 
             for (uint32_t i = low; i < high; ++i) {
-                vec3_float c = triangle_centroid(triangles[i]);
+                float3 c = triangle_centroid(triangles[i]);
+                float c_val = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
                 int group = 7;
                 for (int j = 0; j < 7; ++j) {
-                    if (c[axis] < split_positions[j]) {
+                    if (c_val < split_positions[j]) {
                         group = j;
                         break;
                     }
@@ -267,13 +270,13 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
             OBB obb = compute_obb(low, high, triangles);
 
             for (int axis = 0; axis < 3; ++axis) {
-                vec3_float world_axis = {obb.orientation[axis][0],
-                                         obb.orientation[axis][1],
-                                         obb.orientation[axis][2]};
+                float3 world_axis = {obb.orientation[axis].x,
+                                     obb.orientation[axis].y,
+                                     obb.orientation[axis].z};
 
                 float min_proj = MAX, max_proj = -MAX;
                 for (uint32_t i = low; i < high; ++i) {
-                    vec3_float c = triangle_centroid(triangles[i]);
+                    float3 c = triangle_centroid(triangles[i]);
                     float proj = dot(c, world_axis);
                     min_proj = std::min(min_proj, proj);
                     max_proj = std::max(max_proj, proj);
@@ -288,14 +291,12 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                     split_positions[i] = min_proj + (i + 1) * extent / 8.0f;
                 }
 
-                std::vector<vec3_float> group_mins(8,
-                                                   vec3_float{MAX, MAX, MAX});
-                std::vector<vec3_float> group_maxs(
-                    8, vec3_float{-MAX, -MAX, -MAX});
+                std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
+                std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
                 std::vector<uint32_t> group_counts(8, 0);
 
                 for (uint32_t i = low; i < high; ++i) {
-                    vec3_float c = triangle_centroid(triangles[i]);
+                    float3 c = triangle_centroid(triangles[i]);
                     float proj = dot(c, world_axis);
 
                     int group = 7;
@@ -307,20 +308,23 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                     }
 
                     auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
-                    vec3_float obb_min = {MAX, MAX, MAX};
-                    vec3_float obb_max = {-MAX, -MAX, -MAX};
+                    float3 obb_min = {MAX, MAX, MAX};
+                    float3 obb_max = {-MAX, -MAX, -MAX};
 
                     for (int corner = 0; corner < 8; ++corner) {
-                        vec3_float p = {(corner & 1) ? tri_max[0] : tri_min[0],
-                                        (corner & 2) ? tri_max[1] : tri_min[1],
-                                        (corner & 4) ? tri_max[2] : tri_min[2]};
-                        vec3_float p_obb;
-                        for (int d = 0; d < 3; ++d) {
-                            vec3_float axis_vec = {obb.orientation[d][0],
-                                                   obb.orientation[d][1],
-                                                   obb.orientation[d][2]};
-                            p_obb[d] = dot(p, axis_vec);
-                        }
+                        float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
+                                    (corner & 2) ? tri_max.y : tri_min.y,
+                                    (corner & 4) ? tri_max.z : tri_min.z};
+                        float3 p_obb = {0.0f, 0.0f, 0.0f};
+                        p_obb.x = dot(p, float3{obb.orientation[0].x,
+                                                obb.orientation[0].y,
+                                                obb.orientation[0].z});
+                        p_obb.y = dot(p, float3{obb.orientation[1].x,
+                                                obb.orientation[1].y,
+                                                obb.orientation[1].z});
+                        p_obb.z = dot(p, float3{obb.orientation[2].x,
+                                                obb.orientation[2].y,
+                                                obb.orientation[2].z});
                         obb_min = min(obb_min, p_obb);
                         obb_max = max(obb_max, p_obb);
                     }
@@ -362,12 +366,12 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
 
         if (best_split.use_obb) {
             OBB obb = compute_obb(low, high, triangles);
-            vec3_float world_axis = {obb.orientation[best_split.axis][0],
-                                     obb.orientation[best_split.axis][1],
-                                     obb.orientation[best_split.axis][2]};
+            float3 world_axis = {obb.orientation[best_split.axis].x,
+                                 obb.orientation[best_split.axis].y,
+                                 obb.orientation[best_split.axis].z};
 
             for (uint32_t i = low; i < high; ++i) {
-                vec3_float c = triangle_centroid(triangles[i]);
+                float3 c = triangle_centroid(triangles[i]);
                 float proj = dot(c, world_axis);
 
                 int group = 0;
@@ -382,10 +386,13 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
             }
         } else {
             for (uint32_t i = low; i < high; ++i) {
-                vec3_float c = triangle_centroid(triangles[i]);
+                float3 c = triangle_centroid(triangles[i]);
+                float c_val = (best_split.axis == 0)   ? c.x
+                              : (best_split.axis == 1) ? c.y
+                                                       : c.z;
                 int group = 0;
                 for (int j = 0; j < 7; ++j) {
-                    if (c[best_split.axis] >= best_split.positions[j]) {
+                    if (c_val >= best_split.positions[j]) {
                         group = j + 1;
                     } else {
                         break;
@@ -420,32 +427,34 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                     node->obb_children[i] = partition(
                         group_starts[i], group_starts[i + 1], depth + 1);
 
-                    vec3_float child_min = {MAX, MAX, MAX};
-                    vec3_float child_max = {-MAX, -MAX, -MAX};
+                    float3 child_min = {MAX, MAX, MAX};
+                    float3 child_max = {-MAX, -MAX, -MAX};
 
                     for (uint32_t j = group_starts[i]; j < group_starts[i + 1];
                          ++j) {
                         auto [tri_min, tri_max] = triangle_bounds(triangles[j]);
                         for (int corner = 0; corner < 8; ++corner) {
-                            vec3_float p = {
-                                (corner & 1) ? tri_max[0] : tri_min[0],
-                                (corner & 2) ? tri_max[1] : tri_min[1],
-                                (corner & 4) ? tri_max[2] : tri_min[2]};
-                            vec3_float p_obb;
-                            for (int d = 0; d < 3; ++d) {
-                                vec3_float axis = {
-                                    parent_obb.orientation[d][0],
-                                    parent_obb.orientation[d][1],
-                                    parent_obb.orientation[d][2]};
-                                p_obb[d] = dot(p, axis);
-                            }
+                            float3 p = {(corner & 1) ? tri_max.x : tri_min.x,
+                                        (corner & 2) ? tri_max.y : tri_min.y,
+                                        (corner & 4) ? tri_max.z : tri_min.z};
+                            float3 axis_x = {parent_obb.orientation[0].x,
+                                             parent_obb.orientation[0].y,
+                                             parent_obb.orientation[0].z};
+                            float3 axis_y = {parent_obb.orientation[1].x,
+                                             parent_obb.orientation[1].y,
+                                             parent_obb.orientation[1].z};
+                            float3 axis_z = {parent_obb.orientation[2].x,
+                                             parent_obb.orientation[2].y,
+                                             parent_obb.orientation[2].z};
+                            float3 p_obb = {dot(p, axis_x), dot(p, axis_y),
+                                            dot(p, axis_z)};
                             child_min = min(child_min, p_obb);
                             child_max = max(child_max, p_obb);
                         }
                     }
 
-                    vec3_float extent = child_max - child_min;
-                    vec3_float expansion = extent * gamma(3);
+                    float3 extent = child_max - child_min;
+                    float3 expansion = extent * gamma(3);
                     child_max = child_max + expansion;
                     child_min = child_min - expansion;
 

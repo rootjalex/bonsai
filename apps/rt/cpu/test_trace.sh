@@ -148,10 +148,18 @@ run_tests() {
   fi
   echo "-- with layouts: ${LAYOUTS[@]}"
   
-  MAIN_FILE="main_trace"
   # replace `$N$` with BVH_SUFFIX.
+  MAIN_FILE="main_trace"
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cpp > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cpp
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
+  # insert the canonical tree functions (we do it in this hacky way since they're shared between CPU / GPU.
+  # a better approach might be using macros, similar to PBRT).
+  if [[ "$(uname)" == "Linux" ]]; then
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
+  else
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
+  fi
+
   for OBJECT in "${OBJECTS[@]}"; do
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt

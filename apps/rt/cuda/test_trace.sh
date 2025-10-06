@@ -143,11 +143,12 @@ run_tests() {
   MAIN_FILE="main_trace"
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cu > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cu
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
-  
+  # insert the canonical tree functions (we do it in this hacky way since they're shared between CPU / GPU.
+  # a better approach might be using macros, similar to PBRT).
   if [[ "$(uname)" == "Linux" ]]; then
-    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
   else
-    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cu
   fi
   
   for OBJECT in "${OBJECTS[@]}"; do
