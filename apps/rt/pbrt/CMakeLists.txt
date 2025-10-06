@@ -1,0 +1,78 @@
+cmake_minimum_required(VERSION 3.20)
+project(pbrt_runner LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+include(FetchContent)
+
+# ---------------------------------------------------------------------------
+# OpenMP setup (Apple Silicon / macOS)
+# ---------------------------------------------------------------------------
+if(APPLE)
+    # Prefer Homebrew LLVM for proper OpenMP support
+    if(EXISTS "/opt/homebrew/opt/llvm/bin/clang++")
+        set(CMAKE_C_COMPILER "/opt/homebrew/opt/llvm/bin/clang")
+        set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
+        message(STATUS "Using Homebrew LLVM for OpenMP support")
+    endif()
+endif()
+
+# Now find OpenMP
+find_package(OpenMP)
+
+# ---------------------------------------------------------------------------
+# Fetch PBRT-v4 (build externally)
+# ---------------------------------------------------------------------------
+FetchContent_Declare(
+    pbrt
+    GIT_REPOSITORY https://github.com/mmp/pbrt-v4.git
+    GIT_TAG        master
+)
+FetchContent_GetProperties(pbrt)
+
+if(NOT pbrt_POPULATED)
+    FetchContent_Populate(pbrt)
+
+    message(STATUS "Configuring PBRT-v4 in ${pbrt_BINARY_DIR}")
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -S ${pbrt_SOURCE_DIR} -B ${pbrt_BINARY_DIR} -DCMAKE_BUILD_TYPE=Release
+        COMMAND ${CMAKE_COMMAND} --build ${pbrt_BINARY_DIR} --target pbrt_lib -j
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Your executable
+# ---------------------------------------------------------------------------
+add_executable(pbrt_runner main.cpp)
+
+target_include_directories(pbrt_runner PRIVATE
+    ${CMAKE_BINARY_DIR}/_deps/pbrt-src/src
+    ${CMAKE_BINARY_DIR}/_deps/pbrt-build/src
+)
+
+# Link PBRT static library
+target_link_libraries(pbrt_runner PRIVATE
+    ${pbrt_BINARY_DIR}/libpbrt_lib.a
+)
+
+# ---------------------------------------------------------------------------
+# OpenMP linking
+# ---------------------------------------------------------------------------
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(pbrt_runner PRIVATE OpenMP::OpenMP_CXX)
+elseif(APPLE)
+    # Manual fallback for macOS
+    target_compile_options(pbrt_runner PRIVATE -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include)
+    target_link_options(pbrt_runner PRIVATE -L/opt/homebrew/opt/libomp/lib -lomp)
+endif()
+
+# ---------------------------------------------------------------------------
+# Warnings
+# ---------------------------------------------------------------------------
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(pbrt_runner PRIVATE -Wall -Wextra -Wno-unused-parameter)
+elseif (MSVC)
+    target_compile_options(pbrt_runner PRIVATE /W4 /permissive-)
+endif()
