@@ -91,7 +91,14 @@ OBB compute_obb(uint32_t low, uint32_t high,
         z_axis = z_axis / z_len;
     }
 
-    float4x3 orientation;
+#ifdef __CUDACC__
+#include <cuda/std/array>
+    using orientation_t = cuda::std::array<float4, 3>;
+#else
+    using orientation_t = float4x3;
+#endif
+
+    orientation_t orientation;
     orientation[0] = {x_axis.x, x_axis.y, x_axis.z, 0.0f};
     orientation[1] = {y_axis.x, y_axis.y, y_axis.z, 0.0f};
     orientation[2] = {z_axis.x, z_axis.y, z_axis.z, 0.0f};
