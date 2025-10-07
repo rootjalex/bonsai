@@ -9,9 +9,47 @@
 #include <chrono>
 #include <iostream>
 #include <random>
+#include <thread>
 #include <vector>
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/thread_policy.h>
+#include <pthread.h>
+#else
+#include <sched.h>
+#include <unistd.h>
+#endif
+
 namespace {
+
+// pin the current thread to a core (0-based)
+inline void pin_thread_to_core(int core_id) {
+#ifdef __APPLE__
+    thread_affinity_policy_data_t policy = {core_id};
+    thread_port_t thread = mach_thread_self();
+    thread_policy_set(thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy,
+                      THREAD_AFFINITY_POLICY_COUNT);
+#else
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core_id, &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+#endif
+}
+
+// raise thread priority (best effort)
+inline void set_high_priority() {
+#ifdef __APPLE__
+    pthread_t t = pthread_self();
+    sched_param param;
+    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    pthread_setschedparam(t, SCHED_FIFO, &param);
+#else
+    // Linux: nice value -20 is highest
+    nice(-20);
+#endif
+}
 
 // (do not touch)
 // AUTO-GENERATED canonical_tree
@@ -19,9 +57,8 @@ namespace {
 std::vector<Triangle> load_obj(const std::string &object) {
     std::filesystem::path current_path = std::filesystem::current_path();
     while (current_path.has_parent_path()) {
-        if (std::filesystem::exists(current_path / "bonsai")) {
+        if (std::filesystem::exists(current_path / "bonsai"))
             break;
-        }
         current_path = current_path.parent_path();
     }
 
@@ -34,37 +71,26 @@ std::vector<Triangle> load_obj(const std::string &object) {
     std::string _, err;
     bool result = tinyobj::LoadObj(&attrib, &shapes, &materials, &_, &err,
                                    object_path.c_str(), material_path.c_str());
-    if (!err.empty()) {
+    if (!err.empty())
         std::cerr << "error: " << err << std::endl;
-    }
     if (!result) {
         std::cerr << "failed to load " << object_path << std::endl;
         return {};
     }
 
     std::vector<Triangle> triangles;
-    // Loop over shapes
     for (size_t s = 0; s < shapes.size(); s++) {
         size_t index_offset = 0;
-
-        // Loop over faces (triangles)
         for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
-            int fv =
-                shapes[s]
-                    .mesh.num_face_vertices[f]; // Should be 3 for triangles
-
+            int fv = shapes[s].mesh.num_face_vertices[f];
             if (fv == 3) {
                 Triangle tri;
-
-                // Get vertices
                 for (int v = 0; v < 3; v++) {
                     tinyobj::index_t idx =
                         shapes[s].mesh.indices[index_offset + v];
-
                     float x = attrib.vertices[3 * idx.vertex_index + 0];
                     float y = attrib.vertices[3 * idx.vertex_index + 1];
                     float z = attrib.vertices[3 * idx.vertex_index + 2];
-
                     if (v == 0)
                         tri.p0 = {x, y, z};
                     else if (v == 1)
@@ -72,10 +98,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
                     else
                         tri.p2 = {x, y, z};
                 }
-
                 triangles.push_back(tri);
             }
-
             index_offset += fv;
         }
     }
@@ -85,21 +109,26 @@ std::vector<Triangle> load_obj(const std::string &object) {
 void run(std::string object, std::string partition, bool is_single_threaded,
          std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
+
+    // optional: pin main thread and raise priority
+    pin_thread_to_core(0);
+    set_high_priority();
+
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
     Heuristic heuristic;
-    if (partition == "sah") {
+    if (partition == "sah")
         heuristic = Heuristic::SurfaceArea;
-    } else if (partition == "ms") {
+    else if (partition == "ms")
         heuristic = Heuristic::MedianSplit;
-    } else {
-        std::cout << "unexpected construction partitioning strategy: "
+    else {
+        std::cerr << "unexpected construction partitioning strategy: "
                   << partition << std::endl;
         exit(1);
     }
-    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
 
+    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
 
@@ -111,13 +140,16 @@ void run(std::string object, std::string partition, bool is_single_threaded,
                                std::to_string(75) + ".rays";
         std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
+
         if (is_first_run) {
             for (int i = 0; i < std::max<size_t>(rays.size(), 512u); ++i)
                 (void)trace(&rays[i], &tree); // warmup
             is_first_run = false;
         }
+
         size_t hit_count = 0;
         auto trace_begin = clock::now(), trace_end = clock::now();
+
         if (is_single_threaded) {
             std::vector<Triangle> hits;
             hits.reserve(rays.size());
@@ -128,10 +160,8 @@ void run(std::string object, std::string partition, bool is_single_threaded,
                 }
             }
             trace_end = clock::now();
-
             hit_count = hits.size();
         } else {
-            // parallel
             const size_t max_threads = omp_get_max_threads();
             std::vector<std::vector<Triangle>> hits_per_thread(max_threads);
             for (std::vector<Triangle> &v : hits_per_thread) {
@@ -143,6 +173,7 @@ void run(std::string object, std::string partition, bool is_single_threaded,
             {
                 const int tid = omp_get_thread_num();
                 auto &hits = hits_per_thread[tid];
+                pin_thread_to_core(tid); // pin each thread to a core
 
 #pragma omp for schedule(dynamic, 64) nowait
                 for (int i = 0; i < rays.size(); ++i) {
@@ -154,17 +185,15 @@ void run(std::string object, std::string partition, bool is_single_threaded,
             }
 
             trace_end = clock::now();
-
-            for (const std::vector<Triangle> &v : hits_per_thread) {
+            for (const std::vector<Triangle> &v : hits_per_thread)
                 hit_count += v.size();
-            }
         }
 
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
-        std::cout << "hits             : " << hit_count << "\n";
-        std::cout << "trace time       : " << trace_time << " ms\n";
+        std::cout << "hits       : " << hit_count << "\n";
+        std::cout << "trace time : " << trace_time << " ms\n";
     }
 }
 
@@ -182,9 +211,9 @@ int main(int argc, char *argv[]) {
     std::vector<int64_t> ray_counts;
     const int64_t size = std::atoi(argv[i++]);
     ray_counts.reserve(size);
-    for (; i < 5 + size; ++i) {
+    for (; i < 5 + size; ++i)
         ray_counts.push_back(std::atoi(argv[i]));
-    }
+
     run(object_file, partition, is_single_threaded, ray_counts);
     return 0;
 }

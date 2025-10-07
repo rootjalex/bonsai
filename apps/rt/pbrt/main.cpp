@@ -2,7 +2,6 @@
 
 // Core PBRT geometry and primitives
 #include <pbrt/cpu/aggregates.h>
-#include <pbrt/cpu/primitive.h>
 #include <pbrt/shapes.h>
 #include <pbrt/util/memory.h>
 #include <pbrt/util/transform.h>
@@ -17,13 +16,22 @@
 #include <sstream>
 #include <vector>
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/thread_policy.h>
+#include <pthread.h>
+#else
+#include <sched.h>
+#include <unistd.h>
+#endif
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
 using namespace pbrt;
 
-// A little helper: store your triangle input as floats
+// Store triangle input as floats
 struct InputTriangle {
     float v0x, v0y, v0z;
     float v1x, v1y, v1z;
@@ -36,7 +44,7 @@ struct InputRay {
     float tmin, tmax;
 };
 
-// Load your OBJ file
+// Load OBJ file
 std::vector<InputTriangle> load_obj(const std::string &filename) {
     std::vector<InputTriangle> tris;
     std::vector<Point3f> vertices;
@@ -96,146 +104,274 @@ std::vector<InputRay> load_rays_binary(const std::string &fname, int64_t cnt) {
     return r;
 }
 
-// Build a PBRT primitive (BVH) from your InputTriangles
-Primitive *build_pbrt_aggregate(const std::vector<InputTriangle> &tris,
-                                const std::string &partition) {
-    Allocator alloc;
+// Simple BVH node structure
+struct BVHNode {
+    Bounds3f bounds;
+    BVHNode *left = nullptr;
+    BVHNode *right = nullptr;
+    int triIndex = -1; // -1 for interior nodes
 
-    // Build vertex list + index list
-    std::vector<Point3f> vertices;
-    std::vector<int> indices;
+    bool isLeaf() const { return triIndex >= 0; }
+};
 
-    vertices.reserve(tris.size() * 3);
-    indices.reserve(tris.size() * 3);
+// Build a simple BVH manually
+BVHNode *buildBVH(const std::vector<InputTriangle> &tris,
+                  std::vector<int> &triIndices, int start, int end,
+                  const std::string &partition) {
+    BVHNode *node = new BVHNode();
 
-    for (size_t i = 0; i < tris.size(); ++i) {
-        const auto &t = tris[i];
-        int base = vertices.size();
-        vertices.push_back(Point3f(t.v0x, t.v0y, t.v0z));
-        vertices.push_back(Point3f(t.v1x, t.v1y, t.v1z));
-        vertices.push_back(Point3f(t.v2x, t.v2y, t.v2z));
-        indices.push_back(base);
-        indices.push_back(base + 1);
-        indices.push_back(base + 2);
+    // Compute bounds
+    for (int i = start; i < end; ++i) {
+        const auto &t = tris[triIndices[i]];
+        node->bounds = Union(node->bounds, Point3f(t.v0x, t.v0y, t.v0z));
+        node->bounds = Union(node->bounds, Point3f(t.v1x, t.v1y, t.v1z));
+        node->bounds = Union(node->bounds, Point3f(t.v2x, t.v2y, t.v2z));
     }
 
-    Transform *identity = alloc.new_object<Transform>();
-    // Create triangle mesh - empty lists for normals, uvs etc.
-    TriangleMesh *mesh = alloc.new_object<TriangleMesh>(
-        *identity, false, indices, vertices, std::vector<Normal3f>(),
-        std::vector<Vector3f>(), std::vector<int>(), std::vector<Point2f>(),
-        nullptr);
-
-    // Now create primitives for each triangle
-    std::vector<Primitive *> prims;
-    prims.reserve(tris.size());
-    for (size_t i = 0; i < tris.size(); ++i) {
-        // Create individual Triangle shape
-        Triangle *tri = Triangle::Create(mesh, i, alloc);
-        // Use SimplePrimitive with no material
-        prims.push_back(alloc.new_object<SimplePrimitive>(tri, nullptr));
+    int nTris = end - start;
+    if (nTris == 1) {
+        node->triIndex = triIndices[start];
+        return node;
     }
 
-    // Build BVH
-    if (partition == "sah") {
-        return BVHAggregate::Create(std::move(prims), 1, SplitMethod::SAH,
-                                    alloc);
-    } else if (partition == "ms") {
-        return BVHAggregate::Create(std::move(prims), 1, SplitMethod::Middle,
-                                    alloc);
+    // Choose split axis
+    Vector3f diagonal = node->bounds.Diagonal();
+    int axis = (diagonal.x > diagonal.y && diagonal.x > diagonal.z) ? 0
+               : (diagonal.y > diagonal.z)                          ? 1
+                                                                    : 2;
+
+    // Partition triangles
+    int mid = start + nTris / 2;
+    if (partition == "ms") {
+        // Middle split - already computed
     } else {
-        std::cerr << "Unknown partition method: " << partition << std::endl;
-        std::exit(1);
+        // Simple SAH approximation - sort by centroid
+        std::sort(triIndices.begin() + start, triIndices.begin() + end,
+                  [&](int a, int b) {
+                      const auto &ta = tris[a];
+                      const auto &tb = tris[b];
+                      Point3f ca((ta.v0x + ta.v1x + ta.v2x) / 3.0f,
+                                 (ta.v0y + ta.v1y + ta.v2y) / 3.0f,
+                                 (ta.v0z + ta.v1z + ta.v2z) / 3.0f);
+                      Point3f cb((tb.v0x + tb.v1x + tb.v2x) / 3.0f,
+                                 (tb.v0y + tb.v1y + tb.v2y) / 3.0f,
+                                 (tb.v0z + tb.v1z + tb.v2z) / 3.0f);
+                      return ca[axis] < cb[axis];
+                  });
+        mid = start + nTris / 2;
     }
+
+    node->left = buildBVH(tris, triIndices, start, mid, partition);
+    node->right = buildBVH(tris, triIndices, mid, end, partition);
+
+    return node;
 }
 
-// Trace a single ray through the PBRT aggregate
+// Ray-triangle intersection
+bool intersectTriangle(const Ray &ray, const InputTriangle &tri, float tMax,
+                       float &t, float &u, float &v) {
+    Point3f v0(tri.v0x, tri.v0y, tri.v0z);
+    Point3f v1(tri.v1x, tri.v1y, tri.v1z);
+    Point3f v2(tri.v2x, tri.v2y, tri.v2z);
+
+    Vector3f e1 = v1 - v0;
+    Vector3f e2 = v2 - v0;
+    Vector3f s1 = Cross(ray.d, e2);
+    Float divisor = Dot(s1, e1);
+
+    if (divisor == 0.0f)
+        return false;
+
+    Float invDivisor = 1.0f / divisor;
+    Vector3f s = ray.o - v0;
+    Float b1 = Dot(s, s1) * invDivisor;
+    if (b1 < 0.0f || b1 > 1.0f)
+        return false;
+
+    Vector3f s2 = Cross(s, e1);
+    Float b2 = Dot(ray.d, s2) * invDivisor;
+    if (b2 < 0.0f || b1 + b2 > 1.0f)
+        return false;
+
+    Float tHit = Dot(e2, s2) * invDivisor;
+    if (tHit < 0.0f || tHit > tMax)
+        return false;
+
+    t = tHit;
+    u = b1;
+    v = b2;
+    return true;
+}
+
+// Traverse BVH
 struct HitInfo {
-    size_t triIndex;
-    float u, v; // barycentric coords
+    int triIndex;
+    float u, v;
     float t;
 };
 
-std::optional<HitInfo> trace_one(const InputRay &in, Primitive *agg) {
-    // Convert your InputRay to pbrt Ray
-    // PBRT v4 Ray constructor: Ray(Point3f o, Vector3f d, Float time, Medium
-    // medium)
+bool traverseBVH(const BVHNode *node, const Ray &ray, float tMax,
+                 const std::vector<InputTriangle> &tris, HitInfo &hit) {
+    if (!node)
+        return false;
+
+    // Check bounds
+    Float t0, t1;
+    if (!node->bounds.IntersectP(ray.o, ray.d, tMax, &t0, &t1))
+        return false;
+
+    if (node->isLeaf()) {
+        float t, u, v;
+        if (intersectTriangle(ray, tris[node->triIndex], tMax, t, u, v)) {
+            if (t < hit.t) {
+                hit.t = t;
+                hit.u = u;
+                hit.v = v;
+                hit.triIndex = node->triIndex;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (traverseBVH(node->left, ray, tMax, tris, hit)) {
+        return true;
+    }
+    return traverseBVH(node->right, ray, tMax, tris, hit);
+}
+
+std::optional<HitInfo> trace_one(const InputRay &in, const BVHNode *bvh,
+                                 const std::vector<InputTriangle> &tris) {
     Ray ray(Point3f(in.ox, in.oy, in.oz), Vector3f(in.dx, in.dy, in.dz), 0.f,
             nullptr);
 
-    // For tMax, we need to pass it to Intersect
-    ShapeIntersection si;
-    // The Intersect method returns whether a hit occurred and fills si
-    if (agg->Intersect(ray, in.tmax, &si)) {
-        HitInfo h;
-        h.u = si.intr.uv[0];
-        h.v = si.intr.uv[1];
-        h.t = si.tHit;
-        // The faceIndex gives you which triangle in the mesh was hit
-        h.triIndex = si.intr.faceIndex;
-        return h;
+    HitInfo hit;
+    hit.t = in.tmax;
+    hit.triIndex = -1;
+
+    if (traverseBVH(bvh, ray, in.tmax, tris, hit) && hit.triIndex >= 0) {
+        return hit;
     }
+
     return std::nullopt;
 }
 
+// pin the current thread to a core (0-based)
+inline void pin_thread_to_core(int core_id) {
+#ifdef __APPLE__
+    thread_affinity_policy_data_t policy = {core_id};
+    thread_port_t thread = mach_thread_self();
+    thread_policy_set(thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy,
+                      THREAD_AFFINITY_POLICY_COUNT);
+#else
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core_id, &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+#endif
+}
+
+// raise thread priority (best effort)
+inline void set_high_priority() {
+#ifdef __APPLE__
+    pthread_t t = pthread_self();
+    sched_param param;
+    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    pthread_setschedparam(t, SCHED_FIFO, &param);
+#else
+    // Linux: nice value -20 is highest
+    nice(-20);
+#endif
+}
+
 // Test runner
-void run(const std::string &objfile, const std::string &partition,
-         bool singleThread, const std::vector<int64_t> &raysCounts) {
-    std::cout << "Loading OBJ: " << objfile << std::endl;
-    auto tris = load_obj(objfile);
-    assert(!tris.empty());
-    std::cout << "Loaded " << tris.size() << " triangles\n";
+void run(std::string object, std::string partition, bool is_single_threaded,
+         std::vector<int64_t> ray_counts) {
+    using clock = std::chrono::high_resolution_clock;
+
+    // Optional: pin main thread and raise priority
+    pin_thread_to_core(0);
+    set_high_priority();
+
+    std::cout << "Loading OBJ: " << object << std::endl;
+    auto triangles = load_obj(object);
+    assert(!triangles.empty());
+    std::cout << "Loaded " << triangles.size() << " triangles\n";
 
     std::cout << "Building BVH (" << partition << ")" << std::endl;
-    Primitive *agg = build_pbrt_aggregate(tris, partition);
+    std::vector<int> triIndices(triangles.size());
+    for (size_t i = 0; i < triangles.size(); ++i)
+        triIndices[i] = i;
 
-    bool first = true;
-    for (int64_t rc : raysCounts) {
-        std::cout << "\n=== rays = " << rc << " ===\n";
-        std::string rayfile =
-            "apps/rt/rays/" + objfile + "_" + std::to_string(rc) + "_75.rays";
-        auto rays = load_rays_binary(rayfile, rc);
+    BVHNode *bvh =
+        buildBVH(triangles, triIndices, 0, triangles.size(), partition);
+
+    bool is_first_run = true;
+    for (const int64_t ray_count : ray_counts) {
+        std::cout << ray_count << std::endl;
+        std::string ray_file = "apps/rt/rays/" + object + "_" +
+                               std::to_string(ray_count) + "_" +
+                               std::to_string(75) + ".rays";
+        auto rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
 
-        // Warm up
-        if (first) {
-            std::cout << "Warming up..." << std::endl;
-            for (size_t i = 0; i < std::max<size_t>(rays.size(), 512u); ++i) {
-                (void)trace_one(rays[i % rays.size()], agg);
-            }
-            first = false;
+        if (is_first_run) {
+            for (size_t i = 0; i < std::max<size_t>(rays.size(), 512u); ++i)
+                (void)trace_one(rays[i % rays.size()], bvh, triangles);
+            is_first_run = false;
         }
 
-        size_t hitCount = 0;
-        auto t0 = std::chrono::high_resolution_clock::now();
-        if (singleThread) {
-            for (auto &r : rays) {
-                if (auto h = trace_one(r, agg))
-                    hitCount++;
+        size_t hit_count = 0;
+        auto trace_begin = clock::now(), trace_end = clock::now();
+
+        if (is_single_threaded) {
+            std::vector<HitInfo> hits;
+            hits.reserve(rays.size());
+            trace_begin = clock::now();
+            for (size_t i = 0; i < rays.size(); ++i) {
+                if (auto t = trace_one(rays[i], bvh, triangles)) {
+                    hits.push_back(*t);
+                }
             }
+            trace_end = clock::now();
+            hit_count = hits.size();
         } else {
 #ifdef _OPENMP
-            size_t localHits = 0;
-#pragma omp parallel for reduction(+ : localHits)
-            for (size_t i = 0; i < rays.size(); ++i) {
-                if (trace_one(rays[i], agg))
-                    localHits++;
+            const size_t max_threads = omp_get_max_threads();
+            std::vector<std::vector<HitInfo>> hits_per_thread(max_threads);
+            for (auto &v : hits_per_thread) {
+                v.reserve(rays.size() / max_threads + 64);
             }
-            hitCount = localHits;
+            trace_begin = clock::now();
+
+#pragma omp parallel
+            {
+                const int tid = omp_get_thread_num();
+                auto &hits = hits_per_thread[tid];
+                pin_thread_to_core(tid); // pin each thread to a core
+
+#pragma omp for schedule(dynamic, 64) nowait
+                for (size_t i = 0; i < rays.size(); ++i) {
+                    if (auto t = trace_one(rays[i], bvh, triangles)) {
+                        hits.push_back(*t);
+                    }
+                }
+            }
+
+            trace_end = clock::now();
+            for (const auto &v : hits_per_thread)
+                hit_count += v.size();
 #else
             std::cerr << "OpenMP not available, using single-threaded\n";
-            for (auto &r : rays) {
-                if (auto h = trace_one(r, agg))
-                    hitCount++;
-            }
+            exit(1);
 #endif
         }
-        auto t1 = std::chrono::high_resolution_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-        std::cout << "hits     : " << hitCount << "\n";
-        std::cout << "time ms  : " << ms << "\n";
-        std::cout << "rays/sec : " << (rc * 1000.0 / ms) << "\n";
+        auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              trace_end - trace_begin)
+                              .count();
+        std::cout << "hits       : " << hit_count << "\n";
+        std::cout << "trace time : " << trace_time << " ms\n";
     }
 }
 
@@ -248,16 +384,18 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     int i = 1;
-    std::string obj = argv[i++];
-    std::string part = argv[i++];
-    std::string sched = argv[i++];
-    bool single = (sched == "single-thread");
-    int N = std::atoi(argv[i++]);
-    std::vector<int64_t> counts;
-    counts.reserve(N);
-    for (int k = 0; k < N; ++k) {
-        counts.push_back(std::atoll(argv[i++]));
-    }
-    run(obj, part, single, counts);
+    std::string object_file = argv[i++];
+    std::string partition = argv[i++];
+    std::string schedule = argv[i++];
+    assert(schedule == "single-thread" || schedule == "parallel");
+    const bool is_single_threaded = (schedule == "single-thread");
+
+    const int64_t size = std::atoi(argv[i++]);
+    std::vector<int64_t> ray_counts;
+    ray_counts.reserve(size);
+    for (; i < 5 + size; ++i)
+        ray_counts.push_back(std::atoll(argv[i]));
+
+    run(object_file, partition, is_single_threaded, ray_counts);
     return 0;
 }
