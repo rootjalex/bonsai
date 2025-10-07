@@ -96,13 +96,9 @@ schedule {
         };
 
         group _ by I {
-            // bits (inclusive)
-            //   0-2  : node type [[reserved: 111 for SENTINEL, 000 reserved for LEAF]]
-            //   3-6  : primitive count - 1
-            //   7-63 : offset
-            split I[0:2] {
-                1 -> Interior from Interiors[I[7:63]];
-                _ -> Leaf { nprims = cast[[u8]](I[3:6] + 1); data = primitives[I[7:63] : I[7:63] + nprims]; };
+            split I[0:1] {
+                1 -> Interior from Interiors[I[2:63]];
+                0 -> Leaf { nprims = cast[[u8]](I[2:5] + 1); data = primitives[I[6:63] : I[6:63] + nprims]; };
             };
         };
     };
@@ -113,11 +109,11 @@ schedule {
         build mex = compute_merged_extent(lo, hi);
         build child_bounds = quantize_bounds(lo, hi);
         recurse children;
-        return (this << cast[[u64]](7)) | cast[[u64]](1);
+        return (this << cast[[u64]](2)) | cast[[u64]](1);
       };
 
       build Leaf(nprims: u8, data: array[Triangle, nprims]) {
         let poffset: u64 = append(data, nprims);
-        return (poffset << cast[[u64]](7)) | ((nprims - cast[[u64]](1)) << cast[[u64]](3));
+        return (poffset << cast[[u64]](6)) | ((nprims - cast[[u64]](1)) << cast[[u64]](2)) | cast[[u64]](0);
       };
     };

@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("hairball" "white-oak" "power-plant" "sponza") # sheep
+OBJECTS=("hairball" "white-oak" "power-plant" "sponza") # sheep, san-miguel-x35-y22-z47
 
 # Parse flags
 DRY_RUN=false
@@ -237,9 +237,9 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
   echo "... debug test complete"
 else
-  # echo "running tests with 8-mixed-BVH..."
-  # run_tests "8_mixed"
-  # echo "... tests complete for 8-mixed-BVH"
+  echo "running tests with 8-mixed-BVH..."
+  run_tests "8_mixed"
+  echo "... tests complete for 8-mixed-BVH"
 
   echo "running tests with 8-BVH..."
   run_tests "8"

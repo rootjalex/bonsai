@@ -139,7 +139,7 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                                       int max_tree_depth = 64,
                                       float traversal_cost = 1.0f,
                                       float intersection_cost = 15.0f,
-                                      int obb_depth_threshold = 4) {
+                                      int obb_depth_threshold = 0) {
 
     struct Split {
         int axis;
@@ -249,6 +249,11 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         if (depth >= obb_depth_threshold) {
             OBB obb = compute_obb(low, high, triangles);
 
+            float3 obb_extent = obb.obb_high - obb.obb_low;
+            float obb_parent_area = 2.0f * (obb_extent.x * obb_extent.y +
+                                            obb_extent.y * obb_extent.z +
+                                            obb_extent.z * obb_extent.x);
+
             for (int axis = 0; axis < 3; ++axis) {
                 float3 world_axis = {obb.orientation[axis].x,
                                      obb.orientation[axis].y,
@@ -322,8 +327,8 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 for (int i = 0; i < 8; ++i) {
                     if (group_counts[i] > 0) {
                         float area = surface_area(group_mins[i], group_maxs[i]);
-                        split_cost += (area / parent_area) * intersection_cost *
-                                      group_counts[i];
+                        split_cost += (area / obb_parent_area) *
+                                      intersection_cost * group_counts[i];
                     }
                 }
 
