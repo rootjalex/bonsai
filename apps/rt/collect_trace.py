@@ -763,10 +763,10 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
     mem_suffix = '_with_memory' if show_memory else ''
     if ray_count is not None:
         output_file = os.path.join(
-            results_dir, f'normalized_performance{mem_suffix}_rc{ray_count}.png')
+            results_dir, f'normalized_performance{mem_suffix}_rc{ray_count}_{baseline_layout}.png')
     else:
         output_file = os.path.join(
-            results_dir, f'normalized_performance{mem_suffix}_geomean.png')
+            results_dir, f'normalized_performance{mem_suffix}_geomean_{baseline_layout}.png')
 
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Normalized performance plot saved to: {output_file}")
@@ -1018,10 +1018,10 @@ def plot_pareto_normalized(processed_data, memory_data, layouts, baseline_layout
 
     if ray_count is not None:
         output_file = os.path.join(
-            results_dir, f'pareto_normalized_rc{ray_count}.png')
+            results_dir, f'pareto_normalized_rc{ray_count}_{baseline_layout}.png')
     else:
         output_file = os.path.join(
-            results_dir, f'pareto_normalized_geomean.png')
+            results_dir, f'pareto_normalized_geomean_{baseline_layout}.png')
 
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Normalized Pareto frontier plot saved to: {output_file}")
@@ -1273,10 +1273,10 @@ def plot_pareto_normalized(processed_data, memory_data, layouts, baseline_layout
 
     if ray_count is not None:
         output_file = os.path.join(
-            results_dir, f'pareto_normalized_rc{ray_count}.png')
+            results_dir, f'pareto_normalized_rc{ray_count}_{baseline_layout}.png')
     else:
         output_file = os.path.join(
-            results_dir, f'pareto_normalized_geomean.png')
+            results_dir, f'pareto_normalized_geomean_{baseline_layout}.png')
 
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Normalized Pareto frontier plot saved to: {output_file}")
@@ -1328,8 +1328,8 @@ if __name__ == "__main__":
 
     # Generate pareto
     # print(parse_layout_memory_and_nodes(data_text))
-    memory_utilization = {'hairball': {'eb-align16': {'memory': 53676368, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'eb': {'memory': 53676368, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'ebq-align16': {'memory': 52921952, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'ebq-cl-align16': {'memory': 30135328, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'ebq-cl-idx-align16': {'memory': 23457216, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'ebq-cl-idx': {'memory': 21766732, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'ebq-cl': {'memory': 28444844, 'nodes': {'primitives': 2880000, 'aabbs': 203452, 'obbs': 5239}}, 'bvh8-align16': {'memory': 53653504, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'bvh8': {'memory': 53653504, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-bvh8-align16': {'memory': 30180096, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-bvh8': {'memory': 28503424, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'eq': {'memory': 7377468, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'pbrt-align16': {'memory': 19673248, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'pbrt': {'memory': 19673248, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'soa-align16': {'memory': 29509872, 'nodes': {'primitives': 2880000, 'aabbs': 614789, 'nodes': 614789}}, 'soa-align32': {'memory': 39346496, 'nodes': {'primitives': 2880000, 'aabbs': 614789, 'nodes': 614789}}, 'soa': {'memory': 19673248, 'nodes': {'primitives': 2880000, 'aabbs': 614789, 'nodes': 614789}}}, 'white-oak': {'eb-align16': {'memory': 681312, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'eb': {'memory': 681312, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'ebq-align16': {'memory': 667200, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'ebq-cl-align16': {'memory': 382160, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'ebq-cl-idx-align16': {'memory': 297584, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'ebq-cl-idx': {'memory': 276048, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'ebq-cl': {'memory': 360624, 'nodes': {'primitives': 36760, 'aabbs': 2545, 'obbs': 98}}, 'bvh8-align16': {'memory': 679936, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'bvh8': {'memory': 679936, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-bvh8-align16': {'memory': 382464, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-bvh8': {'memory': 361216, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'eq': {'memory': 95556, 'nodes': {'primitives': 36760, 'nodes': 7963}}, 'pbrt-align16': {'memory': 254816, 'nodes': {'primitives': 36760, 'nodes': 7963}}, 'pbrt': {'memory': 254816, 'nodes': {'primitives': 36760, 'nodes': 7963}},  'soa-align16': {'memory': 382224, 'nodes': {'primitives': 36760, 'aabbs': 7963, 'nodes': 7963}}, 'soa-align32': {'memory': 509632, 'nodes': {'primitives': 36760, 'aabbs': 7963, 'nodes': 7963}}, 'soa': {'memory': 254816, 'nodes': {'primitives': 36760, 'aabbs': 7963, 'nodes': 7963}}}, 'power-plant': {'eb-align16': {'memory': 263453920, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'eb': {'memory': 263453920, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'ebq-align16': {'memory': 254849344, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'ebq-cl-align16': {'memory': 147535536, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'ebq-cl-idx-align16': {'memory': 114962320, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'ebq-cl-idx': {'memory': 106580000, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'ebq-cl': {'memory': 139153216, 'nodes': {'primitives': 12759246, 'aabbs': 958159, 'obbs': 59754}}, 'bvh8-align16': {'memory': 261846528, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'bvh8': {'memory': 261846528, 'nodes': {'primitives': 12759246, 'interiors': 1022838}},
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                'cl-bvh8-align16': {'memory': 147288672, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'cl-bvh8': {'memory': 139105968, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'eq': {'memory': 32776956, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'pbrt-align16': {'memory': 87405216, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'pbrt': {'memory': 87405216, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'soa-align16': {'memory': 131107824, 'nodes': {'primitives': 12759246, 'aabbs': 2731413, 'nodes': 2731413}}, 'soa-align32': {'memory': 174810432, 'nodes': {'primitives': 12759246, 'aabbs': 2731413, 'nodes': 2731413}}, 'soa': {'memory': 87405216, 'nodes': {'primitives': 12759246, 'aabbs': 2731413, 'nodes': 2731413}}}, 'sheep': {'eb-align16': {'memory': 56229040, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'eb': {'memory': 56229040, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'ebq-align16': {'memory': 56066464, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'ebq-cl-align16': {'memory': 31616416, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'ebq-cl-idx-align16': {'memory': 24594560, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'ebq-cl-idx': {'memory': 22834580, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'ebq-cl': {'memory': 29856436, 'nodes': {'primitives': 2967664, 'aabbs': 218304, 'obbs': 1129}}, 'bvh8-align16': {'memory': 56198144, 'nodes': {'primitives': 2967664, 'interiors': 219524}}, 'bvh8': {'memory': 56198144, 'nodes': {'primitives': 2967664, 'interiors': 219524}}, 'cl-bvh8-align16': {'memory': 31611456, 'nodes': {'primitives': 2967664, 'interiors': 219524}}, 'cl-bvh8': {'memory': 29855264, 'nodes': {'primitives': 2967664, 'interiors': 219524}}, 'eq': {'memory': 7628724, 'nodes': {'primitives': 2967664, 'nodes': 635727}}, 'pbrt-align16': {'memory': 20343264, 'nodes': {'primitives': 2967664, 'nodes': 635727}}, 'pbrt': {'memory': 20343264, 'nodes': {'primitives': 2967664, 'nodes': 635727}}, 'soa-align16': {'memory': 30514896, 'nodes': {'primitives': 2967664, 'aabbs': 635727, 'nodes': 635727}}, 'soa-align32': {'memory': 40686528, 'nodes': {'primitives': 2967664, 'aabbs': 635727, 'nodes': 635727}}, 'soa': {'memory': 20343264, 'nodes': {'primitives': 2967664, 'aabbs': 635727, 'nodes': 635727}}}, 'sponza': {'eb-align16': {'memory': 4969344, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'eb': {'memory': 4969344, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'ebq-align16': {'memory': 4806912, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'ebq-cl-align16': {'memory': 2782848, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'ebq-cl-idx-align16': {'memory': 2168448, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'ebq-cl-idx': {'memory': 2010336, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'ebq-cl': {'memory': 2624736, 'nodes': {'primitives': 262267, 'aabbs': 18072, 'obbs': 1128}}, 'bvh8-align16': {'memory': 4948224, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'bvh8': {'memory': 4948224, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-bvh8-align16': {'memory': 2783376, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-bvh8': {'memory': 2628744, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'eq': {'memory': 672948, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'pbrt-align16': {'memory': 1794528, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'pbrt': {'memory': 1794528, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'soa-align16': {'memory': 2691792, 'nodes': {'primitives': 262267, 'aabbs': 56079, 'nodes': 56079}}, 'soa-align32': {'memory': 3589056, 'nodes': {'primitives': 262267, 'aabbs': 56079, 'nodes': 56079}}, 'soa': {'memory': 1794528, 'nodes': {'primitives': 262267, 'aabbs': 56079, 'nodes': 56079}}}}
+    memory_utilization = {'hairball': {'eb-align16': {'memory': 54336384, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'eb': {'memory': 54336384, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'ebq-align16': {'memory': 53450496, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'ebq-cl-align16': {'memory': 30496544, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'ebq-cl-idx-align16': {'memory': 23741408, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'ebq-cl-idx': {'memory': 22028016, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'ebq-cl': {'memory': 28783152, 'nodes': {'primitives': 2880000, 'aabbs': 204946, 'obbs': 6152}}, 'bvh8-align16': {'memory': 53653504, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'bvh8': {'memory': 53653504, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-bvh8-align16': {'memory': 30180096, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-bvh8-idx-align16': {'memory': 23473408, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-bvh8-idx': {'memory': 21796736, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-bvh8': {'memory': 28503424, 'nodes': {'primitives': 2880000, 'interiors': 209584}}, 'cl-cw-bvh8-idx-align16': {'memory': 20120064, 'nodes': {'primitives': 2880000, 'aabbs': 209584}}, 'cl-cw-bvh8-idx': {'memory': 20120064, 'nodes': {'primitives': 2880000, 'aabbs': 209584}}, 'eq-align16': {'memory': 9836624, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'eq': {'memory': 7377468, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'pbrt-align16': {'memory': 19673248, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'pbrt': {'memory': 19673248, 'nodes': {'primitives': 2880000, 'nodes': 614789}}, 'soa-align16': {'memory': 29509872, 'nodes': {'primitives': 2880000, 'aabbs': 614789, 'nodes': 614789}}, 'soa': {'memory': 19673248, 'nodes': {'primitives': 2880000, 'aabbs': 614789, 'nodes': 614789}}}, 'white-oak': {'eb-align16': {'memory': 686896, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'eb': {'memory': 686896, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'ebq-align16': {'memory': 661408, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'ebq-cl-align16': {'memory': 384432, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'ebq-cl-idx-align16': {'memory': 299632, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'ebq-cl-idx': {'memory': 277724, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'ebq-cl': {'memory': 362524, 'nodes': {'primitives': 36760, 'aabbs': 2473, 'obbs': 177}}, 'bvh8-align16': {'memory': 679936, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'bvh8': {'memory': 679936, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-bvh8-align16': {'memory': 382464, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-bvh8-idx-align16': {'memory': 297472, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-bvh8-idx': {'memory': 276224, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-bvh8': {'memory': 361216, 'nodes': {'primitives': 36760, 'interiors': 2656}}, 'cl-cw-bvh8-idx-align16': {'memory': 254976, 'nodes': {'primitives': 36760, 'aabbs': 2656}}, 'cl-cw-bvh8-idx': {'memory': 254976, 'nodes': {'primitives': 36760, 'aabbs': 2656}}, 'eq-align16': {'memory': 127408, 'nodes': {'primitives': 36760, 'nodes': 7963}}, 'eq': {'memory': 95556, 'nodes': {'primitives': 36760, 'nodes': 7963}}, 'pbrt-align16': {'memory': 254816, 'nodes': {'primitives': 36760, 'nodes': 7963}}, 'pbrt': {'memory': 254816, 'nodes': {'primitives': 36760, 'nodes': 7963}}, 'soa-align16': {'memory': 382224, 'nodes': {'primitives': 36760, 'aabbs': 7963, 'nodes': 7963}}, 'soa': {'memory': 254816, 'nodes': {'primitives': 36760, 'aabbs': 7963, 'nodes': 7963}}}, 'power-plant': {'eb-align16': {'memory': 265928944, 'nodes': {
+        'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'eb': {'memory': 265928944, 'nodes': {'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'ebq-align16': {'memory': 244427296, 'nodes': {'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'ebq-cl-align16': {'memory': 147942544, 'nodes': {'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'ebq-cl-idx-align16': {'memory': 115597328, 'nodes': {'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'ebq-cl-idx': {'memory': 106913756, 'nodes': {'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'ebq-cl': {'memory': 139258972, 'nodes': {'primitives': 12759246, 'aabbs': 861471, 'obbs': 149317}}, 'bvh8-align16': {'memory': 261846528, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'bvh8': {'memory': 261846528, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'cl-bvh8-align16': {'memory': 147288672, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'cl-bvh8-idx-align16': {'memory': 114557856, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'cl-bvh8-idx': {'memory': 106375152, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'cl-bvh8': {'memory': 139105968, 'nodes': {'primitives': 12759246, 'interiors': 1022838}}, 'cl-cw-bvh8-idx-align16': {'memory': 98192448, 'nodes': {'primitives': 12759246, 'aabbs': 1022838}}, 'cl-cw-bvh8-idx': {'memory': 98192448, 'nodes': {'primitives': 12759246, 'aabbs': 1022838}}, 'eq-align16': {'memory': 43702608, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'eq': {'memory': 32776956, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'pbrt-align16': {'memory': 87405216, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'pbrt': {'memory': 87405216, 'nodes': {'primitives': 12759246, 'nodes': 2731413}}, 'soa-align16': {'memory': 131107824, 'nodes': {'primitives': 12759246, 'aabbs': 2731413, 'nodes': 2731413}}, 'soa': {'memory': 87405216, 'nodes': {'primitives': 12759246, 'aabbs': 2731413, 'nodes': 2731413}}}, 'sponza': {'eb-align16': {'memory': 5040464, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'eb': {'memory': 5040464, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'ebq-align16': {'memory': 4698464, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'ebq-cl-align16': {'memory': 2809136, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'ebq-cl-idx-align16': {'memory': 2193328, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'ebq-cl-idx': {'memory': 2029876, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'ebq-cl': {'memory': 2645684, 'nodes': {'primitives': 262267, 'aabbs': 16869, 'obbs': 2375}}, 'bvh8-align16': {'memory': 4948224, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'bvh8': {'memory': 4948224, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-bvh8-align16': {'memory': 2783376, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-bvh8-idx-align16': {'memory': 2164848, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-bvh8-idx': {'memory': 2010216, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-bvh8': {'memory': 2628744, 'nodes': {'primitives': 262267, 'interiors': 19329}}, 'cl-cw-bvh8-idx-align16': {'memory': 1855584, 'nodes': {'primitives': 262267, 'aabbs': 19329}}, 'cl-cw-bvh8-idx': {'memory': 1855584, 'nodes': {'primitives': 262267, 'aabbs': 19329}}, 'eq-align16': {'memory': 897264, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'eq': {'memory': 672948, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'pbrt-align16': {'memory': 1794528, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'pbrt': {'memory': 1794528, 'nodes': {'primitives': 262267, 'nodes': 56079}}, 'soa-align16': {'memory': 2691792, 'nodes': {'primitives': 262267, 'aabbs': 56079, 'nodes': 56079}}, 'soa': {'memory': 1794528, 'nodes': {'primitives': 262267, 'aabbs': 56079, 'nodes': 56079}}}}
     plot_pareto_raw(processed_data, memory_utilization,
                     filename, ray_count=2 ** 25)
     plot_pareto_raw(processed_data, memory_utilization,
@@ -1337,17 +1337,11 @@ if __name__ == "__main__":
     # Generate outputs
     create_scaling_plots(processed_data, machine_type,
                          filename, baseline_layout, method)
-
-    # Create normalized performance plots
-    layouts_to_compare = [
-        'bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'cl-bvh8-idx', 'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16',
-    ]
-
-    COMPARE = "bvh8"
     plot_normalized_performance(
         processed_data,
-        layouts_to_compare,
-        COMPARE,  # baseline layout
+        ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'cl-bvh8-idx',
+            'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
+        "bvh8",  # baseline layout
         filename,
         ray_count=2**25,
         machine_type=machine_type,
@@ -1358,8 +1352,9 @@ if __name__ == "__main__":
     plot_pareto_normalized(
         processed_data,
         memory_utilization,
-        layouts_to_compare,
-        COMPARE,
+        ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'cl-bvh8-idx',
+            'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
+        "bvh8",
         filename,
         ray_count=2**25,
         machine_type=machine_type
@@ -1367,8 +1362,39 @@ if __name__ == "__main__":
     plot_pareto_normalized(
         processed_data,
         memory_utilization,
-        layouts_to_compare,
-        COMPARE,
+        ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'cl-bvh8-idx',
+            'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
+        "bvh8",
+        filename,
+        ray_count=None,
+        machine_type=machine_type
+    )
+
+    plot_normalized_performance(
+        processed_data,
+        ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
+        "eq",  # baseline layout
+        filename,
+        ray_count=2**25,
+        machine_type=machine_type,
+        memory_data=memory_utilization
+
+    )
+
+    plot_pareto_normalized(
+        processed_data,
+        memory_utilization,
+        ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
+        "pbrt",
+        filename,
+        ray_count=2**25,
+        machine_type=machine_type
+    )
+    plot_pareto_normalized(
+        processed_data,
+        memory_utilization,
+        ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
+        "pbrt",
         filename,
         ray_count=None,
         machine_type=machine_type

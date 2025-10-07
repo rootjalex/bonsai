@@ -156,6 +156,9 @@ run_tests() {
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
+      if [[ ("${LAYOUT}" == "cl-cw-bvh8-idx" || "${LAYOUT}" == "cl-cw-bvh8-idx-align16") && "${OBJECT}" != "white-oak" ]]; then
+        continue
+      fi
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
       
