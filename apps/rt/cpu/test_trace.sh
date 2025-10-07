@@ -46,7 +46,7 @@ DATA_FILE="data"
 PARTITION="sah"
 
 MIN_POWER=10
-MAX_POWER=25
+MAX_POWER=20
 
 # only run on performance cores for the Fredwood.
 FREDWOOD_FLAG="numactl --physcpubind 0-15" 
