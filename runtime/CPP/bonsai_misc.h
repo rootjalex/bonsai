@@ -10,7 +10,7 @@
 
 inline int frexpf(float f) {
     int x;
-    std::frexpf(f, &x);
+    frexpf(f, &x);
     return x;
 }
 
