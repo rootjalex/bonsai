@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${1:-4}"
+N="${1:-3}"
 HIT_RATIO="${2:-75}"
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
