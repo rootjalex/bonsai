@@ -16,7 +16,6 @@ schedule {
             high : f32x3;
             nprims : u16;
             axis : u8;
-            8;
             split nprims {
                 0 -> Interior { 
                     offset : u32; 
@@ -61,7 +60,6 @@ schedule {
             high : f32x3;
             nprims : u16;
             axis : u8;
-            8;
             split nprims {
                 0 -> Interior { 
                     offset : u32; 
