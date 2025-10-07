@@ -10,7 +10,7 @@ schedule {
         primitive_count : u32;
         primitives : array[Triangle, primitive_count];
         node_count : u32;
-        group aabbs_1[size=node_count, algin=16] by index1 {
+        group aabbs_1[size=node_count, align=16] by index1 {
             low : f32x3;
             high : f32x3;
         };
