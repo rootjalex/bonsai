@@ -8,8 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("white-oak" "hairball" "power-plant" "sponza")
-# "sheep"
+OBJECTS=("white-oak" "hairball" "power-plant" "sponza" "sheep")
 
 # Parse flags
 DRY_RUN=false
@@ -36,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${1:-3}"
+N="${1:-9}"
 HIT_RATIO="${2:-75}"
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"

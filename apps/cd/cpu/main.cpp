@@ -139,16 +139,16 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
 
 // Functions required for Bonsai tree construction.
 namespace bonsai {
-inline vec3_float min(const vec3_float &a, const vec3_float &b) {
-    vec3_float result;
+inline float3 min(const float3 &a, const float3 &b) {
+    float3 result;
     result[0] = std::fmin(a[0], b[0]);
     result[1] = std::fmin(a[1], b[1]);
     result[2] = std::fmin(a[2], b[2]);
     return result;
 }
 
-inline vec3_float max(const vec3_float &a, const vec3_float &b) {
-    vec3_float result;
+inline float3 max(const float3 &a, const float3 &b) {
+    float3 result;
     result[0] = std::fmax(a[0], b[0]);
     result[1] = std::fmax(a[1], b[1]);
     result[2] = std::fmax(a[2], b[2]);
@@ -160,13 +160,13 @@ inline vec3_float max(const vec3_float &a, const vec3_float &b) {
 // Functions for verifying the correctness of the collision detection
 // algorithms and running the benchmarks.
 namespace {
-static inline float dot(const vec3_float &a, const vec3_float &b) {
+static inline float dot(const float3 &a, const float3 &b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-static inline vec3_float cross(const vec3_float &a, const vec3_float &b) {
-    return (vec3_float){a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
-                        a[0] * b[1] - a[1] * b[0]};
+static inline float3 cross(const float3 &a, const float3 &b) {
+    return (float3){a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+                    a[0] * b[1] - a[1] * b[0]};
 }
 
 static void compute_interval(float v0, float v1, float v2, float d0, float d1,
@@ -188,9 +188,9 @@ static void compute_interval(float v0, float v1, float v2, float d0, float d1,
 bool intersects(const Triangle &t1, const Triangle &t2) {
     const float eps = 1e-6f;
 
-    vec3_float e1 = t1.p1 - t1.p0;
-    vec3_float e2 = t1.p2 - t1.p0;
-    vec3_float n1 = cross(e1, e2);
+    float3 e1 = t1.p1 - t1.p0;
+    float3 e2 = t1.p2 - t1.p0;
+    float3 n1 = cross(e1, e2);
     float d1 = -dot(n1, t1.p0);
 
     float du0 = dot(n1, t2.p0) + d1;
@@ -201,9 +201,9 @@ bool intersects(const Triangle &t1, const Triangle &t2) {
         (du0 < -eps && du1 < -eps && du2 < -eps))
         return false;
 
-    vec3_float f1 = t2.p1 - t2.p0;
-    vec3_float f2 = t2.p2 - t2.p0;
-    vec3_float n2 = cross(f1, f2);
+    float3 f1 = t2.p1 - t2.p0;
+    float3 f2 = t2.p2 - t2.p0;
+    float3 n2 = cross(f1, f2);
     float d2 = -dot(n2, t2.p0);
 
     float dv0 = dot(n2, t1.p0) + d2;
@@ -214,7 +214,7 @@ bool intersects(const Triangle &t1, const Triangle &t2) {
         (dv0 < -eps && dv1 < -eps && dv2 < -eps))
         return false;
 
-    vec3_float D = cross(n1, n2);
+    float3 D = cross(n1, n2);
 
     int index = 0;
     float absx = std::fabs(D[0]), absy = std::fabs(D[1]),
@@ -249,9 +249,9 @@ Triangle construct_triangle(const fcl::Triangle &t,
     assert(t[2] < v.size());
     fcl::Vector3<S> z = v[t[2]];
 
-    auto p0 = vec3_float{x[0], x[1], x[2]};
-    auto p1 = vec3_float{y[0], y[1], y[2]};
-    auto p2 = vec3_float{z[0], z[1], z[2]};
+    auto p0 = float3{x[0], x[1], x[2]};
+    auto p1 = float3{y[0], y[1], y[2]};
+    auto p2 = float3{z[0], z[1], z[2]};
     return Triangle{p0, p1, p2};
 }
 
@@ -312,8 +312,8 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     t0 = clock::now();
     std::vector<Triangle> T1s = construct_triangles(T1, v1);
     std::vector<Triangle> T2s = construct_triangles(T2, v2);
-    BVH *canonical_tree1 = build_canonical_tree(T1s);
-    BVH *canonical_tree2 = build_canonical_tree(T2s);
+    BVH *canonical_tree1 = build_fcl_tree_median_split(T1s);
+    BVH *canonical_tree2 = build_fcl_tree_median_split(T2s);
     Triangles1 tree1 = build_triangles1(canonical_tree1);
     Triangles2 tree2 = build_triangles2(canonical_tree2);
     t1 = clock::now();

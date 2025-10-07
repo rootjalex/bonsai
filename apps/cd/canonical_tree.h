@@ -1,34 +1,52 @@
 #include "cd.h"
+// BVH construction following FCL's approach
+// Reference: https://github.com/flexible-collision-library/fcl
+// Specifically: include/fcl/geometry/bvh/BVH_model-inl.h (recursiveBuildTree)
+// and include/fcl/geometry/bvh/detail/BV_splitter-inl.h (computeRule)
 
-std::pair<vec3_float, vec3_float>
-compute_aabb(uint32_t low, uint32_t high,
-             const std::vector<Triangle> &triangles) {
-    Triangle tri = triangles[low];
-    vec3_float aabb_min = tri.p0;
-    vec3_float aabb_max = tri.p0;
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <functional>
+#include <vector>
+
+// Compute AABB for a range of triangles
+std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
+                                       const std::vector<Triangle> &triangles) {
+    float3 aabb_min = {INFINITY, INFINITY, INFINITY};
+    float3 aabb_max = {-INFINITY, -INFINITY, -INFINITY};
+
     for (uint32_t i = low; i < high; ++i) {
-        Triangle t = triangles[i];
-        for (vec3_float v : {t.p0, t.p1, t.p2}) {
-            aabb_min = min(aabb_min, v);
-            aabb_max = max(aabb_max, v);
+        const Triangle &tri = triangles[i];
+        for (const float3 *p : {&tri.p0, &tri.p1, &tri.p2}) {
+            aabb_min.x = std::min(aabb_min.x, p->x);
+            aabb_min.y = std::min(aabb_min.y, p->y);
+            aabb_min.z = std::min(aabb_min.z, p->z);
+            aabb_max.x = std::max(aabb_max.x, p->x);
+            aabb_max.y = std::max(aabb_max.y, p->y);
+            aabb_max.z = std::max(aabb_max.z, p->z);
         }
     }
+
     return {aabb_min, aabb_max};
 }
 
-BVH *build_canonical_tree(std::vector<Triangle> &triangles,
-                          int max_prims_per_leaf = 15,
-                          int max_tree_depth = 64) {
+// FCL-style BVH construction with median split. They use 1 primitive per leaf,
+// and have unlimited tree depth.
+BVH *build_fcl_tree_median_split(
+    std::vector<Triangle> &triangles, int max_prims_per_leaf = 1,
+    int max_tree_depth = std::numeric_limits<int>::max()) {
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
-        assert(depth < max_tree_depth);
         uint32_t count = high - low;
 
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
-        if (count < max_prims_per_leaf) {
+        // Leaf node creation
+        if (count <= max_prims_per_leaf || depth >= max_tree_depth) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            for (int i = 0; i < count; ++i) {
+            for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
             }
             return new BVH(Leaf{
@@ -39,24 +57,69 @@ BVH *build_canonical_tree(std::vector<Triangle> &triangles,
             });
         }
 
-        vec3_float extent = aabb_max - aabb_min;
+        // FCL's splitting approach:
+        // 1. Choose split axis (longest extent)
+        // https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/geometry/bvh/detail/BV_splitter-inl.h#L210
+        float3 extent = aabb_max - aabb_min;
         int axis = 0;
-        if (extent[1] > extent[0])
+        float max_extent = extent.x;
+        if (extent.y > max_extent) {
             axis = 1;
-        if (extent[2] > extent[axis])
+            max_extent = extent.y;
+        }
+        if (extent.z > max_extent) {
             axis = 2;
+        }
 
-        // Partition around midpoint along axis
-        auto mid_it = triangles.begin() + low + count / 2;
-        std::nth_element(triangles.begin() + low, mid_it,
-                         triangles.begin() + high,
-                         [&](const Triangle &a, const Triangle &b) {
-                             float ca = (a.p0[axis] + a.p1[axis] + a.p2[axis]);
-                             float cb = (b.p0[axis] + b.p1[axis] + b.p2[axis]);
-                             return ca < cb;
-                         });
+        // 2. Compute split value (median of centroids).
+        // https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/geometry/bvh/detail/BV_splitter-inl.h#L619
+        std::vector<float> centroid_coords;
+        centroid_coords.reserve(count);
 
-        const uint32_t mid = low + count / 2;
+        for (uint32_t i = low; i < high; ++i) {
+            const Triangle &tri = triangles[i];
+            // Triangle centroid: average of three vertices
+            float3 centroid = (tri.p0 + tri.p1 + tri.p2) / 3.0f;
+            float coord = (axis == 0)   ? centroid.x
+                          : (axis == 1) ? centroid.y
+                                        : centroid.z;
+            centroid_coords.push_back(coord);
+        }
+
+        // ...find median value.
+        std::vector<float> sorted_coords = centroid_coords;
+        std::nth_element(sorted_coords.begin(),
+                         sorted_coords.begin() + count / 2,
+                         sorted_coords.end());
+        float split_value = sorted_coords[count / 2];
+
+        // 3. Partition triangles.
+        uint32_t c1 = 0; // Boundary between left and right partitions
+        for (uint32_t i = 0; i < count; ++i) {
+            const Triangle &tri = triangles[low + i];
+            float3 centroid = (tri.p0 + tri.p1 + tri.p2) / 3.0f;
+            float coord = (axis == 0)   ? centroid.x
+                          : (axis == 1) ? centroid.y
+                                        : centroid.z;
+
+            // FCL's apply() function tests if point is on "right" side of split
+            // A point is on the right if its coordinate > split_value
+            // https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/geometry/bvh/BVH_model-inl.h#L917
+            if (bool on_right = (coord > split_value); !on_right) {
+                // Place in left partition
+                std::swap(triangles[low + i], triangles[low + c1]);
+                c1++;
+            }
+        }
+
+        // Handle degenerate case where all primitives end up on one side.
+        // https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/geometry/bvh/BVH_model-inl.h#L929
+        if (c1 == 0 || c1 == count) {
+            c1 = count / 2;
+        }
+
+        // Recursively build left and right subtrees
+        const uint32_t mid = low + c1;
         BVH *left = partition(low, mid, depth + 1);
         BVH *right = partition(mid, high, depth + 1);
 
@@ -68,7 +131,7 @@ BVH *build_canonical_tree(std::vector<Triangle> &triangles,
         });
     };
 
-    return partition(0, triangles.size(), /*depth=*/0);
+    return partition(0, triangles.size(), 0);
 }
 
 void free_canonical_tree(BVH *node) {
