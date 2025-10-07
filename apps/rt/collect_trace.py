@@ -1399,3 +1399,24 @@ if __name__ == "__main__":
         ray_count=None,
         machine_type=machine_type
     )
+
+    plot_pareto_normalized(
+        processed_data,
+        memory_utilization,
+        ['ebq-align16', 'eb-align16', 'eq', 'ebq-cl',
+            'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16'],
+        "eb",
+        filename,
+        ray_count=2**25,
+        machine_type=machine_type
+    )
+    plot_pareto_normalized(
+        processed_data,
+        memory_utilization,
+        ['ebq-align16', 'eb-align16', 'eq', 'ebq-cl',
+            'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16'],
+        "eb",
+        filename,
+        ray_count=None,
+        machine_type=machine_type
+    )
