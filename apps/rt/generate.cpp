@@ -17,67 +17,67 @@ std::string after_token(const std::string &input, char token) {
     return input.substr(pos + 1);
 }
 
-struct vec3_float {
+struct float3 {
     float x, y, z;
-    vec3_float(std::initializer_list<float> list) {
+    float3(std::initializer_list<float> list) {
         auto it = list.begin();
         x = *it++;
         y = *it++;
         z = *it;
     }
-    vec3_float() : x(0), y(0), z(0) {}
+    float3() : x(0), y(0), z(0) {}
 
     float &operator[](int i) { return (&x)[i]; }
 
     const float &operator[](int i) const { return (&x)[i]; }
 
-    vec3_float operator+(const vec3_float &other) const {
+    float3 operator+(const float3 &other) const {
         return {x + other.x, y + other.y, z + other.z};
     }
 
-    vec3_float operator-(const vec3_float &other) const {
+    float3 operator-(const float3 &other) const {
         return {x - other.x, y - other.y, z - other.z};
     }
 
-    vec3_float operator*(float scalar) const {
+    float3 operator*(float scalar) const {
         return {x * scalar, y * scalar, z * scalar};
     }
 
-    float dot(const vec3_float &other) const {
+    float dot(const float3 &other) const {
         return x * other.x + y * other.y + z * other.z;
     }
 
-    vec3_float cross(const vec3_float &other) const {
+    float3 cross(const float3 &other) const {
         return {y * other.z - z * other.y, z * other.x - x * other.z,
                 x * other.y - y * other.x};
     }
 
     float length() const { return std::sqrt(x * x + y * y + z * z); }
 
-    vec3_float normalize() const {
+    float3 normalize() const {
         float len = length();
-        return len > 0 ? (*this) * (1.0f / len) : vec3_float();
+        return len > 0 ? (*this) * (1.0f / len) : float3();
     }
 };
 
 struct Triangle {
-    vec3_float p0, p1, p2;
+    float3 p0, p1, p2;
 
-    vec3_float normal() const { return (p1 - p0).cross(p2 - p0).normalize(); }
+    float3 normal() const { return (p1 - p0).cross(p2 - p0).normalize(); }
 
     float area() const { return (p1 - p0).cross(p2 - p0).length() * 0.5f; }
 };
 
 struct Ray {
-    vec3_float o;
-    vec3_float d;
+    float3 o;
+    float3 d;
 };
 
 struct BoundingBox {
-    vec3_float min, max;
+    float3 min, max;
 
     BoundingBox() {}
-    BoundingBox(const vec3_float &min_pt, const vec3_float &max_pt)
+    BoundingBox(const float3 &min_pt, const float3 &max_pt)
         : min(min_pt), max(max_pt) {}
 
     BoundingBox expand(const BoundingBox &other) const {
@@ -88,7 +88,7 @@ struct BoundingBox {
              std::max(max.z, other.max.z)});
     }
 
-    vec3_float center() const {
+    float3 center() const {
         return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f,
                 (min.z + max.z) * 0.5f};
     }
@@ -114,7 +114,7 @@ struct BVHNode {
 bool ray_triangle_intersect(const Ray &ray, const Triangle &tri, float &t) {
     constexpr float EPSILON = 0.0000001f;
 
-    vec3_float edge1, edge2, h, s, q;
+    float3 edge1, edge2, h, s, q;
     float a, f, u, v;
 
     edge1.x = tri.p1.x - tri.p0.x;
@@ -200,7 +200,7 @@ class BVH {
             return node;
         }
 
-        vec3_float bbox_size = node->bbox.max - node->bbox.min;
+        float3 bbox_size = node->bbox.max - node->bbox.min;
         int split_axis = 0;
         if (bbox_size.y > bbox_size.x)
             split_axis = 1;
@@ -213,7 +213,7 @@ class BVH {
         auto partition_point = std::partition(
             indices.begin(), indices.end(),
             [this, split_axis, split_pos](int idx) {
-                vec3_float center =
+                float3 center =
                     compute_triangle_bbox((*triangles)[idx]).center();
                 return center[split_axis] < split_pos;
             });
@@ -387,7 +387,7 @@ inline float random_float(std::mt19937 &generator, float min = -1.0,
     return urd(generator);
 }
 
-vec3_float random_unit_vector(std::mt19937 &generator) {
+float3 random_unit_vector(std::mt19937 &generator) {
     float x = random_float(generator);
     float y = random_float(generator);
     float z = random_float(generator);
@@ -399,7 +399,7 @@ vec3_float random_unit_vector(std::mt19937 &generator) {
         z /= length;
     }
 
-    return vec3_float({x, y, z});
+    return float3({x, y, z});
 }
 
 BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
@@ -410,7 +410,7 @@ BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
     bbox.min = bbox.max = triangles[0].p0;
 
     for (const auto &tri : triangles) {
-        vec3_float vertices[3] = {tri.p0, tri.p1, tri.p2};
+        float3 vertices[3] = {tri.p0, tri.p1, tri.p2};
         for (int i = 0; i < 3; i++) {
             bbox.min.x = std::min(bbox.min.x, vertices[i].x);
             bbox.min.y = std::min(bbox.min.y, vertices[i].y);
@@ -445,7 +445,7 @@ std::vector<Ray> generate_rays(const std::vector<Triangle> &triangles,
     int hits_generated = 0;
     while (hits_generated < target_hits) {
         Ray candidate_ray;
-        candidate_ray.o = vec3_float{
+        candidate_ray.o = float3{
             random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
             random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
             random_float(generator, bbox.min.z - 50.0f, bbox.max.z + 50.0f)};
@@ -464,7 +464,7 @@ std::vector<Ray> generate_rays(const std::vector<Triangle> &triangles,
     int misses_generated = 0;
     while (misses_generated < target_misses) {
         Ray candidate_ray;
-        candidate_ray.o = vec3_float{
+        candidate_ray.o = float3{
             random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
             random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
             random_float(generator, bbox.min.z - 50.0f, bbox.max.z + 50.0f)};
