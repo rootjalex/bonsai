@@ -1,0 +1,249 @@
+element u32x8 = vector[u32, 8];
+element u8x3x8 = vector[u8x3, 8];
+element u8x8 = vector[u8, 8];
+
+func to_i8(f: f32) -> i8 {
+  f1 : f32 = roundf(f);
+  f2: f32 = max(-128.0, min(f1, 127.0));
+  return cast[[i8]](f2);
+}
+
+func quantize_orientation(x: f32x4x3) -> i8x4x3 {
+  return i8x4x3 {
+    i8x4 {
+      to_i8(x[0][0] * 127.0),
+      to_i8(x[0][1] * 127.0),
+      to_i8(x[0][2] * 127.0),
+      to_i8(x[0][3] * 127.0)
+    },
+    i8x4 {
+      to_i8(x[1][0] * 127.0),
+      to_i8(x[1][1] * 127.0),
+      to_i8(x[1][2] * 127.0),
+      to_i8(x[1][3] * 127.0)
+    },
+    i8x4 {
+      to_i8(x[2][0] * 127.0),
+      to_i8(x[2][1] * 127.0),
+      to_i8(x[2][2] * 127.0),
+      to_i8(x[2][3] * 127.0)
+    }
+  };
+}
+
+func compute_merged_low(low: f32x3x8) -> f32x3 {
+  return min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
+}
+
+func compute_merged_extent(lo: f32x3x8, hi: f32x3x8) -> f32x3 {
+  mlo: f32x3 = min(lo[0], min(lo[1], min(lo[2], min(lo[3], min(lo[4], min(lo[5], min(lo[6], lo[7])))))));
+  mhi: f32x3 = max(hi[0], max(hi[1], max(hi[2], max(hi[3], max(hi[4], max(hi[5], max(hi[6], hi[7])))))));
+  return mhi - mlo;
+}
+
+func to_u8_floor(f: f32x3) -> u8x3 {
+    f1: f32x3 = floorf(f);
+    f2: f32x3 = max(0.0, min(f1, 255.0));
+    return cast[[u8x3]](f2);
+}
+
+func to_u8_ceil(f: f32x3) -> u8x3 {
+    f1: f32x3 = ceilf(f);
+    f2: f32x3 = max(0.0, min(f1, 255.0));
+    return cast[[u8x3]](f2);
+}
+
+// Reconstruct 2^e from exponent
+func exponent_to_scale(e: u8) -> f32 {
+    // Construct IEEE 754 float with just exponent bits set
+    // Float format: sign(1) | exponent(8) | mantissa(23)
+    // For 2^e: all mantissa bits are 0
+    
+    bits: u32 = cast[[u32]](e) << 23u;
+    return cast[[f32]](bits);
+}
+
+func quantize_bounds_low_cwbvh(low: f32x3x8, high: f32x3x8, mlo: f32x3, mexq: u8x3) -> u8x3x8 {
+    scale_x: f32 = exponent_to_scale(mexq.x);
+    scale_y: f32 = exponent_to_scale(mexq.y);
+    scale_z: f32 = exponent_to_scale(mexq.z);
+    scale: f32x3 = f32x3 { scale_x, scale_y, scale_z };
+    
+    rcp: f32x3 = f32x3 { 1.0 / scale.x, 1.0 / scale.y, 1.0 / scale.z };
+    rcp255: f32x3 = rcp * 255.0;
+    
+    return u8x3x8 {
+        to_u8_floor((low[0] - mlo) * rcp255),
+        to_u8_floor((low[1] - mlo) * rcp255),
+        to_u8_floor((low[2] - mlo) * rcp255),
+        to_u8_floor((low[3] - mlo) * rcp255),
+        to_u8_floor((low[4] - mlo) * rcp255),
+        to_u8_floor((low[5] - mlo) * rcp255),
+        to_u8_floor((low[6] - mlo) * rcp255),
+        to_u8_floor((low[7] - mlo) * rcp255)
+    };
+}
+
+func quantize_bounds_high_cwbvh(low: f32x3x8, high: f32x3x8, mlo: f32x3, mexq: u8x3) -> u8x3x8 {
+    scale_x: f32 = exponent_to_scale(mexq.x);
+    scale_y: f32 = exponent_to_scale(mexq.y);
+    scale_z: f32 = exponent_to_scale(mexq.z);
+    scale: f32x3 = f32x3 { scale_x, scale_y, scale_z };
+    
+    rcp: f32x3 = f32x3 { 1.0 / scale.x, 1.0 / scale.y, 1.0 / scale.z };
+    rcp255: f32x3 = rcp * 255.0;
+    
+    return u8x3x8 {
+        to_u8_ceil((high[0] - mlo) * rcp255),
+        to_u8_ceil((high[1] - mlo) * rcp255),
+        to_u8_ceil((high[2] - mlo) * rcp255),
+        to_u8_ceil((high[3] - mlo) * rcp255),
+        to_u8_ceil((high[4] - mlo) * rcp255),
+        to_u8_ceil((high[5] - mlo) * rcp255),
+        to_u8_ceil((high[6] - mlo) * rcp255),
+        to_u8_ceil((high[7] - mlo) * rcp255)
+    };
+}
+
+func compute_single_exponent(extent_component: f32) -> u8 {
+    if (extent_component <= 0.0) {
+        return 0u;
+    }
+    
+    // We need: 2^e * 255 >= extent
+    // So: 2^e >= extent / 255
+    // Therefore: e >= log2(extent / 255)
+    required_scale: f32 = extent_component / 255.0;
+    
+    // Extract exponent from float.
+    exponent: mut i32 = frexpf(required_scale);
+    
+    // Round up if necessary
+    scale: f32 = exp2f(cast[[f32]](exponent));
+    if (scale * 255.0 < extent_component) {
+        exponent = exponent + 1;
+    }
+    
+    return cast[[u8]](max(0, exponent + 127)); // Store biased exponent
+}
+
+func compute_exponent_grid(extent: f32x3) -> u8x3 {
+    // For each axis, find smallest exponent, where
+    //  2^e * 255 >= extent
+    // This is: e = ceil(log2(extent / 255))
+    ex: u8 = compute_single_exponent(extent.x);
+    ey: u8 = compute_single_exponent(extent.y);
+    ez: u8 = compute_single_exponent(extent.z);
+    
+    return u8x3 { ex, ey, ez };
+}
+
+func dequantize_bounds_cwbvh(mlo: f32x3, qex: u8x3, bound: u8x3x8) -> f32x3x8 {
+    scale_x: f32 = exponent_to_scale(qex.x);
+    scale_y: f32 = exponent_to_scale(qex.y);
+    scale_z: f32 = exponent_to_scale(qex.z);
+    scale: f32x3 = f32x3 { scale_x, scale_y, scale_z };
+    
+    rcp: f32 = 1.0 / 255.0;
+    return f32x3x8 { 
+        mlo + (cast[[f32x3]](bound[0]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[1]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[2]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[3]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[4]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[5]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[6]) * rcp) * scale,
+        mlo + (cast[[f32x3]](bound[7]) * rcp) * scale
+    };
+}
+
+func dequantize_orientation(x: i8x4x3) -> f32x4x3 {
+    return f32x4x3 {
+        f32x4 {
+            cast[[f32]](x[0][0]) / 127.0,
+            cast[[f32]](x[0][1]) / 127.0,
+            cast[[f32]](x[0][2]) / 127.0,
+            cast[[f32]](x[0][3]) / 127.0
+        },
+        f32x4 {
+          cast[[f32]](x[1][0]) / 127.0,
+            cast[[f32]](x[1][1]) / 127.0,
+            cast[[f32]](x[1][2]) / 127.0,
+            cast[[f32]](x[1][3]) / 127.0
+        },
+        f32x4 {
+            cast[[f32]](x[2][0]) / 127.0,
+            cast[[f32]](x[2][1]) / 127.0,
+            cast[[f32]](x[2][2]) / 127.0,
+            cast[[f32]](x[2][3]) / 127.0
+        }
+    };
+}
+
+func dequantize_bounds(mlo: f32x3, mex: f32x3, q: u8x3x8) -> f32x3x8 {
+  rcp: f32 = 1 / 255.0;
+  return f32x3x8 { 
+    mlo + (cast[[f32x3]](q[0]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[1]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[2]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[3]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[4]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[5]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[6]) * rcp) * mex,
+    mlo + (cast[[f32x3]](q[7]) * rcp) * mex
+
+  };
+}
+
+schedule {
+    tree[[Triangle]] BVH
+      = Interior(children: array[BVH, 8], lo: f32x3x8, hi: f32x3x8) with AABB(lo, hi) on children
+      | Leaf(nprims: u8, data: array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(index: u32 = 1u) {
+        primitive_count: u32;
+        primitives : array[Triangle, primitive_count];
+
+        aabb_count: u32;
+        indirect group Aabbs[size=aabb_count, align=16] {
+            // Use CWBVH quantization scheme
+            mlo: f32x3;      // 12
+            mexq: u8x3;      // 3
+            8;               // 1
+            qlo: u8x3x8;     // 24
+            qhi: u8x3x8;     // 24
+            children: u32x8; // 32 = 96B
+
+            lo =  dequantize_bounds_cwbvh(mlo, mexq, qlo);
+            hi = dequantize_bounds_cwbvh(mlo, mexq, qhi);
+        };
+
+        group _ by index {
+            split index[0:1] {
+                0 -> Leaf {
+                    nprims = cast[[u8]](index[2:5] + 1);
+                    data = primitives[index[6:31] : index[6:31] + nprims];
+                };
+                1 -> Interior from Aabbs[index[2:31]];
+            };
+        };
+    };
+
+    build triangles {
+      build Interior(children: array[BVH, 8], lo: f32x3x8, hi: f32x3x8) {
+        build mlo = compute_merged_low(lo);
+        let mex: f32x3 = compute_merged_extent(lo, hi);
+        build mexq = compute_exponent_grid(mex);
+        build qlo = quantize_bounds_low_cwbvh(lo, hi, mlo, mexq);
+        build qhi = quantize_bounds_high_cwbvh(lo, hi, mlo, mexq);
+        recurse children;
+        return cast[[u32]]((this << 2) | 1);
+      };
+
+      build Leaf(nprims: u8, data: array[Triangle, nprims]) {
+        let poffset: u32 = append(data, nprims);
+        return cast[[u32]]((poffset << 6) | ((nprims - 1) << 2) | 0);
+      };
+    };

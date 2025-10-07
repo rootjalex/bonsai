@@ -522,7 +522,7 @@ def plot_pareto_raw(processed_data, memory_data, output_path='.', ray_count=None
 def plot_normalized_performance(processed_data, layouts, baseline_layout, output_path, ray_count=None, machine_type=None, memory_data=None):
     """
     Create bar graphs showing performance of selected layouts normalized to baseline.
-    Optionally includes memory utilization comparison.
+    Optionally includes a single memory comparison chart.
 
     Args:
         processed_data: Processed trace time data
@@ -551,9 +551,9 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
     n_rows = (n_models + n_cols - 1) // n_cols
 
     if show_memory:
-        # Two columns per model: performance and memory
-        fig = plt.figure(figsize=(16 * n_cols, 6 * n_rows))
-        gs = fig.add_gridspec(n_rows, n_cols * 2, hspace=0.3, wspace=0.3)
+        # Add one extra row for the single memory chart
+        fig = plt.figure(figsize=(8 * n_cols, 6 * (n_rows + 1)))
+        gs = fig.add_gridspec(n_rows + 1, n_cols, hspace=0.3, wspace=0.3)
         axes = None  # Not used in memory mode
     else:
         fig, axes = plt.subplots(
@@ -570,22 +570,18 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
 
     for idx, model in enumerate(models):
         if show_memory:
-            # Create two subplots for this model
+            # Create subplot for this model
             row = idx // n_cols
-            col = (idx % n_cols) * 2
+            col = idx % n_cols
             ax_perf = fig.add_subplot(gs[row, col])
-            ax_mem = fig.add_subplot(gs[row, col + 1])
         else:
             ax_perf = axes[idx]
-            ax_mem = None
 
         # Check if baseline exists for this model
         if baseline_layout not in processed_data[model]:
             ax_perf.text(0.5, 0.5, f'No baseline data\nfor {model}',
                          ha='center', va='center', fontsize=12)
             ax_perf.set_title(f'{model.title()}')
-            if ax_mem:
-                ax_mem.axis('off')
             continue
 
         # Get baseline performance
@@ -594,8 +590,6 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
                 ax_perf.text(0.5, 0.5, f'Ray count {ray_count}\nnot found for {model}',
                              ha='center', va='center', fontsize=12)
                 ax_perf.set_title(f'{model.title()}')
-                if ax_mem:
-                    ax_mem.axis('off')
                 continue
             baseline_time = processed_data[model][baseline_layout][ray_count]
         else:
@@ -606,21 +600,13 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
                 ax_perf.text(0.5, 0.5, f'No valid data\nfor {model}',
                              ha='center', va='center', fontsize=12)
                 ax_perf.set_title(f'{model.title()}')
-                if ax_mem:
-                    ax_mem.axis('off')
                 continue
             baseline_time = math.exp(sum(math.log(t)
                                      for t in times) / len(times))
 
-        # Get baseline memory if available
-        baseline_memory = None
-        if show_memory and model in memory_data and baseline_layout in memory_data[model]:
-            baseline_memory = memory_data[model][baseline_layout]['memory']
-
-        # Collect normalized performance and memory for each layout
+        # Collect normalized performance for each layout
         layout_names = []
         normalized_values = []
-        memory_values = []
         bar_colors = []
 
         for i, layout in enumerate(layouts):
@@ -646,18 +632,6 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
                 layout_names.append(layout.upper())
                 normalized_values.append(normalized)
 
-                # Get memory for this layout
-                if show_memory and model in memory_data and layout in memory_data[model]:
-                    layout_memory = memory_data[model][layout]['memory']
-                    if baseline_memory and baseline_memory > 0:
-                        # Normalize memory (baseline / layout, so >1 means less memory than baseline)
-                        memory_norm = baseline_memory / layout_memory
-                    else:
-                        memory_norm = 1.0
-                    memory_values.append(memory_norm)
-                else:
-                    memory_values.append(None)
-
                 # Color baseline differently
                 if layout == baseline_layout:
                     bar_colors.append('#808080')  # Gray for baseline
@@ -668,8 +642,6 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
             ax_perf.text(0.5, 0.5, f'No valid data\nfor {model}',
                          ha='center', va='center', fontsize=12)
             ax_perf.set_title(f'{model.title()}')
-            if ax_mem:
-                ax_mem.axis('off')
             continue
 
         # Create performance bar chart
@@ -693,26 +665,60 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
         ax_perf.set_xticklabels(layout_names, rotation=45, ha='right')
         ax_perf.set_ylabel(
             f'Speedup vs {baseline_layout.upper()}', fontweight='bold')
-        ax_perf.set_title(f'{model.title()} - Performance',
-                          fontweight='bold', fontsize=12)
+        ax_perf.set_title(f'{model.title()}', fontweight='bold', fontsize=12)
         ax_perf.grid(True, axis='y', alpha=0.3, linestyle='--')
         ax_perf.legend(loc='best', fontsize=9)
         ax_perf.set_ylim(bottom=0)
 
-        # Create memory bar chart if data available
-        if show_memory and ax_mem:
-            valid_memory = [m for m in memory_values if m is not None]
-            if valid_memory:
-                bars_mem = ax_mem.bar(x_pos, [m if m is not None else 0 for m in memory_values],
-                                      color=bar_colors, edgecolor='black', linewidth=1.5, alpha=0.8)
+    # Create single memory bar chart if data available
+    if show_memory:
+        # Use any model that has memory data (they should all be the same)
+        reference_model = None
+        for model in models:
+            if model in memory_data and baseline_layout in memory_data[model]:
+                reference_model = model
+                break
+
+        if reference_model:
+            # Create memory chart spanning the entire bottom row
+            ax_mem = fig.add_subplot(gs[n_rows, :])
+
+            baseline_memory = memory_data[reference_model][baseline_layout]['memory']
+
+            # Collect memory data for layouts
+            layout_names = []
+            memory_values = []
+            bar_colors = []
+
+            for i, layout in enumerate(layouts):
+                if layout not in memory_data[reference_model]:
+                    continue
+
+                layout_memory = memory_data[reference_model][layout]['memory']
+
+                if baseline_memory > 0 and layout_memory > 0:
+                    # Normalize memory (baseline / layout, so >1 means less memory than baseline)
+                    memory_norm = baseline_memory / layout_memory
+                    layout_names.append(layout.upper())
+                    memory_values.append(memory_norm)
+
+                    # Color baseline differently
+                    if layout == baseline_layout:
+                        bar_colors.append('#808080')
+                    else:
+                        bar_colors.append(colors[i % len(colors)])
+
+            if layout_names:
+                x_pos = np.arange(len(layout_names))
+                bars_mem = ax_mem.bar(x_pos, memory_values, color=bar_colors,
+                                      edgecolor='black', linewidth=1.5, alpha=0.8)
 
                 # Add value labels on bars
                 for bar, val in zip(bars_mem, memory_values):
-                    if val is not None:
-                        height = bar.get_height()
-                        ax_mem.text(bar.get_x() + bar.get_width()/2., height,
-                                    f'{val:.2f}x',
-                                    ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    height = bar.get_height()
+                    ax_mem.text(bar.get_x() + bar.get_width()/2., height,
+                                f'{val:.2f}x',
+                                ha='center', va='bottom', fontsize=9, fontweight='bold')
 
                 # Add baseline reference line
                 ax_mem.axhline(y=1.0, color='red', linestyle='--', linewidth=2,
@@ -722,20 +728,15 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
                 ax_mem.set_xticks(x_pos)
                 ax_mem.set_xticklabels(layout_names, rotation=45, ha='right')
                 ax_mem.set_ylabel(
-                    f'Memory Reduction vs {baseline_layout.upper()}', fontweight='bold')
-                ax_mem.set_title(f'{model.title()} - Memory',
-                                 fontweight='bold', fontsize=12)
+                    f'Memory Reduction vs {baseline_layout.upper()}', fontweight='bold', fontsize=12)
+                ax_mem.set_title('Memory Utilization (All Models)',
+                                 fontweight='bold', fontsize=14)
                 ax_mem.grid(True, axis='y', alpha=0.3, linestyle='--')
-                ax_mem.legend(loc='best', fontsize=9)
+                ax_mem.legend(loc='best', fontsize=10)
                 ax_mem.set_ylim(bottom=0)
-            else:
-                ax_mem.text(0.5, 0.5, f'No memory data\nfor {model}',
-                            ha='center', va='center', fontsize=12)
-                ax_mem.set_title(f'{model.title()} - Memory',
-                                 fontweight='bold', fontsize=12)
 
     # Hide extra subplots if any (only for non-memory case)
-    if not show_memory:
+    if not show_memory and axes is not None:
         for idx in range(len(models), len(axes)):
             axes[idx].axis('off')
 
@@ -769,6 +770,261 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
 
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Normalized performance plot saved to: {output_file}")
+    plt.close()
+
+
+def plot_pareto_normalized(processed_data, memory_data, layouts, baseline_layout, output_path, ray_count=None, machine_type=None):
+    """
+    Plot Pareto frontiers for selected layouts showing normalized performance vs memory.
+    Each model gets its own subplot.
+
+    Args:
+        processed_data: Processed trace time data
+        memory_data: Memory utilization data
+        layouts: List of layout names to include
+        baseline_layout: Layout to normalize against
+        output_path: Path for output file
+        ray_count: Specific ray count to plot (None for geometric mean across all)
+        machine_type: Machine type for title
+    """
+    models = sorted(processed_data.keys())
+
+    # Validate baseline
+    if baseline_layout not in layouts:
+        print(
+            f"Warning: Baseline layout '{baseline_layout}' not in provided layouts list. Adding it.")
+        layouts = [baseline_layout] + \
+            [l for l in layouts if l != baseline_layout]
+
+    # Create figure with one subplot per model
+    n_models = len(models)
+    n_cols = min(3, n_models)
+    n_rows = (n_models + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 8 * n_rows))
+    if n_models == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten() if n_models > 1 else [axes]
+
+    # Color scheme
+    colors = ['#2E86AB', '#A23B72', '#F18F01', '#8B5A3C', '#4A90E2',
+              '#6B4C8A', '#E85D75', '#3AA655', '#F4B942', '#D64545']
+
+    for idx, model in enumerate(models):
+        ax = axes[idx]
+
+        # Check if baseline exists
+        if baseline_layout not in processed_data[model]:
+            ax.text(0.5, 0.5, f'No baseline data\nfor {model}',
+                    ha='center', va='center', fontsize=12)
+            ax.set_title(f'{model.title()}')
+            continue
+
+        if model not in memory_data or baseline_layout not in memory_data[model]:
+            ax.text(0.5, 0.5, f'No memory data\nfor {model}',
+                    ha='center', va='center', fontsize=12)
+            ax.set_title(f'{model.title()}')
+            continue
+
+        # Get baseline values
+        if ray_count is not None:
+            if ray_count not in processed_data[model][baseline_layout]:
+                ax.text(0.5, 0.5, f'Ray count {ray_count}\nnot found for {model}',
+                        ha='center', va='center', fontsize=12)
+                ax.set_title(f'{model.title()}')
+                continue
+            baseline_time = processed_data[model][baseline_layout][ray_count]
+        else:
+            times = [t for t in processed_data[model]
+                     [baseline_layout].values() if t > 0]
+            if not times:
+                ax.text(0.5, 0.5, f'No valid data\nfor {model}',
+                        ha='center', va='center', fontsize=12)
+                ax.set_title(f'{model.title()}')
+                continue
+            baseline_time = math.exp(sum(math.log(t)
+                                     for t in times) / len(times))
+
+        baseline_memory = memory_data[model][baseline_layout]['memory']
+
+        if baseline_time <= 0 or baseline_memory <= 0:
+            ax.text(0.5, 0.5, f'Invalid baseline\nfor {model}',
+                    ha='center', va='center', fontsize=12)
+            ax.set_title(f'{model.title()}')
+            continue
+
+        # Collect normalized data points for selected layouts
+        points = []
+        labels = []
+        point_colors = []
+
+        for i, layout in enumerate(layouts):
+            if layout not in processed_data[model]:
+                continue
+            if model not in memory_data or layout not in memory_data[model]:
+                continue
+
+            # Get performance
+            if ray_count is not None:
+                if ray_count not in processed_data[model][layout]:
+                    continue
+                layout_time = processed_data[model][layout][ray_count]
+            else:
+                times = [t for t in processed_data[model]
+                         [layout].values() if t > 0]
+                if not times:
+                    continue
+                layout_time = math.exp(sum(math.log(t)
+                                       for t in times) / len(times))
+
+            # Get memory
+            layout_memory = memory_data[model][layout]['memory']
+
+            if layout_time > 0 and layout_memory > 0:
+                # Normalize: higher is better (speedup and memory reduction)
+                perf_norm = baseline_time / layout_time  # >1 means faster
+                mem_norm = baseline_memory / layout_memory  # >1 means less memory
+
+                points.append((mem_norm, perf_norm))
+                labels.append(layout.upper())
+
+                # Color baseline differently
+                if layout == baseline_layout:
+                    point_colors.append('#808080')
+                else:
+                    point_colors.append(colors[i % len(colors)])
+
+        if not points:
+            ax.text(0.5, 0.5, f'No valid data\nfor {model}',
+                    ha='center', va='center', fontsize=12)
+            ax.set_title(f'{model.title()}')
+            continue
+
+        points = np.array(points)
+        x = points[:, 0]  # normalized memory (higher = less memory used)
+        y = points[:, 1]  # normalized performance (higher = faster)
+
+        # Compute Pareto frontier
+        # A point is on the frontier if no other point dominates it
+        # Point j dominates point i if it has >= memory reduction AND >= speedup
+        # with at least one strictly better
+        is_pareto = np.ones(len(points), dtype=bool)
+        for i in range(len(points)):
+            if not is_pareto[i]:
+                continue
+            for j in range(len(points)):
+                if i == j:
+                    continue
+                # Point j dominates point i if both dimensions are better or equal
+                if (points[j, 0] >= points[i, 0] and points[j, 1] >= points[i, 1] and
+                        (points[j, 0] > points[i, 0] or points[j, 1] > points[i, 1])):
+                    is_pareto[i] = False
+                    break
+
+        # Plot dominated points
+        if np.any(~is_pareto):
+            for i in np.where(~is_pareto)[0]:
+                ax.scatter(x[i], y[i], c='lightgray', s=100, alpha=0.6,
+                           marker='o', edgecolors='gray', linewidth=1, zorder=1)
+
+        # Plot Pareto frontier points
+        for i in np.where(is_pareto)[0]:
+            ax.scatter(x[i], y[i], c=point_colors[i], s=200,
+                       edgecolors='black', linewidth=2.5,
+                       marker='o', zorder=3)
+
+        # Sort Pareto points and connect with line
+        pareto_indices = np.where(is_pareto)[0]
+        if len(pareto_indices) > 1:
+            pareto_sorted = sorted(pareto_indices, key=lambda i: x[i])
+            pareto_x = [x[i] for i in pareto_sorted]
+            pareto_y = [y[i] for i in pareto_sorted]
+            ax.plot(pareto_x, pareto_y, 'k--',
+                    alpha=0.4, linewidth=2, zorder=2)
+
+        # Annotate Pareto frontier points
+        for i in pareto_indices:
+            ax.annotate(labels[i],
+                        xy=(x[i], y[i]),
+                        textcoords="offset points",
+                        xytext=(0, 12),
+                        ha='center',
+                        fontsize=9,
+                        fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.4',
+                                  facecolor='yellow',
+                                  alpha=0.8,
+                                  edgecolor='black',
+                                  linewidth=1.5),
+                        zorder=4)
+
+        # Annotate dominated points
+        for i in np.where(~is_pareto)[0]:
+            ax.annotate(labels[i],
+                        xy=(x[i], y[i]),
+                        textcoords="offset points",
+                        xytext=(0, 12),
+                        ha='center',
+                        fontsize=8,
+                        fontweight='normal',
+                        bbox=dict(boxstyle='round,pad=0.3',
+                                  facecolor='lightgray',
+                                  alpha=0.6,
+                                  edgecolor='gray',
+                                  linewidth=1),
+                        zorder=2)
+
+        # Add reference lines at baseline (1.0, 1.0)
+        ax.axhline(y=1.0, color='red', linestyle='--',
+                   linewidth=1.5, alpha=0.5)
+        ax.axvline(x=1.0, color='red', linestyle='--',
+                   linewidth=1.5, alpha=0.5)
+
+        # Formatting
+        ax.set_xlabel(
+            f'Memory Reduction vs {baseline_layout.upper()}', fontweight='bold', fontsize=11)
+        ax.set_ylabel(
+            f'Speedup vs {baseline_layout.upper()}', fontweight='bold', fontsize=11)
+        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=12)
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
+
+        # Set limits to show context around data
+        x_margin = (x.max() - x.min()) * 0.1 if x.max() > x.min() else 0.1
+        y_margin = (y.max() - y.min()) * 0.1 if y.max() > y.min() else 0.1
+        ax.set_xlim(max(0, x.min() - x_margin), x.max() + x_margin)
+        ax.set_ylim(max(0, y.min() - y_margin), y.max() + y_margin)
+
+    # Hide extra subplots
+    for idx in range(len(models), len(axes)):
+        axes[idx].axis('off')
+
+    # Overall title
+    title = f'Pareto Frontier: Performance vs Memory (Normalized to {baseline_layout.upper()})'
+    if ray_count is not None:
+        title += f'\nRay Count: {ray_count:,}'
+    else:
+        title += '\nGeometric Mean Across All Ray Counts'
+    if machine_type:
+        title += f' - {machine_type}'
+    fig.suptitle(title, fontsize=16, fontweight='bold')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    # Save figure
+    results_dir = os.path.dirname(
+        output_path) if os.path.dirname(output_path) else '.'
+    os.makedirs(results_dir, exist_ok=True)
+
+    if ray_count is not None:
+        output_file = os.path.join(
+            results_dir, f'pareto_normalized_rc{ray_count}.png')
+    else:
+        output_file = os.path.join(
+            results_dir, f'pareto_normalized_geomean.png')
+
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Normalized Pareto frontier plot saved to: {output_file}")
     plt.close()
 
 
@@ -1084,8 +1340,7 @@ if __name__ == "__main__":
 
     # Create normalized performance plots
     layouts_to_compare = [
-        'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'ebq', 'ebq-align16', 'ebq-cl',
-        'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16', 'bvh8'
+        'bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'cl-bvh8-idx', 'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16',
     ]
 
     COMPARE = "bvh8"
