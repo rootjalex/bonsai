@@ -133,7 +133,8 @@ run_tests() {
     # test *all* layouts in the folder
     for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
       NAME=$(basename "$file" .bonsai)
-      if [[ "$(uname)" == "ptr" ]]; then
+      echo ${NAME}
+      if [[ "${NAME}" == "ptr" ]]; then
         continue
       fi
       LAYOUTS+=("${NAME}")
