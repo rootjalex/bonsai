@@ -1343,7 +1343,7 @@ if __name__ == "__main__":
             'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
         "bvh8",  # baseline layout
         filename,
-        ray_count=2**25,
+        ray_count=2**20,
         machine_type=machine_type,
         memory_data=memory_utilization
 
@@ -1356,7 +1356,7 @@ if __name__ == "__main__":
             'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
         "bvh8",
         filename,
-        ray_count=2**25,
+        ray_count=2**20,
         machine_type=machine_type
     )
     plot_pareto_normalized(
@@ -1375,7 +1375,7 @@ if __name__ == "__main__":
         ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
         "eq",  # baseline layout
         filename,
-        ray_count=2**25,
+        ray_count=2**20,
         machine_type=machine_type,
         memory_data=memory_utilization
 
@@ -1387,7 +1387,7 @@ if __name__ == "__main__":
         ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
         "pbrt",
         filename,
-        ray_count=2**25,
+        ray_count=2**20,
         machine_type=machine_type
     )
     plot_pareto_normalized(
@@ -1407,7 +1407,7 @@ if __name__ == "__main__":
             'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16'],
         "eb",
         filename,
-        ray_count=2**25,
+        ray_count=2**20,
         machine_type=machine_type
     )
     plot_pareto_normalized(
