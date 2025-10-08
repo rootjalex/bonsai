@@ -59,6 +59,7 @@ struct Generator;
 struct Lambda;
 struct GeomOp;
 struct SetOp;
+struct AggOp;
 struct Call;
 struct Instantiate;
 struct PtrTo;

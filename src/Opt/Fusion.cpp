@@ -71,7 +71,7 @@ struct FuseWithinStmt : public Mutator {
             }
         } else if (auto filter0 = as_filter(expr)) {
             Expr lambda0 = filter0->a, set0 = filter0->b;
-            if (auto filter1 = as_map(set0)) {
+            if (auto filter1 = as_filter(set0)) {
                 Expr lambda1 = filter1->a, set1 = filter1->b;
                 Expr lambda2 = conjunct_lambdas(lambda1, lambda0, funcs);
                 return filter(std::move(lambda2), std::move(set1));

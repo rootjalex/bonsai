@@ -1,6 +1,7 @@
 #include "IR/Operators.h"
 
 #include "IR/Equality.h"
+#include "IR/Printer.h"
 
 namespace bonsai {
 namespace ir {
@@ -107,6 +108,22 @@ Expr map(Expr func, Expr set) {
 
 Expr product(Expr a, Expr b) {
     return SetOp::make(SetOp::product, std::move(a), std::move(b));
+}
+
+Expr avg(Expr a) { return AggOp::make(AggOp::avg, std::move(a)); }
+
+Expr count(Expr a) { return AggOp::make(AggOp::count, std::move(a)); }
+
+Expr prod(Expr a) { return AggOp::make(AggOp::prod, std::move(a)); }
+
+Expr sum(Expr a) {
+    internal_assert(a.type().defined()) << a;
+    if (a.type().as<Set_t>()) {
+        return AggOp::make(AggOp::sum, std::move(a));
+    } else if (a.type().as<Vector_t>()) {
+        return VectorReduce::make(VectorReduce::Add, std::move(a));
+    }
+    internal_error << a;
 }
 
 Expr abs(Expr a) { return Intrinsic::make(Intrinsic::abs, {std::move(a)}); }

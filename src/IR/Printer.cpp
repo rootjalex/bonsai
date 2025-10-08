@@ -1074,12 +1074,32 @@ std::string to_string(const SetOp::OpType &op) {
     }
 }
 
+std::string to_string(const AggOp::OpType &op) {
+    switch (op) {
+    case AggOp::avg:
+        return "avg";
+    case AggOp::count:
+        return "count";
+    case AggOp::prod:
+        return "prod";
+    case AggOp::sum:
+        return "sum";
+    }
+}
+
 void Printer::visit(const SetOp *node) {
     // TODO: print type?
     os << to_string(node->op) << "(";
     print_no_parens(node->a);
     os << ", ";
     print_no_parens(node->b);
+    os << ")";
+}
+
+void Printer::visit(const AggOp *node) {
+    // TODO: print type?
+    os << to_string(node->op) << "(";
+    print_no_parens(node->a);
     os << ")";
 }
 
@@ -1335,7 +1355,11 @@ void Printer::visit(const Iterate *node) {
 
 void Printer::visit(const Scan *node) {
     os << get_indent();
-    os << "scan ";
+    os << "scan";
+    if (node->op) {
+        os << "<" << to_string(*(node->op)) << ">";
+    }
+    os << " ";
     print_no_parens(node->value);
     end_stmt();
 }

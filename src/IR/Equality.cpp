@@ -631,6 +631,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_exprs(v0->b, v1->b);
     }
+    case IRExprEnum::AggOp: {
+        const AggOp *v0 = e0.as<AggOp>();
+        const AggOp *v1 = e1.as<AggOp>();
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
+            return op;
+        }
+        return compare_exprs(v0->a, v1->a);
+    }
     case IRExprEnum::Call: {
         const Call *v0 = e0.as<Call>();
         const Call *v1 = e1.as<Call>();

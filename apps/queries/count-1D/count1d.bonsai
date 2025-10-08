@@ -1,0 +1,17 @@
+extern input : set[f32];
+
+func [[export]] range_query(low : f32, high : f32) = count(filter(|i : f32| low <= i && i <= high, input));
+
+func [[export]] eq_query(value : f32) = count(filter(|i : f32| i == value, input));
+
+func [[export]] abs_query(value : f32) = count(filter(|i : f32| abs(i) <= value, input));
+
+func [[export]] sqr_query(value : f32) = count(filter(|i : f32| sqr(i) <= value, input));
+
+func [[export]] round_query(value : f32) = count(filter(|i : f32| round(i) == value, input));
+
+func [[export]] poly_query(value : f32) = count(filter(|i : f32| sqr(i) - 4 * i + 3 <= 0, input));
+
+func [[export]] sqrt_query(value : f32) = count(filter(|i : f32| sqrt(abs(i)) <= value, input));
+
+func [[export]] stddev_query(mean : f32, stddev3 : f32) = count(filter(|i : f32| abs(i - mean) > stddev3, input));

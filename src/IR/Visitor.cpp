@@ -174,6 +174,8 @@ void Visitor::visit(const SetOp *node) {
     node->b.accept(this);
 }
 
+void Visitor::visit(const AggOp *node) { node->a.accept(this); }
+
 void Visitor::visit(const Call *node) {
     node->func.accept(this);
     visit_list(this, node->args);

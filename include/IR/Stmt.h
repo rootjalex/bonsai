@@ -254,9 +254,10 @@ struct Iterate : StmtNode<Iterate> {
 
 // Recursively traverse this tree for all datums
 struct Scan : StmtNode<Scan> {
+    std::optional<AggOp::OpType> op;
     Expr value;
 
-    static Stmt make(Expr value);
+    static Stmt make(std::optional<AggOp::OpType> op, Expr value);
 
     static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };

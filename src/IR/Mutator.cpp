@@ -423,6 +423,14 @@ Expr Mutator::visit(const SetOp *node) {
     return SetOp::make(node->op, std::move(a), std::move(b));
 }
 
+Expr Mutator::visit(const AggOp *node) {
+    Expr a = mutate(node->a);
+    if (a.same_as(node->a)) {
+        return node;
+    }
+    return AggOp::make(node->op, std::move(a));
+}
+
 Expr Mutator::visit(const Call *node) {
     Expr func = mutate(node->func);
     auto [args, not_changed] = visit_list(this, node->args);
@@ -620,7 +628,7 @@ Stmt Mutator::visit(const Iterate *node) {
     if (value.same_as(node->value)) {
         return node;
     }
-    return Scan::make(std::move(value));
+    return Iterate::make(std::move(value));
 }
 
 Stmt Mutator::visit(const Scan *node) {
@@ -628,7 +636,7 @@ Stmt Mutator::visit(const Scan *node) {
     if (value.same_as(node->value)) {
         return node;
     }
-    return Scan::make(std::move(value));
+    return Scan::make(node->op, std::move(value));
 }
 
 Stmt Mutator::visit(const YieldFrom *node) {

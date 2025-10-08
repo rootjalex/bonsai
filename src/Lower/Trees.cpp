@@ -480,6 +480,55 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
         {std::move(header), std::move(body), std::move(footer)});
 }
 
+ir::Stmt build_count(ir::Stmt body) {
+    struct RewriteCount : public Rewriter {
+        ir::WriteLoc loc;
+
+        RewriteCount(ir::WriteLoc l) : loc(std::move(l)) {}
+
+        size_t counter = 0;
+
+        using ir::Mutator::visit;
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            return ir::Accumulate::make(loc, ir::Accumulate::Add,
+                                        make_one(loc.base_type));
+        }
+
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
+        }
+
+        ir::Stmt visit(const ir::Scan *node) override {
+            return ir::Scan::make(ir::AggOp::OpType::count, node->value);
+        }
+
+        // TODO: this should be a sum of the results!
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+    };
+
+    static ir::Type ret_type = ir::UInt_t::make(32); // TODO: adjustable?
+
+    static size_t counter = 0;
+    std::string name = "_count" + std::to_string(counter++);
+    ir::WriteLoc loc(name, ret_type);
+
+    static ir::Expr zero = make_zero(ret_type);
+
+    // Make allocation.
+    ir::Stmt header =
+        ir::Allocate::make(loc, zero, ir::Allocate::Memory::Stack);
+    // Make return
+    ir::Expr ret_var = ir::Var::make(ret_type, std::move(name));
+    ir::Stmt footer = ir::Yield::make(std::move(ret_var));
+
+    body = RewriteCount(std::move(loc)).mutate(body);
+
+    return ir::Sequence::make(
+        {std::move(header), std::move(body), std::move(footer)});
+}
+
 ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
     struct RewriteProduct : public Rewriter {
         ir::Stmt b_body;
@@ -514,7 +563,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -550,7 +599,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -579,7 +628,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::Iterate *iterate =
                                a_body.as<ir::Iterate>()) {
                     internal_assert(locs.size() == 2);
@@ -590,7 +639,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
                     // Cartesian product of nodes! TODO: doesn't have to be...
                     // Make this scheduable?
@@ -602,7 +651,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                             pairs.push_back(make_tuple_pair(av, bv));
                         }
                     }
-                    return ir::Scan::make(make_tuple(std::move(pairs)));
+                    return ir::Scan::make({}, make_tuple(std::move(pairs)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -644,6 +693,18 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         internal_assert(bvh);
 
         return build_base_scan(as_var->name, bvh);
+    }
+
+    if (auto as_agg = expr.as<ir::AggOp>()) {
+        switch (as_agg->op) {
+        case ir::AggOp::count: {
+            ir::Stmt body = build_traversal(as_agg->a, tree_types, intervals);
+            return build_count(body);
+        }
+        default: {
+            internal_error << "TODO: " << expr << " tree fusion.";
+        }
+        }
     }
 
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
@@ -759,6 +820,7 @@ struct LowerBVH : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
+    ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
 };
 
 } // namespace
@@ -799,7 +861,7 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             for (const auto &c : children) {
                 cs.push_back(ir::Access::make(c.name, node));
             }
-            stmts.back() = ir::Scan::make(make_tuple(cs));
+            stmts.back() = ir::Scan::make({}, make_tuple(cs));
         }
 
         arms[i].first = bvh_t->nodes[i];

@@ -74,6 +74,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Lambda);
     RESTRICT_VISITOR(ir::GeomOp);
     RESTRICT_VISITOR(ir::SetOp);
+    RESTRICT_VISITOR(ir::AggOp);
     RESTRICT_VISITOR(ir::Instantiate);
     // Statements
     void visit(const ir::CallStmt *) override;

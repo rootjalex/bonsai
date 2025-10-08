@@ -303,7 +303,7 @@ class BonsaiToCpp : ir::Printer {
             ss << "&";
         } else {
             emit_type(ss, type);
-            if (!is_return_type && should_be_ref(type)) {
+            if ((!is_return_type && should_be_ref(type)) || is_mutating) {
                 ss << "&";
             }
         }
@@ -569,13 +569,18 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const DoWhile *) override;
     // void visit(const Sequence *) override;
     void visit(const Allocate *node) override {
-        internal_assert(node->loc.base_type.is<Set_t>())
+        internal_assert(node->memory == Allocate::Memory::Stack ||
+                        node->loc.base_type.is<Set_t>())
             << "TODO: C++ Allocate lowering: " << Stmt(node);
+        // internal_assert(node->loc.base_type.is<Set_t>())
+        //     << "TODO: C++ Allocate lowering: " << Stmt(node);
         ss << get_indent();
         emit_type(ss, node->loc.base_type);
         ss << " " << node->loc.base;
-        internal_assert(!node->value.defined())
-            << "TODO: C++ Allocate lowering: " << Stmt(node);
+        if (node->value.defined()) {
+            ss << " = ";
+            print(node->value);
+        }
         ss << ";\n";
     }
     // void visit(const Free *) override;

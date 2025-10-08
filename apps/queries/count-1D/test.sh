@@ -1,0 +1,38 @@
+#!/bin/bash
+
+set -e
+
+# parse distribution flag
+DIST="${1:-uniform}"  # default to "uniform" if no argument is provided
+
+case "$DIST" in
+    uniform)
+        DIST_DEFINE="-DUSE_UNIFORM"
+        ;;
+    normal)
+        DIST_DEFINE="-DUSE_NORMAL"
+        ;;
+    exponential)
+        DIST_DEFINE="-DUSE_EXPONENTIAL"
+        ;;
+    lognormal)
+        DIST_DEFINE="-DUSE_LOGNORMAL"
+        ;;
+    cauchy)
+        DIST_DEFINE="-DUSE_CAUCHY"
+        ;;
+    weibull)
+        DIST_DEFINE="-DUSE_WEIBULL"
+        ;;
+    *)
+        echo "Unknown distribution: $DIST"
+        echo "Supported: uniform, normal, exponential, lognormal, cauchy, weibull"
+        exit 1
+        ;;
+esac
+
+cmake --build build --config Debug -j
+./build/compiler -i apps/queries/count-1D/count1d.bonsai -p canonicalize -p lower-externs -b cppx -o apps/queries/count-1D/count1d_gen
+./build/compiler -i apps/queries/count-1D/count1d_fast.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields -b cppx -o apps/queries/count-1D/count1d_fast_gen
+clang++ -std=c++20 -O3 -g -o apps/queries/count-1D/count1d_main.out apps/queries/count-1D/count1d_main.cpp apps/queries/count-1D/count1d_gen.cpp apps/queries/count-1D/count1d_fast_gen.cpp -I. $DIST_DEFINE
+./apps/queries/count-1D/count1d_main.out

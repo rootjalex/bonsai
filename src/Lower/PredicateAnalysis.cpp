@@ -459,6 +459,7 @@ struct PredicateAnalysis : public ir::Visitor {
     }
 
     RESTRICT_VISITOR(ir::SetOp);
+    RESTRICT_VISITOR(ir::AggOp);
     RESTRICT_VISITOR(ir::Call);
     RESTRICT_VISITOR(ir::Instantiate);
     RESTRICT_VISITOR(ir::PtrTo);

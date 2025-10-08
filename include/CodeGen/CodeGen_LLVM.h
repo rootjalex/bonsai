@@ -143,6 +143,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Lambda *) override;
     virtual void visit(const ir::GeomOp *) override;
     virtual void visit(const ir::SetOp *) override;
+    virtual void visit(const ir::AggOp *) override;
     virtual void visit(const ir::Call *) override;
     virtual void visit(const ir::Instantiate *) override;
     virtual void visit(const ir::PtrTo *) override;

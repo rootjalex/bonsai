@@ -3,6 +3,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Mutator.h"
+#include "IR/Operators.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -17,8 +18,12 @@ namespace {
 
 using namespace ir;
 
-std::string scan_func_name(const std::vector<TypedVar> &args) {
+std::string scan_func_name(std::optional<AggOp::OpType> op,
+                           const std::vector<TypedVar> &args) {
     std::string func_name = "_scan";
+    if (op) {
+        func_name += "_" + to_string(*op);
+    }
     for (const auto &arg : args) {
         if (const BVH_t *bvh_t = arg.type.as<BVH_t>()) {
             func_name += "_" + bvh_t->name;
@@ -28,13 +33,14 @@ std::string scan_func_name(const std::vector<TypedVar> &args) {
 }
 
 // TODO: support scan augmentations!
-std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
-    std::string func_name = scan_func_name(args);
+std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args,
+                                          std::optional<AggOp::OpType> op) {
+    std::string func_name = scan_func_name(op, args);
     std::vector<Function::Argument> f_args(args.size());
     for (size_t i = 0, e = args.size(); i < e; i++) {
         f_args[i].name = args[i].name;
         f_args[i].type = args[i].type;
-        f_args[i].mutating = args[i].type.is<Set_t>();
+        f_args[i].mutating = !args[i].type.is<BVH_t>();
     }
     std::shared_ptr<Function> func = std::make_shared<Function>(
         func_name, std::move(f_args), Void_t::make(), Stmt(),
@@ -42,10 +48,13 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
 
     struct ScansToCalls : public Mutator {
         std::shared_ptr<Function> func;
+        std::optional<AggOp::OpType> op;
         Expr write_expr;
         WriteLoc write_loc;
 
-        ScansToCalls(std::shared_ptr<Function> _func) : func(std::move(_func)) {
+        ScansToCalls(std::optional<AggOp::OpType> _op,
+                     std::shared_ptr<Function> _func)
+            : func(std::move(_func)), op(std::move(_op)) {
             write_expr =
                 Var::make(func->args.back().type, func->args.back().name);
             write_loc =
@@ -82,22 +91,46 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
         }
 
         Stmt visit(const Iterate *node) override {
-            return Append::make(write_loc, node->value);
+            if (op) {
+                switch (*op) {
+                case AggOp::OpType::count: {
+                    return ir::Accumulate::make(write_loc, ir::Accumulate::Add,
+                                                count(node->value));
+                }
+                default: {
+                    internal_error << "TODO: " << Stmt(node);
+                }
+                }
+            } else {
+                return Append::make(write_loc, node->value);
+            }
         }
 
         Stmt visit(const Yield *node) override {
-            return Append::make(write_loc, node->value);
+            if (op) {
+                switch (*op) {
+                case AggOp::OpType::count: {
+                    return ir::Accumulate::make(write_loc, ir::Accumulate::Add,
+                                                make_one(write_loc.base_type));
+                }
+                default: {
+                    internal_error << "TODO: " << Stmt(node);
+                }
+                }
+            } else {
+                return Append::make(write_loc, node->value);
+            }
         }
 
         RESTRICT_MUTATOR(Stmt, YieldFrom);
     };
 
     // TODO: support product scans!
-    internal_assert(args.size() == 2);
+    internal_assert(args.size() == 2) << args.size();
     const BVH_t *bvh_t0 = args.front().type.as<BVH_t>();
     internal_assert(bvh_t0);
     // write argument
-    internal_assert(args.back().type.is<Set_t>());
+    // internal_assert(args.back().type.is<Set_t>()) << args.back();
 
     Stmt match_body = build_base_scan(args.front().name, bvh_t0);
     // Need to rewrite scans in ^ to recursive calls.
@@ -106,7 +139,7 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args) {
     auto tree_args = args;
     tree_args.pop_back(); // lose write loc
 
-    func->body = ScansToCalls(func).mutate(match_body);
+    func->body = ScansToCalls(op, func).mutate(match_body);
     // func->body = RecLoop::make(std::move(tree_args), std::move(func->body));
 
     return func;
@@ -125,19 +158,20 @@ struct LowerScansImpl : public Mutator {
         return ir::Mutator::visit(node);
     }
 
-    Expr get_or_build_callable() {
+    Expr get_or_build_callable(std::optional<AggOp::OpType> op) {
         std::vector<TypedVar> scan_args;
         for (const auto &arg : args) {
-            if (arg.type.is<BVH_t>() || arg.type.is<Set_t>()) {
+            if (arg.type.is<BVH_t>() || arg.type.is<Set_t>() ||
+                arg.name.starts_with("_")) {
                 scan_args.push_back(arg);
             }
         }
-        std::string name = scan_func_name(scan_args);
+        std::string name = scan_func_name(op, scan_args);
         if (const auto &iter = new_funcs.find(name); iter != new_funcs.cend()) {
             return Var::make(iter->second->call_type(), iter->second->name);
         }
         // Need to build this func.
-        auto func = build_scan_func(scan_args);
+        auto func = build_scan_func(scan_args, op);
         Expr ret = Var::make(func->call_type(), func->name);
         new_funcs[name] = std::move(func);
         return ret;
@@ -179,7 +213,7 @@ struct LowerScansImpl : public Mutator {
             << args.front();
         std::string bvh_name = args.front().type.as<BVH_t>()->name;
 
-        Expr callable = get_or_build_callable();
+        Expr callable = get_or_build_callable(node->op);
 
         // Make n scan calls.
         for (const auto &id : ids) {

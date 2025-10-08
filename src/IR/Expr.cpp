@@ -1164,6 +1164,32 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
     return node;
 }
 
+Expr AggOp::make(OpType op, Expr a) {
+    internal_assert(a.defined())
+        << "AggOp::make received undefined value: " << to_string(op) << " "
+        << a;
+    AggOp *node = new AggOp;
+
+    // Only do type inference if it's enabled or a's type is defined.
+    const bool infer_types =
+        type_enforcement_enabled() || a.type().defined() || op == OpType::count;
+
+    if (infer_types) {
+        if (op == OpType::count) {
+            node->type = UInt_t::make(32);
+        } else {
+            internal_assert(a.type().defined() && a.type().as<Set_t>())
+                << "AggOp received undefined or non-set expr: " << a
+                << " of type " << a.type();
+            node->type = a.type().element_of();
+        }
+    }
+
+    node->op = op;
+    node->a = std::move(a);
+    return node;
+}
+
 Expr Call::make(Expr func, std::vector<Expr> args) {
     internal_assert(func.defined()) << "Call::make received undefined func";
     internal_assert(std::all_of(args.cbegin(), args.cend(),

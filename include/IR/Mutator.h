@@ -66,6 +66,7 @@ struct Mutator {
     virtual Expr visit(const Lambda *);
     virtual Expr visit(const GeomOp *);
     virtual Expr visit(const SetOp *);
+    virtual Expr visit(const AggOp *);
     virtual Expr visit(const Call *);
     virtual Expr visit(const Instantiate *);
     virtual Expr visit(const PtrTo *);

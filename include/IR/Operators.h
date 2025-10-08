@@ -43,6 +43,12 @@ Expr argmin(Expr metric, Expr set);
 Expr map(Expr func, Expr set);
 Expr product(Expr a, Expr b);
 
+// Aggregates
+Expr avg(Expr a);
+Expr count(Expr a);
+Expr prod(Expr a);
+Expr sum(Expr a);
+
 Expr abs(Expr a);
 Expr max(Expr a, Expr b);
 Expr min(Expr a, Expr b);

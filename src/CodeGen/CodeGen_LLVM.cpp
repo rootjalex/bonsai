@@ -1591,6 +1591,10 @@ void CodeGen_LLVM::visit(const SetOp *node) {
     internal_error << "TODO: implement SetOp code generation: " << Expr(node);
 }
 
+void CodeGen_LLVM::visit(const AggOp *node) {
+    internal_error << "TODO: implement AggOp code generation: " << Expr(node);
+}
+
 void CodeGen_LLVM::visit(const Call *node) {
     llvm::Function *func = codegen_func_ptr(node->func);
     const size_t n_args = node->args.size();

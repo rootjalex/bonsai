@@ -57,6 +57,7 @@ struct Visitor {
     virtual void visit(const Lambda *);
     virtual void visit(const GeomOp *);
     virtual void visit(const SetOp *);
+    virtual void visit(const AggOp *);
     virtual void visit(const Call *);
     virtual void visit(const Instantiate *);
     virtual void visit(const PtrTo *);

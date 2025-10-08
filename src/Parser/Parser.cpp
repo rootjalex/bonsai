@@ -126,6 +126,10 @@ struct Parser {
             "idxmin",
             "prod",
             "any",
+            // Aggregations
+            "avg",
+            "count",
+            "prod",
             // Other builtins
             "cast",
             "eps",
@@ -1353,6 +1357,24 @@ struct Parser {
         if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(),
                                                            SPATTERNS, 2)) {
             return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
+        }
+
+        // Agg operations
+        struct AggPattern {
+            const std::string_view name;
+            ir::AggOp::OpType op;
+        };
+
+        static constexpr auto APATTERNS = std::to_array<AggPattern>({
+            {"avg", ir::AggOp::avg},
+            {"count", ir::AggOp::count},
+            {"prod", ir::AggOp::prod},
+            // TODO: sum
+        });
+
+        if (auto op = try_match_pattern<ir::AggOp::OpType>(name, args.size(),
+                                                           APATTERNS, 1)) {
+            return ir::AggOp::make(*op, std::move(args[0]));
         }
 
         // Geometry operations

@@ -45,6 +45,7 @@ enum class IRExprEnum {
     Lambda,
     GeomOp,
     SetOp,
+    AggOp,
     Call,
     Instantiate,
     // Pointer operations
@@ -420,6 +421,18 @@ struct SetOp : ExprNode<SetOp> {
     static Expr make(OpType op, Expr a, Expr b);
 
     static const IRExprEnum node_type = IRExprEnum::SetOp;
+};
+
+struct AggOp : ExprNode<AggOp> {
+    enum OpType { avg, count, prod, sum };
+
+    OpType op;
+
+    Expr a; // must be a set type
+
+    static Expr make(OpType op, Expr a);
+
+    static const IRExprEnum node_type = IRExprEnum::AggOp;
 };
 
 struct Call : ExprNode<Call> {
