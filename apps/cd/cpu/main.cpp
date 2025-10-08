@@ -123,9 +123,12 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
     CollisionResult<S> result;
     detail::MeshCollisionTraversalNode<BV> node;
 
+    // similar to bonsai, only return whether a contact occurs.
+    constexpr bool enable_contact = false;
     assert(detail::initialize<BV>(
                node, m1, pose1, m2, pose2,
-               CollisionRequest<S>(std::numeric_limits<int>::max(), false),
+               CollisionRequest<S>(std::numeric_limits<int>::max(),
+                                   enable_contact),
                result) &&
            "initialization error");
 
@@ -167,76 +170,6 @@ static inline float dot(const float3 &a, const float3 &b) {
 static inline float3 cross(const float3 &a, const float3 &b) {
     return (float3){a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
                     a[0] * b[1] - a[1] * b[0]};
-}
-
-static void compute_interval(float v0, float v1, float v2, float d0, float d1,
-                             float d2, float isect[2]) {
-    if (d0 * d1 > 0.0f) {
-        isect[0] = v2 + (v0 - v2) * d2 / (d2 - d0);
-        isect[1] = v2 + (v1 - v2) * d2 / (d2 - d1);
-    } else if (d0 * d2 > 0.0f) {
-        isect[0] = v1 + (v0 - v1) * d1 / (d1 - d0);
-        isect[1] = v1 + (v2 - v1) * d1 / (d1 - d2);
-    } else if (d1 * d2 > 0.0f) {
-        isect[0] = v0 + (v1 - v0) * d0 / (d0 - d1);
-        isect[1] = v0 + (v2 - v0) * d0 / (d0 - d2);
-    } else {
-        isect[0] = isect[1] = v0;
-    }
-}
-
-bool intersects(const Triangle &t1, const Triangle &t2) {
-    const float eps = 1e-6f;
-
-    float3 e1 = t1.p1 - t1.p0;
-    float3 e2 = t1.p2 - t1.p0;
-    float3 n1 = cross(e1, e2);
-    float d1 = -dot(n1, t1.p0);
-
-    float du0 = dot(n1, t2.p0) + d1;
-    float du1 = dot(n1, t2.p1) + d1;
-    float du2 = dot(n1, t2.p2) + d1;
-
-    if ((du0 > eps && du1 > eps && du2 > eps) ||
-        (du0 < -eps && du1 < -eps && du2 < -eps))
-        return false;
-
-    float3 f1 = t2.p1 - t2.p0;
-    float3 f2 = t2.p2 - t2.p0;
-    float3 n2 = cross(f1, f2);
-    float d2 = -dot(n2, t2.p0);
-
-    float dv0 = dot(n2, t1.p0) + d2;
-    float dv1 = dot(n2, t1.p1) + d2;
-    float dv2 = dot(n2, t1.p2) + d2;
-
-    if ((dv0 > eps && dv1 > eps && dv2 > eps) ||
-        (dv0 < -eps && dv1 < -eps && dv2 < -eps))
-        return false;
-
-    float3 D = cross(n1, n2);
-
-    int index = 0;
-    float absx = std::fabs(D[0]), absy = std::fabs(D[1]),
-          absz = std::fabs(D[2]);
-    if (absy > absx)
-        index = 1, absx = absy;
-    if (absz > absx)
-        index = 2;
-
-    float v1_0 = t1.p0[index], v1_1 = t1.p1[index], v1_2 = t1.p2[index];
-    float v2_0 = t2.p0[index], v2_1 = t2.p1[index], v2_2 = t2.p2[index];
-
-    float isect1[2], isect2[2];
-    compute_interval(v1_0, v1_1, v1_2, dv0, dv1, dv2, isect1);
-    compute_interval(v2_0, v2_1, v2_2, du0, du1, du2, isect2);
-
-    if (isect1[0] > isect1[1])
-        std::swap(isect1[0], isect1[1]);
-    if (isect2[0] > isect2[1])
-        std::swap(isect2[0], isect2[1]);
-
-    return !(isect1[1] < isect2[0] || isect2[1] < isect1[0]);
 }
 
 template <typename S>
@@ -344,18 +277,6 @@ void run_test(const std::string &obj1, const std::string &obj2) {
         exit(-1);
     }
     std::cout << "collision count: " << bonsai_count << std::endl;
-    for (int i = 0,
-             e = std::min(fcl_collisions.size(), bonsai_collisions.size());
-         i < e; ++i) {
-        auto [bt1, bt2] = bonsai_collisions[i];
-        assert(intersects(bt1, bt2) &&
-               "found non-intersecting triangles in bonsai!");
-
-        Triangle ft1 = construct_triangle(T1[fcl_collisions[i].b1], v1);
-        Triangle ft2 = construct_triangle(T2[fcl_collisions[i].b2], v2);
-        assert(intersects(ft1, ft2) &&
-               "found non-intersecting triangles in fcl!");
-    }
     std::cout << "\n";
 }
 

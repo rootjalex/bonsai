@@ -715,7 +715,7 @@ std::shared_ptr<ir::Function> construct_build_recursive(
         ir::UnOp::OpType::Not,
         ir::Var::make(get_layout_reference_type(layout), "node"));
     ir::Expr value =
-        type.is<ir::Ptr_t>() ? make_zero(type) : make_all_ones(type);
+        type.is<ir::Ptr_t, ir::Int_t>() ? make_zero(type) : make_all_ones(type);
     ir::Stmt sentinel_check = ir::IfElse::make(
         std::move(is_sentinel), ir::Return::make(std::move(value)));
     ir::Stmt body = ir::Sequence::make(

@@ -1,0 +1,52 @@
+hairball
+rt, embree, bvh4
+1024
+hits       : 768
+trace time : 0 ms
+
+rt, embree, bvh8
+1024
+hits       : 768
+trace time : 0 ms
+
+---
+
+white-oak
+rt, embree, bvh4
+1024
+hits       : 768
+trace time : 0 ms
+
+rt, embree, bvh8
+1024
+hits       : 768
+trace time : 0 ms
+
+---
+
+power-plant
+rt, embree, bvh4
+1024
+hits       : 768
+trace time : 0 ms
+
+rt, embree, bvh8
+1024
+hits       : 768
+trace time : 0 ms
+
+---
+
+sponza
+rt, embree, bvh4
+1024
+hits       : 768
+trace time : 0 ms
+
+rt, embree, bvh8
+1024
+hits       : 768
+trace time : 0 ms
+
+---
+

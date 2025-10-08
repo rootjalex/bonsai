@@ -23,7 +23,7 @@ target_include_directories(main_library PUBLIC
     ${CMAKE_SOURCE_DIR}/../../../..
     ${CMAKE_SOURCE_DIR}/../../../runtime/CPP    
 )
-target_compile_options(main_library PUBLIC)
+target_compile_options(main_library PUBLIC -O3 -march=native)
 target_link_options(main_library PUBLIC)
 
 

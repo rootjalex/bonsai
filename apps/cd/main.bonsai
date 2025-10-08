@@ -8,7 +8,8 @@ element AABB {
     low, high : f32x3;
 }
 
-func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3, q1: f32x3, q2: f32x3, q3: f32x3) -> bool {
+func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3, 
+              q1: f32x3, q2: f32x3, q3: f32x3) -> i32 {
     P1 = dot(ax, p1);
     P2 = dot(ax, p2);
     P3 = dot(ax, p3);
@@ -18,50 +19,89 @@ func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3, q1: f32x3, q2: f32x3, 
 
     mn1 = min(min(P1, P2), P3);
     mx2 = max(max(Q1, Q2), Q3);
-    if (mn1 > mx2) { return false; }
+    if (mn1 > mx2) { return 0; }
 
     mx1 = max(max(P1, P2), P3);
     mn2 = min(min(Q1, Q2), Q3);
 
-    if (mn2 > mx1) { return false; }
-    return true;
+    if (mn2 > mx1) { return 0; }
+    return 1;
 }
 
-// (derived from FCL)
-func intersects(a: Triangle, b: Triangle) -> bool {
-    p1 = a.p0; p2 = a.p1; p3 = a.p2;
-    q1 = b.p0; q2 = b.p1; q3 = b.p2;
+// https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/narrowphase/detail/traversal/collision/intersect-inl.h#L728
+func intersect_Triangle(P1: f32x3, P2: f32x3, P3: f32x3,
+                        Q1: f32x3, Q2: f32x3, Q3: f32x3) -> bool {
+    p1 : f32x3 = {0.0, 0.0, 0.0};
+    p2 = P2 - P1;
+    p3 = P3 - P1;
+    q1 = Q1 - P1;
+    q2 = Q2 - P1;
+    q3 = Q3 - P1;
 
     e1 = p2 - p1;
     e2 = p3 - p2;
-    e3 = p1 - p3;
+    
+    n1 = cross(e1, e2);
+    if (project6(n1, p1, p2, p3, q1, q2, q3) == 0) { return false; }
 
     f1 = q2 - q1;
     f2 = q3 - q2;
-    f3 = q1 - q3;
-
-    n1 = cross(e1, e2);
-    if (!project6(n1, p1, p2, p3, q1, q2, q3)) { return false; }
+    
     m1 = cross(f1, f2);
-    if (!project6(m1, p1, p2, p3, q1, q2, q3)) { return false; }
+    if (project6(m1, p1, p2, p3, q1, q2, q3) == 0) { return false; }
 
-    if (!project6(cross(e1, f1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e1, f2), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e1, f3), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e2, f1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e2, f2), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e2, f3), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e3, f1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e3, f2), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e3, f3), p1, p2, p3, q1, q2, q3)) { return false; }
+    ef11 = cross(e1, f1);
+    if (project6(ef11, p1, p2, p3, q1, q2, q3) == 0) { return false; }
 
-    if (!project6(cross(e1, n1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e2, n1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(e3, n1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(f1, m1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(f2, m1), p1, p2, p3, q1, q2, q3)) { return false; }
-    if (!project6(cross(f3, m1), p1, p2, p3, q1, q2, q3)) { return false; }
+    ef12 = cross(e1, f2);
+    if (project6(ef12, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    f3 = q1 - q3;
+    ef13 = cross(e1, f3);
+    if (project6(ef13, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    ef21 = cross(e2, f1);
+    if (project6(ef21, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    ef22 = cross(e2, f2);
+    if (project6(ef22, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    ef23 = cross(e2, f3);
+    if (project6(ef23, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    e3 = p1 - p3;
+    ef31 = cross(e3, f1);
+    if (project6(ef31, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    ef32 = cross(e3, f2);
+    if (project6(ef32, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    ef33 = cross(e3, f3);
+    if (project6(ef33, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    g1 = cross(e1, n1);
+    if (project6(g1, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    g2 = cross(e2, n1);
+    if (project6(g2, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    g3 = cross(e3, n1);
+    if (project6(g3, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    h1 = cross(f1, m1);
+    if (project6(h1, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    h2 = cross(f2, m1);
+    if (project6(h2, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
+    h3 = cross(f3, m1);
+    if (project6(h3, p1, p2, p3, q1, q2, q3) == 0) { return false; }
+
     return true;
+}
+
+func intersects(a: Triangle, b: Triangle) -> bool {
+    return intersect_Triangle(a.p0, a.p1, a.p2, b.p0, b.p1, b.p2);
 }
 
 func axis(A: f32x3, extents: f32x3, v0: f32x3, v1: f32x3, v2: f32x3) -> bool {

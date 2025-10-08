@@ -225,30 +225,6 @@ Member Split::make(ir::Expr expr, std::vector<ir::Arm> arms) {
     return node;
 }
 
-namespace {
-std::string get_field_name(ir::Expr e) {
-    if (const auto *v = e.as<ir::Var>()) {
-        return v->name;
-    }
-    if (const auto *s = e.as<ir::Slice>()) {
-        return get_field_name(s->value);
-    }
-    if (const auto *ex = e.as<ir::Extract>()) {
-        return get_field_name(ex->vec);
-    }
-    if (const auto *bo = e.as<ir::BinOp>()) {
-        internal_assert(is_const(bo->a) ^ is_const(bo->b));
-        if (is_const(bo->a)) {
-            return get_field_name(bo->b);
-        }
-        if (is_const(bo->b)) {
-            return get_field_name(bo->a);
-        }
-    }
-    internal_error << "failed to get field name from: " << e;
-}
-} // namespace
-
 std::string Split::field_name() const { return get_field_name(this->expr); }
 
 Member Chain::make(std::vector<Member> members) {

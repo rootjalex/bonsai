@@ -1,0 +1,3 @@
+/Users/chrisgyurgyik/code/bonsai/CMakeFiles/main_trace.dir
+/Users/chrisgyurgyik/code/bonsai/CMakeFiles/edit_cache.dir
+/Users/chrisgyurgyik/code/bonsai/CMakeFiles/rebuild_cache.dir

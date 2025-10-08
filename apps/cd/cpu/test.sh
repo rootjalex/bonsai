@@ -6,12 +6,12 @@ APPLICATION="cd"
 TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUTS=("pbrt" "soa" "soa-align32" "soa-align16")
+LAYOUTS=("pbrt" "fcl")
 N="${1:-10}"
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.
-OBJECTS_A=("hairball" "hairball" "suzanne")
-OBJECTS_B=("bunny" "teapot" "hairball")
+OBJECTS_A=("hairball_1" "hairball_1" "dragon_2")
+OBJECTS_B=("hairball_2" "dragon_1" "hairball_2")
 
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../..

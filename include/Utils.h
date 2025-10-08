@@ -205,4 +205,8 @@ std::string get_specifier(const ir::Type &type);
 // Returns whether this type is a dynamic array.
 bool is_dynamic_array_struct_type(const ir::Type &type);
 
+void try_match_types(ir::Expr &a, ir::Expr &b);
+
+std::string get_field_name(ir::Expr e);
+
 } // namespace bonsai

@@ -709,13 +709,13 @@ ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
                            const LayoutTypeMap &ltmap, const ir::Layout &layout,
                            const ir::Expr &root) {
     struct FindPaths : public ir::Visitor {
-        using Path = std::vector<std::pair<std::string, ir::Arm>>;
+        using Path = std::vector<std::pair<ir::Expr, ir::Arm>>;
         Path current;
         std::vector<std::pair<std::string, Path>> paths;
 
         void visit(const ir::Split *node) override {
             for (const auto &arm : node->arms) {
-                current.emplace_back(node->field_name(), arm);
+                current.emplace_back(node->expr, arm);
                 if (!arm.name.has_value()) {
                     arm.member.accept(this); // Check for deeper splits.
                     continue;
@@ -766,17 +766,28 @@ ir::Stmt lower_switch_tree(ir::Member member, const std::string &obj_name,
                          [&](const auto &p) { return p.first == node_type; });
         internal_assert(it != finder.paths.end()) << node_type;
         const FindPaths::Path &path = it->second;
-        for (const auto &[field_name, arm] : path) {
+        for (const auto &[expr, arm] : path) {
             ir::Expr value = field_in_layout(
                 /*base=*/root,
                 /*member=*/member,
                 /*frames=*/{},
                 /*iter_name=*/obj_name,
                 /*node_type=*/node_type,
-                /*field=*/field_name,
+                /*field=*/get_field_name(expr),
                 /*ltmap=*/ltmap,
                 /*layout=*/layout,
                 /*root=*/root);
+            if (const auto *s = expr.as<ir::Slice>()) {
+                value = ir::Slice::make(value, s->begin, s->end, s->step);
+            } else {
+                // TODO(cgyurgyik): need to ensure additional operations, e.g.,
+                // a bitwise operation, are performed on the split field which
+                // may now be an expression.
+                internal_assert(expr.is<ir::Var>())
+                    << "[unimplemented] additional operations on the split "
+                       "value: "
+                    << expr;
+            }
 
             if (!arm.value.has_value()) {
                 // This is a wildcard.

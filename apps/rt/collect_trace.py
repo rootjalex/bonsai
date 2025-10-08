@@ -236,12 +236,23 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
         all_layouts.update(data[model].keys())
     layouts = sorted(all_layouts)
 
-    # Generate colors and styles dynamically
     color_palette = ['#2E86AB', '#A23B72', '#F18F01', '#8B5A3C', '#4A90E2',
-                     '#6B4C8A', '#E85D75', '#3AA655', '#F4B942', '#D64545']
-    line_styles = ['-', '--', ':', '-.', '-', '--', ':', '-.']
-    marker_styles = ['o', 's', '^', 'D', 'v', '>', '<', 'p', '*', 'h']
+                     '#6B4C8A', '#E85D75', '#3AA655', '#F4B942', '#D64545',
+                     '#16A085', '#8E44AD', '#E67E22', '#2C3E50', '#C0392B',
+                     '#27AE60', '#F39C12', '#9B59B6', '#1ABC9C', '#34495E',
+                     '#E74C3C', '#3498DB', '#95A5A6', '#D35400', '#7F8C8D',
+                     '#2980B9', '#8B4789', '#C0A080', '#5DADE2', '#48C9B0',
+                     '#F8B500', '#BB8FCE']
 
+    line_styles = ['-', '--', ':', '-.', '-', '--', ':', '-.',
+                   '-', '--', ':', '-.', '-', '--', ':', '-.',
+                   '-', '--', ':', '-.', '-', '--', ':', '-.',
+                   '-', '--', ':', '-.', '-', '--', ':', '-.']
+
+    marker_styles = ['o', 's', '^', 'D', 'v', '>', '<', 'p',
+                     '*', 'h', 'H', '+', 'x', 'X', 'd', '|',
+                     '_', '.', ',', '1', '2', '3', '4', '8',
+                     'P', 'o', 's', '^', 'D', 'v', '>', '<']
     model_colors = {}
     for i, model in enumerate(models):
         model_colors[model] = color_palette[i % len(color_palette)]
@@ -311,7 +322,7 @@ def create_scaling_plots(data, machine_type, output_path, baseline_layout, metho
     method_suffix = '_geomean' if method == 'geometric' else '_arithmetic'
     output_file = os.path.join(
         results_dir, f'speedup_vs_{baseline_layout}{method_suffix}.png')
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.savefig(output_file, dpi=600, bbox_inches='tight')
     print(f"Figure saved to: {output_file}")
     plt.close()
 
@@ -499,7 +510,7 @@ def plot_pareto_raw(processed_data, memory_data, output_path='.', ray_count=None
             output_path = os.path.join(
                 output_path, f'pareto_time_{model}_geomean.png')
 
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.savefig(output_path, dpi=600, bbox_inches='tight')
         print(f"  Saved: {output_path}")
         plt.close()
 
@@ -768,7 +779,7 @@ def plot_normalized_performance(processed_data, layouts, baseline_layout, output
         output_file = os.path.join(
             results_dir, f'normalized_performance{mem_suffix}_geomean_{baseline_layout}.png')
 
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.savefig(output_file, dpi=600, bbox_inches='tight')
     print(f"Normalized performance plot saved to: {output_file}")
     plt.close()
 
@@ -1023,7 +1034,7 @@ def plot_pareto_normalized(processed_data, memory_data, layouts, baseline_layout
         output_file = os.path.join(
             results_dir, f'pareto_normalized_geomean_{baseline_layout}.png')
 
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.savefig(output_file, dpi=600, bbox_inches='tight')
     print(f"Normalized Pareto frontier plot saved to: {output_file}")
     plt.close()
 
@@ -1278,7 +1289,7 @@ def plot_pareto_normalized(processed_data, memory_data, layouts, baseline_layout
         output_file = os.path.join(
             results_dir, f'pareto_normalized_geomean_{baseline_layout}.png')
 
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.savefig(output_file, dpi=600, bbox_inches='tight')
     print(f"Normalized Pareto frontier plot saved to: {output_file}")
     plt.close()
 
@@ -1343,7 +1354,19 @@ if __name__ == "__main__":
             'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
         "bvh8",  # baseline layout
         filename,
-        ray_count=2**20,
+        ray_count=2**25,
+        machine_type=machine_type,
+        memory_data=memory_utilization
+
+    )
+
+    plot_normalized_performance(
+        processed_data,
+        ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16', 'cl-bvh8-idx',
+            'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
+        "bvh8",  # baseline layout
+        filename,
+        ray_count=None,
         machine_type=machine_type,
         memory_data=memory_utilization
 
@@ -1356,7 +1379,7 @@ if __name__ == "__main__":
             'cl-bvh8-idx-align16', 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16'],
         "bvh8",
         filename,
-        ray_count=2**20,
+        ray_count=2**25,
         machine_type=machine_type
     )
     plot_pareto_normalized(
@@ -1375,7 +1398,7 @@ if __name__ == "__main__":
         ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
         "eq",  # baseline layout
         filename,
-        ray_count=2**20,
+        ray_count=2**25,
         machine_type=machine_type,
         memory_data=memory_utilization
 
@@ -1387,7 +1410,7 @@ if __name__ == "__main__":
         ['eq', 'pbrt', 'pbrt-align16', 'eq-align16', 'ptr', 'soa-align16', 'soa'],
         "pbrt",
         filename,
-        ray_count=2**20,
+        ray_count=2**25,
         machine_type=machine_type
     )
     plot_pareto_normalized(
@@ -1403,17 +1426,17 @@ if __name__ == "__main__":
     plot_pareto_normalized(
         processed_data,
         memory_utilization,
-        ['ebq-align16', 'eb-align16', 'eq', 'ebq-cl',
+        ['ebq-align16', 'eb-align16', 'ebq-cl',
             'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16'],
         "eb",
         filename,
-        ray_count=2**20,
+        ray_count=2**25,
         machine_type=machine_type
     )
     plot_pareto_normalized(
         processed_data,
         memory_utilization,
-        ['ebq-align16', 'eb-align16', 'eq', 'ebq-cl',
+        ['ebq-align16', 'eb-align16', 'ebq-cl',
             'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16'],
         "eb",
         filename,
