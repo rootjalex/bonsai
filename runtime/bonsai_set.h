@@ -132,6 +132,16 @@ T &argmin(std::function<U(const U &, const T &)> metric, const set<T> &input) {
     return result;
 }
 
+template <typename T>
+inline uint32_t count(const set<T> &input) {
+    return input.size();
+}
+
+template <typename T, typename i_t>
+inline uint32_t count(const range<T, i_t> &input) {
+    return input.count;
+}
+
 // TODO: this should never be fairly used, a nested join should be fused!
 template <typename T, typename U>
 set<std::tuple<T, U>> product(const set<T> &input0, const set<U> &input1) {
@@ -170,4 +180,11 @@ bool operator==(const set<T> &a, const set<T> &b) {
     a.for_each([&](const T &x) { std_a.insert(x); });
     b.for_each([&](const T &x) { std_b.insert(x); });
     return std_a == std_b;
+}
+
+template <typename T>
+void print_set(const set<T> &s) {
+    std::cout << "{ ";
+    s.for_each([&](const T &i) { std::cout << i << " "; });
+    std::cout << "}" << std::endl;
 }
