@@ -1,0 +1,36 @@
+element Point {
+    x, y : f32;
+}
+
+extern input : set[Point];
+
+func [[export]] absd_query(value : f32) = filter(|p : Point| abs(p.x - p.y) < value, input);
+
+extern input_tree : set[Point];
+
+func [[export]] absd_query_fast(value : f32) = filter(|p : Point| abs(p.x - p.y) < value, input_tree);
+
+schedule {
+    tree[[Point]] AABBTree(xl xh yl yh : f32) with x in [xl, xh] with y in [yl, yh] =
+    | Interior(left : AABBTree, right : AABBTree)
+    | Leaf(d : array[Point]) with data = d;
+
+    input_tree : AABBTree;
+
+    layout input_tree {
+        pCount : u64;
+        prims : array[Point, pCount];
+        count : u64;
+        group[count] index : u64 {
+            xl : f32;
+            xh : f32;
+            yl : f32;
+            yh : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+}

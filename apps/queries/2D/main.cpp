@@ -1,11 +1,24 @@
-#include "range_fast_gen.h"
-#include "range_gen.h"
+#include "queries_gen.h"
 #include <algorithm>
 #include <cassert>
 #include <fstream>
 #include <iostream>
 #include <random>
 #include <set>
+
+std::ostream &operator<<(std::ostream &os, const Point &point) {
+    os << "Point {" << point.x << ", " << point.y << "}";
+    return os;
+}
+
+bool operator<(const Point &a, const Point &b) {
+    return (a.x < b.x) || ((a.x == b.x) && (a.y < b.y));
+}
+
+bool operator==(const Point &a, const Point &b) {
+    return (a.x == b.x) && (a.y == b.y);
+}
+
 
 // -------- Choose one by uncommenting or defining via -D flag --------
 // #define USE_UNIFORM
@@ -15,9 +28,9 @@
 // #define USE_CAUCHY
 // #define USE_WEIBULL
 
-set<float> generate_random_set(std::mt19937 &rng, size_t size,
+set<Point> generate_random_set(std::mt19937 &rng, size_t size,
                                float min_val = -1000, float max_val = 1000) {
-    set<float> result;
+    set<Point> result;
 #if defined(USE_NORMAL)
     // Centered at 0, stddev so most values fall in [min, max]
     std::normal_distribution<float> dist(0.0f, (max_val - min_val) / 4.0f);
@@ -42,26 +55,32 @@ set<float> generate_random_set(std::mt19937 &rng, size_t size,
     std::uniform_real_distribution<float> dist(min_val, max_val);
 #endif
 
-    while (result.size() < size) {
+    std::function<float()> get_value = [&]() -> float {
         float val = dist(rng);
 
 #if defined(USE_EXPONENTIAL)
-        val += min_val;
+        x += min_val;
 #elif defined(USE_LOGNORMAL) || defined(USE_CAUCHY) || defined(USE_WEIBULL)
-        val = min_val + fmod(val, max_val - min_val); // wrap into range
+        x = min_val + fmod(val, max_val - min_val); // wrap into range
 #endif
 
         // Optional clamp for distributions that might go out of range
         if (val < min_val || val > max_val || !std::isfinite(val))
-            continue;
+            return get_value();
+        return val;
+    };
 
-        result.push_back(val);
+    while (result.size() < size) {
+        float x = get_value();
+        float y = get_value();
+
+        result.push_back(Point{x, y});
     }
 
     return result;
 }
 
-void export_to_csv(const set<float> &input_set, const std::string &filename) {
+void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     std::ofstream out(filename);
     if (!out.is_open()) {
         std::cerr << "Failed to open file for writing: " << filename
@@ -69,29 +88,28 @@ void export_to_csv(const set<float> &input_set, const std::string &filename) {
         return;
     }
 
-    out << "value\n"; // CSV header
-    input_set.for_each([&](const float &val) { out << val << "\n"; });
+    out << "x, y\n"; // CSV header
+    input_set.for_each([&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
 
     out.close();
 }
 
-_tree_layout0 build_tree(const set<float> &input) {
+_tree_layout0 build_tree(const set<Point> &input) {
     _tree_layout0 tree;
     tree.pCount = input.size();
-    tree.prims = static_cast<float *>(std::malloc(sizeof(float) * tree.pCount));
+    tree.prims = static_cast<Point *>(std::malloc(sizeof(Point) * tree.pCount));
     if (!tree.prims) {
         throw std::bad_alloc();
     }
 
     std::copy(input.data.begin(), input.data.end(), tree.prims);
-    std::sort(tree.prims, tree.prims + tree.pCount);
+
+    // TODO: always sort on larger dimension (x or y).
+    // std::sort(tree.prims, tree.prims + tree.pCount);
 
     constexpr uint64_t MAX_LEAF_COUNT = 8;
 
-    uint64_t leaf_count = (tree.pCount + (MAX_LEAF_COUNT - 1)) / MAX_LEAF_COUNT;
-    // uint64_t internal_count = leaf_count - 1;
-    // tree.count = leaf_count + internal_count;
-    // tree.count = 2 * leaf_count - 1;
+    // Safe conservative tree estimate.
     tree.count = 2 * tree.pCount - 1;
     tree.group0_index = static_cast<_tree_layout1 *>(
         std::malloc(sizeof(_tree_layout1) * tree.count));
@@ -102,6 +120,7 @@ _tree_layout0 build_tree(const set<float> &input) {
 
     uint64_t next_node = 0;
 
+    // TODO: add parameters that pass the xl/xh/yl/yh values.
     std::function<uint64_t(uint64_t, uint64_t, uint64_t)> handle_range =
         [&](uint64_t low, uint64_t high, uint64_t depth) -> uint64_t {
         // assert(depth < MAX_TREE_DEPTH);
@@ -110,8 +129,19 @@ _tree_layout0 build_tree(const set<float> &input) {
         uint64_t this_index = next_node++;
         assert(this_index < tree.count);
 
-        tree.group0_index[this_index].low = tree.prims[low];
-        tree.group0_index[this_index].high = tree.prims[high - 1];
+        // Compute bounding box for current range
+        float xl = tree.prims[low].x, xh = tree.prims[low].x;
+        float yl = tree.prims[low].y, yh = tree.prims[low].y;
+        for (uint64_t i = low + 1; i < high; ++i) {
+            xl = std::min(xl, tree.prims[i].x);
+            xh = std::max(xh, tree.prims[i].x);
+            yl = std::min(yl, tree.prims[i].y);
+            yh = std::max(yh, tree.prims[i].y);
+        }
+        tree.group0_index[this_index].xl = xl;
+        tree.group0_index[this_index].xh = xh;
+        tree.group0_index[this_index].yl = yl;
+        tree.group0_index[this_index].yh = yh;
 
         if (count <= MAX_LEAF_COUNT) {
             // Leaf node
@@ -121,8 +151,23 @@ _tree_layout0 build_tree(const set<float> &input) {
                 ->pOffset = low;
         } else {
             tree.group0_index[this_index].nPrims = 0;
+
+            // Choose split axis: longest dimension
+            bool split_on_x = (xh - xl) >= (yh - yl);
+
+            // Sort on that axis
+            if (split_on_x) {
+                std::sort(tree.prims + low, tree.prims + high,
+                          [](const Point &a, const Point &b) { return a.x < b.x; });
+            } else {
+                std::sort(tree.prims + low, tree.prims + high,
+                          [](const Point &a, const Point &b) { return a.y < b.y; });
+            }
+
+            // Split in the middle (median)
             uint64_t mid = low + count / 2;
 
+            // Recursively build subtrees
             uint64_t left = handle_range(low, mid, depth + 1);
             uint64_t right = handle_range(mid, high, depth + 1);
 
@@ -135,6 +180,7 @@ _tree_layout0 build_tree(const set<float> &input) {
         return this_index;
     };
 
+    // TODO: pass bounding box info computed via sort...?
     handle_range(/*low=*/0, /*high=*/tree.pCount, /*depth=*/0);
     return tree;
 }
@@ -153,24 +199,38 @@ void verify_IntervalTree(const uint64_t input_index,
         for (uint64_t _idx0 = 0u;
              _idx0 < (uint64_t)(input.group0_index[input_index].nPrims);
              _idx0 += 1u) {
-            const float prim =
+            const Point prim =
                 input.prims[(uint64_t)(reinterpret<_tree_layout3>(
                                            input.group0_index[input_index]
                                                .split0on_nPrims)
                                            .pOffset) +
                             _idx0];
-            if (input.group0_index[input_index].low > prim) {
+            if (input.group0_index[input_index].xl > prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and lb = " << input.group0_index[input_index].low
+                          << " and lb(x) = " << input.group0_index[input_index].xl
                           << std::endl;
                 abort();
             }
-            if (input.group0_index[input_index].high < prim) {
+            if (input.group0_index[input_index].yl > prim.y) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and ub = "
-                          << input.group0_index[input_index].high << std::endl;
+                          << " and lb(y) = " << input.group0_index[input_index].yl
+                          << std::endl;
+                abort();
+            }
+            if (input.group0_index[input_index].xh < prim.x) {
+                std::cout << "Tree verification failed at index: "
+                          << input_index << " with prim = " << prim
+                          << " and ub(x) = " << input.group0_index[input_index].xh
+                          << std::endl;
+                abort();
+            }
+            if (input.group0_index[input_index].yh < prim.y) {
+                std::cout << "Tree verification failed at index: "
+                          << input_index << " with prim = " << prim
+                          << " and ub(y) = " << input.group0_index[input_index].yh
+                          << std::endl;
                 abort();
             }
         }
@@ -179,125 +239,15 @@ void verify_IntervalTree(const uint64_t input_index,
 
 #define PROFILE 1
 
-double benchmark_range_query(const set<float> &input, const _tree_layout0 &tree,
+double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
                              const int k, const int m) {
-    float low = -10;
-    float high = 10;
+    float value = 1;
 #ifndef PROFILE
-    std::cout << "Range query, range = [" << low << ", " << high << "]"
-              << std::endl;
+    std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("range_query", input, tree, k, m, range_query,
-                           range_query_fast, low, high);
-}
-
-double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
-                          const int k, const int m) {
-    float value = 42;
-#ifndef PROFILE
-    std::cout << "Equality query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >>
-               ("eq_query", input, tree, k, m, eq_query, eq_query_fast, value);
-}
-
-double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
-                           const int k, const int m) {
-    float value = 10.0f;
-#ifndef PROFILE
-    std::cout << "Abs query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("abs_query", input, tree, k, m, abs_query,
-                           abs_query_fast, value);
-}
-
-double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
-                           const int k, const int m) {
-    float value = 100.0f;
-#ifndef PROFILE
-    std::cout << "Sqr query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("sqr_query", input, tree, k, m, sqr_query,
-                           sqr_query_fast, value);
-}
-
-double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
-                             const int k, const int m) {
-    float value = 10.0f;
-#ifndef PROFILE
-    std::cout << "Round query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("round_query", input, tree, k, m, round_query,
-                           round_query_fast, value);
-}
-
-double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
-                            const int k, const int m) {
-    float value = 0.0f;
-#ifndef PROFILE
-    std::cout << "Poly query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("poly_query", input, tree, k, m, poly_query,
-                           poly_query_fast, value);
-}
-
-double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
-                            const int k, const int m) {
-    float value = std::sqrt(10.0f);
-#ifndef PROFILE
-    std::cout << "Sqrt query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("sqrt_query", input, tree, k, m, sqrt_query,
-                           sqrt_query_fast, value);
-}
-
-std::pair<float, float> compute_mean_and_stdev(const std::vector<float> &data) {
-    if (data.size() < 2)
-        return {0.0f, 0.0f};
-
-    float mean = 0.0f;
-    float M2 = 0.0f;
-    size_t n = 0;
-
-    // Welford's algorithm
-    for (float x : data) {
-        ++n;
-        float delta = x - mean;
-        mean += delta / n;
-        float delta2 = x - mean;
-        M2 += delta * delta2;
-    }
-
-    return {mean, std::sqrt(M2 / (n - 1))};
-}
-
-double benchmark_stddev_query(const set<float> &input,
-                              const _tree_layout0 &tree, const int k,
-                              const int m) {
-    const auto [mean, stddev] = compute_mean_and_stdev(input.data);
-    const float stddev3 = stddev * 3;
-#ifndef PROFILE
-    std::cout << "Stdev query, mean = " << value << " stddev * 3 = " << stddev3
-              << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_1d_queries < PROFILE != 1,
-           set < float >> ("stddev_query", input, tree, k, m, stddev_query,
-                           stddev_query_fast, mean, stddev3);
+    return benchmark_1d_queries<true, set<Point>>("absd_query", input, tree, k, m,
+                                         absd_query, absd_query_fast, value);
 }
 
 template <typename T>
@@ -348,25 +298,11 @@ int main() {
 #ifdef PROFILE
     pretty_print_vector(test_sizes);
     std::cout << std::endl;
-    static constexpr int N_BENCHMARKS = 8;
+    static constexpr int N_BENCHMARKS = 1;
     std::vector<std::pair<std::string, std::vector<double>>> results(
         N_BENCHMARKS);
-    results[0].first = "range_query";
+    results[0].first = "absd_query";
     results[0].second.reserve(test_sizes.size());
-    results[1].first = "eq_query";
-    results[1].second.reserve(test_sizes.size());
-    results[2].first = "abs_query";
-    results[2].second.reserve(test_sizes.size());
-    results[3].first = "sqr_query";
-    results[3].second.reserve(test_sizes.size());
-    results[4].first = "round_query";
-    results[4].second.reserve(test_sizes.size());
-    results[5].first = "poly_query";
-    results[5].second.reserve(test_sizes.size());
-    results[6].first = "sqrt_query";
-    results[6].second.reserve(test_sizes.size());
-    results[7].first = "stddev_query";
-    results[6].second.reserve(test_sizes.size());
 #endif
     for (size_t size : test_sizes) {
         // std::cout << size << std::endl;
@@ -391,82 +327,20 @@ int main() {
             std::chrono::duration_cast<std::chrono::nanoseconds>(t_build_end -
                                                                  t_build_start)
                 .count();
-#ifndef PROFILE
+// #ifndef PROFILE
         std::cout << "build_tree() time: " << build_time << " ns\n";
-        verify_IntervalTree(0, input_tree);
-#endif
+        // verify_IntervalTree(0, input_tree);
+// #endif
 
 #ifdef PROFILE
         results[0].second.push_back(
 #endif
-            benchmark_range_query(input_set, input_tree, k, m)
+            benchmark_absd_query(input_set, input_tree, k, m)
 #ifdef PROFILE
         )
 #endif
             ;
 
-#ifdef PROFILE
-        results[1].second.push_back(
-#endif
-            benchmark_eq_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
-
-#ifdef PROFILE
-        results[2].second.push_back(
-#endif
-            benchmark_abs_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
-
-#ifdef PROFILE
-        results[3].second.push_back(
-#endif
-            benchmark_sqr_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
-
-#ifdef PROFILE
-        results[4].second.push_back(
-#endif
-            benchmark_round_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
-
-#ifdef PROFILE
-        results[5].second.push_back(
-#endif
-            benchmark_poly_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
-
-#ifdef PROFILE
-        results[6].second.push_back(
-#endif
-            benchmark_sqrt_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
-
-#ifdef PROFILE
-        results[7].second.push_back(
-#endif
-            benchmark_stddev_query(input_set, input_tree, k, m)
-#ifdef PROFILE
-        )
-#endif
-            ;
         std::free(input_tree.prims);
         std::free(input_tree.group0_index);
     }
