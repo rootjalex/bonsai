@@ -32,7 +32,7 @@ def parse_layout_memory_and_nodes(data_text):
             continue
 
         # Configuration line
-        if line.startswith('rt, cpu,'):
+        if line.startswith('rt, '):
             parts = [part.strip() for part in line.split(',')]
             if len(parts) >= 3:
                 current_layout = parts[2]

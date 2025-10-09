@@ -1,16 +1,22 @@
 import re
 import sys
+from collections import defaultdict
 
 
 def parse_embree_output(text):
-    results = []
+    """Parse Embree output to extract memory usage per object and layout."""
     lines = text.split('\n')
+    data = defaultdict(lambda: defaultdict(lambda: {'memory': 0, 'nodes': {}}))
 
     current_object = None
 
     i = 0
     while i < len(lines):
         line = lines[i].strip()
+
+        if not line or line == '---':
+            i += 1
+            continue
 
         # Check if this looks like an object name (single word/identifier, not a separator)
         if (line and
@@ -19,10 +25,15 @@ def parse_embree_output(text):
             i + 1 < len(lines) and
                 lines[i + 1].strip().startswith('rt, embree,')):
             current_object = line
+            i += 1
+            continue
 
         # Check if line starts with "rt, embree, "
         if line.startswith('rt, embree,'):
             layout = line.split('rt, embree,')[1].strip()
+
+            if current_object and layout:
+                data[current_object][layout] = {'memory': 0, 'nodes': {}}
 
             # Search forward for the "total : used" line
             for j in range(i + 1, min(i + 200, len(lines))):
@@ -34,43 +45,50 @@ def parse_embree_output(text):
                         size_mb = float(bytes_match.group(1))
                         size_bytes = int(size_mb * 1024 * 1024)
 
-                        results.append({
-                            'object': current_object,
-                            'layout': layout,
-                            'bytes': size_bytes
-                        })
+                        if current_object and layout:
+                            data[current_object][layout]['memory'] = size_bytes
+                            data[current_object][layout]['nodes']['aabbs'] = 1
                         break
 
         i += 1
 
-    return results
+    # Convert to regular dict
+    result = {}
+    for model in data:
+        result[model] = {}
+        for layout in data[model]:
+            if data[model][layout]['memory'] > 0:
+                result[model][layout] = {
+                    'memory': data[model][layout]['memory'],
+                    'nodes': dict(data[model][layout]['nodes'])
+                }
+
+    return result
 
 
 def main():
-    # Read from stdin or file
-    if len(sys.argv) > 1:
-        with open(sys.argv[1], 'r') as f:
-            text = f.read()
-    else:
-        text = sys.stdin.read()
+    if len(sys.argv) < 2:
+        print("Usage: python script.py <embree_output_file>")
+        sys.exit(1)
 
-    results = parse_embree_output(text)
+    embree_file = sys.argv[1]
 
-    # Group by object
-    objects = {}
-    for r in results:
-        obj = r['object']
-        if obj not in objects:
-            objects[obj] = []
-        objects[obj].append(r)
+    try:
+        with open(embree_file, 'r') as f:
+            embree_text = f.read()
+        print(f"Successfully loaded data from: {embree_file}\n")
+    except FileNotFoundError:
+        print(f"Error: File '{embree_file}' not found.")
+        sys.exit(1)
+    except IOError as e:
+        print(f"Error reading file '{embree_file}': {e}")
+        sys.exit(1)
 
-    # Output grouped by object
-    for obj, layouts in objects.items():
-        print(f"object: {obj}")
-        for layout in layouts:
-            print(f"rt, embree, {layout['layout']}")
-            print(f";; aabbs: 1, {layout['bytes']}")
-        print()
+    # Parse embree output
+    result = parse_embree_output(embree_text)
+
+    # Print the dictionary
+    print(result)
 
 
 if __name__ == '__main__':
