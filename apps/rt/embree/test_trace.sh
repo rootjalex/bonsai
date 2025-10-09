@@ -117,7 +117,7 @@ run_tests() {
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
-      echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" | tee -a ${DATA_PATH}/${DATA_FILE}.txt
+      echo "${APPLICATION}, ${TARGET}, embree-${LAYOUT}" | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       # 3. Build it.
       mkdir -p "${PREFIX}/build"
       cd "${PREFIX}/build"

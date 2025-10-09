@@ -166,20 +166,21 @@ void error_function(void *ptr, enum RTCError error, const char *str) {
 
 // Create Embree device with specific BVH layout
 RTCDevice create_device(const std::string &layout) {
-    const char *config = nullptr;
+    std::string configuration;
 
     if (layout == "auto" || layout == "default") {
-        config = nullptr;
     } else if (layout == "bvh4") {
-        config = "tri_accel=bvh4.triangle4";
+        configuration = "tri_accel=bvh4.triangle4";
     } else if (layout == "bvh8") {
-        config = "tri_accel=bvh8.triangle4";
+        configuration = "tri_accel=bvh8.triangle4";
     } else {
         std::cerr << "Unknown BVH layout: " << layout << std::endl;
         exit(1);
     }
+    // Gathers information about the BVH structure
+    configuration += ",verbose=2,benchmark=2";
 
-    RTCDevice device = rtcNewDevice(config);
+    RTCDevice device = rtcNewDevice(configuration.c_str());
 
     if (!device) {
         std::cerr << "Failed to create Embree device\n";
@@ -194,7 +195,6 @@ RTCDevice create_device(const std::string &layout) {
 RTCScene create_scene(RTCDevice device,
                       const std::vector<Triangle> &triangles) {
     RTCScene scene = rtcNewScene(device);
-
     RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
 
     // Allocate vertex buffer
@@ -404,7 +404,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: " << argv[0]
                   << " <object> <bvh_layout> <schedule> <num_ray_counts> "
                      "<ray_count1> [ray_count2 ...]\n";
-        std::cerr << "\nBVH layouts: auto, bvh4, bvh4i, bvh8\n";
+        std::cerr << "\nBVH layouts: bvh4, bvh8\n";
         std::cerr << "Schedule: single-thread, parallel\n";
         std::cerr << "\nExample: " << argv[0]
                   << " bunny bvh8 parallel 1 10000\n";
