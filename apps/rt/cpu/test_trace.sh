@@ -203,6 +203,7 @@ run_tests() {
       # Compile executable
       COMPILE="clang++ ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
       if [[ "$(uname)" == "Linux" ]]; then 
+        # export LD_LIBRARY_PATH=/scratch/cpg/miniconda3/envs/bonsai_env/lib:$LD_LIBRARY_PATH
         COMPILE="${COMPILE} -Wl,-rpath,$CONDA_PREFIX/lib"
       fi
       ${COMPILE}
