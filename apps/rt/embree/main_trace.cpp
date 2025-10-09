@@ -1,4 +1,5 @@
 #include <embree4/rtcore.h>
+#include <embree4/rtcore_builder.h>
 #include <omp.h>
 
 #include <cassert>
@@ -170,9 +171,9 @@ RTCDevice create_device(const std::string &layout) {
     if (layout == "auto" || layout == "default") {
         config = nullptr;
     } else if (layout == "bvh4") {
-        config = "bvh_layout=bvh4.triangle4v";
+        config = "tri_accel=bvh4.triangle4";
     } else if (layout == "bvh8") {
-        config = "bvh_layout=bvh8.triangle4";
+        config = "tri_accel=bvh8.triangle4";
     } else {
         std::cerr << "Unknown BVH layout: " << layout << std::endl;
         exit(1);
