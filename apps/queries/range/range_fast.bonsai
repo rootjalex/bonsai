@@ -28,8 +28,8 @@ schedule {
     layout input {
         pCount : u64;
         prims : array[f32, pCount];
-        count : u64;
-        group[count] index : u64 {
+        nCount : u64;
+        group[nCount] index : u64 {
             low : f32;
             high : f32;
             nPrims : u8;

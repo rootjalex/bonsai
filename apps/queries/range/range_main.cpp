@@ -90,11 +90,11 @@ _tree_layout0 build_tree(const set<float> &input) {
 
     uint64_t leaf_count = (tree.pCount + (MAX_LEAF_COUNT - 1)) / MAX_LEAF_COUNT;
     // uint64_t internal_count = leaf_count - 1;
-    // tree.count = leaf_count + internal_count;
-    // tree.count = 2 * leaf_count - 1;
-    tree.count = 2 * tree.pCount - 1;
+    // tree.nCount = leaf_count + internal_count;
+    // tree.nCount = 2 * leaf_count - 1;
+    tree.nCount = 2 * tree.pCount - 1;
     tree.group0_index = static_cast<_tree_layout1 *>(
-        std::malloc(sizeof(_tree_layout1) * tree.count));
+        std::malloc(sizeof(_tree_layout1) * tree.nCount));
     if (!tree.group0_index) {
         std::free(tree.prims);
         throw std::bad_alloc();
@@ -108,7 +108,7 @@ _tree_layout0 build_tree(const set<float> &input) {
 
         uint64_t count = high - low;
         uint64_t this_index = next_node++;
-        assert(this_index < tree.count);
+        assert(this_index < tree.nCount);
 
         tree.group0_index[this_index].low = tree.prims[low];
         tree.group0_index[this_index].high = tree.prims[high - 1];

@@ -20,8 +20,8 @@ schedule {
     layout input_tree {
         pCount : u64;
         prims : array[Point, pCount];
-        count : u64;
-        group[count] index : u64 {
+        nCount : u64;
+        group[nCount] index : u64 {
             xl : f32;
             xh : f32;
             yl : f32;

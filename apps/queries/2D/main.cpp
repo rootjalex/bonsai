@@ -110,9 +110,9 @@ _tree_layout0 build_tree(const set<Point> &input) {
     constexpr uint64_t MAX_LEAF_COUNT = 8;
 
     // Safe conservative tree estimate.
-    tree.count = 2 * tree.pCount - 1;
+    tree.nCount = 2 * tree.pCount - 1;
     tree.group0_index = static_cast<_tree_layout1 *>(
-        std::malloc(sizeof(_tree_layout1) * tree.count));
+        std::malloc(sizeof(_tree_layout1) * tree.nCount));
     if (!tree.group0_index) {
         std::free(tree.prims);
         throw std::bad_alloc();
@@ -127,7 +127,7 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
         uint64_t count = high - low;
         uint64_t this_index = next_node++;
-        assert(this_index < tree.count);
+        assert(this_index < tree.nCount);
 
         // Compute bounding box for current range
         float xl = tree.prims[low].x, xh = tree.prims[low].x;
