@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("hairball" "white-oak" "power-plant" "sponza" "sheep") # san-miguel-x35-y22-z47
+OBJECTS=("hairball" "white-oak" "power-plant" "sponza" "sheep" "san-miguel-x35-y22-z47")
 
 # Parse flags
 DRY_RUN=false
@@ -99,7 +99,7 @@ if [[ "$(pwd)" == */${PREFIX} ]]; then
 fi
 
 # For saving a set of random rays.
-clang++ -std=c++20 -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
+clang++ -std=c++20 -fopenmp -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${KERNEL_PATH}/generate.cpp
 
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   for OBJECT in "${OBJECTS[@]}"; do

@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <omp.h>
 #include <random>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -425,12 +426,6 @@ BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
 
 std::vector<Ray> generate_rays(const std::vector<Triangle> &triangles,
                                int count, float hit_ratio = 0.75f) {
-    std::random_device rd;
-    std::mt19937 generator(rd());
-
-    std::vector<Ray> rays;
-    rays.reserve(count);
-
     const int target_hits = static_cast<int>(count * hit_ratio);
     const int target_misses = count - target_hits;
 
@@ -442,47 +437,143 @@ std::vector<Ray> generate_rays(const std::vector<Triangle> &triangles,
 
     const BoundingBox bbox = compute_bounding_box(triangles);
 
-    int hits_generated = 0;
-    while (hits_generated < target_hits) {
-        Ray candidate_ray;
-        candidate_ray.o = float3{
-            random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
-            random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
-            random_float(generator, bbox.min.z - 50.0f, bbox.max.z + 50.0f)};
-        candidate_ray.d = random_unit_vector(generator);
+    // Pre-allocate vectors for each thread's results
+    int num_threads = omp_get_max_threads();
+    std::vector<std::vector<Ray>> thread_hit_rays(num_threads);
+    std::vector<std::vector<Ray>> thread_miss_rays(num_threads);
 
-        if (bvh.intersect(candidate_ray)) {
-            rays.push_back(candidate_ray);
-            hits_generated++;
-            if (hits_generated % 1000 == 0) {
-                std::cerr << "generated hit ray " << hits_generated << "/"
-                          << target_hits << std::endl;
+    std::vector<int> thread_hit_counts(num_threads, 0);
+    std::vector<int> thread_miss_counts(num_threads, 0);
+
+    // Generate hit rays in parallel
+    std::cerr << "generating hit rays with " << num_threads << " threads..."
+              << std::endl;
+#pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        std::random_device rd;
+        std::mt19937 generator(rd() + tid); // Unique seed per thread
+
+        thread_hit_rays[tid].reserve(target_hits / num_threads + 1000);
+
+        while (true) {
+            int total_hits;
+#pragma omp atomic read
+            total_hits = thread_hit_counts[0];
+            for (int i = 1; i < num_threads; i++) {
+                int count;
+#pragma omp atomic read
+                count = thread_hit_counts[i];
+                total_hits += count;
+            }
+
+            if (total_hits >= target_hits)
+                break;
+
+            Ray candidate_ray;
+            candidate_ray.o = float3{
+                random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
+                random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
+                random_float(generator, bbox.min.z - 50.0f,
+                             bbox.max.z + 50.0f)};
+            candidate_ray.d = random_unit_vector(generator);
+
+            if (bvh.intersect(candidate_ray)) {
+                thread_hit_rays[tid].push_back(candidate_ray);
+#pragma omp atomic
+                thread_hit_counts[tid]++;
+
+                if (thread_hit_counts[tid] % 1000 == 0) {
+#pragma omp critical
+                    {
+                        std::cerr << "thread " << tid << " generated hit ray "
+                                  << thread_hit_counts[tid] << std::endl;
+                    }
+                }
             }
         }
     }
 
-    int misses_generated = 0;
-    while (misses_generated < target_misses) {
-        Ray candidate_ray;
-        candidate_ray.o = float3{
-            random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
-            random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
-            random_float(generator, bbox.min.z - 50.0f, bbox.max.z + 50.0f)};
-        candidate_ray.d = random_unit_vector(generator);
+    // Generate miss rays in parallel
+    std::cerr << "generating miss rays with " << num_threads << " threads..."
+              << std::endl;
+#pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        std::random_device rd;
+        std::mt19937 generator(rd() + tid); // Unique seed per thread
 
-        if (!bvh.intersect(candidate_ray)) {
-            rays.push_back(candidate_ray);
-            misses_generated++;
-            if (misses_generated % 1000 == 0) {
-                std::cerr << "generated miss ray " << misses_generated << "/"
-                          << target_misses << std::endl;
+        thread_miss_rays[tid].reserve(target_misses / num_threads + 1000);
+
+        while (true) {
+            int total_misses;
+#pragma omp atomic read
+            total_misses = thread_miss_counts[0];
+            for (int i = 1; i < num_threads; i++) {
+                int count;
+#pragma omp atomic read
+                count = thread_miss_counts[i];
+                total_misses += count;
+            }
+
+            if (total_misses >= target_misses)
+                break;
+
+            Ray candidate_ray;
+            candidate_ray.o = float3{
+                random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
+                random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
+                random_float(generator, bbox.min.z - 50.0f,
+                             bbox.max.z + 50.0f)};
+            candidate_ray.d = random_unit_vector(generator);
+
+            if (!bvh.intersect(candidate_ray)) {
+                thread_miss_rays[tid].push_back(candidate_ray);
+#pragma omp atomic
+                thread_miss_counts[tid]++;
+
+                if (thread_miss_counts[tid] % 1000 == 0) {
+#pragma omp critical
+                    {
+                        std::cerr << "thread " << tid << " generated miss ray "
+                                  << thread_miss_counts[tid] << std::endl;
+                    }
+                }
             }
         }
     }
 
-    std::cerr << "ray generation complete: " << hits_generated << " hits, "
-              << misses_generated << " misses" << std::endl;
+    // Combine results from all threads
+    std::vector<Ray> rays;
+    rays.reserve(count);
+
+    int actual_hits = 0;
+    for (int i = 0; i < num_threads; i++) {
+        for (const auto &ray : thread_hit_rays[i]) {
+            if (actual_hits < target_hits) {
+                rays.push_back(ray);
+                actual_hits++;
+            }
+        }
+    }
+
+    int actual_misses = 0;
+    for (int i = 0; i < num_threads; i++) {
+        for (const auto &ray : thread_miss_rays[i]) {
+            if (actual_misses < target_misses) {
+                rays.push_back(ray);
+                actual_misses++;
+            }
+        }
+    }
+
+    std::cerr << "ray generation complete: " << actual_hits << " hits, "
+              << actual_misses << " misses" << std::endl;
+
+    std::random_device rd;
+    std::mt19937 generator(rd());
     std::shuffle(rays.begin(), rays.end(), generator);
+
     return rays;
 }
 
