@@ -60,7 +60,7 @@ std::vector<Ray> load_rays_binary(const std::string &filename,
     if (ray_count > count) {
         std::cout << "the requested ray count: " << ray_count
                   << " is greater than the total ray count: " << count
-                  << " You need to re-generate the rays.";
+                  << " You need to re-generate the rays." << std::endl;
     }
     assert(ray_count <= count);
 
