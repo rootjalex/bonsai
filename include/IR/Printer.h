@@ -50,6 +50,7 @@ std::string to_string(const Generator::OpType &op);
 std::string to_string(const GeomOp::OpType &op);
 std::string to_string(const SetOp::OpType &op);
 std::string to_string(const AggOp::OpType &op);
+std::string to_string(const Annotation::Aggregate::OpType &op);
 
 std::string from_string_imm(const std::string &value);
 void print_string_imm(std::ostream &os, const std::string &value);

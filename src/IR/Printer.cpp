@@ -599,7 +599,7 @@ void Printer::visit(const Generic_t *node) {
 
 void Printer::print(const BVH_t::Node &node) {
     const auto print_annotation = [&](const Annotation &annot) {
-        if (const Annotation::Data *data = annot.as<Annotation::Data>()) {
+        if (const auto *data = annot.as<Annotation::Data>()) {
             os << "data = " << data->name;
         } else if (const auto *vol = annot.as<Annotation::Volume>()) {
             internal_assert(vol->struct_type.is<Struct_t>());
@@ -617,12 +617,22 @@ void Printer::print(const BVH_t::Node &node) {
                 os << " on " << vol->geometry;
             }
             // TODO: print broadcast somehow?
-        } else {
-            const auto *interval = annot.as<Annotation::Interval>();
-            internal_assert(interval) << "TODO: handle non-(Data | Volume | "
-                                         "Interval) annotions in Printer\n";
+        } else if (const auto *interval = annot.as<Annotation::Interval>()) {
             os << interval->scalar << " in [" << interval->low << ", "
                << interval->high << "]";
+        } else if (const auto *aggregate = annot.as<Annotation::Aggregate>()) {
+            os << to_string(aggregate->op) << "(";
+            for (size_t i = 0, e = aggregate->args.size(); i < e; i++) {
+                if (i != 0) {
+                    os << ", ";
+                }
+                os << aggregate->args[i];
+            }
+            os << ") = ";
+            os << aggregate->value;
+        } else {
+            internal_error << "TODO: handle non-(Data | Volume | Interval | "
+                              "Aggregate) annotions in Printer\n";
         }
     };
 
@@ -1083,6 +1093,23 @@ std::string to_string(const AggOp::OpType &op) {
     case AggOp::prod:
         return "prod";
     case AggOp::sum:
+        return "sum";
+    }
+}
+
+std::string to_string(const Annotation::Aggregate::OpType &op) {
+    switch (op) {
+    case Annotation::Aggregate::avg:
+        return "avg";
+    case Annotation::Aggregate::count:
+        return "count";
+    case Annotation::Aggregate::max:
+        return "max";
+    case Annotation::Aggregate::min:
+        return "min";
+    case Annotation::Aggregate::prod:
+        return "prod";
+    case Annotation::Aggregate::sum:
         return "sum";
     }
 }

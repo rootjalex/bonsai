@@ -1176,7 +1176,7 @@ Expr AggOp::make(OpType op, Expr a) {
 
     if (infer_types) {
         if (op == OpType::count) {
-            node->type = UInt_t::make(32);
+            node->type = UInt_t::make(64);
         } else {
             internal_assert(a.type().defined() && a.type().as<Set_t>())
                 << "AggOp received undefined or non-set expr: " << a

@@ -1369,7 +1369,7 @@ struct Parser {
             {"avg", ir::AggOp::avg},
             {"count", ir::AggOp::count},
             {"prod", ir::AggOp::prod},
-            // TODO: sum
+            // TODO: sum, min, max
         });
 
         if (auto op = try_match_pattern<ir::AggOp::OpType>(name, args.size(),
@@ -1698,6 +1698,19 @@ struct Parser {
         } while (consume(Token::Type::COMMA));
         expect(token);
         return types;
+    }
+
+    std::vector<std::string> parse_string_list_until(const Token::Type &token) {
+        std::vector<std::string> strings;
+        if (consume(token)) {
+            return strings;
+        }
+        do {
+            std::string str = get_id();
+            strings.emplace_back(std::move(str));
+        } while (consume(Token::Type::COMMA));
+        expect(token);
+        return strings;
     }
 
     std::vector<ir::TypedVar> parse_lambda_args() {
@@ -2229,7 +2242,16 @@ struct Parser {
                 return ir::Annotation{ir::Annotation::Interval{
                     "", std::move(low), std::move(high)}};
             }
-
+        } else if (name == "avg" || name == "count" || name == "max" ||
+                   name == "min" || name == "prod" || name == "sum") {
+            expect(Token::Type::LPAREN);
+            std::vector<std::string> args =
+                parse_string_list_until(Token::Type::RPAREN);
+            expect(Token::Type::ASSIGN);
+            std::string value = get_id();
+            auto op = ir::Annotation::Aggregate::str_to_op(name);
+            return ir::Annotation{ir::Annotation::Aggregate{op, std::move(args),
+                                                            std::move(value)}};
         } else if (program.types.contains(name)) {
             ir::Type type = program.types[std::move(name)];
 

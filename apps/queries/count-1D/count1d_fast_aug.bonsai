@@ -1,0 +1,43 @@
+extern input : set[f32];
+
+func [[export]] range_query_fast(low : f32, high : f32) = count(filter(|i : f32| low <= i && i <= high, input));
+
+func [[export]] eq_query_fast(value : f32) = count(filter(|i : f32| i == value, input));
+
+func [[export]] abs_query_fast(value : f32) = count(filter(|i : f32| abs(i) <= value, input));
+
+func [[export]] sqr_query_fast(value : f32) = count(filter(|i : f32| sqr(i) <= value, input));
+
+func [[export]] round_query_fast(value : f32) = count(filter(|i : f32| round(i) == value, input));
+
+func [[export]] poly_query_fast(value : f32) = count(filter(|i : f32| sqr(i) - 4 * i + 3 <= value, input));
+
+func [[export]] sqrt_query_fast(value : f32) = count(filter(|i : f32| sqrt(abs(i)) <= value, input));
+
+func [[export]] stddev_query_fast(mean : f32, stddev3 : f32) = count(filter(|i : f32| abs(i - mean) > stddev3, input));
+
+schedule {
+    tree[[f32]] IntervalTree(low high : f32, dCount : u64) with data in [low, high] with count() = dCount =
+    | Interior(left : IntervalTree, right : IntervalTree)
+    | Leaf(d : array[f32]) with data = d;
+
+    input : IntervalTree;
+
+    // query_fast.loopify(64); ?
+
+    layout input {
+        pCount : u64;
+        prims : array[f32, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            dCount : u64;
+            low : f32;
+            high : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+}

@@ -111,6 +111,9 @@ struct Rewriter : public ir::Mutator {
     std::vector<
         std::variant<std::monostate, Interval, std::map<std::string, Interval>>>
         intervals;
+    // The list of augmentations for current match arms.
+    // TODO: key is a string concat of the aggregation request, not ideal...
+    std::vector<std::map<std::string, ir::Expr>> aggregations;
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
 
@@ -151,6 +154,7 @@ struct Rewriter : public ir::Mutator {
             std::variant<std::monostate, Interval,
                          std::map<std::string, Interval>>
                 interval;
+            std::map<std::string, ir::Expr> aggregation;
             for (const auto &annot : node->arms[i].first.annotations) {
                 if (const auto *a_interval =
                         annot.as<ir::Annotation::Interval>()) {
@@ -174,9 +178,19 @@ struct Rewriter : public ir::Mutator {
                             (*as_map)[a_interval->scalar] = m_interval;
                         }
                     }
+                } else if (const auto *agg =
+                               annot.as<ir::Annotation::Aggregate>()) {
+                    std::string key = to_string(agg->op) + "(";
+                    for (const auto &arg : agg->args) {
+                        key += arg;
+                    }
+                    key += ")";
+                    ir::Expr expr = ir::Access::make(agg->value, tree);
+                    aggregation[key] = std::move(expr);
                 }
             }
             intervals.emplace_back(std::move(interval));
+            aggregations.emplace_back(std::move(aggregation));
 
             ir::Stmt stmt = mutate(node->arms[i].second);
             volumes.pop_back();
@@ -501,14 +515,21 @@ ir::Stmt build_count(ir::Stmt body) {
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
-            return ir::Scan::make(ir::AggOp::OpType::count, node->value);
+            // TODO: how does this work with joins...?
+            internal_assert(aggregations.size() == 1);
+            if (aggregations.back().contains("count()")) {
+                return ir::Accumulate::make(loc, ir::Accumulate::Add,
+                                            aggregations.back()["count()"]);
+            } else {
+                return ir::Scan::make(ir::AggOp::OpType::count, node->value);
+            }
         }
 
         // TODO: this should be a sum of the results!
         ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
     };
 
-    static ir::Type ret_type = ir::UInt_t::make(32); // TODO: adjustable?
+    static ir::Type ret_type = ir::UInt_t::make(64); // TODO: adjustable?
 
     static size_t counter = 0;
     std::string name = "_count" + std::to_string(counter++);

@@ -205,8 +205,10 @@ Type Mutator::visit(const BVH_t *node) {
                                                  vol->broadcast}};
         } else {
             const auto *interval = annot.as<Annotation::Interval>();
-            internal_assert(interval)
-                << "Handle non-(Data | Volume | Interval) in Mutator";
+            const auto *aggregate = annot.as<Annotation::Aggregate>();
+            internal_assert(interval || aggregate)
+                << "Handle non-(Data | Volume | Interval | Aggregate) in "
+                   "Mutator";
             // TODO: handle low/high as Exprs?
             return annot;
         }
