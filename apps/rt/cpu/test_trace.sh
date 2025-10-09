@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${1:-14}" # drop lowest 2 and highest 2 runs in processing
+N="${1:-9}" # drop lowest 2 and highest 2 runs in processing
 SCHEDULE="${2:-parallel}" # or single-thread
 HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
 TYPE="${4:-COMPARISON}" # other option, PERFORMANCE
