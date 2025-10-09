@@ -16,6 +16,7 @@ textures
 apps/cd/cpu/results/*
 apps/rt/cpu/results/*
 apps/rt/cuda/results/*
+apps/rt/embree/results/*
 
 # Precompiled Headers
 *.gch
