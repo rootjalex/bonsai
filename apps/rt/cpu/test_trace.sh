@@ -241,13 +241,13 @@ else
   # run_tests "8_mixed"
   # echo "... tests complete for 8-mixed-BVH"
 
-  echo "running tests with 8-BVH..."
-  run_tests "8"
-  echo "... tests complete for 8-BVH"
-
   echo "running tests with 2-BVH..."
   run_tests "2"
   echo "... tests complete for 2-BVH"
+
+  echo "running tests with 8-BVH..."
+  run_tests "8"
+  echo "... tests complete for 8-BVH"
 fi
 
 rm ${RAY_PATH}/${RAY_FILE}.out
