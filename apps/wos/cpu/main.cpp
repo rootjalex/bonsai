@@ -1,6 +1,8 @@
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <tuple>
 #include <vector>
@@ -58,11 +60,11 @@ float distance(const float p1[3], const float p2[3]) {
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-// Runs a closest point query test on two OBJ files for Bonsai and FCPW
-void run_test(const std::string &obj1, const std::string &obj2) {
+// Runs a closest point query test on an OBJ file for Bonsai and FCPW
+void run_test(const std::string &obj1, int64_t num_queries) {
     using clock = std::chrono::high_resolution_clock;
 
-    // Load mesh 1 using polyscope (same as FCPW demo)
+    // Load mesh using polyscope (same as FCPW demo)
     std::vector<std::array<double, 3>> verts1;
     std::vector<std::array<std::size_t, 3>> faces1;
     polyscope::loadMesh(obj1, verts1, faces1);
@@ -82,66 +84,59 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     assert(!vertices1.empty() && "no vertices found!");
     assert(!indices1.empty() && "no triangles found!");
 
-    // Load mesh 2 using polyscope
-    std::vector<std::array<double, 3>> verts2;
-    std::vector<std::array<std::size_t, 3>> faces2;
-    polyscope::loadMesh(obj2, verts2, faces2);
-
-    // Convert to FCPW format
-    std::vector<fcpw::Vector3> vertices2;
-    for (const auto &v : verts2) {
-        vertices2.emplace_back(v[0], v[1], v[2]);
-    }
-    std::vector<std::size_t> indices2;
-    for (const auto &f : faces2) {
-        indices2.push_back(f[0]);
-        indices2.push_back(f[1]);
-        indices2.push_back(f[2]);
-    }
-
-    assert(!vertices2.empty() && "no vertices found!");
-    assert(!indices2.empty() && "no triangles found!");
-
-    std::cout << "Mesh 1: " << vertices1.size() << " vertices, "
+    std::cout << "Mesh: " << vertices1.size() << " vertices, "
               << indices1.size() / 3 << " triangles" << std::endl;
-    std::cout << "Mesh 2: " << vertices2.size() << " vertices, "
-              << indices2.size() / 3 << " triangles" << std::endl;
+
+    // Compute bounding box for random point generation
+    fcpw::Vector3 bbox_min = vertices1[0];
+    fcpw::Vector3 bbox_max = vertices1[0];
+    for (const auto &v : vertices1) {
+        for (int i = 0; i < 3; i++) {
+            bbox_min[i] = std::min(bbox_min[i], v[i]);
+            bbox_max[i] = std::max(bbox_max[i], v[i]);
+        }
+    }
+
+    // Expand bounding box slightly
+    fcpw::Vector3 bbox_size = bbox_max - bbox_min;
+    bbox_min = bbox_min - bbox_size * 0.1f;
+    bbox_max = bbox_max + bbox_size * 0.1f;
+
+    // Generate random query points within bounding box
+    std::vector<fcpw::Vector3> query_points;
+    std::srand(42); // Fixed seed for reproducibility
+    for (int i = 0; i < num_queries; i++) {
+        fcpw::Vector3 p;
+        for (int j = 0; j < 3; j++) {
+            float t =
+                static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+            p[j] = bbox_min[j] + t * (bbox_max[j] - bbox_min[j]);
+        }
+        query_points.push_back(p);
+    }
+
+    std::cout << "Generated " << num_queries << " random query points"
+              << std::endl;
     std::cout << std::endl;
 
     // ---- FCPW Setup ----
     auto t0 = clock::now();
 
-    // Create FCPW scene for mesh 1
-    fcpw::Scene<3> fcpw_scene1;
-    std::vector<fcpw::PrimitiveType> object_types1 = {
+    // Create FCPW scene for mesh
+    fcpw::Scene<3> fcpw_scene;
+    std::vector<fcpw::PrimitiveType> object_types = {
         fcpw::PrimitiveType::Triangle};
-    fcpw_scene1.setObjectTypes(object_types1);
+    fcpw_scene.setObjectTypes(object_types);
 
-    std::vector<std::vector<fcpw::Vector3>> fcpw_vertices1(1);
-    std::vector<std::vector<std::size_t>> fcpw_indices1(1);
+    std::vector<std::vector<fcpw::Vector3>> fcpw_vertices(1);
+    std::vector<std::vector<std::size_t>> fcpw_indices(1);
 
-    fcpw_vertices1[0] = vertices1;
-    fcpw_indices1[0] = indices1;
+    fcpw_vertices[0] = vertices1;
+    fcpw_indices[0] = indices1;
 
-    fcpw_scene1.setObjectVertices(fcpw_vertices1);
-    fcpw_scene1.setObjectTriangles(fcpw_indices1);
-    fcpw_scene1.build(fcpw::AggregateType::Bvh_SurfaceArea, true);
-
-    // Create FCPW scene for mesh 2
-    fcpw::Scene<3> fcpw_scene2;
-    std::vector<fcpw::PrimitiveType> object_types2 = {
-        fcpw::PrimitiveType::Triangle};
-    fcpw_scene2.setObjectTypes(object_types2);
-
-    std::vector<std::vector<fcpw::Vector3>> fcpw_vertices2(1);
-    std::vector<std::vector<std::size_t>> fcpw_indices2(1);
-
-    fcpw_vertices2[0] = vertices2;
-    fcpw_indices2[0] = indices2;
-
-    fcpw_scene2.setObjectVertices(fcpw_vertices2);
-    fcpw_scene2.setObjectTriangles(fcpw_indices2);
-    fcpw_scene2.build(fcpw::AggregateType::Bvh_SurfaceArea, true);
+    fcpw_scene.setObjectVertices(fcpw_vertices);
+    fcpw_scene.setObjectTriangles(fcpw_indices);
+    fcpw_scene.build(fcpw::AggregateType::Bvh_SurfaceArea, true);
 
     auto t1 = clock::now();
     auto fcpw_time =
@@ -152,13 +147,10 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     // ---- Bonsai tree construction ----
     t0 = clock::now();
     std::vector<Triangle> T1s = construct_triangles(vertices1, indices1);
-    std::vector<Triangle> T2s = construct_triangles(vertices2, indices2);
 
     // Uncomment and adjust for your Bonsai API:
-    // BVH *canonical_tree1 = build_fcl_tree_median_split(T1s);
-    // BVH *canonical_tree2 = build_fcl_tree_median_split(T2s);
-    // Triangles1 tree1 = build_triangles1(canonical_tree1);
-    // Triangles2 tree2 = build_triangles2(canonical_tree2);
+    // BVH *canonical_tree = build_fcl_tree_median_split(T1s);
+    // Triangles tree = build_triangles(canonical_tree);
 
     t1 = clock::now();
     auto bonsai_time =
@@ -167,22 +159,19 @@ void run_test(const std::string &obj1, const std::string &obj2) {
               << std::endl;
 
     // Uncomment for cleanup:
-    // free_canonical_tree(canonical_tree1);
-    // free_canonical_tree(canonical_tree2);
+    // free_canonical_tree(canonical_tree);
 
     // ---- FCPW Closest Point Query ----
-    // Sample query points from mesh 1's vertices
-    const int num_queries = std::min(100, static_cast<int>(vertices1.size()));
     std::vector<float> fcpw_distances;
 
     t0 = clock::now();
     for (int i = 0; i < num_queries; i++) {
         fcpw::Interaction<3> query_interaction;
-        query_interaction.p = vertices1[i];
+        query_interaction.p = query_points[i];
 
         fcpw::Interaction<3> closest_interaction;
-        bool found = fcpw_scene2.findClosestPoint(query_interaction,
-                                                  closest_interaction);
+        bool found =
+            fcpw_scene.findClosestPoint(query_interaction, closest_interaction);
 
         if (found) {
             float dist = (closest_interaction.p - query_interaction.p).norm();
@@ -200,12 +189,12 @@ void run_test(const std::string &obj1, const std::string &obj2) {
 
     t0 = clock::now();
     for (int i = 0; i < num_queries; i++) {
-        float query_point[3] = {static_cast<float>(vertices1[i][0]),
-                                static_cast<float>(vertices1[i][1]),
-                                static_cast<float>(vertices1[i][2])};
+        float query_point[3] = {static_cast<float>(query_points[i][0]),
+                                static_cast<float>(query_points[i][1]),
+                                static_cast<float>(query_points[i][2])};
 
         // Uncomment and adjust for your Bonsai API:
-        // ClosestPointResult result = closest_point(&tree2, query_point);
+        // ClosestPointResult result = closest_point(&tree, query_point);
         // bonsai_distances.push_back(result.distance);
 
         // Placeholder for now:
@@ -253,12 +242,14 @@ void run_test(const std::string &obj1, const std::string &obj2) {
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <obj1> <obj2>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <obj_file> [num_queries]"
+                  << std::endl;
         return -1;
     }
 
     std::string obj1 = argv[1];
-    std::string obj2 = argv[2];
-    run_test(obj1, obj2);
+    int64_t num_queries = std::atoi(argv[2]);
+
+    run_test(obj1, num_queries);
     return 0;
 }
