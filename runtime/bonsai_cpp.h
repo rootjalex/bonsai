@@ -30,6 +30,6 @@ using std::min;
 using std::round;
 
 template <typename T>
-T sqr(const T &v) {
+__attribute__((always_inline)) T sqr(const T &v) {
     return v * v;
 }

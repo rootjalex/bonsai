@@ -94,8 +94,41 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     out.close();
 }
 
-_tree_layout0 build_tree(const set<Point> &input) {
-    _tree_layout0 tree;
+_tree_layout0 copy_tree(const _tree_layout4 &src) {
+    _tree_layout0 dst;
+    dst.pCount = src.pCount;
+    dst.nCount = src.nCount;
+
+    // Same primitives.
+    dst.prims = src.prims;
+
+    // Allocate destination nodes
+    dst.group0_index = static_cast<_tree_layout1 *>(
+        std::malloc(sizeof(_tree_layout1) * dst.nCount));
+    if (!dst.group0_index) {
+        std::free(dst.prims);
+        throw std::bad_alloc();
+    }
+
+    // Fast copy of tree node data (dropping dCount)
+    for (uint64_t i = 0; i < dst.nCount; ++i) {
+        const _tree_layout5 &srcNode = src.group0_index[i];
+        _tree_layout1 &dstNode = dst.group0_index[i];
+
+        // Copy all fields *except* dCount
+        dstNode.xl = srcNode.xl;
+        dstNode.xh = srcNode.xh;
+        dstNode.yl = srcNode.yl;
+        dstNode.yh = srcNode.yh;
+        dstNode.nPrims = srcNode.nPrims;
+        dstNode.split0on_nPrims = srcNode.split0on_nPrims;
+    }
+
+    return dst;
+}
+
+_tree_layout4 build_tree(const set<Point> &input) {
+    _tree_layout4 tree;
     tree.pCount = input.size();
     tree.prims = static_cast<Point *>(std::malloc(sizeof(Point) * tree.pCount));
     if (!tree.prims) {
@@ -111,8 +144,8 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
     // Safe conservative tree estimate.
     tree.nCount = 2 * tree.pCount - 1;
-    tree.group0_index = static_cast<_tree_layout1 *>(
-        std::malloc(sizeof(_tree_layout1) * tree.nCount));
+    tree.group0_index = static_cast<_tree_layout5 *>(
+        std::malloc(sizeof(_tree_layout5) * tree.nCount));
     if (!tree.group0_index) {
         std::free(tree.prims);
         throw std::bad_alloc();
@@ -128,6 +161,8 @@ _tree_layout0 build_tree(const set<Point> &input) {
         uint64_t count = high - low;
         uint64_t this_index = next_node++;
         assert(this_index < tree.nCount);
+
+        tree.group0_index[this_index].dCount = high - low;
 
         // Compute bounding box for current range
         float xl = tree.prims[low].x, xh = tree.prims[low].x;
@@ -157,11 +192,13 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
             // Sort on that axis
             if (split_on_x) {
-                std::sort(tree.prims + low, tree.prims + high,
-                          [](const Point &a, const Point &b) { return a.x < b.x; });
+                std::sort(
+                    tree.prims + low, tree.prims + high,
+                    [](const Point &a, const Point &b) { return a.x < b.x; });
             } else {
-                std::sort(tree.prims + low, tree.prims + high,
-                          [](const Point &a, const Point &b) { return a.y < b.y; });
+                std::sort(
+                    tree.prims + low, tree.prims + high,
+                    [](const Point &a, const Point &b) { return a.y < b.y; });
             }
 
             // Split in the middle (median)
@@ -237,7 +274,7 @@ void verify_IntervalTree(const uint64_t input_index,
     }
 }
 
-#define PROFILE 1
+#define PROFILE 0
 
 double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
                              const int k, const int m) {
@@ -246,8 +283,112 @@ double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries<true, set<Point>>("absd_query", input, tree, k, m,
-                                         absd_query, absd_query_fast, value);
+    return benchmark_1d_queries < PROFILE == 1,
+           set < Point >> ("abs(x - y) <= 10", input, tree, k, m, absd_query,
+                           absd_query_fast, value);
+}
+
+double benchmark_absd_count_query(const set<Point> &input,
+                                  const _tree_layout0 &tree, const int k,
+                                  const int m) {
+    float value = 1;
+#ifndef PROFILE
+    std::cout << "Absd query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           uint64_t > ("COUNT(abs(x - y) <= 10)", input, tree, k, m,
+                       absd_count_query, absd_count_query_fast, value);
+}
+
+double benchmark_absd_count_aug_query(const set<Point> &input,
+                                      const _tree_layout4 &tree, const int k,
+                                      const int m) {
+    float value = 1;
+#ifndef PROFILE
+    std::cout << "Absd query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           uint64_t > ("aug COUNT(abs(x - y) <= 10)", input, tree, k, m,
+                       absd_count_query, absd_count_query_fast_aug, value);
+}
+
+double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
+                            const int k, const int m) {
+    float value = 1;
+#ifndef PROFILE
+    std::cout << "Abss query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           set < Point >> ("abs(x + y) <= 10", input, tree, k, m, abss_query,
+                           abss_query_fast, value);
+}
+
+double benchmark_abss_count_query(const set<Point> &input,
+                                  const _tree_layout0 &tree, const int k,
+                                  const int m) {
+    float value = 1;
+#ifndef PROFILE
+    std::cout << "Abss query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           uint64_t > ("COUNT(abs(x + y) <= 10)", input, tree, k, m,
+                       abss_count_query, abss_count_query_fast, value);
+}
+
+double benchmark_abss_count_aug_query(const set<Point> &input,
+                                      const _tree_layout4 &tree, const int k,
+                                      const int m) {
+    float value = 1;
+#ifndef PROFILE
+    std::cout << "Abss query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           uint64_t > ("aug COUNT(abs(x + y) <= 10)", input, tree, k, m,
+                       abss_count_query, abss_count_query_fast_aug, value);
+}
+
+double benchmark_circle_query(const set<Point> &input,
+                              const _tree_layout0 &tree, const int k,
+                              const int m) {
+    float value = 10;
+#ifndef PROFILE
+    std::cout << "Circle query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           set < Point >> ("x^2 + y^2 <= 100", input, tree, k, m, circle_query,
+                           circle_query_fast, value);
+}
+
+double benchmark_circle_count_query(const set<Point> &input,
+                                    const _tree_layout0 &tree, const int k,
+                                    const int m) {
+    float value = 10;
+#ifndef PROFILE
+    std::cout << "Circle query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           uint64_t > ("COUNT(x^2 + y^2 <= 100)", input, tree, k, m,
+                       circle_count_query, circle_count_query_fast, value);
+}
+
+double benchmark_circle_count_aug_query(const set<Point> &input,
+                                        const _tree_layout4 &tree, const int k,
+                                        const int m) {
+    float value = 10;
+#ifndef PROFILE
+    std::cout << "Circle query, value = " << value << std::endl;
+    std::cout << "Input size: " << input.size() << std::endl;
+#endif
+    return benchmark_1d_queries < PROFILE == 1,
+           uint64_t > ("aug COUNT(x^2 + y^2 <= 100)", input, tree, k, m,
+                       circle_count_query, circle_count_query_fast_aug, value);
 }
 
 template <typename T>
@@ -298,14 +439,33 @@ int main() {
 #ifdef PROFILE
     pretty_print_vector(test_sizes);
     std::cout << std::endl;
-    static constexpr int N_BENCHMARKS = 1;
+    static constexpr int N_BENCHMARKS = 9;
     std::vector<std::pair<std::string, std::vector<double>>> results(
         N_BENCHMARKS);
-    results[0].first = "absd_query";
+    results[0].first = "abs(x - y) <= 1";
     results[0].second.reserve(test_sizes.size());
+    results[1].first = "abs(x + y) <= 1";
+    results[1].second.reserve(test_sizes.size());
+    results[2].first = "x^2 + y^2 <= 10";
+    results[2].second.reserve(test_sizes.size());
+
+    results[3].first = "COUNT(abs(x - y) <= 1)";
+    results[3].second.reserve(test_sizes.size());
+    results[4].first = "COUNT(abs(x + y) <= 1)";
+    results[4].second.reserve(test_sizes.size());
+    results[5].first = "COUNT(x^2 + y^2 <= 10)";
+    results[5].second.reserve(test_sizes.size());
+
+    results[6].first = "aug COUNT(abs(x - y) <= 1)";
+    results[6].second.reserve(test_sizes.size());
+    results[7].first = "aug COUNT(abs(x + y) <= 1)";
+    results[7].second.reserve(test_sizes.size());
+    results[8].first = "aug COUNT(x^2 + y^2 <= 10)";
+    results[8].second.reserve(test_sizes.size());
+
 #endif
     for (size_t size : test_sizes) {
-        // std::cout << size << std::endl;
+        std::cout << size << std::endl;
 #ifndef PROFILE
         std::cout << "\n--- Test with input size: " << size << " ---"
                   << std::endl;
@@ -321,16 +481,17 @@ int main() {
 
         // Build tree
         auto t_build_start = std::chrono::high_resolution_clock::now();
-        const auto input_tree = build_tree(input_set);
+        const auto input_tree_aug = build_tree(input_set);
+        const auto input_tree = copy_tree(input_tree_aug);
         auto t_build_end = std::chrono::high_resolution_clock::now();
         int64_t build_time =
             std::chrono::duration_cast<std::chrono::nanoseconds>(t_build_end -
                                                                  t_build_start)
                 .count();
-// #ifndef PROFILE
+#if PROFILE
         std::cout << "build_tree() time: " << build_time << " ns\n";
         // verify_IntervalTree(0, input_tree);
-// #endif
+#endif
 
 #ifdef PROFILE
         results[0].second.push_back(
@@ -341,8 +502,81 @@ int main() {
 #endif
             ;
 
+#ifdef PROFILE
+        results[1].second.push_back(
+#endif
+            benchmark_abss_query(input_set, input_tree, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[2].second.push_back(
+#endif
+            benchmark_circle_query(input_set, input_tree, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[3].second.push_back(
+#endif
+            benchmark_absd_count_query(input_set, input_tree, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[4].second.push_back(
+#endif
+            benchmark_abss_count_query(input_set, input_tree, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[5].second.push_back(
+#endif
+            benchmark_circle_count_query(input_set, input_tree, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[6].second.push_back(
+#endif
+            benchmark_absd_count_aug_query(input_set, input_tree_aug, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[7].second.push_back(
+#endif
+            benchmark_abss_count_aug_query(input_set, input_tree_aug, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
+#ifdef PROFILE
+        results[8].second.push_back(
+#endif
+            benchmark_circle_count_aug_query(input_set, input_tree_aug, k, m)
+#ifdef PROFILE
+        )
+#endif
+            ;
+
         std::free(input_tree.prims);
         std::free(input_tree.group0_index);
+        std::free(input_tree_aug.group0_index);
     }
 #ifdef PROFILE
     for (const auto &res : results) {

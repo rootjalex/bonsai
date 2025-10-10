@@ -6,9 +6,37 @@ extern input : set[Point];
 
 func [[export]] absd_query(value : f32) = filter(|p : Point| abs(p.x - p.y) < value, input);
 
+func [[export]] abss_query(value : f32) = filter(|p : Point| abs(p.x + p.y) < value, input);
+
+func [[export]] circle_query(value : f32) = filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input);
+
+func [[export]] absd_count_query(value : f32) = count(filter(|p : Point| abs(p.x - p.y) < value, input));
+
+func [[export]] abss_count_query(value : f32) = count(filter(|p : Point| abs(p.x + p.y) < value, input));
+
+func [[export]] circle_count_query(value : f32) = count(filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input));
+
 extern input_tree : set[Point];
 
 func [[export]] absd_query_fast(value : f32) = filter(|p : Point| abs(p.x - p.y) < value, input_tree);
+
+func [[export]] abss_query_fast(value : f32) = filter(|p : Point| abs(p.x + p.y) < value, input_tree);
+
+func [[export]] circle_query_fast(value : f32) = filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input_tree);
+
+func [[export]] absd_count_query_fast(value : f32) = count(filter(|p : Point| abs(p.x - p.y) < value, input_tree));
+
+func [[export]] abss_count_query_fast(value : f32) = count(filter(|p : Point| abs(p.x + p.y) < value, input_tree));
+
+func [[export]] circle_count_query_fast(value : f32) = count(filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input_tree));
+
+extern input_tree_aug : set[Point];
+
+func [[export]] absd_count_query_fast_aug(value : f32) = count(filter(|p : Point| abs(p.x - p.y) < value, input_tree_aug));
+
+func [[export]] abss_count_query_fast_aug(value : f32) = count(filter(|p : Point| abs(p.x + p.y) < value, input_tree_aug));
+
+func [[export]] circle_count_query_fast_aug(value : f32) = count(filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input_tree_aug));
 
 schedule {
     tree[[Point]] AABBTree(xl xh yl yh : f32) with x in [xl, xh] with y in [yl, yh] =
@@ -22,6 +50,30 @@ schedule {
         prims : array[Point, pCount];
         nCount : u64;
         group[nCount] index : u64 {
+            xl : f32;
+            xh : f32;
+            yl : f32;
+            yh : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+
+    tree[[Point]] AABBTreeAug(xl xh yl yh : f32, dCount : u64) with x in [xl, xh] with y in [yl, yh] with count() = dCount =
+    | Interior(left : AABBTree, right : AABBTree)
+    | Leaf(d : array[Point]) with data = d;
+
+    input_tree_aug : AABBTreeAug;
+
+    layout input_tree_aug {
+        pCount : u64;
+        prims : array[Point, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            dCount : u64;
             xl : f32;
             xh : f32;
             yl : f32;
