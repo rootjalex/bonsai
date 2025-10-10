@@ -54,7 +54,8 @@ FREDWOOD_FLAG="numactl --physcpubind 0-15"
 # Override for dry run.
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
-  MAX_POWER=${MIN_POWER}
+  MAX_POWER=1 
+  MIN_POWER=1
   N=1
 fi
 
@@ -163,6 +164,10 @@ run_tests() {
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
+      if [[ ("${LAYOUT}" == "cl-bvh8-idx" || "${LAYOUT}" == "cl-bvh8-idx-align16") && "${OBJECT}" == "lucy" ]]; then
+        # 2^28 > 2^26
+        continue
+      fi
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
       # 0. Combine the layout and schedule into a single file.
