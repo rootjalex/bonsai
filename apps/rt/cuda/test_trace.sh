@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "power-plant" "sponza")
+OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza") # "power-plant"
 
 # Parse flags
 DRY_RUN=false
@@ -197,17 +197,17 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   echo "... debug test complete"
 else
 
-  echo "running tests with 2-BVH..."
-  run_tests "2"
-  echo "... tests complete for 2-BVH"
-  
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"
 
-  # echo "running tests with 8-mixed-BVH..."
-  # run_tests "8_mixed"
-  # echo "... tests complete for 8-mixed-BVH"
+  echo "running tests with 2-BVH..."
+  run_tests "2"
+  echo "... tests complete for 2-BVH"
+
+  echo "running tests with 8-mixed-BVH..."
+  run_tests "8_mixed"
+  echo "... tests complete for 8-mixed-BVH"
 fi
 
 rm ${RAY_PATH}/${RAY_FILE}.out

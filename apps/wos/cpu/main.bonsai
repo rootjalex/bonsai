@@ -1,0 +1,10 @@
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/point;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] closest(p : Point) = argmin(|tri| distmin(p, tri), triangles);
+
+func [[export]] closest_all(n : u32, pts : array[Point, n]) = map(|p : Point| closest(p), pts);
