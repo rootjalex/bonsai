@@ -316,11 +316,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         y = points[:, 1]  # time
 
         # Format units
-        max_memory = np.max(x)
-        max_time = np.max(y)
-
-        memory_values, memory_unit = format_unit(x, 10**6, 'Bytes', 'MB')
-        time_values, time_unit = format_unit(y, 10000, 'ms', 's')
+        memory_values = x / 10**6
+        memory_unit = 'MB'
+        time_values = y
+        time_unit = 'ms'
 
         # Compute Pareto frontier for each group
         for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
@@ -525,9 +524,6 @@ if __name__ == "__main__":
         'bvh2': ['eq', 'pbrt', 'pbrt-align16', 'eq-align16',
                  'ptr', 'soa-align16', 'soa',
                  ],
-        'mixed-bvh8': ['ebq-align16', 'eb-align16', 'ebq-cl',
-                       'ebq-cl-align16', 'ebq-cl-idx', 'ebq-cl-idx-align16',
-                       ],
         'embree': ['embree-bvh4', 'embree-bvh8'],
     }
 

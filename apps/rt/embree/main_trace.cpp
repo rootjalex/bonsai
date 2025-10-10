@@ -178,7 +178,7 @@ RTCDevice create_device(const std::string &layout) {
         exit(1);
     }
     // Gathers information about the BVH structure
-    configuration += ",verbose=2,benchmark=2";
+    // configuration += ",verbose=2,benchmark=2";
 
     RTCDevice device = rtcNewDevice(configuration.c_str());
 

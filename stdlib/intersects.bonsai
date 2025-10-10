@@ -51,8 +51,75 @@ element TriangleIntersection {
     b0, b1, b2, t : Float;
 }
 
-// pstd::optional<TriangleIntersection> IntersectTriangle
-// shapes.cpp
+// embree default ray-triangle intersection
+// https://github.com/RenderKit/embree/blob/1970895eb97a38ff67e7da97689a3f3c35fd705c/kernels/geometry/quad_intersector_pluecker.h#L114
+func intersect_ray_tri_pluecker(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
+    // Calculate vertices relative to ray origin.
+    v0 = tri.p0 - ray.o;
+    v1 = tri.p1 - ray.o;
+    v2 = tri.p2 - ray.o;
+
+    // Calculate triangle edges.
+    e0 = v2 - v0;
+    e1 = v0 - v1;
+    e2 = v1 - v2;
+
+    // Perform edge tests using Plücker coordinates.
+    // The edge test uses: dot(cross(edge, vertex_avg), ray_direction)
+    // This gives us the barycentric coordinates scaled by the determinant
+    U = dot(cross_(e0, v2 + v0), ray.d);
+    V = dot(cross_(e1, v0 + v1), ray.d);
+    W = dot(cross_(e2, v1 + v2), ray.d);
+
+    // Compute total (should equal 2 * det of the system).
+    UVW = U + V + W;
+
+    // Early out for backface culling (optional - remove if double-sided).
+    // if (UVW < 0) return {};
+
+    // Compute epsilon for robust edge testing.
+    e = eps[[f32]]() * abs(UVW);
+
+    // Check if point is inside triangle using edge equations
+    // For watertight intersections, we need consistent edge tests
+    minUVW = min(vec3f{U, V, W});
+    maxUVW = max(vec3f{U, V, W});
+    
+    // Original Embree test: valid = (minUVW >= 0.0f) | (maxUVW <= 0.0f)
+    // With epsilon for vertex robustness: valid = (minUVW >= -e) | (maxUVW <= e)
+    if !(minUVW >= -e || maxUVW <= e) { return {}; }
+
+    // Calculate determinant (det = UVW / 2)
+    // The division by 2 comes from the fact that UVW is 2*det
+    det = UVW * 0.5;
+    
+    bound: f32 = 0.0000000001;
+    if abs(det) < bound { return {}; }  // degenerate triangle or parallel ray.
+        
+
+    // Compute scaled hit distance
+    // Calculate triangle normal (not pre-normalized for numerical stability)
+    tri_Ng = cross_(e0, e1);
+    
+    // Compute t using the plane equation
+    t = dot(tri_Ng, v0) / dot(tri_Ng, ray.d);
+
+    // Test against ray t range
+    if t <= 0 || t > ray.tmax { return {}; }
+
+    // Compute barycentric coordinates
+    // Note: U, V, W are scaled by 2*det, so we need to normalize
+    invUVW: f32 = 1.0 / UVW;
+    b0 = W * invUVW;  // Weight for v0
+    b1 = U * invUVW;  // Weight for v1
+    b2 = V * invUVW;  // Weight for v2
+
+    // ensure barycentric coordinates are valid
+    if b0 < 0 || b1 < 0 || b2 < 0 { return {}; }
+
+    return TriangleIntersection{b0, b1, b2, t};
+}
+
 func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
     // Return no intersection if triangle is degenerate
     if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
@@ -143,7 +210,7 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
 }
 
 func intersects(ray : Ray, tri : Triangle) -> bool {
-    return cast[[bool]](intersectsp_ray_tri(ray, tri));
+    return cast[[bool]](intersect_ray_tri_pluecker(ray, tri));
 }
 
 // https://raytracing.github.io/books/RayTracingInOneWeekend.html
