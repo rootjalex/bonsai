@@ -127,7 +127,7 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 void run(const std::string &object, const std::string &partition,
-         const std::vector<int64_t> &ray_counts) {
+         const std::string &ray_type, const std::vector<int64_t> &ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -150,7 +150,7 @@ void run(const std::string &object, const std::string &partition,
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
         std::string ray_file = "apps/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" + "camera" +
+                               std::to_string(ray_count) + "_" + ray_type +
                                ".rays";
         Ray *rays = nullptr;
         {
@@ -197,10 +197,11 @@ bool is_digit(std::string s) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 4);
+    assert(argc > 5);
     int i = 1;
     std::string object_file = argv[i++];
     std::string partition = argv[i++];
+    std::string ray_type = argv[i++];
     std::vector<int64_t> ray_counts;
     assert(is_digit(argv[i]));
     const int64_t size = std::atoi(argv[i++]);
@@ -210,6 +211,6 @@ int main(int argc, char *argv[]) {
         assert(is_digit(argv[i]));
         ray_counts.push_back(std::atoi(argv[i]));
     }
-    run(object_file, partition, ray_counts);
+    run(object_file, partition, ray_type, ray_counts);
     return 0;
 }

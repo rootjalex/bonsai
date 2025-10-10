@@ -74,6 +74,13 @@ struct Ray {
     float3 d;
 };
 
+struct HitRecord {
+    float t;
+    float3 point;
+    float3 normal;
+    int triangle_index;
+};
+
 struct BoundingBox {
     float3 min, max;
 
@@ -158,6 +165,61 @@ bool ray_triangle_intersect(const Ray &ray, const Triangle &tri, float &t) {
     t = f * (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
 
     return t > EPSILON;
+}
+
+bool ray_triangle_intersect_full(const Ray &ray, const Triangle &tri,
+                                 HitRecord &hit) {
+    constexpr float EPSILON = 0.0000001f;
+
+    float3 edge1, edge2, h, s, q;
+    float a, f, u, v;
+
+    edge1.x = tri.p1.x - tri.p0.x;
+    edge1.y = tri.p1.y - tri.p0.y;
+    edge1.z = tri.p1.z - tri.p0.z;
+
+    edge2.x = tri.p2.x - tri.p0.x;
+    edge2.y = tri.p2.y - tri.p0.y;
+    edge2.z = tri.p2.z - tri.p0.z;
+
+    h.x = ray.d.y * edge2.z - ray.d.z * edge2.y;
+    h.y = ray.d.z * edge2.x - ray.d.x * edge2.z;
+    h.z = ray.d.x * edge2.y - ray.d.y * edge2.x;
+
+    a = edge1.x * h.x + edge1.y * h.y + edge1.z * h.z;
+
+    if (a > -EPSILON && a < EPSILON)
+        return false;
+
+    f = 1.0f / a;
+
+    s.x = ray.o.x - tri.p0.x;
+    s.y = ray.o.y - tri.p0.y;
+    s.z = ray.o.z - tri.p0.z;
+
+    u = f * (s.x * h.x + s.y * h.y + s.z * h.z);
+
+    if (u < 0.0f || u > 1.0f)
+        return false;
+
+    q.x = s.y * edge1.z - s.z * edge1.y;
+    q.y = s.z * edge1.x - s.x * edge1.z;
+    q.z = s.x * edge1.y - s.y * edge1.x;
+
+    v = f * (ray.d.x * q.x + ray.d.y * q.y + ray.d.z * q.z);
+
+    if (v < 0.0f || u + v > 1.0f)
+        return false;
+
+    hit.t = f * (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
+
+    if (hit.t > EPSILON) {
+        hit.point = ray.o + ray.d * hit.t;
+        hit.normal = tri.normal();
+        return true;
+    }
+
+    return false;
 }
 
 class BVH {
@@ -280,6 +342,50 @@ class BVH {
                intersect_recursive(ray, node->right.get());
     }
 
+    bool intersect_full_recursive(const Ray &ray, const BVHNode *node,
+                                  HitRecord &closest_hit) const {
+        if (!ray_bbox_intersect(ray, node->bbox)) {
+            return false;
+        }
+
+        if (node->is_leaf) {
+            bool hit_anything = false;
+            HitRecord temp_hit;
+            for (int idx : node->triangle_indices) {
+                if (ray_triangle_intersect_full(ray, (*triangles)[idx],
+                                                temp_hit)) {
+                    if (!hit_anything || temp_hit.t < closest_hit.t) {
+                        closest_hit = temp_hit;
+                        closest_hit.triangle_index = idx;
+                        hit_anything = true;
+                    }
+                }
+            }
+            return hit_anything;
+        }
+
+        HitRecord left_hit, right_hit;
+        left_hit.t = right_hit.t = std::numeric_limits<float>::max();
+
+        bool hit_left =
+            intersect_full_recursive(ray, node->left.get(), left_hit);
+        bool hit_right =
+            intersect_full_recursive(ray, node->right.get(), right_hit);
+
+        if (hit_left && hit_right) {
+            closest_hit = (left_hit.t < right_hit.t) ? left_hit : right_hit;
+            return true;
+        } else if (hit_left) {
+            closest_hit = left_hit;
+            return true;
+        } else if (hit_right) {
+            closest_hit = right_hit;
+            return true;
+        }
+
+        return false;
+    }
+
   public:
     void build(const std::vector<Triangle> &tris) {
         triangles = &tris;
@@ -290,6 +396,13 @@ class BVH {
 
     bool intersect(const Ray &ray) const {
         return root ? intersect_recursive(ray, root.get()) : false;
+    }
+
+    bool intersect_full(const Ray &ray, HitRecord &hit) const {
+        if (!root)
+            return false;
+        hit.t = std::numeric_limits<float>::max();
+        return intersect_full_recursive(ray, root.get(), hit);
     }
 };
 
@@ -355,9 +468,10 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 bool save_rays_binary(const std::vector<Ray> &rays, const std::string &object,
-                      const std::string &ray_count, const std::string &path) {
+                      const std::string &ray_count, const std::string &ray_type,
+                      const std::string &path) {
     std::string file_name =
-        path + "/" + object + "_" + ray_count + "_camera" + ".rays";
+        path + "/" + object + "_" + ray_count + "_" + ray_type + ".rays";
     std::ofstream file(file_name, std::ios::binary);
     if (!file) {
         std::cerr << "Error: could not open file " << file_name
@@ -388,7 +502,6 @@ struct Camera {
     float fov;
     float aspect_ratio;
 
-    // Computed camera basis vectors
     float3 forward;
     float3 right;
     float3 camera_up;
@@ -400,14 +513,11 @@ struct Camera {
         right = forward.cross(up).normalize();
         camera_up = right.cross(forward);
 
-        // Compute viewport dimensions based on FOV
         viewport_height = 2.0f * std::tan(fov * 0.5f * 3.14159265f / 180.0f);
         viewport_width = viewport_height * aspect_ratio;
     }
 
     Ray generate_ray(float u, float v) const {
-        // u, v are in [0, 1] range representing pixel position
-        // Transform to [-1, 1] range centered at 0
         float x = (u - 0.5f) * viewport_width;
         float y = (v - 0.5f) * viewport_height;
 
@@ -442,21 +552,17 @@ BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
 Camera setup_camera(const BoundingBox &bbox) {
     Camera cam;
 
-    // Look at the center of the bounding box
     cam.look_at = bbox.center();
 
-    // Position camera at a distance from the object
     float3 bbox_size = bbox.max - bbox.min;
     float max_dim = std::max({bbox_size.x, bbox_size.y, bbox_size.z});
-    float distance =
-        max_dim * 0.6f; // Position camera at 0.6x the largest dimension
+    float distance = max_dim * 0.6f;
 
-    // Position camera along a diagonal for better coverage
     cam.position =
         cam.look_at + float3{distance * 0.7f, distance * 0.5f, distance * 0.7f};
 
     cam.up = {0.0f, 1.0f, 0.0f};
-    cam.fov = 25.0f; // 25 degree field of view
+    cam.fov = 25.0f;
     cam.aspect_ratio = 16.0f / 9.0f;
 
     cam.compute_basis();
@@ -464,12 +570,41 @@ Camera setup_camera(const BoundingBox &bbox) {
     return cam;
 }
 
-std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
-                                      int count) {
+inline float random_float(std::mt19937 &generator, float min = 0.0f,
+                          float max = 1.0f) {
+    std::uniform_real_distribution<float> urd(min, max);
+    return urd(generator);
+}
 
-    std::cerr << "building bvh..." << std::endl;
-    BVH bvh;
-    bvh.build(triangles);
+float3 random_unit_vector(std::mt19937 &generator) {
+    float x = random_float(generator, -1.0f, 1.0f);
+    float y = random_float(generator, -1.0f, 1.0f);
+    float z = random_float(generator, -1.0f, 1.0f);
+
+    float length = std::sqrt(x * x + y * y + z * z);
+    if (length > 0) {
+        x /= length;
+        y /= length;
+        z /= length;
+    }
+
+    return float3({x, y, z});
+}
+
+float3 random_hemisphere_direction(const float3 &normal,
+                                   std::mt19937 &generator) {
+    float3 random_dir = random_unit_vector(generator);
+
+    // Flip if pointing in wrong hemisphere
+    if (random_dir.dot(normal) < 0) {
+        random_dir = random_dir * -1.0f;
+    }
+
+    return random_dir;
+}
+
+std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
+                                      int count, const BVH &bvh) {
 
     const BoundingBox bbox = compute_bounding_box(triangles);
     Camera camera = setup_camera(bbox);
@@ -480,11 +615,9 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
     std::cerr << "looking at: (" << camera.look_at.x << ", " << camera.look_at.y
               << ", " << camera.look_at.z << ")" << std::endl;
 
-    // Determine image resolution based on ray count
     int width = static_cast<int>(std::sqrt(count * camera.aspect_ratio));
     int height = static_cast<int>(width / camera.aspect_ratio);
 
-    // Adjust to get exactly count rays
     while (width * height < count) {
         if (width * (height + 1) <= count) {
             height++;
@@ -502,7 +635,6 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
     std::vector<bool> ray_hits;
     ray_hits.reserve(width * height);
 
-    // Generate all camera rays
     for (int j = 0; j < height; j++) {
         for (int i = 0; i < width; i++) {
             float u = static_cast<float>(i) / static_cast<float>(width - 1);
@@ -519,7 +651,6 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
         }
     }
 
-    // Count actual hits and misses
     int actual_hits = std::count(ray_hits.begin(), ray_hits.end(), true);
     int actual_misses = ray_hits.size() - actual_hits;
 
@@ -530,15 +661,131 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
     return all_rays;
 }
 
+std::vector<Ray> generate_secondary_rays(const std::vector<Triangle> &triangles,
+                                         int count, const BVH &bvh) {
+
+    const BoundingBox bbox = compute_bounding_box(triangles);
+    Camera camera = setup_camera(bbox);
+
+    std::cerr << "generating secondary rays by tracing camera rays first..."
+              << std::endl;
+
+    // Generate more camera rays than needed to ensure we get enough hits
+    int camera_ray_count = count * 3;
+    int width =
+        static_cast<int>(std::sqrt(camera_ray_count * camera.aspect_ratio));
+    int height = static_cast<int>(width / camera.aspect_ratio);
+
+    while (width * height < camera_ray_count) {
+        if (width * (height + 1) <= camera_ray_count) {
+            height++;
+        } else {
+            width++;
+        }
+    }
+
+    std::cerr << "tracing " << width << "x" << height
+              << " camera rays to find hit points..." << std::endl;
+
+    std::vector<HitRecord> hit_points;
+    hit_points.reserve(count);
+
+    for (int j = 0; j < height && hit_points.size() < (size_t)count; j++) {
+        for (int i = 0; i < width && hit_points.size() < (size_t)count; i++) {
+            float u = static_cast<float>(i) / static_cast<float>(width - 1);
+            float v = static_cast<float>(j) / static_cast<float>(height - 1);
+
+            Ray ray = camera.generate_ray(u, v);
+            HitRecord hit;
+
+            if (bvh.intersect_full(ray, hit)) {
+                hit_points.push_back(hit);
+            }
+        }
+
+        if ((j + 1) % 100 == 0) {
+            std::cerr << "found " << hit_points.size()
+                      << " hit points so far..." << std::endl;
+        }
+    }
+
+    std::cerr << "found " << hit_points.size()
+              << " hit points, generating secondary rays..." << std::endl;
+
+    if (hit_points.empty()) {
+        std::cerr
+            << "Error: no hit points found, cannot generate secondary rays"
+            << std::endl;
+        return {};
+    }
+
+    // Generate secondary rays from hit points
+    std::vector<Ray> secondary_rays;
+    secondary_rays.reserve(count);
+
+    std::random_device rd;
+    std::mt19937 generator(rd());
+
+    for (int i = 0; i < count; i++) {
+        // Pick a random hit point
+        int hit_idx = i % hit_points.size();
+        const HitRecord &hit = hit_points[hit_idx];
+
+        // Generate a random direction in the hemisphere around the normal
+        float3 bounce_dir = random_hemisphere_direction(hit.normal, generator);
+
+        Ray secondary_ray;
+        // Offset origin slightly along normal to avoid self-intersection
+        secondary_ray.o = hit.point + hit.normal * 0.001f;
+        secondary_ray.d = bounce_dir;
+
+        secondary_rays.push_back(secondary_ray);
+    }
+
+    // Count how many secondary rays hit geometry
+    int hits = 0;
+    for (const Ray &ray : secondary_rays) {
+        if (bvh.intersect(ray)) {
+            hits++;
+        }
+    }
+
+    std::cerr << "secondary rays stats: " << hits << " hits ("
+              << (100.0f * hits / secondary_rays.size()) << "%), "
+              << (secondary_rays.size() - hits) << " misses" << std::endl;
+
+    return secondary_rays;
+}
+
 int main(int argc, char *argv[]) {
-    assert(argc == 4);
-    const char *object = argv[1];
-    const char *path = argv[2];
+    assert(argc == 5);
+    std::string object = argv[1];
+    std::string path = argv[2];
     const char *ray_count = argv[3];
+    std::string ray_type = argv[4]; // "camera" or "secondary"
 
     const int64_t count = std::atoi(ray_count);
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    std::vector<Ray> rays = generate_camera_rays(triangles, count);
-    save_rays_binary(rays, object, ray_count, path);
+
+    std::cerr << "building " << object << " bvh..." << std::endl;
+    BVH bvh;
+    bvh.build(triangles);
+    std::cerr << "..." << object << " bvh complete" << std::endl;
+
+    if (ray_type == "camera") {
+        std::vector<Ray> rays = generate_camera_rays(triangles, count, bvh);
+        save_rays_binary(rays, object, ray_count, ray_type, path);
+        return 0;
+    }
+    if (ray_type == "secondary") {
+        std::vector<Ray> rays = generate_secondary_rays(triangles, count, bvh);
+        save_rays_binary(rays, object, ray_count, ray_type, path);
+        return 0;
+    }
+
+    std::cerr
+        << "Error: the ray type must be 'camera' or 'secondary', received: '"
+        << ray_type << "'" << std::endl;
+    return 1;
 }

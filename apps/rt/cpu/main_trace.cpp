@@ -70,7 +70,7 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 void run(std::string object, std::string partition, bool is_single_threaded,
-         std::vector<int64_t> ray_counts) {
+         std::vector<int64_t> ray_counts, std::string ray_type) {
     using clock = std::chrono::high_resolution_clock;
 
     // optional: pin main thread and raise priority
@@ -99,7 +99,7 @@ void run(std::string object, std::string partition, bool is_single_threaded,
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
         std::string ray_file = "apps/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" + "camera" +
+                               std::to_string(ray_count) + "_" + ray_type +
                                ".rays";
         std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
@@ -163,13 +163,14 @@ void run(std::string object, std::string partition, bool is_single_threaded,
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 5);
+    assert(argc > 6);
     int i = 1;
     std::string object_file = argv[i++];
     std::string partition = argv[i++];
     std::string schedule = argv[i++];
     assert(schedule == "single-thread" || schedule == "parallel");
     const bool is_single_threaded = schedule == "single-thread";
+    std::string ray_type = argv[i++];
 
     std::vector<int64_t> ray_counts;
     const int64_t size = std::atoi(argv[i++]);
@@ -177,6 +178,6 @@ int main(int argc, char *argv[]) {
     for (; i < 5 + size; ++i)
         ray_counts.push_back(std::atoi(argv[i]));
 
-    run(object_file, partition, is_single_threaded, ray_counts);
+    run(object_file, partition, is_single_threaded, ray_counts, ray_type);
     return 0;
 }

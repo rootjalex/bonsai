@@ -41,6 +41,7 @@ HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
 TYPE="${4:-COMPARISON}" # other option, PERFORMANCE
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
+RAY_TYPE="camera"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 PARTITION="sah"
@@ -80,14 +81,14 @@ clang++ -std=c++20 -fopenmp -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${K
 
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   for OBJECT in "${OBJECTS[@]}"; do
-    if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_camera.rays" ]; then
-      echo "no camera rays found for ${OBJECT} with count ${RAY_COUNT}; generating now..."
+    if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${RAY_TYPE}.rays" ]; then
+      echo "no ${RAY_TYPE} rays found for ${OBJECT} with count ${RAY_COUNT}; generating now..."
       FLAG=""
       if [[ "$(uname)" == "Linux" ]]; then
         FLAG="${FLAG} ${FREDWOOD_FLAG}"  
       fi
-      ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT}
-      echo "...${RAY_COUNT} camera rays generated for ${OBJECT} "
+      ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} ${RAY_TYPE}
+      echo "...${RAY_COUNT} ${RAY_TYPE} rays generated for ${OBJECT} "
     fi
   done
 done
@@ -127,7 +128,7 @@ run_tests() {
       cd ../../../..
       
       # 4. Run it.
-      EXECUTE="./${PREFIX}/build/main_trace ${OBJECT} ${LAYOUT} ${SCHEDULE} ${ARGV}"
+      EXECUTE="./${PREFIX}/build/main_trace ${OBJECT} ${LAYOUT} ${SCHEDULE} ${RAY_PATH} ${ARGV}"
       echo "${EXECUTE}"
       if [[ "$(uname)" == "Linux" ]]; then
         EXECUTE="${FREDWOOD_FLAG} ${EXECUTE}"

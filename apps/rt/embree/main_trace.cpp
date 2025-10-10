@@ -303,7 +303,7 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 void run(std::string object, std::string layout, bool is_single_threaded,
-         std::vector<int64_t> ray_counts) {
+         std::string ray_type, std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
 
     // Optional: pin main thread and raise priority
@@ -329,7 +329,7 @@ void run(std::string object, std::string layout, bool is_single_threaded,
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
         std::string ray_file = "apps/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" + "camera" +
+                               std::to_string(ray_count) + "_" + ray_type +
                                ".rays";
         // Load rays (replace with your actual loader)
         std::vector<RTCRayHit> rays = load_rays_binary(ray_file, ray_count);
@@ -400,21 +400,13 @@ void run(std::string object, std::string layout, bool is_single_threaded,
 } // namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 6) {
-        std::cerr << "Usage: " << argv[0]
-                  << " <object> <bvh_layout> <schedule> <num_ray_counts> "
-                     "<ray_count1> [ray_count2 ...]\n";
-        std::cerr << "\nBVH layouts: bvh4, bvh8\n";
-        std::cerr << "Schedule: single-thread, parallel\n";
-        std::cerr << "\nExample: " << argv[0]
-                  << " bunny bvh8 parallel 1 10000\n";
-        return 1;
-    }
+    assert(argc > 6);
 
     int i = 1;
     std::string object_file = argv[i++];
     std::string bvh_layout = argv[i++];
     std::string schedule = argv[i++];
+    std::string ray_type = argv[i++];
     assert(schedule == "single-thread" || schedule == "parallel");
     const bool is_single_threaded = schedule == "single-thread";
 
@@ -423,6 +415,6 @@ int main(int argc, char *argv[]) {
     ray_counts.reserve(size);
     for (; i < 5 + size; ++i)
         ray_counts.push_back(std::atoi(argv[i]));
-    run(object_file, bvh_layout, is_single_threaded, ray_counts);
+    run(object_file, bvh_layout, ray_type, is_single_threaded, ray_counts);
     return 0;
 }
