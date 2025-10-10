@@ -80,14 +80,14 @@ clang++ -std=c++20 -fopenmp -O3 -march=native -o ${RAY_PATH}/${RAY_FILE}.out ${K
 
 for RAY_COUNT in "${RAY_COUNTS[@]}"; do
   for OBJECT in "${OBJECTS[@]}"; do
-    if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${HIT_RATIO}.rays" ]; then
-      echo "no rays found for ${OBJECT} with count ${RAY_COUNT} and ratio ${HIT_RATIO}; generating now..."
+    if [ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_camera.rays" ]; then
+      echo "no camera rays found for ${OBJECT} with count ${RAY_COUNT}; generating now..."
       FLAG=""
       if [[ "$(uname)" == "Linux" ]]; then
         FLAG="${FLAG} ${FREDWOOD_FLAG}"  
       fi
-      ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} 0.${HIT_RATIO}
-      echo "...${RAY_COUNT} rays generated for ${OBJECT} with hit ratio: 0.${HIT_RATIO}"
+      ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT}
+      echo "...${RAY_COUNT} camera rays generated for ${OBJECT} "
     fi
   done
 done

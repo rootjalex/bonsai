@@ -51,13 +51,24 @@ def parse_layout_memory_and_nodes(data_text):
                 count = int(match.group(3))
 
                 data[current_model][current_layout]['nodes'][node_type] = count
-
                 # Add to memory utilization
                 data[current_model][current_layout]['memory'] += size * count
             i += 1
             continue
 
         i += 1
+
+    # For 'ptr' layouts, add node memory based on pbrt node count
+    for model in data:
+        if 'pbrt' in data[model] and 'ptr' in data[model]:
+            pbrt_node_count = data[model]['pbrt']['nodes'].get('nodes', 0)
+            pointer_node_memory = pbrt_node_count * 44
+
+            # Add to ptr layout's memory
+            data[model]['ptr']['memory'] += pointer_node_memory
+
+            # Store node memory in ptr layout's nodes dictionary as 'nodes'
+            data[model]['ptr']['nodes']['nodes'] = pointer_node_memory
 
     # Convert to regular dict
     result = {}

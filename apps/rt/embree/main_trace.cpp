@@ -329,8 +329,8 @@ void run(std::string object, std::string layout, bool is_single_threaded,
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
         std::string ray_file = "apps/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" +
-                               std::to_string(75) + ".rays";
+                               std::to_string(ray_count) + "_" + "camera" +
+                               ".rays";
         // Load rays (replace with your actual loader)
         std::vector<RTCRayHit> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());

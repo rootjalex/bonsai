@@ -355,10 +355,9 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 bool save_rays_binary(const std::vector<Ray> &rays, const std::string &object,
-                      const std::string &ray_count,
-                      const std::string &hit_ratio, const std::string &path) {
-    std::string file_name = path + "/" + object + "_" + ray_count + "_" +
-                            after_token(hit_ratio, '.') + ".rays";
+                      const std::string &ray_count, const std::string &path) {
+    std::string file_name =
+        path + "/" + object + "_" + ray_count + "_camera" + ".rays";
     std::ofstream file(file_name, std::ios::binary);
     if (!file) {
         std::cerr << "Error: could not open file " << file_name
@@ -382,26 +381,42 @@ bool save_rays_binary(const std::vector<Ray> &rays, const std::string &object,
     return true;
 }
 
-inline float random_float(std::mt19937 &generator, float min = -1.0,
-                          float max = 1.0) {
-    std::uniform_real_distribution<float> urd(min, max);
-    return urd(generator);
-}
+struct Camera {
+    float3 position;
+    float3 look_at;
+    float3 up;
+    float fov;
+    float aspect_ratio;
 
-float3 random_unit_vector(std::mt19937 &generator) {
-    float x = random_float(generator);
-    float y = random_float(generator);
-    float z = random_float(generator);
+    // Computed camera basis vectors
+    float3 forward;
+    float3 right;
+    float3 camera_up;
+    float viewport_height;
+    float viewport_width;
 
-    float length = std::sqrt(x * x + y * y + z * z);
-    if (length > 0) {
-        x /= length;
-        y /= length;
-        z /= length;
+    void compute_basis() {
+        forward = (look_at - position).normalize();
+        right = forward.cross(up).normalize();
+        camera_up = right.cross(forward);
+
+        // Compute viewport dimensions based on FOV
+        viewport_height = 2.0f * std::tan(fov * 0.5f * 3.14159265f / 180.0f);
+        viewport_width = viewport_height * aspect_ratio;
     }
 
-    return float3({x, y, z});
-}
+    Ray generate_ray(float u, float v) const {
+        // u, v are in [0, 1] range representing pixel position
+        // Transform to [-1, 1] range centered at 0
+        float x = (u - 0.5f) * viewport_width;
+        float y = (v - 0.5f) * viewport_height;
+
+        Ray ray;
+        ray.o = position;
+        ray.d = (forward + right * x + camera_up * y).normalize();
+        return ray;
+    }
+};
 
 BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
     if (triangles.empty())
@@ -424,170 +439,98 @@ BoundingBox compute_bounding_box(const std::vector<Triangle> &triangles) {
     return bbox;
 }
 
-std::vector<Ray> generate_rays(const std::vector<Triangle> &triangles,
-                               int count, float hit_ratio = 0.75f) {
-    const int target_hits = static_cast<int>(count * hit_ratio);
-    const int target_misses = count - target_hits;
+Camera setup_camera(const BoundingBox &bbox) {
+    Camera cam;
+
+    // Look at the center of the bounding box
+    cam.look_at = bbox.center();
+
+    // Position camera at a distance from the object
+    float3 bbox_size = bbox.max - bbox.min;
+    float max_dim = std::max({bbox_size.x, bbox_size.y, bbox_size.z});
+    float distance =
+        max_dim * 0.6f; // Position camera at 0.6x the largest dimension
+
+    // Position camera along a diagonal for better coverage
+    cam.position =
+        cam.look_at + float3{distance * 0.7f, distance * 0.5f, distance * 0.7f};
+
+    cam.up = {0.0f, 1.0f, 0.0f};
+    cam.fov = 25.0f; // 25 degree field of view
+    cam.aspect_ratio = 16.0f / 9.0f;
+
+    cam.compute_basis();
+
+    return cam;
+}
+
+std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
+                                      int count) {
 
     std::cerr << "building bvh..." << std::endl;
     BVH bvh;
     bvh.build(triangles);
-    std::cerr << "bvh complete, need " << target_hits << " hits and "
-              << target_misses << " misses..." << std::endl;
 
     const BoundingBox bbox = compute_bounding_box(triangles);
+    Camera camera = setup_camera(bbox);
 
-    // Pre-allocate vectors for each thread's results
-    int num_threads = omp_get_max_threads();
-    std::vector<std::vector<Ray>> thread_hit_rays(num_threads);
-    std::vector<std::vector<Ray>> thread_miss_rays(num_threads);
-
-    std::vector<int> thread_hit_counts(num_threads, 0);
-    std::vector<int> thread_miss_counts(num_threads, 0);
-
-    // Generate hit rays in parallel
-    std::cerr << "generating hit rays with " << num_threads << " threads..."
+    std::cerr << "camera setup - position: (" << camera.position.x << ", "
+              << camera.position.y << ", " << camera.position.z << ")"
               << std::endl;
-#pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        std::random_device rd;
-        std::mt19937 generator(rd() + tid); // Unique seed per thread
+    std::cerr << "looking at: (" << camera.look_at.x << ", " << camera.look_at.y
+              << ", " << camera.look_at.z << ")" << std::endl;
 
-        thread_hit_rays[tid].reserve(target_hits / num_threads + 1000);
+    // Determine image resolution based on ray count
+    int total_pixels = count;
+    int width = static_cast<int>(std::sqrt(total_pixels * camera.aspect_ratio));
+    int height = static_cast<int>(width / camera.aspect_ratio);
 
-        while (true) {
-            int total_hits;
-#pragma omp atomic read
-            total_hits = thread_hit_counts[0];
-            for (int i = 1; i < num_threads; i++) {
-                int count;
-#pragma omp atomic read
-                count = thread_hit_counts[i];
-                total_hits += count;
-            }
-
-            if (total_hits >= target_hits)
-                break;
-
-            Ray candidate_ray;
-            candidate_ray.o = float3{
-                random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
-                random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
-                random_float(generator, bbox.min.z - 50.0f,
-                             bbox.max.z + 50.0f)};
-            candidate_ray.d = random_unit_vector(generator);
-
-            if (bvh.intersect(candidate_ray)) {
-                thread_hit_rays[tid].push_back(candidate_ray);
-#pragma omp atomic
-                thread_hit_counts[tid]++;
-
-                if (thread_hit_counts[tid] % 1000 == 0) {
-#pragma omp critical
-                    {
-                        std::cerr << "thread " << tid << " generated hit ray "
-                                  << thread_hit_counts[tid] << std::endl;
-                    }
-                }
-            }
-        }
-    }
-
-    // Generate miss rays in parallel
-    std::cerr << "generating miss rays with " << num_threads << " threads..."
+    std::cerr << "generating rays for " << width << "x" << height << " image..."
               << std::endl;
-#pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        std::random_device rd;
-        std::mt19937 generator(rd() + tid); // Unique seed per thread
 
-        thread_miss_rays[tid].reserve(target_misses / num_threads + 1000);
+    std::vector<Ray> all_rays;
+    all_rays.reserve(width * height);
 
-        while (true) {
-            int total_misses;
-#pragma omp atomic read
-            total_misses = thread_miss_counts[0];
-            for (int i = 1; i < num_threads; i++) {
-                int count;
-#pragma omp atomic read
-                count = thread_miss_counts[i];
-                total_misses += count;
-            }
+    std::vector<bool> ray_hits;
+    ray_hits.reserve(width * height);
 
-            if (total_misses >= target_misses)
-                break;
+    // Generate all camera rays
+    for (int j = 0; j < height; j++) {
+        for (int i = 0; i < width; i++) {
+            float u = static_cast<float>(i) / static_cast<float>(width - 1);
+            float v = static_cast<float>(j) / static_cast<float>(height - 1);
 
-            Ray candidate_ray;
-            candidate_ray.o = float3{
-                random_float(generator, bbox.min.x - 50.0f, bbox.max.x + 50.0f),
-                random_float(generator, bbox.min.y - 50.0f, bbox.max.y + 50.0f),
-                random_float(generator, bbox.min.z - 50.0f,
-                             bbox.max.z + 50.0f)};
-            candidate_ray.d = random_unit_vector(generator);
+            Ray ray = camera.generate_ray(u, v);
+            all_rays.push_back(ray);
+            ray_hits.push_back(bvh.intersect(ray));
+        }
 
-            if (!bvh.intersect(candidate_ray)) {
-                thread_miss_rays[tid].push_back(candidate_ray);
-#pragma omp atomic
-                thread_miss_counts[tid]++;
-
-                if (thread_miss_counts[tid] % 1000 == 0) {
-#pragma omp critical
-                    {
-                        std::cerr << "thread " << tid << " generated miss ray "
-                                  << thread_miss_counts[tid] << std::endl;
-                    }
-                }
-            }
+        if ((j + 1) % 100 == 0) {
+            std::cerr << "generated " << (j + 1) * width << " rays..."
+                      << std::endl;
         }
     }
 
-    // Combine results from all threads
-    std::vector<Ray> rays;
-    rays.reserve(count);
+    // Count actual hits and misses
+    int actual_hits = std::count(ray_hits.begin(), ray_hits.end(), true);
+    int actual_misses = ray_hits.size() - actual_hits;
 
-    int actual_hits = 0;
-    for (int i = 0; i < num_threads; i++) {
-        for (const auto &ray : thread_hit_rays[i]) {
-            if (actual_hits < target_hits) {
-                rays.push_back(ray);
-                actual_hits++;
-            }
-        }
-    }
-
-    int actual_misses = 0;
-    for (int i = 0; i < num_threads; i++) {
-        for (const auto &ray : thread_miss_rays[i]) {
-            if (actual_misses < target_misses) {
-                rays.push_back(ray);
-                actual_misses++;
-            }
-        }
-    }
-
-    std::cerr << "ray generation complete: " << actual_hits << " hits, "
+    std::cerr << "camera rays stats: " << actual_hits << " hits ("
+              << (100.0f * actual_hits / ray_hits.size()) << "%), "
               << actual_misses << " misses" << std::endl;
 
-    std::random_device rd;
-    std::mt19937 generator(rd());
-    std::shuffle(rays.begin(), rays.end(), generator);
-
-    return rays;
+    return all_rays;
 }
 
 int main(int argc, char *argv[]) {
-    assert(argc == 5);
+    assert(argc == 4);
     const char *object = argv[1];
     const char *path = argv[2];
     const char *ray_count = argv[3];
-    const char *hit_ratio = argv[4];
 
     const int64_t count = std::atoi(ray_count);
-    const float ratio = std::stof(hit_ratio);
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-    std::vector<Ray> rays = generate_rays(triangles, count, ratio);
-    save_rays_binary(rays, object, ray_count, hit_ratio, path);
+    std::vector<Ray> rays = generate_camera_rays(triangles, count);
+    save_rays_binary(rays, object, ray_count, path);
 }
