@@ -210,7 +210,7 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
 }
 
 func intersects(ray : Ray, tri : Triangle) -> bool {
-    return cast[[bool]](intersect_ray_tri_pluecker(ray, tri));
+    return cast[[bool]](intersectsp_ray_tri(ray, tri));
 }
 
 // https://raytracing.github.io/books/RayTracingInOneWeekend.html

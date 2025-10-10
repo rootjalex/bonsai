@@ -52,9 +52,8 @@ def parse_layout_memory_and_nodes(data_text):
 
                 data[current_model][current_layout]['nodes'][node_type] = count
 
-                # Add to memory utilization (exclude primitives)
-                if node_type != 'primitives':
-                    data[current_model][current_layout]['memory'] += size * count
+                # Add to memory utilization
+                data[current_model][current_layout]['memory'] += size * count
             i += 1
             continue
 

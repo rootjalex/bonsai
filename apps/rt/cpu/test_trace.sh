@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza") # "power-plant"
+OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
 
 # Parse flags
 DRY_RUN=false
@@ -45,8 +45,8 @@ DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 PARTITION="sah"
 
-MIN_POWER=10
-MAX_POWER=20
+  MIN_POWER=15
+  MAX_POWER=22
 
 # only run on performance cores for the Fredwood.
 FREDWOOD_FLAG="numactl --physcpubind 0-15" 

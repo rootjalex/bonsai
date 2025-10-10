@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza") # "power-plant"
+OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza" "power-plant")
 
 # Parse flags
 DRY_RUN=false
@@ -43,7 +43,7 @@ DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 PARTITION="sah"
 
-MIN_POWER=10
+MIN_POWER=15
 MAX_POWER=25
 
 # Override for dry run
