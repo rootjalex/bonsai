@@ -481,12 +481,20 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
               << ", " << camera.look_at.z << ")" << std::endl;
 
     // Determine image resolution based on ray count
-    int total_pixels = count;
-    int width = static_cast<int>(std::sqrt(total_pixels * camera.aspect_ratio));
+    int width = static_cast<int>(std::sqrt(count * camera.aspect_ratio));
     int height = static_cast<int>(width / camera.aspect_ratio);
 
-    std::cerr << "generating rays for " << width << "x" << height << " image..."
-              << std::endl;
+    // Adjust to get exactly count rays
+    while (width * height < count) {
+        if (width * (height + 1) <= count) {
+            height++;
+        } else {
+            width++;
+        }
+    }
+
+    std::cerr << "generating rays for " << width << "x" << height << " image ("
+              << (width * height) << " rays)..." << std::endl;
 
     std::vector<Ray> all_rays;
     all_rays.reserve(width * height);
