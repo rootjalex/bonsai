@@ -84,73 +84,6 @@ def parse_trace_scaling_data(data_text):
     return parsed_data, machine_type
 
 
-def parse_layout_memory_and_nodes(data_text):
-    """Parse layout data to extract memory utilization per model."""
-    lines = data_text.strip().split('\n')
-    data = defaultdict(lambda: defaultdict(lambda: {'memory': 0, 'nodes': {}}))
-
-    current_model = None
-    current_layout = None
-
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-
-        if not line or line == '---':
-            i += 1
-            continue
-
-        # Model name
-        if (',' not in line and ':' not in line and not line.isdigit()
-                and not line.startswith(';;') and not line.startswith('./')):
-            current_model = line
-            current_layout = None
-            i += 1
-            continue
-
-        # Configuration line
-        if line.startswith('rt, cpu,'):
-            parts = [part.strip() for part in line.split(',')]
-            if len(parts) >= 3:
-                current_layout = parts[2]
-                if current_model and current_layout:
-                    data[current_model][current_layout] = {
-                        'memory': 0, 'nodes': {}}
-            i += 1
-            continue
-
-        # Node definition line
-        if line.startswith(';;') and current_model and current_layout:
-            match = re.match(r';;\s*(\S+):\s*(\d+),(\d+)', line)
-            if match:
-                node_type = match.group(1)
-                size = int(match.group(2))
-                count = int(match.group(3))
-
-                data[current_model][current_layout]['nodes'][node_type] = count
-
-                # Add to memory utilization (exclude primitives)
-                if node_type != 'primitives':
-                    data[current_model][current_layout]['memory'] += size * count
-            i += 1
-            continue
-
-        i += 1
-
-    # Convert to regular dict
-    result = {}
-    for model in data:
-        result[model] = {}
-        for layout in data[model]:
-            if data[model][layout]['memory'] > 0:
-                result[model][layout] = {
-                    'memory': data[model][layout]['memory'],
-                    'nodes': dict(data[model][layout]['nodes'])
-                }
-
-    return result
-
-
 def calculate_average(values):
     """Calculate average with outlier removal."""
     if not values:
@@ -225,6 +158,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         machine_type: Machine type for title
     """
     models = sorted(processed_data.keys())
+    if len(models) == 0:
+        return
 
     # Create figure with one subplot per model
     n_models = len(models)
@@ -531,7 +466,7 @@ if __name__ == "__main__":
     plot_pareto_frontiers_geomean(trace_data, memory_utilization, layout_groups,
                                   filename, machine_type)
 
-    for ray_count in [int(2**20), int(2**25)]:
+    for ray_count in [int(2**22), int(2**25)]:
         trace_data = process_trace_data(raw_data, ray_count)
         plot_pareto_frontiers(trace_data, memory_utilization, layout_groups,
                               filename, machine_type, ray_count)
