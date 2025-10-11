@@ -53,7 +53,7 @@ PARTITION="sah"
 echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
 
 MIN_POWER=15
-MAX_POWER=25
+MAX_POWER=20
 
 # only run on performance cores for the Fredwood.
 FREDWOOD_FLAG="numactl --physcpubind 0-15" 
