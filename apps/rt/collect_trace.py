@@ -145,7 +145,7 @@ def plot_pareto_frontiers_geomean(processed_data, memory_data, layout_groups, ou
     return plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count=None)
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count=None, label_dominated_points=False):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count=None, label_dominated_points=True):
     """
     Plot Pareto frontiers for multiple layout groups on the same graph for each model.
 
@@ -445,7 +445,7 @@ if __name__ == "__main__":
     # Define layout groups
     layout_groups = {
         'bvh8': ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16',
-                 # 'cl-bvh8-idx', 'cl-bvh8-idx-align16',
+                 'cl-bvh8-idx', 'cl-bvh8-idx-align16',
                  # 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16',
                  ],
         'bvh2': ['eq', 'pbrt', 'pbrt-align16', 'eq-align16',
@@ -458,7 +458,7 @@ if __name__ == "__main__":
     plot_pareto_frontiers_geomean(trace_data, memory_utilization, layout_groups,
                                   filename, machine_type)
 
-    for ray_count in [int(2**22), int(2**25)]:
+    for ray_count in [int(2**21), int(2**25)]:
         trace_data = process_trace_data(raw_data, ray_count)
         plot_pareto_frontiers(trace_data, memory_utilization, layout_groups,
                               filename, machine_type, ray_count)

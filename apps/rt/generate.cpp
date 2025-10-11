@@ -658,6 +658,9 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
         };
 
         std::vector<CameraConfig> configs = {
+            {{max_dim * 0.7f, max_dim * 0.5f, max_dim * 0.7f},
+             25.0f,
+             "angled view"},
             // Wide FOV configurations for tall objects, e.g., Lucy.
             {{0.0f, 0.0f, max_dim * 1.0f}, 60.0f, "close front 60°"},
             {{0.0f, 0.0f, max_dim * 0.9f}, 70.0f, "very close 70°"},
@@ -670,10 +673,6 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
             {{max_dim * 0.2f, 0.0f, max_dim * 0.95f},
              65.0f,
              "shallow angle 65°"},
-            // Original for comparison
-            {{max_dim * 0.7f, max_dim * 0.5f, max_dim * 0.7f},
-             25.0f,
-             "original angled view"},
         };
 
         Camera best_camera;
@@ -720,7 +719,7 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
             if (hit_rate > best_hit_rate) {
                 best_hit_rate = hit_rate;
                 best_camera = camera;
-                best_rays = rays; // Keep a copy for this aspect ratio
+                best_rays = rays;
             }
 
             if (hit_rate > best_overall_hit_rate) {
@@ -729,22 +728,13 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
                 best_overall_camera = camera;
                 best_overall_rays = std::move(rays);
                 best_aspect_name = aspect.name;
+                if (hit_rate > 0.75) {
+                    break; // good enough
+                }
             }
         }
 
     } // end aspect ratio loop
-
-    std::cerr << "configuration:" << best_aspect_name << std::endl;
-    std::cerr << "selected camera - position: ("
-              << best_overall_camera.position.x << ", "
-              << best_overall_camera.position.y << ", "
-              << best_overall_camera.position.z << ")" << std::endl;
-    std::cerr << "looking at: (" << best_overall_camera.look_at.x << ", "
-              << best_overall_camera.look_at.y << ", "
-              << best_overall_camera.look_at.z << ")" << std::endl;
-    std::cerr << "FOV: " << best_overall_camera.fov << " degrees" << std::endl;
-    std::cerr << "aspect ratio: " << best_overall_camera.aspect_ratio
-              << std::endl;
 
     std::cerr << "camera ray statistics: " << best_overall_hits << " hits ("
               << (100.0f * best_overall_hit_rate) << "%), "
