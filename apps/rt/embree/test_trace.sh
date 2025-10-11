@@ -10,17 +10,23 @@ LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
 OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
 
-# Parse flags
 DRY_RUN=false
 DEBUG_MODE=false
 DEBUG_LAYOUT=""
 POSITIONAL_ARGS=()
+
+DRY_RUN=false
+DEBUG_MODE=false
+DEBUG_LAYOUT=""
+POSITIONAL_ARGS=()
+
+# parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run)
       DRY_RUN=true
       shift
-      POSITIONAL_ARGS=()
+      POSITIONAL_ARGS=() 
       break
       ;;
     --debug)
@@ -35,16 +41,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${1:-9}" # drop lowest 2 and highest 2 runs in processing
-SCHEDULE="${2:-parallel}" # or single-thread
-HIT_RATIO="${3:-75}" # n%, e.g., 75% is the default
-TYPE="${4:-COMPARISON}" # other option, PERFORMANCE
+N="${POSITIONAL_ARGS[0]:-9}" # drop lowest 2 and highest 2 runs in processing
+RAY_TYPE="${POSITIONAL_ARGS[1]:-camera}" 
+SCHEDULE="${POSITIONAL_ARGS[2]:-parallel}" # or single-thread
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
-RAY_TYPE="camera"
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
 PARTITION="sah"
+
+echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
 
 MIN_POWER=15
 MAX_POWER=22

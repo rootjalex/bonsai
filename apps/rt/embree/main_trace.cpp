@@ -415,6 +415,6 @@ int main(int argc, char *argv[]) {
     ray_counts.reserve(size);
     for (; i < 5 + size; ++i)
         ray_counts.push_back(std::atoi(argv[i]));
-    run(object_file, bvh_layout, ray_type, is_single_threaded, ray_counts);
+    run(object_file, bvh_layout, is_single_threaded, ray_type, ray_counts);
     return 0;
 }

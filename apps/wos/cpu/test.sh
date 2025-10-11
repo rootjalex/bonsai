@@ -6,7 +6,7 @@ APPLICATION="wos"
 TARGET="cpu"
 KERNEL_PATH="apps/wos"
 PREFIX="${KERNEL_PATH}/${TARGET}"
-LAYOUT_PATH="${KERNEL_PATH}/layouts"
+LAYOUT_PATH="apps/rt/layouts" # (just share layouts)
 
 DRY_RUN=false
 while [[ $# -gt 0 ]]; do

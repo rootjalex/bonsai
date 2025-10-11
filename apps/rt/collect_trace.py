@@ -145,7 +145,7 @@ def plot_pareto_frontiers_geomean(processed_data, memory_data, layout_groups, ou
     return plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count=None)
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count=None):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count=None, label_dominated_points=False):
     """
     Plot Pareto frontiers for multiple layout groups on the same graph for each model.
 
@@ -291,7 +291,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             group_time = time_values[group_mask]
 
             # Plot dominated points
-            if np.any(~is_pareto):
+            if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time[~is_pareto],
                            c='lightgray', s=80, alpha=0.5,
                            marker='o', edgecolors='gray', linewidth=1, zorder=1)
@@ -312,32 +312,6 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                 ax.plot(pareto_x, pareto_y, color=group_color,
                         linestyle=group_linestyle, alpha=0.8, linewidth=3, zorder=2)
 
-                # Label the Pareto frontier line at its midpoint
-                mid_idx = len(pareto_sorted) // 2
-                mid_x = pareto_x[mid_idx]
-                mid_y = pareto_y[mid_idx]
-
-                # Calculate angle for text rotation (approximate slope)
-                if mid_idx > 0 and mid_idx < len(pareto_x) - 1:
-                    dx = pareto_x[mid_idx + 1] - pareto_x[mid_idx - 1]
-                    dy = pareto_y[mid_idx + 1] - pareto_y[mid_idx - 1]
-                    angle = np.degrees(np.arctan2(dy, dx))
-                else:
-                    angle = 0
-
-                # Add text label along the line
-                ax.text(mid_x, mid_y, f'  {group_name}  ',
-                        fontsize=9, fontweight='bold',
-                        color=group_color,
-                        bbox=dict(boxstyle='round,pad=0.4',
-                                  facecolor='white',
-                                  edgecolor=group_color,
-                                  alpha=0.85,
-                                  linewidth=2),
-                        rotation=angle,
-                        ha='center', va='center',
-                        zorder=5)
-
             # Annotate Pareto frontier points
             for i in pareto_indices:
                 ax.annotate(group_labels[i],
@@ -354,6 +328,24 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                                       linewidth=1),
                             zorder=4)
 
+            # Optionally annotate dominated (non-Pareto) points
+            if label_dominated_points and np.any(~is_pareto):
+                dominated_indices = np.where(~is_pareto)[0]
+                for i in dominated_indices:
+                    ax.annotate(group_labels[i],
+                                xy=(group_memory[i], group_time[i]),
+                                textcoords="offset points",
+                                xytext=(0, 6),
+                                ha='center',
+                                fontsize=7,
+                                color='gray',
+                                alpha=0.8,
+                                bbox=dict(boxstyle='round,pad=0.2',
+                                          facecolor='white',
+                                          alpha=0.5,
+                                          edgecolor='gray',
+                                          linewidth=0.5),
+                                zorder=2)
         # Formatting
         ax.set_xlabel(
             f'Memory Utilization ({memory_unit})', fontweight='bold', fontsize=11)
