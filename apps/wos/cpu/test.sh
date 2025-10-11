@@ -25,11 +25,7 @@ done
 
 N="${1:-4}"
 N_QUERIES="${2:-10000}"
-
 OBJECTS=("white-oak" "lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "sponza" "power-plant")
-
-DATA_PATH=${PREFIX}/results
-DATA_FILE="data"
 
 # only run on performance cores for the Fredwood.
 FREDWOOD_FLAG="numactl --physcpubind 0-15" 

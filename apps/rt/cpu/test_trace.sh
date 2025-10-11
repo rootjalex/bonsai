@@ -45,7 +45,7 @@ RAY_FILE="kernel"
 echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
 
 DATA_PATH=${PREFIX}/results
-DATA_FILE="data"
+DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
 MIN_POWER=15

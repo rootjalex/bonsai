@@ -42,7 +42,7 @@ SCHEDULE="${POSITIONAL_ARGS[2]:-parallel}" # or single-thread
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH=${PREFIX}/results
-DATA_FILE="data"
+DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
 MIN_POWER=15
