@@ -91,8 +91,8 @@ std::vector<RTCRayHit> load_rays_binary(const std::string &filename,
     std::ifstream file(filename, std::ios::binary);
 
     if (!file) {
-        std::cerr << "Error: Could not open file " << filename
-                  << " for reading\n";
+        std::cerr << "Error: Could not open file " << filename << " for reading"
+                  << std::endl;
         return rays;
     }
 

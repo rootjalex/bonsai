@@ -53,7 +53,7 @@ PARTITION="sah"
 echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
 
 MIN_POWER=15
-MAX_POWER=22
+MAX_POWER=25
 
 # only run on performance cores for the Fredwood.
 FREDWOOD_FLAG="numactl --physcpubind 0-15" 
@@ -94,7 +94,7 @@ for RAY_COUNT in "${RAY_COUNTS[@]}"; do
         FLAG="${FLAG} ${FREDWOOD_FLAG}"  
       fi
       ${FLAG} ./${RAY_PATH}/${RAY_FILE}.out ${OBJECT} ${RAY_PATH} ${RAY_COUNT} ${RAY_TYPE}
-      echo "...${RAY_COUNT} ${RAY_TYPE} rays generated for ${OBJECT} "
+      echo "...${RAY_COUNT} ${RAY_TYPE} rays generated for ${OBJECT}"
     fi
   done
 done
@@ -134,7 +134,7 @@ run_tests() {
       cd ../../../..
       
       # 4. Run it.
-      EXECUTE="./${PREFIX}/build/main_trace ${OBJECT} ${LAYOUT} ${SCHEDULE} ${RAY_PATH} ${ARGV}"
+      EXECUTE="./${PREFIX}/build/main_trace ${OBJECT} ${LAYOUT} ${SCHEDULE} ${RAY_TYPE} ${ARGV}"
       echo "${EXECUTE}"
       if [[ "$(uname)" == "Linux" ]]; then
         EXECUTE="${FREDWOOD_FLAG} ${EXECUTE}"
