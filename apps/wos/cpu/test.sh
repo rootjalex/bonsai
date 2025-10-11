@@ -23,11 +23,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 
-N="${1:-3}"
-NUM_QUERIES="${2:-100}"
+N="${1:-4}"
+N_QUERIES="${2:-10000}"
 
-OBJECTS=("white-oak")
-# OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza") # "power-plant"
+OBJECTS=("white-oak" "lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "sponza" "power-plant")
 
 DATA_PATH=${PREFIX}/results
 DATA_FILE="data"
@@ -66,10 +65,25 @@ run_tests() {
   fi
   echo "-- with layouts: ${LAYOUTS[@]}"
 
+  # replace `$N$` with BVH_SUFFIX.
+  MAIN_FILE="main"
+  sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cpp > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cpp
+  MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
+  # insert the canonical tree functions (we do it in this hacky way since they're shared between CPU / GPU.
+  # a better approach might be using macros, similar to PBRT).
+  if [[ "$(uname)" == "Linux" ]]; then
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
+  else
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
+  fi
+
   for OBJECT in "${OBJECTS[@]}"; do
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "--- ${OBJECT} - ${LAYOUT} ---"
-      echo "--- ${OBJECT} - ${LAYOUT} ---" >> ${PREFIX}/results/${LAYOUT}.txt
+      echo "--- ${OBJECT} - ${LAYOUT} - ${N_QUERIES} ---" >> ${PREFIX}/results/${LAYOUT}.txt
+      if [[ ("${LAYOUT}" == "cl-bvh8-idx" || "${LAYOUT}" == "cl-bvh8-idx-align16") && "${OBJECT}" == "lucy" ]]; then
+        continue # 2^28 > 2^26
+      fi
 
       # 0. Combine the layout and schedule into a single file.
       LAYOUT_FILE=$(mktemp).bonsai
@@ -90,7 +104,7 @@ run_tests() {
       
       # Configure CMake with layout parameter
       export LDFLAGS="-Wl,-no_warn_duplicate_libraries"
-      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} .. # > /dev/null
+      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} .. # > /dev/null
       
       # Build the executable
       make -j # > /dev/null 2>&1
@@ -100,7 +114,7 @@ run_tests() {
       
       # run (executable is now in the build directory)
       for ((k=0; k < N; k++)); do
-        ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out "${OBJ}" ${NUM_QUERIES} >> ${PREFIX}/results/${LAYOUT}.txt
+        ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out "${OBJECT}" ${N_QUERIES} >> ${PREFIX}/results/${LAYOUT}.txt
       done
       
       # clean up
@@ -109,8 +123,11 @@ run_tests() {
       rm -rf ${PREFIX}/build
     done
   done
+
+  rm ${PREFIX}/${MAIN_FILE}.cpp # remove the old c++ file
 }
 
+run_tests "8"
 run_tests "2"
 
 exit 0

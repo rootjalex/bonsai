@@ -1,6 +1,7 @@
 #include "bonsai_cpp.h"
 #include "rt.h"
 #include "util.h"
+
 #include <omp.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION

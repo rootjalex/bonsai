@@ -204,7 +204,6 @@ Stmt rewrite_yieldfroms(Stmt body, const ir::Type &ret_type, WriteLoc count_loc,
         Stmt visit(const Return *node) override {
             ir::Expr value = mutate(node->value);
             if (!value.defined()) {
-                internal_assert(ret_type.is<Option_t>()) << ret_type;
                 value = ir::Build::make(ret_type);
             }
             ir::Expr zero = make_zero(count_var.type());

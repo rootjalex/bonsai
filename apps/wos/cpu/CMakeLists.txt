@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(closest_point_benchmark)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Layout and application name (passed from bash script)
@@ -49,24 +49,31 @@ endif()
 
 # Main executable with Bonsai generated code
 add_executable(${APPLICATION}_${LAYOUT}.out
-    main.cpp
+    main_${BVH_SUFFIX}.cpp
     ${BONSAI_SOURCE}
 )
 
 target_include_directories(${APPLICATION}_${LAYOUT}.out
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/..
+    ${CMAKE_SOURCE_DIR}/../../..
+    ${CMAKE_SOURCE_DIR}/../../../..
+    ${CMAKE_SOURCE_DIR}/../../../runtime/CPP
 )
+
+find_package(Eigen3 REQUIRED)
 
 target_link_libraries(${APPLICATION}_${LAYOUT}.out
     PRIVATE
     fcpw
     polyscope
+    Eigen3::Eigen
 )
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(${APPLICATION}_${LAYOUT}.out PRIVATE -Wall -Wextra -O3)
+    target_compile_options(${APPLICATION}_${LAYOUT}.out PRIVATE -O3)
 endif()
 
 message(STATUS "FCPW vectorization (Enoki): ${FCPW_USE_ENOKI}")
