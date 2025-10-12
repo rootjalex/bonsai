@@ -74,10 +74,6 @@ void run(std::string object, std::string partition, bool is_single_threaded,
          std::vector<int64_t> ray_counts, std::string ray_type) {
     using clock = std::chrono::high_resolution_clock;
 
-    // optional: pin main thread and raise priority
-    pin_thread_to_core(0);
-    set_high_priority();
-
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
 
