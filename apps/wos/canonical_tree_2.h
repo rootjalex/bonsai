@@ -91,24 +91,27 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
     return partition(0, triangles.size(), /*depth=*/0);
 }
 
-BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
-                                int max_prims_per_leaf, int max_tree_depth) {
+BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
+                                int max_tree_depth, int nBuckets = 8) {
     constexpr auto MAX = std::numeric_limits<float>::max();
+
+    struct BucketInfo {
+        float3 box_min = float3{MAX, MAX, MAX};
+        float3 box_max = float3{-MAX, -MAX, -MAX};
+        int count = 0;
+    };
 
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
         [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
-        assert(depth < max_tree_depth);
         uint32_t count = high - low;
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
-        if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
-            assert(count > 0);
-            assert(count < max_prims_per_leaf);
+        // Create leaf only if at exact leaf_size or fewer, or max depth reached
+        if (count <= leaf_size || depth >= max_tree_depth) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
             }
-            assert(depth != 0);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,
@@ -127,97 +130,154 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             centroid_max = max(centroid_max, c);
         }
 
-        // Find best split using surface area heuristic.
+        // Find best split using binned SAH.
         int best_axis = -1;
-        float best_position = 0.0f;
+        int best_bucket = -1;
         float best_cost = MAX;
 
         // Try splitting along each axis.
         for (int axis = 0; axis < 3; ++axis) {
-            float extent = (axis == 0)   ? centroid_max.x - centroid_min.x
-                           : (axis == 1) ? centroid_max.y - centroid_min.y
-                                         : centroid_max.z - centroid_min.z;
-            if (extent < 1e-6f)
+            float centroid_extent =
+                (axis == 0)   ? centroid_max.x - centroid_min.x
+                : (axis == 1) ? centroid_max.y - centroid_min.y
+                              : centroid_max.z - centroid_min.z;
+
+            if (centroid_extent < 1e-6f)
                 continue; // Skip degenerate axis.
 
-            // Simple approach: split at midpoint
-            float axis_min = (axis == 0)   ? centroid_min.x
-                             : (axis == 1) ? centroid_min.y
-                                           : centroid_min.z;
-            float split_position = axis_min + extent / 2.0f;
+            float centroid_min_axis = (axis == 0)   ? centroid_min.x
+                                      : (axis == 1) ? centroid_min.y
+                                                    : centroid_min.z;
 
-            // Evaluate this split
-            float3 left_min = float3{MAX, MAX, MAX};
-            float3 left_max = float3{-MAX, -MAX, -MAX};
-            uint32_t left_count = 0;
-            float3 right_min = float3{MAX, MAX, MAX};
-            float3 right_max = float3{-MAX, -MAX, -MAX};
-            uint32_t right_count = 0;
+            // Initialize buckets
+            std::vector<BucketInfo> buckets(nBuckets);
 
-            // Assign triangles to left/right and compute bounds
+            // Assign triangles to buckets
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
 
-                auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
+                int bucket_idx =
+                    nBuckets * ((c_axis - centroid_min_axis) / centroid_extent);
+                if (bucket_idx == nBuckets)
+                    bucket_idx = nBuckets - 1;
 
-                if (c_axis < split_position) {
-                    left_min = min(left_min, tri_min);
-                    left_max = max(left_max, tri_max);
-                    left_count++;
-                } else {
-                    right_min = min(right_min, tri_min);
-                    right_max = max(right_max, tri_max);
-                    right_count++;
-                }
+                auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
+                buckets[bucket_idx].box_min =
+                    min(buckets[bucket_idx].box_min, tri_min);
+                buckets[bucket_idx].box_max =
+                    max(buckets[bucket_idx].box_max, tri_max);
+                buckets[bucket_idx].count++;
             }
 
-            // Skip if all triangles end up on one side
-            if (left_count == 0 || right_count == 0)
-                continue;
+            // Compute costs for each split candidate
+            for (int split_bucket = 0; split_bucket < nBuckets - 1;
+                 ++split_bucket) {
+                float3 left_min = float3{MAX, MAX, MAX};
+                float3 left_max = float3{-MAX, -MAX, -MAX};
+                int left_count = 0;
 
-            // Calculate cost using surface area heuristic (matching FCPW)
-            float left_area = surface_area(left_min, left_max);
-            float right_area = surface_area(right_min, right_max);
-            float cost = left_count * left_area + right_count * right_area;
+                float3 right_min = float3{MAX, MAX, MAX};
+                float3 right_max = float3{-MAX, -MAX, -MAX};
+                int right_count = 0;
 
-            if (cost < best_cost) {
-                best_axis = axis;
-                best_position = split_position;
-                best_cost = cost;
+                // Accumulate left side
+                for (int i = 0; i <= split_bucket; ++i) {
+                    if (buckets[i].count > 0) {
+                        left_min = min(left_min, buckets[i].box_min);
+                        left_max = max(left_max, buckets[i].box_max);
+                        left_count += buckets[i].count;
+                    }
+                }
+
+                // Accumulate right side
+                for (int i = split_bucket + 1; i < nBuckets; ++i) {
+                    if (buckets[i].count > 0) {
+                        right_min = min(right_min, buckets[i].box_min);
+                        right_max = max(right_max, buckets[i].box_max);
+                        right_count += buckets[i].count;
+                    }
+                }
+
+                // Skip if one side is empty
+                if (left_count == 0 || right_count == 0)
+                    continue;
+
+                // Calculate SAH cost (matching FCPW)
+                float left_area = surface_area(left_min, left_max);
+                float right_area = surface_area(right_min, right_max);
+                float cost = left_count * left_area + right_count * right_area;
+
+                if (cost < best_cost) {
+                    best_cost = cost;
+                    best_axis = axis;
+                    best_bucket = split_bucket;
+                }
             }
         }
 
+        // If no valid split found, fall back to median split
         if (best_axis == -1) {
-            // No valid split found, create leaf
-            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            for (uint32_t i = 0; i < count; ++i) {
-                data[i] = triangles[low + i];
-            }
-            return new BVH(Leaf{
+            uint32_t mid = low + count / 2;
+
+            // Find longest axis for fallback
+            float3 extent = aabb_max - aabb_min;
+            int fallback_axis = (extent.x > extent.y && extent.x > extent.z) ? 0
+                                : (extent.y > extent.z)                      ? 1
+                                                        : 2;
+
+            std::nth_element(triangles.begin() + low, triangles.begin() + mid,
+                             triangles.begin() + high,
+                             [&](const Triangle &a, const Triangle &b) {
+                                 float3 ca = triangle_centroid(a);
+                                 float3 cb = triangle_centroid(b);
+                                 float ca_axis = (fallback_axis == 0)   ? ca.x
+                                                 : (fallback_axis == 1) ? ca.y
+                                                                        : ca.z;
+                                 float cb_axis = (fallback_axis == 0)   ? cb.x
+                                                 : (fallback_axis == 1) ? cb.y
+                                                                        : cb.z;
+                                 return ca_axis < cb_axis;
+                             });
+
+            BVH *left = partition(low, mid, depth + 1);
+            BVH *right = partition(mid, high, depth + 1);
+
+            return new BVH(Interior{
                 .low = aabb_min,
                 .high = aabb_max,
-                .nprims = static_cast<uint8_t>(count),
-                .data = data,
+                .left = left,
+                .right = right,
             });
         }
 
-        // Partition triangles based on best split.
-        auto mid_it =
-            std::partition(triangles.begin() + low, triangles.begin() + high,
-                           [&](const Triangle &tri) {
-                               float3 c = triangle_centroid(tri);
-                               float c_axis = (best_axis == 0)   ? c.x
-                                              : (best_axis == 1) ? c.y
-                                                                 : c.z;
-                               return c_axis < best_position;
-                           });
+        // Partition triangles based on best split
+        float centroid_extent =
+            (best_axis == 0)   ? centroid_max.x - centroid_min.x
+            : (best_axis == 1) ? centroid_max.y - centroid_min.y
+                               : centroid_max.z - centroid_min.z;
+        float centroid_min_axis = (best_axis == 0)   ? centroid_min.x
+                                  : (best_axis == 1) ? centroid_min.y
+                                                     : centroid_min.z;
+
+        auto mid_it = std::partition(
+            triangles.begin() + low, triangles.begin() + high,
+            [&](const Triangle &tri) {
+                float3 c = triangle_centroid(tri);
+                float c_axis = (best_axis == 0)   ? c.x
+                               : (best_axis == 1) ? c.y
+                                                  : c.z;
+                int bucket_idx =
+                    nBuckets * ((c_axis - centroid_min_axis) / centroid_extent);
+                if (bucket_idx == nBuckets)
+                    bucket_idx = nBuckets - 1;
+                return bucket_idx <= best_bucket;
+            });
 
         uint32_t mid = std::distance(triangles.begin(), mid_it);
 
-        // Handle edge case where all triangles end up on one side.
+        // Handle edge case where all triangles end up on one side
         if (mid == low || mid == high) {
-            // Fall back to median split.
             mid = low + count / 2;
             std::nth_element(triangles.begin() + low, triangles.begin() + mid,
                              triangles.begin() + high,
@@ -274,7 +334,7 @@ enum class Heuristic {
 
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
                             Heuristic heuristic = Heuristic::SurfaceArea,
-                            int max_prims_per_leaf = 15,
+                            int max_prims_per_leaf = 4,
                             int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
