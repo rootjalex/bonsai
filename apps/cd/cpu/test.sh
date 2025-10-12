@@ -10,8 +10,8 @@ LAYOUTS=("pbrt" "fcl")
 N="${1:-10}"
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.
-OBJECTS_A=("hairball_1" "hairball_1" "dragon_2")
-OBJECTS_B=("hairball_2" "dragon_1" "hairball_2")
+OBJECTS_A=("hairball" "hairball" "dragon_60_70_10")
+OBJECTS_B=("hairball_60_70_10" "dragon" "hairball_60_70_10")
 
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../..

@@ -33,11 +33,6 @@ inline void pin_thread_to_core(int core_id) {
     thread_port_t thread = mach_thread_self();
     thread_policy_set(thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy,
                       THREAD_AFFINITY_POLICY_COUNT);
-#else
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(core_id, &cpuset);
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
 }
 
@@ -48,9 +43,6 @@ inline void set_high_priority() {
     sched_param param;
     param.sched_priority = sched_get_priority_max(SCHED_FIFO);
     pthread_setschedparam(t, SCHED_FIFO, &param);
-#else
-    // Linux: nice value -20 is highest
-    nice(-20);
 #endif
 }
 
@@ -178,7 +170,7 @@ RTCDevice create_device(const std::string &layout) {
         exit(1);
     }
     // Gathers information about the BVH structure
-    configuration += ",verbose=2,benchmark=2";
+    // configuration += ",verbose=2,benchmark=2";
 
     RTCDevice device = rtcNewDevice(configuration.c_str());
 

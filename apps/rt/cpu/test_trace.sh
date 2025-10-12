@@ -44,7 +44,7 @@ RAY_FILE="kernel"
 
 echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
 
-DATA_PATH=${PREFIX}/results
+DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
 DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
@@ -52,7 +52,7 @@ MIN_POWER=15
 MAX_POWER=22
 
 # only run on performance cores for the Fredwood.
-FREDWOOD_FLAG="" # "numactl --physcpubind 0-15" 
+FREDWOOD_FLAG="numactl --physcpubind 0-15" 
 
 # Override for dry run.
 if [[ "${DRY_RUN}" == true ]]; then

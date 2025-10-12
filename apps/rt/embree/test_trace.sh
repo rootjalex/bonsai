@@ -46,7 +46,7 @@ RAY_TYPE="${POSITIONAL_ARGS[1]:-camera}"
 SCHEDULE="${POSITIONAL_ARGS[2]:-parallel}" # or single-thread
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
-DATA_PATH=${PREFIX}/results
+DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
 DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
