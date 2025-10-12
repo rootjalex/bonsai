@@ -133,7 +133,6 @@ void run(std::string object, std::string partition, bool is_single_threaded,
             {
                 const int tid = omp_get_thread_num();
                 auto &hits = hits_per_thread[tid];
-                pin_thread_to_core(tid); // pin each thread to a core
 
 #pragma omp for schedule(dynamic, 64) nowait
                 for (int i = 0; i < rays.size(); ++i) {
