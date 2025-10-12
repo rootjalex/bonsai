@@ -10,7 +10,7 @@ DEFAULT_LAYOUT_GROUPS = {
              # 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16',
              ],
     'bvh2': ['eq', 'pbrt', 'pbrt-align16', 'eq-align16',
-             'ptr', ''soaos-align16'', 'soaos',
+             'ptr', 'soaos-align16', 'soaos',
              ],
     'embree': ['embree-bvh4', 'embree-bvh8'],
 }
