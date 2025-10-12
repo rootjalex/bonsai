@@ -291,9 +291,10 @@ void run_test(const std::string &obj1, int64_t num_queries) {
     fcpw_scene.setObjectTriangles(indices1, 0);
 
     // Build the BVH
-    bool printStats = true;
+    bool printStats = false;
     bool reduceMemoryFootprint = true;
-    fcpw_scene.build(fcpw::AggregateType::Bvh_SurfaceArea, /*vectorize=*/false,
+    bool vectorize = false;
+    fcpw_scene.build(fcpw::AggregateType::Bvh_SurfaceArea, vectorize,
                      printStats, reduceMemoryFootprint);
 
     auto t1 = clock::now();

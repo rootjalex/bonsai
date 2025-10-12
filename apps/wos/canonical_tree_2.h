@@ -334,7 +334,7 @@ enum class Heuristic {
 
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
                             Heuristic heuristic = Heuristic::SurfaceArea,
-                            int max_prims_per_leaf = 4,
+                            int max_prims_per_leaf = 4, // same as FCPW
                             int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
