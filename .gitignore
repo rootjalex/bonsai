@@ -14,13 +14,12 @@ textures
 
 # benchmarks
 apps/cd/cpu/results/*
-
-apps/rt/cpu/results/*
-apps/rt/cuda/results/*
-
 apps/wos/cpu/results/*
 
-apps/rt/embree/results/*
+apps/rt/cpu/results-camera/*
+apps/rt/cuda/results-secondary/*
+apps/rt/embree/results-camera/*
+apps/rt/embree/results-secondary/*
 
 # Precompiled Headers
 *.gch
