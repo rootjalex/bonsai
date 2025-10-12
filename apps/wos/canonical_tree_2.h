@@ -137,17 +137,18 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
 
         // Try splitting along each axis.
         for (int axis = 0; axis < 3; ++axis) {
-            float centroid_extent =
-                (axis == 0)   ? centroid_max.x - centroid_min.x
-                : (axis == 1) ? centroid_max.y - centroid_min.y
-                              : centroid_max.z - centroid_min.z;
+            float aabb_extent = (axis == 0)   ? aabb_max.x - aabb_min.x
+                                : (axis == 1) ? aabb_max.y - aabb_min.y
+                                              : aabb_max.z - aabb_min.z;
 
-            if (centroid_extent < 1e-6f)
+            if (aabb_extent < 1e-6f)
                 continue; // Skip degenerate axis.
 
-            float centroid_min_axis = (axis == 0)   ? centroid_min.x
-                                      : (axis == 1) ? centroid_min.y
-                                                    : centroid_min.z;
+            float aabb_min_axis = (axis == 0)   ? aabb_min.x
+                                  : (axis == 1) ? aabb_min.y
+                                                : aabb_min.z;
+
+            float bucket_width = aabb_extent / nBuckets;
 
             // Initialize buckets
             std::vector<BucketInfo> buckets(nBuckets);
@@ -157,10 +158,8 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                 float3 c = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
 
-                int bucket_idx =
-                    nBuckets * ((c_axis - centroid_min_axis) / centroid_extent);
-                if (bucket_idx == nBuckets)
-                    bucket_idx = nBuckets - 1;
+                int bucket_idx = (int)((c_axis - aabb_min_axis) / bucket_width);
+                bucket_idx = std::clamp(bucket_idx, 0, nBuckets - 1);
 
                 auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
                 buckets[bucket_idx].box_min =
@@ -170,45 +169,57 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                 buckets[bucket_idx].count++;
             }
 
-            // Compute costs for each split candidate
+            // Precompute right-side buckets (sweep from right to left)
+            std::vector<BucketInfo> right_buckets(nBuckets);
+            for (int i = nBuckets - 1; i >= 0; --i) {
+                if (i == nBuckets - 1) {
+                    right_buckets[i] = buckets[i];
+                } else {
+                    right_buckets[i].box_min =
+                        min(right_buckets[i + 1].box_min, buckets[i].box_min);
+                    right_buckets[i].box_max =
+                        max(right_buckets[i + 1].box_max, buckets[i].box_max);
+                    right_buckets[i].count =
+                        right_buckets[i + 1].count + buckets[i].count;
+                }
+            }
+
+            // Compute costs for each split candidate (sweep from left to right)
+            BucketInfo left_bucket;
             for (int split_bucket = 0; split_bucket < nBuckets - 1;
                  ++split_bucket) {
-                float3 left_min = float3{MAX, MAX, MAX};
-                float3 left_max = float3{-MAX, -MAX, -MAX};
-                int left_count = 0;
-
-                float3 right_min = float3{MAX, MAX, MAX};
-                float3 right_max = float3{-MAX, -MAX, -MAX};
-                int right_count = 0;
-
                 // Accumulate left side
-                for (int i = 0; i <= split_bucket; ++i) {
-                    if (buckets[i].count > 0) {
-                        left_min = min(left_min, buckets[i].box_min);
-                        left_max = max(left_max, buckets[i].box_max);
-                        left_count += buckets[i].count;
+                if (buckets[split_bucket].count > 0) {
+                    if (left_bucket.count == 0) {
+                        left_bucket = buckets[split_bucket];
+                    } else {
+                        left_bucket.box_min = min(
+                            left_bucket.box_min, buckets[split_bucket].box_min);
+                        left_bucket.box_max = max(
+                            left_bucket.box_max, buckets[split_bucket].box_max);
+                        left_bucket.count += buckets[split_bucket].count;
                     }
                 }
 
-                // Accumulate right side
-                for (int i = split_bucket + 1; i < nBuckets; ++i) {
-                    if (buckets[i].count > 0) {
-                        right_min = min(right_min, buckets[i].box_min);
-                        right_max = max(right_max, buckets[i].box_max);
-                        right_count += buckets[i].count;
-                    }
-                }
+                // Right side from precomputed buckets
+                const BucketInfo &right_bucket =
+                    right_buckets[split_bucket + 1];
 
                 // Skip if one side is empty
-                if (left_count == 0 || right_count == 0)
+                if (left_bucket.count == 0 || right_bucket.count == 0)
                     continue;
 
                 // Calculate SAH cost (matching FCPW)
-                float left_area = surface_area(left_min, left_max);
-                float right_area = surface_area(right_min, right_max);
-                float cost = left_count * left_area + right_count * right_area;
+                float left_area =
+                    surface_area(left_bucket.box_min, left_bucket.box_max);
+                float right_area =
+                    surface_area(right_bucket.box_min, right_bucket.box_max);
+                float cost = left_bucket.count * left_area +
+                             right_bucket.count * right_area;
 
-                if (cost < best_cost) {
+                // Use <= to prefer later splits when costs are equal (matches
+                // FCPW)
+                if (cost <= best_cost) {
                     best_cost = cost;
                     best_axis = axis;
                     best_bucket = split_bucket;
@@ -252,13 +263,13 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
         }
 
         // Partition triangles based on best split
-        float centroid_extent =
-            (best_axis == 0)   ? centroid_max.x - centroid_min.x
-            : (best_axis == 1) ? centroid_max.y - centroid_min.y
-                               : centroid_max.z - centroid_min.z;
-        float centroid_min_axis = (best_axis == 0)   ? centroid_min.x
-                                  : (best_axis == 1) ? centroid_min.y
-                                                     : centroid_min.z;
+        float aabb_extent = (best_axis == 0)   ? aabb_max.x - aabb_min.x
+                            : (best_axis == 1) ? aabb_max.y - aabb_min.y
+                                               : aabb_max.z - aabb_min.z;
+        float aabb_min_axis = (best_axis == 0)   ? aabb_min.x
+                              : (best_axis == 1) ? aabb_min.y
+                                                 : aabb_min.z;
+        float bucket_width = aabb_extent / nBuckets;
 
         auto mid_it = std::partition(
             triangles.begin() + low, triangles.begin() + high,
@@ -267,10 +278,8 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                 float c_axis = (best_axis == 0)   ? c.x
                                : (best_axis == 1) ? c.y
                                                   : c.z;
-                int bucket_idx =
-                    nBuckets * ((c_axis - centroid_min_axis) / centroid_extent);
-                if (bucket_idx == nBuckets)
-                    bucket_idx = nBuckets - 1;
+                int bucket_idx = (int)((c_axis - aabb_min_axis) / bucket_width);
+                bucket_idx = std::clamp(bucket_idx, 0, nBuckets - 1);
                 return bucket_idx <= best_bucket;
             });
 
