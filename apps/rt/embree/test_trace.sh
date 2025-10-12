@@ -116,7 +116,7 @@ echo "runs: ${N}, schedule: ${SCHEDULE}"
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  LAYOUTS=("bvh4" "bvh8")
+  LAYOUTS=("bvh8i" "bvh8v")
   echo "-- with layouts: ${LAYOUTS[@]}"
   
 

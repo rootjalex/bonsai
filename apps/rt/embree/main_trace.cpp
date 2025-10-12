@@ -169,16 +169,16 @@ RTCDevice create_device(const std::string &layout) {
     std::string configuration;
 
     if (layout == "auto" || layout == "default") {
-    } else if (layout == "bvh4") {
-        configuration = "tri_accel=bvh4.triangle4";
-    } else if (layout == "bvh8") {
-        configuration = "tri_accel=bvh8.triangle4";
+    } else if (layout == "bvh8i") {
+        configuration = "tri_accel=bvh8.triangle4i";
+    } else if (layout == "bvh8v") {
+        configuration = "tri_accel=bvh8.triangle4v";
     } else {
         std::cerr << "Unknown BVH layout: " << layout << std::endl;
         exit(1);
     }
     // Gathers information about the BVH structure
-    // configuration += ",verbose=2,benchmark=2";
+    configuration += ",verbose=2,benchmark=2";
 
     RTCDevice device = rtcNewDevice(configuration.c_str());
 
