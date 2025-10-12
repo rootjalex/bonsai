@@ -123,7 +123,8 @@ run_tests() {
   rm ${PREFIX}/${MAIN_FILE}.cpp # remove the old c++ file
 }
 
-run_tests "8"
 run_tests "2"
+run_tests "8"
+
 
 exit 0

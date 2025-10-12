@@ -34,28 +34,62 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                                        int max_prims_per_leaf = 8,
                                        int max_tree_depth = 64,
                                        float traversal_cost = 1.0f,
-                                       float intersection_cost = 15.0f) {
+                                       float intersection_cost = 15.0f,
+                                       int num_bins = 32) {
 
-    struct Split {
-        int axis;
-        float positions[7]; // 7 split positions for 8-way
-        float cost;
+    struct Bin {
+        float3 aabb_min = float3{std::numeric_limits<float>::max(),
+                                 std::numeric_limits<float>::max(),
+                                 std::numeric_limits<float>::max()};
+        float3 aabb_max = float3{-std::numeric_limits<float>::max(),
+                                 -std::numeric_limits<float>::max(),
+                                 -std::numeric_limits<float>::max()};
+        uint32_t count = 0;
+
+        void extend(float3 bmin, float3 bmax) {
+            aabb_min = min(aabb_min, bmin);
+            aabb_max = max(aabb_max, bmax);
+            count++;
+        }
+
+        Bin operator+(const Bin &other) const {
+            Bin result;
+            if (count > 0 && other.count > 0) {
+                result.aabb_min = min(aabb_min, other.aabb_min);
+                result.aabb_max = max(aabb_max, other.aabb_max);
+            } else if (count > 0) {
+                result.aabb_min = aabb_min;
+                result.aabb_max = aabb_max;
+            } else if (other.count > 0) {
+                result.aabb_min = other.aabb_min;
+                result.aabb_max = other.aabb_max;
+            }
+            result.count = count + other.count;
+            return result;
+        }
     };
 
     constexpr auto MAX = std::numeric_limits<float>::max();
+    constexpr int NUM_OBJECT_BINS = 32;
+    constexpr int N = 8; // BVH8
 
-    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
-        [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
+    struct BuildRecord {
+        uint32_t begin;
+        uint32_t end;
+        float3 aabb_min;
+        float3 aabb_max;
+    };
+
+    std::function<BVH *(BuildRecord, uint32_t)> build_recursive =
+        [&](BuildRecord record, uint32_t depth) -> BVH * {
         assert(depth < max_tree_depth);
-        uint32_t count = high - low;
-        auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
+        uint32_t count = record.end - record.begin;
 
-        // Create leaf if below threshold
-        if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
-            assert(count > 0);
-            assert(count < max_prims_per_leaf);
+        // Leaf termination
+        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            std::copy(triangles.begin() + low, triangles.begin() + high, data);
+            std::copy(triangles.begin() + record.begin,
+                      triangles.begin() + record.end, data);
             return new BVH(Leaf{
                 .nprims = static_cast<uint8_t>(count),
                 .data = data,
@@ -63,143 +97,219 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         }
 
         // Compute centroid bounds
-        float3 centroid_min = triangle_centroid(triangles[low]);
-        float3 centroid_max = centroid_min;
+        float3 centroid_bounds_min = triangle_centroid(triangles[record.begin]);
+        float3 centroid_bounds_max = centroid_bounds_min;
 
-        for (uint32_t i = low + 1; i < high; ++i) {
+        for (uint32_t i = record.begin + 1; i < record.end; ++i) {
             float3 c = triangle_centroid(triangles[i]);
-            centroid_min = min(centroid_min, c);
-            centroid_max = max(centroid_max, c);
+            centroid_bounds_min = min(centroid_bounds_min, c);
+            centroid_bounds_max = max(centroid_bounds_max, c);
         }
 
-        // Find best 8-way split
-        Split best_split;
-        best_split.cost = MAX;
-        float parent_area = surface_area(aabb_min, aabb_max);
-        float leaf_cost = intersection_cost * count;
+        // Embree strategy: Make multiple binary splits to create N children
+        std::vector<BuildRecord> children;
+        children.push_back(record);
 
-        // Try splitting along each axis
-        for (int axis = 0; axis < 3; ++axis) {
-            float extent = (axis == 0   ? centroid_max.x - centroid_min.x
-                            : axis == 1 ? centroid_max.y - centroid_min.y
-                                        : centroid_max.z - centroid_min.z);
-            if (extent < 1e-6f)
-                continue;
+        // Split each partition binarily, up to log2(N) times
+        for (int split_level = 0; split_level < 3 && children.size() < N;
+             ++split_level) {
+            std::vector<BuildRecord> next_children;
 
-            // Simple approach: divide into 8 equal parts
-            float split_positions[7];
-            float axis_min = (axis == 0   ? centroid_min.x
-                              : axis == 1 ? centroid_min.y
-                                          : centroid_min.z);
-            for (int i = 0; i < 7; ++i) {
-                split_positions[i] = axis_min + (i + 1) * extent / 8.0f;
-            }
+            for (const BuildRecord &child_rec : children) {
+                uint32_t child_count = child_rec.end - child_rec.begin;
 
-            // Evaluate this 8-way split
-            std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
-            std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
-            std::vector<uint32_t> group_counts(8, 0);
+                // If child is too small, don't split it further
+                if (child_count <= max_prims_per_leaf) {
+                    next_children.push_back(child_rec);
+                    continue;
+                }
 
-            // Assign triangles to groups and compute bounds
-            for (uint32_t i = low; i < high; ++i) {
-                float3 c = triangle_centroid(triangles[i]);
-                float c_axis = (axis == 0 ? c.x : axis == 1 ? c.y : c.z);
-                int group = 7; // defaults to last group
-                for (int j = 0; j < 7; ++j) {
-                    if (c_axis < split_positions[j]) {
-                        group = j;
-                        break;
+                // Find best binary split for this child using standard binned
+                // SAH
+                struct BinarySplit {
+                    int axis = -1;
+                    float position = 0.0f;
+                    float sah_cost = std::numeric_limits<float>::max();
+                };
+
+                BinarySplit best_split;
+                float parent_area =
+                    surface_area(child_rec.aabb_min, child_rec.aabb_max);
+                float leaf_cost = intersection_cost * child_count;
+
+                // Recompute centroid bounds for this partition
+                float3 local_centroid_min =
+                    triangle_centroid(triangles[child_rec.begin]);
+                float3 local_centroid_max = local_centroid_min;
+                for (uint32_t i = child_rec.begin + 1; i < child_rec.end; ++i) {
+                    float3 c = triangle_centroid(triangles[i]);
+                    local_centroid_min = min(local_centroid_min, c);
+                    local_centroid_max = max(local_centroid_max, c);
+                }
+
+                // Try all 3 axes
+                for (int axis = 0; axis < 3; ++axis) {
+                    float extent =
+                        (axis == 0)
+                            ? local_centroid_max.x - local_centroid_min.x
+                        : (axis == 1)
+                            ? local_centroid_max.y - local_centroid_min.y
+                            : local_centroid_max.z - local_centroid_min.z;
+
+                    if (extent < 1e-6f)
+                        continue;
+
+                    float centroid_min = (axis == 0)   ? local_centroid_min.x
+                                         : (axis == 1) ? local_centroid_min.y
+                                                       : local_centroid_min.z;
+
+                    // Standard binning
+                    Bin bins[NUM_OBJECT_BINS];
+                    float bin_scale = NUM_OBJECT_BINS / extent;
+
+                    for (uint32_t i = child_rec.begin; i < child_rec.end; ++i) {
+                        float3 centroid = triangle_centroid(triangles[i]);
+                        float c_axis = (axis == 0)   ? centroid.x
+                                       : (axis == 1) ? centroid.y
+                                                     : centroid.z;
+
+                        int bin_idx = static_cast<int>((c_axis - centroid_min) *
+                                                       bin_scale);
+                        bin_idx = std::min(bin_idx, NUM_OBJECT_BINS - 1);
+                        bin_idx = std::max(bin_idx, 0);
+
+                        auto [prim_min, prim_max] =
+                            triangle_bounds(triangles[i]);
+                        bins[bin_idx].extend(prim_min, prim_max);
+                    }
+
+                    // Prefix and suffix sums
+                    Bin left_bins[NUM_OBJECT_BINS - 1];
+                    left_bins[0] = bins[0];
+                    for (int i = 1; i < NUM_OBJECT_BINS - 1; ++i) {
+                        left_bins[i] = left_bins[i - 1] + bins[i];
+                    }
+
+                    Bin right_bins[NUM_OBJECT_BINS - 1];
+                    right_bins[NUM_OBJECT_BINS - 2] = bins[NUM_OBJECT_BINS - 1];
+                    for (int i = NUM_OBJECT_BINS - 3; i >= 0; --i) {
+                        right_bins[i] = bins[i + 1] + right_bins[i + 1];
+                    }
+
+                    // Evaluate all splits
+                    for (int i = 0; i < NUM_OBJECT_BINS - 1; ++i) {
+                        uint32_t left_count = left_bins[i].count;
+                        uint32_t right_count = right_bins[i].count;
+
+                        if (left_count == 0 || right_count == 0)
+                            continue;
+
+                        float left_area = surface_area(left_bins[i].aabb_min,
+                                                       left_bins[i].aabb_max);
+                        float right_area = surface_area(right_bins[i].aabb_min,
+                                                        right_bins[i].aabb_max);
+
+                        float sah = traversal_cost +
+                                    (left_area / parent_area) *
+                                        intersection_cost * left_count +
+                                    (right_area / parent_area) *
+                                        intersection_cost * right_count;
+
+                        if (sah < best_split.sah_cost) {
+                            best_split.axis = axis;
+                            best_split.sah_cost = sah;
+                            best_split.position =
+                                centroid_min +
+                                (i + 1) * (extent / NUM_OBJECT_BINS);
+                        }
                     }
                 }
 
-                auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
-                group_mins[group] = min(group_mins[group], tri_min);
-                group_maxs[group] = max(group_maxs[group], tri_max);
-                group_counts[group]++;
-            }
-
-            // Calculate SAH cost for this split
-            float split_cost = traversal_cost * 7; // 7 internal traversal steps
-            for (int i = 0; i < 8; ++i) {
-                if (group_counts[i] > 0) {
-                    float area = surface_area(group_mins[i], group_maxs[i]);
-                    split_cost += (area / parent_area) * intersection_cost *
-                                  group_counts[i];
+                // If splitting is not beneficial, keep as leaf candidate
+                if (best_split.sah_cost >= leaf_cost) {
+                    next_children.push_back(child_rec);
+                    continue;
                 }
-            }
 
-            if (split_cost < best_split.cost) {
-                best_split.axis = axis;
-                for (int i = 0; i < 7; ++i)
-                    best_split.positions[i] = split_positions[i];
-                best_split.cost = split_cost;
-            }
-        }
+                // Partition this child
+                auto mid_it = std::partition(
+                    triangles.begin() + child_rec.begin,
+                    triangles.begin() + child_rec.end,
+                    [&](const Triangle &tri) {
+                        float3 centroid = triangle_centroid(tri);
+                        float c_axis = (best_split.axis == 0)   ? centroid.x
+                                       : (best_split.axis == 1) ? centroid.y
+                                                                : centroid.z;
+                        return c_axis < best_split.position;
+                    });
 
-        // Check if splitting is worth it
-        if (best_split.cost >= leaf_cost) {
-            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            std::copy(triangles.begin() + low, triangles.begin() + high, data);
-            return new BVH(Leaf{
-                .nprims = static_cast<uint8_t>(count),
-                .data = data,
-            });
-        }
+                uint32_t mid = std::distance(triangles.begin(), mid_it);
 
-        // Partition triangles into 8 groups
-        std::vector<std::vector<uint32_t>> groups(8);
-        for (uint32_t i = low; i < high; ++i) {
-            float3 c = triangle_centroid(triangles[i]);
-            float c_axis = (best_split.axis == 0   ? c.x
-                            : best_split.axis == 1 ? c.y
-                                                   : c.z);
-            int group = 0;
-            for (int j = 0; j < 7; ++j) {
-                if (c_axis >= best_split.positions[j]) {
-                    group = j + 1;
-                } else {
-                    break;
+                // Handle partition failure
+                if (mid == child_rec.begin || mid == child_rec.end) {
+                    mid = child_rec.begin + child_count / 2;
+                    std::nth_element(triangles.begin() + child_rec.begin,
+                                     triangles.begin() + mid,
+                                     triangles.begin() + child_rec.end,
+                                     [&](const Triangle &a, const Triangle &b) {
+                                         float3 ca = triangle_centroid(a);
+                                         float3 cb = triangle_centroid(b);
+                                         float ca_val =
+                                             (best_split.axis == 0)   ? ca.x
+                                             : (best_split.axis == 1) ? ca.y
+                                                                      : ca.z;
+                                         float cb_val =
+                                             (best_split.axis == 0)   ? cb.x
+                                             : (best_split.axis == 1) ? cb.y
+                                                                      : cb.z;
+                                         return ca_val < cb_val;
+                                     });
                 }
+
+                // Create two child records
+                auto [left_min, left_max] =
+                    compute_aabb(child_rec.begin, mid, triangles);
+                auto [right_min, right_max] =
+                    compute_aabb(mid, child_rec.end, triangles);
+
+                next_children.push_back(
+                    BuildRecord{child_rec.begin, mid, left_min, left_max});
+                next_children.push_back(
+                    BuildRecord{mid, child_rec.end, right_min, right_max});
             }
-            groups[group].push_back(i);
+
+            children = std::move(next_children);
+
+            // Stop if we can't split further or have enough children
+            if (children.size() >= N)
+                break;
         }
 
-        // Reorder triangles based on groups
-        std::vector<Triangle> temp_triangles;
-        temp_triangles.reserve(count);
-        std::vector<uint32_t> group_starts(9);
-        group_starts[0] = low;
+        // Now we have up to N children - create Interior node
+        // Interior always has 8 children, so we populate what we have and set
+        // rest to nullptr
+        Interior interior;
 
-        for (int g = 0; g < 8; ++g) {
-            for (uint32_t idx : groups[g]) {
-                temp_triangles.push_back(triangles[idx]);
-            }
-            group_starts[g + 1] = group_starts[g] + groups[g].size();
-        }
-
-        std::copy(temp_triangles.begin(), temp_triangles.end(),
-                  triangles.begin() + low);
-        Interior *node = new Interior();
-        for (int i = 0; i < 8; ++i) {
-            if (group_starts[i] < group_starts[i + 1]) {
-                node->children[i] =
-                    partition(group_starts[i], group_starts[i + 1], depth + 1);
-                auto [child_min, child_max] = compute_aabb(
-                    group_starts[i], group_starts[i + 1], triangles);
-                node->lo[i] = child_min;
-                node->hi[i] = child_max;
+        for (size_t i = 0; i < N; ++i) {
+            if (i < children.size()) {
+                interior.children[i] = build_recursive(children[i], depth + 1);
+                interior.lo[i] = children[i].aabb_min;
+                interior.hi[i] = children[i].aabb_max;
             } else {
-                // empty child
-                node->children[i] = nullptr;
-                node->lo[i] = float3{MAX, MAX, MAX};
-                node->hi[i] = float3{-MAX, -MAX, -MAX};
+                interior.children[i] = nullptr;
+                interior.lo[i] = float3{MAX, MAX, MAX};
+                interior.hi[i] = float3{-MAX, -MAX, -MAX};
             }
         }
 
-        return new BVH(*node);
+        return new BVH(interior);
     };
 
-    return partition(0, triangles.size(), 0);
+    // Start the build
+    auto [root_min, root_max] = compute_aabb(0, triangles.size(), triangles);
+    BuildRecord root_record{0, (uint32_t)triangles.size(), root_min, root_max};
+
+    return build_recursive(root_record, 0);
 }
 
 inline void free_canonical_tree_8(BVH *node) {

@@ -92,15 +92,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 }
 
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
-                                int max_prims_per_leaf, int max_tree_depth,
-                                float traversal_cost = 1.0f,
-                                float intersection_cost = 15.0f) {
-    struct Split {
-        int axis;
-        float position;
-        float cost;
-    };
-
+                                int max_prims_per_leaf, int max_tree_depth) {
     constexpr auto MAX = std::numeric_limits<float>::max();
 
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
@@ -135,10 +127,10 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             centroid_max = max(centroid_max, c);
         }
 
-        // Find best split using SAH.
-        Split best_split = {-1, 0.0f, MAX};
-        float parent_area = surface_area(aabb_min, aabb_max);
-        float leaf_cost = intersection_cost * count;
+        // Find best split using surface area heuristic.
+        int best_axis = -1;
+        float best_position = 0.0f;
+        float best_cost = MAX;
 
         // Try splitting along each axis.
         for (int axis = 0; axis < 3; ++axis) {
@@ -184,54 +176,20 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             if (left_count == 0 || right_count == 0)
                 continue;
 
-            // Calculate SAH cost for this split
+            // Calculate cost using surface area heuristic (matching FCPW)
             float left_area = surface_area(left_min, left_max);
             float right_area = surface_area(right_min, right_max);
+            float cost = left_count * left_area + right_count * right_area;
 
-            float cost =
-                traversal_cost +
-                (left_area / parent_area) * intersection_cost * left_count +
-                (right_area / parent_area) * intersection_cost * right_count;
-
-            if (cost < best_split.cost) {
-                best_split.axis = axis;
-                best_split.position = split_position;
-                best_split.cost = cost;
+            if (cost < best_cost) {
+                best_axis = axis;
+                best_position = split_position;
+                best_cost = cost;
             }
         }
 
-        if (best_split.axis == -1 || best_split.cost >= leaf_cost) {
-            if (count > max_prims_per_leaf) {
-                uint32_t mid = low + count / 2;
-                std::nth_element(
-                    triangles.begin() + low, triangles.begin() + mid,
-                    triangles.begin() + high,
-                    [&](const Triangle &a, const Triangle &b) {
-                        float3 ca = triangle_centroid(a);
-                        float3 cb = triangle_centroid(b);
-                        float3 extent = aabb_max - aabb_min;
-                        int axis = (extent.x > extent.y && extent.x > extent.z)
-                                       ? 0
-                                   : (extent.y > extent.z) ? 1
-                                                           : 2;
-                        float ca_val = (axis == 0)   ? ca.x
-                                       : (axis == 1) ? ca.y
-                                                     : ca.z;
-                        float cb_val = (axis == 0)   ? cb.x
-                                       : (axis == 1) ? cb.y
-                                                     : cb.z;
-                        return ca_val < cb_val;
-                    });
-
-                BVH *left = partition(low, mid, depth + 1);
-                BVH *right = partition(mid, high, depth + 1);
-                return new BVH(Interior{
-                    .low = aabb_min,
-                    .high = aabb_max,
-                    .left = left,
-                    .right = right,
-                });
-            }
+        if (best_axis == -1) {
+            // No valid split found, create leaf
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[low + i];
@@ -249,10 +207,10 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             std::partition(triangles.begin() + low, triangles.begin() + high,
                            [&](const Triangle &tri) {
                                float3 c = triangle_centroid(tri);
-                               float c_axis = (best_split.axis == 0)   ? c.x
-                                              : (best_split.axis == 1) ? c.y
-                                                                       : c.z;
-                               return c_axis < best_split.position;
+                               float c_axis = (best_axis == 0)   ? c.x
+                                              : (best_axis == 1) ? c.y
+                                                                 : c.z;
+                               return c_axis < best_position;
                            });
 
         uint32_t mid = std::distance(triangles.begin(), mid_it);
@@ -266,14 +224,12 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                              [&](const Triangle &a, const Triangle &b) {
                                  float3 ca = triangle_centroid(a);
                                  float3 cb = triangle_centroid(b);
-                                 float ca_axis = (best_split.axis == 0) ? ca.x
-                                                 : (best_split.axis == 1)
-                                                     ? ca.y
-                                                     : ca.z;
-                                 float cb_axis = (best_split.axis == 0) ? cb.x
-                                                 : (best_split.axis == 1)
-                                                     ? cb.y
-                                                     : cb.z;
+                                 float ca_axis = (best_axis == 0)   ? ca.x
+                                                 : (best_axis == 1) ? ca.y
+                                                                    : ca.z;
+                                 float cb_axis = (best_axis == 0)   ? cb.x
+                                                 : (best_axis == 1) ? cb.y
+                                                                    : cb.z;
                                  return ca_axis < cb_axis;
                              });
         }

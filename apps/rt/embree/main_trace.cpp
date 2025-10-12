@@ -26,26 +26,6 @@
 
 namespace {
 
-// Pin the current thread to a core (0-based)
-inline void pin_thread_to_core(int core_id) {
-#ifdef __APPLE__
-    thread_affinity_policy_data_t policy = {core_id};
-    thread_port_t thread = mach_thread_self();
-    thread_policy_set(thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy,
-                      THREAD_AFFINITY_POLICY_COUNT);
-#endif
-}
-
-// Raise thread priority (best effort)
-inline void set_high_priority() {
-#ifdef __APPLE__
-    pthread_t t = pthread_self();
-    sched_param param;
-    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-    pthread_setschedparam(t, SCHED_FIFO, &param);
-#endif
-}
-
 // Simple structures
 struct Vec3 {
     float x, y, z;
@@ -187,6 +167,7 @@ RTCDevice create_device(const std::string &layout) {
 RTCScene create_scene(RTCDevice device,
                       const std::vector<Triangle> &triangles) {
     RTCScene scene = rtcNewScene(device);
+    rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_MEDIUM); // binned-SAH
     RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
 
     // Allocate vertex buffer
@@ -298,10 +279,6 @@ void run(std::string object, std::string layout, bool is_single_threaded,
          std::string ray_type, std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
 
-    // Optional: pin main thread and raise priority
-    pin_thread_to_core(0);
-    set_high_priority();
-
     // Load triangles (replace with your actual loader)
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -362,7 +339,6 @@ void run(std::string object, std::string layout, bool is_single_threaded,
             {
                 const int tid = omp_get_thread_num();
                 auto &hits = hits_per_thread[tid];
-                pin_thread_to_core(tid);
 
 #pragma omp for schedule(dynamic, 64) nowait
                 for (size_t i = 0; i < rays.size(); ++i) {
