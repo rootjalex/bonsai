@@ -76,10 +76,10 @@ run_tests() {
   for OBJECT in "${OBJECTS[@]}"; do
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "--- ${OBJECT} - ${LAYOUT} ---"
-      echo "--- ${OBJECT} - ${LAYOUT} - ${N_QUERIES} ---" >> ${PREFIX}/results/${LAYOUT}.txt
       if [[ ("${LAYOUT}" == "cl-bvh8-idx" || "${LAYOUT}" == "cl-bvh8-idx-align16") && "${OBJECT}" == "lucy" ]]; then
         continue # 2^28 > 2^26
       fi
+      echo "--- ${OBJECT} - ${LAYOUT} - ${N_QUERIES} ---" >> ${PREFIX}/results/${LAYOUT}.txt
 
       # 0. Combine the layout and schedule into a single file.
       LAYOUT_FILE=$(mktemp).bonsai
