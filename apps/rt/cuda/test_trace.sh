@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza" "power-plant")
+OBJECTS=("sheep" "lucy" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza" "power-plant")
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -202,7 +202,7 @@ else
   echo "running tests with 2-BVH..."
   run_tests "2"
   echo "... tests complete for 2-BVH"
-  
+
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"
