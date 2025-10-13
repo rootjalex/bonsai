@@ -28,6 +28,7 @@ N_QUERIES="${2:-1000}"
 OBJECTS=("white-oak" "lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "sponza" "power-plant")
 
 # only run on performance cores for the Fredwood.
+# TODO(cgyurgyik): this was causing performance regressions.
 FREDWOOD_FLAG="" # "numactl --physcpubind 0-15" 
 
 if [[ "${DRY_RUN}" == true ]]; then

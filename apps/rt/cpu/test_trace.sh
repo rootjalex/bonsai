@@ -52,6 +52,7 @@ MIN_POWER=15
 MAX_POWER=22
 
 # only run on performance cores for the Fredwood.
+# TODO(cgyurgyik): this was causing performance regressions.
 FREDWOOD_FLAG="" # "numactl --physcpubind 0-15" 
 
 # Override for dry run.
@@ -248,7 +249,7 @@ else
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"
-  
+
   echo "running tests with 2-BVH..."
   run_tests "2"  
   echo "... tests complete for 2-BVH"

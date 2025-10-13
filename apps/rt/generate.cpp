@@ -610,7 +610,6 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
     float3 bbox_size = bbox.max - bbox.min;
     float max_dim = std::max({bbox_size.x, bbox_size.y, bbox_size.z});
 
-    // Try both landscape (16:9) and portrait (9:16) orientations
     struct AspectConfig {
         float aspect_ratio;
         std::string name;
@@ -650,7 +649,7 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
         std::cerr << "generating rays for " << width << "x" << height
                   << " image (" << (width * height) << " rays)..." << std::endl;
 
-        // Try different camera configurations to maximize hit rate
+        // Try different camera configurations to maximize hit rate.
         struct CameraConfig {
             float3 position_offset;
             float fov;
@@ -694,7 +693,7 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
             rays.reserve(width * height);
             int hits = 0;
 
-            // Generate rays in scanline order (coherent)
+            // Generate rays in scanline order (coherent).
             for (int j = 0; j < height; j++) {
                 for (int i = 0; i < width; i++) {
                     float u =
@@ -729,7 +728,7 @@ std::vector<Ray> generate_camera_rays(const std::vector<Triangle> &triangles,
                 best_overall_rays = std::move(rays);
                 best_aspect_name = aspect.name;
                 if (hit_rate > 0.75) {
-                    break; // good enough
+                    break; // ...good enough for a government job.
                 }
             }
         }
@@ -750,9 +749,6 @@ std::vector<Ray> generate_secondary_rays(const std::vector<Triangle> &triangles,
     std::cerr
         << "generating secondary rays by tracing optimized camera rays first..."
         << std::endl;
-
-    // Reuse the optimized camera ray generation which already maximizes hit
-    // rate
     int camera_ray_count = count * 2;
     std::vector<Ray> camera_rays =
         generate_camera_rays(triangles, camera_ray_count, bvh);
@@ -781,8 +777,6 @@ std::vector<Ray> generate_secondary_rays(const std::vector<Triangle> &triangles,
             << std::endl;
         return {};
     }
-
-    // Generate secondary rays from hit points
     std::vector<Ray> secondary_rays;
     secondary_rays.reserve(count);
 
@@ -790,22 +784,20 @@ std::vector<Ray> generate_secondary_rays(const std::vector<Triangle> &triangles,
     std::mt19937 generator(rd());
 
     for (int i = 0; i < count; i++) {
-        // Cycle through hit points
         int hit_idx = i % hit_points.size();
         const HitRecord &hit = hit_points[hit_idx];
 
-        // Generate a random direction in the hemisphere around the normal
+        // Generate a random direction in the hemisphere around the normal.
         float3 bounce_dir = random_hemisphere_direction(hit.normal, generator);
 
         Ray secondary_ray;
-        // Offset origin slightly along normal to avoid self-intersection
+        // Offset origin slightly along normal to avoid self-intersection.
         secondary_ray.o = hit.point + hit.normal * 0.001f;
         secondary_ray.d = bounce_dir;
 
         secondary_rays.push_back(secondary_ray);
     }
 
-    // Count how many secondary rays hit geometry
     int hits = 0;
     for (const Ray &ray : secondary_rays) {
         if (bvh.intersect(ray)) {

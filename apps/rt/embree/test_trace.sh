@@ -56,6 +56,7 @@ MIN_POWER=15
 MAX_POWER=22
 
 # only run on performance cores for the Fredwood.
+# TODO(cgyurgyik): this was causing performance regressions.
 FREDWOOD_FLAG="" # "numactl --physcpubind 0-15" 
 
 # Override for dry run.

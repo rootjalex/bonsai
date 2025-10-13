@@ -5,7 +5,6 @@ project(closest_point_benchmark)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Fetch dependencies (only once)
 include(FetchContent)
 FetchContent_Declare(
     polyscope
@@ -26,7 +25,6 @@ FetchContent_MakeAvailable(fcpw)
 
 find_package(Eigen3 REQUIRED)
 
-# Create an object library for the main file (compiled once per BVH type)
 add_library(main_${BVH_SUFFIX}_obj OBJECT main_${BVH_SUFFIX}.cpp)
 target_include_directories(main_${BVH_SUFFIX}_obj
     PRIVATE
@@ -58,7 +56,6 @@ if(NOT EXISTS "${BONSAI_SOURCE}")
     message(FATAL_ERROR "Generated source not found: ${BONSAI_SOURCE}")
 endif()
 
-# Link the object file with the layout-specific generated code
 add_executable(${APPLICATION}_${LAYOUT}.out
     ${BONSAI_SOURCE}
     $<TARGET_OBJECTS:main_${BVH_SUFFIX}_obj>

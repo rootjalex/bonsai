@@ -3,7 +3,6 @@ import os
 from collections import defaultdict
 import numpy as np
 
-# Default layout groups
 DEFAULT_LAYOUT_GROUPS = {
     'bvh8': ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16',
              'cl-bvh8-idx', 'cl-bvh8-idx-align16',
@@ -41,16 +40,13 @@ def parse_benchmark_file(filename):
             i += 1
             continue
 
-        # Check if this is a size line (numeric)
         if line.isdigit() and current_model and current_config:
             size = int(line)
-            # Next line should be hits
             if i + 1 < len(lines) and 'hits' in lines[i + 1]:
                 hits_line = lines[i + 1].strip()
                 hits = int(hits_line.split(':')[1].strip())
                 results[current_model][current_config][size].append(hits)
             i += 1
-        # Check if line is a model name (not empty, not starting with rt,, not hits/trace)
         elif line and not line.startswith('rt,') and 'hits' not in line and 'trace time' not in line:
             current_model = line
             i += 1
@@ -61,7 +57,6 @@ def parse_benchmark_file(filename):
 
 
 def get_layout_from_config(config):
-    """Extract layout name from config string 'machine, layout'."""
     parts = config.split(',')
     if len(parts) >= 2:
         return parts[1].strip()
@@ -69,8 +64,6 @@ def get_layout_from_config(config):
 
 
 def filter_by_layout_group(results, layout_groups):
-    """Filter results to only include layouts in the specified groups."""
-    # Flatten all layouts from groups
     valid_layouts = set()
     for group_layouts in layout_groups.values():
         valid_layouts.update(group_layouts)
@@ -87,21 +80,17 @@ def filter_by_layout_group(results, layout_groups):
 
 
 def analyze_differences(results):
-    """Print layouts that have differences from ptr baseline."""
-
     for model in sorted(results.keys()):
         print(f"\n{'='*80}")
         print(f"Model: {model}")
         print('='*80)
 
-        # Get all unique ray counts for this model
         ray_counts = set()
         for config in results[model].keys():
             ray_counts.update(results[model][config].keys())
         ray_counts = sorted(ray_counts)
 
         for ray_count in ray_counts:
-            # Find ptr baseline for this ray count
             ptr_avg = None
             for config in results[model].keys():
                 layout = get_layout_from_config(config)
@@ -117,8 +106,6 @@ def analyze_differences(results):
 
             print(
                 f"\n  Ray count {ray_count} (ptr baseline: {int(ptr_avg)} hits):")
-
-            # Check each layout against ptr
             has_differences = False
             for config in sorted(results[model].keys()):
                 if ray_count in results[model][config]:
@@ -127,9 +114,7 @@ def analyze_differences(results):
                         avg = np.mean(hits_list)
                         diff = avg - ptr_avg
                         layout = get_layout_from_config(config)
-
-                        # Only print if there's a difference
-                        if abs(diff) > 0.5:  # Using 0.5 to account for floating point
+                        if abs(diff) > 0.5:
                             has_differences = True
                             sign = '+' if diff > 0 else ''
                             print(
@@ -149,8 +134,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     filename = sys.argv[1]
-
-    # Determine which layout group to use
     if len(sys.argv) >= 3:
         group_name = sys.argv[2]
         if group_name in DEFAULT_LAYOUT_GROUPS:
@@ -161,7 +144,6 @@ if __name__ == "__main__":
             print("Available groups:", ", ".join(DEFAULT_LAYOUT_GROUPS.keys()))
             sys.exit(1)
     else:
-        # Use all layouts
         layout_groups = DEFAULT_LAYOUT_GROUPS
         print("Using all layout groups")
 

@@ -219,34 +219,25 @@ std::vector<Triangle> load_obj(const std::string &object) {
     return triangles;
 }
 
-// Runs a closest point query test on an OBJ file for Bonsai and FCPW
 void run_test(const std::string &obj1, int64_t num_queries) {
     using clock = std::chrono::high_resolution_clock;
-
-    // Load mesh using tinyobj
     std::vector<Triangle> triangles = load_obj(obj1);
     assert(!triangles.empty());
 
-    // Extract vertices and build indices from triangles
     std::vector<fcpw::Vector3> vertices1;
     std::vector<fcpw::Vector3i> indices1;
 
-    // Reserve space for efficiency
     vertices1.reserve(triangles.size() * 3);
     indices1.reserve(triangles.size());
 
     for (const Triangle &tri : triangles) {
-        // Add the three vertices of this triangle
         int idx0 = vertices1.size();
         vertices1.emplace_back(tri.p0[0], tri.p0[1], tri.p0[2]);
-
         int idx1 = vertices1.size();
         vertices1.emplace_back(tri.p1[0], tri.p1[1], tri.p1[2]);
-
         int idx2 = vertices1.size();
         vertices1.emplace_back(tri.p2[0], tri.p2[1], tri.p2[2]);
 
-        // Add the triangle indices
         indices1.emplace_back(idx0, idx1, idx2);
     }
 
@@ -328,7 +319,6 @@ void run_test(const std::string &obj1, int64_t num_queries) {
         bool found =
             fcpw_scene.findClosestPoint(query_points[i], closest_interaction);
         assert(found);
-        // Store the distance reported by FCPW
         fcpw_distances.push_back(closest_interaction.d);
     }
     t1 = clock::now();
@@ -348,7 +338,7 @@ void run_test(const std::string &obj1, int64_t num_queries) {
         };
         Triangle result = closest_point(&point, &tree);
 
-        // Compute the actual distance to the returned triangle
+        // Compute the actual distance to the returned triangle.
         float dist = distmin(&point, &result);
         bonsai_distances.push_back(dist);
     }

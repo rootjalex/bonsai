@@ -139,7 +139,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                                               : aabb_max.z - aabb_min.z;
 
             if (aabb_extent < 1e-6f)
-                continue; // Skip degenerate axis.
+                continue; // ...skip degenerate axis
 
             float aabb_min_axis = (axis == 0)   ? aabb_min.x
                                   : (axis == 1) ? aabb_min.y
@@ -321,7 +321,7 @@ enum class Heuristic {
 
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
                             Heuristic heuristic = Heuristic::SurfaceArea,
-                            int max_prims_per_leaf = 4, // same as FCPW
+                            int max_prims_per_leaf = 4, // same as FCPW default!
                             int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:

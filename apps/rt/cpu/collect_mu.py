@@ -65,14 +65,9 @@ def parse_layout_memory_and_nodes(data_text):
             count = data[model]['pbrt']['nodes']['nodes']
             POINTER_NODE_SIZE = 44  # (calculated manually)
             memory = count * POINTER_NODE_SIZE
-
-            # Add to ptr layout's memory
             data[model]['ptr']['memory'] += memory
-
-            # Store node memory in ptr layout's nodes dictionary as 'nodes'
             data[model]['ptr']['nodes']['nodes'] = memory
 
-    # Convert to regular dict
     result = {}
     for model in data:
         result[model] = {}
@@ -104,6 +99,4 @@ if __name__ == "__main__":
     except IOError as e:
         print(f"Error reading file '{filename}': {e}")
         sys.exit(1)
-
-    # Parse data
     print(parse_layout_memory_and_nodes(data_text))
