@@ -17,7 +17,6 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
-// FCPW includes
 #include <fcpw/fcpw.h>
 
 namespace {
