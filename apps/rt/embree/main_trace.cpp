@@ -151,7 +151,7 @@ RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
     }
     configuration += " quality=medium,max_triangles_per_leaf=32";
     // Gathers information about the BVH structure
-    // configuration += ",verbose=2,benchmark=2";
+    configuration += ",verbose=2,benchmark=2";
 
     RTCDevice device = rtcNewDevice(configuration.c_str());
 
@@ -382,7 +382,7 @@ int main(int argc, char *argv[]) {
     std::vector<int64_t> ray_counts;
     const int64_t size = std::atoi(argv[i++]);
     ray_counts.reserve(size);
-    for (; i < 5 + size; ++i)
+    for (; i < 6 + size; ++i)
         ray_counts.push_back(std::atoi(argv[i]));
     run(object_file, bvh_layout, is_single_threaded, ray_type, ray_counts);
     return 0;
