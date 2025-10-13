@@ -342,11 +342,11 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python pareto_plotter.py <data_file> [mean_type]")
-        print("  mean_type: 'geomean' (default) or 'arithmetic'")
+        print("  mean_type: 'arithmetic' (default) or 'geomean'")
         sys.exit(1)
 
     filename = sys.argv[1]
-    mean_type = sys.argv[2] if len(sys.argv) > 2 else 'geomean'
+    mean_type = sys.argv[2] if len(sys.argv) > 2 else 'arithmetic'
 
     if mean_type not in ['geomean', 'arithmetic']:
         print(
