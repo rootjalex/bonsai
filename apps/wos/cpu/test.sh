@@ -97,36 +97,30 @@ run_tests() {
       # 3. build the main hook and final executable
       cd ${PREFIX}
       mkdir -p build && cd build
-      BUILD_DIRECTORY="build_${BVH_SUFFIX}_${LAYOUT}"  # Unique per {branching factor, layout}.
+      BUILD_DIRECTORY="build_${BVH_SUFFIX}_${LAYOUT}"  # unique per {branching factor, layout}.
       mkdir -p ${BUILD_DIRECTORY}
       cd ${BUILD_DIRECTORY}
       
-      # Configure CMake with layout parameter
       export LDFLAGS="-Wl,-no_warn_duplicate_libraries"
       cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} ../.. # > /dev/null
       
-      # Build the executable
       make -j # > /dev/null 2>&1
       
       cd ../..    # back to PREFIX
       cd ../../.. # back to root
       
-      # run (executable is now in the build directory)
       for ((k=0; k < N; k++)); do
         ./${PREFIX}/build/${BUILD_DIRECTORY}/${APPLICATION}_${LAYOUT}.out "${OBJECT}" ${N_QUERIES} >> ${PREFIX}/results/${LAYOUT}.txt
       done
       
-      # clean up
       rm -f ${PREFIX}/${APPLICATION}.h
       rm -f ${PREFIX}/${APPLICATION}.cpp
     done
   done
 
-  rm ${PREFIX}/${MAIN_FILE}.cpp # remove the old c++ file
+  rm ${PREFIX}/${MAIN_FILE}.cpp
 }
 
 run_tests "2"
-
-
 
 exit 0
