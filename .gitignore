@@ -17,6 +17,8 @@ apps/cd/cpu/results/*
 apps/wos/cpu/results/*
 
 apps/rt/cpu/results-camera/*
+apps/rt/cpu/results-secondary/*
+apps/rt/cuda/results-camera/*
 apps/rt/cuda/results-secondary/*
 apps/rt/embree/results-camera/*
 apps/rt/embree/results-secondary/*

@@ -71,7 +71,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 void run(std::string object, std::string partition, bool is_single_threaded,
-         std::vector<int64_t> ray_counts, std::string ray_type) {
+         std::vector<int64_t> ray_counts, std::string ray_type,
+         std::string layout) {
     using clock = std::chrono::high_resolution_clock;
 
     std::vector<Triangle> triangles = load_obj(object);
@@ -88,7 +89,13 @@ void run(std::string object, std::string partition, bool is_single_threaded,
         exit(1);
     }
 
-    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
+    // we have at most 4 bits for the snapped-grid extent quantization and can
+    // add an additional value since we know this value will always be non-zero.
+    // Otherwise, we use embree's default.
+    const int32_t max_prims_per_leaf = layout.starts_with("eq") ? 15 : 32;
+    BVH *canonical_tree =
+        build_canonical_tree_$N$(triangles, heuristic, max_prims_per_leaf);
+
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
 
@@ -159,7 +166,7 @@ void run(std::string object, std::string partition, bool is_single_threaded,
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 6);
+    assert(argc > 7);
     int i = 1;
     std::string object_file = argv[i++];
     std::string partition = argv[i++];
@@ -167,13 +174,15 @@ int main(int argc, char *argv[]) {
     assert(schedule == "single-thread" || schedule == "parallel");
     const bool is_single_threaded = schedule == "single-thread";
     std::string ray_type = argv[i++];
+    std::string layout = argv[i++];
 
     std::vector<int64_t> ray_counts;
     const int64_t size = std::atoi(argv[i++]);
     ray_counts.reserve(size);
-    for (; i < 5 + size; ++i)
+    for (; i < 7 + size; ++i)
         ray_counts.push_back(std::atoi(argv[i]));
 
-    run(object_file, partition, is_single_threaded, ray_counts, ray_type);
+    run(object_file, partition, is_single_threaded, ray_counts, ray_type,
+        layout);
     return 0;
 }

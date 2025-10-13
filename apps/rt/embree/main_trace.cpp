@@ -137,7 +137,7 @@ void error_function(void *ptr, enum RTCError error, const char *str) {
 }
 
 // Create Embree device with specific BVH layout
-RTCDevice create_device(const std::string &layout) {
+RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
     std::string configuration;
 
     if (layout == "auto" || layout == "default") {

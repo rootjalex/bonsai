@@ -45,7 +45,7 @@ DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
 DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
-MIN_POWER=15
+MIN_POWER=20
 MAX_POWER=25
 
 echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
@@ -159,10 +159,6 @@ run_tests() {
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
-      if [[ ("${LAYOUT}" == "cl-bvh8-idx" || "${LAYOUT}" == "cl-bvh8-idx-align16") && "${OBJECT}" == "lucy" ]]; then
-        # 2^28 > 2^26
-        continue
-      fi
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
       
@@ -177,7 +173,7 @@ run_tests() {
       nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
       
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${RAY_TYPE} ${ARGV}"
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${RAY_TYPE} ${LAYOUT} ${ARGV}"
       if [[ "${DEBUG_MODE}" == true ]]; then
         EXECUTE="compute-sanitizer ${EXECUTE}"
       fi

@@ -127,7 +127,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 void run(const std::string &object, const std::string &partition,
-         const std::string &ray_type, const std::vector<int64_t> &ray_counts) {
+         const std::string &ray_type, const std::string &layout,
+         const std::vector<int64_t> &ray_counts) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -142,7 +143,13 @@ void run(const std::string &object, const std::string &partition,
         std::cout << std::flush;
         exit(1);
     }
-    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
+    // we have at most 4 bits for the snapped-grid extent quantization and can
+    // add an additional value since we know this value will always be non-zero.
+    // Otherwise, we use embree's default.
+    const int32_t max_prims_per_leaf = layout.starts_with("eq") ? 16 : 32;
+    BVH *canonical_tree =
+        build_canonical_tree_$N$(triangles, heuristic, max_prims_per_leaf);
+
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
 
@@ -197,20 +204,21 @@ bool is_digit(std::string s) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 5);
+    assert(argc > 6);
     int i = 1;
     std::string object_file = argv[i++];
     std::string partition = argv[i++];
     std::string ray_type = argv[i++];
+    std::string layout = argv[i++];
     std::vector<int64_t> ray_counts;
     assert(is_digit(argv[i]));
     const int64_t size = std::atoi(argv[i++]);
 
     ray_counts.reserve(size);
-    for (; i < 4 + size; ++i) {
+    for (; i < 6 + size; ++i) {
         assert(is_digit(argv[i]));
         ray_counts.push_back(std::atoi(argv[i]));
     }
-    run(object_file, partition, ray_type, ray_counts);
+    run(object_file, partition, ray_type, layout, ray_counts);
     return 0;
 }

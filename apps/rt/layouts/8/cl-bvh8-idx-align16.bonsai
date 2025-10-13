@@ -98,7 +98,7 @@ schedule {
         group _ by I {
             split I[0:1] {
                 1 -> Interior from Interiors[I[2:31]];
-                0 -> Leaf { nprims = cast[[u8]](I[2:5] + 1); data = primitives[I[6:31] : I[6:31] + nprims]; };
+                0 -> Leaf { nprims = cast[[u8]](I[2:6] + 1); data = primitives[I[7:31] : I[7:31] + nprims]; };
             };
         };
     };
@@ -114,6 +114,6 @@ schedule {
 
       build Leaf(nprims: u8, data: array[Triangle, nprims]) {
         let poffset: u32 = append(data, nprims);
-        return cast[[u32]]((poffset << cast[[u32]](6)) | ((nprims - cast[[u32]](1)) << cast[[u32]](2)) | cast[[u32]](0));
+        return cast[[u32]]((poffset << cast[[u32]](7)) | ((nprims - cast[[u32]](1)) << cast[[u32]](2)) | cast[[u32]](0));
       };
     };

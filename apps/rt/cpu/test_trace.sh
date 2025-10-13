@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("sheep" "lucy" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
+OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -48,8 +48,8 @@ DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
 DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
-MIN_POWER=15
-MAX_POWER=22
+MIN_POWER=20
+MAX_POWER=25
 
 # only run on performance cores for the Fredwood.
 # TODO(cgyurgyik): this was causing performance regressions.
@@ -59,13 +59,13 @@ FREDWOOD_FLAG="" # "numactl --physcpubind 0-15"
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=1
+  N=2
 fi
 
 # Override for debug mode
 if [[ "${DEBUG_MODE}" == true ]]; then
   echo "*** DEBUG MODE: testing layout ${DEBUG_LAYOUT} only ***"
-  MAX_POWER=${MIN_POWER}
+  MAX_POWER=${MIN_POWER}+1
   N=2
   OBJECTS=("${OBJECTS[0]}")
   
@@ -167,10 +167,6 @@ run_tests() {
     echo "object: ${OBJECT}" 
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
-      if [[ ("${LAYOUT}" == "cl-bvh8-idx" || "${LAYOUT}" == "cl-bvh8-idx-align16") && "${OBJECT}" == "lucy" ]]; then
-        # 2^28 > 2^26
-        continue
-      fi
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
       echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
       # 0. Combine the layout and schedule into a single file.
@@ -218,7 +214,7 @@ run_tests() {
       
       # 4. Run it.
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${SCHEDULE} ${RAY_TYPE} ${ARGV}"
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${SCHEDULE} ${RAY_TYPE} ${LAYOUT} ${ARGV}"
       echo "${EXECUTE}"
       if [[ "$(uname)" == "Linux" ]]; then
         EXECUTE="${FREDWOOD_FLAG} ${EXECUTE}"
@@ -246,13 +242,13 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   echo "... debug test complete"
 else
 
-  echo "running tests with 8-BVH..."
-  run_tests "8"
-  echo "... tests complete for 8-BVH"
-
   echo "running tests with 2-BVH..."
   run_tests "2"  
   echo "... tests complete for 2-BVH"
+  
+  echo "running tests with 8-BVH..."
+  run_tests "8"
+  echo "... tests complete for 8-BVH"
 
   # echo "running tests with 8-mixed-BVH..."
   # run_tests "8_mixed"
