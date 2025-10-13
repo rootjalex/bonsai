@@ -198,13 +198,14 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   echo "... debug test complete"
 else
 
-  echo "running tests with 8-BVH..."
-  run_tests "8"
-  echo "... tests complete for 8-BVH"
 
   echo "running tests with 2-BVH..."
   run_tests "2"
   echo "... tests complete for 2-BVH"
+  
+  echo "running tests with 8-BVH..."
+  run_tests "8"
+  echo "... tests complete for 8-BVH"
 
   # echo "running tests with 8-mixed-BVH..."
   # run_tests "8_mixed"

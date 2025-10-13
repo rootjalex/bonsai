@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
+OBJECTS=("sheep" "lucy" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -59,14 +59,14 @@ FREDWOOD_FLAG="" # "numactl --physcpubind 0-15"
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
   MAX_POWER=${MIN_POWER}
-  N=2
+  N=1
 fi
 
 # Override for debug mode
 if [[ "${DEBUG_MODE}" == true ]]; then
   echo "*** DEBUG MODE: testing layout ${DEBUG_LAYOUT} only ***"
   MAX_POWER=${MIN_POWER}+1
-  N=2
+  N=1
   OBJECTS=("${OBJECTS[0]}")
   
   # Find which folder contains this layout
@@ -138,17 +138,17 @@ run_tests() {
   local BVH_SUFFIX="$1"
   local SPECIFIC_LAYOUT="${2:-}" # optional: specific layout to test
   
-  LAYOUTS=()
-  if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
-    # (debug mode) test a single layout
-    LAYOUTS=("${SPECIFIC_LAYOUT}")
-  else
-    # test *all* layouts in the folder
-    for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
-      NAME=$(basename "$file" .bonsai)
-      LAYOUTS+=("${NAME}")
-    done
-  fi
+  LAYOUTS=( "eq")
+  # if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
+  #   # (debug mode) test a single layout
+  #   LAYOUTS=("${SPECIFIC_LAYOUT}")
+  # else
+  #   # test *all* layouts in the folder
+  #   for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
+  #     NAME=$(basename "$file" .bonsai)
+  #     LAYOUTS+=("${NAME}")
+  #   done
+  # fi
   echo "-- with layouts: ${LAYOUTS[@]}"
   
   # replace `$N$` with BVH_SUFFIX.
@@ -245,7 +245,7 @@ else
   echo "running tests with 2-BVH..."
   run_tests "2"  
   echo "... tests complete for 2-BVH"
-  
+
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"

@@ -95,8 +95,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                                 int max_prims_per_leaf, int max_tree_depth,
                                 float traversal_cost = 1.0f,
-                                float intersection_cost = 15.0f,
-                                int num_bins = 32) {
+                                float intersection_cost = 10.0f) {
 
     struct Bin {
         float3 aabb_min = float3{std::numeric_limits<float>::max(),
@@ -337,8 +336,7 @@ enum class Heuristic {
 };
 
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
-                            Heuristic heuristic = Heuristic::SurfaceArea,
-                            int max_prims_per_leaf = 32,
+                            Heuristic heuristic, int max_prims_per_leaf,
                             int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
