@@ -274,8 +274,9 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
         return new BVH(interior);
     };
-    auto [root_min, root_max] = compute_aabb(0, triangles.size(), triangles);
-    BuildRecord root{0, triangles.size(), root_min, root_max};
+    const uint32_t high = static_cast<uint32_t>(triangles.size());
+    auto [root_min, root_max] = compute_aabb(0, high, triangles);
+    BuildRecord root{0, high, root_min, root_max};
     return build_recursive(root, 0);
 }
 
