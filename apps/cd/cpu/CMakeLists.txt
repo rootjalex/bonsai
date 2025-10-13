@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
 project(collision-detection LANGUAGES CXX)
 
+# Fix linker flags for GNU ld
+if(UNIX AND NOT APPLE)
+    string(REPLACE "-Wl,-no_warn_duplicate_libraries" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REPLACE "-Wl,-no_warn_duplicate_libraries" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--allow-multiple-definition")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
