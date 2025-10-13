@@ -8,7 +8,6 @@ import sys
 
 
 def parse_trace_scaling_data(data_text):
-    """Parse trace time scaling data with multiple runs per configuration."""
     lines = data_text.strip().split('\n')
     parsed_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
@@ -79,7 +78,6 @@ def parse_trace_scaling_data(data_text):
 
 
 def calculate_average(values):
-    """Calculate average with outlier removal."""
     if not values:
         return 0
 
@@ -95,10 +93,8 @@ def calculate_average(values):
     return sum(filtered_values) / len(filtered_values)
 
 
-def process_trace_data(raw_data, ray_count_range=None):
-    """Process raw data to compute averages."""
+def process_trace_data(raw_data, ray_count_range=None, mean_type='geomean'):
     processed_data = defaultdict(lambda: defaultdict(dict))
-    # geometric mean over all rays, otherwise
     R = (0, sys.maxsize) if ray_count_range is None else ray_count_range
 
     for model in raw_data:
@@ -112,30 +108,28 @@ def process_trace_data(raw_data, ray_count_range=None):
                 if avg_value > 0:
                     times.append(avg_value)
             assert times
-            geomean = math.exp(sum(math.log(t)
-                                   for t in times) / len(times))
-            processed_data[model][layout] = geomean
+            if mean_type == 'geomean':
+                result = math.exp(sum(math.log(t) for t in times) / len(times))
+            else:
+                result = sum(times) / len(times)
+            processed_data[model][layout] = result
 
     return processed_data
 
 
 def process_trace_data_geomean(raw_data):
-    return process_trace_data(raw_data, ray_count_range=None)
+    return process_trace_data(raw_data, ray_count_range=None, mean_type='geomean')
 
 
-def plot_pareto_frontiers_geomean(processed_data, memory_data, layout_groups, output_path, machine_type):
-    return plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count_range=None)
+def plot_pareto_frontiers_geomean(processed_data, memory_data, layout_groups, output_path, machine_type, mean_type='geomean'):
+    return plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count_range=None, mean_type=mean_type)
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count_range=None, label_dominated_points=True):
-    """
-    Plot Pareto frontiers for multiple layout groups on the same graph for each model.
-    """
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, ray_count_range=None, mean_type='geomean', label_dominated_points=True):
     models = sorted(processed_data.keys())
     if len(models) == 0:
         return
 
-    # Create figure with one subplot per model
     n_models = len(models)
     n_cols = min(3, n_models)
     n_rows = (n_models + n_cols - 1) // n_cols
@@ -146,29 +140,28 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     else:
         axes = axes.flatten() if n_models > 1 else [axes]
 
-    # Colorblind-friendly color scheme (based on Wong 2011 palette + extensions).
-    group_colors = ['#0173B2',  # Blue
-                    '#DE8F05',  # Orange
-                    '#029E73',  # Green
-                    '#CC78BC',  # Purple
-                    '#CA9161',  # Brown
-                    '#949494',  # Gray
-                    '#ECE133',  # Yellow
-                    '#56B4E9',  # Sky blue
-                    '#D55E00',  # Vermillion
-                    '#F0E442']  # Light yellow
+    group_colors = ['#0173B2',
+                    '#DE8F05',
+                    '#029E73',
+                    '#CC78BC',
+                    '#CA9161',
+                    '#949494',
+                    '#ECE133',
+                    '#56B4E9',
+                    '#D55E00',
+                    '#F0E442']
 
     line_styles = [
-        '-',                    # Solid
-        '--',                   # Dashed
-        '-.',                   # Dash-dot
-        ':',                    # Dotted
-        (0, (5, 2, 1, 2)),     # Dash-dot-dot
-        (0, (3, 1, 1, 1)),     # Dense dash-dot
-        (0, (5, 5)),           # Long dash
-        (0, (1, 1)),           # Very short dash
-        (0, (3, 5, 1, 5)),     # Dash-dot with gaps
-        (0, (3, 1, 1, 1, 1, 1))  # Multiple dots
+        '-',
+        '--',
+        '-.',
+        ':',
+        (0, (5, 2, 1, 2)),
+        (0, (3, 1, 1, 1)),
+        (0, (5, 5)),
+        (0, (1, 1)),
+        (0, (3, 5, 1, 5)),
+        (0, (3, 1, 1, 1, 1, 1))
     ]
     marker_styles = ['o', 's', '^', 'D', 'v', '>', 'p', '*', 'h', 'X']
 
@@ -215,22 +208,19 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         print(f"  Plotting {len(all_points)} data points for {model}")
 
         points = np.array(all_points)
-        x = points[:, 0]  # memory
-        y = points[:, 1]  # time
+        x = points[:, 0]
+        y = points[:, 1]
 
-        # Format units: bytes -> MB
         memory_values = x / 1024 / 1024
         memory_unit = 'MB'
         time_values = y
         time_unit = 'ms'
 
-        # Compute Pareto frontier for each group
         for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
             group_color = group_colors[group_idx % len(group_colors)]
             group_linestyle = line_styles[group_idx % len(line_styles)]
             group_marker = marker_styles[group_idx % len(marker_styles)]
 
-            # Filter points for this group
             group_mask = np.array([g == group_name for g in all_groups])
             if not np.any(group_mask):
                 continue
@@ -239,7 +229,6 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             group_labels = [all_labels[i]
                             for i in range(len(all_labels)) if group_mask[i]]
 
-            # Compute Pareto frontier.
             is_pareto = np.ones(len(group_points), dtype=bool)
             for i in range(len(group_points)):
                 if not is_pareto[i]:
@@ -247,7 +236,6 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                 for j in range(len(group_points)):
                     if i == j:
                         continue
-                    # Point j dominates point i if lower/equal memory AND lower/equal time
                     if (group_points[j, 0] <= group_points[i, 0] and
                         group_points[j, 1] <= group_points[i, 1] and
                             (group_points[j, 0] < group_points[i, 0] or group_points[j, 1] < group_points[i, 1])):
@@ -260,13 +248,11 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                            c='lightgray', s=80, alpha=0.5,
                            marker='o', edgecolors='gray', linewidth=1, zorder=1)
 
-            # Plot Pareto frontier points.
             ax.scatter(group_memory[is_pareto], group_time[is_pareto],
                        c=group_color, s=180, alpha=0.9,
                        edgecolors='black', linewidth=2.5,
                        marker=group_marker, label=group_name, zorder=3)
 
-            # Connect Pareto points.
             pareto_indices = np.where(is_pareto)[0]
             if len(pareto_indices) > 1:
                 pareto_sorted = sorted(
@@ -276,7 +262,6 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                 ax.plot(pareto_x, pareto_y, color=group_color,
                         linestyle=group_linestyle, alpha=0.8, linewidth=3, zorder=2)
 
-            # Annotate Pareto frontier points.
             for i in pareto_indices:
                 ax.annotate(group_labels[i],
                             xy=(group_memory[i], group_time[i]),
@@ -292,7 +277,6 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                                       linewidth=1),
                             zorder=4)
 
-            # Optionally annotate dominated (non-Pareto) points.
             if label_dominated_points and np.any(~is_pareto):
                 dominated_indices = np.where(~is_pareto)[0]
                 for i in dominated_indices:
@@ -330,9 +314,9 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
     title = 'Trace Time vs Memory Utilization'
     if ray_count_range is not None:
-        title += f'\ngeomean ({ray_count_range[0]:,} - {ray_count_range[1]:,})'
+        title += f'\n{mean_type} ({ray_count_range[0]:,} - {ray_count_range[1]:,})'
     else:
-        title += '\ngeomean (all)'
+        title += f'\n{mean_type} (all)'
     if machine_type:
         title += f' - {machine_type}'
     fig.suptitle(title, fontsize=16, fontweight='bold')
@@ -345,10 +329,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     if ray_count_range is not None:
         def log2(x): return int(math.log2(x))
         output_file = os.path.join(
-            results_dir, f'{name}-geomean{log2(ray_count_range[0])}-{log2(ray_count_range[1])}.pdf')
+            results_dir, f'{name}-{mean_type}{log2(ray_count_range[0])}-{log2(ray_count_range[1])}.pdf')
     else:
         output_file = os.path.join(
-            results_dir, f'{name}-geomean.pdf')
+            results_dir, f'{name}-{mean_type}.pdf')
 
     plt.savefig(output_file, dpi=600, bbox_inches='tight')
     print(f"Pareto frontier plot saved to: {output_file}")
@@ -357,10 +341,17 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python pareto_plotter.py <data_file> [ray_count]")
+        print("Usage: python pareto_plotter.py <data_file> [mean_type]")
+        print("  mean_type: 'geomean' (default) or 'arithmetic'")
         sys.exit(1)
 
     filename = sys.argv[1]
+    mean_type = sys.argv[2] if len(sys.argv) > 2 else 'geomean'
+
+    if mean_type not in ['geomean', 'arithmetic']:
+        print(
+            f"Error: mean_type must be 'geomean' or 'arithmetic', got '{mean_type}'")
+        sys.exit(1)
 
     try:
         with open(filename, 'r') as file:
@@ -374,15 +365,18 @@ if __name__ == "__main__":
         sys.exit(1)
 
     raw_data, machine_type = parse_trace_scaling_data(data_text)
+    raw_data, machine_type = parse_trace_scaling_data(data_text)
     memory_utilization = {'sheep': {'bvh8-align16': {'memory': 153480896, 'nodes': {'primitives': 2967664, 'interiors': 182207}}, 'bvh8': {'memory': 153480896, 'nodes': {'primitives': 2967664, 'interiors': 182207}}, 'cl-bvh8-align16': {'memory': 133073712, 'nodes': {'primitives': 2967664, 'interiors': 182207}}, 'cl-bvh8-idx-align16': {'memory': 127243088, 'nodes': {'primitives': 2967664, 'interiors': 182207}}, 'cl-bvh8-idx': {'memory': 125785432, 'nodes': {'primitives': 2967664, 'interiors': 182207}}, 'cl-bvh8': {'memory': 131616056, 'nodes': {'primitives': 2967664, 'interiors': 182207}}, 'eq-align16': {'memory': 116034896, 'nodes': {'primitives': 2967664, 'nodes': 574937}}, 'eq': {'memory': 113735148, 'nodes': {'primitives': 2967664, 'nodes': 574937}}, 'pbrt-align16': {'memory': 125233888, 'nodes': {'primitives': 2967664, 'nodes': 574937}}, 'pbrt': {'memory': 125233888, 'nodes': {'primitives': 2967664, 'nodes': 574937}}, 'ptr': {'memory': 132133132, 'nodes': {'primitives': 2967664, 'nodes': 25297228}}, 'soaos-align16': {'memory': 134432880, 'nodes': {'primitives': 2967664, 'aabbs': 574937, 'nodes': 574937}}, 'soaos': {'memory': 125233888, 'nodes': {'primitives': 2967664, 'aabbs': 574937, 'nodes': 574937}}}, 'lucy': {'bvh8-align16': {'memory': 1444637376, 'nodes': {'primitives': 28055728, 'interiors': 1697778}}, 'bvh8': {'memory': 1444637376, 'nodes': {'primitives': 28055728, 'interiors': 1697778}}, 'cl-bvh8-align16': {'memory': 1254486240, 'nodes': {'primitives': 28055728, 'interiors': 1697778}}, 'cl-bvh8': {'memory': 1240904016, 'nodes': {'primitives': 28055728, 'interiors': 1697778}}, 'eq-align16': {'memory': 1090001744, 'nodes': {'primitives': 28055728, 'nodes': 4999721}}, 'eq': {'memory': 1070002860, 'nodes': {'primitives': 28055728, 'nodes': 4999721}}, 'pbrt-align16': {'memory': 1169997280, 'nodes': {'primitives': 28055728, 'nodes': 4999721}}, 'pbrt': {'memory': 1169997280, 'nodes': {'primitives': 28055728, 'nodes': 4999721}}, 'ptr': {'memory': 1229993932, 'nodes': {'primitives': 28055728, 'nodes': 219987724}}, 'soaos-align16': {'memory': 1249992816, 'nodes': {'primitives': 28055728, 'aabbs': 4999721, 'nodes': 4999721}}, 'soaos': {'memory': 1169997280, 'nodes': {'primitives': 28055728, 'aabbs': 4999721, 'nodes': 4999721}}}, 'san-miguel-x35-y22-z47': {'bvh8-align16': {'memory': 507870560, 'nodes': {'primitives': 9832024, 'interiors': 601241}}, 'bvh8': {'memory': 507870560, 'nodes': {'primitives': 9832024, 'interiors': 601241}}, 'cl-bvh8-align16': {'memory': 440531568, 'nodes': {'primitives': 9832024, 'interiors': 601241}}, 'cl-bvh8-idx-align16': {'memory': 421291856, 'nodes': {'primitives': 9832024, 'interiors': 601241}}, 'cl-bvh8-idx': {'memory': 416481928, 'nodes': {'primitives': 9832024, 'interiors': 601241}}, 'cl-bvh8': {'memory': 435721640, 'nodes': {'primitives': 9832024, 'interiors': 601241}}, 'eq-align16': {'memory': 384025936, 'nodes': {'primitives': 9832024, 'nodes': 1879567}}, 'eq': {'memory': 376507668, 'nodes': {'primitives': 9832024, 'nodes': 1879567}}, 'pbrt-align16': {'memory': 414099008, 'nodes': {'primitives': 9832024, 'nodes': 1879567}}, 'pbrt': {'memory': 414099008, 'nodes': {'primitives': 9832024, 'nodes': 1879567}}, 'ptr': {'memory': 436653812, 'nodes': {'primitives': 9832024, 'nodes': 82700948}}, 'soaos-align16': {'memory': 444172080, 'nodes': {'primitives': 9832024, 'aabbs': 1879567, 'nodes': 1879567}}, 'soaos': {'memory': 414099008, 'nodes': {'primitives': 9832024, 'aabbs': 1879567, 'nodes': 1879567}}}, 'hairball': {'bvh8-align16': {'memory': 151729920, 'nodes': {'primitives': 2880000, 'interiors': 187695}}, 'bvh8': {'memory': 151729920, 'nodes': {'primitives': 2880000, 'interiors': 187695}}, 'cl-bvh8-align16': {'memory': 130708080, 'nodes': {'primitives': 2880000, 'interiors': 187695}}, 'cl-bvh8-idx-align16': {'memory': 124701840, 'nodes': {'primitives': 2880000, 'interiors': 187695}}, 'cl-bvh8-idx': {'memory': 123200280, 'nodes': {'primitives': 2880000, 'interiors': 187695}}, 'cl-bvh8': {'memory': 129206520, 'nodes': {'primitives': 2880000, 'interiors': 187695}}, 'eq-align16': {'memory': 112518672,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      'nodes': {'primitives': 2880000, 'nodes': 552417}}, 'eq': {'memory': 110309004, 'nodes': {'primitives': 2880000, 'nodes': 552417}}, 'pbrt-align16': {'memory': 121357344, 'nodes': {'primitives': 2880000, 'nodes': 552417}}, 'pbrt': {'memory': 121357344, 'nodes': {'primitives': 2880000, 'nodes': 552417}}, 'ptr': {'memory': 127986348, 'nodes': {'primitives': 2880000, 'nodes': 24306348}}, 'soaos-align16': {'memory': 130196016, 'nodes': {'primitives': 2880000, 'aabbs': 552417, 'nodes': 552417}}, 'soaos': {'memory': 121357344, 'nodes': {'primitives': 2880000, 'aabbs': 552417, 'nodes': 552417}}}, 'white-oak': {'bvh8-align16': {'memory': 1904736, 'nodes': {'primitives': 36760, 'interiors': 2271}}, 'bvh8': {'memory': 1904736, 'nodes': {'primitives': 36760, 'interiors': 2271}}, 'cl-bvh8-align16': {'memory': 1650384, 'nodes': {'primitives': 36760, 'interiors': 2271}}, 'cl-bvh8-idx-align16': {'memory': 1577712, 'nodes': {'primitives': 36760, 'interiors': 2271}}, 'cl-bvh8-idx': {'memory': 1559544, 'nodes': {'primitives': 36760, 'interiors': 2271}}, 'cl-bvh8': {'memory': 1632216, 'nodes': {'primitives': 36760, 'interiors': 2271}}, 'eq-align16': {'memory': 1432592, 'nodes': {'primitives': 36760, 'nodes': 6827}}, 'eq': {'memory': 1405284, 'nodes': {'primitives': 36760, 'nodes': 6827}}, 'pbrt-align16': {'memory': 1541824, 'nodes': {'primitives': 36760, 'nodes': 6827}}, 'pbrt': {'memory': 1541824, 'nodes': {'primitives': 36760, 'nodes': 6827}}, 'ptr': {'memory': 1623748, 'nodes': {'primitives': 36760, 'nodes': 300388}}, 'soaos-align16': {'memory': 1651056, 'nodes': {'primitives': 36760, 'aabbs': 6827, 'nodes': 6827}}, 'soaos': {'memory': 1541824, 'nodes': {'primitives': 36760, 'aabbs': 6827, 'nodes': 6827}}}, 'sponza': {'bvh8-align16': {'memory': 13226316, 'nodes': {'primitives': 262267, 'interiors': 14784}}, 'bvh8': {'memory': 13226316, 'nodes': {'primitives': 262267, 'interiors': 14784}}, 'cl-bvh8-align16': {'memory': 11570508, 'nodes': {'primitives': 262267, 'interiors': 14784}}, 'cl-bvh8-idx-align16': {'memory': 11097420, 'nodes': {'primitives': 262267, 'interiors': 14784}}, 'cl-bvh8-idx': {'memory': 10979148, 'nodes': {'primitives': 262267, 'interiors': 14784}}, 'cl-bvh8': {'memory': 11452236, 'nodes': {'primitives': 262267, 'interiors': 14784}}, 'eq-align16': {'memory': 10185116, 'nodes': {'primitives': 262267, 'nodes': 46469}}, 'eq': {'memory': 9999240, 'nodes': {'primitives': 262267, 'nodes': 46469}}, 'pbrt-align16': {'memory': 10928620, 'nodes': {'primitives': 262267, 'nodes': 46469}}, 'pbrt': {'memory': 10928620, 'nodes': {'primitives': 262267, 'nodes': 46469}}, 'ptr': {'memory': 11486248, 'nodes': {'primitives': 262267, 'nodes': 2044636}}, 'soaos-align16': {'memory': 11672124, 'nodes': {'primitives': 262267, 'aabbs': 46469, 'nodes': 46469}}, 'soaos': {'memory': 10928620, 'nodes': {'primitives': 262267, 'aabbs': 46469, 'nodes': 46469}}}, 'power-plant': {'bvh8-align16': {'memory': 658321656, 'nodes': {'primitives': 12759246, 'interiors': 777300}}, 'bvh8': {'memory': 658321656, 'nodes': {'primitives': 12759246, 'interiors': 777300}}, 'cl-bvh8-align16': {'memory': 571264056, 'nodes': {'primitives': 12759246, 'interiors': 777300}}, 'cl-bvh8-idx-align16': {'memory': 546390456, 'nodes': {'primitives': 12759246, 'interiors': 777300}}, 'cl-bvh8-idx': {'memory': 540172056, 'nodes': {'primitives': 12759246, 'interiors': 777300}}, 'cl-bvh8': {'memory': 565045656, 'nodes': {'primitives': 12759246, 'interiors': 777300}}, 'eq-align16': {'memory': 494524296, 'nodes': {'primitives': 12759246, 'nodes': 2199465}}, 'eq': {'memory': 485726436, 'nodes': {'primitives': 12759246, 'nodes': 2199465}}, 'pbrt-align16': {'memory': 529715736, 'nodes': {'primitives': 12759246, 'nodes': 2199465}}, 'pbrt': {'memory': 529715736, 'nodes': {'primitives': 12759246, 'nodes': 2199465}}, 'ptr': {'memory': 556109316, 'nodes': {'primitives': 12759246, 'nodes': 96776460}}, 'soaos-align16': {'memory': 564907176, 'nodes': {'primitives': 12759246, 'aabbs': 2199465, 'nodes': 2199465}}, 'soaos': {'memory': 529715736, 'nodes': {'primitives': 12759246, 'aabbs': 2199465, 'nodes': 2199465}}}}
     embree_mu = {'lucy': {'embree-bvh8i': {'memory': 1184515489, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 2022579372, 'nodes': {'aabbs': 1}}}, 'sheep': {'embree-bvh8i': {'memory': 85013299, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 170263576, 'nodes': {'aabbs': 1}}}, 'san-miguel-x35-y22-z47': {'embree-bvh8i': {'memory': 374480044, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 675439181, 'nodes': {'aabbs': 1}}}, 'hairball': {'embree-bvh8i': {'memory': 99327410,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 191183716, 'nodes': {'aabbs': 1}}}, 'white-oak': {'embree-bvh8i': {'memory': 1367343, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 2521825, 'nodes': {'aabbs': 1}}}, 'sponza': {'embree-bvh8i': {'memory': 10135535, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 17718837, 'nodes': {'aabbs': 1}}}, 'power-plant': {'embree-bvh8i': {'memory': 458345152, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 833888452, 'nodes': {'aabbs': 1}}}}
+
     for model, layouts in embree_mu.items():
         assert model in memory_utilization
         memory_utilization[model].update(layouts)
 
-    trace_data = process_trace_data_geomean(raw_data)
+    trace_data = process_trace_data(
+        raw_data, ray_count_range=None, mean_type=mean_type)
     print("\n=== Parsed Data Summary ===")
     print(f"Models found: {list(trace_data.keys())}")
     for model in trace_data:
@@ -401,7 +395,6 @@ if __name__ == "__main__":
     layout_groups = {
         'bvh8': ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16',
                  'cl-bvh8-idx', 'cl-bvh8-idx-align16',
-                 # 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16',
                  ],
         'bvh2': ['eq', 'pbrt', 'pbrt-align16', 'eq-align16',
                  'ptr', 'soaos-align16', 'soaos',
@@ -410,23 +403,17 @@ if __name__ == "__main__":
     }
 
     plot_pareto_frontiers_geomean(trace_data, memory_utilization, layout_groups,
-                                  filename, machine_type)
+                                  filename, machine_type, mean_type)
 
-    cpu_ray_count_ranges = [
-        (2**18, 2**22),
-    ]
-    gpu_ray_count_ranges = [
-        (2**22, 2**25),
-    ]
-    for R in cpu_ray_count_ranges:
+    for R in [(2**18, 2**22)]:
         if machine_type != "cpu":
             continue
-        trace_data = process_trace_data(raw_data, R)
+        trace_data = process_trace_data(raw_data, R, mean_type)
         plot_pareto_frontiers(trace_data, memory_utilization, layout_groups,
-                              filename, machine_type, R)
-    for R in gpu_ray_count_ranges:
+                              filename, machine_type, R, mean_type)
+    for R in [(2**22, 2**25)]:
         if machine_type != "cuda":
             continue
-        trace_data = process_trace_data(raw_data, R)
+        trace_data = process_trace_data(raw_data, R, mean_type)
         plot_pareto_frontiers(trace_data, memory_utilization, layout_groups,
-                              filename, machine_type, R)
+                              filename, machine_type, R, mean_type)
