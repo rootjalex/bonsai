@@ -43,7 +43,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
                 data[i] = triangles[low + i];
             }
             assert(depth != 0);
-            assert(static_cast<uint8_t>(count) > 0);
+            assert(static_cast<uint8_t>(count) > 0 && count <= 15);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,
@@ -136,8 +136,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
         float sah_cost = std::numeric_limits<float>::max();
     };
 
-    constexpr auto MAX = std::numeric_limits<float>::max();
-    // https://github.com/RenderKit/embree/blob/1970895eb97a38ff67e7da97689a3f3c35fd705c/kernels/builders/bvh_builder_sah.h#L10
     constexpr int NUM_OBJECT_BINS = 32;
 
     std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
@@ -146,12 +144,14 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
         uint32_t count = end - begin;
 
         auto [aabb_min, aabb_max] = compute_aabb(begin, end, triangles);
+
         if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[begin + i];
             }
-            assert(static_cast<uint8_t>(count) > 0);
+            assert(static_cast<uint8_t>(count) > 0 &&
+                   count <= max_prims_per_leaf);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,
@@ -169,18 +169,18 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             centroid_bounds_max = max(centroid_bounds_max, c);
         }
 
-        // Find best split using Embree's exact binned SAH algorithm (to the
-        // best of our ability).
         Split best_split;
         float parent_area = surface_area(aabb_min, aabb_max);
-        float leaf_cost = intersection_cost * count;
+        float leaf_cost = (count <= max_prims_per_leaf)
+                              ? intersection_cost * count
+                              : std::numeric_limits<float>::max();
+
         for (int axis = 0; axis < 3; ++axis) {
             float extent =
                 (axis == 0)   ? centroid_bounds_max.x - centroid_bounds_min.x
                 : (axis == 1) ? centroid_bounds_max.y - centroid_bounds_min.y
                               : centroid_bounds_max.z - centroid_bounds_min.z;
 
-            // Skip degenerate axis (all centroids in same place)
             if (extent < 1e-6f)
                 continue;
 
@@ -190,7 +190,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             Bin bins[NUM_OBJECT_BINS];
             float bin_scale = NUM_OBJECT_BINS / extent;
 
-            // 1. Assign primitives to bins by centroid
             for (uint32_t i = begin; i < end; ++i) {
                 float3 centroid = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0)   ? centroid.x
@@ -201,36 +200,29 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                 bin_idx = std::min(bin_idx, NUM_OBJECT_BINS - 1);
                 bin_idx = std::max(bin_idx, 0);
 
-                // Extend bin with primitive bounds
                 auto [prim_min, prim_max] = triangle_bounds(triangles[i]);
                 bins[bin_idx].extend(prim_min, prim_max);
             }
 
-            // 1. Build prefix sums (left sweep).
             Bin left_bins[NUM_OBJECT_BINS - 1];
             left_bins[0] = bins[0];
             for (int i = 1; i < NUM_OBJECT_BINS - 1; ++i) {
                 left_bins[i] = left_bins[i - 1] + bins[i];
             }
 
-            // 3. Build suffix sums (right sweep)
             Bin right_bins[NUM_OBJECT_BINS - 1];
             right_bins[NUM_OBJECT_BINS - 2] = bins[NUM_OBJECT_BINS - 1];
             for (int i = NUM_OBJECT_BINS - 3; i >= 0; --i) {
                 right_bins[i] = bins[i + 1] + right_bins[i + 1];
             }
 
-            // 4. Evaluate all split candidates. Split position i means: left
-            // gets bins [0..i], right gets bins [i+1..N-1].
             for (int i = 0; i < NUM_OBJECT_BINS - 1; ++i) {
                 uint32_t left_count = left_bins[i].count;
                 uint32_t right_count = right_bins[i].count;
 
-                // Skip invalid splits (all primitives on one side)
                 if (left_count == 0 || right_count == 0)
                     continue;
 
-                // Compute SAH cost
                 float left_area =
                     surface_area(left_bins[i].aabb_min, left_bins[i].aabb_max);
                 float right_area = surface_area(right_bins[i].aabb_min,
@@ -246,19 +238,53 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                     best_split.axis = axis;
                     best_split.bin_index = i;
                     best_split.sah_cost = sah;
-                    // Split position is at between bin i and bin i+1.
                     best_split.position =
                         centroid_min + (i + 1) * (extent / NUM_OBJECT_BINS);
                 }
             }
         }
 
-        if (best_split.sah_cost >= leaf_cost) {
+        if (best_split.axis == -1) {
+            float3 extent = centroid_bounds_max - centroid_bounds_min;
+            int longest_axis = 0;
+            if (extent.y > extent.x && extent.y > extent.z)
+                longest_axis = 1;
+            else if (extent.z > extent.x && extent.z > extent.y)
+                longest_axis = 2;
+
+            uint32_t mid = begin + count / 2;
+            std::nth_element(triangles.begin() + begin, triangles.begin() + mid,
+                             triangles.begin() + end,
+                             [&](const Triangle &a, const Triangle &b) {
+                                 float3 ca = triangle_centroid(a);
+                                 float3 cb = triangle_centroid(b);
+                                 float ca_val = (longest_axis == 0)   ? ca.x
+                                                : (longest_axis == 1) ? ca.y
+                                                                      : ca.z;
+                                 float cb_val = (longest_axis == 0)   ? cb.x
+                                                : (longest_axis == 1) ? cb.y
+                                                                      : cb.z;
+                                 return ca_val < cb_val;
+                             });
+
+            BVH *left = partition(begin, mid, depth + 1);
+            BVH *right = partition(mid, end, depth + 1);
+
+            return new BVH(Interior{
+                .low = aabb_min,
+                .high = aabb_max,
+                .left = left,
+                .right = right,
+            });
+        }
+
+        if (best_split.sah_cost >= leaf_cost && count <= max_prims_per_leaf) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[begin + i];
             }
-            assert(static_cast<uint8_t>(count) > 0);
+            assert(static_cast<uint8_t>(count) > 0 &&
+                   count <= max_prims_per_leaf);
             return new BVH(Leaf{
                 .low = aabb_min,
                 .high = aabb_max,
@@ -267,7 +293,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             });
         }
 
-        // 5. Partition (in place) primitives based on best split.
         auto mid_it =
             std::partition(triangles.begin() + begin, triangles.begin() + end,
                            [&](const Triangle &tri) {
@@ -281,7 +306,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
 
         uint32_t mid = std::distance(triangles.begin(), mid_it);
         if (mid == begin || mid == end) {
-            // Fallback: split at median.
             mid = begin + count / 2;
             std::nth_element(triangles.begin() + begin, triangles.begin() + mid,
                              triangles.begin() + end,
@@ -297,6 +321,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                                  return ca_val < cb_val;
                              });
         }
+
         BVH *left = partition(begin, mid, depth + 1);
         BVH *right = partition(mid, end, depth + 1);
 

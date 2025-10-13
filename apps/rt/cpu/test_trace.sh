@@ -8,7 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("sheep" "lucy" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
+OBJECTS=("power-plant" "sheep" "lucy" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza")
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -185,7 +185,7 @@ run_tests() {
         COMMON_FLAGS="-fopenmp ${COMMON_FLAGS}"
       fi
       # if [[ "${DEBUG_MODE}" == true ]]; then
-      #   COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
+      # COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
       # fi
       
       if [[ "${DEBUG_MODE}" == true ]]; then

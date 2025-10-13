@@ -149,6 +149,7 @@ RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
         std::cerr << "Unknown BVH layout: " << layout << std::endl;
         exit(1);
     }
+    configuration += " quality=medium,max_triangles_per_leaf=32";
     // Gathers information about the BVH structure
     // configuration += ",verbose=2,benchmark=2";
 

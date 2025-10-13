@@ -138,7 +138,7 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                                       int max_prims_per_leaf = 8,
                                       int max_tree_depth = 64,
                                       float traversal_cost = 1.0f,
-                                      float intersection_cost = 15.0f,
+                                      float intersection_cost = 10.0f,
                                       int obb_depth_threshold = 0) {
 
     struct Split {
