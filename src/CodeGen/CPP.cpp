@@ -23,6 +23,7 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <set>

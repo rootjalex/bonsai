@@ -151,6 +151,7 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a));
         }
+	internal_error << "TODO simplify: " << ir::Expr(node);
     }
 
     ir::Expr visit(const ir::BinOp *node) override {

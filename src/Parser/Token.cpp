@@ -135,6 +135,7 @@ uint64_t Token::size() const {
     case Token::Type::ERROR:
         return 0;
     }
+    internal_error << "Unexpected";
 }
 
 std::string Token::token_type_string(const Token &token) {
