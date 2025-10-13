@@ -52,8 +52,8 @@ PARTITION="sah"
 
 echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
 
-MIN_POWER=15
-MAX_POWER=22
+MIN_POWER=20
+MAX_POWER=25
 
 # only run on performance cores for the Fredwood.
 # TODO(cgyurgyik): this was causing performance regressions.
