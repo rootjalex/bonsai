@@ -156,8 +156,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         assert(depth < max_tree_depth);
         uint32_t count = high - low;
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
-
-        // Create leaf if below threshold
         if (count < max_prims_per_leaf || depth >= max_tree_depth - 1) {
             assert(count > 0);
             assert(count < max_prims_per_leaf);
@@ -168,8 +166,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 .data = data,
             });
         }
-
-        // Compute centroid bounds
         float3 centroid_min = triangle_centroid(triangles[low]);
         float3 centroid_max = centroid_min;
 
@@ -185,16 +181,12 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
         best_split.use_obb = false;
         float parent_area = surface_area(aabb_min, aabb_max);
         float leaf_cost = intersection_cost * count;
-
-        // Try AABB splits along each axis (identical to canonical_tree_8_sah)
         for (int axis = 0; axis < 3; ++axis) {
             float extent = (axis == 0   ? centroid_max.x - centroid_min.x
                             : axis == 1 ? centroid_max.y - centroid_min.y
                                         : centroid_max.z - centroid_min.z);
             if (extent < 1e-6f)
                 continue;
-
-            // Simple approach: divide into 8 equal parts
             float split_positions[7];
             float axis_min = (axis == 0   ? centroid_min.x
                               : axis == 1 ? centroid_min.y
@@ -203,12 +195,10 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 split_positions[i] = axis_min + (i + 1) * extent / 8.0f;
             }
 
-            // Evaluate this 8-way split
             std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
             std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
             std::vector<uint32_t> group_counts(8, 0);
 
-            // Assign triangles to groups and compute bounds
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0 ? c.x : axis == 1 ? c.y : c.z);
@@ -225,9 +215,7 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 group_maxs[group] = max(group_maxs[group], tri_max);
                 group_counts[group]++;
             }
-
-            // Calculate SAH cost for this split
-            float split_cost = traversal_cost * 7; // 7 internal traversal steps
+            float split_cost = traversal_cost * 7;
             for (int i = 0; i < 8; ++i) {
                 if (group_counts[i] > 0) {
                     float area = surface_area(group_mins[i], group_maxs[i]);
@@ -244,8 +232,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 best_split.use_obb = false;
             }
         }
-
-        // Try OBB-based splits if at sufficient depth
         if (depth >= obb_depth_threshold) {
             OBB obb = compute_obb(low, high, triangles);
 
@@ -259,7 +245,7 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                                      obb.orientation[axis].y,
                                      obb.orientation[axis].z};
 
-                // Project centroids onto this OBB axis
+                // Project centroids onto this OBB axis.
                 float min_proj = MAX, max_proj = -MAX;
                 for (uint32_t i = low; i < high; ++i) {
                     float3 c = triangle_centroid(triangles[i]);
@@ -271,14 +257,12 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 float extent = max_proj - min_proj;
                 if (extent < 1e-6f)
                     continue;
-
-                // Divide into 8 equal parts along OBB axis
                 float split_positions[7];
                 for (int i = 0; i < 7; ++i) {
                     split_positions[i] = min_proj + (i + 1) * extent / 8.0f;
                 }
 
-                // Evaluate this 8-way OBB split
+                // Evaluate this 8-way OBB split.
                 std::vector<float3> group_mins(8, float3{MAX, MAX, MAX});
                 std::vector<float3> group_maxs(8, float3{-MAX, -MAX, -MAX});
                 std::vector<uint32_t> group_counts(8, 0);
@@ -331,8 +315,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                                       intersection_cost * group_counts[i];
                     }
                 }
-
-                // Update best split if this OBB split is better
                 if (split_cost < best_split.cost) {
                     best_split.axis = axis;
                     for (int i = 0; i < 7; ++i)
@@ -343,8 +325,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 }
             }
         }
-
-        // Check if splitting is worth it
         if (best_split.cost >= leaf_cost) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             std::copy(triangles.begin() + low, triangles.begin() + high, data);
@@ -353,8 +333,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 .data = data,
             });
         }
-
-        // Partition triangles into 8 groups
         std::vector<std::vector<uint32_t>> groups(8);
 
         if (best_split.use_obb) {
@@ -393,8 +371,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 groups[group].push_back(i);
             }
         }
-
-        // Reorder triangles based on groups
         std::vector<Triangle> temporaries;
         temporaries.reserve(count);
         std::vector<uint32_t> group_starts(9);
@@ -409,8 +385,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
 
         std::copy(temporaries.begin(), temporaries.end(),
                   triangles.begin() + low);
-
-        // Build appropriate node type based on best split
         if (best_split.use_obb) {
             OBBNode *node = new OBBNode();
             node->orientation = best_split.obb.orientation;
@@ -429,8 +403,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                 if (group_starts[i] < group_starts[i + 1]) {
                     node->obb_children[i] = partition(
                         group_starts[i], group_starts[i + 1], depth + 1);
-
-                    // Compute OBB bounds for child in parent OBB space
                     float3 child_min = {MAX, MAX, MAX};
                     float3 child_max = {-MAX, -MAX, -MAX};
 
@@ -447,8 +419,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
                             child_max = max(child_max, p_obb);
                         }
                     }
-
-                    // Add small expansion for numerical robustness
                     float3 extent = child_max - child_min;
                     float3 expansion = extent * gamma(3);
                     child_max = child_max + expansion;
@@ -465,7 +435,6 @@ BVH *build_canonical_tree_8_mixed_sah(std::vector<Triangle> &triangles,
 
             return new BVH(*node);
         } else {
-            // AABB node - identical to canonical_tree_8_sah
             AABBNode *node = new AABBNode();
             for (int i = 0; i < 8; ++i) {
                 if (group_starts[i] < group_starts[i + 1]) {

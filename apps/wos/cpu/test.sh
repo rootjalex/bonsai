@@ -24,7 +24,7 @@ done
 
 
 N="${1:-4}"
-N_QUERIES="${2:-10000}"
+N_QUERIES="${2:-1000}"
 OBJECTS=("white-oak" "lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "sponza" "power-plant")
 
 # only run on performance cores for the Fredwood.
@@ -95,28 +95,29 @@ run_tests() {
 
       # 3. build the main hook and final executable
       cd ${PREFIX}
-      mkdir -p build
-      cd build
+      mkdir -p build && cd build
+      BUILD_DIRECTORY="build_${BVH_SUFFIX}_${LAYOUT}"  # Unique per {branching factor, layout}.
+      mkdir -p ${BUILD_DIRECTORY}
+      cd ${BUILD_DIRECTORY}
       
       # Configure CMake with layout parameter
       export LDFLAGS="-Wl,-no_warn_duplicate_libraries"
-      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} .. # > /dev/null
+      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} ../.. # > /dev/null
       
       # Build the executable
       make -j # > /dev/null 2>&1
       
-      cd ..       # back to PREFIX
+      cd ../..    # back to PREFIX
       cd ../../.. # back to root
       
       # run (executable is now in the build directory)
       for ((k=0; k < N; k++)); do
-        ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out "${OBJECT}" ${N_QUERIES} >> ${PREFIX}/results/${LAYOUT}.txt
+        ./${PREFIX}/build/${BUILD_DIRECTORY}/${APPLICATION}_${LAYOUT}.out "${OBJECT}" ${N_QUERIES} >> ${PREFIX}/results/${LAYOUT}.txt
       done
       
       # clean up
       rm -f ${PREFIX}/${APPLICATION}.h
       rm -f ${PREFIX}/${APPLICATION}.cpp
-      rm -rf ${PREFIX}/build
     done
   done
 

@@ -91,6 +91,8 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
     return partition(0, triangles.size(), /*depth=*/0);
 }
 
+// Based on FCPW's Bvh_SurfaceArea:
+// https://github.com/rohan-sawhney/fcpw/blob/e36bc9b34af6088fb78ddbb6a93e26686779678a/include/fcpw/utilities/scene_data.h#L21
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                                 int max_tree_depth, int nBuckets = 8) {
     constexpr auto MAX = std::numeric_limits<float>::max();
@@ -106,7 +108,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
         uint32_t count = high - low;
         auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
 
-        // Create leaf only if at exact leaf_size or fewer, or max depth reached
         if (count <= leaf_size || depth >= max_tree_depth) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
@@ -120,7 +121,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
             });
         }
 
-        // Compute centroid bounds for splitting.
         float3 centroid_min = triangle_centroid(triangles[low]);
         float3 centroid_max = centroid_min;
 
@@ -130,12 +130,9 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
             centroid_max = max(centroid_max, c);
         }
 
-        // Find best split using binned SAH.
         int best_axis = -1;
         int best_bucket = -1;
         float best_cost = MAX;
-
-        // Try splitting along each axis.
         for (int axis = 0; axis < 3; ++axis) {
             float aabb_extent = (axis == 0)   ? aabb_max.x - aabb_min.x
                                 : (axis == 1) ? aabb_max.y - aabb_min.y
@@ -149,11 +146,8 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                                                 : aabb_min.z;
 
             float bucket_width = aabb_extent / nBuckets;
-
-            // Initialize buckets
             std::vector<BucketInfo> buckets(nBuckets);
 
-            // Assign triangles to buckets
             for (uint32_t i = low; i < high; ++i) {
                 float3 c = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
@@ -169,7 +163,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                 buckets[bucket_idx].count++;
             }
 
-            // Precompute right-side buckets (sweep from right to left)
             std::vector<BucketInfo> right_buckets(nBuckets);
             for (int i = nBuckets - 1; i >= 0; --i) {
                 if (i == nBuckets - 1) {
@@ -183,12 +176,9 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                         right_buckets[i + 1].count + buckets[i].count;
                 }
             }
-
-            // Compute costs for each split candidate (sweep from left to right)
             BucketInfo left_bucket;
             for (int split_bucket = 0; split_bucket < nBuckets - 1;
                  ++split_bucket) {
-                // Accumulate left side
                 if (buckets[split_bucket].count > 0) {
                     if (left_bucket.count == 0) {
                         left_bucket = buckets[split_bucket];
@@ -201,24 +191,18 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                     }
                 }
 
-                // Right side from precomputed buckets
                 const BucketInfo &right_bucket =
                     right_buckets[split_bucket + 1];
-
-                // Skip if one side is empty
                 if (left_bucket.count == 0 || right_bucket.count == 0)
                     continue;
 
-                // Calculate SAH cost (matching FCPW)
+                // https://github.com/rohan-sawhney/fcpw/blob/e36bc9b34af6088fb78ddbb6a93e26686779678a/include/fcpw/fcpw.inl#L826
                 float left_area =
                     surface_area(left_bucket.box_min, left_bucket.box_max);
                 float right_area =
                     surface_area(right_bucket.box_min, right_bucket.box_max);
                 float cost = left_bucket.count * left_area +
                              right_bucket.count * right_area;
-
-                // Use <= to prefer later splits when costs are equal (matches
-                // FCPW)
                 if (cost <= best_cost) {
                     best_cost = cost;
                     best_axis = axis;
@@ -227,11 +211,8 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
             }
         }
 
-        // If no valid split found, fall back to median split
         if (best_axis == -1) {
             uint32_t mid = low + count / 2;
-
-            // Find longest axis for fallback
             float3 extent = aabb_max - aabb_min;
             int fallback_axis = (extent.x > extent.y && extent.x > extent.z) ? 0
                                 : (extent.y > extent.z)                      ? 1
@@ -262,7 +243,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
             });
         }
 
-        // Partition triangles based on best split
         float aabb_extent = (best_axis == 0)   ? aabb_max.x - aabb_min.x
                             : (best_axis == 1) ? aabb_max.y - aabb_min.y
                                                : aabb_max.z - aabb_min.z;
@@ -284,8 +264,6 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
             });
 
         uint32_t mid = std::distance(triangles.begin(), mid_it);
-
-        // Handle edge case where all triangles end up on one side
         if (mid == low || mid == high) {
             mid = low + count / 2;
             std::nth_element(triangles.begin() + low, triangles.begin() + mid,

@@ -71,7 +71,7 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
     constexpr auto MAX = std::numeric_limits<float>::max();
     constexpr int NUM_OBJECT_BINS = 32;
-    constexpr int N = 8; // BVH8
+    constexpr int N = 8;
 
     struct BuildRecord {
         uint32_t begin;
@@ -85,7 +85,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         assert(depth < max_tree_depth);
         uint32_t count = record.end - record.begin;
 
-        // Leaf termination
         if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             std::copy(triangles.begin() + record.begin,
@@ -95,8 +94,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                 .data = data,
             });
         }
-
-        // Compute centroid bounds
         float3 centroid_bounds_min = triangle_centroid(triangles[record.begin]);
         float3 centroid_bounds_max = centroid_bounds_min;
 
@@ -106,7 +103,7 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
             centroid_bounds_max = max(centroid_bounds_max, c);
         }
 
-        // Embree strategy: Make multiple binary splits to create N children
+        // Similar to embree, make multiple binary splits to create N children.
         std::vector<BuildRecord> children;
         children.push_back(record);
 
@@ -117,15 +114,11 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
             for (const BuildRecord &child_rec : children) {
                 uint32_t child_count = child_rec.end - child_rec.begin;
-
-                // If child is too small, don't split it further
                 if (child_count <= max_prims_per_leaf) {
+                    // Child is too small, don't split it further.
                     next_children.push_back(child_rec);
                     continue;
                 }
-
-                // Find best binary split for this child using standard binned
-                // SAH
                 struct BinarySplit {
                     int axis = -1;
                     float position = 0.0f;
@@ -136,8 +129,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                 float parent_area =
                     surface_area(child_rec.aabb_min, child_rec.aabb_max);
                 float leaf_cost = intersection_cost * child_count;
-
-                // Recompute centroid bounds for this partition
                 float3 local_centroid_min =
                     triangle_centroid(triangles[child_rec.begin]);
                 float3 local_centroid_max = local_centroid_min;
@@ -146,8 +137,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                     local_centroid_min = min(local_centroid_min, c);
                     local_centroid_max = max(local_centroid_max, c);
                 }
-
-                // Try all 3 axes
                 for (int axis = 0; axis < 3; ++axis) {
                     float extent =
                         (axis == 0)
@@ -162,8 +151,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                     float centroid_min = (axis == 0)   ? local_centroid_min.x
                                          : (axis == 1) ? local_centroid_min.y
                                                        : local_centroid_min.z;
-
-                    // Standard binning
                     Bin bins[NUM_OBJECT_BINS];
                     float bin_scale = NUM_OBJECT_BINS / extent;
 
@@ -183,7 +170,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                         bins[bin_idx].extend(prim_min, prim_max);
                     }
 
-                    // Prefix and suffix sums
                     Bin left_bins[NUM_OBJECT_BINS - 1];
                     left_bins[0] = bins[0];
                     for (int i = 1; i < NUM_OBJECT_BINS - 1; ++i) {
@@ -196,7 +182,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                         right_bins[i] = bins[i + 1] + right_bins[i + 1];
                     }
 
-                    // Evaluate all splits
                     for (int i = 0; i < NUM_OBJECT_BINS - 1; ++i) {
                         uint32_t left_count = left_bins[i].count;
                         uint32_t right_count = right_bins[i].count;
@@ -224,14 +209,10 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                         }
                     }
                 }
-
-                // If splitting is not beneficial, keep as leaf candidate
                 if (best_split.sah_cost >= leaf_cost) {
                     next_children.push_back(child_rec);
                     continue;
                 }
-
-                // Partition this child
                 auto mid_it = std::partition(
                     triangles.begin() + child_rec.begin,
                     triangles.begin() + child_rec.end,
@@ -244,8 +225,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                     });
 
                 uint32_t mid = std::distance(triangles.begin(), mid_it);
-
-                // Handle partition failure
                 if (mid == child_rec.begin || mid == child_rec.end) {
                     mid = child_rec.begin + child_count / 2;
                     std::nth_element(triangles.begin() + child_rec.begin,
@@ -265,8 +244,6 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                                          return ca_val < cb_val;
                                      });
                 }
-
-                // Create two child records
                 auto [left_min, left_max] =
                     compute_aabb(child_rec.begin, mid, triangles);
                 auto [right_min, right_max] =
@@ -279,17 +256,10 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
             }
 
             children = std::move(next_children);
-
-            // Stop if we can't split further or have enough children
             if (children.size() >= N)
                 break;
         }
-
-        // Now we have up to N children - create Interior node
-        // Interior always has 8 children, so we populate what we have and set
-        // rest to nullptr
         Interior interior;
-
         for (size_t i = 0; i < N; ++i) {
             if (i < children.size()) {
                 interior.children[i] = build_recursive(children[i], depth + 1);
@@ -304,12 +274,9 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
         return new BVH(interior);
     };
-
-    // Start the build
     auto [root_min, root_max] = compute_aabb(0, triangles.size(), triangles);
-    BuildRecord root_record{0, (uint32_t)triangles.size(), root_min, root_max};
-
-    return build_recursive(root_record, 0);
+    BuildRecord root{0, triangles.size(), root_min, root_max};
+    return build_recursive(root, 0);
 }
 
 inline void free_canonical_tree_8(BVH *node) {
