@@ -147,8 +147,8 @@ void run(const std::string &object, const std::string &partition,
     // add an additional value since we know this value will always be non-zero.
     // Otherwise, we use embree's default.
     const bool is_sgeq =
-        layout.size() > 2 && layout[0] == 'e' && layout[1] == 'q';
-    const int32_t max_prims_per_leaf = is_sgeq ? 8 : 32;
+        layout.size() > 1 && layout[0] == 'e' && layout[1] == 'q';
+    const int32_t max_prims_per_leaf = is_sgeq ? 15 : 32;
     std::cerr << max_prims_per_leaf << std::endl;
     BVH *canonical_tree =
         build_canonical_tree_$N$(triangles, heuristic, max_prims_per_leaf);
