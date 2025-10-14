@@ -57,6 +57,7 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     # run (executable is now in the build directory)
     cd ..       # build directory
     cd ../../.. # PREFIX
+    echo "./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}"
     for ((k=0; k < N; k++)); do
       ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} | tee -a ${PREFIX}/results/${LAYOUT}.txt
     done
@@ -64,7 +65,7 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     # clean up
     rm -f ${PREFIX}/${APPLICATION}.h
     rm -f ${PREFIX}/${APPLICATION}.cpp
-    # rm -rf ${PREFIX}/build
+    rm -rf ${PREFIX}/build
   done
 done
 
