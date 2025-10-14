@@ -18,7 +18,6 @@ def parse_embree_output(text):
             i += 1
             continue
 
-        # Check if this looks like an object name (single word/identifier, not a separator)
         if (line and
             re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', line) and
             line != '---' and
@@ -35,12 +34,13 @@ def parse_embree_output(text):
             if current_object and layout:
                 data[current_object][layout] = {'memory': 0, 'nodes': {}}
 
-            # Search forward for the "total : used" line
+            # Search forward for the "alloc : used" line.
+            # To be conservative, we don't included "wasted" memory.
             for j in range(i + 1, min(i + 200, len(lines))):
                 check_line = lines[j].strip()
-                if check_line.startswith('total') and 'used' in check_line:
+                if check_line.startswith('alloc') and 'used' in check_line:
                     bytes_match = re.search(
-                        r'total\s*:\s*used\s*=\s*([\d.]+)\s*MB', check_line)
+                        r'alloc\s*:\s*used\s*=\s*([\d.]+)\s*MB', check_line)
                     if bytes_match:
                         size_mb = float(bytes_match.group(1))
                         size_bytes = int(size_mb * 1024 * 1024)
@@ -52,7 +52,6 @@ def parse_embree_output(text):
 
         i += 1
 
-    # Convert to regular dict
     result = {}
     for model in data:
         result[model] = {}
@@ -71,6 +70,8 @@ def main():
         print("Usage: python script.py <embree_output_file>")
         sys.exit(1)
 
+    # To use this, uncomment the additional configuration string in
+    # `embree/main_trace.cpp` so that it prints memory usage.
     embree_file = sys.argv[1]
 
     try:
@@ -84,10 +85,7 @@ def main():
         print(f"Error reading file '{embree_file}': {e}")
         sys.exit(1)
 
-    # Parse embree output
     result = parse_embree_output(embree_text)
-
-    # Print the dictionary
     print(result)
 
 

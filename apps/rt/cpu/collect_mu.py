@@ -83,9 +83,10 @@ def parse_layout_memory_and_nodes(data_text):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python pareto_plotter.py <data_file> [ray_count]")
+        print("Usage: python collect_mu.py <data_file>")
         sys.exit(1)
-
+    # To use this, uncomment `print_memory_utilization` in the Bonsai compiler's
+    # cpp backend `CPP.cpp` so generate the BVH size (in bytes).
     filename = sys.argv[1]
     ray_count = int(sys.argv[2]) if len(sys.argv) > 2 else None
 
