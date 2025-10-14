@@ -225,10 +225,8 @@ Triangles1 build_triangles1(const BVH* __restrict__ CT) {
   ST.node_count = 0u;
   rec_count_triangles1(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
-  std::cout << ";; primitives: " << sizeof(Triangle) <<  "," << ST.primitive_count<< "\n";
   ST.primitives = primitives;
   Nodes1* nodes1 = reinterpret_cast<Nodes1*>(std::aligned_alloc(32, (((sizeof(Nodes1) * ST.node_count) + 31) / 32) * 32));
-  std::cout << ";; nodes1: " << sizeof(Nodes1) <<  "," << ST.node_count<< "\n";
   ST.nodes1 = nodes1;
   rec_build_triangles1(CT, (&ST), (&nodes1_index), (&primitives_index));
   return ST;
@@ -290,10 +288,8 @@ Triangles2 build_triangles2(const BVH* __restrict__ CT) {
   ST.node_count = 0u;
   rec_count_triangles2(CT, (&ST));
   Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
-  std::cout << ";; primitives: " << sizeof(Triangle) <<  "," << ST.primitive_count<< "\n";
   ST.primitives = primitives;
   Nodes2* nodes2 = reinterpret_cast<Nodes2*>(std::aligned_alloc(32, (((sizeof(Nodes2) * ST.node_count) + 31) / 32) * 32));
-  std::cout << ";; nodes2: " << sizeof(Nodes2) <<  "," << ST.node_count<< "\n";
   ST.nodes2 = nodes2;
   rec_build_triangles2(CT, (&ST), (&nodes2_index), (&primitives_index));
   return ST;
