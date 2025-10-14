@@ -1,4 +1,3 @@
-# In CMakeLists.txt
 cmake_minimum_required(VERSION 3.14)
 project(closest_point_benchmark)
 
@@ -6,12 +5,26 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
+
+# Manually fetch and configure GLFW BEFORE polyscope
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG 3.3.8
+)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
+# Now fetch polyscope with mock backend
 FetchContent_Declare(
     polyscope
     GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git
     GIT_TAG master
 )
-# Use headless backend if no display needed.
 set(POLYSCOPE_BACKEND_OPENGL_MOCK ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(polyscope)
 
