@@ -85,12 +85,11 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         float3 aabb_max;
     };
 
-    std::function<BVH *(BuildRecord, uint32_t)> build_recursive =
-        [&](BuildRecord record, uint32_t depth) -> BVH * {
-        assert(depth < max_tree_depth);
+    std::function<BVH *(BuildRecord)> recurse =
+        [&](BuildRecord record) -> BVH * {
         uint32_t count = record.end - record.begin;
 
-        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
+        if (count <= max_prims_per_leaf) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             std::copy(triangles.begin() + record.begin,
                       triangles.begin() + record.end, data);
@@ -305,7 +304,7 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
         Interior interior;
         for (size_t i = 0; i < N; ++i) {
             if (i < children.size()) {
-                interior.children[i] = build_recursive(children[i], depth + 1);
+                interior.children[i] = recurse(children[i]);
                 interior.lo[i] = children[i].aabb_min;
                 interior.hi[i] = children[i].aabb_max;
             } else {
@@ -321,7 +320,7 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
     const uint32_t high = static_cast<uint32_t>(triangles.size());
     auto [root_min, root_max] = compute_aabb(0, high, triangles);
     BuildRecord root{0, high, root_min, root_max};
-    return build_recursive(root, 0);
+    return recurse(root);
 }
 
 inline void free_canonical_tree_8(BVH *node) {

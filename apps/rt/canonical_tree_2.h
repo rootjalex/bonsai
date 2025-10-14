@@ -98,7 +98,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 // [1]
 // https://github.com/RenderKit/embree/blob/1970895eb97a38ff67e7da97689a3f3c35fd705c/kernels/builders/bvh_builder_sah.h#L216
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
-                                int max_prims_per_leaf, int max_tree_depth,
+                                int max_prims_per_leaf,
                                 float traversal_cost = 1.0f,
                                 float intersection_cost = 1.0f) {
 
@@ -278,12 +278,11 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                 BuildRecord{mid, record.end, right_min, right_max}};
     };
 
-    std::function<BVH *(BuildRecord, uint32_t)> build_recursive =
-        [&](BuildRecord record, uint32_t depth) -> BVH * {
-        assert(depth < max_tree_depth);
+    std::function<BVH *(BuildRecord)> recurse =
+        [&](BuildRecord record) -> BVH * {
         uint32_t count = record.end - record.begin;
 
-        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
+        if (count <= max_prims_per_leaf) {
             auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
             for (uint32_t i = 0; i < count; ++i) {
                 data[i] = triangles[record.begin + i];
@@ -356,10 +355,10 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             auto [right_min, right_max] =
                 compute_aabb(mid, record.end, triangles);
 
-            BVH *left = build_recursive(
-                BuildRecord{record.begin, mid, left_min, left_max}, depth + 1);
-            BVH *right = build_recursive(
-                BuildRecord{mid, record.end, right_min, right_max}, depth + 1);
+            BVH *left =
+                recurse(BuildRecord{record.begin, mid, left_min, left_max});
+            BVH *right =
+                recurse(BuildRecord{mid, record.end, right_min, right_max});
 
             return new BVH(Interior{
                 .low = record.aabb_min,
@@ -371,8 +370,8 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
 
         auto [left_child, right_child] = perform_split(record, split);
 
-        BVH *left = build_recursive(left_child, depth + 1);
-        BVH *right = build_recursive(right_child, depth + 1);
+        BVH *left = recurse(left_child);
+        BVH *right = recurse(right_child);
 
         return new BVH(Interior{
             .low = record.aabb_min,
@@ -385,7 +384,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
     const uint32_t high = static_cast<uint32_t>(triangles.size());
     auto [root_min, root_max] = compute_aabb(0, high, triangles);
     BuildRecord root{0, high, root_min, root_max};
-    return build_recursive(root, 0);
+    return recurse(root);
 }
 
 void free_canonical_tree_2(BVH *node) {
@@ -419,8 +418,7 @@ BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
                             int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
-        return build_canonical_tree_2_sah(triangles, max_prims_per_leaf,
-                                          max_tree_depth);
+        return build_canonical_tree_2_sah(triangles, max_prims_per_leaf);
     case Heuristic::MedianSplit:
         return build_canonical_tree_2_ms(triangles, max_prims_per_leaf,
                                          max_tree_depth);
