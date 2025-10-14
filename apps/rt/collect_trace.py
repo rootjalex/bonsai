@@ -389,11 +389,12 @@ if __name__ == "__main__":
             print(f"  [no memory data found]")
 
     layout_groups = {
-        'bvh8': ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16',
-                 'cl-bvh8-idx', 'cl-bvh8-idx-align16', 'cl-bvh8-u16-align16',
-                 'cl-bvh8-u16-idx-align16', 'cl-bvh8-u16-idx', 'cl-bvh8-u16',
+        'bvh8': ['bvh8', 'bvh8-align16', 'bvh-q8',
+                 'bvh-q16', 'bvh8-q8-align16', 'bvh8-q8-ci-align16',
+                 'bvh8-q8-ci', 'bvh8-q16-align16', 'bvh8-q16-ci-align16',
+                 'bvh8-q16-ci',
                  ],
-        'bvh2': ['eq', 'pbrt', 'pbrt-align16', 'eq-align16',
+        'bvh2': ['sg-eq', 'pbrt', 'pbrt-align16', 'sg-eq-align16',
                  'ptr', 'pbrt-soaos-align16', 'pbrt-soaos',
                  'pbrt-q16', 'pbrt-q16-soaos',
                  ],
