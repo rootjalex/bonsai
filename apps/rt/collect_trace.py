@@ -400,7 +400,7 @@ if __name__ == "__main__":
                  'ptr', 'pbrt-soaos-align16', 'pbrt-soaos',
                  'pbrt-q16', 'pbrt-q16-soaos',
                  ],
-        'embree': ['embree-bvh8i', 'embree-bvh8v' 'embree-qbvh8i', 'embree-qbvh8', 'embree-bvh8'],
+        'embree': ['embree-bvh8i', 'embree-bvh8v', 'embree-qbvh8i', 'embree-qbvh8', 'embree-bvh8'],
     }
     ray_count_range = None
     label_dominated_points = True
