@@ -1,0 +1,86 @@
+type AABBTree = (const AABBTree&)
+type Point = struct Point{ x : f32; y : f32 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u64; prims : struct Point{ x : f32; y : f32 }[pCount]; nCount : u64; group0_index : [[packed]] struct _tree_layout1{ xl : f32; xh : f32; yl : f32; yh : f32; nPrims : u8; split0on_nPrims : u8x7 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ xl : f32; xh : f32; yl : f32; yh : f32; nPrims : u8; split0on_nPrims : u8x7 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u56 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u56 }
+
+extern input0 : set<struct Point{ x : f32; y : f32 }>
+extern input1 : set<struct Point{ x : f32; y : f32 }>
+extern tree0 : [[packed]] struct _tree_layout0{ pCount : u64; prims : struct Point{ x : f32; y : f32 }[pCount]; nCount : u64; group0_index : [[packed]] struct _tree_layout1{ xl : f32; xh : f32; yl : f32; yh : f32; nPrims : u8; split0on_nPrims : u8x7 }[nCount] }
+extern tree1 : [[packed]] struct _tree_layout0{ pCount : u64; prims : struct Point{ x : f32; y : f32 }[pCount]; nCount : u64; group0_index : [[packed]] struct _tree_layout1{ xl : f32; xh : f32; yl : f32; yh : f32; nPrims : u8; split0on_nPrims : u8x7 }[nCount] }
+
+func _scan_AABBTree_AABBTree(tree0_index : u64, tree0 : _tree_layout0, tree1_index : u64, tree1 : _tree_layout0, _dyn_alloc : mut set<(Point, Point)>) -> void {
+  if (tree0.group0_index[tree0_index].nPrims == 0u) {
+    if (tree1.group0_index[tree1_index].nPrims == 0u) {
+      _scan_AABBTree_AABBTree(tree0_index + 1u, tree0, tree1_index + 1u, tree1, _dyn_alloc)
+      _scan_AABBTree_AABBTree(tree0_index + 1u, tree0, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset), tree1, _dyn_alloc)
+      _scan_AABBTree_AABBTree(tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree0, tree1_index + 1u, tree1, _dyn_alloc)
+      _scan_AABBTree_AABBTree(tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree0, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset), tree1, _dyn_alloc)
+    } else {
+      _scan_AABBTree_AABBTree(tree0_index + 1u, tree0, tree1, _dyn_alloc)
+      _scan_AABBTree_AABBTree(tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree0, tree1, _dyn_alloc)
+    }
+  } else if (tree1.group0_index[tree1_index].nPrims == 0u) {
+    _scan_AABBTree_AABBTree(tree0, tree1_index + 1u, tree1, _dyn_alloc)
+    _scan_AABBTree_AABBTree(tree0, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset), tree1, _dyn_alloc)
+  } else {
+    append<_dyn_alloc>(product(range(tree0.prims, cast<u64>(reinterpret_cast<_tree_layout3>(tree0.group0_index[tree0_index].split0on_nPrims).pOffset), cast<u64>(tree0.group0_index[tree0_index].nPrims)), range(tree1.prims, cast<u64>(reinterpret_cast<_tree_layout3>(tree1.group0_index[tree1_index].split0on_nPrims).pOffset), cast<u64>(tree1.group0_index[tree1_index].nPrims))))
+  }
+}
+
+func _traverse_tree1(value : f32, tree0 : _tree_layout0, tree1 : _tree_layout0) -> set<(Point, Point)> {
+  alloc _dyn_alloc : mut set<(Point, Point)>
+  rec(tree0_index : u64, tree1_index : u64) {
+    if (tree0.group0_index[tree0_index].nPrims == 0u) {
+      if (tree1.group0_index[tree1_index].nPrims == 0u) {
+        if (max(abs(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh), abs(tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+          _scan_AABBTree_AABBTree(tree0_index + 1u, tree0, tree1_index + 1u, tree1, _dyn_alloc)
+          _scan_AABBTree_AABBTree(tree0_index + 1u, tree0, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset), tree1, _dyn_alloc)
+          _scan_AABBTree_AABBTree(tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree0, tree1_index + 1u, tree1, _dyn_alloc)
+          _scan_AABBTree_AABBTree(tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree0, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset), tree1, _dyn_alloc)
+        } else if (max(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh, -min(0f, tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+          from ((tree0_index + 1u, tree1_index + 1u), (tree0_index + 1u, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset)), (tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree1_index + 1u), (tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset)))
+        }
+      } else if (max(abs(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh), abs(tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+        _scan_AABBTree_AABBTree(tree0_index + 1u, tree0, tree1, _dyn_alloc)
+        _scan_AABBTree_AABBTree(tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree0, tree1, _dyn_alloc)
+      } else if (max(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh, -min(0f, tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+        from ((tree0_index + 1u, tree1_index), (tree0_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree0.group0_index[tree0_index].split0on_nPrims).offset), tree1_index))
+      }
+    } else if (tree1.group0_index[tree1_index].nPrims == 0u) {
+      if (max(abs(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh), abs(tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+        _scan_AABBTree_AABBTree(tree0, tree1_index + 1u, tree1, _dyn_alloc)
+        _scan_AABBTree_AABBTree(tree0, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset), tree1, _dyn_alloc)
+      } else if (max(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh, -min(0f, tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+        from ((tree0_index, tree1_index + 1u), (tree0_index, tree1_index + cast<u64>(reinterpret_cast<_tree_layout2>(tree1.group0_index[tree1_index].split0on_nPrims).offset)))
+      }
+    } else {
+      foreach _iter0 in range(tree0.prims, cast<u64>(reinterpret_cast<_tree_layout3>(tree0.group0_index[tree0_index].split0on_nPrims).pOffset), cast<u64>(tree0.group0_index[tree0_index].nPrims)) {
+        foreach _iter1 in range(tree1.prims, cast<u64>(reinterpret_cast<_tree_layout3>(tree1.group0_index[tree1_index].split0on_nPrims).pOffset), cast<u64>(tree1.group0_index[tree1_index].nPrims)) {
+          if (max(abs(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh), abs(tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+            append<_dyn_alloc>((_iter0, _iter1))
+          } else if (max(tree0.group0_index[tree0_index].xl - tree1.group0_index[tree1_index].xh, -min(0f, tree0.group0_index[tree0_index].xh - tree1.group0_index[tree1_index].xl)) < value) {
+            if (abs(_iter0.x - _iter1.x) < value) {
+              append<_dyn_alloc>((_iter0, _iter1))
+            }
+          }
+        }
+      }
+    }
+  }
+  return _dyn_alloc
+}
+
+func [[export]] dist_join_1d(value : f32, input0 : set<Point>, input1 : set<Point>) -> set<(Point, Point)> {
+  return filter(|a : Point, b : Point| abs(a.x - b.x) < value, product(input0, input1))
+}
+
+func [[export]] dist_join_1d_fast(value : f32, tree0 : _tree_layout0, tree1 : _tree_layout0) -> set<(Point, Point)> {
+  return _traverse_tree1(value, tree0, tree1)
+}
+
+
+schedule host {
+
+}

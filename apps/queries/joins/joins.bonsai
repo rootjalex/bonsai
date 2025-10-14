@@ -1,0 +1,56 @@
+element Point {
+    x, y : f32;
+}
+
+extern input0 : set[Point];
+extern input1 : set[Point];
+
+func [[export]] dist_join_1d(value : f32) = filter(|a : Point, b : Point| abs(a.x - b.x) < value, product(input0, input1));
+
+extern tree0 : set[Point];
+extern tree1 : set[Point];
+
+func [[export]] dist_join_1d_fast(value : f32) = filter(|a : Point, b : Point| abs(a.x - b.x) < value, product(tree0, tree1));
+
+schedule {
+    tree[[Point]] AABBTree(xl xh yl yh : f32) with x in [xl, xh] with y in [yl, yh] =
+    | Interior(left : AABBTree, right : AABBTree)
+    | Leaf(d : array[Point]) with data = d;
+
+    tree0 : AABBTree;
+    tree1 : AABBTree;
+
+    layout tree0 {
+        pCount : u64;
+        prims : array[Point, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            xl : f32;
+            xh : f32;
+            yl : f32;
+            yh : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+
+    layout tree1 {
+        pCount : u64;
+        prims : array[Point, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            xl : f32;
+            xh : f32;
+            yl : f32;
+            yh : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+}

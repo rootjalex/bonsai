@@ -1,0 +1,152 @@
+type AABBTree = (const AABBTree&)
+type Point = struct Point{ x : f32; y : f32 }
+
+extern input0 : set<struct Point{ x : f32; y : f32 }>
+extern input1 : set<struct Point{ x : f32; y : f32 }>
+extern tree0 : tree[[struct Point{ x : f32; y : f32 }]] AABBTree
+  | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh]
+  | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh]
+extern tree1 : tree[[struct Point{ x : f32; y : f32 }]] AABBTree
+  | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh]
+  | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh]
+
+func _scan_AABBTree_AABBTree(tree0 : tree[[Point]] AABBTree, tree1 : tree[[Point]] AABBTree, _dyn_alloc : mut set<(Point, Point)>) -> void {
+  match tree0 {
+  | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh] ->
+    match tree1 {
+    | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh] ->
+      _scan_AABBTree_AABBTree(((tree0 as Interior).left, (tree1 as Interior).left)[0], ((tree0 as Interior).left, (tree1 as Interior).left)[1], _dyn_alloc)
+      _scan_AABBTree_AABBTree(((tree0 as Interior).left, (tree1 as Interior).right)[0], ((tree0 as Interior).left, (tree1 as Interior).right)[1], _dyn_alloc)
+      _scan_AABBTree_AABBTree(((tree0 as Interior).right, (tree1 as Interior).left)[0], ((tree0 as Interior).right, (tree1 as Interior).left)[1], _dyn_alloc)
+      _scan_AABBTree_AABBTree(((tree0 as Interior).right, (tree1 as Interior).right)[0], ((tree0 as Interior).right, (tree1 as Interior).right)[1], _dyn_alloc)
+    | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh] ->
+      _scan_AABBTree_AABBTree(((tree0 as Interior).left, tree1)[0], ((tree0 as Interior).left, tree1)[1], _dyn_alloc)
+      _scan_AABBTree_AABBTree(((tree0 as Interior).right, tree1)[0], ((tree0 as Interior).right, tree1)[1], _dyn_alloc)
+    }
+  | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh] ->
+    match tree1 {
+    | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh] ->
+      _scan_AABBTree_AABBTree((tree0, (tree1 as Interior).left)[0], (tree0, (tree1 as Interior).left)[1], _dyn_alloc)
+      _scan_AABBTree_AABBTree((tree0, (tree1 as Interior).right)[0], (tree0, (tree1 as Interior).right)[1], _dyn_alloc)
+    | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh] ->
+      append<_dyn_alloc>(product((tree0 as Leaf).d, (tree1 as Leaf).d))
+    }
+  }
+}
+
+func _traverse_tree1(value : f32, tree0 : tree[[Point]] AABBTree, tree1 : tree[[Point]] AABBTree) -> set<(Point, Point)> {
+  alloc _dyn_alloc : mut set<(Point, Point)>
+  rec(tree0 : tree[[Point]] AABBTree, tree1 : tree[[Point]] AABBTree) {
+    match tree0 {
+    | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh] ->
+      match tree1 {
+      | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh] ->
+        if (max(abs((tree0 as Interior).xl - (tree1 as Interior).xh), abs((tree0 as Interior).xh - (tree1 as Interior).xl)) < value) {
+          _scan_AABBTree_AABBTree(((tree0 as Interior).left, (tree1 as Interior).left)[0], ((tree0 as Interior).left, (tree1 as Interior).left)[1], _dyn_alloc)
+          _scan_AABBTree_AABBTree(((tree0 as Interior).left, (tree1 as Interior).right)[0], ((tree0 as Interior).left, (tree1 as Interior).right)[1], _dyn_alloc)
+          _scan_AABBTree_AABBTree(((tree0 as Interior).right, (tree1 as Interior).left)[0], ((tree0 as Interior).right, (tree1 as Interior).left)[1], _dyn_alloc)
+          _scan_AABBTree_AABBTree(((tree0 as Interior).right, (tree1 as Interior).right)[0], ((tree0 as Interior).right, (tree1 as Interior).right)[1], _dyn_alloc)
+        } else if (max((tree0 as Interior).xl - (tree1 as Interior).xh, -min(0f, (tree0 as Interior).xh - (tree1 as Interior).xl)) < value) {
+          from (((tree0 as Interior).left, (tree1 as Interior).left), ((tree0 as Interior).left, (tree1 as Interior).right), ((tree0 as Interior).right, (tree1 as Interior).left), ((tree0 as Interior).right, (tree1 as Interior).right))
+        }
+      | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh] ->
+        if (max(abs((tree0 as Interior).xl - (tree1 as Leaf).xh), abs((tree0 as Interior).xh - (tree1 as Leaf).xl)) < value) {
+          _scan_AABBTree_AABBTree(((tree0 as Interior).left, tree1)[0], ((tree0 as Interior).left, tree1)[1], _dyn_alloc)
+          _scan_AABBTree_AABBTree(((tree0 as Interior).right, tree1)[0], ((tree0 as Interior).right, tree1)[1], _dyn_alloc)
+        } else if (max((tree0 as Interior).xl - (tree1 as Leaf).xh, -min(0f, (tree0 as Interior).xh - (tree1 as Leaf).xl)) < value) {
+          from (((tree0 as Interior).left, tree1), ((tree0 as Interior).right, tree1))
+        }
+      }
+    | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh] ->
+      match tree1 {
+      | Interior(xl : f32, xh : f32, yl : f32, yh : f32, left : (const AABBTree&), right : (const AABBTree&)) with x in [xl, xh] with y in [yl, yh] ->
+        if (max(abs((tree0 as Leaf).xl - (tree1 as Interior).xh), abs((tree0 as Leaf).xh - (tree1 as Interior).xl)) < value) {
+          _scan_AABBTree_AABBTree((tree0, (tree1 as Interior).left)[0], (tree0, (tree1 as Interior).left)[1], _dyn_alloc)
+          _scan_AABBTree_AABBTree((tree0, (tree1 as Interior).right)[0], (tree0, (tree1 as Interior).right)[1], _dyn_alloc)
+        } else if (max((tree0 as Leaf).xl - (tree1 as Interior).xh, -min(0f, (tree0 as Leaf).xh - (tree1 as Interior).xl)) < value) {
+          from ((tree0, (tree1 as Interior).left), (tree0, (tree1 as Interior).right))
+        }
+      | Leaf(xl : f32, xh : f32, yl : f32, yh : f32, d : Point[]) with data = d with x in [xl, xh] with y in [yl, yh] ->
+        foreach _iter0 in (tree0 as Leaf).d {
+          foreach _iter1 in (tree1 as Leaf).d {
+            if (max(abs((tree0 as Leaf).xl - (tree1 as Leaf).xh), abs((tree0 as Leaf).xh - (tree1 as Leaf).xl)) < value) {
+              append<_dyn_alloc>((_iter0, _iter1))
+            } else if (max((tree0 as Leaf).xl - (tree1 as Leaf).xh, -min(0f, (tree0 as Leaf).xh - (tree1 as Leaf).xl)) < value) {
+              if (abs(_iter0.x - _iter1.x) < value) {
+                append<_dyn_alloc>((_iter0, _iter1))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return _dyn_alloc
+}
+
+func [[export]] dist_join_1d(value : f32, input0 : set<Point>, input1 : set<Point>) -> set<(Point, Point)> {
+  return filter(|a : Point, b : Point| abs(a.x - b.x) < value, product(input0, input1))
+}
+
+func [[export]] dist_join_1d_fast(value : f32, tree0 : tree[[Point]] AABBTree, tree1 : tree[[Point]] AABBTree) -> set<(Point, Point)> {
+  return _traverse_tree1(value, tree0, tree1)
+}
+
+
+schedule host {
+    tree0 :       {
+        pCount : u64;
+        prims : struct Point{ x : f32; y : f32 }[pCount];
+        nCount : u64;
+        group[nCount] index : u64
+        {
+          xl : f32;
+          xh : f32;
+          yl : f32;
+          yh : f32;
+          nPrims : u8;
+          switch nPrims {
+          0 => Interior
+            {
+              offset : u56;
+              left = index + (u64)1;
+              right = index + cast<u64>(offset);
+            };
+          _ => Leaf
+            {
+              pOffset : u56;
+              d = range(prims, cast<u64>(pOffset), cast<u64>(nPrims));
+            };
+          };
+        };
+      };
+
+    tree1 :       {
+        pCount : u64;
+        prims : struct Point{ x : f32; y : f32 }[pCount];
+        nCount : u64;
+        group[nCount] index : u64
+        {
+          xl : f32;
+          xh : f32;
+          yl : f32;
+          yh : f32;
+          nPrims : u8;
+          switch nPrims {
+          0 => Interior
+            {
+              offset : u56;
+              left = index + (u64)1;
+              right = index + cast<u64>(offset);
+            };
+          _ => Leaf
+            {
+              pOffset : u56;
+              d = range(prims, cast<u64>(pOffset), cast<u64>(nPrims));
+            };
+          };
+        };
+      };
+
+
+}
