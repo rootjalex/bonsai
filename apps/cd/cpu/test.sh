@@ -58,7 +58,7 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     cd ..       # build directory
     cd ../../.. # PREFIX
     for ((k=0; k < N; k++)); do
-      ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} >> ${PREFIX}/results/${LAYOUT}.txt
+      ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} | tee -a ${PREFIX}/results/${LAYOUT}.txt
     done
     
     # clean up
