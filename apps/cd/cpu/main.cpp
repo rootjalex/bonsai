@@ -122,7 +122,6 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
 
     CollisionResult<S> result;
     detail::MeshCollisionTraversalNode<BV> node;
-    std::cerr << "beginning fcl collision..." << std::endl;
 
     // similar to bonsai, only return whether a contact occurs.
     constexpr bool enable_contact = false;
@@ -135,7 +134,6 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
     collide(&node);
     std::vector<Contact<S>> contacts;
     result.getContacts(contacts);
-    std::cerr << "ending fcl collision..." << std::endl;
     return contacts;
 }
 
@@ -222,35 +220,14 @@ void run_test(const std::string &obj1, const std::string &obj2) {
     assert(!v2.empty() && "no vertices found!");
     assert(!T2.empty() && "no triangles found!");
 
-    // ---- FCL tree construction ----
     auto t0 = clock::now();
-    fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(v1, T1);
-    fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(v2, T2);
-    auto t1 = clock::now();
-    auto fcl_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcl]    tree construction   : " << fcl_time << " ms"
-              << std::endl;
-
-    // ---- FCL collision detection ----
-    t0 = clock::now();
-    const std::vector<fcl::Contact<S>> fcl_collisions =
-        fcl::collide_test<fcl::AABB<S>>(m1, m2);
-    t1 = clock::now();
-    fcl_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcl]    collision detection : " << fcl_time << " ms"
-              << std::endl;
-
-    // ---- Bonsai tree construction ----
-    t0 = clock::now();
     std::vector<Triangle> T1s = construct_triangles(T1, v1);
     std::vector<Triangle> T2s = construct_triangles(T2, v2);
     BVH *canonical_tree1 = build_fcl_tree_median_split(T1s);
     BVH *canonical_tree2 = build_fcl_tree_median_split(T2s);
     Triangles1 tree1 = build_triangles1(canonical_tree1);
     Triangles2 tree2 = build_triangles2(canonical_tree2);
-    t1 = clock::now();
+    auto t1 = clock::now();
     auto bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "[bonsai] tree construction   : " << bonsai_time << " ms"
@@ -268,6 +245,28 @@ void run_test(const std::string &obj1, const std::string &obj2) {
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "[bonsai] collision detection : " << bonsai_time << " ms"
               << std::endl;
+
+    // ---- FCL tree construction ----
+    t0 = clock::now();
+    fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(v1, T1);
+    fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(v2, T2);
+    t1 = clock::now();
+    auto fcl_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "[fcl]    tree construction   : " << fcl_time << " ms"
+              << std::endl;
+
+    // ---- FCL collision detection ----
+    t0 = clock::now();
+    const std::vector<fcl::Contact<S>> fcl_collisions =
+        fcl::collide_test<fcl::AABB<S>>(m1, m2);
+    t1 = clock::now();
+    fcl_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "[fcl]    collision detection : " << fcl_time << " ms"
+              << std::endl;
+
+    // ---- Bonsai tree construction ----
 
     // Verify outputs match and are valid intersections.
     const int64_t bonsai_count = bonsai_collisions.size();
