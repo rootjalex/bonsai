@@ -4,6 +4,11 @@ project(collision-detection LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Add debug flags and sanitizers
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer")
+set(CMAKE_EXE_LINKER_FLAGS_DEBUG "-fsanitize=address -fsanitize=undefined")
+
 include(FetchContent)
 
 # Try to find packages locally first (conda or system)
@@ -103,14 +108,16 @@ target_include_directories(main_library PUBLIC
     ${CMAKE_SOURCE_DIR}/../../../..
     ${CMAKE_SOURCE_DIR}/../../../runtime/CPP    
 )
-target_compile_options(main_library PUBLIC -O3 -march=native)
+# Remove optimization for debugging
+target_compile_options(main_library PUBLIC -g -O3 -fsanitize=address -fsanitize=undefined)
 
 add_executable(${APPLICATION}_${LAYOUT}
     main.cpp
     ${CMAKE_SOURCE_DIR}/${APPLICATION}.cpp
 )
 
-target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -O3 -march=native)
+# Remove optimization for debugging, add sanitizers
+target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -g -O3 -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer)
 target_include_directories(${APPLICATION}_${LAYOUT} PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/..

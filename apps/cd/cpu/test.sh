@@ -11,7 +11,7 @@ N="${1:-10}"
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.
 OBJECTS_A=("dragon_60_70_10" "hairball" "hairball" "dragon_60_70_10")
-OBJECTS_B=("dragon" "hairball_60_70_10" "dragon" "hairball_60_70_10")
+OBJECTS_B=("dragon" g"hairball_60_70_10" "dragon" "hairball_60_70_10")
 
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../..
