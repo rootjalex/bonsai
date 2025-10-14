@@ -98,23 +98,16 @@ std::vector<RTCRayHit> load_rays_binary(const std::string &filename,
 
 Triangle get_triangle(RTCScene scene, unsigned int geom_id,
                       unsigned int prim_id) {
-    // Get the geometry from the scene
     RTCGeometry geom = rtcGetGeometry(scene, geom_id);
-
-    // Get vertex buffer
-    float *vertices =
-        (float *)rtcGetGeometryBufferData(geom, RTC_BUFFER_TYPE_VERTEX, 0);
-
-    // Get index buffer
     unsigned *indices =
         (unsigned *)rtcGetGeometryBufferData(geom, RTC_BUFFER_TYPE_INDEX, 0);
-
-    // Get the three vertex indices for this primitive
     unsigned int i0 = indices[prim_id * 3 + 0];
     unsigned int i1 = indices[prim_id * 3 + 1];
     unsigned int i2 = indices[prim_id * 3 + 2];
 
-    // Reconstruct the triangle
+    // Reconstruct the triangle.
+    float *vertices =
+        (float *)rtcGetGeometryBufferData(geom, RTC_BUFFER_TYPE_VERTEX, 0);
     Triangle tri;
     tri.p0.x = vertices[i0 * 3 + 0];
     tri.p0.y = vertices[i0 * 3 + 1];
@@ -127,7 +120,6 @@ Triangle get_triangle(RTCScene scene, unsigned int geom_id,
     tri.p2.x = vertices[i2 * 3 + 0];
     tri.p2.y = vertices[i2 * 3 + 1];
     tri.p2.z = vertices[i2 * 3 + 2];
-
     return tri;
 }
 
