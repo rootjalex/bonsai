@@ -122,6 +122,7 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
 
     CollisionResult<S> result;
     detail::MeshCollisionTraversalNode<BV> node;
+    std::cerr << "beginning fcl collision..." << std::endl;
 
     // similar to bonsai, only return whether a contact occurs.
     constexpr bool enable_contact = false;
@@ -131,10 +132,10 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
                                    enable_contact),
                result) &&
            "initialization error");
-
     collide(&node);
     std::vector<Contact<S>> contacts;
     result.getContacts(contacts);
+    std::cerr << "ending fcl collision..." << std::endl;
     return contacts;
 }
 
