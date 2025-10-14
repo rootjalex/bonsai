@@ -58,10 +58,10 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     cd ..       # build directory
     cd ../../.. # PREFIX
     echo "./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B}"
-    break
-    # for ((k=0; k < N; k++)); do
-      # ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} | tee -a ${PREFIX}/results/${LAYOUT}.txt
-    # done
+    
+    for ((k=0; k < N; k++)); do
+      ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} | tee -a ${PREFIX}/results/${LAYOUT}.txt
+    done
     
     # clean up
     rm -f ${PREFIX}/${APPLICATION}.h

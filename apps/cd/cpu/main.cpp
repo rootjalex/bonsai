@@ -121,17 +121,12 @@ std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
     Transform3<S> pose2 = Transform3<S>::Identity();
 
     CollisionResult<S> result;
-    detail::MeshCollisionTraversalNode<BV> node;
-
     // similar to bonsai, only return whether a contact occurs.
     constexpr bool enable_contact = false;
-    assert(detail::initialize<BV>(
-               node, m1, pose1, m2, pose2,
-               CollisionRequest<S>(std::numeric_limits<int>::max(),
-                                   enable_contact),
-               result) &&
-           "initialization error");
-    collide(&node);
+    CollisionRequest<S> request(std::numeric_limits<int>::max(),
+                                enable_contact);
+    collide(&m1, pose1, &m2, pose2, request, result);
+
     std::vector<Contact<S>> contacts;
     result.getContacts(contacts);
     return contacts;
