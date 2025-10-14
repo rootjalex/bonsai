@@ -89,12 +89,7 @@ void run(std::string object, std::string partition, bool is_single_threaded,
         exit(1);
     }
 
-    // we have at most 4 bits for the snapped-grid extent quantization and can
-    // add an additional value since we know this value will always be non-zero.
-    // Otherwise, we use embree's default.
-    const int32_t max_prims_per_leaf = layout.starts_with("eq") ? 15 : 32;
-    BVH *canonical_tree =
-        build_canonical_tree_$N$(triangles, heuristic, max_prims_per_leaf);
+    BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
 
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);

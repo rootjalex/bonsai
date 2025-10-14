@@ -1,0 +1,93 @@
+element q16x3 {
+  lo: u16x3;
+  hi: u16x3;
+}
+
+func dequantize_lo(mlo: f32x3, mex: f32x3, bound: q16x3) -> f32x3 {
+  rcp: f32 = 1.0 / 65535.0;
+  return mlo + (cast[[f32x3]](bound.lo) * rcp) * mex;
+}
+
+func dequantize_hi(mlo: f32x3, mex: f32x3, bound: q16x3) -> f32x3 {
+  rcp: f32 = 1.0 / 65535.0;
+  return mlo + (cast[[f32x3]](bound.hi) * rcp) * mex;
+}
+
+func to_u16_floor(f: f32x3) -> u16x3 {
+    f1: f32x3 = floorf(f);
+    f2: f32x3 = max(0.0, min(f1, 65535.0));
+    return cast[[u16x3]](f2);
+}
+
+func to_u16_ceil(f: f32x3) -> u16x3 {
+    f1: f32x3 = ceilf(f);
+    f2: f32x3 = max(0.0, min(f1, 65535.0));
+    return cast[[u16x3]](f2);
+}
+
+func quantize_bounds(low: f32x3, high: f32x3, mlo: f32x3, mex: f32x3) -> q16x3 {
+  rcp: f32x3 = (1.0 / mex) * 65535.0;
+  return q16x3 {
+    to_u16_floor((low - mlo) * rcp), 
+    to_u16_ceil((high - mlo) * rcp)
+  };
+}
+
+schedule {
+    tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high) 
+      = Interior(left : BVH, right : BVH)
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(index: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+
+        world_low : f32x3;
+        world_high : f32x3;
+        
+        node_count : u32;
+        group q_aabbs[size=node_count] by index {
+            bounds_q : q16x3;
+            low = dequantize_lo(world_low, world_high, bounds_q);
+            high = dequantize_hi(world_low, world_high, bounds_q);
+        };
+        group nodes[size=node_count] by index {
+            metadata : u32; // offset[4:31]|nprims[0:3]
+            nprims = metadata[0:3];
+            split nprims {
+                0 -> Interior { 
+                    left = index + 1; 
+                    right = index + metadata[4:31]; 
+                };
+                _ -> Leaf { 
+                    data = primitives[metadata[4:31] : metadata[4:31] + nprims]; 
+                };
+            };
+        };
+    };
+
+    build triangles {  
+      build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
+        build root {
+          build world_low = low;
+          build world_high = high - low;
+        }
+        build bounds_q = quantize_bounds(low, high, world_low, world_high);
+        
+        recurse left;
+        recurse right;
+        
+        let offset: u32 = right - this;
+        build metadata = (offset << 4u) | 0u;
+        return this;
+      };
+      
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build bounds_q = quantize_bounds(low, high, world_low, world_high);
+        let poffset: u32 = append(data, nprims);
+        build metadata = (poffset << 4u) | nprims;
+        return this;
+      };
+    };

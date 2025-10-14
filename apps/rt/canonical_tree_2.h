@@ -360,8 +360,10 @@ enum class Heuristic {
     MedianSplit = 1,
 };
 
+// we have at most 4 bits for the snapped-grid extent quantization,
+// hence the `max_prims_per_leaf = 15` here.
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
-                            Heuristic heuristic, int max_prims_per_leaf,
+                            Heuristic heuristic, int max_prims_per_leaf = 15,
                             int max_tree_depth = 64) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:

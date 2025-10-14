@@ -72,7 +72,7 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   # Find which folder contains this layout
   DEBUG_BVH_SUFFIX=""
   for folder in "${LAYOUT_PATH}"/*; do
-    if [[ -d "$folder" && -f "${folder}/${DEBUG_LAYOUT}.bonsai" ]]; then
+  if [[ -d "$folder" && -f "${folder}/${DEBUG_LAYOUT}.bonsai" ]]; then
       DEBUG_BVH_SUFFIX=$(basename "$folder")
       break
     fi
@@ -184,9 +184,9 @@ run_tests() {
       if [[ "${SCHEDULE}" == "parallel" ]]; then
         COMMON_FLAGS="-fopenmp ${COMMON_FLAGS}"
       fi
-      # if [[ "${DEBUG_MODE}" == true ]]; then
-      # COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
-      # fi
+      if [[ "${DEBUG_MODE}" == true ]]; then
+        COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
+      fi
       
       if [[ "${DEBUG_MODE}" == true ]]; then
         # Generate LLVM IR for combined sources
