@@ -287,6 +287,8 @@ int main(int argc, char *argv[]) {
     // [1] https://github.com/flexible-collision-library/fcl
     // [2] https://github.com/nickdesaulniers/prims/tree/master/meshes
     assert(argc == 3);
+    assert(argv[1]);
+    assert(argv[2]);
     std::string obj1 = argv[1];
     std::string obj2 = argv[2];
     run_test<float>(obj1, obj2);
