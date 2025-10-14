@@ -92,6 +92,11 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
     return partition(0, triangles.size(), /*depth=*/0);
 }
 
+// based on Embree's iterative binary splitting approach [1]. This was copied to
+// the best of our ability.
+//
+// [1]
+// https://github.com/RenderKit/embree/blob/1970895eb97a38ff67e7da97689a3f3c35fd705c/kernels/builders/bvh_builder_sah.h#L216
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                                 int max_prims_per_leaf, int max_tree_depth,
                                 float traversal_cost = 1.0f,
@@ -136,44 +141,29 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
         float sah_cost = std::numeric_limits<float>::max();
     };
 
+    // https://github.com/RenderKit/embree/blob/1970895eb97a38ff67e7da97689a3f3c35fd705c/kernels/builders/bvh_builder_sah.h#L10
     constexpr int NUM_OBJECT_BINS = 32;
 
-    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
-        [&](uint32_t begin, uint32_t end, uint32_t depth) -> BVH * {
-        assert(depth < max_tree_depth);
-        uint32_t count = end - begin;
+    struct BuildRecord {
+        uint32_t begin;
+        uint32_t end;
+        float3 aabb_min;
+        float3 aabb_max;
+    };
 
-        auto [aabb_min, aabb_max] = compute_aabb(begin, end, triangles);
+    auto find_best_split = [&](const BuildRecord &record) -> Split {
+        Split best_split;
+        uint32_t count = record.end - record.begin;
+        float parent_area = surface_area(record.aabb_min, record.aabb_max);
 
-        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
-            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            for (uint32_t i = 0; i < count; ++i) {
-                data[i] = triangles[begin + i];
-            }
-            assert(static_cast<uint8_t>(count) > 0 &&
-                   count <= max_prims_per_leaf);
-            return new BVH(Leaf{
-                .low = aabb_min,
-                .high = aabb_max,
-                .nprims = static_cast<uint8_t>(count),
-                .data = data,
-            });
-        }
-
-        float3 centroid_bounds_min = triangle_centroid(triangles[begin]);
+        float3 centroid_bounds_min = triangle_centroid(triangles[record.begin]);
         float3 centroid_bounds_max = centroid_bounds_min;
 
-        for (uint32_t i = begin + 1; i < end; ++i) {
+        for (uint32_t i = record.begin + 1; i < record.end; ++i) {
             float3 c = triangle_centroid(triangles[i]);
             centroid_bounds_min = min(centroid_bounds_min, c);
             centroid_bounds_max = max(centroid_bounds_max, c);
         }
-
-        Split best_split;
-        float parent_area = surface_area(aabb_min, aabb_max);
-        float leaf_cost = (count <= max_prims_per_leaf)
-                              ? intersection_cost * count
-                              : std::numeric_limits<float>::max();
 
         for (int axis = 0; axis < 3; ++axis) {
             float extent =
@@ -190,7 +180,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             Bin bins[NUM_OBJECT_BINS];
             float bin_scale = NUM_OBJECT_BINS / extent;
 
-            for (uint32_t i = begin; i < end; ++i) {
+            for (uint32_t i = record.begin; i < record.end; ++i) {
                 float3 centroid = triangle_centroid(triangles[i]);
                 float c_axis = (axis == 0)   ? centroid.x
                                : (axis == 1) ? centroid.y
@@ -244,7 +234,100 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             }
         }
 
-        if (best_split.axis == -1) {
+        return best_split;
+    };
+
+    auto perform_split =
+        [&](const BuildRecord &record,
+            const Split &split) -> std::pair<BuildRecord, BuildRecord> {
+        uint32_t count = record.end - record.begin;
+
+        auto mid_it = std::partition(
+            triangles.begin() + record.begin, triangles.begin() + record.end,
+            [&](const Triangle &tri) {
+                float3 centroid = triangle_centroid(tri);
+                float c_axis = (split.axis == 0)   ? centroid.x
+                               : (split.axis == 1) ? centroid.y
+                                                   : centroid.z;
+                return c_axis < split.position;
+            });
+
+        uint32_t mid = std::distance(triangles.begin(), mid_it);
+        if (mid == record.begin || mid == record.end) {
+            mid = record.begin + count / 2;
+            std::nth_element(triangles.begin() + record.begin,
+                             triangles.begin() + mid,
+                             triangles.begin() + record.end,
+                             [&](const Triangle &a, const Triangle &b) {
+                                 float3 ca = triangle_centroid(a);
+                                 float3 cb = triangle_centroid(b);
+                                 float ca_val = (split.axis == 0)   ? ca.x
+                                                : (split.axis == 1) ? ca.y
+                                                                    : ca.z;
+                                 float cb_val = (split.axis == 0)   ? cb.x
+                                                : (split.axis == 1) ? cb.y
+                                                                    : cb.z;
+                                 return ca_val < cb_val;
+                             });
+        }
+
+        auto [left_min, left_max] = compute_aabb(record.begin, mid, triangles);
+        auto [right_min, right_max] = compute_aabb(mid, record.end, triangles);
+
+        return {BuildRecord{record.begin, mid, left_min, left_max},
+                BuildRecord{mid, record.end, right_min, right_max}};
+    };
+
+    std::function<BVH *(BuildRecord, uint32_t)> build_recursive =
+        [&](BuildRecord record, uint32_t depth) -> BVH * {
+        assert(depth < max_tree_depth);
+        uint32_t count = record.end - record.begin;
+
+        if (count <= max_prims_per_leaf || depth >= max_tree_depth - 1) {
+            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
+            for (uint32_t i = 0; i < count; ++i) {
+                data[i] = triangles[record.begin + i];
+            }
+            assert(static_cast<uint8_t>(count) > 0 &&
+                   count <= max_prims_per_leaf);
+            return new BVH(Leaf{
+                .low = record.aabb_min,
+                .high = record.aabb_max,
+                .nprims = static_cast<uint8_t>(count),
+                .data = data,
+            });
+        }
+
+        auto split = find_best_split(record);
+
+        float leaf_sah = intersection_cost * count;
+        float split_sah = split.sah_cost;
+
+        if (count <= max_prims_per_leaf && leaf_sah <= split_sah) {
+            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
+            for (uint32_t i = 0; i < count; ++i) {
+                data[i] = triangles[record.begin + i];
+            }
+            assert(static_cast<uint8_t>(count) > 0 &&
+                   count <= max_prims_per_leaf);
+            return new BVH(Leaf{
+                .low = record.aabb_min,
+                .high = record.aabb_max,
+                .nprims = static_cast<uint8_t>(count),
+                .data = data,
+            });
+        }
+
+        if (split.axis == -1) {
+            float3 centroid_bounds_min =
+                triangle_centroid(triangles[record.begin]);
+            float3 centroid_bounds_max = centroid_bounds_min;
+            for (uint32_t i = record.begin + 1; i < record.end; ++i) {
+                float3 c = triangle_centroid(triangles[i]);
+                centroid_bounds_min = min(centroid_bounds_min, c);
+                centroid_bounds_max = max(centroid_bounds_max, c);
+            }
+
             float3 extent = centroid_bounds_max - centroid_bounds_min;
             int longest_axis = 0;
             if (extent.y > extent.x && extent.y > extent.z)
@@ -252,9 +335,10 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             else if (extent.z > extent.x && extent.z > extent.y)
                 longest_axis = 2;
 
-            uint32_t mid = begin + count / 2;
-            std::nth_element(triangles.begin() + begin, triangles.begin() + mid,
-                             triangles.begin() + end,
+            uint32_t mid = record.begin + count / 2;
+            std::nth_element(triangles.begin() + record.begin,
+                             triangles.begin() + mid,
+                             triangles.begin() + record.end,
                              [&](const Triangle &a, const Triangle &b) {
                                  float3 ca = triangle_centroid(a);
                                  float3 cb = triangle_centroid(b);
@@ -267,73 +351,41 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                                  return ca_val < cb_val;
                              });
 
-            BVH *left = partition(begin, mid, depth + 1);
-            BVH *right = partition(mid, end, depth + 1);
+            auto [left_min, left_max] =
+                compute_aabb(record.begin, mid, triangles);
+            auto [right_min, right_max] =
+                compute_aabb(mid, record.end, triangles);
+
+            BVH *left = build_recursive(
+                BuildRecord{record.begin, mid, left_min, left_max}, depth + 1);
+            BVH *right = build_recursive(
+                BuildRecord{mid, record.end, right_min, right_max}, depth + 1);
 
             return new BVH(Interior{
-                .low = aabb_min,
-                .high = aabb_max,
+                .low = record.aabb_min,
+                .high = record.aabb_max,
                 .left = left,
                 .right = right,
             });
         }
 
-        if (best_split.sah_cost >= leaf_cost && count <= max_prims_per_leaf) {
-            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            for (uint32_t i = 0; i < count; ++i) {
-                data[i] = triangles[begin + i];
-            }
-            assert(static_cast<uint8_t>(count) > 0 &&
-                   count <= max_prims_per_leaf);
-            return new BVH(Leaf{
-                .low = aabb_min,
-                .high = aabb_max,
-                .nprims = static_cast<uint8_t>(count),
-                .data = data,
-            });
-        }
+        auto [left_child, right_child] = perform_split(record, split);
 
-        auto mid_it =
-            std::partition(triangles.begin() + begin, triangles.begin() + end,
-                           [&](const Triangle &tri) {
-                               float3 centroid = triangle_centroid(tri);
-                               float c_axis =
-                                   (best_split.axis == 0)   ? centroid.x
-                                   : (best_split.axis == 1) ? centroid.y
-                                                            : centroid.z;
-                               return c_axis < best_split.position;
-                           });
-
-        uint32_t mid = std::distance(triangles.begin(), mid_it);
-        if (mid == begin || mid == end) {
-            mid = begin + count / 2;
-            std::nth_element(triangles.begin() + begin, triangles.begin() + mid,
-                             triangles.begin() + end,
-                             [&](const Triangle &a, const Triangle &b) {
-                                 float3 ca = triangle_centroid(a);
-                                 float3 cb = triangle_centroid(b);
-                                 float ca_val = (best_split.axis == 0)   ? ca.x
-                                                : (best_split.axis == 1) ? ca.y
-                                                                         : ca.z;
-                                 float cb_val = (best_split.axis == 0)   ? cb.x
-                                                : (best_split.axis == 1) ? cb.y
-                                                                         : cb.z;
-                                 return ca_val < cb_val;
-                             });
-        }
-
-        BVH *left = partition(begin, mid, depth + 1);
-        BVH *right = partition(mid, end, depth + 1);
+        BVH *left = build_recursive(left_child, depth + 1);
+        BVH *right = build_recursive(right_child, depth + 1);
 
         return new BVH(Interior{
-            .low = aabb_min,
-            .high = aabb_max,
+            .low = record.aabb_min,
+            .high = record.aabb_max,
             .left = left,
             .right = right,
         });
     };
 
-    return partition(0, triangles.size(), 0);
+    const uint32_t high = static_cast<uint32_t>(triangles.size());
+    auto [root_min, root_max] = compute_aabb(0, high, triangles);
+    BuildRecord root{0, high, root_min, root_max};
+    return build_recursive(root, 0);
 }
 
 void free_canonical_tree_2(BVH *node) {
