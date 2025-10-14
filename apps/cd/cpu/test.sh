@@ -58,13 +58,13 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     cd ..       # build directory
     cd ../../.. # PREFIX
     for ((k=0; k < N; k++)); do
-      gdb ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} | tee -a ${PREFIX}/results/${LAYOUT}.txt
+      ./${PREFIX}/build/${APPLICATION}_${LAYOUT}.out ${OBJECT_A} ${OBJECT_B} | tee -a ${PREFIX}/results/${LAYOUT}.txt
     done
     
     # clean up
     rm -f ${PREFIX}/${APPLICATION}.h
     rm -f ${PREFIX}/${APPLICATION}.cpp
-    rm -rf ${PREFIX}/build
+    # rm -rf ${PREFIX}/build
   done
 done
 
