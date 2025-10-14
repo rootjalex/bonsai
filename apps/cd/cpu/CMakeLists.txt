@@ -28,6 +28,11 @@ endif()
 # If FCL not found, fetch dependencies and FCL from GitHub
 if(NOT fcl_FOUND)
     message(STATUS "FCL not found locally, fetching from GitHub...")
+    # Find the math library (required by libccd)
+    find_library(LIBM m)
+    if(NOT LIBM)
+        set(LIBM "")
+    endif()
     
     # FCL requires libccd - fetch it first
     FetchContent_Declare(
