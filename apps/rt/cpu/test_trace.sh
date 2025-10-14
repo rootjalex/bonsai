@@ -48,8 +48,8 @@ DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
 DATA_FILE="${RAY_TYPE}"
 PARTITION="sah"
 
-MIN_POWER=20
-MAX_POWER=25
+MIN_POWER=18
+MAX_POWER=23
 
 # only run on performance cores for the Fredwood.
 # TODO(cgyurgyik): this was causing performance regressions.

@@ -33,8 +33,8 @@ FREDWOOD_FLAG="" # "numactl --physcpubind 0-15"
 
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN MODE: testing with count=${MIN_POWER} only ***"
-  MAX_POWER=${MIN_POWER}
   N=1
+  N_QUERIES=1
 fi
 
 if [[ "$(pwd)" == */${PREFIX} ]]; then
