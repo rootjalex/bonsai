@@ -105,15 +105,15 @@ run_tests() {
       if [[ "$(uname)" == "Linux" ]]; then
         CLANG_FLAG="-DCMAKE_CXX_COMPILER=$CONDA_PREFIX/bin/clang++"
       fi
-      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} ../.. ${CLANG_FLAG} # > /dev/null
+      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} ../.. ${CLANG_FLAG} > /dev/null
       
-      make -j # > /dev/null 2>&1
+      make -j > /dev/null 2>&1
       
       cd ../..    # back to PREFIX
       cd ../../.. # back to root
       
       for ((k=0; k < N; k++)); do
-        ./${PREFIX}/build/${BUILD_DIRECTORY}/${APPLICATION}_${LAYOUT}.out "${OBJECT}" ${N_QUERIES} >> ${PREFIX}/results/${LAYOUT}.txt
+        ./${PREFIX}/build/${BUILD_DIRECTORY}/${APPLICATION}_${LAYOUT}.out "${OBJECT}" ${N_QUERIES} | tee -a ${PREFIX}/results/${LAYOUT}.txt
       done
       
       rm -f ${PREFIX}/${APPLICATION}.h
