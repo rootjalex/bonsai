@@ -72,6 +72,11 @@ if(NOT fcl_FOUND)
     set(ENABLE_DOUBLE_PRECISION ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(ccd)
     
+    # After making ccd available, set up variables for FCL to find it
+    set(CCD_INCLUDE_DIRS ${ccd_SOURCE_DIR}/src CACHE STRING "" FORCE)
+    set(CCD_LIBRARIES ccd CACHE STRING "" FORCE)
+    set(ccd_FOUND TRUE CACHE BOOL "" FORCE)
+    
     # Now fetch FCL
     FetchContent_Declare(
         fcl
