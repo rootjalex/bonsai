@@ -15,15 +15,6 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
-#ifdef __APPLE__
-#include <mach/mach.h>
-#include <mach/thread_policy.h>
-#include <pthread.h>
-#else
-#include <sched.h>
-#include <unistd.h>
-#endif
-
 namespace {
 
 // Simple structures
@@ -105,7 +96,6 @@ Triangle get_triangle(RTCScene scene, unsigned int geom_id,
     unsigned int i1 = indices[prim_id * 3 + 1];
     unsigned int i2 = indices[prim_id * 3 + 2];
 
-    // Reconstruct the triangle.
     float *vertices =
         (float *)rtcGetGeometryBufferData(geom, RTC_BUFFER_TYPE_VERTEX, 0);
     Triangle tri;
@@ -123,12 +113,10 @@ Triangle get_triangle(RTCScene scene, unsigned int geom_id,
     return tri;
 }
 
-// Error callback
 void error_function(void *ptr, enum RTCError error, const char *str) {
     std::cerr << "Embree error " << error << ": " << str << std::endl;
 }
 
-// Create Embree device with specific BVH layout
 RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
     std::string configuration;
 
@@ -142,7 +130,7 @@ RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
         exit(1);
     }
     configuration += ",quality=medium,max_triangles_per_leaf=32";
-    // Gathers information about the BVH structure
+    // (Gathers information about the BVH structure)
     // configuration += ",verbose=2,benchmark=2";
 
     RTCDevice device = rtcNewDevice(configuration.c_str());
@@ -156,28 +144,22 @@ RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
     return device;
 }
 
-// Create Embree scene from triangles
 RTCScene create_scene(RTCDevice device,
                       const std::vector<Triangle> &triangles) {
     RTCScene scene = rtcNewScene(device);
     rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_MEDIUM); // binned-SAH
     RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
 
-    // Allocate vertex buffer
     float *vertices = (float *)rtcSetNewGeometryBuffer(
         geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, 3 * sizeof(float),
         triangles.size() * 3);
 
-    // Allocate index buffer
     unsigned *indices = (unsigned *)rtcSetNewGeometryBuffer(
         geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned),
         triangles.size());
 
-    // Fill buffers
     for (size_t i = 0; i < triangles.size(); ++i) {
         const Triangle &tri = triangles[i];
-
-        // Vertices
         vertices[i * 9 + 0] = tri.p0.x;
         vertices[i * 9 + 1] = tri.p0.y;
         vertices[i * 9 + 2] = tri.p0.z;
@@ -188,7 +170,6 @@ RTCScene create_scene(RTCDevice device,
         vertices[i * 9 + 7] = tri.p2.y;
         vertices[i * 9 + 8] = tri.p2.z;
 
-        // Indices
         indices[i * 3 + 0] = i * 3 + 0;
         indices[i * 3 + 1] = i * 3 + 1;
         indices[i * 3 + 2] = i * 3 + 2;
@@ -202,7 +183,7 @@ RTCScene create_scene(RTCDevice device,
     return scene;
 }
 
-// Trace a single ray
+// Traces a single ray and returns the corresponding triangle (if hit).
 std::optional<Triangle> trace(RTCScene scene, RTCRayHit &ray) {
     struct RTCIntersectArguments args;
     rtcInitIntersectArguments(&args);
@@ -215,7 +196,6 @@ std::optional<Triangle> trace(RTCScene scene, RTCRayHit &ray) {
     return get_triangle(scene, ray.hit.geomID, ray.hit.primID);
 }
 
-// Load dummy triangles (replace with your actual loading code)
 std::vector<Triangle> load_obj(const std::string &object) {
     std::filesystem::path current_path = std::filesystem::current_path();
     while (current_path.has_parent_path()) {
@@ -272,14 +252,10 @@ void run(std::string object, std::string layout, bool is_single_threaded,
          std::string ray_type, std::vector<int64_t> ray_counts) {
     using clock = std::chrono::high_resolution_clock;
 
-    // Load triangles (replace with your actual loader)
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
-
-    // Create Embree device with specified BVH layout
     RTCDevice device = create_device(layout);
 
-    // Build scene
     auto build_begin = clock::now();
     RTCScene scene = create_scene(device, triangles);
     auto build_end = clock::now();
@@ -293,11 +269,10 @@ void run(std::string object, std::string layout, bool is_single_threaded,
         std::string ray_file = "apps/rt/rays/" + object + "_" +
                                std::to_string(ray_count) + "_" + ray_type +
                                ".rays";
-        // Load rays (replace with your actual loader)
         std::vector<RTCRayHit> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
 
-        // Warmup
+        // Warmup.
         if (is_first_run) {
             for (size_t i = 0; i < std::max<size_t>(rays.size(), 512u); ++i) {
                 RTCRayHit rh = rays[i % rays.size()];
@@ -353,7 +328,7 @@ void run(std::string object, std::string layout, bool is_single_threaded,
         std::cout << "trace time : " << trace_time << " ms\n\n";
     }
 
-    // Cleanup
+    // Cleanup.
     rtcReleaseScene(scene);
     rtcReleaseDevice(device);
 }
