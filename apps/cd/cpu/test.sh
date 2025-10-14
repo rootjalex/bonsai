@@ -37,17 +37,16 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     mkdir -p build
     cd build
     
-    # Configure CMake with layout parameter
     CLANG_FLAG=""
     if [[ "$(uname)" == "Linux" ]]; then
       CLANG_FLAG="-DCMAKE_CXX_COMPILER=$CONDA_PREFIX/bin/clang++"
     fi
     cmake -DLAYOUT=${LAYOUT} .. ${CLANG_FLAG} > /dev/null
     
-    # Build main library first
+    # Build main library first...
     make -j main_library > /dev/null
     
-    # Go back to reconfigure CMake now that generated files exist
+    # ...go back to reconfigure CMake now that generated files exist
     cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} .. ${CLANG_FLAG} > /dev/null
 
     

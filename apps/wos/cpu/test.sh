@@ -101,8 +101,11 @@ run_tests() {
       mkdir -p ${BUILD_DIRECTORY}
       cd ${BUILD_DIRECTORY}
       
-      export LDFLAGS="-Wl,-no_warn_duplicate_libraries"
-      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} ../.. # > /dev/null
+      CLANG_FLAG=""
+      if [[ "$(uname)" == "Linux" ]]; then
+        CLANG_FLAG="-DCMAKE_CXX_COMPILER=$CONDA_PREFIX/bin/clang++"
+      fi
+      cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} -DBVH_SUFFIX=${BVH_SUFFIX} ../.. ${CLANG_FLAG} # > /dev/null
       
       make -j # > /dev/null 2>&1
       
