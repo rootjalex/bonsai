@@ -11,6 +11,8 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git
     GIT_TAG master
 )
+# Use headless backend if no display needed.
+set(POLYSCOPE_BACKEND_OPENGL_MOCK ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(polyscope)
 
 FetchContent_Declare(
