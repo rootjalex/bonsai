@@ -4,28 +4,26 @@ project(closest_point_benchmark)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Set conda paths BEFORE any FetchContent calls
+if(DEFINED ENV{CONDA_PREFIX})
+    set(CONDA_PREFIX $ENV{CONDA_PREFIX})
+    # Set as system include directories (highest priority)
+    include_directories(SYSTEM ${CONDA_PREFIX}/include)
+    link_directories(${CONDA_PREFIX}/lib)
+    list(APPEND CMAKE_PREFIX_PATH ${CONDA_PREFIX})
+    
+    # Also set C flags to ensure GLFW's C code finds the headers
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${CONDA_PREFIX}/include")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${CONDA_PREFIX}/include")
+endif()
+
 include(FetchContent)
 
-# Manually fetch and configure GLFW BEFORE polyscope
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG 3.3.8
-)
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(glfw)
-
-# Now fetch polyscope with mock backend
 FetchContent_Declare(
     polyscope
     GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git
     GIT_TAG master
 )
-set(POLYSCOPE_BACKEND_OPENGL_MOCK ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(polyscope)
 
 FetchContent_Declare(
@@ -56,7 +54,6 @@ target_link_libraries(main_${BVH_SUFFIX}_obj
     Eigen3::Eigen
 )
 
-# For each layout, only compile the generated Bonsai file
 set(LAYOUT "" CACHE STRING "Layout name for Bonsai build")
 set(APPLICATION "" CACHE STRING "Application name")
 
