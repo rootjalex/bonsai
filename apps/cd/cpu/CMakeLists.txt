@@ -28,10 +28,36 @@ endif()
 # If FCL not found, fetch dependencies and FCL from GitHub
 if(NOT fcl_FOUND)
     message(STATUS "FCL not found locally, fetching from GitHub...")
-    # Find the math library (required by libccd)
-    find_library(LIBM m)
-    if(NOT LIBM)
-        set(LIBM "")
+    
+    # Detect conda environment and find libm
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(CONDA_PREFIX $ENV{CONDA_PREFIX})
+        message(STATUS "Detected conda environment: ${CONDA_PREFIX}")
+        
+        # Look for libm in conda environment (both direct lib and sysroot)
+        find_library(LIBM_LIBRARY m 
+            PATHS 
+            ${CONDA_PREFIX}/lib
+            ${CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr/lib64
+            ${CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr/lib
+            NO_DEFAULT_PATH
+        )
+    endif()
+    
+    # Fallback to system paths if not found in conda or not in conda
+    if(NOT LIBM_LIBRARY)
+        find_library(LIBM_LIBRARY m)
+    endif()
+    
+    # Set the library variables that libccd expects
+    if(LIBM_LIBRARY)
+        set(LIBM_LIBRARIES ${LIBM_LIBRARY} CACHE STRING "" FORCE)
+        message(STATUS "Found libm: ${LIBM_LIBRARY}")
+    else()
+        # Last resort: just use 'm' and let the linker find it
+        set(LIBM_LIBRARY "m" CACHE STRING "" FORCE)
+        set(LIBM_LIBRARIES "m" CACHE STRING "" FORCE)
+        message(STATUS "Using default libm: m")
     endif()
     
     # FCL requires libccd - fetch it first
@@ -43,6 +69,7 @@ if(NOT fcl_FOUND)
     )
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(BUILD_DOCUMENTATION OFF CACHE BOOL "" FORCE)
+    set(ENABLE_DOUBLE_PRECISION ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(ccd)
     
     # Now fetch FCL
@@ -53,7 +80,7 @@ if(NOT fcl_FOUND)
         GIT_SHALLOW TRUE
     )
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    set(FCL_WITH_OCTOMAP OFF CACHE BOOL "" FORCE)  # Disable optional octomap dependency
+    set(FCL_WITH_OCTOMAP OFF CACHE BOOL "" FORCE)
     set(FCL_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(fcl)
 endif()
