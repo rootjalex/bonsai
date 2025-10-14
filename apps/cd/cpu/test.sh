@@ -45,7 +45,8 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     make -j main_library > /dev/null
     
     # Go back to reconfigure CMake now that generated files exist
-    cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} .. > /dev/null
+    cmake -DLAYOUT=${LAYOUT} -DAPPLICATION=${APPLICATION} .. -DCMAKE_CXX_COMPILER=clang++ > /dev/null
+
     
     # Build final executable
     make -j > /dev/null 2>&1
