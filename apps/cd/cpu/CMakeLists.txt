@@ -117,7 +117,7 @@ add_executable(${APPLICATION}_${LAYOUT}
 )
 
 # Remove optimization for debugging, add sanitizers
-target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -g -O3 -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer)
+target_compile_options(${APPLICATION}_${LAYOUT} PRIVATE -g -O3 -fsanitize=address -fsanitize=undefined)
 target_include_directories(${APPLICATION}_${LAYOUT} PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/..
