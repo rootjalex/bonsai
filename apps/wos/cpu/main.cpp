@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "bonsai_cpp.h"
-#include "util.h"
 #include "wos.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
