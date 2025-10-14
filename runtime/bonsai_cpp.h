@@ -4,6 +4,7 @@
 #include "bonsai_set.h"
 #include "bonsai_tree.h"
 #include "bonsai_vector.h"
+#include <cmath>
 #include "u24.h"
 #include "u56.h"
 

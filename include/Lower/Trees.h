@@ -11,6 +11,7 @@ namespace bonsai {
 namespace lower {
 
 ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t);
+ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body);
 
 // TODO: nice description
 class LowerTrees : public Pass {

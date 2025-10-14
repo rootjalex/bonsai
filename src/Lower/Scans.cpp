@@ -126,21 +126,28 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args,
     };
 
     // TODO: support product scans!
-    internal_assert(args.size() == 2) << args.size();
-    const BVH_t *bvh_t0 = args.front().type.as<BVH_t>();
-    internal_assert(bvh_t0);
-    // write argument
-    // internal_assert(args.back().type.is<Set_t>()) << args.back();
+    internal_assert(args.size() >= 2 && args.size() <= 3) << args.size();
 
-    Stmt match_body = build_base_scan(args.front().name, bvh_t0);
+    for (size_t i = 0; i < args.size() - 1; i++) {
+        internal_assert(args[i].type.is<BVH_t>()) << "Argument " << i << " is not BVH_t";
+    }
+
+    std::vector<Stmt> scans(args.size() - 1);
+
+    for (size_t i = 0; i < args.size() - 1; i++) {
+        const BVH_t *bvh_t0 = args[i].type.as<BVH_t>();
+        internal_assert(bvh_t0);
+
+        Stmt body = build_base_scan(args[i].name, bvh_t0);
+
+        scans[i] = std::move(body);
+    }
+
+    Stmt match_body = (scans.size() == 1) ? scans[0] : build_product(scans[0], scans[1]);
     // Need to rewrite scans in ^ to recursive calls.
     // And Yields to Appends
 
-    auto tree_args = args;
-    tree_args.pop_back(); // lose write loc
-
     func->body = ScansToCalls(op, func).mutate(match_body);
-    // func->body = RecLoop::make(std::move(tree_args), std::move(func->body));
 
     return func;
 }

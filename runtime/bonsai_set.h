@@ -7,6 +7,7 @@
 #include <set>
 #include <shared_mutex>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 template <typename T, typename i_t>
@@ -16,6 +17,12 @@ struct range {
 
     range(const T *_data, i_t _offset, i_t _count)
         : data(_data), offset(_offset), count(_count) {}
+};
+
+template <typename T, typename i_t, typename U, typename j_t>
+struct product_range {
+    const range<T, i_t> r0;
+    const range<U, j_t> r1;
 };
 
 // basically just a thread-safe atomic std::vector
@@ -48,6 +55,20 @@ struct set {
         // std::unique_lock lock(mutex);
         data.emplace_back(std::move(value));
     }
+
+    template <typename S, typename i_t, typename U, typename j_t>
+    void push_back(const product_range<S, i_t, U, j_t> &pr) {
+        // Request space
+        const size_t total = pr.r0.count * pr.r1.count;
+        data.reserve(data.size() + total);
+
+        for (i_t i = 0; i < pr.r0.count; ++i) {
+            for (j_t j = 0; j < pr.r1.count; ++j) {
+                data.push_back(std::make_tuple(pr.r0.data[i], pr.r1.data[j]));
+            }
+        }
+    }
+
     // Vector overload
     template <typename U>
     void push_back(const U &values) {
@@ -90,14 +111,37 @@ struct set {
     }
 };
 
+template <typename T>
+struct is_tuple : std::false_type {};
+
+template <typename... Ts>
+struct is_tuple<std::tuple<Ts...>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_tuple_v = is_tuple<std::decay_t<T>>::value;
+
+// ------------------------------------------------------------------
+
 template <typename T, typename Predicate>
 set<T> filter(Predicate &&predicate, const set<T> &input) {
     std::vector<T> result;
+
     input.for_each([&](const T &item) {
-        if (predicate(item)) {
+        bool keep;
+
+        if constexpr (is_tuple_v<T>) {
+            // Expand tuple elements when calling predicate
+            keep = std::apply(predicate, item);
+        } else {
+            // Pass item directly
+            keep = predicate(item);
+        }
+
+        if (keep) {
             result.push_back(item);
         }
     });
+
     return set<T>(std::move(result));
 }
 
@@ -152,13 +196,19 @@ set<std::tuple<T, U>> product(const set<T> &input0, const set<U> &input1) {
             result.push_back(std::make_tuple(item0, item1));
         });
     });
-    return set<std::tuple<T, U>>(result);
+    return set<std::tuple<T, U>>(std::move(result));
 }
 
-template <typename T, typename U>
+template <typename T, typename i_t, typename U, typename j_t>
+inline auto product(const range<T, i_t> &input0, const range<U, j_t> &input1) {
+    return product_range{input0, input1};
+}
+
+template <typename Predicate, typename T, typename U>
 set<std::tuple<T, U>>
-nested_join(std::function<bool(const T &, const U &)> predicate,
-            const set<T> &input0, const set<U> &input1) {
+nested_join(Predicate &&predicate,
+            const set<T> &input0,
+            const set<U> &input1) {
     std::vector<std::tuple<T, U>> result;
     input0.for_each([&](const T &item0) {
         input1.for_each([&](const U &item1) {
@@ -167,7 +217,7 @@ nested_join(std::function<bool(const T &, const U &)> predicate,
             }
         });
     });
-    return set<std::tuple<T, U>>(result);
+    return set<std::tuple<T, U>>(std::move(result));
 }
 
 // Compare two sets for equality (order-agnostic)

@@ -550,13 +550,159 @@ ir::Stmt build_count(ir::Stmt body) {
         {std::move(header), std::move(body), std::move(footer)});
 }
 
-ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
+
+ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
+                         const IntervalMap &intervals) {
+    // TODO: not necessarily always a Var, could be e.g. an Access.
+    if (auto as_var = expr.as<ir::Var>()) {
+        internal_assert(as_var->type.is<ir::Set_t>())
+            << "Cannot build traversal for non-set: " << expr;
+        const auto &iter = tree_types.find(as_var->name);
+        internal_assert(iter != tree_types.cend())
+            << "Lowering of: " << expr << " does not have associated BVH type.";
+        const ir::Type &tree = iter->second;
+        const ir::BVH_t *bvh = tree.as<ir::BVH_t>();
+        internal_assert(bvh);
+
+        return build_base_scan(as_var->name, bvh);
+    }
+
+    if (auto as_agg = expr.as<ir::AggOp>()) {
+        switch (as_agg->op) {
+        case ir::AggOp::count: {
+            ir::Stmt body = build_traversal(as_agg->a, tree_types, intervals);
+            return build_count(body);
+        }
+        default: {
+            internal_error << "TODO: " << expr << " tree fusion.";
+        }
+        }
+    }
+
+    const ir::SetOp *as_set = expr.as<ir::SetOp>();
+    if (as_set == nullptr) {
+        internal_error << "[unimplemented] Unknown traversal pattern: " << expr;
+    }
+
+    switch (as_set->op) {
+    case ir::SetOp::filter: {
+        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
+        return build_filter(body, as_set->a, intervals);
+    }
+    case ir::SetOp::argmin: {
+        // Argmin is a bit more complicated, because of filter fusion.
+        return build_argmin(as_set->a, as_set->b, tree_types, intervals,
+                            expr.type());
+    }
+    case ir::SetOp::product: {
+        ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
+        ir::Stmt b_body = build_traversal(as_set->b, tree_types, intervals);
+        return build_product(a_body, b_body);
+    }
+    default: {
+        internal_error << "TODO: " << expr;
+    }
+    }
+}
+
+// Wrap the first Match seen in a recursive loop on all trees seen in the body.
+struct WrapMatchInRecLoop : public ir::Mutator {
+    std::vector<ir::TypedVar> trees;
+
+    WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
+        : trees(std::move(trees)) {}
+
+    ir::Stmt visit(const ir::Match *node) override {
+        return ir::RecLoop::make(std::move(trees), node);
+    }
+};
+
+struct LowerBVH : public ir::Mutator {
+    const ir::TypeMap &tree_types;
+    ir::FuncMap new_funcs;
+
+    LowerBVH(const ir::TypeMap &tree_types) : tree_types(tree_types) {}
+
+    // For unique func names
+    size_t counter = 0;
+
+    std::string new_func_name() {
+        return "_traverse_tree" + std::to_string(counter++);
+    }
+
+    // Returns a call to the func.
+    // Inserts the built func into new_funcs
+    ir::Expr build_func(const ir::Expr &expr) {
+        const std::string func = new_func_name();
+        const auto free_vars = ir::gather_free_vars(expr);
+
+        std::vector<ir::TypedVar> trees;
+        std::vector<ir::Function::Argument> func_args;
+        func_args.reserve(free_vars.size());
+        for (const auto &var : free_vars) {
+            if (const auto &iter = tree_types.find(var.name);
+                iter != tree_types.cend()) {
+                trees.push_back({var.name, iter->second});
+                func_args.emplace_back(var.name, iter->second);
+            } else {
+                // TODO: mutability? only if the free vars are mutated in the
+                // traversal somehow... That shouldn't happen, I think?
+                func_args.emplace_back(var.name, var.type);
+            }
+        }
+        if (trees.empty()) {
+            return expr;
+        }
+        // TODO(ajr): relax this, when we lower trees before arrays.
+        internal_assert(!trees.empty())
+            << "Lowering of: " << expr << " does not contain any tree types.";
+
+        // TODO(ajr): is there more we can do with intervals?
+        // e.g. bounded interval hierarchies, kd-trees, tri.x < bound
+        // queries, etc?
+        IntervalMap intervals;
+        ir::Stmt body = build_traversal(expr, tree_types, intervals);
+        internal_assert(body.defined());
+        // Now wrap in a recursive loop on any trees.
+        body = WrapMatchInRecLoop(std::move(trees)).mutate(body);
+
+        // When should this type be concretized into e.g. a list?
+        ir::Type ret_type = expr.type();
+        auto f = std::make_shared<ir::Function>(
+            func, std::move(func_args), std::move(ret_type), std::move(body),
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{});
+        ir::Type call_type = f->call_type();
+        new_funcs[func] = std::move(f);
+
+        // TODO: this allocates unnecessarily,
+        std::vector<ir::Expr> call_args;
+        std::transform(free_vars.begin(), free_vars.end(),
+                       std::back_inserter(call_args),
+                       [&](auto &var) -> ir::Expr {
+                           const auto &iter = this->tree_types.find(var.name);
+                           if (iter != this->tree_types.cend()) {
+                               return ir::Var::make(iter->second, var.name);
+                           }
+                           return var;
+                       });
+
+        return ir::Call::make(ir::Var::make(std::move(call_type), func),
+                              call_args);
+    }
+
+    ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
+    ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
+};
+
+} // namespace
+
+ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body) {
     struct RewriteProduct : public Rewriter {
         ir::Stmt b_body;
-        ir::Type ret_type;
 
-        RewriteProduct(ir::Stmt b_body, ir::Type ret_type)
-            : b_body(std::move(b_body)), ret_type(std::move(ret_type)) {}
+        RewriteProduct(ir::Stmt b_body)
+            : b_body(std::move(b_body)) {}
 
         using ir::Mutator::visit;
 
@@ -696,155 +842,9 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
     };
 
     // TODO: is ordering scheduable?
-    return RewriteProduct(std::move(b_body), std::move(ret_type))
+    return RewriteProduct(std::move(b_body))
         .mutate(a_body);
 }
-
-ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
-                         const IntervalMap &intervals) {
-    // TODO: not necessarily always a Var, could be e.g. an Access.
-    if (auto as_var = expr.as<ir::Var>()) {
-        internal_assert(as_var->type.is<ir::Set_t>())
-            << "Cannot build traversal for non-set: " << expr;
-        const auto &iter = tree_types.find(as_var->name);
-        internal_assert(iter != tree_types.cend())
-            << "Lowering of: " << expr << " does not have associated BVH type.";
-        const ir::Type &tree = iter->second;
-        const ir::BVH_t *bvh = tree.as<ir::BVH_t>();
-        internal_assert(bvh);
-
-        return build_base_scan(as_var->name, bvh);
-    }
-
-    if (auto as_agg = expr.as<ir::AggOp>()) {
-        switch (as_agg->op) {
-        case ir::AggOp::count: {
-            ir::Stmt body = build_traversal(as_agg->a, tree_types, intervals);
-            return build_count(body);
-        }
-        default: {
-            internal_error << "TODO: " << expr << " tree fusion.";
-        }
-        }
-    }
-
-    const ir::SetOp *as_set = expr.as<ir::SetOp>();
-    if (as_set == nullptr) {
-        internal_error << "[unimplemented] Unknown traversal pattern: " << expr;
-    }
-
-    switch (as_set->op) {
-    case ir::SetOp::filter: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
-        return build_filter(body, as_set->a, intervals);
-    }
-    case ir::SetOp::argmin: {
-        // Argmin is a bit more complicated, because of filter fusion.
-        return build_argmin(as_set->a, as_set->b, tree_types, intervals,
-                            expr.type());
-    }
-    case ir::SetOp::product: {
-        ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
-        ir::Stmt b_body = build_traversal(as_set->b, tree_types, intervals);
-        return build_product(a_body, b_body, expr.type().element_of());
-    }
-    default: {
-        internal_error << "TODO: " << expr;
-    }
-    }
-}
-
-// Wrap the first Match seen in a recursive loop on all trees seen in the body.
-struct WrapMatchInRecLoop : public ir::Mutator {
-    std::vector<ir::TypedVar> trees;
-
-    WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
-        : trees(std::move(trees)) {}
-
-    ir::Stmt visit(const ir::Match *node) override {
-        return ir::RecLoop::make(std::move(trees), node);
-    }
-};
-
-struct LowerBVH : public ir::Mutator {
-    const ir::TypeMap &tree_types;
-    ir::FuncMap new_funcs;
-
-    LowerBVH(const ir::TypeMap &tree_types) : tree_types(tree_types) {}
-
-    // For unique func names
-    size_t counter = 0;
-
-    std::string new_func_name() {
-        return "_traverse_tree" + std::to_string(counter++);
-    }
-
-    // Returns a call to the func.
-    // Inserts the built func into new_funcs
-    ir::Expr build_func(const ir::Expr &expr) {
-        const std::string func = new_func_name();
-        const auto free_vars = ir::gather_free_vars(expr);
-
-        std::vector<ir::TypedVar> trees;
-        std::vector<ir::Function::Argument> func_args;
-        func_args.reserve(free_vars.size());
-        for (const auto &var : free_vars) {
-            if (const auto &iter = tree_types.find(var.name);
-                iter != tree_types.cend()) {
-                trees.push_back({var.name, iter->second});
-                func_args.emplace_back(var.name, iter->second);
-            } else {
-                // TODO: mutability? only if the free vars are mutated in the
-                // traversal somehow... That shouldn't happen, I think?
-                func_args.emplace_back(var.name, var.type);
-            }
-        }
-        if (trees.empty()) {
-            return expr;
-        }
-        // TODO(ajr): relax this, when we lower trees before arrays.
-        internal_assert(!trees.empty())
-            << "Lowering of: " << expr << " does not contain any tree types.";
-
-        // TODO(ajr): is there more we can do with intervals?
-        // e.g. bounded interval hierarchies, kd-trees, tri.x < bound
-        // queries, etc?
-        IntervalMap intervals;
-        ir::Stmt body = build_traversal(expr, tree_types, intervals);
-        internal_assert(body.defined());
-        // Now wrap in a recursive loop on any trees.
-        body = WrapMatchInRecLoop(std::move(trees)).mutate(body);
-
-        // When should this type be concretized into e.g. a list?
-        ir::Type ret_type = expr.type();
-        auto f = std::make_shared<ir::Function>(
-            func, std::move(func_args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{},
-            std::vector<ir::Function::Attribute>{});
-        ir::Type call_type = f->call_type();
-        new_funcs[func] = std::move(f);
-
-        // TODO: this allocates unnecessarily,
-        std::vector<ir::Expr> call_args;
-        std::transform(free_vars.begin(), free_vars.end(),
-                       std::back_inserter(call_args),
-                       [&](auto &var) -> ir::Expr {
-                           const auto &iter = this->tree_types.find(var.name);
-                           if (iter != this->tree_types.cend()) {
-                               return ir::Var::make(iter->second, var.name);
-                           }
-                           return var;
-                       });
-
-        return ir::Call::make(ir::Var::make(std::move(call_type), func),
-                              call_args);
-    }
-
-    ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
-    ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
-};
-
-} // namespace
 
 ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
     ir::Expr bvh_expr = ir::Var::make(bvh_t, name);

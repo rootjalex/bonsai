@@ -92,7 +92,16 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const Struct_t *node) override { ss << node->name; }
 
-        RESTRICT_VISITOR(Tuple_t);
+        void visit(const Tuple_t *node) override {
+            ss << "std::tuple<";
+            for (size_t i = 0, e = node->etypes.size(); i < e; i++) {
+                if (i != 0) {
+                    ss << ", ";
+                }
+                node->etypes[i].accept(this);
+            }
+            ss << ">";
+        }
 
         void visit(const Array_t *node) override {
             node->etype.accept(this);
@@ -520,7 +529,16 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const VectorShuffle *) override;
     // void visit(const Ramp *) override;
     // void visit(const Extract *) override;
-    // void visit(const Build *) override;
+    void visit(const Build *node) override {
+        if (node->type.is<Tuple_t>()) {
+            ss << "std::make_tuple(";
+            print_expr_list(node->values);
+            ss << ")";
+            return;
+        }
+        internal_error << "TODO: CPP codegen for build: " << Expr(node);
+    }
+
     void visit(const Access *node) override {
         if (node->type.is<Ref_t>()) {
             ss << "(*"; // deref
@@ -553,6 +571,26 @@ class BonsaiToCpp : ir::Printer {
         ss << "; }";
     }
     // void visit(const GeomOp *) override;
+
+    void visit(const SetOp *node) override {
+        // Fair eval of nested join does not allocate and then filter.
+        if (node->op == SetOp::filter) {
+            if (const SetOp *nested = node->b.as<SetOp>()) {
+                if (nested->op == SetOp::product) {
+                    ss << "nested_join(";
+                    print_no_parens(node->a);
+                    ss << ", ";
+                    print_no_parens(nested->a);
+                    ss << ", ";
+                    print_no_parens(nested->b);
+                    ss << ")";
+                    return;
+                }
+            }
+        }
+        Printer::visit(node);
+    }
+
     // void visit(const Call *) override;
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
