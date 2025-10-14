@@ -95,7 +95,7 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                                 int max_prims_per_leaf, int max_tree_depth,
                                 float traversal_cost = 1.0f,
-                                float intersection_cost = 10.0f) {
+                                float intersection_cost = 1.0f) {
 
     struct Bin {
         float3 aabb_min = float3{std::numeric_limits<float>::max(),

@@ -120,6 +120,9 @@ func intersect_ray_tri_pluecker(ray : Ray, tri : Triangle) -> option[TriangleInt
     return TriangleIntersection{b0, b1, b2, t};
 }
 
+// Woop-Benthin-Wald algorithm
+// Sven Woop, Carsten Benthin, and Ingo Wald. "Watertight Ray/Triangle Intersection."
+// https://jcgt.org/published/0002/01/05/paper.pdf
 func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersection] {
     // Return no intersection if triangle is degenerate
     if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)

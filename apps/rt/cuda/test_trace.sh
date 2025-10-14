@@ -212,6 +212,6 @@ else
   # echo "... tests complete for 8-mixed-BVH"
 fi
 
-rm ${RAY_PATH}/${RAY_FILE}.out
+rm -f ${RAY_PATH}/${RAY_FILE}.out
 
 exit 0

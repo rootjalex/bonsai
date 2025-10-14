@@ -117,7 +117,7 @@ echo "runs: ${N}, schedule: ${SCHEDULE}"
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  LAYOUTS=("bvh8i" "bvh8v")
+  LAYOUTS=("qbvh8" "bvh8" "qbvh8i" "bvh8i" "bvh8v")
   echo "-- with layouts: ${LAYOUTS[@]}"
   
 
@@ -154,6 +154,6 @@ run_tests() {
 run_tests
 
 rm -rf ${PREFIX}/build
-rm ${RAY_PATH}/${RAY_FILE}.out
+rm -f ${RAY_PATH}/${RAY_FILE}.out
 
 exit 0

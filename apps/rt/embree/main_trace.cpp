@@ -119,17 +119,26 @@ void error_function(void *ptr, enum RTCError error, const char *str) {
 
 RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
     std::string configuration;
-
-    if (layout == "auto" || layout == "default") {
-    } else if (layout == "bvh8i") {
-        configuration = "tri_accel=bvh8.triangle4i";
+    if (layout == "bvh8i") {
+        configuration = "tri_accel=bvh8.triangle4i"; // Moeller
+    } else if (layout == "bvh8") {
+        configuration = "tri_accel=bvh8.triangle4"; // Moeller
     } else if (layout == "bvh8v") {
-        configuration = "tri_accel=bvh8.triangle4v";
+        configuration = "tri_accel=bvh8.triangle4v"; // Pluecker
+    } else if (layout == "qbvh8i") {
+        configuration = "tri_accel=qbvh8.triangle4i"; // Pluecker
+    } else if (layout == "qbvh8") {
+        configuration = "tri_accel=qbvh8.triangle4"; // Moeller
     } else {
         std::cerr << "Unknown BVH layout: " << layout << std::endl;
         exit(1);
     }
-    configuration += ",quality=medium,max_triangles_per_leaf=32";
+    // intersection cost and traversal cost are defaulted to 1.0.
+    // 8 * triangle4 = 32 triangles
+    configuration += ",object_accel_max_leaf_size=8";
+    // binned SAH
+    configuration += ",quality=medium";
+
     // (Gathers information about the BVH structure)
     // configuration += ",verbose=2,benchmark=2";
 
@@ -147,7 +156,7 @@ RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
 RTCScene create_scene(RTCDevice device,
                       const std::vector<Triangle> &triangles) {
     RTCScene scene = rtcNewScene(device);
-    rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_MEDIUM); // binned-SAH
+    rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_MEDIUM);
     RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
 
     float *vertices = (float *)rtcSetNewGeometryBuffer(
@@ -187,7 +196,6 @@ RTCScene create_scene(RTCDevice device,
 std::optional<Triangle> trace(RTCScene scene, RTCRayHit &ray) {
     struct RTCIntersectArguments args;
     rtcInitIntersectArguments(&args);
-
     rtcIntersect1(scene, &ray, &args);
 
     if (ray.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
