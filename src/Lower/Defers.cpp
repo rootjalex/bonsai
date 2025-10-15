@@ -14,6 +14,7 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>

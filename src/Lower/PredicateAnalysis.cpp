@@ -306,7 +306,15 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::Ramp);
     RESTRICT_VISITOR(ir::Extract);
     RESTRICT_VISITOR(ir::Build);
-    RESTRICT_VISITOR(ir::Access);
+
+    void visit(const ir::Access *node) override {
+        Interval a = get(node->value);
+        internal_assert(a.is_single_point(node->value))
+            << "TODO: interval analysis of access on varying value: "
+            << a.min << ", " << a.max << " of " << ir::Expr(node);
+        interval = Interval::single_point(node);
+    }
+
     RESTRICT_VISITOR(ir::Unwrap);
 
     void visit(const ir::Intrinsic *node) override {

@@ -13,6 +13,7 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <functional>
 #include <ranges>
 
 namespace bonsai {

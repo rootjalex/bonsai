@@ -13,6 +13,7 @@
 #include "Opt/Simplify.h"
 
 #include <algorithm>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -691,7 +692,13 @@ struct LowerBVH : public ir::Mutator {
                               call_args);
     }
 
-    ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
+    ir::Expr visit(const ir::SetOp *op) override {
+        if (op->op != ir::SetOp::map) {
+            // TODO: support map fusion
+            return build_func(op);
+        }
+        return ir::Mutator::visit(op);
+    }
     ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
 };
 
