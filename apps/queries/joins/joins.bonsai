@@ -10,10 +10,14 @@ func [[export]] dist_join_1d(value : f32) = filter(|a : Point, b : Point| abs(a.
 extern tree0 : set[Point];
 extern tree1 : set[Point];
 
-func [[export]] dist_join_1d_fast(value : f32) = filter(|a : Point, b : Point| abs(a.x - b.x) < value, product(tree0, tree1));
+func [[export]] dist_join_1d_dual(value : f32) = filter(|a : Point, b : Point| abs(a.x - b.x) < value, product(tree0, tree1));
+
+func lookup(value : f32, a : Point) = filter(|b : Point| abs(a.x - b.x) < value, tree1);
+
+func [[export]] dist_join_1d_single(value : f32) = map(|a : Point| (a, lookup(value, a)), input0);
 
 schedule {
-    tree[[Point]] AABBTree(xl xh yl yh : f32) with x in [xl, xh] with y in [yl, yh] =
+    tree[[Point]] AABBTree(xl xh yl yh : f32) with x in [xl, xh] =
     | Interior(left : AABBTree, right : AABBTree)
     | Leaf(d : array[Point]) with data = d;
 
@@ -27,8 +31,6 @@ schedule {
         group[nCount] index : u64 {
             xl : f32;
             xh : f32;
-            yl : f32;
-            yh : f32;
             nPrims : u8;
             switch nPrims {
                 0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
@@ -44,8 +46,6 @@ schedule {
         group[nCount] index : u64 {
             xl : f32;
             xh : f32;
-            yl : f32;
-            yh : f32;
             nPrims : u8;
             switch nPrims {
                 0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
