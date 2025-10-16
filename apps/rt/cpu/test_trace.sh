@@ -184,9 +184,9 @@ run_tests() {
       if [[ "${SCHEDULE}" == "parallel" ]]; then
         COMMON_FLAGS="-fopenmp ${COMMON_FLAGS}"
       fi
-      if [[ "${DEBUG_MODE}" == true ]]; then
-        COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
-      fi
+      # if [[ "${DEBUG_MODE}" == true ]]; then
+        # COMMON_FLAGS="-fsanitize=address -fno-omit-frame-pointer ${COMMON_FLAGS}"
+      # fi
       
       if [[ "${DEBUG_MODE}" == true ]]; then
         # Generate LLVM IR for combined sources

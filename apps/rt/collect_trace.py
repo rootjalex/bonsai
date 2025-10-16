@@ -1,3 +1,4 @@
+from unittest import TextTestRunner
 import matplotlib.pyplot as plt
 import numpy as np
 import re
@@ -5,6 +6,10 @@ import math
 import os
 from collections import defaultdict
 import sys
+
+MODEL_TO_TRIANGLES = {'lucy': 28055728, 'sheep': 2967664, 'san-miguel-x35-y22-z47': 9832536,
+                      'hairball': 2880000, 'white-oak': 36760, 'sponza': 262267, 'power-plant': 12759246}
+TRIANGLE_BYTES = 36  # sizeof(Triangle)
 
 
 def parse_trace_scaling_data(data_text):
@@ -126,7 +131,7 @@ def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
     return processed_data
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_count_range=None, label_dominated_points=True):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_count_range=None, label_dominated_points=False):
     models = sorted(processed_data.keys())
     if len(models) == 0:
         return
@@ -190,7 +195,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     continue
 
                 time_per_ray = processed_data[model][layout]
-                memory = memory_data[model][layout]['memory']
+                # Subtract triangle memory from total memory.
+                triangle_memory = 0
+                assert model in MODEL_TO_TRIANGLES, model
+                if not layout.startswith('embree'):
+                    triangle_memory = MODEL_TO_TRIANGLES[model] * \
+                        TRIANGLE_BYTES
+                memory = memory_data[model][layout]['memory'] - triangle_memory
 
                 if time_per_ray > 0 and memory > 0:
                     all_points.append((memory, time_per_ray))
@@ -216,6 +227,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         memory_unit = 'MB'
         time_per_ray_values = y * 1e6
         time_unit = 'ns/ray'
+
+        # max_memory = max(memory_values)
+        # memory_values = (memory_values / max_memory) * 100
+        # memory_unit = '% of max'
 
         for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
             group_color = group_colors[group_idx % len(group_colors)]
@@ -296,15 +311,14 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                                           linewidth=0.5),
                                 zorder=2)
         ax.set_xlabel(
-            f'Memory Utilization ({memory_unit})', fontweight='bold', fontsize=11)
+            f'Memory Utilization (excluding primitives) ({memory_unit})', fontweight='bold', fontsize=11)
         ax.set_ylabel(f'Time per Ray ({time_unit})',
                       fontweight='bold', fontsize=11)
         ax.set_title(f'{model.title()}', fontweight='bold', fontsize=12)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
         ax.legend(fontsize=9, loc='best', framealpha=0.9,
                   edgecolor='black', fancybox=False, shadow=True)
-
-        ax.ticklabel_format(style='plain')
+        # ax.ticklabel_format(style='plain')
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
         ax.yaxis.set_major_formatter(
@@ -323,6 +337,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
+    if len(all_points) > 0:
+        x_range = max(memory_values) - min(memory_values)
+        padding = x_range * 0.02  # 2% of the data range as padding
+        x_min = min(memory_values) - padding
+        x_max = max(memory_values) + padding
+        ax.set_xlim(x_min, x_max)
+        ax.margins(x=0)  # Remove any automatic margins on x-axis
     results_dir = os.path.dirname(
         output_path) if os.path.dirname(output_path) else '.'
     os.makedirs(results_dir, exist_ok=True)
@@ -338,6 +359,136 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     plt.savefig(output_file, dpi=600, bbox_inches='tight')
     print(f"Pareto frontier plot saved to: {output_file}")
     plt.close()
+
+
+def calculate_speedups(processed_data, memory_data, layout_groups, filename, mean_strategy):
+    speedups = {}
+
+    for model in processed_data:
+        layouts = processed_data[model]
+
+        # Overall speedups (slowest across all layouts).
+        slowest_layout = max(layouts.items(), key=lambda x: x[1])
+        slowest_time = slowest_layout[1]
+        slowest_name = slowest_layout[0]
+
+        model_speedups = {}
+        model_memories = {}
+        for layout, time_per_ray in layouts.items():
+            speedup = slowest_time / time_per_ray
+            model_speedups[layout] = speedup
+            if model in memory_data and layout in memory_data[model]:
+                model_memories[layout] = memory_data[model][layout]['memory']
+
+        result = {
+            'overall': {
+                'speedups': model_speedups,
+                'memories': model_memories,
+                'slowest_layout': slowest_name,
+                'slowest_time': slowest_time
+            }
+        }
+
+        group_speedups = {}
+        for group_name, group_layouts in layout_groups.items():
+            group_data = {layout: layouts[layout] for layout in group_layouts
+                          if layout in layouts}
+
+            if not group_data:
+                continue
+
+            group_slowest = max(group_data.items(), key=lambda x: x[1])
+            group_slowest_time = group_slowest[1]
+            group_slowest_name = group_slowest[0]
+
+            group_speedup_data = {}
+            group_memory_data = {}
+            for layout, time_per_ray in group_data.items():
+                speedup = group_slowest_time / time_per_ray
+                group_speedup_data[layout] = speedup
+                if model in memory_data and layout in memory_data[model]:
+                    group_memory_data[layout] = memory_data[model][layout]['memory']
+
+            group_speedups[group_name] = {
+                'speedups': group_speedup_data,
+                'memories': group_memory_data,
+                'slowest_layout': group_slowest_name,
+                'slowest_time': group_slowest_time
+            }
+
+        result['groups'] = group_speedups
+
+        speedups[model] = result
+
+    results_dir = os.path.dirname(
+        filename) if os.path.dirname(filename) else '.'
+    name = filename.split('/')[-1].split('.')[0]
+    speedup_file = os.path.join(
+        results_dir, f'{name}-{mean_strategy}.speedups.txt')
+    save_speedups_to_file(speedups, speedup_file, layout_groups)
+
+
+def save_speedups_to_file(speedups, output_path, layout_groups):
+    with open(output_path, 'w') as f:
+        for model in sorted(speedups.keys()):
+            model_data = speedups[model]
+            overall = model_data['overall']
+
+            f.write(f"\n{'='*90}\n")
+            f.write(f"Model: {model.upper()}\n")
+            f.write(
+                f"Overall Baseline (slowest): {overall['slowest_layout']} @ {overall['slowest_time']*1e6:.3f} ns/ray\n")
+            f.write(f"{'='*90}\n")
+
+            if layout_groups and 'groups' in model_data:
+                for group_name, group_layouts in layout_groups.items():
+                    if group_name not in model_data['groups']:
+                        continue
+
+                    group_info = model_data['groups'][group_name]
+                    group_speedups = group_info['speedups']
+                    group_memories = group_info['memories']
+                    group_slowest = group_info['slowest_layout']
+                    group_slowest_time = group_info['slowest_time']
+
+                    f.write(
+                        f"\n{group_name.upper()} Layouts (within-group speedups):\n")
+                    f.write(
+                        f"  Group Baseline: {group_slowest} @ {group_slowest_time*1e6:.3f} ns/ray\n")
+                    f.write(
+                        f"  {'Layout':<30} {'Speedup':>10} {'Time (ns)':>12} {'Memory (MB)':>12} {'vs Overall':>12}\n")
+                    f.write(
+                        f"  {'-'*30} {'-'*10} {'-'*12} {'-'*12} {'-'*12}\n")
+                    sorted_items = sorted(
+                        group_speedups.items(), key=lambda x: x[1], reverse=True)
+
+                    for layout, speedup in sorted_items:
+                        time_ns = (group_slowest_time / speedup) * 1e6
+                        overall_speedup = overall['speedups'][layout]
+                        memory_mb = group_memories.get(layout, 0) / 1024 / 1024
+                        marker = " *" if layout == group_slowest else ""
+                        f.write(
+                            f"  {layout:<30} {speedup:>10.3f}x {time_ns:>11.2f} {memory_mb:>11.1f} {overall_speedup:>11.3f}x{marker}\n")
+            else:
+                f.write(
+                    f"\n  {'Layout':<30} {'Speedup':>10} {'Time (ns)':>12} {'Memory (MB)':>12}\n")
+                f.write(f"  {'-'*30} {'-'*10} {'-'*12} {'-'*12}\n")
+
+                sorted_items = sorted(
+                    overall['speedups'].items(), key=lambda x: x[1], reverse=True)
+
+                for layout, speedup in sorted_items:
+                    time_ns = (overall['slowest_time'] / speedup) * 1e6
+                    memory_mb = overall['memories'].get(
+                        layout, 0) / 1024 / 1024
+                    marker = " *" if layout == overall['slowest_layout'] else ""
+                    f.write(
+                        f"  {layout:<30} {speedup:>10.3f}x {time_ns:>11.2f} {memory_mb:>11.1f}{marker}\n")
+
+        f.write(f"\n{'='*90}\n")
+        f.write("* = baseline (slowest layout in group)\n")
+
+    print(f"Speedups saved to: {output_path}")
 
 
 if __name__ == "__main__":
@@ -397,12 +548,16 @@ if __name__ == "__main__":
                  'bvh8-q16-ci',
                  ],
         'bvh2': ['sg-eq', 'pbrt', 'pbrt-align16', 'sg-eq-align16',
-                 'ptr', 'pbrt-soaos-align16', 'pbrt-soaos',
-                 'pbrt-q16', 'pbrt-q16-soaos',
+                 'ptr', 'pbrt-soaos', 'pbrt-soaos-align16',
+                 'pbrt-q16-soaos', 'pbrt-q16',
                  ],
-        'embree': ['embree-bvh8i', 'embree-bvh8v', 'embree-qbvh8i', 'embree-qbvh8', 'embree-bvh8'],
+        # 'embree': ['embree-bvh8i', 'embree-qbvh8i'],
+        # 'embree': ['embree-bvh8i', 'embree-bvh8v', 'embree-qbvh8i', 'embree-qbvh8', 'embree-bvh8'],
     }
+    calculate_speedups(trace_data, memory_utilization,
+                       layout_groups, filename, mean_strategy)
+
     ray_count_range = None
-    label_dominated_points = True
+    label_dominated_points = False
     plot_pareto_frontiers(trace_data, memory_utilization, layout_groups,
                           filename, machine_type, mean_strategy, ray_count_range, label_dominated_points)

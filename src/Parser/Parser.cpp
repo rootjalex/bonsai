@@ -436,10 +436,14 @@ struct Parser {
         expect(Token::Type::ELEMENT);
 
         std::vector<ir::Struct_t::Attribute> attributes;
+        std::optional<int64_t> alignment;
         if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
             std::string attribute = get_id();
             if (attribute == "packed") {
                 attributes.push_back(ir::Struct_t::Attribute::packed);
+            } else if (attribute == "align") {
+                expect(Token::Type::ASSIGN);
+                alignment = parse_int_literal();
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }
@@ -523,12 +527,13 @@ struct Parser {
             expect(Token::Type::SEMICOL);
         } while (!consume(Token::Type::RSQUIGGLE));
 
-        program.types[name] = defaults.empty()
-                                  ? ir::Struct_t::make(name, std::move(fields),
-                                                       std::move(attributes))
-                                  : ir::Struct_t::make(name, std::move(fields),
-                                                       std::move(defaults),
-                                                       std::move(attributes));
+        program.types[name] =
+            defaults.empty()
+                ? ir::Struct_t::make(name, std::move(fields),
+                                     std::move(attributes), alignment)
+                : ir::Struct_t::make(name, std::move(fields),
+                                     std::move(defaults), std::move(attributes),
+                                     alignment);
     }
 
     void parse_interface_def() {

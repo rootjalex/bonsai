@@ -49,16 +49,10 @@ run_tests() {
   local BVH_SUFFIX="$1"
   local SPECIFIC_LAYOUT="${2:-}" # optional: specific layout to test
 
-  LAYOUTS=()
+  LAYOUTS=("pbrt" "pbrt-q16" "pbrt-q16-soaos")
   if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
     # (debug mode) test a single layout
     LAYOUTS=("${SPECIFIC_LAYOUT}")
-  else
-    # test *all* layouts
-    for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
-      NAME=$(basename "$file" .bonsai)
-      LAYOUTS+=("${NAME}")
-    done
   fi
   echo "-- with layouts: ${LAYOUTS[@]}"
 

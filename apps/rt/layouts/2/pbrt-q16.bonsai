@@ -45,13 +45,13 @@ schedule {
         primitives : array[Triangle, primitive_count];
 
         world_low : f32x3;
-        world_high : f32x3;
+        world_extent : f32x3;
         
         node_count : u32;
         group nodes[size=node_count, align=16] by index {
             bounds_q : q16x3;
-            low = dequantize_lo(world_low, world_high, bounds_q);
-            high = dequantize_hi(world_low, world_high, bounds_q);
+            low = dequantize_lo(world_low, world_extent, bounds_q);
+            high = dequantize_hi(world_low, world_extent, bounds_q);
             metadata : u32; // offset[4:31]|nprims[0:3]
             nprims = metadata[0:3];
             split nprims {
@@ -70,9 +70,9 @@ schedule {
       build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
         build root {
           build world_low = low;
-          build world_high = high - low;
+          build world_extent = high - low;
         }
-        build bounds_q = quantize_bounds(low, high, world_low, world_high);
+        build bounds_q = quantize_bounds(low, high, world_low, world_extent);
         
         recurse left;
         recurse right;
@@ -83,7 +83,7 @@ schedule {
       };
       
       build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
-        build bounds_q = quantize_bounds(low, high, world_low, world_high);
+        build bounds_q = quantize_bounds(low, high, world_low, world_extent);
         let poffset: u32 = append(data, nprims);
         build metadata = (poffset << 4u) | nprims;
         return this;
