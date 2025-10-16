@@ -63,8 +63,10 @@ struct set {
         data.reserve(data.size() + total);
 
         for (i_t i = 0; i < pr.r0.count; ++i) {
+            const S &elem0 = pr.r0.data[pr.r0.offset + i];
             for (j_t j = 0; j < pr.r1.count; ++j) {
-                data.push_back(std::make_tuple(pr.r0.data[i], pr.r1.data[j]));
+                const U &elem1 = pr.r1.data[pr.r1.offset + j];
+                data.push_back(std::make_tuple(elem0, elem1));
             }
         }
     }
@@ -145,8 +147,10 @@ set<T> filter(Predicate &&predicate, const set<T> &input) {
     return set<T>(std::move(result));
 }
 
-template <typename T, typename U, typename Func>
-set<U> map(Func &&f, const set<T> &input) {
+template <typename T, typename Func>
+auto map(Func &&f, const set<T> &input)
+{
+    using U = decltype(f(std::declval<T>()));
     std::vector<U> result;
     result.reserve(input.size());
     input.for_each([&](const T &item) { result.push_back(f(item)); });
@@ -224,17 +228,38 @@ nested_join(Predicate &&predicate,
 template <typename T>
 bool operator==(const set<T> &a, const set<T> &b) {
     if (a.size() != b.size()) {
+        std::cout << "Different sizes: " << a.size() << " vs " << b.size() << "\n";
         return false;
     }
-    std::set<T> std_a, std_b;
-    a.for_each([&](const T &x) { std_a.insert(x); });
-    b.for_each([&](const T &x) { std_b.insert(x); });
+
+    std::set<T> std_a(a.data.begin(), a.data.end()), std_b(b.data.begin(), b.data.end());
     return std_a == std_b;
 }
+
+template <typename T>
+bool operator==(const set<T> &a, const std::set<T> &b) {
+    std::set<T> std_a(a.data.begin(), a.data.end());
+    return std_a == b;
+}
+
 
 template <typename T>
 void print_set(const set<T> &s) {
     std::cout << "{ ";
     s.for_each([&](const T &i) { std::cout << i << " "; });
     std::cout << "}" << std::endl;
+}
+
+template <typename T, typename U>
+std::set<std::tuple<T, U>>
+flatten(const set<std::tuple<T, set<U>>> &input) {
+    std::set<std::tuple<T, U>> result;
+    input.for_each([&](const std::tuple<T, set<U>> &p) {
+        const T &outer = std::get<0>(p);
+        const set<U> &inner = std::get<1>(p);
+        inner.for_each([&](const U &u) {
+            result.emplace(outer, u);
+        });
+    });
+    return result;
 }
