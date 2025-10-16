@@ -358,7 +358,7 @@ enum class Heuristic {
 
 BVH *build_canonical_tree_8(std::vector<Triangle> &triangles,
                             Heuristic heuristic = Heuristic::SurfaceArea,
-                            int32_t max_prims_per_leaf = 32) {
+                            int32_t max_prims_per_leaf = 15) {
     switch (heuristic) {
     case Heuristic::SurfaceArea:
         return build_canonical_tree_8_sah(triangles, max_prims_per_leaf);
