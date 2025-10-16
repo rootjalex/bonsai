@@ -298,7 +298,19 @@ struct PredicateAnalysis : public ir::Visitor {
     }
 
     RESTRICT_VISITOR(ir::UnOp);
-    RESTRICT_VISITOR(ir::Select);
+    void visit(const ir::Select *node) override {
+        Interval c = get(node->cond);
+        Interval t = get(node->tvalue);
+        Interval f = get(node->fvalue);
+
+        if (c.is_single_point()) {
+            interval.min = select(c.min, t.min, f.min);
+            interval.max = select(c.min, t.max, f.max);
+        } else {
+            interval.min = min(select(c.min, t.min, f.min), select(c.max, t.min, f.min));
+            interval.max = max(select(c.min, t.max, f.max), select(c.max, t.max, f.max));
+        }
+    }
     RESTRICT_VISITOR(ir::Cast);
     RESTRICT_VISITOR(ir::Broadcast);
     RESTRICT_VISITOR(ir::VectorReduce);
