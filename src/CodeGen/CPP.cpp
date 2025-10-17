@@ -489,7 +489,11 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const BoolImm *) override;
     // void visit(const VecImm *) override;
     // void visit(const StringImm *) override;
-    // void visit(const Infinity *) override;
+    void visit(const Infinity *node) override {
+        ss << "std::numeric_limits<";
+        emit_type(ss, node->type);
+        ss << ">::infinity()";
+    }
     // void visit(const Var *) override;
     // void print(const BinOp::OpType &op);
     // void visit(const BinOp *) override;
@@ -553,7 +557,49 @@ class BonsaiToCpp : ir::Printer {
         print_no_parens(node->value);
         ss << "_" << node->type.as<Struct_t>()->name;
     }
-    // void visit(const Intrinsic *) override;
+
+    std::string to_string_cpp(const Intrinsic::OpType &op) {
+        // TODO: the rest
+        switch (op) {
+        case Intrinsic::abs:
+            return "std::abs";
+        case Intrinsic::cos:
+            return "cos";
+        case Intrinsic::cross:
+            return "cross";
+        case Intrinsic::dot:
+            return "dot";
+        case Intrinsic::fma:
+            return "fma";
+        case Intrinsic::max:
+            return "std::max";
+        case Intrinsic::min:
+            return "std::min";
+        case Intrinsic::norm:
+            return "norm";
+        case Intrinsic::pow:
+            return "pow";
+        case Intrinsic::rand:
+            return "rand";
+        case Intrinsic::round:
+            return "round";
+        case Intrinsic::sin:
+            return "sin";
+        case Intrinsic::sqr:
+            return "sqr";
+        case Intrinsic::sqrt:
+            return "sqrt";
+        case Intrinsic::tan:
+            return "tan";
+        }
+    }
+
+    void visit(const Intrinsic *node) override {
+        ss << to_string_cpp(node->op) << "(";
+        print_expr_list(node->args);
+        ss << ")";
+    }
+
     // void visit(const Generator *) override;
     void visit(const Lambda *node) override {
         ss << "[&](";
@@ -745,12 +791,12 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
 
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
-        llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp().create_header(program,
+        std::cout << "// Bonsai Header" << '\n';
+        std::cout << BonsaiToCpp().create_header(program,
                                                     /* allow_mangling */ true)
                      << '\n';
-        llvm::outs() << std::string(42, '-') << '\n';
-        llvm::outs() << BonsaiToCpp().create_source(program) << '\n';
+        std::cout << std::string(42, '-') << '\n';
+        std::cout << BonsaiToCpp().create_source(program) << '\n';
         return;
     }
 
