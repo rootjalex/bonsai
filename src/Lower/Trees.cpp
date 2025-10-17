@@ -320,7 +320,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             IntervalMap ints = make_interval_map(lambda->args, intervals);
 
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
-            internal_assert(bounds.max.defined())
+            internal_assert(bounds.max.defined() && !is_const_one(bounds.max))
                 << "Cannot accelerate predicate: " << predicate
                 << " on: " << ir::Stmt(node);
 

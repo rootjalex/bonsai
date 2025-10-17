@@ -278,15 +278,73 @@ struct PredicateAnalysis : public ir::Visitor {
                 } else if (a.is_bounded()) {
                     // Sign of b is unknown
                     ir::Expr cmp =
-                        b.min >= make_zero(b.min.type().element_of());
+                        b.min >= make_zero(b.min.type());
                     interval.min = select(cmp, e1, e2);
                     interval.max = select(cmp, e2, e1);
                 }
                 // else unbounded
             } else if (a.is_bounded() && b.is_bounded()) {
                 // TODO: let exprs for linearity.
+
+                ir::Expr low_high = a.min * b.max;
+                ir::Expr low_low = a.min * b.min;
+                ir::Expr high_low = a.max * b.min;
+                ir::Expr high_high = a.max * b.max;
+
+                // TODO: could do tons of casework, be stupid for now.
+
+                interval.min = min(min(low_low, low_high), min(high_low, high_high));
+                interval.max = max(max(low_low, low_high), max(high_low, high_high));
             }
             // TODO: for integers, need to handle overflow if defined.
+            return;
+        }
+        case ir::BinOp::Div: {
+            Interval a = get(node->a);
+            Interval b = get(node->b);
+
+            internal_assert(node->type.is_float())
+                << "TODO: handle non-float division in predicate analysis: "
+                << ir::Expr(node);
+
+            // Do nothing with unbounded intervals
+            if (!a.is_bounded() || !b.is_bounded()) {
+                return;
+            } else if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+                return;
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min / b.min);
+                return;
+            }
+
+            // Both are fully bounded, at least one is a true interval,
+            // and the type is floating point.
+
+            ir::Expr inf = ir::Infinity::make(node->type);
+            ir::Expr zero = make_zero(node->type);
+
+            ir::Expr denom_positive = b.min > zero;
+            ir::Expr denom_negative = b.max < zero;
+            ir::Expr denom_contains_zero = b.min < zero && b.max > zero;
+            // If ^ is true, bounds are infinite.
+
+            ir::Expr num_nonneg = a.min >= zero;
+            ir::Expr num_nonpos = a.max <= zero;
+            ir::Expr num_spans = ~num_nonneg && ~num_nonpos;
+
+            ir::Expr low_high = a.min / b.max;
+            ir::Expr low_low = a.min / b.min;
+            ir::Expr high_low = a.max / b.min;
+            ir::Expr high_high = a.max / b.max;
+
+            // TODO: could do tons of casework, be stupid for now.
+
+            interval.min = min(min(low_low, low_high), min(high_low, high_high));
+            interval.max = max(max(low_low, low_high), max(high_low, high_high));
+
+            interval.min = select(denom_contains_zero, -inf, interval.min);
+            interval.max = select(denom_contains_zero, inf, interval.max);
             return;
         }
         default: {
@@ -389,6 +447,24 @@ struct PredicateAnalysis : public ir::Visitor {
                 interval.min = select(a.min >= 0, a.min * a.min,
                                       select(a.max <= 0, a.max * a.max, 0));
                 interval.max = max(a.min * a.min, a.max * a.max);
+            }
+            return;
+        }
+        case ir::Intrinsic::max: {
+            internal_assert(node->args.size() == 2);
+            Interval a = get(node->args[0]);
+            Interval b = get(node->args[1]);
+            if (a.is_single_point(node->args[0]) && b.is_single_point(node->args[1])) {
+                interval = Interval::single_point(node);
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(max(a.min, b.min));
+            } else {
+                if (a.has_lower_bound() && b.has_lower_bound()) {
+                    interval.min = max(a.min, b.min);
+                }
+                if (a.has_upper_bound() && b.has_upper_bound()) {
+                    interval.max = max(a.max, b.max);
+                }
             }
             return;
         }
