@@ -218,7 +218,7 @@ auto benchmark_join(const std::string &benchmark_name,
     } else {
         if (nested_results != single_results) {
             std::cerr << "Single join results do not match nested join results for size: "
-                      << input0.size << " " << input1.size()
+                      << input0.size() << " " << input1.size()
                       << " nested (value): " << nested_results
                       << " vs. single (value): " << single_results;
             // abort();
