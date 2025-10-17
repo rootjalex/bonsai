@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APPLICATION="wos"
-TARGET="cpu"
+TARGET="fcpw"
 KERNEL_PATH="apps/wos"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="apps/rt/layouts" # (just share layouts)
@@ -63,17 +63,14 @@ run_tests() {
   # insert the canonical tree functions (we do it in this hacky way since they're shared between CPU / GPU.
   # a better approach might be using macros, similar to PBRT).
   if [[ "$(uname)" == "Linux" ]]; then
-    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
   else
-    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${KERNEL_PATH}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
   fi
 
   for OBJECT in "${OBJECTS[@]}"; do
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "--- ${OBJECT} - ${LAYOUT} ---"
-      if [[ ("${LAYOUT}" == "cl-bvh8-idx" || "${LAYOUT}" == "cl-bvh8-idx-align16") && "${OBJECT}" == "lucy" ]]; then
-        continue # 2^28 > 2^26
-      fi
       echo "--- ${OBJECT} - ${LAYOUT} - ${N_QUERIES} ---" >> ${PREFIX}/results/${LAYOUT}.txt
 
       # 0. Combine the layout and schedule into a single file.

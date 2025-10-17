@@ -117,7 +117,7 @@ void error_function(void *ptr, enum RTCError error, const char *str) {
     std::cerr << "Embree error " << error << ": " << str << std::endl;
 }
 
-RTCDevice create_device(const std::string &layout, int32_t leaf_size = 8) {
+RTCDevice create_device(const std::string &layout) {
     std::string configuration;
     if (layout == "bvh8i") {
         configuration = "tri_accel=bvh8.triangle4i"; // Moeller

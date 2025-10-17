@@ -1,85 +1,77 @@
-from unittest import TextTestRunner
 import matplotlib.pyplot as plt
 import numpy as np
-import re
+import pandas as pd
 import math
 import os
 from collections import defaultdict
 import sys
-
-MODEL_TO_TRIANGLES = {'lucy': 28055728, 'sheep': 2967664, 'san-miguel-x35-y22-z47': 9832536,
-                      'hairball': 2880000, 'white-oak': 36760, 'sponza': 262267, 'power-plant': 12759246}
-TRIANGLE_BYTES = 36  # sizeof(Triangle)
+import argparse
+import layout_grouping
 
 
-def parse_trace_scaling_data(data_text):
-    lines = data_text.strip().split('\n')
-    parsed_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=None):
+    df = pd.read_csv(csv_file)
 
-    current_model = None
-    current_layout = None
-    current_ray_count = None
-    machine_type = None
-    ray_count_sequence = []
-    current_run_index = 0
+    if machines is not None:
+        df = df[df['machine'].isin(machines)]
+    if ray_types is not None:
+        df = df[df['ray_type'].isin(ray_types)]
+    if scenes is not None:
+        df = df[df['scene'].isin(scenes)]
+    if layouts is not None:
+        df = df[df['layout'].isin(layouts)]
 
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
+    raw_data = defaultdict(lambda: defaultdict(
+        lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list)))))
 
-        if not line:
-            i += 1
-            continue
+    for _, row in df.iterrows():
+        model = row['scene']
+        machine = row['machine']
+        ray_type = row['ray_type']
+        layout = row['layout']
+        ray_count = row['ray_count']
+        trace_time = row['trace_time-ms']
 
-        if ',' not in line and ':' not in line and not line.isdigit() and line != '---':
-            current_model = line
-            current_layout = None
-            ray_count_sequence = []
-            current_run_index = 0
-            i += 1
-            continue
-        if ',' in line:
-            config_parts = [part.strip() for part in line.split(',')]
-            if len(config_parts) >= 3:
-                if machine_type is None and len(config_parts) >= 2:
-                    machine_type = config_parts[1]
+        raw_data[model][machine][ray_type][layout][ray_count].append(
+            trace_time)
 
-                new_layout = config_parts[2]
-                if new_layout != current_layout:
-                    current_layout = new_layout
-                    ray_count_sequence = []
-                    current_run_index = 0
-                else:
-                    current_run_index = 0
-            i += 1
-            continue
-        if line.isdigit():
-            current_ray_count = int(line)
-            if current_run_index < len(ray_count_sequence):
-                if ray_count_sequence[current_run_index] != current_ray_count:
-                    print(f"Warning: Unexpected ray count {current_ray_count}")
-            else:
-                ray_count_sequence.append(current_ray_count)
-            current_run_index += 1
-            i += 1
-            continue
+    machine_type = df['machine'].iloc[0] if len(df) > 0 else None
+    ray_type_val = df['ray_type'].iloc[0] if len(
+        df) > 0 and 'ray_type' in df.columns else None
 
-        if ':' in line and 'trace time' in line.lower():
-            time_match = re.search(r'(\d+)\s*ms', line)
-            if time_match and current_model and current_layout and current_ray_count:
-                time_value = int(time_match.group(1))
-                parsed_data[current_model][current_layout][current_ray_count].append(
-                    time_value)
-            i += 1
-            continue
+    if machines and len(machines) > 1:
+        machine_type = ','.join(machines)
+    if ray_types and len(ray_types) > 1:
+        ray_type_val = ','.join(ray_types)
 
-        if line == '---':
-            i += 1
-            continue
+    return raw_data, machine_type, ray_type_val
 
-        i += 1
 
-    return parsed_data, machine_type
+def load_memory_data(csv_file, scenes=None, layouts=None, machines=None, ray_types=None, memory_column='bvh-memory-b'):
+    df = pd.read_csv(csv_file)
+
+    if scenes is not None:
+        df = df[df['scene'].isin(scenes)]
+    if layouts is not None:
+        df = df[df['layout'].isin(layouts)]
+    if machines is not None:
+        df = df[df['machine'].isin(machines)]
+    if ray_types is not None:
+        df = df[df['ray_type'].isin(ray_types)]
+
+    memory_data = defaultdict(lambda: defaultdict(
+        lambda: defaultdict(lambda: defaultdict(dict))))
+
+    for _, row in df.iterrows():
+        model = row['scene']
+        machine = row['machine']
+        ray_type = row['ray_type']
+        layout = row['layout']
+
+        if pd.notna(row[memory_column]):
+            memory_data[model][machine][ray_type][layout]['memory'] = row[memory_column]
+
+    return memory_data
 
 
 def calculate_average(values):
@@ -99,39 +91,46 @@ def calculate_average(values):
 
 
 def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
-    processed_data = defaultdict(lambda: defaultdict(dict))
+    processed_data = defaultdict(lambda: defaultdict(
+        lambda: defaultdict(lambda: defaultdict(dict))))
     R = (0, sys.maxsize) if ray_count_range is None else ray_count_range
 
     for model in raw_data:
-        for layout in raw_data[model]:
-            time_per_ray_values = []
-            ray_counts = []
-            for ray_count in raw_data[model][layout]:
-                if not (ray_count >= R[0] and ray_count <= R[1]):
-                    continue
-                values = raw_data[model][layout][ray_count]
-                avg_value = calculate_average(values)
-                if avg_value > 0:
-                    time_per_ray = avg_value / ray_count
-                    time_per_ray_values.append(time_per_ray)
-                    ray_counts.append(ray_count)
-            assert time_per_ray_values
-            if mean_strategy == 'geo':
-                result = math.exp(
-                    sum(math.log(t) for t in time_per_ray_values) / len(time_per_ray_values))
-            elif mean_strategy == 'wavg':
-                total_rays = sum(ray_counts)
-                result = sum(
-                    t * r for t, r in zip(time_per_ray_values, ray_counts)) / total_rays
-            else:
-                assert mean_strategy == 'arithmetic', mean_strategy
-                result = sum(time_per_ray_values) / len(time_per_ray_values)
-            processed_data[model][layout] = result
+        for machine in raw_data[model]:
+            for ray_type in raw_data[model][machine]:
+                for layout in raw_data[model][machine][ray_type]:
+                    time_per_ray_values = []
+                    ray_counts = []
+                    for ray_count_key in raw_data[model][machine][ray_type][layout]:
+                        ray_count = int(ray_count_key) if isinstance(
+                            ray_count_key, str) else ray_count_key
+                        if not (ray_count >= R[0] and ray_count <= R[1]):
+                            continue
+                        values = raw_data[model][machine][ray_type][layout][ray_count_key]
+                        avg_value = calculate_average(values)
+                        if avg_value > 0:
+                            time_per_ray = avg_value / ray_count
+                            time_per_ray_values.append(time_per_ray)
+                            ray_counts.append(ray_count)
+                    if not time_per_ray_values:
+                        continue
+                    if mean_strategy == 'geo':
+                        result = math.exp(
+                            sum(math.log(t) for t in time_per_ray_values) / len(time_per_ray_values))
+                    elif mean_strategy == 'wavg':
+                        total_rays = sum(ray_counts)
+                        result = sum(
+                            t * r for t, r in zip(time_per_ray_values, ray_counts)) / total_rays
+                    else:
+                        assert mean_strategy == 'arithmetic', mean_strategy
+                        result = sum(time_per_ray_values) / \
+                            len(time_per_ray_values)
+                    processed_data[model][machine][ray_type][layout] = result
 
     return processed_data
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_count_range=None, label_dominated_points=False):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types):
     models = sorted(processed_data.keys())
     if len(models) == 0:
         return
@@ -171,6 +170,9 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     ]
     marker_styles = ['o', 's', '^', 'D', 'v', '>', 'p', '*', 'h', 'X']
 
+    multiple_machines = machines and len(machines) > 1
+    multiple_ray_types = ray_types and len(ray_types) > 1
+
     for idx, model in enumerate(models):
         ax = axes[idx]
 
@@ -185,29 +187,39 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         all_colors = []
         all_groups = []
 
-        for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
-            group_color = group_colors[group_idx % len(group_colors)]
+        for machine in memory_data[model]:
+            for ray_type_key in memory_data[model][machine]:
+                for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
+                    group_color = group_colors[group_idx % len(group_colors)]
 
-            for layout in layouts:
-                if layout not in processed_data[model]:
-                    continue
-                if layout not in memory_data[model]:
-                    continue
+                    for layout in layouts:
+                        if machine not in processed_data[model]:
+                            continue
+                        if ray_type_key not in processed_data[model][machine]:
+                            continue
+                        if layout not in processed_data[model][machine][ray_type_key]:
+                            continue
+                        if machine not in memory_data[model]:
+                            continue
+                        if ray_type_key not in memory_data[model][machine]:
+                            continue
+                        if layout not in memory_data[model][machine][ray_type_key]:
+                            continue
 
-                time_per_ray = processed_data[model][layout]
-                # Subtract triangle memory from total memory.
-                triangle_memory = 0
-                assert model in MODEL_TO_TRIANGLES, model
-                if not layout.startswith('embree'):
-                    triangle_memory = MODEL_TO_TRIANGLES[model] * \
-                        TRIANGLE_BYTES
-                memory = memory_data[model][layout]['memory'] - triangle_memory
+                        time_per_ray = processed_data[model][machine][ray_type_key][layout]
+                        memory = memory_data[model][machine][ray_type_key][layout]['memory']
 
-                if time_per_ray > 0 and memory > 0:
-                    all_points.append((memory, time_per_ray))
-                    all_labels.append(layout.upper())
-                    all_colors.append(group_color)
-                    all_groups.append(group_name)
+                        if time_per_ray > 0 and memory > 0:
+                            all_points.append((memory, time_per_ray))
+                            all_labels.append(layout.upper())
+                            all_colors.append(group_color)
+
+                            group_key = group_name
+                            if multiple_machines:
+                                group_key = f"{machine}-{group_key}"
+                            if multiple_ray_types:
+                                group_key = f"{group_key}-{ray_type_key}"
+                            all_groups.append(group_key)
 
         if not all_points:
             print(
@@ -228,16 +240,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         time_per_ray_values = y * 1e6
         time_unit = 'ns/ray'
 
-        # max_memory = max(memory_values)
-        # memory_values = (memory_values / max_memory) * 100
-        # memory_unit = '% of max'
-
-        for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
+        unique_groups = sorted(set(all_groups))
+        for group_idx, group_key in enumerate(unique_groups):
             group_color = group_colors[group_idx % len(group_colors)]
             group_linestyle = line_styles[group_idx % len(line_styles)]
             group_marker = marker_styles[group_idx % len(marker_styles)]
 
-            group_mask = np.array([g == group_name for g in all_groups])
+            group_mask = np.array([g == group_key for g in all_groups])
             if not np.any(group_mask):
                 continue
 
@@ -267,7 +276,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
                        c=group_color, s=180, alpha=0.9,
                        edgecolors='black', linewidth=2.5,
-                       marker=group_marker, label=group_name, zorder=3)
+                       marker=group_marker, label=group_key, zorder=3)
 
             pareto_indices = np.where(is_pareto)[0]
             if len(pareto_indices) > 1:
@@ -310,15 +319,16 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                                           edgecolor='gray',
                                           linewidth=0.5),
                                 zorder=2)
+
+        memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            f'Memory Utilization (excluding primitives) ({memory_unit})', fontweight='bold', fontsize=11)
+            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=11)
         ax.set_ylabel(f'Time per Ray ({time_unit})',
                       fontweight='bold', fontsize=11)
         ax.set_title(f'{model.title()}', fontweight='bold', fontsize=12)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
         ax.legend(fontsize=9, loc='best', framealpha=0.9,
                   edgecolor='black', fancybox=False, shadow=True)
-        # ax.ticklabel_format(style='plain')
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
         ax.yaxis.set_major_formatter(
@@ -334,20 +344,24 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         title += f'\n{mean_strategy} (all)'
     if machine_type:
         title += f' - {machine_type}'
+    if ray_type:
+        title += f' - {ray_type}'
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     if len(all_points) > 0:
         x_range = max(memory_values) - min(memory_values)
-        padding = x_range * 0.02  # 2% of the data range as padding
+        padding = x_range * 0.02
         x_min = min(memory_values) - padding
         x_max = max(memory_values) + padding
         ax.set_xlim(x_min, x_max)
-        ax.margins(x=0)  # Remove any automatic margins on x-axis
+        ax.margins(x=0)
+
     results_dir = os.path.dirname(
         output_path) if os.path.dirname(output_path) else '.'
     os.makedirs(results_dir, exist_ok=True)
-    name = filename.split('/')[-1].split('.')[0]
+    name = os.path.splitext(os.path.basename(output_path))[0]
+
     if ray_count_range is not None:
         def log2(x): return int(math.log2(x))
         output_file = os.path.join(
@@ -361,68 +375,72 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     plt.close()
 
 
-def calculate_speedups(processed_data, memory_data, layout_groups, filename, mean_strategy):
+def calculate_speedups(processed_data, memory_data, layout_groups, filename, mean_strategy, machines, ray_types):
     speedups = {}
 
     for model in processed_data:
-        layouts = processed_data[model]
+        speedups[model] = {}
 
-        # Overall speedups (slowest across all layouts).
-        slowest_layout = max(layouts.items(), key=lambda x: x[1])
-        slowest_time = slowest_layout[1]
-        slowest_name = slowest_layout[0]
+        for machine in processed_data[model]:
+            speedups[model][machine] = {}
 
-        model_speedups = {}
-        model_memories = {}
-        for layout, time_per_ray in layouts.items():
-            speedup = slowest_time / time_per_ray
-            model_speedups[layout] = speedup
-            if model in memory_data and layout in memory_data[model]:
-                model_memories[layout] = memory_data[model][layout]['memory']
+            for ray_type in processed_data[model][machine]:
+                layouts = processed_data[model][machine][ray_type]
 
-        result = {
-            'overall': {
-                'speedups': model_speedups,
-                'memories': model_memories,
-                'slowest_layout': slowest_name,
-                'slowest_time': slowest_time
-            }
-        }
+                slowest_layout = max(layouts.items(), key=lambda x: x[1])
+                slowest_time = slowest_layout[1]
+                slowest_name = slowest_layout[0]
 
-        group_speedups = {}
-        for group_name, group_layouts in layout_groups.items():
-            group_data = {layout: layouts[layout] for layout in group_layouts
-                          if layout in layouts}
+                model_speedups = {}
+                model_memories = {}
+                for layout, time_per_ray in layouts.items():
+                    speedup = slowest_time / time_per_ray
+                    model_speedups[layout] = speedup
+                    if machine in memory_data[model] and ray_type in memory_data[model][machine] and layout in memory_data[model][machine][ray_type]:
+                        model_memories[layout] = memory_data[model][machine][ray_type][layout]['memory']
 
-            if not group_data:
-                continue
+                result = {
+                    'overall': {
+                        'speedups': model_speedups,
+                        'memories': model_memories,
+                        'slowest_layout': slowest_name,
+                        'slowest_time': slowest_time
+                    }
+                }
 
-            group_slowest = max(group_data.items(), key=lambda x: x[1])
-            group_slowest_time = group_slowest[1]
-            group_slowest_name = group_slowest[0]
+                group_speedups = {}
+                for group_name, group_layouts in layout_groups.items():
+                    group_data = {layout: layouts[layout] for layout in group_layouts
+                                  if layout in layouts}
 
-            group_speedup_data = {}
-            group_memory_data = {}
-            for layout, time_per_ray in group_data.items():
-                speedup = group_slowest_time / time_per_ray
-                group_speedup_data[layout] = speedup
-                if model in memory_data and layout in memory_data[model]:
-                    group_memory_data[layout] = memory_data[model][layout]['memory']
+                    if not group_data:
+                        continue
 
-            group_speedups[group_name] = {
-                'speedups': group_speedup_data,
-                'memories': group_memory_data,
-                'slowest_layout': group_slowest_name,
-                'slowest_time': group_slowest_time
-            }
+                    group_slowest = max(group_data.items(), key=lambda x: x[1])
+                    group_slowest_time = group_slowest[1]
+                    group_slowest_name = group_slowest[0]
 
-        result['groups'] = group_speedups
+                    group_speedup_data = {}
+                    group_memory_data = {}
+                    for layout, time_per_ray in group_data.items():
+                        speedup = group_slowest_time / time_per_ray
+                        group_speedup_data[layout] = speedup
+                        if machine in memory_data[model] and ray_type in memory_data[model][machine] and layout in memory_data[model][machine][ray_type]:
+                            group_memory_data[layout] = memory_data[model][machine][ray_type][layout]['memory']
 
-        speedups[model] = result
+                    group_speedups[group_name] = {
+                        'speedups': group_speedup_data,
+                        'memories': group_memory_data,
+                        'slowest_layout': group_slowest_name,
+                        'slowest_time': group_slowest_time
+                    }
+
+                result['groups'] = group_speedups
+                speedups[model][machine][ray_type] = result
 
     results_dir = os.path.dirname(
         filename) if os.path.dirname(filename) else '.'
-    name = filename.split('/')[-1].split('.')[0]
+    name = os.path.splitext(os.path.basename(filename))[0]
     speedup_file = os.path.join(
         results_dir, f'{name}-{mean_strategy}.speedups.txt')
     save_speedups_to_file(speedups, speedup_file, layout_groups)
@@ -431,59 +449,67 @@ def calculate_speedups(processed_data, memory_data, layout_groups, filename, mea
 def save_speedups_to_file(speedups, output_path, layout_groups):
     with open(output_path, 'w') as f:
         for model in sorted(speedups.keys()):
-            model_data = speedups[model]
-            overall = model_data['overall']
-
             f.write(f"\n{'='*90}\n")
             f.write(f"Model: {model.upper()}\n")
-            f.write(
-                f"Overall Baseline (slowest): {overall['slowest_layout']} @ {overall['slowest_time']*1e6:.3f} ns/ray\n")
             f.write(f"{'='*90}\n")
 
-            if layout_groups and 'groups' in model_data:
-                for group_name, group_layouts in layout_groups.items():
-                    if group_name not in model_data['groups']:
-                        continue
+            for machine in sorted(speedups[model].keys()):
+                f.write(f"\nMachine: {machine.upper()}\n")
+                f.write(f"{'-'*90}\n")
 
-                    group_info = model_data['groups'][group_name]
-                    group_speedups = group_info['speedups']
-                    group_memories = group_info['memories']
-                    group_slowest = group_info['slowest_layout']
-                    group_slowest_time = group_info['slowest_time']
+                for ray_type in sorted(speedups[model][machine].keys()):
+                    ray_type_data = speedups[model][machine][ray_type]
+                    overall = ray_type_data['overall']
 
+                    f.write(f"\nRay Type: {ray_type.upper()}\n")
                     f.write(
-                        f"\n{group_name.upper()} Layouts (within-group speedups):\n")
-                    f.write(
-                        f"  Group Baseline: {group_slowest} @ {group_slowest_time*1e6:.3f} ns/ray\n")
-                    f.write(
-                        f"  {'Layout':<30} {'Speedup':>10} {'Time (ns)':>12} {'Memory (MB)':>12} {'vs Overall':>12}\n")
-                    f.write(
-                        f"  {'-'*30} {'-'*10} {'-'*12} {'-'*12} {'-'*12}\n")
-                    sorted_items = sorted(
-                        group_speedups.items(), key=lambda x: x[1], reverse=True)
+                        f"Overall Baseline (slowest): {overall['slowest_layout']} @ {overall['slowest_time']*1e6:.3f} ns/ray\n")
 
-                    for layout, speedup in sorted_items:
-                        time_ns = (group_slowest_time / speedup) * 1e6
-                        overall_speedup = overall['speedups'][layout]
-                        memory_mb = group_memories.get(layout, 0) / 1024 / 1024
-                        marker = " *" if layout == group_slowest else ""
+                    if layout_groups and 'groups' in ray_type_data:
+                        for group_name, _ in layout_groups.items():
+                            if group_name not in ray_type_data['groups']:
+                                continue
+
+                            group_info = ray_type_data['groups'][group_name]
+                            group_speedups = group_info['speedups']
+                            group_memories = group_info['memories']
+                            group_slowest = group_info['slowest_layout']
+                            group_slowest_time = group_info['slowest_time']
+
+                            f.write(
+                                f"\n{group_name.upper()} Layouts (within-group speedups):\n")
+                            f.write(
+                                f"  Group Baseline: {group_slowest} @ {group_slowest_time*1e6:.3f} ns/ray\n")
+                            f.write(
+                                f"  {'Layout':<30} {'Speedup':>10} {'Time (ns)':>12} {'Memory (KB)':>12} {'vs Overall':>12}\n")
+                            f.write(
+                                f"  {'-'*30} {'-'*10} {'-'*12} {'-'*12} {'-'*12}\n")
+                            sorted_items = sorted(
+                                group_speedups.items(), key=lambda x: x[1], reverse=True)
+
+                            for layout, speedup in sorted_items:
+                                time_ns = (group_slowest_time / speedup) * 1e6
+                                overall_speedup = overall['speedups'][layout]
+                                memory_mb = group_memories.get(
+                                    layout, 0) / 1024
+                                marker = " *" if layout == group_slowest else ""
+                                f.write(
+                                    f"  {layout:<30} {speedup:>10.3f}x {time_ns:>11.2f} {memory_mb:>11.1f} {overall_speedup:>11.3f}x{marker}\n")
+                    else:
                         f.write(
-                            f"  {layout:<30} {speedup:>10.3f}x {time_ns:>11.2f} {memory_mb:>11.1f} {overall_speedup:>11.3f}x{marker}\n")
-            else:
-                f.write(
-                    f"\n  {'Layout':<30} {'Speedup':>10} {'Time (ns)':>12} {'Memory (MB)':>12}\n")
-                f.write(f"  {'-'*30} {'-'*10} {'-'*12} {'-'*12}\n")
+                            f"\n  {'Layout':<30} {'Speedup':>10} {'Time (ns)':>12} {'Memory (KB)':>12}\n")
+                        f.write(f"  {'-'*30} {'-'*10} {'-'*12} {'-'*12}\n")
 
-                sorted_items = sorted(
-                    overall['speedups'].items(), key=lambda x: x[1], reverse=True)
+                        sorted_items = sorted(
+                            overall['speedups'].items(), key=lambda x: x[1], reverse=True)
 
-                for layout, speedup in sorted_items:
-                    time_ns = (overall['slowest_time'] / speedup) * 1e6
-                    memory_mb = overall['memories'].get(
-                        layout, 0) / 1024 / 1024
-                    marker = " *" if layout == overall['slowest_layout'] else ""
-                    f.write(
-                        f"  {layout:<30} {speedup:>10.3f}x {time_ns:>11.2f} {memory_mb:>11.1f}{marker}\n")
+                        for layout, speedup in sorted_items:
+                            time_ns = (overall['slowest_time'] / speedup) * 1e6
+                            memory_mb = overall['memories'].get(
+                                layout, 0) / 1024
+                            marker = " *" if layout == overall['slowest_layout'] else ""
+                            f.write(
+                                f"  {layout:<30} {speedup:>10.3f}x {time_ns:>11.2f} {memory_mb:>11.1f}{marker}\n")
 
         f.write(f"\n{'='*90}\n")
         f.write("* = baseline (slowest layout in group)\n")
@@ -491,73 +517,139 @@ def save_speedups_to_file(speedups, output_path, layout_groups):
     print(f"Speedups saved to: {output_path}")
 
 
+def parse_layout_groups(group_str):
+    if not group_str:
+        return {}
+
+    groups = {}
+    for group_def in group_str.split(';'):
+        group_def = group_def.strip()
+        if ':' not in group_def:
+            continue
+        group_name, layouts_str = group_def.split(':', 1)
+        layouts = [l.strip() for l in layouts_str.split(',')]
+        groups[group_name.strip()] = layouts
+
+    return groups
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(
-            "Usage: python3 collect_trace.py <data_file> [mean_strategy=wavg|geo|arithmetic]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Generate Pareto frontier plots from benchmark CSV data',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic usage with default settings
+  python3 collect_trace.py results.csv
+  
+  # Specify mean strategy
+  python3 collect_trace.py results.csv --mean wavg
+  
+  # Filter by machine and ray type
+  python3 collect_trace.py results.csv --machines x86 cuda --ray-types primary
+  
+  # Filter by specific scenes
+  python3 collect_trace.py results.csv --scenes lucy hairball
+  
+  # Filter by specific layouts
+  python3 collect_trace.py results.csv --layouts bvh8 bvh8-q8 pbrt
+  
+  # Define custom layout groups
+  python3 collect_trace.py results.csv --layout-groups "bvh8:bvh8,bvh8-q8;bvh2:pbrt,sg-eq"
+  
+  # Combine multiple filters
+  python3 collect_trace.py results.csv --machines x86 --ray-types primary --mean geo --scenes lucy
+        """
+    )
 
-    filename = sys.argv[1]
-    mean_strategy = sys.argv[2] if len(sys.argv) > 2 else 'wavg'
+    parser.add_argument(
+        'csv_file', help='Path to CSV file with benchmark data')
+    parser.add_argument('--mean', choices=['wavg', 'geo', 'arithmetic'], default='wavg',
+                        help='Mean strategy to use (default: wavg)')
+    parser.add_argument('--machines', nargs='+',
+                        help='Filter by machine types (e.g., x86 cuda)')
+    parser.add_argument('--ray-types', nargs='+',
+                        help='Filter by ray types (e.g., primary secondary)')
+    parser.add_argument('--scenes', nargs='+',
+                        help='Filter by scene names (e.g., lucy hairball)')
+    parser.add_argument('--layouts', nargs='+',
+                        help='Filter by layout names (e.g., bvh8 pbrt)')
+    parser.add_argument('--include-embree',
+                        action='store_true',
+                        help='Include Embree in the results')
+    parser.add_argument('--layout-groups', type=str,
+                        help='Define layout groups as "group1:layout1,layout2;group2:layout3,layout4"')
+    parser.add_argument('--label-dominated', action='store_true',
+                        help='Label dominated points on the plot')
+    parser.add_argument('--memory-type', choices=['bvh', 'total'], default='total',
+                        help='Memory type to use: bvh (excludes primitives) or total (includes primitives) (default: total)')
 
-    if mean_strategy not in ['geo', 'wavg', 'arithmetic']:
-        print(
-            f"error: strategy must be 'geo', 'wavg', or 'arithmetic', got '{mean_strategy}'")
-        sys.exit(1)
+    args = parser.parse_args()
 
-    try:
-        with open(filename, 'r') as file:
-            data_text = file.read()
-    except FileNotFoundError:
-        print(f"error: File '{filename}' not found.")
-        sys.exit(1)
-    except IOError as e:
-        print(f"error reading file '{filename}': {e}")
-        sys.exit(1)
+    if args.layout_groups:
+        layout_groups = parse_layout_groups(args.layout_groups)
+    else:
+        layout_groups = layout_grouping.retrieve_layout_groups()
+    if not args.include_embree:
+        del layout_groups['embree']
 
-    raw_data, machine_type = parse_trace_scaling_data(data_text)
-    # collected via the `cpu/collect_mu.py` script.
-    memory_utilization = {'lucy': {'pbrt-align16': {'memory': 1180918688, 'nodes': {'primitives': 28055728, 'nodes': 5341015}}, 'pbrt-q16-soaos': {'memory': 1095462448, 'nodes': {'primitives': 28055728, 'q_aabbs': 5341015, 'nodes': 5341015}}, 'pbrt-q16': {'memory': 1095462448, 'nodes': {'primitives': 28055728, 'nodes': 5341015}}, 'pbrt-soaos-align16': {'memory': 1266374928, 'nodes': {'primitives': 28055728, 'aabbs': 5341015, 'nodes': 5341015}}, 'pbrt-soaos': {'memory': 1180918688, 'nodes': {'primitives': 28055728, 'aabbs': 5341015, 'nodes': 5341015}}, 'pbrt': {'memory': 1180918688, 'nodes': {'primitives': 28055728, 'nodes': 5341015}}, 'ptr': {'memory': 1245010868, 'nodes': {'primitives': 28055728, 'nodes': 235004660}}, 'sg-eq-align16': {'memory': 1095462448, 'nodes': {'primitives': 28055728, 'nodes': 5341015}}, 'sg-eq': {'memory': 1074098388, 'nodes': {'primitives': 28055728, 'nodes': 5341015}}, 'bvh-q16': {'memory': 1076459280, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh-q8': {'memory': 1059123696, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-align16': {'memory': 1102462656, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-q16-align16': {'memory': 1079348544, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-q16-ci-align16': {'memory': 1079348544, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-q16-ci': {'memory': 1076459280, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-q8-align16': {'memory': 1062012960, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-q8-ci-align16': {'memory': 1050455904, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8-q8-ci': {'memory': 1047566640, 'nodes': {'primitives': 28055728, 'interiors': 361158}}, 'bvh8': {'memory': 1102462656, 'nodes': {'primitives': 28055728, 'interiors': 361158}}}, 'sheep': {'pbrt-align16': {'memory': 126387552, 'nodes': {'primitives': 2967664, 'nodes': 610989}}, 'pbrt-q16-soaos': {'memory': 116611728, 'nodes': {'primitives': 2967664, 'q_aabbs': 610989, 'nodes': 610989}}, 'pbrt-q16': {'memory': 116611728, 'nodes': {'primitives': 2967664, 'nodes': 610989}}, 'pbrt-soaos-align16': {'memory': 136163376, 'nodes': {'primitives': 2967664, 'aabbs': 610989, 'nodes': 610989}}, 'pbrt-soaos': {'memory': 126387552, 'nodes': {'primitives': 2967664, 'aabbs': 610989, 'nodes': 610989}}, 'pbrt': {'memory': 126387552, 'nodes': {'primitives': 2967664, 'nodes': 610989}}, 'ptr': {'memory': 133719420, 'nodes': {'primitives': 2967664, 'nodes': 26883516}}, 'sg-eq-align16': {'memory': 116611728, 'nodes': {'primitives': 2967664, 'nodes': 610989}}, 'sg-eq': {'memory': 114167772, 'nodes': {'primitives': 2967664, 'nodes': 610989}}, 'bvh-q16': {'memory': 114486440, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh-q8': {'memory': 112490648, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-align16': {'memory': 117480128, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-q16-align16': {'memory': 114819072, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-q16-ci-align16': {'memory': 114819072, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-q16-ci': {'memory': 114486440, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-q8-align16': {'memory': 112823280, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-q8-ci-align16': {'memory': 111492752, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8-q8-ci': {'memory': 111160120, 'nodes': {'primitives': 2967664, 'interiors': 41579}}, 'bvh8': {'memory': 117480128, 'nodes': {'primitives': 2967664, 'interiors': 41579}}}, 'san-miguel-x35-y22-z47': {'pbrt-align16': {'memory': 418586432, 'nodes': {'primitives': 9832536, 'nodes': 2019223}}, 'pbrt-q16-soaos': {'memory': 386278864, 'nodes': {'primitives': 9832536, 'q_aabbs': 2019223, 'nodes': 2019223}}, 'pbrt-q16': {'memory': 386278864, 'nodes': {'primitives': 9832536, 'nodes': 2019223}}, 'pbrt-soaos-align16': {'memory': 450894000, 'nodes': {'primitives': 9832536, 'aabbs': 2019223, 'nodes': 2019223}}, 'pbrt-soaos': {'memory': 418586432, 'nodes': {'primitives': 9832536, 'aabbs': 2019223, 'nodes': 2019223}}, 'pbrt': {'memory': 418586432, 'nodes': {'primitives': 9832536, 'nodes': 2019223}}, 'ptr': {'memory': 442817108, 'nodes': {'primitives': 9832536, 'nodes': 88845812}}, 'sg-eq-align16': {'memory': 386278864, 'nodes': {'primitives': 9832536, 'nodes': 2019223}}, 'sg-eq': {'memory': 378201972, 'nodes': {'primitives': 9832536, 'nodes': 2019223}}, 'bvh-q16': {'memory': 379419784, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh-q8': {'memory': 372781048, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-align16': {'memory': 389377888, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-q16-align16': {'memory': 380526240, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-q16-ci-align16': {'memory': 380526240, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-q16-ci': {'memory': 379419784, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-q8-align16': {'memory': 373887504, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-q8-ci-align16': {'memory': 369461680, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8-q8-ci': {'memory': 368355224, 'nodes': {'primitives': 9832536, 'interiors': 138307}}, 'bvh8': {'memory': 389377888, 'nodes': {'primitives': 9832536, 'interiors': 138307}}}, 'hairball': {'pbrt-align16': {'memory': 122237920, 'nodes': {'primitives': 2880000, 'nodes': 579935}}, 'pbrt-q16-soaos': {'memory': 112958960, 'nodes': {'primitives': 2880000, 'q_aabbs': 579935, 'nodes': 579935}}, 'pbrt-q16': {'memory': 112958960, 'nodes': {'primitives': 2880000, 'nodes': 579935}}, 'pbrt-soaos-align16': {'memory': 131516880, 'nodes': {'primitives': 2880000, 'aabbs': 579935, 'nodes': 579935}}, 'pbrt-soaos': {'memory': 122237920, 'nodes': {'primitives': 2880000, 'aabbs': 579935, 'nodes': 579935}}, 'pbrt': {'memory': 122237920, 'nodes': {'primitives': 2880000, 'nodes': 579935}}, 'ptr': {'memory': 129197140, 'nodes': {'primitives': 2880000, 'nodes': 25517140}}, 'sg-eq-align16': {'memory': 112958960, 'nodes': {'primitives': 2880000, 'nodes': 579935}},
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             'sg-eq': {'memory': 110639220, 'nodes': {'primitives': 2880000, 'nodes': 579935}}, 'bvh-q16': {'memory': 111195848, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh-q8': {'memory': 109235192, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-align16': {'memory': 114136832, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-q16-align16': {'memory': 111522624, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-q16-ci-align16': {'memory': 111522624, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-q16-ci': {'memory': 111195848, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-q8-align16': {'memory': 109561968, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-q8-ci-align16': {'memory': 108254864, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8-q8-ci': {'memory': 107928088, 'nodes': {'primitives': 2880000, 'interiors': 40847}}, 'bvh8': {'memory': 114136832, 'nodes': {'primitives': 2880000, 'interiors': 40847}}}, 'white-oak': {'pbrt-align16': {'memory': 1557248, 'nodes': {'primitives': 36760, 'nodes': 7309}}, 'pbrt-q16-soaos': {'memory': 1440304, 'nodes': {'primitives': 36760, 'q_aabbs': 7309, 'nodes': 7309}}, 'pbrt-q16': {'memory': 1440304, 'nodes': {'primitives': 36760, 'nodes': 7309}}, 'pbrt-soaos-align16': {'memory': 1674192, 'nodes': {'primitives': 36760, 'aabbs': 7309, 'nodes': 7309}}, 'pbrt-soaos': {'memory': 1557248, 'nodes': {'primitives': 36760, 'aabbs': 7309, 'nodes': 7309}}, 'pbrt': {'memory': 1557248, 'nodes': {'primitives': 36760, 'nodes': 7309}}, 'ptr': {'memory': 1644956, 'nodes': {'primitives': 36760, 'nodes': 321596}}, 'sg-eq-align16': {'memory': 1440304, 'nodes': {'primitives': 36760, 'nodes': 7309}}, 'sg-eq': {'memory': 1411068, 'nodes': {'primitives': 36760, 'nodes': 7309}}, 'bvh-q16': {'memory': 1418856, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh-q8': {'memory': 1393944, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-align16': {'memory': 1456224, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-q16-align16': {'memory': 1423008, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-q16-ci-align16': {'memory': 1423008, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-q16-ci': {'memory': 1418856, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-q8-align16': {'memory': 1398096, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-q8-ci-align16': {'memory': 1381488, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8-q8-ci': {'memory': 1377336, 'nodes': {'primitives': 36760, 'interiors': 519}}, 'bvh8': {'memory': 1456224, 'nodes': {'primitives': 36760, 'interiors': 519}}}, 'sponza': {'pbrt-align16': {'memory': 11119148, 'nodes': {'primitives': 262267, 'nodes': 52423}}, 'pbrt-q16-soaos': {'memory': 10280380, 'nodes': {'primitives': 262267, 'q_aabbs': 52423, 'nodes': 52423}}, 'pbrt-q16': {'memory': 10280380, 'nodes': {'primitives': 262267, 'nodes': 52423}}, 'pbrt-soaos-align16': {'memory': 11957916, 'nodes': {'primitives': 262267, 'aabbs': 52423, 'nodes': 52423}}, 'pbrt-soaos': {'memory': 11119148, 'nodes': {'primitives': 262267, 'aabbs': 52423, 'nodes': 52423}}, 'pbrt': {'memory': 11119148, 'nodes': {'primitives': 262267, 'nodes': 52423}}, 'ptr': {'memory': 11748224, 'nodes': {'primitives': 262267, 'nodes': 2306612}}, 'sg-eq-align16': {'memory': 10280380, 'nodes': {'primitives': 262267, 'nodes': 52423}}, 'sg-eq': {'memory': 10070688, 'nodes': {'primitives': 262267, 'nodes': 52423}}, 'bvh-q16': {'memory': 10122780, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh-q8': {'memory': 9945084, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-align16': {'memory': 10389324, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-q16-align16': {'memory': 10152396, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-q16-ci-align16': {'memory': 10152396, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-q16-ci': {'memory': 10122780, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-q8-align16': {'memory': 9974700, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-q8-ci-align16': {'memory': 9856236, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8-q8-ci': {'memory': 9826620, 'nodes': {'primitives': 262267, 'interiors': 3702}}, 'bvh8': {'memory': 10389324, 'nodes': {'primitives': 262267, 'interiors': 3702}}}, 'power-plant': {'pbrt-align16': {'memory': 543553304, 'nodes': {'primitives': 12759246, 'nodes': 2631889}}, 'pbrt-q16-soaos': {'memory': 501443080, 'nodes': {'primitives': 12759246, 'q_aabbs': 2631889, 'nodes': 2631889}}, 'pbrt-q16': {'memory': 501443080, 'nodes': {'primitives': 12759246, 'nodes': 2631889}}, 'pbrt-soaos-align16': {'memory': 585663528, 'nodes': {'primitives': 12759246, 'aabbs': 2631889, 'nodes': 2631889}}, 'pbrt-soaos': {'memory': 543553304, 'nodes': {'primitives': 12759246, 'aabbs': 2631889, 'nodes': 2631889}}, 'pbrt': {'memory': 543553304, 'nodes': {'primitives': 12759246, 'nodes': 2631889}}, 'ptr': {'memory': 575135972, 'nodes': {'primitives': 12759246, 'nodes': 115803116}}, 'sg-eq-align16': {'memory': 501443080, 'nodes': {'primitives': 12759246, 'nodes': 2631889}}, 'sg-eq': {'memory': 490915524, 'nodes': {'primitives': 12759246, 'nodes': 2631889}}, 'bvh-q16': {'memory': 491371120, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh-q8': {'memory': 483013312, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-align16': {'memory': 503907832, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-q16-align16': {'memory': 492764088, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-q16-ci-align16': {'memory': 492764088, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-q16-ci': {'memory': 491371120, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-q8-align16': {'memory': 484406280, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-q8-ci-align16': {'memory': 478834408, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8-q8-ci': {'memory': 477441440, 'nodes': {'primitives': 12759246, 'interiors': 174121}}, 'bvh8': {'memory': 503907832, 'nodes': {'primitives': 12759246, 'interiors': 174121}}}}
-    # collected via the `embree/collect_mu.py` script.
-    embree_memory_utilization = {'lucy': {'embree-qbvh8': {'memory': 1726552735, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 1970038374, 'nodes': {'aabbs': 1}}, 'embree-qbvh8i': {'memory': 931975397, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 1175461036, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 1970038374, 'nodes': {'aabbs': 1}}}, 'sheep': {'embree-qbvh8': {'memory': 153279791, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 161899085, 'nodes': {'aabbs': 1}}, 'embree-qbvh8i': {'memory': 74646028, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 83265323, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 161899085, 'nodes': {'aabbs': 1}}}, 'san-miguel-x35-y22-z47': {'embree-qbvh8': {'memory': 589902643, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 654292549, 'nodes': {'aabbs': 1}}, 'embree-qbvh8i': {'memory': 306746228, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 371136135, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 654292549, 'nodes': {'aabbs': 1}}}, 'hairball': {'embree-qbvh8': {'memory': 170650501, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 183523868, 'nodes': {'aabbs': 1}},
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   'embree-qbvh8i': {'memory': 85185265, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 98058633, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 183523868, 'nodes': {'aabbs': 1}}}, 'white-oak': {'embree-qbvh8': {'memory': 2191523, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 2398093, 'nodes': {'aabbs': 1}}, 'embree-qbvh8i': {'memory': 1119879, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 1326448, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 2398093, 'nodes': {'aabbs': 1}}}, 'sponza': {'embree-qbvh8': {'memory': 15235809, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 17163091, 'nodes': {'aabbs': 1}}, 'embree-qbvh8i': {'memory': 8083472, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 10010755, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 17163091, 'nodes': {'aabbs': 1}}}, 'power-plant': {'embree-qbvh8': {'memory': 729927385, 'nodes': {'aabbs': 1}}, 'embree-bvh8': {'memory': 806553124, 'nodes': {'aabbs': 1}}, 'embree-qbvh8i': {'memory': 377578586, 'nodes': {'aabbs': 1}}, 'embree-bvh8i': {'memory': 454203277, 'nodes': {'aabbs': 1}}, 'embree-bvh8v': {'memory': 806553124, 'nodes': {'aabbs': 1}}}}
-    for model, layouts in embree_memory_utilization.items():
-        assert model in memory_utilization
-        memory_utilization[model].update(layouts)
+    all_group_layouts = set()
+    for layouts in layout_groups.values():
+        all_group_layouts.update(layouts)
 
-    trace_data = process_trace_data(
-        raw_data, mean_strategy=mean_strategy, ray_count_range=None)
-    print(f"Models found: {list(trace_data.keys())}")
-    for model in trace_data:
-        layouts = list(trace_data[model].keys())
-        print(f"\n{model}:")
-        print(f"  Layouts with trace data: {layouts}")
-        if model.lower() in {k.lower() for k in memory_utilization.keys()}:
-            mem_model = [k for k in memory_utilization.keys()
-                         if k.lower() == model.lower()][0]
-            print(
-                f"  Layouts with memory data: {list(memory_utilization[mem_model].keys())}")
-        else:
-            print(f"  [no memory data found]")
+    layouts_filter = args.layouts if args.layouts else list(all_group_layouts)
 
-    layout_groups = {
-        'bvh8': ['bvh8', 'bvh8-align16', 'bvh-q8',
-                 'bvh-q16', 'bvh8-q8-align16', 'bvh8-q8-ci-align16',
-                 'bvh8-q8-ci', 'bvh8-q16-align16', 'bvh8-q16-ci-align16',
-                 'bvh8-q16-ci',
-                 ],
-        'bvh2': ['sg-eq', 'pbrt', 'pbrt-align16', 'sg-eq-align16',
-                 'ptr', 'pbrt-soaos', 'pbrt-soaos-align16',
-                 'pbrt-q16-soaos', 'pbrt-q16',
-                 ],
-        # 'embree': ['embree-bvh8i', 'embree-qbvh8i'],
-        # 'embree': ['embree-bvh8i', 'embree-bvh8v', 'embree-qbvh8i', 'embree-qbvh8', 'embree-bvh8'],
-    }
-    calculate_speedups(trace_data, memory_utilization,
-                       layout_groups, filename, mean_strategy)
+    memory_column = 'bvh-memory-b' if args.memory_type == 'bvh' else 'total-memory-b'
+
+    raw_data, machine_type, ray_type = load_csv_data(
+        args.csv_file,
+        machines=args.machines,
+        ray_types=args.ray_types,
+        scenes=args.scenes,
+        layouts=layouts_filter
+    )
+    memory_utilization = load_memory_data(
+        args.csv_file,
+        scenes=args.scenes,
+        layouts=layouts_filter,
+        machines=args.machines,
+        ray_types=args.ray_types,
+        memory_column=memory_column
+    )
 
     ray_count_range = None
-    label_dominated_points = False
-    plot_pareto_frontiers(trace_data, memory_utilization, layout_groups,
-                          filename, machine_type, mean_strategy, ray_count_range, label_dominated_points)
+    trace_data = process_trace_data(
+        raw_data, mean_strategy=args.mean, ray_count_range=None)
+
+    print(f"Models found: {list(trace_data.keys())}")
+    for model in trace_data:
+        print(f"\n{model}:")
+        for machine in trace_data[model]:
+            for ray_type_key in trace_data[model][machine]:
+                layouts = list(trace_data[model][machine][ray_type_key].keys())
+                print(f"  {machine}/{ray_type_key}: {layouts}")
+
+    calculate_speedups(
+        trace_data,
+        memory_utilization,
+        layout_groups,
+        args.csv_file,
+        args.mean,
+        args.machines,
+        args.ray_types
+    )
+
+    plot_pareto_frontiers(
+        trace_data,
+        memory_utilization,
+        layout_groups,
+        args.csv_file,
+        machine_type,
+        args.mean,
+        ray_type,
+        ray_count_range,
+        args.label_dominated,
+        args.memory_type,
+        args.machines,
+        args.ray_types
+    )

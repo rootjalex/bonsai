@@ -48,6 +48,7 @@ apps/rt/embree/results-secondary/*
 *.app
 
 build
+__pycache__
 build-dbg
 cmake-build-*
 .idea

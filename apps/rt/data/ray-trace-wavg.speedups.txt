@@ -1,0 +1,493 @@
+
+==========================================================================================
+Model: HAIRBALL
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 757.466 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 729.237 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.086x      671.19     10211.8       1.129x
+  bvh8-align16                        1.085x      671.96     10211.8       1.127x
+  bvh8-q16-align16                    1.032x      706.85      7658.8       1.072x
+  bvh8-q16                            1.030x      707.85      7339.7       1.070x
+  bvh8-q8                             1.004x      726.54      5425.0       1.043x
+  bvh8-q8-ci                          1.003x      727.04      4148.5       1.042x
+  bvh8-q8-align16                     1.002x      727.83      5744.1       1.041x
+  bvh8-q8-ci-align16                  1.000x      729.24      4467.6       1.039x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 757.466 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 2.365x      320.33     24919.1       2.365x
+  pbrt-align16                        2.326x      325.71     18123.0       2.326x
+  pbrt                                2.325x      325.76     18123.0       2.325x
+  pbrt-soaos                          2.307x      328.29     18123.0       2.307x
+  pbrt-soaos-align16                  2.294x      330.21     27184.5       2.294x
+  pbrt-q16                            2.045x      370.32      9061.5       2.045x
+  pbrt-q16-soaos                      1.990x      380.57      9061.5       1.990x
+  sg-eq-align16                       1.002x      755.73      9061.5       1.002x
+  sg-eq                               1.000x      757.47      6796.1       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 259.956 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8 @ 210.220 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.121x      187.47     10211.8       1.387x
+  bvh8-align16                        1.116x      188.36     10211.8       1.380x
+  bvh8-q16-align16                    1.022x      205.67      7658.8       1.264x
+  bvh8-q16                            1.021x      205.97      7339.7       1.262x
+  bvh8-q8-ci                          1.008x      208.48      4148.5       1.247x
+  bvh8-q8-align16                     1.005x      209.13      5744.1       1.243x
+  bvh8-q8-ci-align16                  1.005x      209.23      4467.6       1.242x
+  bvh8-q8                             1.000x      210.22      5425.0       1.237x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 259.956 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 2.799x       92.87     24919.1       2.799x
+  pbrt-align16                        2.797x       92.95     18123.0       2.797x
+  pbrt-soaos                          2.785x       93.36     18123.0       2.785x
+  pbrt                                2.784x       93.38     18123.0       2.784x
+  pbrt-soaos-align16                  2.748x       94.60     27184.5       2.748x
+  pbrt-q16                            2.556x      101.71      9061.5       2.556x
+  pbrt-q16-soaos                      2.540x      102.35      9061.5       2.540x
+  sg-eq-align16                       1.007x      258.27      9061.5       1.007x
+  sg-eq                               1.000x      259.96      6796.1       1.000x *
+
+==========================================================================================
+Model: LUCY
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 1578.570 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8 @ 567.990 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.098x      517.52     90289.5       3.050x
+  bvh8-align16                        1.095x      518.79     90289.5       3.043x
+  bvh8-q16                            1.034x      549.33     64895.6       2.874x
+  bvh8-q16-align16                    1.031x      550.93     67717.1       2.865x
+  bvh8-q8-align16                     1.000x      567.82     50787.8       2.780x
+  bvh8-q8-ci                          1.000x      567.91     36680.1       2.780x
+  bvh8-q8-ci-align16                  1.000x      567.95     39501.7       2.779x
+  bvh8-q8                             1.000x      567.99     47966.3       2.779x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 1578.570 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt                                3.633x      434.50    166906.7       3.633x
+  pbrt-align16                        3.594x      439.27    166906.7       3.594x
+  pbrt-soaos                          3.530x      447.13    166906.7       3.530x
+  ptr                                 3.513x      449.31    229496.7       3.513x
+  pbrt-soaos-align16                  3.392x      465.33    250360.1       3.392x
+  pbrt-q16                            3.334x      473.48     83453.4       3.334x
+  pbrt-q16-soaos                      3.221x      490.10     83453.4       3.221x
+  sg-eq-align16                       1.002x     1576.20     83453.4       1.002x
+  sg-eq                               1.000x     1578.57     62590.0       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq-align16 @ 525.423 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-align16 @ 164.964 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.103x      149.50     90289.5       3.515x
+  bvh8-align16                        1.097x      150.34     90289.5       3.495x
+  bvh8-q16-align16                    1.011x      163.15     67717.1       3.221x
+  bvh8-q16                            1.011x      163.20     64895.6       3.220x
+  bvh8-q8-ci                          1.007x      163.79     36680.1       3.208x
+  bvh8-q8-ci-align16                  1.006x      163.96     39501.7       3.205x
+  bvh8-q8                             1.001x      164.87     47966.3       3.187x
+  bvh8-q8-align16                     1.000x      164.96     50787.8       3.185x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq-align16 @ 525.423 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt                                4.067x      129.19    166906.7       4.067x
+  pbrt-align16                        4.042x      130.00    166906.7       4.042x
+  pbrt-q16                            3.966x      132.50     83453.4       3.966x
+  pbrt-soaos                          3.950x      133.03    166906.7       3.950x
+  pbrt-q16-soaos                      3.933x      133.59     83453.4       3.933x
+  pbrt-soaos-align16                  3.710x      141.62    250360.1       3.710x
+  ptr                                 3.614x      145.38    229496.7       3.614x
+  sg-eq                               1.001x      524.65     62590.0       1.001x
+  sg-eq-align16                       1.000x      525.42     83453.4       1.000x *
+
+==========================================================================================
+Model: POWER-PLANT
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 1209.211 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 511.424 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8-align16                        1.166x      438.75     43530.2       2.756x
+  bvh8                                1.164x      439.54     43530.2       2.751x
+  bvh8-q16-align16                    1.055x      484.87     32647.7       2.494x
+  bvh8-q16                            1.055x      484.93     31287.4       2.494x
+  bvh8-q8-align16                     1.002x      510.56     24485.8       2.368x
+  bvh8-q8-ci                          1.001x      510.90     17684.2       2.367x
+  bvh8-q8                             1.000x      511.34     23125.4       2.365x
+  bvh8-q8-ci-align16                  1.000x      511.42     19044.5       2.364x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 1209.211 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt-align16                        3.537x      341.91     82246.5       3.537x
+  pbrt                                3.533x      342.28     82246.5       3.533x
+  ptr                                 3.518x      343.76    113089.0       3.518x
+  pbrt-soaos                          3.445x      351.05     82246.5       3.445x
+  pbrt-soaos-align16                  3.394x      356.27    123369.8       3.394x
+  pbrt-q16                            2.887x      418.85     41123.3       2.887x
+  pbrt-q16-soaos                      2.811x      430.12     41123.3       2.811x
+  sg-eq-align16                       1.002x     1206.91     41123.3       1.002x
+  sg-eq                               1.000x     1209.21     30842.4       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 438.109 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 151.777 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.225x      123.89     43530.2       3.536x
+  bvh8-align16                        1.219x      124.54     43530.2       3.518x
+  bvh8-q16                            1.054x      143.94     31287.4       3.044x
+  bvh8-q16-align16                    1.051x      144.44     32647.7       3.033x
+  bvh8-q8-ci                          1.021x      148.63     17684.2       2.948x
+  bvh8-q8                             1.016x      149.33     23125.4       2.934x
+  bvh8-q8-align16                     1.015x      149.46     24485.8       2.931x
+  bvh8-q8-ci-align16                  1.000x      151.78     19044.5       2.887x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 438.109 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt                                4.499x       97.39     82246.5       4.499x
+  pbrt-align16                        4.490x       97.57     82246.5       4.490x
+  pbrt-soaos                          4.436x       98.77     82246.5       4.436x
+  ptr                                 4.339x      100.97    113089.0       4.339x
+  pbrt-soaos-align16                  4.297x      101.96    123369.8       4.297x
+  pbrt-q16                            3.767x      116.31     41123.3       3.767x
+  pbrt-q16-soaos                      3.759x      116.55     41123.3       3.759x
+  sg-eq-align16                       1.005x      436.13     41123.3       1.005x
+  sg-eq                               1.000x      438.11     30842.4       1.000x *
+
+==========================================================================================
+Model: SAN-MIGUEL-X35-Y22-Z47
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 671.629 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 621.953 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8-align16                        1.076x      578.05     34576.8       1.162x
+  bvh8                                1.075x      578.54     34576.8       1.161x
+  bvh8-q16-align16                    1.036x      600.45     25932.6       1.119x
+  bvh8-q16                            1.035x      600.66     24852.0       1.118x
+  bvh8-q8-align16                     1.008x      617.30     19449.4       1.088x
+  bvh8-q8                             1.007x      617.40     18368.9       1.088x
+  bvh8-q8-ci                          1.003x      620.14     14046.8       1.083x
+  bvh8-q8-ci-align16                  1.000x      621.95     15127.3       1.080x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 671.629 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 2.289x      293.36     86763.5       2.289x
+  pbrt-align16                        2.242x      299.53     63100.7       2.242x
+  pbrt                                2.238x      300.08     63100.7       2.238x
+  pbrt-soaos-align16                  2.219x      302.63     94651.1       2.219x
+  pbrt-soaos                          2.217x      303.00     63100.7       2.217x
+  pbrt-q16                            2.063x      325.62     31550.4       2.063x
+  pbrt-q16-soaos                      2.022x      332.18     31550.4       2.022x
+  sg-eq-align16                       1.003x      669.72     31550.4       1.003x
+  sg-eq                               1.000x      671.63     23662.8       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 254.676 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-align16 @ 177.692 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.111x      159.95     34576.8       1.592x
+  bvh8-align16                        1.101x      161.37     34576.8       1.578x
+  bvh8-q16                            1.027x      172.98     24852.0       1.472x
+  bvh8-q16-align16                    1.023x      173.62     25932.6       1.467x
+  bvh8-q8-ci                          1.011x      175.77     14046.8       1.449x
+  bvh8-q8                             1.010x      175.97     18368.9       1.447x
+  bvh8-q8-ci-align16                  1.009x      176.06     15127.3       1.447x
+  bvh8-q8-align16                     1.000x      177.69     19449.4       1.433x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 254.676 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 2.877x       88.51     86763.5       2.877x
+  pbrt                                2.864x       88.92     63100.7       2.864x
+  pbrt-align16                        2.861x       89.01     63100.7       2.861x
+  pbrt-soaos                          2.834x       89.87     63100.7       2.834x
+  pbrt-soaos-align16                  2.792x       91.20     94651.1       2.792x
+  pbrt-q16-soaos                      2.648x       96.19     31550.4       2.648x
+  pbrt-q16                            2.642x       96.38     31550.4       2.642x
+  sg-eq-align16                       1.003x      254.00     31550.4       1.003x
+  sg-eq                               1.000x      254.68     23662.8       1.000x *
+
+==========================================================================================
+Model: SHEEP
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 5783.069 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 3717.949 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.024x     3629.68     10394.8       1.593x
+  bvh8-align16                        1.024x     3630.01     10394.8       1.593x
+  bvh8-q16-align16                    1.022x     3636.44      7796.1       1.590x
+  bvh8-q16                            1.022x     3637.27      7471.2       1.590x
+  bvh8-q8-align16                     1.004x     3702.23      5847.0       1.562x
+  bvh8-q8                             1.004x     3704.51      5522.2       1.561x
+  bvh8-q8-ci                          1.001x     3713.42      4222.9       1.557x
+  bvh8-q8-ci-align16                  1.000x     3717.95      4547.7       1.555x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 5783.069 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 1.695x     3411.04     26253.4       1.695x
+  pbrt                                1.661x     3482.58     19093.4       1.661x
+  pbrt-align16                        1.659x     3486.27     19093.4       1.659x
+  pbrt-soaos                          1.646x     3513.25     19093.4       1.646x
+  pbrt-soaos-align16                  1.638x     3531.05     28640.1       1.638x
+  pbrt-q16                            1.610x     3591.35      9546.7       1.610x
+  pbrt-q16-soaos                      1.592x     3631.64      9546.7       1.592x
+  sg-eq-align16                       1.001x     5778.12      9546.7       1.001x
+  sg-eq                               1.000x     5783.07      7160.0       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 1952.955 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 1162.017 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.064x     1092.35     10394.8       1.788x
+  bvh8-align16                        1.059x     1097.11     10394.8       1.780x
+  bvh8-q16-align16                    1.017x     1142.10      7796.1       1.710x
+  bvh8-q16                            1.012x     1147.96      7471.2       1.701x
+  bvh8-q8-ci                          1.002x     1159.32      4222.9       1.685x
+  bvh8-q8-align16                     1.002x     1159.85      5847.0       1.684x
+  bvh8-q8                             1.001x     1161.17      5522.2       1.682x
+  bvh8-q8-ci-align16                  1.000x     1162.02      4547.7       1.681x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 1952.955 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt                                1.817x     1075.10     19093.4       1.817x
+  pbrt-soaos                          1.814x     1076.34     19093.4       1.814x
+  pbrt-align16                        1.803x     1083.45     19093.4       1.803x
+  ptr                                 1.795x     1087.89     26253.4       1.795x
+  pbrt-soaos-align16                  1.795x     1088.15     28640.1       1.795x
+  pbrt-q16-soaos                      1.746x     1118.69      9546.7       1.746x
+  pbrt-q16                            1.730x     1128.88      9546.7       1.730x
+  sg-eq-align16                       1.001x     1951.26      9546.7       1.001x
+  sg-eq                               1.000x     1952.96      7160.0       1.000x *
+
+==========================================================================================
+Model: SPONZA
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 110.893 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 51.214 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.245x       41.14       925.5       2.696x
+  bvh8-align16                        1.241x       41.28       925.5       2.686x
+  bvh8-q16                            1.058x       48.42       665.2       2.290x
+  bvh8-q16-align16                    1.055x       48.56       694.1       2.284x
+  bvh8-q8-align16                     1.005x       50.95       520.6       2.177x
+  bvh8-q8                             1.004x       51.01       491.7       2.174x
+  bvh8-q8-ci                          1.002x       51.13       376.0       2.169x
+  bvh8-q8-ci-align16                  1.000x       51.21       404.9       2.165x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 110.893 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 3.713x       29.86      2252.6       3.713x
+  pbrt-soaos                          3.683x       30.11      1638.2       3.683x
+  pbrt                                3.680x       30.13      1638.2       3.680x
+  pbrt-soaos-align16                  3.675x       30.18      2457.3       3.675x
+  pbrt-align16                        3.672x       30.20      1638.2       3.672x
+  pbrt-q16                            3.153x       35.17       819.1       3.153x
+  pbrt-q16-soaos                      3.087x       35.92       819.1       3.087x
+  sg-eq-align16                       1.005x      110.30       819.1       1.005x
+  sg-eq                               1.000x      110.89       614.3       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 57.874 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci @ 17.657 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.221x       14.46       925.5       4.003x
+  bvh8-align16                        1.218x       14.50       925.5       3.992x
+  bvh8-q16                            1.034x       17.08       665.2       3.389x
+  bvh8-q16-align16                    1.027x       17.20       694.1       3.365x
+  bvh8-q8-align16                     1.014x       17.41       520.6       3.323x
+  bvh8-q8-ci-align16                  1.010x       17.49       404.9       3.310x
+  bvh8-q8                             1.008x       17.51       491.7       3.305x
+  bvh8-q8-ci                          1.000x       17.66       376.0       3.278x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 57.874 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 5.717x       10.12      2252.6       5.717x
+  pbrt-soaos                          5.636x       10.27      1638.2       5.636x
+  pbrt                                5.622x       10.29      1638.2       5.622x
+  pbrt-soaos-align16                  5.583x       10.37      2457.3       5.583x
+  pbrt-align16                        5.531x       10.46      1638.2       5.531x
+  pbrt-q16                            4.813x       12.03       819.1       4.813x
+  pbrt-q16-soaos                      4.798x       12.06       819.1       4.798x
+  sg-eq-align16                       1.002x       57.78       819.1       1.002x
+  sg-eq                               1.000x       57.87       614.3       1.000x *
+
+==========================================================================================
+Model: WHITE-OAK
+==========================================================================================
+
+Machine: ARM
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 847.069 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8-ci-align16 @ 721.789 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8-align16                        1.057x      682.69       129.8       1.241x
+  bvh8                                1.055x      684.13       129.8       1.238x
+  bvh8-q16                            1.026x      703.66        93.3       1.204x
+  bvh8-q16-align16                    1.024x      704.96        97.3       1.202x
+  bvh8-q8                             1.006x      717.21        68.9       1.181x
+  bvh8-q8-align16                     1.004x      718.97        73.0       1.178x
+  bvh8-q8-ci                          1.002x      720.70        52.7       1.175x
+  bvh8-q8-ci-align16                  1.000x      721.79        56.8       1.174x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 847.069 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  ptr                                 1.745x      485.30       314.1       1.745x
+  pbrt-align16                        1.736x      488.03       228.4       1.736x
+  pbrt                                1.732x      489.18       228.4       1.732x
+  pbrt-soaos-align16                  1.720x      492.44       342.6       1.720x
+  pbrt-soaos                          1.719x      492.69       228.4       1.719x
+  pbrt-q16                            1.614x      524.88       114.2       1.614x
+  pbrt-q16-soaos                      1.594x      531.43       114.2       1.594x
+  sg-eq-align16                       1.000x      847.03       114.2       1.000x
+  sg-eq                               1.000x      847.07        85.7       1.000x *
+
+Machine: X86
+------------------------------------------------------------------------------------------
+
+Ray Type: SECONDARY
+Overall Baseline (slowest): sg-eq @ 297.038 ns/ray
+
+BVH8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8 @ 201.779 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.078x      187.22       129.8       1.587x
+  bvh8-align16                        1.070x      188.65       129.8       1.575x
+  bvh8-q16                            1.021x      197.55        93.3       1.504x
+  bvh8-q16-align16                    1.018x      198.13        97.3       1.499x
+  bvh8-q8-ci                          1.011x      199.62        52.7       1.488x
+  bvh8-q8-ci-align16                  1.005x      200.70        56.8       1.480x
+  bvh8-q8-align16                     1.001x      201.62        73.0       1.473x
+  bvh8-q8                             1.000x      201.78        68.9       1.472x *
+
+BVH2 Layouts (within-group speedups):
+  Group Baseline: sg-eq @ 297.038 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt                                2.188x      135.75       228.4       2.188x
+  ptr                                 2.188x      135.77       314.1       2.188x
+  pbrt-soaos                          2.182x      136.13       228.4       2.182x
+  pbrt-align16                        2.178x      136.37       228.4       2.178x
+  pbrt-soaos-align16                  2.167x      137.10       342.6       2.167x
+  pbrt-q16-soaos                      2.072x      143.38       114.2       2.072x
+  pbrt-q16                            2.063x      144.01       114.2       2.063x
+  sg-eq-align16                       1.012x      293.65       114.2       1.012x
+  sg-eq                               1.000x      297.04        85.7       1.000x *
+
+==========================================================================================
+* = baseline (slowest layout in group)
