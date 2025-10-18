@@ -15,8 +15,8 @@ import signal
 # -------------------------------
 k = 0.0001
 low, high = 0.0001, 0.0002
-num_runs = 9
-drop = 2
+num_runs = 7
+drop = 1
 timeout = 15 # seconds
 
 sqlite_db = "sqlite_test.db"
@@ -35,6 +35,13 @@ def avg_trimmed(times, drop=2):
     times_sorted = sorted(times)
     trimmed = times_sorted[drop: len(times_sorted) - drop]
     return mean(trimmed)
+
+def all_timeouts(runtime_dict, timeout_val):
+    """Return True if all benchmarked variants timed out."""
+    return all(
+        isinstance(v, (int, float)) and v >= timeout_val
+        for v in runtime_dict.values()
+    )
 
 def connect_sqlite(db_file):
     conn = sqlite3.connect(db_file, check_same_thread=True)
@@ -128,14 +135,9 @@ def run_index_variant(conn, query, system):
         class TimeoutException(Exception):
             pass
 
-        def handler(signum, frame):
-            raise TimeoutException()
-
-        signal.signal(signal.SIGALRM, handler)
         times, timeouts = [], 0
 
         for i in range(num_runs):
-            signal.alarm(timeout_sec)
             start = time.time()
             try:
                 if system == "postgres":
@@ -143,23 +145,44 @@ def run_index_variant(conn, query, system):
                         cur.execute(f"SET statement_timeout TO {timeout_sec * 1000};")
                         cur.execute(query)
                         cur.fetchall()
-                else:
+
+                elif system == "sqlite":
+                    # Only use progress handler
+                    conn.set_progress_handler(
+                        lambda: 1 if (time.time() - start) > timeout_sec else 0,
+                        10000
+                    )
                     conn.execute(query).fetchall()
+                    conn.set_progress_handler(None, 0)
+
+                else:  # DuckDB
+                    # Use signal alarm for DuckDB
+                    def handler(signum, frame):
+                        raise TimeoutException()
+                    signal.signal(signal.SIGALRM, handler)
+                    signal.alarm(timeout_sec)
+                    try:
+                        conn.execute(query).fetchall()
+                    finally:
+                        signal.alarm(0)
+
                 times.append(time.time() - start)
+
             except TimeoutException:
                 print(f"Run {i+1}: timed out after {timeout_sec}s")
                 timeouts += 1
             except Exception as e:
                 print(f"Run {i+1}: query failed ({e})")
                 timeouts += 1
-            finally:
-                signal.alarm(0)
+
             if timeouts > drop:
                 print("Too many timeouts, aborting benchmark for this query.")
                 return timeout_sec
+
         if not times:
             return timeout_sec
         return avg_trimmed(times, drop)
+
 
     # Utility wrapper for executing commands
     def exec_sql(sql):
@@ -168,6 +191,8 @@ def run_index_variant(conn, query, system):
                 cur.execute(sql)
             conn.commit()
         else:
+            if system == "sqlite":
+                conn.set_progress_handler(None, 0)
             conn.execute(sql)
 
     # Drop any existing indexes
@@ -270,10 +295,16 @@ def main():
 
     results = []
 
+    timeout_dict = {"idx0_idx1": timeout, "no_index": timeout, "idx0": timeout}
+
     # -------------------------------
     # DuckDB benchmarks
     # -------------------------------
     conn_duckdb = connect_duckdb(duckdb_db)
+
+    duckdub_cheb_max_timeout = False
+    duckdub_cheb_range_timeout = False
+    duckdub_donut_timeout = False
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
         if "input0" not in files_dict or "input1" not in files_dict:
@@ -287,9 +318,9 @@ def main():
         load_duckdb_table(conn_duckdb, "input1", files_dict["input1"])
 
         # Run benchmarks
-        duckdb_cheb_max = run_index_variant(conn_duckdb, query_cheb_max_duck, "duckdb")
-        duckdb_cheb_range = run_index_variant(conn_duckdb, query_cheb_range, "duckdb")
-        duckdb_donut = run_index_variant(conn_duckdb, query_donut, "duckdb")
+        duckdb_cheb_max = run_index_variant(conn_duckdb, query_cheb_max_duck, "duckdb") if not duckdub_cheb_max_timeout else timeout_dict
+        duckdb_cheb_range = run_index_variant(conn_duckdb, query_cheb_range, "duckdb") if not duckdub_cheb_range_timeout else timeout_dict
+        duckdb_donut = run_index_variant(conn_duckdb, query_donut, "duckdb") if not duckdub_donut_timeout else timeout_dict
 
         # Store intermediate results
         result_entry = {
@@ -306,8 +337,19 @@ def main():
                 continue
             print(f"  {key}: {val}")
 
+        duckdub_cheb_max_timeout = duckdub_cheb_max_timeout or all_timeouts(duckdb_cheb_max, timeout)
+        duckdub_cheb_range_timeout = duckdub_cheb_range_timeout or all_timeouts(duckdb_cheb_range, timeout)
+        duckdub_donut_timeout = duckdub_donut_timeout or all_timeouts(duckdb_donut, timeout)
+
+        if duckdub_cheb_max_timeout and duckdub_cheb_range_timeout and duckdub_donut_timeout:
+            print(f"All DuckDB queries timed out at size {size}, stopping further tests.")
+            break
+
     conn_duckdb.close()
 
+    sqlite_cheb_max_timeout = False
+    sqlite_cheb_range_timeout = False
+    sqlite_donut_timeout = False
 
     # -------------------------------
     # SQLite benchmarks
@@ -326,9 +368,9 @@ def main():
         load_sqlite_table(conn_sqlite, "input1", files_dict["input1"])
 
         # Only run queries supported in SQLite (skip GREATEST/MAX variant)
-        sqlite_cheb_max = run_index_variant(conn_sqlite, query_cheb_max_sqlite, "sqlite")
-        sqlite_cheb_range = run_index_variant(conn_sqlite, query_cheb_range, "sqlite")
-        sqlite_donut = run_index_variant(conn_sqlite, query_donut, "sqlite")
+        sqlite_cheb_max = run_index_variant(conn_sqlite, query_cheb_max_sqlite, "sqlite") if not sqlite_cheb_max_timeout else timeout_dict
+        sqlite_cheb_range = run_index_variant(conn_sqlite, query_cheb_range, "sqlite") if not sqlite_cheb_range_timeout else timeout_dict
+        sqlite_donut = run_index_variant(conn_sqlite, query_donut, "sqlite") if not sqlite_donut_timeout else timeout_dict
 
         # Merge results into existing entry
         for r in results:
@@ -345,7 +387,19 @@ def main():
         print(f"  cheb_range: {sqlite_cheb_range}")
         print(f"  donut: {sqlite_donut}", flush=True)
 
+        sqlite_cheb_max_timeout = sqlite_cheb_max_timeout or all_timeouts(sqlite_cheb_max, timeout)
+        sqlite_cheb_range_timeout = sqlite_cheb_range_timeout or all_timeouts(sqlite_cheb_range, timeout)
+        sqlite_donut_timeout = sqlite_donut_timeout or all_timeouts(sqlite_donut, timeout)
+
+        if sqlite_cheb_max_timeout and sqlite_cheb_range_timeout and sqlite_donut_timeout:
+            print(f"All SQLite queries timed out at size {size}, stopping further tests.")
+            break
+
     conn_sqlite.close()
+
+    pg_cheb_max_timeout = False
+    pg_cheb_range_timeout = False
+    pg_donut_timeout = False
 
     conn_pg = connect_postgres()
 
@@ -361,9 +415,9 @@ def main():
         load_postgres_table(conn_pg, "input1", files_dict["input1"])
 
         # Run benchmarks (only queries PostgreSQL supports directly)
-        pg_cheb_max = run_index_variant(conn_pg, query_cheb_max_duck, "postgres")
-        pg_cheb_range = run_index_variant(conn_pg, query_cheb_range, "postgres")
-        pg_donut = run_index_variant(conn_pg, query_donut, "postgres")
+        pg_cheb_max = run_index_variant(conn_pg, query_cheb_max_duck, "postgres") if not pg_cheb_max_timeout else timeout_dict
+        pg_cheb_range = run_index_variant(conn_pg, query_cheb_range, "postgres") if not pg_cheb_range_timeout else timeout_dict
+        pg_donut = run_index_variant(conn_pg, query_donut, "postgres") if not pg_donut_timeout else timeout_dict
 
         # Merge results
         for r in results:
@@ -379,6 +433,14 @@ def main():
         print(f"  cheb_max: {pg_cheb_max}")
         print(f"  cheb_range: {pg_cheb_range}")
         print(f"  donut: {pg_donut}", flush=True)
+
+        pg_cheb_max_timeout = pg_cheb_max_timeout or all_timeouts(pg_cheb_max, timeout)
+        pg_cheb_range_timeout = pg_cheb_range_timeout or all_timeouts(pg_cheb_range, timeout)
+        pg_donut_timeout = pg_donut_timeout or all_timeouts(pg_donut, timeout)
+
+        if pg_cheb_max_timeout and pg_cheb_range_timeout and pg_donut_timeout:
+            print(f"All Postgres queries timed out at size {size}, stopping further tests.")
+            break
     
     conn_pg.close()
 

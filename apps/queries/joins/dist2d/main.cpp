@@ -275,8 +275,8 @@ void pretty_print_vector(const std::vector<T> &vec) {
 // #define EXPORT 1
 
 int main() {
-    const int k = 3; // total runs
-    const int m = 0;  // number of fastest and slowest to drop
+    const int k = 7; // total runs
+    const int m = 1; // number of fastest and slowest to drop
 
     // std::mt19937 rng(std::random_device{}());
     // For consistent results
