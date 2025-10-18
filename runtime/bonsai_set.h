@@ -205,7 +205,7 @@ set<std::tuple<T, U>> product(const set<T> &input0, const set<U> &input1) {
 
 template <typename T, typename i_t, typename U, typename j_t>
 inline auto product(const range<T, i_t> &input0, const range<U, j_t> &input1) {
-    return product_range{input0, input1};
+    return product_range<T, i_t, U, j_t>{input0, input1};
 }
 
 template <typename Predicate, typename T, typename U>

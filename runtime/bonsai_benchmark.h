@@ -16,7 +16,7 @@ inline void flush_cache() {
 
     volatile uint8_t sink = 0;
     for (size_t i = 0; i < CACHE_FLUSH_SIZE; ++i) {
-        sink += buffer[i];  // read to evict other data
+        sink = sink + buffer[i]; // read to evict other data
         buffer[i] = sink;   // write back
     }
 }
