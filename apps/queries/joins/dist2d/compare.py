@@ -8,6 +8,7 @@ import time
 import re
 from collections import defaultdict
 from statistics import mean
+import signal
 
 # -------------------------------
 # Parameters
@@ -15,7 +16,8 @@ from statistics import mean
 k = 0.0001
 low, high = 0.0001, 0.0002
 num_runs = 9
-drop_fastest, drop_slowest = 2, 2
+drop = 2
+timeout = 60 # seconds
 
 sqlite_db = "sqlite_test.db"
 duckdb_db = "duckdb_test.db"
@@ -26,12 +28,12 @@ output_csv = "join_runtime_comparison_indexed.csv"
 # Utility functions
 # -------------------------------
 
-def avg_trimmed(times, drop_fastest=2, drop_slowest=2):
+def avg_trimmed(times, drop=2):
     """Drop extremes and return average of remaining."""
-    if len(times) < drop_fastest + drop_slowest + 1:
+    if len(times) < drop * 2 + 1:
         return mean(times)
     times_sorted = sorted(times)
-    trimmed = times_sorted[drop_fastest: len(times_sorted) - drop_slowest]
+    trimmed = times_sorted[drop: len(times_sorted) - drop]
     return mean(trimmed)
 
 def connect_sqlite(db_file):
@@ -65,7 +67,7 @@ def print_query_plan(conn, query, db_type="sqlite"):
             if "JOIN" in line.upper():
                 join_line = line.strip()
                 break
-        print(f"DuckDB Join Type: {join_line or '(not found)'}")
+        print(f"DuckDB Join Type: {join_line or plan}")
     elif db_type == "postgres":
         cur = conn.cursor()
         cur.execute(f"EXPLAIN {query}")
@@ -75,7 +77,7 @@ def print_query_plan(conn, query, db_type="sqlite"):
             if "join" in row[0].lower():
                 join_line = row[0]
                 break
-        print(f"Postgres Join Type: {join_line or '(not found)'}")
+        print(f"Postgres Join Type: {join_line or plan}")
     else:
         raise ValueError(f"DB type not known: {db_type}")
 
@@ -100,77 +102,114 @@ def load_duckdb_table(conn, table_name, csv_file):
     conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM read_csv_auto('{csv_file}')")
 
 def load_postgres_table(conn, table_name, csv_file):
-    cur = conn.cursor()
-    cur.execute(f"DROP TABLE IF EXISTS {table_name}")
-    cur.execute(f"""
-        CREATE TABLE {table_name} (
-            id SERIAL PRIMARY KEY,
-            x DOUBLE PRECISION,
-            y DOUBLE PRECISION
-        )
-    """)
-    with open(csv_file) as f:
-        next(f)  # skip header
-        for line in f:
-            x, y = map(float, line.strip().split(","))
-            cur.execute(f"INSERT INTO {table_name} (x, y) VALUES (%s, %s)", (x, y))
+    with conn.cursor() as cur:
+        cur.execute(f"DROP TABLE IF EXISTS {table_name}")
+        cur.execute(f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                x DOUBLE PRECISION,
+                y DOUBLE PRECISION
+            )
+        """)
+        with open(csv_file) as f:
+            next(f)  # skip header
+            for line in f:
+                x, y = map(float, line.strip().split(","))
+                cur.execute(f"INSERT INTO {table_name} (x, y) VALUES (%s, %s)", (x, y))
+    conn.commit()
 
 def run_index_variant(conn, query, system):
     """Run query with all index variants and return average trimmed runtimes."""
     table0, table1 = "input0", "input1"
     runtimes = {}
 
-    # Helper to run query N times and average trimmed
-    def time_query():
-        times = []
-        for _ in range(num_runs):
-            start = time.time()
-            conn.execute(query).fetchall()
-            times.append(time.time() - start)
-        return avg_trimmed(times, drop_fastest, drop_slowest)
+    def time_query(timeout_sec=60):
+        """Run query num_runs times with a timeout, return avg or timeout."""
+        class TimeoutException(Exception):
+            pass
 
-    # Drop indexes if any
+        def handler(signum, frame):
+            raise TimeoutException()
+
+        signal.signal(signal.SIGALRM, handler)
+        times, timeouts = [], 0
+
+        for i in range(num_runs):
+            signal.alarm(timeout_sec)
+            start = time.time()
+            try:
+                if system == "postgres":
+                    with conn.cursor() as cur:
+                        cur.execute(f"SET statement_timeout TO {timeout_sec * 1000};")
+                        cur.execute(query)
+                        cur.fetchall()
+                else:
+                    conn.execute(query).fetchall()
+                times.append(time.time() - start)
+            except TimeoutException:
+                print(f"Run {i+1}: timed out after {timeout_sec}s")
+                timeouts += 1
+            except Exception as e:
+                print(f"Run {i+1}: query failed ({e})")
+                timeouts += 1
+            finally:
+                signal.alarm(0)
+            if timeouts > drop:
+                print("Too many timeouts, aborting benchmark for this query.")
+                return timeout_sec
+        if not times:
+            return timeout_sec
+        return avg_trimmed(times, drop)
+
+    # Utility wrapper for executing commands
+    def exec_sql(sql):
+        if system == "postgres":
+            with conn.cursor() as cur:
+                cur.execute(sql)
+            conn.commit()
+        else:
+            conn.execute(sql)
+
+    # Drop any existing indexes
     for tbl in [table0, table1]:
         try:
-            conn.execute(f"DROP INDEX IF EXISTS idx_{tbl}_x_y;")
-        except:
-            pass
+            exec_sql(f"DROP INDEX IF EXISTS idx_{tbl}_x_y;")
+        except Exception as e:
+            print(f"(warn) couldn't drop index {tbl}: {e}")
 
     # No index
     print(f"\n\n{system} query plan with NO index for: {query}")
     print_query_plan(conn, query, db_type=system)
-    runtimes["no_index"] = time_query()
+    runtimes["no_index"] = time_query(timeout)
 
     # Index on table0
-    conn.execute(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
-    conn.execute(f"ANALYZE {table0};")
-    conn.execute(f"ANALYZE {table1};")
+    exec_sql(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
+    exec_sql(f"ANALYZE {table0};")
+    exec_sql(f"ANALYZE {table1};")
     print(f"\n\n{system} query plan with index0 for: {query}")
     print_query_plan(conn, query, db_type=system)
+    runtimes["idx0"] = time_query(timeout)
+    exec_sql(f"DROP INDEX idx_{table0}_x_y;")
 
-    runtimes["idx0"] = time_query()
-    conn.execute(f"DROP INDEX idx_{table0}_x_y;")
-
-    # Index on table1
-    conn.execute(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
-    conn.execute(f"ANALYZE {table0};")
-    conn.execute(f"ANALYZE {table1};")
-    print(f"\n\n{system} query plan with index1 for: {query}")
-    print_query_plan(conn, query, db_type=system)
-    runtimes["idx1"] = time_query()
-    conn.execute(f"DROP INDEX idx_{table1}_x_y;")
+    # # Index on table1
+    # exec_sql(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
+    # exec_sql(f"ANALYZE {table0};")
+    # exec_sql(f"ANALYZE {table1};")
+    # print(f"\n\n{system} query plan with index1 for: {query}")
+    # print_query_plan(conn, query, db_type=system)
+    # runtimes["idx1"] = time_query(timeout)
+    # exec_sql(f"DROP INDEX idx_{table1}_x_y;")
 
     # Index on both
-    conn.execute(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
-    conn.execute(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
-    conn.execute(f"ANALYZE {table0};")
-    conn.execute(f"ANALYZE {table1};")
+    exec_sql(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
+    exec_sql(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
+    exec_sql(f"ANALYZE {table0};")
+    exec_sql(f"ANALYZE {table1};")
     print(f"\n\n{system} query plan with BOTH index for: {query}")
     print_query_plan(conn, query, db_type=system)
-    runtimes["idx1"] = time_query()
-    runtimes["idx0_idx1"] = time_query()
-    conn.execute(f"DROP INDEX idx_{table0}_x_y;")
-    conn.execute(f"DROP INDEX idx_{table1}_x_y;")
+    runtimes["idx0_idx1"] = time_query(timeout)
+    exec_sql(f"DROP INDEX idx_{table0}_x_y;")
+    exec_sql(f"DROP INDEX idx_{table1}_x_y;")
 
     return runtimes
 
@@ -269,6 +308,7 @@ def main():
 
     conn_duckdb.close()
 
+
     # -------------------------------
     # SQLite benchmarks
     # -------------------------------
@@ -276,6 +316,7 @@ def main():
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
         if "input0" not in files_dict or "input1" not in files_dict:
+            print(f"Skipping size {size}, missing input0 or input1")
             continue
 
         print(f"SQLite benchmarking size {size}...")
@@ -285,6 +326,7 @@ def main():
         load_sqlite_table(conn_sqlite, "input1", files_dict["input1"])
 
         # Only run queries supported in SQLite (skip GREATEST/MAX variant)
+        sqlite_cheb_max = run_index_variant(conn_sqlite, query_cheb_max_sqlite, "sqlite")
         sqlite_cheb_range = run_index_variant(conn_sqlite, query_cheb_range, "sqlite")
         sqlite_donut = run_index_variant(conn_sqlite, query_donut, "sqlite")
 
@@ -292,22 +334,24 @@ def main():
         for r in results:
             if r["size"] == size:
                 r.update({
+                    "sqlite_cheb_max": sqlite_cheb_max,
                     "sqlite_cheb_range": sqlite_cheb_range,
                     "sqlite_donut": sqlite_donut
                 })
                 break
 
         print(f"SQLite intermediate results for size {size}:")
+        print(f"  cheb_max: {sqlite_cheb_max}")
         print(f"  cheb_range: {sqlite_cheb_range}")
         print(f"  donut: {sqlite_donut}", flush=True)
 
     conn_sqlite.close()
-    
-    """
+
     conn_pg = connect_postgres()
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
         if "input0" not in files_dict or "input1" not in files_dict:
+            print(f"Skipping size {size}, missing input0 or input1")
             continue
 
         print(f"PostgreSQL benchmarking size {size}...")
@@ -317,6 +361,7 @@ def main():
         load_postgres_table(conn_pg, "input1", files_dict["input1"])
 
         # Run benchmarks (only queries PostgreSQL supports directly)
+        pg_cheb_max = run_index_variant(conn_pg, query_cheb_max_duck, "postgres")
         pg_cheb_range = run_index_variant(conn_pg, query_cheb_range, "postgres")
         pg_donut = run_index_variant(conn_pg, query_donut, "postgres")
 
@@ -324,17 +369,18 @@ def main():
         for r in results:
             if r["size"] == size:
                 r.update({
+                    "postgres_cheb_max": pg_cheb_max,
                     "postgres_cheb_range": pg_cheb_range,
                     "postgres_donut": pg_donut
                 })
                 break
 
         print(f"Postgres intermediate results for size {size}:")
+        print(f"  cheb_max: {pg_cheb_max}")
         print(f"  cheb_range: {pg_cheb_range}")
         print(f"  donut: {pg_donut}", flush=True)
     
     conn_pg.close()
-    """
 
 
 
