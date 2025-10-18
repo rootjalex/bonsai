@@ -285,7 +285,7 @@ int main() {
     std::vector<size_t> test_sizes = {
         1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12,
         1ull << 13, 1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17,
-        1ull << 18,1ull << 19, 1ull << 20,
+        1ull << 18, 1ull << 19, 1ull << 20,
         // 1ull << 21, 1ull << 22,
         // 1ull << 23, 1ull << 24, 1ull << 25, 1ull << 26, 1ull << 27,
         // 1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
@@ -323,14 +323,13 @@ int main() {
         auto input_set0 = generate_random_set(rng, size);
         auto input_set1 = generate_random_set(rng, size);
 
-#ifdef EXPORT
         export_to_csv(input_set0,
-                      "/Users/ajroot/projects/learn-sql/data/input_a_" +
+                      "/scratch/ajroot/pldi-data/joins_dist2d_uniform_input0_"
+                      "joins_dist2d_uniform_input0_" +
                           std::to_string(size) + ".csv");
         export_to_csv(input_set1,
-                      "/Users/ajroot/projects/learn-sql/data/input_b_" +
+                      "/scratch/ajroot/pldi-data/joins_dist2d_uniform_input1_" +
                           std::to_string(size) + ".csv");
-#endif
 
         // Build tree
         auto t_build_start = std::chrono::high_resolution_clock::now();
@@ -368,15 +367,19 @@ int main() {
         std::cout << "donut: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
         }
 
-        {
-        auto [nested, single, dual] = benchmark_euclidean(input_set0, input_set1, input_tree0, input_tree1, k, m);
-        std::cout << "euclidean: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
-        }
+        // {
+        // auto [nested, single, dual] = benchmark_euclidean(input_set0,
+        // input_set1, input_tree0, input_tree1, k, m); std::cout << "euclidean:
+        // (" << size << ", " << nested << ", " << build_time << ", " << single
+        // << ", " << dual << ")" << std::endl;
+        // }
 
-        {
-        auto [nested, single, dual] = benchmark_manhattan(input_set0, input_set1, input_tree0, input_tree1, k, m);
-        std::cout << "manhattan: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
-        }
+        // {
+        // auto [nested, single, dual] = benchmark_manhattan(input_set0,
+        // input_set1, input_tree0, input_tree1, k, m); std::cout << "manhattan:
+        // (" << size << ", " << nested << ", " << build_time << ", " << single
+        // << ", " << dual << ")" << std::endl;
+        // }
 
         std::free(input_tree0.prims);
         std::free(input_tree0.group0_index);

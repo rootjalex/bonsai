@@ -17,7 +17,7 @@ k = 0.0001
 low, high = 0.0001, 0.0002
 num_runs = 9
 drop = 2
-timeout = 60 # seconds
+timeout = 15 # seconds
 
 sqlite_db = "sqlite_test.db"
 duckdb_db = "duckdb_test.db"

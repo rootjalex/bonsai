@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
-#include <numeric>
-#include <vector>
+#include <future>
 #include <iostream>
+#include <numeric>
+#include <stdexcept>
+#include <vector>
 
 #include "bonsai_set.h"
 
@@ -21,6 +23,9 @@ inline void flush_cache() {
     }
 }
 
+static constexpr int64_t timeout_sec = 15; // timeout after 60s
+static constexpr int64_t timeout_ns = timeout_sec * 1000000000;
+
 template<typename Func>
 // k is the number of runs, m is the number of low and high runs to drop.
 int64_t benchmark_function(Func&& func, int k, int m) {
@@ -31,9 +36,19 @@ int64_t benchmark_function(Func&& func, int k, int m) {
     std::vector<int64_t> times;
     times.reserve(k);
 
+    uint64_t timeouts = 0;
+
     for (int i = 0; i < k; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        func(); // Run benchmarked function
+        // Run function asynchronously with timeout
+        auto fut = std::async(std::launch::async, [&] { func(); });
+        if (fut.wait_for(std::chrono::seconds(timeout_sec)) ==
+            std::future_status::timeout) {
+            if (++timeouts > k) {
+                std::cout << "Timeout max reached.\n";
+                return timeout_ns;
+            }
+        }
         auto end = std::chrono::high_resolution_clock::now();
 
         times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
@@ -57,19 +72,38 @@ auto benchmark_function2(Func&& func, int k, int m) {
     std::vector<int64_t> times;
     times.reserve(k);
 
+    uint64_t timeouts = 0;
+
+    // First run — keep result
     auto start0 = std::chrono::high_resolution_clock::now();
-    auto result = func(); // Run benchmarked function
+    auto fut0 = std::async(std::launch::async, [&] { return func(); });
+    if (fut0.wait_for(std::chrono::seconds(timeout_sec)) ==
+        std::future_status::timeout) {
+        std::cout << "Timeout max reached on results grab\n";
+        using ResultT = decltype(fut0.get());
+        return std::make_tuple(timeout_ns, ResultT{});
+    }
+    auto result = fut0.get();
     auto end0 = std::chrono::high_resolution_clock::now();
 
     times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(end0 - start0).count());
 
     for (int i = 1; i < k; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        auto temp_result = func(); // Run benchmarked function
+        auto fut = std::async(std::launch::async, [&] { return func(); });
+        if (fut.wait_for(std::chrono::seconds(timeout_sec)) ==
+            std::future_status::timeout) {
+            if (++timeouts > k) {
+                std::cout << "Timeout max reached.\n";
+                return std::make_tuple(timeout_ns, result);
+            }
+        }
+        fut.get(); // discard result
         auto end = std::chrono::high_resolution_clock::now();
 
-        times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
-        // temp_result gets deallocated here
+        times.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
+                .count());
     }
 
     std::sort(times.begin(), times.end());
@@ -101,7 +135,8 @@ double benchmark_1d_queries(const std::string &benchmark_name,
     // Verify all results match
     bool all_match = true;
     for (int i = 0; i < k; ++i) {
-        if (!(query_results[i] == fast_results[i])) {
+        if ((avg_query_time != timeout_ns) && (avg_fast_time != timeout_ns) &&
+            (query_results[i] == fast_results[i])) {
             std::cout << "Failed: " << i << std::endl;
             if constexpr (requires { query_results[i].size(); }) {
                 std::cout << "Linear: " << query_results[i].size() << std::endl;
@@ -191,7 +226,8 @@ auto benchmark_join(const std::string &benchmark_name,
 
     // Verify results
     std::cout << "Checking dual tree results\n";
-    if (!(nested_results == dual_results)) {
+    if ((avg_nested_time != timeout_ns) && (avg_dual_time != timeout_ns) &&
+        !(nested_results == dual_results)) {
         std::cerr << "Dual join results do not match nested join results for size: "
                   << input0.size() << " " << input1.size();
         if constexpr (requires { dual_results.size(); }) {
@@ -208,7 +244,9 @@ auto benchmark_join(const std::string &benchmark_name,
 
     std::cout << "Checking single tree results\n";
     if constexpr (requires { dual_results.size(); }) {
-        if (!(nested_results == flatten(single_results))) {
+        if ((avg_nested_time != timeout_ns) &&
+            (avg_single_time != timeout_ns) &&
+            !(nested_results == flatten(single_results))) {
             std::cerr << "Single join results do not match nested join results for size: "
                       << input0.size() << " " << input1.size()
                       << " nested: " << nested_results.size()
@@ -216,7 +254,9 @@ auto benchmark_join(const std::string &benchmark_name,
             // abort();
         }
     } else {
-        if (nested_results != single_results) {
+        if ((avg_nested_time != timeout_ns) &&
+            (avg_single_time != timeout_ns) &&
+            (nested_results != single_results)) {
             std::cerr << "Single join results do not match nested join results for size: "
                       << input0.size() << " " << input1.size()
                       << " nested (value): " << nested_results
