@@ -38,4 +38,6 @@ DIST_FLAGS="$DIST_DEFINE"
 
 time ./build/compiler -i $SRC_DIR/joins.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields -p simplify -b cppx -o $SRC_DIR/joins_gen
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/joins_gen.cpp -I. $DIST_DEFINE
-./$SRC_DIR/main.out
+./$SRC_DIR/main.out &> $SRC_DIR/bonsai_results.txt
+
+python $SRC_DIR/compare.py &> $SRC_DIR/db_results.txt

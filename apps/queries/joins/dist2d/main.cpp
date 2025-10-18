@@ -92,7 +92,7 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
         return;
     }
 
-    out << "x, y\n"; // CSV header
+    out << "x,y\n"; // CSV header
     input_set.for_each([&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
 
     out.close();
