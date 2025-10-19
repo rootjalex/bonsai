@@ -98,6 +98,7 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     out.close();
 }
 
+#define USE_APPROX_SAH
 
 _tree_layout0 build_tree(const set<Point> &input) {
     _tree_layout0 tree;
@@ -123,10 +124,13 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
     uint64_t next_node = 0;
 
+    // uint64_t max_depth = 0;
+
     // TODO: add parameters that pass the xl/xh/yl/yh values.
     std::function<uint64_t(uint64_t, uint64_t, uint64_t)> handle_range =
         [&](uint64_t low, uint64_t high, uint64_t depth) -> uint64_t {
         // assert(depth < MAX_TREE_DEPTH);
+        // max_depth = std::max(max_depth, depth);
 
         uint64_t count = high - low;
         uint64_t this_index = next_node++;
@@ -151,9 +155,10 @@ _tree_layout0 build_tree(const set<Point> &input) {
         if (count <= MAX_LEAF_COUNT) {
             // Leaf node
             tree.group0_index[this_index].nPrims = count;
-            reinterpret_cast<_tree_layout3 *>(
-                &tree.group0_index[this_index].split0on_nPrims)
-                ->pOffset = low;
+            tree.group0_index[this_index].offset = low;
+            // reinterpret_cast<_tree_layout3 *>(
+            //     &tree.group0_index[this_index].split0on_nPrims)
+            //     ->pOffset = low;
         } else {
             tree.group0_index[this_index].nPrims = 0;
 
@@ -171,24 +176,54 @@ _tree_layout0 build_tree(const set<Point> &input) {
                     [](const Point &a, const Point &b) { return a.y < b.y; });
             }
 
+#ifdef USE_APPROX_SAH
+            // Fast binned split: pick index that minimizes left/right interval
+            // ratio
+            uint64_t best_mid = low + count / 2;
+            float best_ratio = std::numeric_limits<float>::max();
+            for (uint64_t i = 1; i < count; ++i) {
+                float left_size =
+                    (split_on_x ? tree.prims[low + i - 1].x
+                                : tree.prims[low + i - 1].y) -
+                    (split_on_x ? tree.prims[low].x : tree.prims[low].y);
+                float right_size = (split_on_x ? tree.prims[high - 1].x
+                                               : tree.prims[high - 1].y) -
+                                   (split_on_x ? tree.prims[low + i].x
+                                               : tree.prims[low + i].y);
+
+                float ratio = std::abs(left_size / (right_size + 1e-9) - 1.0f);
+                if (ratio < best_ratio) {
+                    best_ratio = ratio;
+                    best_mid = low + i;
+                }
+            }
+
+            uint64_t mid = best_mid;
+
+            // Recursively build subtrees
+            uint64_t left = handle_range(low, mid, depth + 1);
+            uint64_t right = handle_range(mid, high, depth + 1);
+#else
             // Split in the middle (median)
             uint64_t mid = low + count / 2;
 
             // Recursively build subtrees
             uint64_t left = handle_range(low, mid, depth + 1);
             uint64_t right = handle_range(mid, high, depth + 1);
-
+#endif
             // Set split offset (offset from this node to right child)
             uint64_t offset = right - this_index;
-            reinterpret_cast<_tree_layout2 *>(
-                &tree.group0_index[this_index].split0on_nPrims)
-                ->offset = offset;
+            tree.group0_index[this_index].offset = offset;
+            // reinterpret_cast<_tree_layout2 *>(
+            //     &tree.group0_index[this_index].split0on_nPrims)
+            //     ->offset = offset;
         }
         return this_index;
     };
 
     // TODO: pass bounding box info computed via sort...?
     handle_range(/*low=*/0, /*high=*/tree.pCount, /*depth=*/0);
+    // std::cout << "max_depth = " << max_depth << std::endl;
     return tree;
 }
 
