@@ -17,12 +17,12 @@ k = 0.0001
 low, high = 0.0001, 0.0002
 num_runs = 7
 drop = 1
-timeout = 15 # seconds
+timeout = 30 # seconds
 
 sqlite_db = "sqlite_test.db"
 duckdb_db = "duckdb_test.db"
 csv_dir = "../pldi-data"
-output_csv = "join_runtime_comparison_indexed65536.csv"
+output_csv = "join_results.csv"
 
 # -------------------------------
 # Utility functions
@@ -59,13 +59,19 @@ def connect_duckdb(db_file):
 def connect_postgres(dbname="ajroot", user="ajroot", host="/tmp", port=5432):
     conn = psycopg2.connect(dbname=dbname, user=user, host=host, port=port)
     conn.autocommit = True
+    with conn.cursor() as cur:
+        # Disable all parallelism and force sequential execution
+        cur.execute("SET max_parallel_workers_per_gather = 1;")
+        cur.execute("SET max_parallel_workers = 1;")
+        cur.execute("SET parallel_setup_cost = 100000000;")
+        cur.execute("SET parallel_tuple_cost = 100000000;")
     return conn
 
 def print_query_plan(conn, query, db_type="sqlite"):
     if db_type == "sqlite":
         plan = conn.execute(f"EXPLAIN QUERY PLAN {query}").fetchall()
         s = "+".join([p[3] for p in plan])
-        print(f"sqlite3 Join Type: {s}")
+        print(f"sqlite3 Join Type: {s}", flush=True)
     elif db_type == "duckdb":
         plan = conn.execute(f"EXPLAIN {query}").fetchall()
         plan_str = plan[0][1]  # second element has the plan text
@@ -74,17 +80,17 @@ def print_query_plan(conn, query, db_type="sqlite"):
             if "JOIN" in line.upper():
                 join_line = line.strip()
                 break
-        print(f"DuckDB Join Type: {join_line or plan}")
+        print(f"DuckDB Join Type: {join_line or plan}", flush=True)
     elif db_type == "postgres":
         cur = conn.cursor()
         cur.execute(f"EXPLAIN {query}")
         plan = cur.fetchall()
         join_line = None
-        for row in plan:
-            if "join" in row[0].lower():
-                join_line = row[0]
-                break
-        print(f"Postgres Join Type: {join_line or plan}")
+        # for row in plan:
+        #     if "join" in row[0].lower():
+        #         join_line = row[0]
+        #         break
+        print(f"Postgres Join Type: {join_line or plan}", flush=True)
     else:
         raise ValueError(f"DB type not known: {db_type}")
 
@@ -130,7 +136,7 @@ def run_index_variant(conn, query, system):
     table0, table1 = "input0", "input1"
     runtimes = {}
 
-    def time_query(timeout_sec=60):
+    def time_query(timeout_sec=30):
         """Run query num_runs times with a timeout, return avg or timeout."""
         class TimeoutException(Exception):
             pass
@@ -300,7 +306,7 @@ def main():
     # -------------------------------
     # DuckDB benchmarks
     # -------------------------------
-    """
+
     conn_duckdb = connect_duckdb(duckdb_db)
 
     duckdub_cheb_max_timeout = False
@@ -317,11 +323,15 @@ def main():
         # Load CSVs
         load_duckdb_table(conn_duckdb, "input0", files_dict["input0"])
         load_duckdb_table(conn_duckdb, "input1", files_dict["input1"])
+        print("Tables loaded", flush=True)
 
         # Run benchmarks
         duckdb_cheb_max = run_index_variant(conn_duckdb, query_cheb_max_duck, "duckdb") if not duckdub_cheb_max_timeout else timeout_dict
+        print(f"Benchmarked cheb_max {duckdb_cheb_max}", flush=True)
         duckdb_cheb_range = run_index_variant(conn_duckdb, query_cheb_range, "duckdb") if not duckdub_cheb_range_timeout else timeout_dict
+        print(f"Benchmarked cheb_range {duckdb_cheb_range}", flush=True)
         duckdb_donut = run_index_variant(conn_duckdb, query_donut, "duckdb") if not duckdub_donut_timeout else timeout_dict
+        print(f"Benchmarked donut {duckdb_donut}", flush=True)
 
         # Store intermediate results
         result_entry = {
@@ -347,7 +357,6 @@ def main():
             break
 
     conn_duckdb.close()
-    """
 
     sqlite_cheb_max_timeout = False
     sqlite_cheb_range_timeout = False
@@ -359,8 +368,6 @@ def main():
     conn_sqlite = connect_sqlite(sqlite_db)
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
-        if int(size) < 65536:
-            continue
         if "input0" not in files_dict or "input1" not in files_dict:
             print(f"Skipping size {size}, missing input0 or input1")
             continue
@@ -417,8 +424,6 @@ def main():
     conn_pg = connect_postgres()
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
-        if int(size) < 65536:
-            continue
         if "input0" not in files_dict or "input1" not in files_dict:
             print(f"Skipping size {size}, missing input0 or input1")
             continue
