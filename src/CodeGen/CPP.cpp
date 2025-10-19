@@ -321,7 +321,9 @@ class BonsaiToCpp : ir::Printer {
 
     bool should_be_ref(const Type &type) const {
         // TODO: finish
-        return type.is<Set_t>() || type.is<BVH_t>();
+        const auto *struct_t = type.as<Struct_t>();
+        return type.is<Set_t>() || type.is<BVH_t>() ||
+               (struct_t && struct_t->name.starts_with("_"));
     }
 
     void emit_func_decl(const Function &func) {
@@ -393,7 +395,7 @@ class BonsaiToCpp : ir::Printer {
         // Any generated structs might be used in code generated,
         // and therefore must be ommitted.
         for (const auto &[name, type] : program.types) {
-            if (name.starts_with("_tree"))
+            if (name.starts_with("_tree") || name.starts_with("_queue"))
                 get_declared_types(type, deduplicate, exported_types);
         }
 
@@ -539,6 +541,12 @@ class BonsaiToCpp : ir::Printer {
             print_expr_list(node->values);
             ss << ")";
             return;
+        } else if (node->type.is<Struct_t>()) {
+            emit_type(ss, node->type);
+            ss << "{";
+            print_expr_list(node->values);
+            ss << "}";
+            return;
         }
         internal_error << "TODO: CPP codegen for build: " << Expr(node);
     }
@@ -649,7 +657,16 @@ class BonsaiToCpp : ir::Printer {
     // needs to override for ending `;`
     // void visit(const Return *node) override;
 
-    // void visit(const LetStmt *) override;
+    void visit(const LetStmt *node) override {
+        ss << get_indent();
+        ss << "const ";
+        emit_type(ss, node->loc.base_type);
+        ss << " " << node->loc.base;
+        internal_assert(node->value.defined());
+        ss << " = ";
+        print_no_parens(node->value);
+        ss << ";\n";
+    }
     // void visit(const IfElse *) override;
     // void visit(const DoWhile *) override;
     // void visit(const Sequence *) override;
@@ -660,6 +677,18 @@ class BonsaiToCpp : ir::Printer {
         // internal_assert(node->loc.base_type.is<Set_t>())
         //     << "TODO: C++ Allocate lowering: " << Stmt(node);
         ss << get_indent();
+        if (const auto *array_t = node->loc.base_type.as<Array_t>();
+            array_t && array_t->size.defined() && is_const(array_t->size)) {
+            internal_assert(node->memory == Allocate::Memory::Stack)
+                << Stmt(node);
+            emit_type(ss, array_t->etype);
+            ss << " " << node->loc.base;
+            ss << "[";
+            print_no_parens(array_t->size);
+            ss << "];\n";
+            internal_assert(!node->value.defined()) << Stmt(node);
+            return;
+        }
         emit_type(ss, node->loc.base_type);
         ss << " " << node->loc.base;
         if (node->value.defined()) {

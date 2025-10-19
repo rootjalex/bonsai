@@ -152,8 +152,13 @@ auto map(Func &&f, const set<T> &input)
 {
     using U = decltype(f(std::declval<T>()));
     std::vector<U> result;
-    result.reserve(input.size());
-    input.for_each([&](const T &item) { result.push_back(f(item)); });
+    result.reserve(input.data.size()); // direct access
+
+    const auto &data = input.data; // avoid repeated vector access
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.emplace_back(f(data[i])); // construct in-place
+    }
+
     return set<U>(std::move(result));
 }
 

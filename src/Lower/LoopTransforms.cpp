@@ -474,15 +474,17 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
 }
 
 Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
-             FuncMap &funcs) {
+             FuncMap &funcs, TypeMap &types) {
     struct LoopifyImpl : public Mutator {
         std::optional<Expr> queue_size;
         FuncMap &funcs;
+        TypeMap &types;
 
         bool in_recloop = false;
 
-        LoopifyImpl(std::optional<Expr> queue_size, FuncMap &funcs)
-            : queue_size(std::move(queue_size)), funcs(funcs) {}
+        LoopifyImpl(std::optional<Expr> queue_size, FuncMap &funcs,
+                    TypeMap &types)
+            : queue_size(std::move(queue_size)), funcs(funcs), types(types) {}
 
         Stmt visit(const RecLoop *node) override {
             const size_t unique_id = get_unique_counter();
@@ -494,11 +496,11 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 // TODO: pack?
                 constexpr auto P = Struct_t::Attribute::packed;
                 // TODO: need to add this to program.types
-                queue_etype = ir::Struct_t::make(unique_struct_name(unique_id),
-                                                 node->args, {P});
-                internal_error
-                    << "Need to add packed queue_etype to program.types"
-                    << queue_etype;
+                const auto name = unique_struct_name(unique_id);
+                queue_etype = ir::Struct_t::make(name, node->args, {P});
+                auto [_, inserted] = types.try_emplace(name, queue_etype);
+                internal_assert(inserted)
+                    << name << " already exists in program types.";
             }
 
             std::vector<Stmt> stmts;
@@ -539,7 +541,7 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                     LetStmt::make(std::move(arg_loc), std::move(top_expr)));
             } else {
                 WriteLoc top_loc(top_name, queue_etype);
-                stmts.push_back(LetStmt::make(
+                loop_body.push_back(LetStmt::make(
                     top_loc, Extract::make(queue_var, count_var)));
                 Expr top_expr = Var::make(queue_etype, top_name);
                 for (const auto &arg : node->args) {
@@ -568,8 +570,9 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 // TODO(ajr): hope to God it's impossible to have
                 // self-recursion in these.
                 if (name.starts_with("_traverse_tree")) {
-                    funcs[name]->body = loopify(
-                        name, std::move(funcs[name]->body), queue_size, funcs);
+                    funcs[name]->body =
+                        loopify(name, std::move(funcs[name]->body), queue_size,
+                                funcs, types);
                     return node;
                 }
             }
@@ -585,7 +588,7 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         return handle_tail_recursion(std::move(stmt), func);
     }
 
-    LoopifyImpl rewriter(std::move(queue_size), funcs);
+    LoopifyImpl rewriter(std::move(queue_size), funcs, types);
     return rewriter.mutate(std::move(stmt));
 }
 
@@ -629,9 +632,9 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // Lower/Defers.cpp
                                   },
                                   [&](const Loopify &l) {
-                                      body =
-                                          loopify(name, std::move(body),
-                                                  l.queue_size, program.funcs);
+                                      body = loopify(
+                                          name, std::move(body), l.queue_size,
+                                          program.funcs, program.types);
                                   },
                                   [&](const MakeQueue &q) {
                                       // no-op, should have been handled in

@@ -163,12 +163,14 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 // Store as vector of bytes, load and reinterpret to proper
                 // type.
                 const uint64_t bits = l.bits();
-                internal_assert(bits % 8 == 0)
-                    << "Switch is not byte-aligned: " << l;
-                static const ir::Type u8 = ir::UInt_t::make(8);
-                ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
-                std::string name = split_name(split_count++, node->field);
-                fields.emplace_back(std::move(name), std::move(byte_vec));
+                if (bits > 0) {
+                    internal_assert(bits % 8 == 0)
+                        << "Switch is not byte-aligned: " << l;
+                    static const ir::Type u8 = ir::UInt_t::make(8);
+                    ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
+                    std::string name = split_name(split_count++, node->field);
+                    fields.emplace_back(std::move(name), std::move(byte_vec));
+                }
                 // Cache the struct-type of each arm.
                 // TODO(ajr): this fails if an arm is ever not a Chain, can that
                 // happen?
@@ -252,15 +254,21 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                     if (!arm.name.has_value() || (*arm.name == node_type)) {
                         std::string field_name =
                             split_name(split_count++, node->field);
-                        ir::Expr path =
-                            ir::Access::make(std::move(field_name), base);
+
                         auto iter = ltmap.layout_to_type.find(arm.layout);
                         internal_assert(iter != ltmap.layout_to_type.cend())
                             << "Unseen Switch arm layout: " << ir::Layout(node)
                             << " at " << arm.layout;
                         ir::Type reinterpret_type = iter->second;
-                        path = ir::Cast::make(reinterpret_type, path,
-                                              ir::Cast::Mode::Reinterpret);
+
+                        ir::Expr path;
+                        if (l.bits() > 0) {
+                            path =
+                                ir::Access::make(std::move(field_name), base);
+                            path = ir::Cast::make(reinterpret_type, path,
+                                                  ir::Cast::Mode::Reinterpret);
+                        }
+
                         frames.push_frame();
                         ir::Expr rec =
                             field_in_layout(path, arm.layout, frames, iter_name,
