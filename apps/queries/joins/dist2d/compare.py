@@ -22,7 +22,7 @@ timeout = 15 # seconds
 sqlite_db = "sqlite_test.db"
 duckdb_db = "duckdb_test.db"
 csv_dir = "../pldi-data"
-output_csv = "join_runtime_comparison_indexed.csv"
+output_csv = "join_runtime_comparison_indexed65536.csv"
 
 # -------------------------------
 # Utility functions
@@ -300,6 +300,7 @@ def main():
     # -------------------------------
     # DuckDB benchmarks
     # -------------------------------
+    """
     conn_duckdb = connect_duckdb(duckdb_db)
 
     duckdub_cheb_max_timeout = False
@@ -346,6 +347,7 @@ def main():
             break
 
     conn_duckdb.close()
+    """
 
     sqlite_cheb_max_timeout = False
     sqlite_cheb_range_timeout = False
@@ -357,6 +359,8 @@ def main():
     conn_sqlite = connect_sqlite(sqlite_db)
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
+        if int(size) < 65536:
+            continue
         if "input0" not in files_dict or "input1" not in files_dict:
             print(f"Skipping size {size}, missing input0 or input1")
             continue
@@ -373,6 +377,7 @@ def main():
         sqlite_donut = run_index_variant(conn_sqlite, query_donut, "sqlite") if not sqlite_donut_timeout else timeout_dict
 
         # Merge results into existing entry
+        found = False
         for r in results:
             if r["size"] == size:
                 r.update({
@@ -380,7 +385,15 @@ def main():
                     "sqlite_cheb_range": sqlite_cheb_range,
                     "sqlite_donut": sqlite_donut
                 })
+                found = True
                 break
+        if not found:
+            results.append({
+                "size": size,
+                "sqlite_cheb_max": sqlite_cheb_max,
+                "sqlite_cheb_range": sqlite_cheb_range,
+                "sqlite_donut": sqlite_donut
+            })
 
         print(f"SQLite intermediate results for size {size}:")
         print(f"  cheb_max: {sqlite_cheb_max}")
@@ -404,6 +417,8 @@ def main():
     conn_pg = connect_postgres()
 
     for size, files_dict in sorted(size_to_files.items(), key=lambda x: int(x[0])):
+        if int(size) < 65536:
+            continue
         if "input0" not in files_dict or "input1" not in files_dict:
             print(f"Skipping size {size}, missing input0 or input1")
             continue
@@ -420,6 +435,7 @@ def main():
         pg_donut = run_index_variant(conn_pg, query_donut, "postgres") if not pg_donut_timeout else timeout_dict
 
         # Merge results
+        found = False
         for r in results:
             if r["size"] == size:
                 r.update({
@@ -427,7 +443,15 @@ def main():
                     "postgres_cheb_range": pg_cheb_range,
                     "postgres_donut": pg_donut
                 })
+                found = True
                 break
+        if not found:
+            results.append({
+                "size": size,
+                "postgres_cheb_max": pg_cheb_max,
+                    "postgres_cheb_range": pg_cheb_range,
+                    "postgres_donut": pg_donut
+            })
 
         print(f"Postgres intermediate results for size {size}:")
         print(f"  cheb_max: {pg_cheb_max}")
