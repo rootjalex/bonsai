@@ -7,11 +7,11 @@ extern input1 : set[Point];
 extern tree0 : set[Point];
 extern tree1 : set[Point];
 
-func [[export]] chebyshev(value : f32) = filter(|a : Point, b : Point| max(abs(a.x - b.x), abs(a.y - a.y)) < value, product(input0, input1));
+func [[export]] chebyshev(value : f32) = filter(|a : Point, b : Point| max(abs(a.x - b.x), abs(a.y - b.y)) < value, product(input0, input1));
 
-func [[export]] chebyshev_dual(value : f32) = filter(|a : Point, b : Point| max(abs(a.x - b.x), abs(a.y - a.y)) < value, product(tree0, tree1));
+func [[export]] chebyshev_dual(value : f32) = filter(|a : Point, b : Point| max(abs(a.x - b.x), abs(a.y - b.y)) < value, product(tree0, tree1));
 
-func lookup_chebyshev(value : f32, a : Point) = filter(|b : Point| max(abs(a.x - b.x), abs(a.y - a.y)) < value, tree1);
+func lookup_chebyshev(value : f32, a : Point) = filter(|b : Point| max(abs(a.x - b.x), abs(a.y - b.y)) < value, tree1);
 
 func [[export]] chebyshev_single(value : f32) = map(|a : Point| (a, lookup_chebyshev(value, a)), input0);
 
@@ -77,15 +77,16 @@ schedule {
         pCount : u64;
         prims : array[Point, pCount];
         nCount : u64;
-        group[nCount] index : u64 {
+        group[nCount] index : u32 {
             xl : f32;
             xh : f32;
             yl : f32;
             yh : f32;
             nPrims : u8;
+            offset : u24;
             switch nPrims {
-                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
-                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
             };
         };
     };
@@ -94,16 +95,20 @@ schedule {
         pCount : u64;
         prims : array[Point, pCount];
         nCount : u64;
-        group[nCount] index : u64 {
+        group[nCount] index : u32 {
             xl : f32;
             xh : f32;
             yl : f32;
             yh : f32;
             nPrims : u8;
+            offset : u24;
             switch nPrims {
-                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
-                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
             };
         };
     };
+
+    // lookup_chebyshev.loopify(64);
+    // chebyshev_dual.loopify(64);
 }
