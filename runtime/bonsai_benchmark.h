@@ -23,7 +23,7 @@ inline void flush_cache() {
     }
 }
 
-static constexpr int64_t timeout_sec = 15; // timeout after 60s
+static constexpr int64_t timeout_sec = 30; // timeout after 30s
 static constexpr int64_t timeout_ns = timeout_sec * 1000000000;
 
 template<typename Func>
