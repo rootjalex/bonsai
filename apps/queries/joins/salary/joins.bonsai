@@ -1,0 +1,64 @@
+element Employee {
+    salary, tax : f32;
+}
+
+extern employees0 : set[Employee];
+extern employees1 : set[Employee];
+
+extern tree0 : set[Employee];
+extern tree1 : set[Employee];
+
+func [[export]] query_nested() = count(filter(|r : Employee, s : Employee| r.salary < s.salary && r.tax > s.tax, product(employees0, employees1)));
+
+func lookup(r : Employee) = count(filter(|s : Employee| r.salary < s.salary && r.tax > s.tax, tree1));
+
+func [[export]] query_single() = sum(map(|r : Employee| lookup(r), employees0));
+
+func [[export]] query_dual() = count(filter(|r : Employee, s : Employee| r.salary < s.salary && r.tax > s.tax, product(tree0, tree1)));
+
+schedule {
+    tree[[Employee]] AABBTree(sl sh tl th : f32, c : u32) with salary in [sl, sh] with tax in [tl, th] with count() = c =
+    | Interior(left : AABBTree, right : AABBTree)
+    | Leaf(d : array[Employee]) with data = d;
+
+    tree0 : AABBTree;
+    tree1 : AABBTree;
+
+    layout tree0 {
+        pCount : u64;
+        prims : array[Employee, pCount];
+        nCount : u64;
+        group[nCount] index : u32 {
+            sl : f32;
+            sh : f32;
+            tl : f32;
+            th : f32;
+            nPrims : u8;
+            offset : u24;
+            switch nPrims {
+                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
+            };
+            c : u32;
+        };
+    };
+
+    layout tree1 {
+        pCount : u64;
+        prims : array[Employee, pCount];
+        nCount : u64;
+        group[nCount] index : u32 {
+            sl : f32;
+            sh : f32;
+            tl : f32;
+            th : f32;
+            nPrims : u8;
+            offset : u24;
+            switch nPrims {
+                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
+            };
+            c : u32;
+        };
+    };
+}
