@@ -653,23 +653,23 @@ class BonsaiToCpp : ir::Printer {
         Printer::visit(node);
     }
 
-    void visit(const AggOp *node) override {
-        // Fair eval of nested join does not allocate and then filter.
-        if (const SetOp *setop = node->a.as<SetOp>()) {
-            if (auto njoin = get_join(setop); njoin.has_value()) {
-                auto [lam, a, b] = *njoin;
-                ss << "nested_join_count(";
-                print_no_parens(lam);
-                ss << ", ";
-                print_no_parens(a);
-                ss << ", ";
-                print_no_parens(b);
-                ss << ")";
-                return;
-            }
-        }
-        Printer::visit(node);
-    }
+    // void visit(const AggOp *node) override {
+    //     // Fair eval of nested join does not allocate and then filter.
+    //     if (const SetOp *setop = node->a.as<SetOp>()) {
+    //         if (auto njoin = get_join(setop); njoin.has_value()) {
+    //             auto [lam, a, b] = *njoin;
+    //             ss << "nested_join_count(";
+    //             print_no_parens(lam);
+    //             ss << ", ";
+    //             print_no_parens(a);
+    //             ss << ", ";
+    //             print_no_parens(b);
+    //             ss << ")";
+    //             return;
+    //         }
+    //     }
+    //     Printer::visit(node);
+    // }
 
     // void visit(const Call *) override;
     // void visit(const Instantiate *) override;

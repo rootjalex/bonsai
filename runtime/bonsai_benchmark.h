@@ -154,6 +154,44 @@ auto benchmark_function2(Func&& func, int k, int m) {
     return std::make_tuple(sum / std::distance(begin, end), result);
 }
 
+template <typename Func>
+// k is the number of runs, m is the number of low and high runs to drop.
+auto benchmark_function_notimeout(Func &&func, int k, int m) {
+    if (2 * m >= k) {
+        throw std::invalid_argument(
+            "Cannot drop more times than available runs (2 * m >= k)");
+    }
+
+    std::vector<int64_t> times;
+    times.reserve(k);
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    auto result = func();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    times.push_back(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+
+    uint64_t timeouts = 0;
+
+    for (int i = 1; i < k; ++i) {
+        auto start = std::chrono::high_resolution_clock::now();
+        func();
+        auto end = std::chrono::high_resolution_clock::now();
+
+        times.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
+                .count());
+    }
+
+    std::sort(times.begin(), times.end());
+    auto begin = times.begin() + m;
+    auto end = times.end() - m;
+
+    int64_t sum = std::accumulate(begin, end, int64_t{0});
+    return std::make_tuple(sum / std::distance(begin, end),
+                           result); // average of middle runs
+}
+
 template <bool verbose, typename Result, typename Input, typename Tree,
           typename Func0, typename Func1, class... Args>
 auto benchmark_1d_queries(const std::string &benchmark_name, const Input &input,
@@ -161,25 +199,30 @@ auto benchmark_1d_queries(const std::string &benchmark_name, const Input &input,
                           Func0 &&linear, Func1 &&indexed,
                           const Args &...args) {
 
-    std::cout << "Benchmarking linear query" << std::endl;
+    if (verbose)
+        std::cout << "Benchmarking linear query" << std::endl;
+
     flush_cache();
 
     // Run and time query() (linear)
-    auto [avg_linear_time, linear_results] =
-        benchmark_function2([&] { return linear(args..., input); }, k, m);
+    auto [avg_linear_time, linear_results] = benchmark_function_notimeout(
+        [&] { return linear(args..., input); }, k, m);
 
-    std::cout << "Benchmarking indexed query" << std::endl;
+    if (verbose)
+        std::cout << "Benchmarking indexed query" << std::endl;
+
     flush_cache();
-
     // Run and time query_fast() (indexed)
-    auto [avg_indexed_time, indexed_results] =
-        benchmark_function2([&] { return indexed(args..., tree); }, k, m);
+    auto [avg_indexed_time, indexed_results] = benchmark_function_notimeout(
+        [&] { return indexed(args..., tree); }, k, m);
 
     if ((avg_linear_time != timeout_ns) && (avg_indexed_time != timeout_ns)) {
         if (!(linear_results == indexed_results)) {
-            std::cerr << "ERROR: " << benchmark_name
-                      << " results differ for input size: " << input.size()
-                      << std::endl;
+            std::cerr << "ERROR: " << benchmark_name;
+            if constexpr (requires { input.size(); }) {
+                std::cerr << " results differ for input size: " << input.size();
+            }
+            std::cerr << std::endl;
             if constexpr (requires { linear_results.size(); }) {
                 std::cerr << "Linear: " << linear_results.size()
                           << " vs. Indexed: " << indexed_results.size()
@@ -191,7 +234,7 @@ auto benchmark_1d_queries(const std::string &benchmark_name, const Input &input,
             }
             abort();
         }
-    }
+        }
 
     if constexpr (verbose) {
         std::cout << "Results match.\n";
