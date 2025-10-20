@@ -72,6 +72,42 @@ bool contains(const Stmt &stmt) {
     return checker.found;
 }
 
+template <typename IRNode>
+uint64_t count(const Stmt &stmt) {
+    static_assert(std::is_base_of<BaseStmtNode, IRNode>::value ||
+                      std::is_base_of<BaseExprNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseStmtNode or BaseExprNode");
+    struct Counter : public Visitor {
+        uint64_t c = 0;
+
+        void visit(const IRNode *node) override {
+            c++;
+            Visitor::visit(node);
+        }
+    };
+    Counter counter;
+    stmt.accept(&counter);
+    return counter.c;
+}
+
+template <typename IRNode>
+uint64_t count(const Expr &expr) {
+    static_assert(std::is_base_of<BaseStmtNode, IRNode>::value ||
+                      std::is_base_of<BaseExprNode, IRNode>::value,
+                  "IRNode must be a subclass of BaseStmtNode or BaseExprNode");
+    struct Counter : public Visitor {
+        uint64_t c = 0;
+
+        void visit(const IRNode *node) override {
+            c++;
+            Visitor::visit(node);
+        }
+    };
+    Counter counter;
+    expr.accept(&counter);
+    return counter.c;
+}
+
 std::set<std::string> mutated_variables(Stmt stmt);
 
 bool reads(Expr expr, const std::set<std::string> &vars);

@@ -626,20 +626,46 @@ class BonsaiToCpp : ir::Printer {
     }
     // void visit(const GeomOp *) override;
 
-    void visit(const SetOp *node) override {
-        // Fair eval of nested join does not allocate and then filter.
+    std::optional<std::tuple<Expr, Expr, Expr>> get_join(const SetOp *node) {
         if (node->op == SetOp::filter) {
             if (const SetOp *nested = node->b.as<SetOp>()) {
                 if (nested->op == SetOp::product) {
-                    ss << "nested_join(";
-                    print_no_parens(node->a);
-                    ss << ", ";
-                    print_no_parens(nested->a);
-                    ss << ", ";
-                    print_no_parens(nested->b);
-                    ss << ")";
-                    return;
+                    return std::make_tuple(node->a, nested->a, nested->b);
                 }
+            }
+        }
+        return {};
+    }
+
+    void visit(const SetOp *node) override {
+        // Fair eval of nested join does not allocate and then filter.
+        if (auto njoin = get_join(node); njoin.has_value()) {
+            auto [lam, a, b] = *njoin;
+            ss << "nested_join(";
+            print_no_parens(lam);
+            ss << ", ";
+            print_no_parens(a);
+            ss << ", ";
+            print_no_parens(b);
+            ss << ")";
+            return;
+        }
+        Printer::visit(node);
+    }
+
+    void visit(const AggOp *node) override {
+        // Fair eval of nested join does not allocate and then filter.
+        if (const SetOp *setop = node->a.as<SetOp>()) {
+            if (auto njoin = get_join(setop); njoin.has_value()) {
+                auto [lam, a, b] = *njoin;
+                ss << "nested_join_count(";
+                print_no_parens(lam);
+                ss << ", ";
+                print_no_parens(a);
+                ss << ", ";
+                print_no_parens(b);
+                ss << ")";
+                return;
             }
         }
         Printer::visit(node);

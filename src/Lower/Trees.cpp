@@ -196,6 +196,7 @@ struct Rewriter : public ir::Mutator {
             ir::Stmt stmt = mutate(node->arms[i].second);
             volumes.pop_back();
             intervals.pop_back();
+            aggregations.pop_back();
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
@@ -517,10 +518,16 @@ ir::Stmt build_count(ir::Stmt body) {
 
         ir::Stmt visit(const ir::Scan *node) override {
             // TODO: how does this work with joins...?
-            internal_assert(aggregations.size() == 1);
-            if (aggregations.back().contains("count()")) {
-                return ir::Accumulate::make(loc, ir::Accumulate::Add,
-                                            aggregations.back()["count()"]);
+            // internal_assert(aggregations.size() == 1);
+            bool all_have_count = std::all_of(
+                aggregations.begin(), aggregations.end(),
+                [](const auto &agg) { return agg.contains("count()"); });
+            if (all_have_count) {
+                ir::Expr total = aggregations.front()["count()"];
+                for (size_t i = 1; i < aggregations.size(); i++) {
+                    total = total * aggregations[i].at("count()");
+                }
+                return ir::Accumulate::make(loc, ir::Accumulate::Add, total);
             } else {
                 return ir::Scan::make(ir::AggOp::OpType::count, node->value);
             }

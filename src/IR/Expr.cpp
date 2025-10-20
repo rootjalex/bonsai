@@ -465,6 +465,11 @@ Expr Broadcast::make(uint32_t lanes, Expr value) {
 Expr VectorReduce::make(VectorReduce::OpType op, Expr value) {
     internal_assert(value.defined()) << "VectorReduce of undefined.";
 
+    if (op == VectorReduce::Add && value.type().defined() &&
+        value.type().is<Set_t>()) {
+        return AggOp::make(AggOp::sum, std::move(value));
+    }
+
     VectorReduce *node = new VectorReduce;
 
     const bool infer_types =
@@ -814,7 +819,7 @@ Expr Access::make(std::string field, Expr value) {
 
 Expr Unwrap::make(size_t index, Expr value) {
     internal_assert(value.defined() && value.type().is<BVH_t>())
-        << "Bad Unwrap parameters: " << value;
+        << "Bad Unwrap parameters: " << value << " has type: " << value.type();
     internal_assert(index < value.type().as<BVH_t>()->nodes.size())
         << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 
