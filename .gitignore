@@ -60,3 +60,7 @@ deps/llvm-install
 apps/queries/*/*_gen.cpp
 apps/queries/*/*_gen.h
 apps/queries/*/*.out
+
+# Ignore all *_gen.h and *_gen.cpp files anywhere under apps/
+apps/**/*_gen.h
+apps/**/*_gen.cpp
