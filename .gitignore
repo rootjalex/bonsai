@@ -64,3 +64,11 @@ apps/queries/*/*.out
 # Ignore all *_gen.h and *_gen.cpp files anywhere under apps/
 apps/**/*_gen.h
 apps/**/*_gen.cpp
+
+*.csv
+
+# Ignore all .txt files...
+*.txt
+
+# ...but keep CMakeLists.txt files
+!**/CMakeLists.txt
