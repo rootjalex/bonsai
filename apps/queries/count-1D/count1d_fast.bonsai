@@ -1,20 +1,36 @@
 extern input : set[f32];
 
 func [[export]] range_query_fast(low : f32, high : f32) = count(filter(|i : f32| low <= i && i <= high, input));
+func range_query_unfused(low : f32, high : f32) = filter(|i : f32| low <= i && i <= high, input);
+func [[export]] range_query_fast_unfused(low : f32, high : f32) = count(range_query_unfused(low, high));
 
 func [[export]] eq_query_fast(value : f32) = count(filter(|i : f32| i == value, input));
+func eq_query_unfused(value : f32) = filter(|i : f32| i == value, input);
+func [[export]] eq_query_fast_unfused(value : f32) = count(eq_query_unfused(value));
 
 func [[export]] abs_query_fast(value : f32) = count(filter(|i : f32| abs(i) <= value, input));
+func abs_query_unfused(value : f32) = filter(|i : f32| abs(i) <= value, input);
+func [[export]] abs_query_fast_unfused(value : f32) = count(abs_query_unfused(value));
 
 func [[export]] sqr_query_fast(value : f32) = count(filter(|i : f32| sqr(i) <= value, input));
+func sqr_query_unfused(value : f32) = filter(|i : f32| sqr(i) <= value, input);
+func [[export]] sqr_query_fast_unfused(value : f32) = count(sqr_query_unfused(value));
 
 func [[export]] round_query_fast(value : f32) = count(filter(|i : f32| round(i) == value, input));
+func round_query_unfused(value : f32) = filter(|i : f32| round(i) == value, input);
+func [[export]] round_query_fast_unfused(value : f32) = count(round_query_unfused(value));
 
 func [[export]] poly_query_fast(value : f32) = count(filter(|i : f32| sqr(i) - 4 * i + 3 <= value, input));
+func poly_query_unfused(value : f32) = filter(|i : f32| sqr(i) - 4 * i + 3 <= value, input);
+func [[export]] poly_query_fast_unfused(value : f32) = count(poly_query_unfused(value));
 
 func [[export]] sqrt_query_fast(value : f32) = count(filter(|i : f32| sqrt(abs(i)) <= value, input));
+func sqrt_query_unfused(value : f32) = filter(|i : f32| sqrt(abs(i)) <= value, input);
+func [[export]] sqrt_query_fast_unfused(value : f32) = count(sqrt_query_unfused(value));
 
 func [[export]] stddev_query_fast(mean : f32, stddev3 : f32) = count(filter(|i : f32| abs(i - mean) > stddev3, input));
+func stddev_query_unfused(mean : f32, stddev3 : f32) = filter(|i : f32| abs(i - mean) > stddev3, input);
+func [[export]] stddev_query_fast_unfused(mean : f32, stddev3 : f32) = count(stddev_query_unfused(mean, stddev3));
 
 schedule {
     tree[[f32]] IntervalTree(low high : f32) with data in [low, high] =

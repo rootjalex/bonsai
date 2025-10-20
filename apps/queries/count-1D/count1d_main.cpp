@@ -197,8 +197,19 @@ double benchmark_range_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "-10 <= x <= 10", input, tree, k, m, range_query, range_query_fast, low,
-        high);
+        "-10 <= x <= 10",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        range_query_fast_unfused, range_query_fast,
+#else
+        range_query, range_query_fast,
+#endif
+        low, high);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -210,7 +221,19 @@ double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "x == 42", input, tree, k, m, eq_query, eq_query_fast, value);
+        "x == 42",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        eq_query_fast_unfused, eq_query_fast,
+#else
+        eq_query, eq_query_fast,
+#endif
+        value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -222,7 +245,19 @@ double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "abs(x) <= 10", input, tree, k, m, abs_query, abs_query_fast, value);
+        "abs(x) <= 10",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        abs_query_fast_unfused, abs_query_fast,
+#else
+        abs_query, abs_query_fast,
+#endif
+        value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -234,7 +269,19 @@ double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "x^2 <= 100", input, tree, k, m, sqr_query, sqr_query_fast, value);
+        "x^2 <= 100",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        sqr_query_fast_unfused, sqr_query_fast,
+#else
+        sqr_query, sqr_query_fast,
+#endif
+        value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -246,7 +293,18 @@ double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "round(x) == 10", input, tree, k, m, round_query, round_query_fast,
+        "round(x) == 10",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        round_query_fast_unfused, round_query_fast,
+#else
+        round_query, round_query_fast,
+#endif
         value);
     return static_cast<double>(linear) / indexed;
 }
@@ -259,7 +317,18 @@ double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "x^2 - 4 * x + 3 <= 0", input, tree, k, m, poly_query, poly_query_fast,
+        "x^2 - 4 * x + 3 <= 0",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        poly_query_fast_unfused, poly_query_fast,
+#else
+        poly_query, poly_query_fast,
+#endif
         value);
     return static_cast<double>(linear) / indexed;
 }
@@ -272,8 +341,19 @@ double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "sqrt(abs(x)) <= sqrt(10)", input, tree, k, m, sqrt_query,
-        sqrt_query_fast, value);
+        "sqrt(abs(x)) <= sqrt(10)",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        sqrt_query_fast_unfused, sqrt_query_fast,
+#else
+        sqrt_query, sqrt_query_fast,
+#endif
+        value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -308,8 +388,19 @@ double benchmark_stddev_query(const set<float> &input,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "abs(x - u) > s * 3", input, tree, k, m, stddev_query,
-        stddev_query_fast, mean, stddev3);
+        "abs(x - u) > s * 3",
+#ifdef PROFILE_UNFUSED
+        tree,
+#else
+        input,
+#endif
+        tree, k, m,
+#ifdef PROFILE_UNFUSED
+        stddev_query_fast_unfused, stddev_query_fast,
+#else
+        stddev_query, stddev_query_fast,
+#endif
+        mean, stddev3);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -338,10 +429,10 @@ int main() {
     std::mt19937 rng(42);
 
     std::vector<size_t> test_sizes = {
-        1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12,
-        1ull << 13, 1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17,
-        1ull << 18, 1ull << 19, 1ull << 20, 1ull << 21, 1ull << 22,
-        1ull << 23, 1ull << 24, 1ull << 25, 1ull << 26, 1ull << 27,
+        1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12, 1ull << 13,
+        1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17, 1ull << 18, 1ull << 19,
+        1ull << 20, 1ull << 21, 1ull << 22, 1ull << 23, 1ull << 24, 1ull << 25,
+        1ull << 26, 1ull << 27, 1ull << 28,
         // 1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
     };
 #if defined(USE_NORMAL)
