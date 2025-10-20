@@ -43,25 +43,39 @@ auto run_with_timeout(Func &&func) -> std::pair<int64_t, bool> {
         _exit(0); // ensure child exits
     } else {
         // Parent process: wait with timeout
-        auto start = std::chrono::steady_clock::now();
-        sleep(timeout_sec); // wait for timeout duration
-
+        auto start = std::chrono::high_resolution_clock::now();
         int status;
-        pid_t ret = waitpid(pid, &status, WNOHANG);
-        if (ret == 0) {
-            // Child still running -> timeout
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0); // clean up
-            return {timeout_ns, false};
-        } else {
-            // Child finished
-            auto end = std::chrono::steady_clock::now();
-            int64_t elapsed_ns =
-                std::chrono::duration_cast<std::chrono::nanoseconds>(end -
+
+        while (true) {
+            pid_t ret = waitpid(pid, &status, WNOHANG);
+            if (ret != 0)
+                break; // child finished
+
+            auto now = std::chrono::high_resolution_clock::now();
+            int64_t elapsed =
+                std::chrono::duration_cast<std::chrono::nanoseconds>(now -
                                                                      start)
                     .count();
-            return {elapsed_ns, true};
+            if (elapsed >= timeout_sec * 1'000'000'000LL) {
+                // Timeout
+                kill(pid, SIGKILL);
+                waitpid(pid, &status, 0); // clean up
+                return {timeout_ns, false};
+            }
+
+            // Busy-wait for ~50ns
+            auto busy_start = std::chrono::high_resolution_clock::now();
+            while (std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::high_resolution_clock::now() - busy_start)
+                       .count() < 50)
+                ;
         }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        int64_t elapsed_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
+                .count();
+        return {elapsed_ns, true};
     }
 }
 
