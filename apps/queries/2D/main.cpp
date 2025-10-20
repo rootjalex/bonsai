@@ -283,9 +283,10 @@ double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           set < Point >> ("abs(x - y) <= 10", input, tree, k, m, absd_query,
-                           absd_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
+        "abs(x - y) <= 10", input, tree, k, m, absd_query, absd_query_fast,
+        value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_absd_count_query(const set<Point> &input,
@@ -296,9 +297,10 @@ double benchmark_absd_count_query(const set<Point> &input,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           uint64_t > ("COUNT(abs(x - y) <= 10)", input, tree, k, m,
-                       absd_count_query, absd_count_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
+        "COUNT(abs(x - y) <= 10)", input, tree, k, m, absd_count_query,
+        absd_count_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_absd_count_aug_query(const set<Point> &input,
@@ -309,9 +311,10 @@ double benchmark_absd_count_aug_query(const set<Point> &input,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           uint64_t > ("aug COUNT(abs(x - y) <= 10)", input, tree, k, m,
-                       absd_count_query, absd_count_query_fast_aug, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
+        "aug COUNT(abs(x - y) <= 10)", input, tree, k, m, absd_count_query,
+        absd_count_query_fast_aug, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
@@ -321,9 +324,10 @@ double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           set < Point >> ("abs(x + y) <= 10", input, tree, k, m, abss_query,
-                           abss_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
+        "abs(x + y) <= 10", input, tree, k, m, abss_query, abss_query_fast,
+        value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abss_count_query(const set<Point> &input,
@@ -334,9 +338,10 @@ double benchmark_abss_count_query(const set<Point> &input,
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           uint64_t > ("COUNT(abs(x + y) <= 10)", input, tree, k, m,
-                       abss_count_query, abss_count_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
+        "COUNT(abs(x + y) <= 10)", input, tree, k, m, abss_count_query,
+        abss_count_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abss_count_aug_query(const set<Point> &input,
@@ -347,9 +352,10 @@ double benchmark_abss_count_aug_query(const set<Point> &input,
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           uint64_t > ("aug COUNT(abs(x + y) <= 10)", input, tree, k, m,
-                       abss_count_query, abss_count_query_fast_aug, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
+        "aug COUNT(abs(x + y) <= 10)", input, tree, k, m, abss_count_query,
+        abss_count_query_fast_aug, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_circle_query(const set<Point> &input,
@@ -360,9 +366,10 @@ double benchmark_circle_query(const set<Point> &input,
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           set < Point >> ("x^2 + y^2 <= 100", input, tree, k, m, circle_query,
-                           circle_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
+        "x^2 + y^2 <= 100", input, tree, k, m, circle_query, circle_query_fast,
+        value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_circle_count_query(const set<Point> &input,
@@ -373,9 +380,10 @@ double benchmark_circle_count_query(const set<Point> &input,
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           uint64_t > ("COUNT(x^2 + y^2 <= 100)", input, tree, k, m,
-                       circle_count_query, circle_count_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
+        "COUNT(x^2 + y^2 <= 100)", input, tree, k, m, circle_count_query,
+        circle_count_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_circle_count_aug_query(const set<Point> &input,
@@ -386,9 +394,10 @@ double benchmark_circle_count_aug_query(const set<Point> &input,
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE == 1,
-           uint64_t > ("aug COUNT(x^2 + y^2 <= 100)", input, tree, k, m,
-                       circle_count_query, circle_count_query_fast_aug, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
+        "aug COUNT(x^2 + y^2 <= 100)", input, tree, k, m, circle_count_query,
+        circle_count_query_fast_aug, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 template <typename T>

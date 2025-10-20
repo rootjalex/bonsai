@@ -156,74 +156,52 @@ auto benchmark_function2(Func&& func, int k, int m) {
 
 template <bool verbose, typename Result, typename Input, typename Tree,
           typename Func0, typename Func1, class... Args>
-double benchmark_1d_queries(const std::string &benchmark_name,
-                            const Input &input, const Tree &tree, const int k,
-                            const int m, Func0 &&f0, Func1 &&f1,
-                            const Args &...args) {
+auto benchmark_1d_queries(const std::string &benchmark_name, const Input &input,
+                          const Tree &tree, const int k, const int m,
+                          Func0 &&linear, Func1 &&indexed,
+                          const Args &...args) {
+
+    std::cout << "Benchmarking linear query" << std::endl;
     flush_cache();
-    // Run and time query()
-    std::vector<Result> query_results;
-    int64_t avg_query_time = benchmark_function(
-        [&]() { query_results.push_back(f0(args..., input)); }, k, m);
 
-    // Run and time query_fast()
-    std::vector<Result> fast_results;
-    int64_t avg_fast_time = benchmark_function(
-        [&]() { fast_results.push_back(f1(args..., tree)); }, k, m);
+    // Run and time query() (linear)
+    auto [avg_linear_time, linear_results] =
+        benchmark_function2([&] { return linear(args..., input); }, k, m);
 
-    // Verify all results match
-    bool all_match = true;
-    for (int i = 0; i < k; ++i) {
-        if ((avg_query_time != timeout_ns) && (avg_fast_time != timeout_ns) &&
-            (query_results[i] == fast_results[i])) {
-            std::cout << "Failed: " << i << std::endl;
-            if constexpr (requires { query_results[i].size(); }) {
-                std::cout << "Linear: " << query_results[i].size() << std::endl;
-                std::cout << "Tree  : " << fast_results[i].size() << std::endl;
+    std::cout << "Benchmarking indexed query" << std::endl;
+    flush_cache();
+
+    // Run and time query_fast() (indexed)
+    auto [avg_indexed_time, indexed_results] =
+        benchmark_function2([&] { return indexed(args..., tree); }, k, m);
+
+    if ((avg_linear_time != timeout_ns) && (avg_indexed_time != timeout_ns)) {
+        if (!(linear_results == indexed_results)) {
+            std::cerr << "ERROR: " << benchmark_name
+                      << " results differ for input size: " << input.size()
+                      << std::endl;
+            if constexpr (requires { linear_results.size(); }) {
+                std::cerr << "Linear: " << linear_results.size()
+                          << " vs. Indexed: " << indexed_results.size()
+                          << std::endl;
             } else {
-                std::cout << "Linear (value): " << query_results[i]
+                std::cerr << "Linear (value): " << linear_results
+                          << " vs. Indexed (value): " << indexed_results
                           << std::endl;
-                std::cout << "Tree   (value): " << fast_results[i] << std::endl;
             }
-            all_match = false;
-            break;
+            abort();
         }
     }
-    // std::cout << benchmark_name << " -- ";
-    // std::cout << "input size: " << input.size()
-    //           << " output size: " << fast_results[0].size() << std::endl;
+
     if constexpr (verbose) {
-        std::cout << benchmark_name << "() avg time: " << avg_query_time
+        std::cout << "Results match.\n";
+        std::cout << benchmark_name << " linear time: " << avg_linear_time
                   << " ns\n";
-        std::cout << benchmark_name << "_fast() avg time: " << avg_fast_time
+        std::cout << benchmark_name << " indexed time: " << avg_indexed_time
                   << " ns\n";
     }
 
-    if (!all_match) {
-        std::cerr << "ERROR: " << benchmark_name << " results differ! "
-                  << input.size() << std::endl;
-        std::abort();
-    } else {
-        if constexpr (verbose) {
-            std::cout << "Results match.\n";
-        }
-        if (avg_fast_time > 0) {
-            double speedup =
-                static_cast<double>(avg_query_time) / avg_fast_time;
-            if constexpr (verbose) {
-                std::cout << "Speedup: " << speedup
-                          << "x for input size = " << input.size()
-                          << " and output size = " << query_results[0].size()
-                          << std::endl;
-            }
-            return speedup;
-        } else {
-            std::cout << benchmark_name
-                      << " was too fast to measure accurately on input size: "
-                      << input.size() << std::endl;
-            return static_cast<double>(avg_query_time) / avg_fast_time; // inf
-        }
-    }
+    return std::make_tuple(avg_linear_time, avg_indexed_time);
 }
 
 template <bool verbose, typename Result, typename SingleResult, typename Input0, typename Input1,

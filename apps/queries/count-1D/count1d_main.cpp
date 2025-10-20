@@ -196,9 +196,10 @@ double benchmark_range_query(const set<float> &input, const _tree_layout0 &tree,
               << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("-10 <= x <= 10", input, tree, k, m, range_query,
-                       range_query_fast, low, high);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "-10 <= x <= 10", input, tree, k, m, range_query, range_query_fast, low,
+        high);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
@@ -208,9 +209,9 @@ double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Equality query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t >
-               ("x == 42", input, tree, k, m, eq_query, eq_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "x == 42", input, tree, k, m, eq_query, eq_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
@@ -220,9 +221,9 @@ double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Abs query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("abs(x) <= 10", input, tree, k, m, abs_query,
-                       abs_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "abs(x) <= 10", input, tree, k, m, abs_query, abs_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
@@ -232,9 +233,9 @@ double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Sqr query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("x^2 <= 100", input, tree, k, m, sqr_query,
-                       sqr_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "x^2 <= 100", input, tree, k, m, sqr_query, sqr_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
@@ -244,9 +245,10 @@ double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Round query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("round(x) == 10", input, tree, k, m, round_query,
-                       round_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "round(x) == 10", input, tree, k, m, round_query, round_query_fast,
+        value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
@@ -256,9 +258,10 @@ double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Poly query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("x^2 - 4 * x + 3 <= 0", input, tree, k, m, poly_query,
-                       poly_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "x^2 - 4 * x + 3 <= 0", input, tree, k, m, poly_query, poly_query_fast,
+        value);
+    return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
@@ -268,9 +271,10 @@ double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Sqrt query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("sqrt(abs(x)) <= sqrt(10)", input, tree, k, m,
-                       sqrt_query, sqrt_query_fast, value);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "sqrt(abs(x)) <= sqrt(10)", input, tree, k, m, sqrt_query,
+        sqrt_query_fast, value);
+    return static_cast<double>(linear) / indexed;
 }
 
 std::pair<float, float> compute_mean_and_stdev(const std::vector<float> &data) {
@@ -303,9 +307,10 @@ double benchmark_stddev_query(const set<float> &input,
               << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_1d_queries < PROFILE != 1,
-           uint64_t > ("abs(x - u) > s * 3", input, tree, k, m, stddev_query,
-                       stddev_query_fast, mean, stddev3);
+    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
+        "abs(x - u) > s * 3", input, tree, k, m, stddev_query,
+        stddev_query_fast, mean, stddev3);
+    return static_cast<double>(linear) / indexed;
 }
 
 template <typename T>
