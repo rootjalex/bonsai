@@ -69,6 +69,7 @@ apps/**/*_gen.cpp
 
 # Ignore all .txt files...
 *.txt
-
 # ...but keep CMakeLists.txt files
 !**/CMakeLists.txt
+
+*.db
