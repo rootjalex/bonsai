@@ -207,7 +207,14 @@ int main(int argc, char** argv) {
 
     auto [nested, single, dual] = benchmark_join<false, uint64_t, uint64_t>("salary join", employees, employees, tree, tree, k, m, query_nested, query_single, query_dual);
 
-    std::cout << "(\"bonsai_salary\", " << employees.size() << ", " << (double)nested / (1e9) << ", " << (double)build_time / (1e9) << ", " << (double)single / (1e9) << ", " << (double)dual / (1e9) << ")" << std::endl;
+    // For an ablation study.
+    auto [unfused_time, _] = benchmark_function2(
+        [&] { return query_dual_unfused(tree, tree); }, k, m);
+
+    std::cout << "(\"bonsai_salary\", " << employees.size() << ", "
+              << (double)nested / (1e9) << ", " << (double)build_time / (1e9)
+              << ", " << (double)single / (1e9) << ", " << (double)dual / (1e9)
+              << ", " << (double)unfused_time / (1e9) << ")" << std::endl;
 
     return 0;
 }

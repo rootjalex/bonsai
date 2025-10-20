@@ -16,6 +16,10 @@ func [[export]] query_single() = sum(map(|r : Employee| lookup(r), employees0));
 
 func [[export]] query_dual() = count(filter(|r : Employee, s : Employee| r.salary < s.salary && r.tax > s.tax, product(tree0, tree1)));
 
+// For an ablation study
+func dual_query_nocount() = filter(|r : Employee, s : Employee| r.salary < s.salary && r.tax > s.tax, product(tree0, tree1));
+func [[export]] query_dual_unfused() = count(dual_query_nocount());
+
 schedule {
     tree[[Employee]] AABBTree(sl sh tl th : f32, c : u32) with salary in [sl, sh] with tax in [tl, th] with count() = c =
     | Interior(left : AABBTree, right : AABBTree)

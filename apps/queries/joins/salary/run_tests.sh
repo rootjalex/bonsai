@@ -10,7 +10,7 @@ fi
 MAX_EXP=$1
 
 # Loop from 8 to MAX_EXP
-for EXP in $(seq 21 "$MAX_EXP"); do
+for EXP in $(seq 8 "$MAX_EXP"); do
     VALUE=$((2**EXP))
     echo "Running test.sh with VALUE=$VALUE"
     ./apps/queries/joins/salary/test.sh "$VALUE" &> apps/queries/joins/salary/tmp.txt
