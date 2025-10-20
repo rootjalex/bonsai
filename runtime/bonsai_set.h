@@ -162,6 +162,11 @@ auto map(Func &&f, const set<T> &input)
     return set<U>(std::move(result));
 }
 
+template <typename T>
+T sum(const set<T> &input) {
+    return std::accumulate(input.data.begin(), input.data.end(), T{0});
+}
+
 template <typename T, typename U>
 U reduce(std::function<U(const U &, const T &)> reducer, const set<T> &input,
          U initial) {
@@ -227,6 +232,20 @@ nested_join(Predicate &&predicate,
         });
     });
     return set<std::tuple<T, U>>(std::move(result));
+}
+
+template <typename Predicate, typename T, typename U>
+uint64_t nested_join_count(Predicate &&predicate, const set<T> &input0,
+                           const set<U> &input1) {
+    uint64_t result = 0;
+    input0.for_each([&](const T &item0) {
+        input1.for_each([&](const U &item1) {
+            if (predicate(item0, item1)) {
+                result++;
+            }
+        });
+    });
+    return result;
 }
 
 // Compare two sets for equality (order-agnostic)

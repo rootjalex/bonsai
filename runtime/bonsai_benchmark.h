@@ -2,11 +2,15 @@
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <functional>
 #include <future>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <vector>
 
 #include "bonsai_set.h"
@@ -25,6 +29,41 @@ inline void flush_cache() {
 
 static constexpr int64_t timeout_sec = 30; // timeout after 30s
 static constexpr int64_t timeout_ns = timeout_sec * 1000000000;
+
+template <typename Func>
+auto run_with_timeout(Func &&func) -> std::pair<int64_t, bool> {
+    pid_t pid = fork();
+    if (pid < 0) {
+        throw std::runtime_error("fork failed");
+    }
+
+    if (pid == 0) {
+        // Child process: run the function
+        func();
+        _exit(0); // ensure child exits
+    } else {
+        // Parent process: wait with timeout
+        auto start = std::chrono::steady_clock::now();
+        sleep(timeout_sec); // wait for timeout duration
+
+        int status;
+        pid_t ret = waitpid(pid, &status, WNOHANG);
+        if (ret == 0) {
+            // Child still running -> timeout
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0); // clean up
+            return {timeout_ns, false};
+        } else {
+            // Child finished
+            auto end = std::chrono::steady_clock::now();
+            int64_t elapsed_ns =
+                std::chrono::duration_cast<std::chrono::nanoseconds>(end -
+                                                                     start)
+                    .count();
+            return {elapsed_ns, true};
+        }
+    }
+}
 
 template<typename Func>
 // k is the number of runs, m is the number of low and high runs to drop.
@@ -72,39 +111,25 @@ auto benchmark_function2(Func&& func, int k, int m) {
     std::vector<int64_t> times;
     times.reserve(k);
 
-    uint64_t timeouts = 0;
+    using ResultT = std::invoke_result_t<Func>;
+    ResultT result{}; // dummy, since we cannot return the actual result from a
+                      // forked child
 
-    // First run — keep result
-    auto start0 = std::chrono::high_resolution_clock::now();
-    auto fut0 = std::async(std::launch::async, [&] { return func(); });
-    if (fut0.wait_for(std::chrono::seconds(timeout_sec)) ==
-        std::future_status::timeout) {
-        std::cout << "Timeout max reached on results grab\n";
-        using ResultT = decltype(fut0.get());
-        return std::make_tuple(timeout_ns, ResultT{});
-    }
-    auto result = fut0.get();
-    auto end0 = std::chrono::high_resolution_clock::now();
-
-    times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(end0 - start0).count());
-
-    for (int i = 1; i < k; ++i) {
-        auto start = std::chrono::high_resolution_clock::now();
-        auto fut = std::async(std::launch::async, [&] { return func(); });
-        if (fut.wait_for(std::chrono::seconds(timeout_sec)) ==
-            std::future_status::timeout) {
-            if (++timeouts > k) {
-                std::cout << "Timeout max reached.\n";
-                return std::make_tuple(timeout_ns, result);
-            }
+    for (int i = 0; i < (k - 1); ++i) {
+        auto [elapsed, ok] = run_with_timeout(func);
+        if (!ok) {
+            std::cout << "Timeout on run " << i << "\n";
+            return std::make_tuple(timeout_ns, result);
         }
-        fut.get(); // discard result
-        auto end = std::chrono::high_resolution_clock::now();
-
-        times.push_back(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
-                .count());
+        times.push_back(elapsed);
     }
+
+    // Now get the result, assume we won't timeout if we haven't yet.
+    auto t0 = std::chrono::high_resolution_clock::now();
+    result = func();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    times.push_back(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 
     std::sort(times.begin(), times.end());
     auto begin = times.begin() + m;
