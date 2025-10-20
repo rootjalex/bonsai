@@ -1151,6 +1151,29 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 Expr size = b.type().as<Array_t>()->size;
                 node->type = Array_t::make(f->ret_type, std::move(size));
             }
+        } else if (op == SetOp::minimum) {
+            internal_assert(
+                (!a.type().defined() && !type_enforcement_enabled()) ||
+                (a.type().is<Function_t>() &&
+                 a.type().as<Function_t>()->ret_type.is_numeric()))
+                << "Expected lhs of minimum to be a numeric function, instead "
+                   "received: "
+                << a << " : " << a.type();
+            internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
+                << "Expected rhs of minimum to be a set, instead received: "
+                << b << " : " << b.type();
+            if (const Function_t *f = a.type().as<Function_t>()) {
+                internal_assert(
+                    f->arg_types.size() == 1 &&
+                    equals(f->arg_types[0].type, b.type().element_of()))
+                    << "Expected minimum function to accept element of type: "
+                    << b.type().element_of() << " instead got " << a << " : "
+                    << a.type();
+            }
+            node->type = a.type().as<Function_t>()->ret_type;
+            if (can_be_empty(b)) {
+                node->type = Option_t::make(node->type);
+            }
         } else if (op == SetOp::product) {
             internal_assert(a.type().is_iterable() && b.type().is_iterable())
                 << "Expected args of product to be iterables, instead "

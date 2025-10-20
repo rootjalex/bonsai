@@ -191,6 +191,8 @@ struct Accumulate : StmtNode<Accumulate> {
         // value))
         Argmax,
         // TODO: add more.
+        Min,
+        Max,
     };
     WriteLoc loc;
     OpType op;

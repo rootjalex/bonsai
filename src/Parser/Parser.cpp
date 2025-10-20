@@ -113,6 +113,7 @@ struct Parser {
             "argmin",
             "filter",
             "map",
+            "minimum",
             "product",
             // Geometry operations
             "distmax",
@@ -1351,6 +1352,7 @@ struct Parser {
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
             {"map", ir::SetOp::map},
+            {"minimum", ir::SetOp::minimum},
             {"product", ir::SetOp::product},
         });
 
@@ -2331,6 +2333,7 @@ struct Parser {
         push_frame();
 
         // TODO: support other non-u32 indexing.
+        add_type_to_frame("this", ir::Type(), false);
         ir::Layout layout = parse_layout();
         expect(Token::Type::SEMICOL);
 
@@ -2399,8 +2402,9 @@ struct Parser {
                 expect(Token::Type::ASSIGN);
                 // TODO: insert built-ins to frame, here or somewhere?
                 ir::Expr expr = parse_expr();
-                if (!expr.defined() || !expr.type().defined() ||
-                    !expr.type().is_primitive()) {
+                if (!(expr.defined() && reads(expr, {"this"})) &&
+                    (!expr.defined() || !expr.type().defined() ||
+                     !expr.type().is_primitive())) {
                     report_error()
                         << "Layout received materialization of name: " << name
                         << " with non-primitive type: " << expr;

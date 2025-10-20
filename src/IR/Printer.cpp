@@ -1079,6 +1079,8 @@ std::string to_string(const SetOp::OpType &op) {
         return "filter";
     case SetOp::map:
         return "map";
+    case SetOp::minimum:
+        return "minumum";
     case SetOp::product:
         return "product";
     }
@@ -1309,6 +1311,14 @@ void Printer::visit(const Accumulate *node) {
     }
     case Accumulate::OpType::Argmax: {
         os << " argmax= ";
+        break;
+    }
+    case Accumulate::OpType::Max: {
+        os << " max= ";
+        break;
+    }
+    case Accumulate::OpType::Min: {
+        os << " min= ";
         break;
     }
     default: {
