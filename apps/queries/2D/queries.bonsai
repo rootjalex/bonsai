@@ -6,13 +6,15 @@ extern input : set[Point];
 
 func [[export]] absd_query(value : f32) = filter(|p : Point| abs(p.x - p.y) < value, input);
 
-func [[export]] abss_query(value : f32) = filter(|p : Point| abs(p.x + p.y) < value, input);
+func[[export]] abss_query(value : f32) = filter(
+    | p : Point | abs(p.x + p.y) <= value && abs(p.x - p.y) <= value, input);
 
 func [[export]] circle_query(value : f32) = filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input);
 
 func [[export]] absd_count_query(value : f32) = count(filter(|p : Point| abs(p.x - p.y) < value, input));
 
-func [[export]] abss_count_query(value : f32) = count(filter(|p : Point| abs(p.x + p.y) < value, input));
+func[[export]] abss_count_query(value : f32) = count(filter(
+    | p : Point | abs(p.x + p.y) <= value && abs(p.x - p.y) <= value, input));
 
 func [[export]] circle_count_query(value : f32) = count(filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input));
 
@@ -20,13 +22,17 @@ extern input_tree : set[Point];
 
 func [[export]] absd_query_fast(value : f32) = filter(|p : Point| abs(p.x - p.y) < value, input_tree);
 
-func [[export]] abss_query_fast(value : f32) = filter(|p : Point| abs(p.x + p.y) < value, input_tree);
+func[[export]] abss_query_fast(value : f32) =
+    filter(| p : Point | abs(p.x + p.y) <= value && abs(p.x - p.y) <= value,
+           input_tree);
 
 func [[export]] circle_query_fast(value : f32) = filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input_tree);
 
 func [[export]] absd_count_query_fast(value : f32) = count(filter(|p : Point| abs(p.x - p.y) < value, input_tree));
 
-func [[export]] abss_count_query_fast(value : f32) = count(filter(|p : Point| abs(p.x + p.y) < value, input_tree));
+func[[export]] abss_count_query_fast(value : f32) = count(
+    filter(| p : Point | abs(p.x + p.y) <= value && abs(p.x - p.y) <= value,
+           input_tree));
 
 func [[export]] circle_count_query_fast(value : f32) = count(filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input_tree));
 
@@ -34,7 +40,9 @@ extern input_tree_aug : set[Point];
 
 func [[export]] absd_count_query_fast_aug(value : f32) = count(filter(|p : Point| abs(p.x - p.y) < value, input_tree_aug));
 
-func [[export]] abss_count_query_fast_aug(value : f32) = count(filter(|p : Point| abs(p.x + p.y) < value, input_tree_aug));
+func[[export]] abss_count_query_fast_aug(value : f32) = count(
+    filter(| p : Point | abs(p.x + p.y) <= value && abs(p.x - p.y) <= value,
+           input_tree_aug));
 
 func [[export]] circle_count_query_fast_aug(value : f32) = count(filter(|p : Point| sqr(p.x) + sqr(p.y) < value, input_tree_aug));
 

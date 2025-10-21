@@ -308,7 +308,7 @@ void verify_IntervalTree(const uint64_t input_index,
 
 double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
                              const int k, const int m) {
-    float value = 1;
+    float value = 50;
 #ifndef PROFILE
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -322,7 +322,7 @@ double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
 double benchmark_absd_count_query(const set<Point> &input,
                                   const _tree_layout0 &tree, const int k,
                                   const int m) {
-    float value = 1;
+    float value = 50;
 #ifndef PROFILE
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -336,7 +336,7 @@ double benchmark_absd_count_query(const set<Point> &input,
 double benchmark_absd_count_aug_query(const set<Point> &input,
                                       const _tree_layout4 &tree, const int k,
                                       const int m) {
-    float value = 1;
+    float value = 50;
 #ifndef PROFILE
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -349,7 +349,7 @@ double benchmark_absd_count_aug_query(const set<Point> &input,
 
 double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
                             const int k, const int m) {
-    float value = 1;
+    float value = 50;
 #ifndef PROFILE
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -363,7 +363,7 @@ double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
 double benchmark_abss_count_query(const set<Point> &input,
                                   const _tree_layout0 &tree, const int k,
                                   const int m) {
-    float value = 1;
+    float value = 50;
 #ifndef PROFILE
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -377,7 +377,7 @@ double benchmark_abss_count_query(const set<Point> &input,
 double benchmark_abss_count_aug_query(const set<Point> &input,
                                       const _tree_layout4 &tree, const int k,
                                       const int m) {
-    float value = 1;
+    float value = 50;
 #ifndef PROFILE
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -391,7 +391,7 @@ double benchmark_abss_count_aug_query(const set<Point> &input,
 double benchmark_circle_query(const set<Point> &input,
                               const _tree_layout0 &tree, const int k,
                               const int m) {
-    float value = 10;
+    float value = 300;
 #ifndef PROFILE
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -405,7 +405,7 @@ double benchmark_circle_query(const set<Point> &input,
 double benchmark_circle_count_query(const set<Point> &input,
                                     const _tree_layout0 &tree, const int k,
                                     const int m) {
-    float value = 10;
+    float value = 300;
 #ifndef PROFILE
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -419,7 +419,7 @@ double benchmark_circle_count_query(const set<Point> &input,
 double benchmark_circle_count_aug_query(const set<Point> &input,
                                         const _tree_layout4 &tree, const int k,
                                         const int m) {
-    float value = 10;
+    float value = 300;
 #ifndef PROFILE
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
@@ -455,11 +455,11 @@ int main() {
     std::mt19937 rng(42);
 
     std::vector<size_t> test_sizes = {
-        1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12,
-        1ull << 13, 1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17,
-        1ull << 18, 1ull << 19, 1ull << 20, 1ull << 21, 1ull << 22,
-        1ull << 23, 1ull << 24, 1ull << 25, 1ull << 26, 1ull << 27,
-        1ull << 28, // 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
+        1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12, 1ull << 13,
+        1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17, 1ull << 18, 1ull << 19,
+        1ull << 20, 1ull << 21, 1ull << 22, 1ull << 23, 1ull << 24, 1ull << 25,
+        1ull << 26, 1ull << 27, 1ull << 28,
+        // 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
     };
 #if defined(USE_NORMAL)
     std::cout << "normal distribution" << std::endl;
@@ -481,25 +481,25 @@ int main() {
     static constexpr int N_BENCHMARKS = 9;
     std::vector<std::pair<std::string, std::vector<double>>> results(
         N_BENCHMARKS);
-    results[0].first = "abs(x - y) <= 1";
+    results[0].first = "r\"$|x - y| \\leq 1$\"";
     results[0].second.reserve(test_sizes.size());
-    results[1].first = "abs(x + y) <= 1";
+    results[1].first = "r\"$|x + y| \\leq 1$\"";
     results[1].second.reserve(test_sizes.size());
-    results[2].first = "x^2 + y^2 <= 10";
+    results[2].first = "r\"$x^2 + y^2 \\leq 10$\"";
     results[2].second.reserve(test_sizes.size());
 
-    results[3].first = "COUNT(abs(x - y) <= 1)";
+    results[3].first = "r\"COUNT($|x - y| \\leq 1$)\"";
     results[3].second.reserve(test_sizes.size());
-    results[4].first = "COUNT(abs(x + y) <= 1)";
+    results[4].first = "r\"COUNT($|x + y| \\leq 1$)\"";
     results[4].second.reserve(test_sizes.size());
-    results[5].first = "COUNT(x^2 + y^2 <= 10)";
+    results[5].first = "r\"COUNT($x^2 + y^2 \\leq 10$)\"";
     results[5].second.reserve(test_sizes.size());
 
-    results[6].first = "aug COUNT(abs(x - y) <= 1)";
+    results[6].first = "r\"aug COUNT($|x - y| \\leq 1$)\"";
     results[6].second.reserve(test_sizes.size());
-    results[7].first = "aug COUNT(abs(x + y) <= 1)";
+    results[7].first = "r\"aug COUNT($|x + y| \\leq 1$)\"";
     results[7].second.reserve(test_sizes.size());
-    results[8].first = "aug COUNT(x^2 + y^2 <= 10)";
+    results[8].first = "r\"aug COUNT($x^2 + y^2 \\leq 10$)\"";
     results[8].second.reserve(test_sizes.size());
 
 #endif
@@ -619,7 +619,7 @@ int main() {
     }
 #ifdef PROFILE
     for (const auto &res : results) {
-        std::cout << "(\"" << res.first << "\", ";
+        std::cout << "(" << res.first << ", ";
         pretty_print_vector(res.second);
         std::cout << ")," << std::endl;
     }

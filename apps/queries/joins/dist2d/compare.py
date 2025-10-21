@@ -418,6 +418,8 @@ def main():
 
     conn_sqlite.close()
 
+    # Always worse than SQLite, sometimes hangs indefinitely.
+    """
     pg_cheb_max_timeout = False
     pg_cheb_range_timeout = False
     pg_donut_timeout = False
@@ -473,7 +475,7 @@ def main():
             break
     
     conn_pg.close()
-
+    """
 
 
     # -------------------------------
