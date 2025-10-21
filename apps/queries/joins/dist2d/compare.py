@@ -44,7 +44,7 @@ def all_timeouts(runtime_dict, timeout_val):
     )
 
 def connect_sqlite(db_file):
-    conn = sqlite3.connect(db_file, check_same_thread=True)
+    conn = sqlite3.connect(":memory:", check_same_thread=True)
     try:
         conn.execute("PRAGMA threads = 1;")
     except sqlite3.OperationalError:
@@ -52,19 +52,21 @@ def connect_sqlite(db_file):
     return conn
 
 def connect_duckdb(db_file):
-    conn = duckdb.connect(db_file)
+    conn = duckdb.connect(":memory:")
     conn.execute("SET threads TO 1;")
     return conn
 
 def connect_postgres(dbname="ajroot", user="ajroot", host="/tmp", port=5432):
-    conn = psycopg2.connect(dbname=dbname, user=user, host=host, port=port)
+    conn = psycopg2.connect(dbname="ajroot", user="ajroot", host="/tmp", port=5432)
     conn.autocommit = True
     with conn.cursor() as cur:
-        # Disable all parallelism and force sequential execution
+        # Restrict parallelism
         cur.execute("SET max_parallel_workers_per_gather = 1;")
         cur.execute("SET max_parallel_workers = 1;")
         cur.execute("SET parallel_setup_cost = 100000000;")
         cur.execute("SET parallel_tuple_cost = 100000000;")
+        # Use temp tables so everything is effectively in-memory
+        cur.execute("SET temp_tablespaces = 'pg_default';")
     return conn
 
 def print_query_plan(conn, query, db_type="sqlite"):
@@ -209,18 +211,18 @@ def run_index_variant(conn, query, system):
             print(f"(warn) couldn't drop index {tbl}: {e}")
 
     # No index
-    print(f"\n\n{system} query plan with NO index for: {query}")
-    print_query_plan(conn, query, db_type=system)
-    runtimes["no_index"] = time_query(timeout)
+    # print(f"\n\n{system} query plan with NO index for: {query}")
+    # print_query_plan(conn, query, db_type=system)
+    # runtimes["no_index"] = time_query(timeout)
 
-    # Index on table0
-    exec_sql(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
-    exec_sql(f"ANALYZE {table0};")
-    exec_sql(f"ANALYZE {table1};")
-    print(f"\n\n{system} query plan with index0 for: {query}")
-    print_query_plan(conn, query, db_type=system)
-    runtimes["idx0"] = time_query(timeout)
-    exec_sql(f"DROP INDEX idx_{table0}_x_y;")
+    # # Index on table0
+    # exec_sql(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
+    # exec_sql(f"ANALYZE {table0};")
+    # exec_sql(f"ANALYZE {table1};")
+    # print(f"\n\n{system} query plan with index0 for: {query}")
+    # print_query_plan(conn, query, db_type=system)
+    # runtimes["idx0"] = time_query(timeout)
+    # exec_sql(f"DROP INDEX idx_{table0}_x_y;")
 
     # # Index on table1
     # exec_sql(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
@@ -306,7 +308,6 @@ def main():
     # -------------------------------
     # DuckDB benchmarks
     # -------------------------------
-
     conn_duckdb = connect_duckdb(duckdb_db)
 
     duckdub_cheb_max_timeout = False
