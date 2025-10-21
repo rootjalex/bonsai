@@ -8,3 +8,6 @@
 [submodule "deps/tlx"]
 	path = deps/tlx
 	url = https://github.com/tlx/tlx.git
+[submodule "deps/fcpw"]
+	path = deps/fcpw
+	url = git@github.com:rohan-sawhney/fcpw.git

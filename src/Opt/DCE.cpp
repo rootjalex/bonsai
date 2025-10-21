@@ -11,6 +11,7 @@
 
 #include "Error.h"
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -61,7 +62,7 @@ struct NameHygiene : ir::Mutator {
             if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr new_value = mutate(std::get<ir::Expr>(value));
                 new_loc.add_index_access(std::move(new_value));
-            } else {
+            } else if (std::holds_alternative<std::string>(value)) {
                 new_loc.add_struct_access(std::get<std::string>(value));
             }
         }
@@ -97,6 +98,17 @@ struct NameHygiene : ir::Mutator {
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+    }
+
+    ir::Stmt visit(const ir::Match *node) override {
+        ir::Expr loc = mutate(node->loc);
+        // Rename where control flow diverges.
+        ScopedValue<bool> _(rename, true);
+        ir::Match::Arms arms;
+        for (const auto &[variant, stmt] : node->arms) {
+            arms.push_back({variant, mutate(stmt)});
+        }
+        return ir::Match::make(std::move(loc), std::move(arms));
     }
 
   private:
@@ -139,7 +151,7 @@ struct UnnameHygiene : ir::Mutator {
             if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr new_value = mutate(std::get<ir::Expr>(value));
                 new_loc.add_index_access(std::move(new_value));
-            } else {
+            } else if (std::holds_alternative<std::string>(value)) {
                 new_loc.add_struct_access(std::get<std::string>(value));
             }
         }
@@ -261,6 +273,9 @@ struct ComputeUseCounts : ir::Visitor {
             << node->loc;
 
         use_counts[node->loc.base] = 0;
+        // if (node->memory == ir::Allocate::Global) {
+        //     use_counts[node->loc.base] += 1; // don't erase globals
+        // }
         dependent_use_counts[node->loc.base] = {};
 
         if (node->value.defined()) {
@@ -275,8 +290,8 @@ struct ComputeUseCounts : ir::Visitor {
             << "Unexpected nested Store: " << ir::Stmt(node)
             << " when traversing for: " << curr_var;
         internal_assert(use_counts.contains(node->loc.base))
-            << "ComputeUseCounts not active for var: " << node->loc
-            << " in Store: " << ir::Stmt(node);
+            << "use-before-define found for: `" << node->loc << "` in: `"
+            << ir::Stmt(node) << "`";
         internal_assert(dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts not active for var (dependent): " << node->loc;
 
@@ -404,6 +419,9 @@ struct DeadCodeElimination : ir::Mutator {
     }
 
     ir::Stmt visit(const ir::Allocate *node) override {
+        // if (node->memory == ir::Allocate::Global) {
+        //     return node; // don't erase globals.
+        // }
         if (use_counts[node->loc.base] != 0) {
             return node;
         }

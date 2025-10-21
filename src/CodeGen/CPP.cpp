@@ -3,6 +3,7 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
 #include "IR/Analysis.h"
+#include "IR/Equality.h"
 #include "IR/Program.h"
 #include "IR/Type.h"
 #include "IR/Visitor.h"
@@ -84,10 +85,14 @@ void emit_type(std::ostream &ss, Type type) {
         RESTRICT_VISITOR(Ref_t);
 
         void visit(const Vector_t *node) override {
-            ss << "vec" << node->lanes << "_";
-            // TODO: this breaks on vectors of ptrs.
             internal_assert(!contains<Ptr_t>(node->etype));
+            if (node->etype.is<Vector_t>()) {
+                node->etype.accept(this);
+                ss << "x" << node->lanes;
+                return;
+            }
             node->etype.accept(this);
+            ss << node->lanes;
         }
 
         void visit(const Struct_t *node) override { ss << node->name; }
@@ -104,8 +109,23 @@ void emit_type(std::ostream &ss, Type type) {
         }
 
         void visit(const Array_t *node) override {
+            if (node->size.defined() && is_const(node->size)) {
+                ss << "std::array<";
+                node->etype.accept(this);
+                ss << ", ";
+                ir::Printer printer(ss);
+                printer.print_no_parens(node->size);
+                ss << ">";
+                return;
+            }
             node->etype.accept(this);
             ss << "*";
+        }
+
+        void visit(const DynArray_t *node) override {
+            ss << "std::vector<";
+            node->etype.accept(this);
+            ss << ">";
         }
 
         void visit(const Set_t *node) override {
@@ -116,7 +136,12 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const BVH_t *node) override { ss << node->name; }
 
-        RESTRICT_VISITOR(Option_t);
+        void visit(const Option_t *node) override {
+            ss << "std::optional<";
+            node->etype.accept(this);
+            ss << ">";
+        }
+
         // RESTRICT_VISITOR(Set_t);
         RESTRICT_VISITOR(Function_t);
         RESTRICT_VISITOR(Generic_t);
@@ -167,6 +192,13 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         void visit(const UIntImm *node) override { ss << node->value; }
 
         void visit(const FloatImm *node) override {
+            if (double x = node->value; x == std::floor(x)) {
+                ss << static_cast<int64_t>(x) << ".0";
+                if (node->type.bits() == 32) {
+                    ss << "f";
+                }
+                return;
+            }
             // Save current formatting flags and precision
             std::ios::fmtflags f = ss.flags();
             std::streamsize p = ss.precision();
@@ -191,6 +223,7 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         }
 
         void visit(const VecImm *node) override {
+            emit_type(ss, node->type);
             ss << "{";
             for (size_t i = 0; i < node->values.size(); i++) {
                 if (i != 0) {
@@ -259,7 +292,7 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             ss << "struct " << node.name() << ";\n";
         }
         ss << "using " << bvh_t->name << " = ";
-        ss << "tree<";
+        ss << "std::variant<";
         bool first = true;
         for (const auto &node : bvh_t->nodes) {
             if (!first) {
@@ -293,6 +326,7 @@ class BonsaiToCpp : ir::Printer {
             ss << "#include \"" << header_name << "\""
                << '\n'; // c++ runtime types.
         }
+        emit_private_types(program);
         emit_funcs(program.funcs);
         return ss.str();
     }
@@ -322,7 +356,7 @@ class BonsaiToCpp : ir::Printer {
     bool should_be_ref(const Type &type) const {
         // TODO: finish
         const auto *struct_t = type.as<Struct_t>();
-        return type.is<Set_t>() || type.is<BVH_t>() ||
+        return type.is<Ref_t, Set_t, BVH_t>() ||
                (struct_t && struct_t->name.starts_with("_"));
     }
 
@@ -349,7 +383,8 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // Recursively acquire all *unique* types and inserted them into `types`.
-    void get_declared_types(const Type &type, std::set<Type> &deduplicate,
+    void get_declared_types(const Type &type,
+                            std::set<Type, TypeLessThan> &deduplicate,
                             std::vector<Type> &types) {
         if (const Vector_t *vector_t = type.as<Vector_t>()) {
             get_declared_types(vector_t->etype, deduplicate, types);
@@ -389,7 +424,7 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void emit_program(const Program &program) {
-        std::set<Type> deduplicate;
+        std::set<Type, TypeLessThan> deduplicate;
         std::vector<Type> exported_types;
 
         // Any generated structs might be used in code generated,
@@ -445,6 +480,44 @@ class BonsaiToCpp : ir::Printer {
         }
     }
 
+    void emit_private_types(const Program &program) {
+        std::set<Type, TypeLessThan> deduplicate;
+        std::vector<Type> exported_types;
+
+        // Get types that need to be in source but not headers.
+        std::set<Type, TypeLessThan> deduplicate_global;
+        std::vector<Type> all_types;
+
+        // Any generated structs might be used in code generated,
+        // and therefore must be ommitted.
+        for (const auto &[name, type] : program.types) {
+            get_declared_types(type, deduplicate_global, all_types);
+            if (name.starts_with("_tree") || name.starts_with("_queue"))
+                get_declared_types(type, deduplicate, exported_types);
+        }
+
+        for (const auto &[_, func] : program.funcs) {
+            get_declared_types(func->ret_type, deduplicate_global, all_types);
+            for (const auto &arg_sig : func->argument_types()) {
+                get_declared_types(arg_sig.type, deduplicate_global, all_types);
+            }
+            if (!func->is_exported()) {
+                continue;
+            }
+            get_declared_types(func->ret_type, deduplicate, exported_types);
+            for (const auto &arg_sig : func->argument_types()) {
+                get_declared_types(arg_sig.type, deduplicate, exported_types);
+            }
+        }
+        for (const Type &type : all_types) {
+            if (deduplicate.contains(type)) {
+                continue;
+            }
+            emit_type_declaration(ss, type);
+        }
+        ss << '\n';
+    }
+
     void emit_funcs(const FuncMap &funcs) {
         const std::vector<std::string> topological_order =
             lower::func_topological_order(funcs,
@@ -489,7 +562,19 @@ class BonsaiToCpp : ir::Printer {
         ss.precision(p);
     }
     // void visit(const BoolImm *) override;
-    // void visit(const VecImm *) override;
+    void visit(const VecImm *node) override {
+        emit_type(ss, node->type);
+        ss << "{";
+        for (int i = 0, e = node->values.size(); i < e; ++i) {
+            node->values[i].accept(this);
+            if (i + 1 == e) {
+                continue;
+            }
+            ss << ", ";
+        }
+        ss << "}";
+    }
+
     // void visit(const StringImm *) override;
     void visit(const Infinity *node) override {
         ss << "std::numeric_limits<";
@@ -502,6 +587,16 @@ class BonsaiToCpp : ir::Printer {
     // void print(const UnOp::OpType &op);
     // void visit(const UnOp *) override;
     void visit(const Select *node) override {
+        if (node->cond.type().is<ir::Vector_t>()) {
+            ss << "select(";
+            node->cond.accept(this);
+            ss << ", ";
+            node->tvalue.accept(this);
+            ss << ", ";
+            node->fvalue.accept(this);
+            ss << ")";
+            return;
+        }
         ss << "(";
         print(node->cond);
         ss << " ? ";
@@ -520,6 +615,17 @@ class BonsaiToCpp : ir::Printer {
             ss << ")";
             return;
         } else {
+            if (node->value.type().is<Option_t>()) {
+                if (node->type.is<ir::Bool_t>()) {
+                    print_no_parens(node->value);
+                    ss << ".has_value()";
+                    return;
+                }
+                ss << "*";
+                print_no_parens(node->value);
+                return;
+            }
+
             ss << "(";
             emit_type(ss, node->type);
             ss << ")(";
@@ -529,12 +635,65 @@ class BonsaiToCpp : ir::Printer {
         }
         internal_error << "TODO: cast C++ codegen: " << Expr(node);
     }
-    // void visit(const Broadcast *) override;
-    // void print(const VectorReduce::OpType &op);
-    // void visit(const VectorReduce *) override;
+
+    void visit(const Broadcast *node) override {
+        emit_type(ss, ir::Vector_t::make(node->value.type(), node->lanes));
+        ss << "{";
+        node->value.accept(this);
+        ss << "}";
+    }
+
+    void visit(const VectorReduce *node) override {
+        ss << "reduce_";
+        switch (node->op) {
+        case VectorReduce::Add:
+            ss << "add";
+            break;
+        case VectorReduce::Mul:
+            ss << "mul";
+            break;
+        case VectorReduce::And:
+            ss << "and";
+            break;
+        case VectorReduce::Or:
+            ss << "or";
+            break;
+        case VectorReduce::Max:
+            ss << "max";
+            break;
+        case VectorReduce::Min:
+            ss << "min";
+            break;
+        case VectorReduce::Idxmax:
+            ss << "idxmax";
+            break;
+        case VectorReduce::Idxmin:
+            ss << "idxmin";
+            break;
+        }
+        ss << "(";
+        node->value.accept(this);
+        ss << ")";
+    }
+
     // void visit(const VectorShuffle *) override;
     // void visit(const Ramp *) override;
-    // void visit(const Extract *) override;
+
+    void visit(const Extract *node) override {
+        if (node->vec.type().is<ir::Tuple_t>()) {
+            ss << "std::get<";
+            node->idx.accept(this);
+            ss << ">(";
+            node->vec.accept(this);
+            ss << ")";
+            return;
+        }
+        node->vec.accept(this);
+        ss << "[";
+        node->idx.accept(this);
+        ss << "]";
+    }
+
     void visit(const Build *node) override {
         if (node->type.is<Tuple_t>()) {
             ss << "std::make_tuple(";
@@ -546,6 +705,26 @@ class BonsaiToCpp : ir::Printer {
             ss << "{";
             print_expr_list(node->values);
             ss << "}";
+            return;
+        } else if (const auto *option_t = node->type.as<Option_t>()) {
+            if (node->values.empty()) {
+                ss << "std::nullopt";
+                return;
+            }
+            ss << "std::make_optional<";
+            emit_type(ss, option_t->etype);
+            ss << ">(";
+            print_expr_list(node->values);
+            ss << ")";
+            return;
+        } else if (const auto *vector_t = node->type.as<Vector_t>()) {
+            // Use bonsai vector (basically std::array)
+            ss << "vector<";
+            emit_type(ss, vector_t->etype);
+            ss << ", " << vector_t->lanes;
+            ss << ">({";
+            print_expr_list(node->values);
+            ss << "})";
             return;
         }
         internal_error << "TODO: CPP codegen for build: " << Expr(node);
@@ -566,47 +745,11 @@ class BonsaiToCpp : ir::Printer {
         ss << "_" << node->type.as<Struct_t>()->name;
     }
 
-    std::string to_string_cpp(const Intrinsic::OpType &op) {
-        // TODO: the rest
-        switch (op) {
-        case Intrinsic::abs:
-            return "std::abs";
-        case Intrinsic::cos:
-            return "cos";
-        case Intrinsic::cross:
-            return "cross";
-        case Intrinsic::dot:
-            return "dot";
-        case Intrinsic::fma:
-            return "fma";
-        case Intrinsic::max:
-            return "std::max";
-        case Intrinsic::min:
-            return "std::min";
-        case Intrinsic::norm:
-            return "norm";
-        case Intrinsic::pow:
-            return "pow";
-        case Intrinsic::rand:
-            return "rand";
-        case Intrinsic::round:
-            return "round";
-        case Intrinsic::sin:
-            return "sin";
-        case Intrinsic::sqr:
-            return "sqr";
-        case Intrinsic::sqrt:
-            return "sqrt";
-        case Intrinsic::tan:
-            return "tan";
-        }
-    }
-
-    void visit(const Intrinsic *node) override {
-        ss << to_string_cpp(node->op) << "(";
-        print_expr_list(node->args);
-        ss << ")";
-    }
+    // void visit(const Intrinsic *node) override {
+    //     ss << to_string_cpp(node->op) << "(";
+    //     print_expr_list(node->args);
+    //     ss << ")";
+    // }
 
     // void visit(const Generator *) override;
     void visit(const Lambda *node) override {
@@ -674,7 +817,11 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Call *) override;
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
-    // void visit(const Deref *) override;
+    void visit(const Deref *node) override {
+        ss << "(*";
+        node->expr.accept(this);
+        ss << ")";
+    }
     // void visit(const AtomicAdd *) override;
     // Stmts
     // void visit(const CallStmt *) override;
@@ -725,7 +872,79 @@ class BonsaiToCpp : ir::Printer {
     }
     // void visit(const Free *) override;
     // void visit(const Store *) override;
-    // void visit(const Accumulate *) override;
+
+    void visit(const Accumulate *node) override {
+        const WriteLoc &current = node->loc;
+        const ir::Expr &update = node->value;
+        ss << get_indent();
+        /*
+        if (program.globals.contains(current.to_expr())) {
+            internal_assert(node->op == Accumulate::OpType::Add);
+            ir::AtomicAdd::make(PtrTo::make(current.to_expr()), update)
+                .accept(this);
+            ss << ";\n";
+            return;
+        }
+        */
+        current.to_expr().accept(this);
+        ss << ' ';
+        switch (node->op) {
+        case Accumulate::OpType::Add:
+            ss << '+';
+            break;
+        case Accumulate::OpType::Sub:
+            ss << '-';
+            break;
+        case Accumulate::OpType::Mul:
+            ss << '*';
+            break;
+        case Accumulate::OpType::Argmax: {
+        case Accumulate::OpType::Argmin:
+            // We assume arg{min,max} is a tuple with one or more arguments, and
+            // the comparison is done with the first argument.
+            ss << '=' << ' ';
+            ss << "arg"
+               << (node->op == Accumulate::OpType::Argmax ? "max" : "min");
+
+            ss << '<';
+            const auto *tuple_t = current.type.as<ir::Tuple_t>();
+            internal_assert(tuple_t) << current.type;
+            for (int i = 0, e = tuple_t->etypes.size(); i < e; ++i) {
+                emit_type(ss, tuple_t->etypes[i]);
+                if (i + 1 == e)
+                    continue;
+                ss << ", ";
+            }
+            ss << '>';
+
+            ss << '(';
+            Var::make(current.type, current.base).accept(this);
+            ss << ',' << ' ';
+            update.accept(this);
+            ss << ')';
+            ss << ';' << '\n';
+            return;
+        }
+        case Accumulate::OpType::Max: {
+        case Accumulate::OpType::Min:
+            // We assume arg{min,max} is a tuple with one or more arguments, and
+            // the comparison is done with the first argument.
+            ss << '=' << ' ';
+            ss << (node->op == Accumulate::OpType::Max ? "max" : "min");
+            ss << '(';
+            Var::make(current.type, current.base).accept(this);
+            ss << ',' << ' ';
+            update.accept(this);
+            ss << ')';
+            ss << ';' << '\n';
+            return;
+        }
+        }
+        ss << '=' << ' ';
+        update.accept(this);
+        ss << ';' << '\n';
+    }
+
     // void visit(const Label *) override;
     // void visit(const RecLoop *) override;
     void visit(const Match *node) override {

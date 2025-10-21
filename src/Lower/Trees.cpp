@@ -321,18 +321,21 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             IntervalMap ints = make_interval_map(lambda->args, intervals);
 
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
-            internal_assert(bounds.max.defined() && !is_const_one(bounds.max))
-                << "Cannot accelerate predicate: " << predicate
-                << " on: " << ir::Stmt(node);
-
             // Make a recursive call
             // TODO: this should be wrapped in a filter, for cases with
             // simplified predicates. This is required for proper predicate
             // analysis of conjunctions/disjunctions. ir::Stmt body =
             // ir::YieldFrom::make(ir::filter(predicate, node->value));
             ir::Stmt body = ir::YieldFrom::make(node->value);
+
+            /*
+            internal_assert(bounds.max.defined() && !is_const_one(bounds.max))
+                << "Cannot accelerate predicate: " << predicate
+                << " on: " << ir::Stmt(node);
+            */
             // Add the maybe case -> recursive call
-            body = ir::IfElse::make(std::move(bounds.max), std::move(body));
+            if (bounds.max.defined() && !is_const_one(bounds.max))
+                body = ir::IfElse::make(std::move(bounds.max), std::move(body));
 
             // Check for always case
             if (bounds.min.defined() && !is_const_zero(bounds.min)) {

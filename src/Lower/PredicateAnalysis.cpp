@@ -104,6 +104,9 @@ struct PredicateAnalysis : public ir::Visitor {
     void visit(const ir::Var *node) override { set(node); }
 
     ir::Expr make_and(ir::Expr a, ir::Expr b) {
+        if (!a.defined() || !b.defined()) {
+            return ir::Expr();
+        }
         if (is_const_one(a)) {
             return b;
         }
@@ -491,6 +494,10 @@ struct PredicateAnalysis : public ir::Visitor {
         internal_assert(!a_vol.has_value() || a_vol->defined())
             << "LHS of geom op is varying but has no bounding volume: "
             << ir::Expr(node);
+        if (!(!b_vol.has_value() || b_vol->defined())) {
+            interval = Interval{};
+            return;
+        }
         internal_assert(!b_vol.has_value() || b_vol->defined())
             << "RHS of geom op is varying but has no bounding volume: "
             << ir::Expr(node);

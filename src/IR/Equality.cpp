@@ -462,10 +462,13 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return *nodes_cmp;
     }
 
-    internal_assert(e0.type().defined() && e1.type().defined());
-    if (const Cmp types = compare_types(e0.type(), e1.type());
-        types != Cmp::Equals) {
-        return types;
+    if (e0.type().defined() && e1.type().defined()) {
+        if (const Cmp types = compare_types(e0.type(), e1.type());
+            types != Cmp::Equals) {
+            return types;
+        }
+    } else if (e0.type().defined() != e1.type().defined()) {
+        return e0.type().defined() ? Cmp::Greater : Cmp::Less;
     }
 
     // Must both be the same node type.

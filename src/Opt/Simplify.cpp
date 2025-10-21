@@ -157,7 +157,8 @@ struct Simplifier : ir::Mutator {
     ir::Expr visit(const ir::BinOp *node) override {
         ir::Expr a = mutate(node->a), b = mutate(node->b);
         internal_assert(ir::equals(a.type(), b.type()))
-            << "a: " << a.type() << ", " << "b: " << b.type();
+            << "a: " << a.type() << ", " << "b: " << b.type() << "\n"
+            << ir::Expr(node);
 
         const ir::Type type = a.type();
         const ir::Expr zero = make_zero(type), one = make_one(type);
@@ -284,7 +285,7 @@ struct Simplifier : ir::Mutator {
                 // x && true = x
                 return a;
             }
-            if (ir::equals(a, b)) {
+            if (a.same_as(b) || ir::equals(a, b)) {
                 // x && x = x
                 return a;
             }
@@ -308,7 +309,7 @@ struct Simplifier : ir::Mutator {
                 // x || false = x
                 return a;
             }
-            if (ir::equals(a, b)) {
+            if (a.same_as(b) || ir::equals(a, b)) {
                 // x || x = x
                 return a;
             }
@@ -367,7 +368,18 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
-
+        case ir::BinOp::OpType::Eq: {
+            if (ir::Expr e =
+                    constant_fold_integral(std::equal_to<>{}, a, b, node->type);
+                e.defined()) {
+                return e;
+            }
+            if (a.same_as(b) || ir::equals(a, b)) {
+                // x == x
+                return make_one(node->type);
+            }
+            return make(node, std::move(a), std::move(b));
+        }
         case ir::BinOp::OpType::Lt: {
             if (ir::Expr e =
                     constant_fold_integral(std::less<>{}, a, b, node->type);
@@ -446,7 +458,7 @@ struct Simplifier : ir::Mutator {
         std::vector<ir::Expr> values;
         for (int32_t i = 0, e = node->values.size(); i < e; ++i) {
             ir::Expr v = mutate(node->values[i]);
-            changed |= v.same_as(node->values[i]);
+            changed |= !v.same_as(node->values[i]);
             is_all_constants &= is_const(v);
             values.push_back(std::move(v));
         }

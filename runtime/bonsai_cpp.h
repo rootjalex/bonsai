@@ -34,3 +34,6 @@ template <typename T>
 __attribute__((always_inline)) T sqr(const T &v) {
     return v * v;
 }
+
+// Temp hack.
+using bool3 = vector<bool, 3>;

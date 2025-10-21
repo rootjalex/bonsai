@@ -167,6 +167,19 @@ T sum(const set<T> &input) {
     return std::accumulate(input.data.begin(), input.data.end(), T{0});
 }
 
+template <typename T, typename Func>
+auto sum_map(Func &&f, const set<T> &input) {
+    using U = decltype(f(std::declval<T>()));
+    U result = 0;
+
+    const auto &data = input.data; // avoid repeated vector access
+    for (size_t i = 0; i < data.size(); ++i) {
+        result += f(data[i]);
+    }
+
+    return result;
+}
+
 template <typename T, typename U>
 U reduce(std::function<U(const U &, const T &)> reducer, const set<T> &input,
          U initial) {
@@ -188,6 +201,24 @@ T &argmin(std::function<U(const U &, const T &)> metric, const set<T> &input) {
         }
     });
     return result;
+}
+
+template <typename T1, typename T2>
+std::tuple<T1, T2> argmin(const std::tuple<T1, T2> *a,
+                          const std::tuple<T1, T2> &b) {
+    if (std::get<0>(*a) < std::get<0>(b)) {
+        return *a;
+    }
+    return b;
+}
+
+template <typename T1, typename T2>
+std::tuple<T1, T2> argmin(const std::tuple<T1, T2> &a,
+                          const std::tuple<T1, T2> &b) {
+    if (std::get<0>(a) < std::get<0>(b)) {
+        return a;
+    }
+    return b;
 }
 
 template <typename T>
