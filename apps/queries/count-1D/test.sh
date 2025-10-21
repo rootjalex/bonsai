@@ -67,15 +67,47 @@ time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_main.out $SRC_DIR/count1d_mai
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_aug_main.out $SRC_DIR/count1d_main.cpp $SRC_DIR/count1d_gen.cpp $SRC_DIR/count1d_fast_aug_gen.cpp -I. $DIST_DEFINE -DUSE_AUG=1
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_main_ablation.out $SRC_DIR/count1d_main.cpp $SRC_DIR/count1d_gen.cpp $SRC_DIR/count1d_fast_gen.cpp -I. $DIST_DEFINE -DPROFILE_UNFUSED
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_main_ablation2.out $SRC_DIR/count1d_main.cpp $SRC_DIR/count1d_fast_aug_gen.cpp -I. $DIST_DEFINE -DPROFILE_UNFUSED -DUSE_AUG=1
-sudo purge               # clear caches (optional)
-killall -STOP Spotlight  # pause indexing
-./$SRC_DIR/count1d_main.out
-sudo purge               # clear caches (optional)
-killall -STOP Spotlight  # pause indexing
-./$SRC_DIR/count1d_aug_main.out
-sudo purge               # clear caches (optional)
-killall -STOP Spotlight  # pause indexing
-./$SRC_DIR/count1d_main_ablation.out
-sudo purge               # clear caches (optional)
-killall -STOP Spotlight  # pause indexing
-./$SRC_DIR/count1d_main_ablation2.out
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    sudo purge               # clear caches (optional)
+    killall -STOP Spotlight  # pause indexing
+fi
+
+if [[ "$(uname)" == "Linux" ]]; then
+    numactl --physcpubind 0-15 ./$SRC_DIR/count1d_main.out
+else
+    ./$SRC_DIR/count1d_main.out
+fi
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    sudo purge               # clear caches (optional)
+    killall -STOP Spotlight  # pause indexing
+fi
+
+if [[ "$(uname)" == "Linux" ]]; then
+    numactl --physcpubind 0-15 ./$SRC_DIR/count1d_aug_main.out
+else
+    ./$SRC_DIR/count1d_aug_main.out
+fi
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    sudo purge               # clear caches (optional)
+    killall -STOP Spotlight  # pause indexing
+fi
+
+# if [[ "$(uname)" == "Linux" ]]; then
+#     numactl --physcpubind 0-15 ./$SRC_DIR/count1d_main_ablation.out
+# else
+#     ./$SRC_DIR/count1d_main_ablation.out
+# fi
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    sudo purge               # clear caches (optional)
+    killall -STOP Spotlight  # pause indexing
+fi
+
+if [[ "$(uname)" == "Linux" ]]; then
+   numactl --physcpubind 0-15 ./$SRC_DIR/count1d_main_ablation2.out
+else
+    ./$SRC_DIR/count1d_main_ablation2.out
+fi

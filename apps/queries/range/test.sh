@@ -35,6 +35,14 @@ cmake --build build --config Debug -j
 time ./build/compiler -i apps/queries/range/range.bonsai -p canonicalize -p lower-externs -b cppx -o apps/queries/range/range_gen
 time ./build/compiler -i apps/queries/range/range_fast.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p simplify -p lower-logical-operation -p cse -p dce -b cppx -o apps/queries/range/range_fast_gen
 time clang++ -std=c++20 -O3 -g -o apps/queries/range/range_main.out apps/queries/range/range_main.cpp apps/queries/range/range_gen.cpp apps/queries/range/range_fast_gen.cpp -I. $DIST_DEFINE
-sudo purge               # clear caches (optional)
-killall -STOP Spotlight  # pause indexing
-./apps/queries/range/range_main.out
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    sudo purge               # clear caches (optional)
+    killall -STOP Spotlight  # pause indexing
+fi
+
+if [[ "$(uname)" == "Linux" ]]; then
+   numactl --physcpubind 0-15 ./apps/queries/range/range_main.out
+else
+    ./apps/queries/range/range_main.out
+fi
