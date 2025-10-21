@@ -127,6 +127,8 @@ _tree_layout0 copy_tree(const _tree_layout4 &src) {
     return dst;
 }
 
+#define USE_APPROX_SAH
+
 _tree_layout4 build_tree(const set<Point> &input) {
     _tree_layout4 tree;
     tree.pCount = input.size();
@@ -201,13 +203,41 @@ _tree_layout4 build_tree(const set<Point> &input) {
                     [](const Point &a, const Point &b) { return a.y < b.y; });
             }
 
+#ifdef USE_APPROX_SAH
+            // Fast binned split: pick index that minimizes left/right interval
+            // ratio
+            uint64_t best_mid = low + count / 2;
+            float best_ratio = std::numeric_limits<float>::max();
+            for (uint64_t i = 1; i < count; ++i) {
+                float left_size =
+                    (split_on_x ? tree.prims[low + i - 1].x
+                                : tree.prims[low + i - 1].y) -
+                    (split_on_x ? tree.prims[low].x : tree.prims[low].y);
+                float right_size = (split_on_x ? tree.prims[high - 1].x
+                                               : tree.prims[high - 1].y) -
+                                   (split_on_x ? tree.prims[low + i].x
+                                               : tree.prims[low + i].y);
+
+                float ratio = std::abs(left_size / (right_size + 1e-9) - 1.0f);
+                if (ratio < best_ratio) {
+                    best_ratio = ratio;
+                    best_mid = low + i;
+                }
+            }
+
+            uint64_t mid = best_mid;
+
+            // Recursively build subtrees
+            uint64_t left = handle_range(low, mid, depth + 1);
+            uint64_t right = handle_range(mid, high, depth + 1);
+#else
             // Split in the middle (median)
             uint64_t mid = low + count / 2;
 
             // Recursively build subtrees
             uint64_t left = handle_range(low, mid, depth + 1);
             uint64_t right = handle_range(mid, high, depth + 1);
-
+#endif
             // Set split offset (offset from this node to right child)
             uint64_t offset = right - this_index;
             reinterpret_cast<_tree_layout2 *>(
@@ -429,7 +459,7 @@ int main() {
         1ull << 13, 1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17,
         1ull << 18, 1ull << 19, 1ull << 20, 1ull << 21, 1ull << 22,
         1ull << 23, 1ull << 24, 1ull << 25, 1ull << 26, 1ull << 27,
-        // 1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
+        1ull << 28, // 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
     };
 #if defined(USE_NORMAL)
     std::cout << "normal distribution" << std::endl;

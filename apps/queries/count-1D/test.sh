@@ -61,8 +61,8 @@ DIST_FLAGS="$DIST_DEFINE"
 #     -DUSE_AUG=1
 
 time ./build/compiler -i $SRC_DIR/count1d.bonsai -p canonicalize -p lower-externs -b cppx -o $SRC_DIR/count1d_gen
-time ./build/compiler -i $SRC_DIR/count1d_fast.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields -b cppx -o $SRC_DIR/count1d_fast_gen
-time ./build/compiler -i $SRC_DIR/count1d_fast_aug.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields -b cppx -o $SRC_DIR/count1d_fast_aug_gen
+time ./build/compiler -i $SRC_DIR/count1d_fast.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields  -p simplify -p lower-logical-operation -p cse -p dce -b cppx -o $SRC_DIR/count1d_fast_gen
+time ./build/compiler -i $SRC_DIR/count1d_fast_aug.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields  -p simplify -p lower-logical-operation -p cse -p dce -b cppx -o $SRC_DIR/count1d_fast_aug_gen
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_main.out $SRC_DIR/count1d_main.cpp $SRC_DIR/count1d_gen.cpp $SRC_DIR/count1d_fast_gen.cpp -I. $DIST_DEFINE
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_aug_main.out $SRC_DIR/count1d_main.cpp $SRC_DIR/count1d_gen.cpp $SRC_DIR/count1d_fast_aug_gen.cpp -I. $DIST_DEFINE -DUSE_AUG=1
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/count1d_main_ablation.out $SRC_DIR/count1d_main.cpp $SRC_DIR/count1d_gen.cpp $SRC_DIR/count1d_fast_gen.cpp -I. $DIST_DEFINE -DPROFILE_UNFUSED

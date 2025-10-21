@@ -75,6 +75,8 @@ void export_to_csv(const set<float> &input_set, const std::string &filename) {
     out.close();
 }
 
+#define USE_APPROX_SAH
+
 _tree_layout0 build_tree(const set<float> &input) {
     _tree_layout0 tree;
     tree.pCount = input.size();
@@ -121,11 +123,32 @@ _tree_layout0 build_tree(const set<float> &input) {
                 ->pOffset = low;
         } else {
             tree.group0_index[this_index].nPrims = 0;
+#ifdef USE_APPROX_SAH
+            // Fast binned split: pick index that minimizes left/right interval
+            // ratio
+            uint64_t best_mid = low + count / 2;
+            float best_ratio = std::numeric_limits<float>::max();
+            for (uint64_t i = 1; i < count; ++i) {
+                float left_size = tree.prims[low + i - 1] - tree.prims[low];
+                float right_size = tree.prims[high - 1] - tree.prims[low + i];
+                float ratio = std::abs(left_size / (right_size + 1e-9) - 1.0f);
+                if (ratio < best_ratio) {
+                    best_ratio = ratio;
+                    best_mid = low + i;
+                }
+            }
+
+            uint64_t mid = best_mid;
+
+            // Recursively build subtrees
+            uint64_t left = handle_range(low, mid, depth + 1);
+            uint64_t right = handle_range(mid, high, depth + 1);
+#else
             uint64_t mid = low + count / 2;
 
             uint64_t left = handle_range(low, mid, depth + 1);
             uint64_t right = handle_range(mid, high, depth + 1);
-
+#endif
             // Set split offset (offset from this node to right child)
             uint64_t offset = right - this_index;
             reinterpret_cast<_tree_layout2 *>(
