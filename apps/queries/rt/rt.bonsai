@@ -1,0 +1,192 @@
+// import stdlib/distance;
+// import stdlib/intersects;
+// import stdlib/triangle;
+
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element Triangle {
+    p0, p1, p2 : vec3f;
+}
+
+element Ray {
+    o : vec3f;
+    // tmin : Float = 0;
+    d : vec3f;
+    tmax : Float = inf;
+    // TODO: medium
+    // TODO: differential?
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    // slab test for ray box intersection
+    // source: http://www.jcgt.org/published/0007/03/04/paper-lowres.pdf
+    invDir = 1 / r.d;
+    t0 = (b.low - r.o) * invDir;
+    t1 = (b.high - r.o) * invDir;
+    tNear = min(t0, t1);
+    tFar = max(t0, t1);
+    tNearMax : f32 = max(0.0, max(tNear));
+    tFarMin = min(tFar); // TODO: and of r.tMax
+    if (tNearMax > tFarMin) {
+        return {}; // false
+    }
+    return FInterval{tNearMax, tFarMin};
+}
+
+element TriangleIntersection {
+    b0, b1, b2, t : Float;
+}
+
+func sqlen(v : vec3f) = sum(v * v);
+func prod_diff(a : Float, b : Float, c : Float, d : Float) -> Float {
+    cd = c * d;
+    diff = fma(a, b, -cd);
+    err = fma(-c, d, cd);
+    return diff + err;
+}
+func cross_(v0 : vec3f, v1 : vec3f) -> vec3f {
+    return {prod_diff(v0.y, v1.z, v0.z, v1.y), prod_diff(v0.z, v1.x, v0.x, v1.z), prod_diff(v0.x, v1.y, v0.y, v1.x)};
+}
+func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
+
+
+
+// pstd::optional<TriangleIntersection> IntersectTriangle
+// shapes.cpp
+func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[Float] {
+    epsilon = eps[[Float]]();
+
+    pa = tri.p0;
+    pb = tri.p1;
+    pc = tri.p2;
+    v1 = pb - pa;
+    v2 = pc - pa;
+    p = cross(r.d, v2);
+    det = dot(v1, p);
+
+    // ray and triangle are parallel if det is close to 0
+    if (abs(det) <= epsilon) {
+        return {};
+    }
+
+    invDet = 1.0 / det;
+
+    s = r.o - pa;
+    v = dot(s, p) * invDet;
+    if ((v < 0) || (v > 1)) {
+        return {};
+    }
+
+    q = cross(s, v1);
+    w = dot(r.d, q) * invDet;
+    if ((w < 0) || (v + w > 1)) {
+        return {};
+    }
+
+    t = dot(v2, q) * invDet;
+    if ((t >= 0.0) && (t <= r.tmax)) {
+        return {t};
+    }
+    return {};
+}
+
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return -inf;
+}
+
+func distmin(ray : Ray, tri : Triangle) -> Float {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        // TODO(ajr): this is annoying syntax. Fix.
+        return *isect;
+    } else {
+        return inf;
+    }
+}
+
+func distmax(ray : Ray, tri : Triangle) -> Float {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        return *isect;
+    } else {
+        return -inf;
+    }
+}
+
+func intersects(r : Ray, b : AABB) -> bool {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low < r.tmax & extract.high > 0;
+    }
+    return false;
+}
+
+func intersects(ray : Ray, tri : Triangle) -> bool {
+    return cast[[bool]](intersectsp_ray_tri(ray, tri));
+}
+
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+schedule {
+    // tree[[Triangle]] BVH(low high : vector[Float, 3]) with AABB(low, high) =
+    tree[[Triangle]] BVH =
+      | Interior(left : BVH, right : BVH, ll lr hl hr : vec3f, low high : vector[Float, 3]) with AABB(low, high)
+      | Leaf(d : array[Triangle]) with data = d;
+
+    triangles : BVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            nPrims : i32;
+            high : vec3f;
+            offset : u32;
+            switch nPrims {
+                0 => Interior {
+                    left = index + 1;
+                    right = index + offset;
+                    ll = this[left].low;
+                    lr = this[right].low;
+                    hl = this[left].high;
+                    hr = this[right].high;
+                };
+                _ => Leaf { d = range(prims, offset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    //trace
+         //.sort(triangles.Interior, |i : u8, ray : Ray, ll : vec3f, lr : vec3f, hl : vec3f, hr : vec3f | distmin(ray, AABB{select(i == 1, ll, lr), select(i == 1, hl, hr)}))
+         //.loopify(64);
+}
