@@ -100,6 +100,7 @@ schedule {
             lo2: f32x4; // planes 3-6
             hi2: f32x4; // planes 3-6
         };
+        // TODO(cgyurgyik): fix this, match to fit paper
         group nodes[size=node_count] by index {
             lo1: f32x3; // planes 0-2
             hi1: f32x3; // planes 0-2

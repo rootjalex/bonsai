@@ -593,9 +593,8 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Split: {
             const ir::Split *node = m.as<ir::Split>();
-            // Stored as vector of bytes, load and reinterpret to proper
-            // type.
             if (field == node->field_name()) {
+                // TODO(cgyurgyik): hot fix for values from the root. Fix this.
                 return node->expr;
             }
             for (const ir::Arm &arm : node->arms) {

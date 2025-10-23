@@ -130,7 +130,7 @@ schedule {
         build lo2 = f32x4 {lo[3], lo[4], lo[5], lo[6] };
         build hi2 = f32x4 {hi[3], hi[4], hi[5], hi[6] };
         // TODO(cgyurgyik): need to use surface area formula from paper to calculate this.
-        build ee = false; 
+        build ee = false;
         build is_leaf_flag = 0;
         recurse left;
         recurse right;

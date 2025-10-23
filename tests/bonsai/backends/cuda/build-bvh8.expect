@@ -244,7 +244,7 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
         continue;
       }
     }
-    if (slice<0, 1>(I) == 2u) {
+    if (slice<0, 1>(slice<0, 1>(I)) == 2u) {
       Interiors _t18 = (*triangles).interiors[slice<5, 63>(I)];
       cuda::std::array<float3, 8> _t19 = _t18.lo;
       cuda::std::array<float3, 8> _t24 = _t18.hi;
@@ -346,7 +346,7 @@ __host__ cuda::std::optional<Triangle>* _traverse_array0(int64_t n, Ray* rays, T
   Triangles* d_triangles;
   cudaMallocAndCopyToDevice((void**)&d_triangles, &h_triangles, sizeof(Triangles));
   _ctx0 ctx = _ctx0{n, _alloc0, d_rays, d_triangles};
-  _parfunc0<<<((n + 511) / 512), 512>>>(ctx);
+  _parfunc0<<<((n + 255) / 256), 256>>>(ctx);
   cudaDeviceSynchronize();
   cuda::std::optional<Triangle>* h__alloc0;
   mallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, n * sizeof(cuda::std::optional<Triangle>));

@@ -97,6 +97,7 @@ struct Triangles {
     uint32_t node_count;
     Nodes* nodes;
 } __attribute__((packed));
+using uint16_t3 = vector<uint16_t, 3>;
 using uint64_t4 = vector<uint64_t, 4>;
 using uint8_t3 = vector<uint8_t, 3>;
 using uint8_t3x4 = vector<uint8_t3, 4>;
@@ -485,6 +486,45 @@ float distmin_Ray_Sphere(const Ray* __restrict__ r, const Sphere* __restrict__ s
     return extract.low;
   }
   return (-std::numeric_limits<float>::infinity());
+}
+std::optional<TriangleIntersection> intersect_ray_tri_pluecker(const Ray* __restrict__ ray, const Triangle* __restrict__ tri) {
+  const float3 _t1 = (*ray).o;
+  const float3 _t2 = ((*tri).p0 - _t1);
+  const float3 _t5 = ((*tri).p1 - _t1);
+  const float3 _t8 = ((*tri).p2 - _t1);
+  const float3 e0 = (_t8 - _t2);
+  const float3 e1 = (_t2 - _t5);
+  const float3 e2 = (_t5 - _t8);
+  const float3 _t11 = (*ray).d;
+  const float _t12 = dot(cross_(e0, (_t8 + _t2)), _t11);
+  const float _t16 = dot(cross_(e1, (_t2 + _t5)), _t11);
+  const float _t20 = dot(cross_(e2, (_t5 + _t8)), _t11);
+  const float _t22 = ((_t12 + _t16) + _t20);
+  const float e = (0.00000006f * abs(_t22));
+  const float3 _t23 = float3{_t12, _t16, _t20};
+  const float minUVW = reduce_min(_t23);
+  const float maxUVW = reduce_max(_t23);
+  if ((!(((-e) <= minUVW) || (maxUVW <= e)))) {
+    return std::nullopt;
+  }
+  const float det = (_t22 * 0.50000000f);
+  const float bound = 0.00000000f;
+  if ((abs(det) < bound)) {
+    return std::nullopt;
+  }
+  const float3 tri_Ng = cross_(e0, e1);
+  const float _t28 = (dot(tri_Ng, _t2) / dot(tri_Ng, _t11));
+  if (((_t28 <= 0.0f) || ((*ray).tmax < _t28))) {
+    return std::nullopt;
+  }
+  const float invUVW = (1.0f / _t22);
+  const float b0 = (_t20 * invUVW);
+  const float b1 = (_t12 * invUVW);
+  const float b2 = (_t16 * invUVW);
+  if ((((b0 < 0.0f) || (b1 < 0.0f)) || (b2 < 0.0f))) {
+    return std::nullopt;
+  }
+  return (std::optional<TriangleIntersection>)(TriangleIntersection{.b0=b0, .b1=b1, .b2=b2, .t=_t28});
 }
 bool intersects_AABB_AABB(const AABB* __restrict__ a, const AABB* __restrict__ b) {
   const float3 low = max((*a).low, (*b).low);

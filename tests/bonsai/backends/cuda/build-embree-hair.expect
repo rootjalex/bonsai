@@ -84,9 +84,9 @@ struct Aabbs {
 struct Obbs {
   float3 mlo;
   float3 mex;
-  cuda::std::array<uint8_t3, 8> qlo;
-  cuda::std::array<uint8_t3, 8> qhi;
-  cuda::std::array<int8_t4, 3> qorientation;
+  cuda::std::array<uchar3, 8> qlo;
+  cuda::std::array<uchar3, 8> qhi;
+  cuda::std::array<char4, 3> qorientation;
   cuda::std::array<uint64_t, 8> obb_children;
 } __attribute__((packed));
 
@@ -106,10 +106,10 @@ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
   return (diff + err);
 }
 
-__host__ cuda::std::array<float4, 3> dequantize_orientation(cuda::std::array<int8_t4, 3> x) {
-  char4 _t0 = x.x;
-  char4 _t4 = x.y;
-  char4 _t8 = x.z;
+__host__ cuda::std::array<float4, 3> dequantize_orientation(cuda::std::array<char4, 3> x) {
+  char4 _t0 = x[0];
+  char4 _t4 = x[1];
+  char4 _t8 = x[2];
   return cuda::std::array<float4, 3>{float4{(float)_t0.x / (float)127, (float)_t0.y / (float)127, (float)_t0.z / (float)127, (float)_t0.w / (float)127}, float4{(float)_t4.x / (float)127, (float)_t4.y / (float)127, (float)_t4.z / (float)127, (float)_t4.w / (float)127}, float4{(float)_t8.x / (float)127, (float)_t8.y / (float)127, (float)_t8.z / (float)127, (float)_t8.w / (float)127}};
 }
 
@@ -153,7 +153,7 @@ __host__ float distmin_Ray_AABB(Ray* r, AABB* b) {
 
 __host__ cuda::std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b) {
   cuda::std::array<float4, 3> _t0 = (*b).orientation;
-  float4 _t1 = _t0.x;
+  float4 _t1 = _t0[0];
   float _t2 = _t1.x;
   float3 _t3 = (*r).o;
   float _t4 = _t3.x;
@@ -161,14 +161,17 @@ __host__ cuda::std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b) {
   float _t10 = _t3.y;
   float _t15 = _t1.z;
   float _t17 = _t3.z;
-  float4 _t25 = _t0.y;
+  float _t23 = ((((_t2 * _t4) + (_t8 * _t10)) + (_t15 * _t17)) + _t1.w);
+  float4 _t25 = _t0[1];
   float _t26 = _t25.x;
   float _t32 = _t25.y;
   float _t39 = _t25.z;
-  float4 _t49 = _t0.z;
+  float _t47 = ((((_t26 * _t4) + (_t32 * _t10)) + (_t39 * _t17)) + _t25.w);
+  float4 _t49 = _t0[2];
   float _t50 = _t49.x;
   float _t56 = _t49.y;
   float _t63 = _t49.z;
+  float _t71 = ((((_t50 * _t4) + (_t56 * _t10)) + (_t63 * _t17)) + _t49.w);
   float3 _t75 = (*r).d;
   float _t76 = _t75.x;
   float _t82 = _t75.y;
@@ -176,16 +179,16 @@ __host__ cuda::std::optional<FInterval> intersectsp_ray_obb(Ray* r, OBB* b) {
   float inv_dx = (1 / (((_t2 * _t76) + (_t8 * _t82)) + (_t15 * _t89)));
   float inv_dy = (1 / (((_t26 * _t76) + (_t32 * _t82)) + (_t39 * _t89)));
   float inv_dz = (1 / (((_t50 * _t76) + (_t56 * _t82)) + (_t63 * _t89)));
-  float _t132 = (-0 * inv_dx);
-  float _t134 = ((1 - ((((_t2 * _t4) + (_t8 * _t10)) + (_t15 * _t17)) + _t1.w)) * inv_dx);
+  float _t132 = (-_t23 * inv_dx);
+  float _t134 = ((1 - _t23) * inv_dx);
   float tmin_x = fminf(_t132, _t134);
   float tmax_x = fmaxf(_t132, _t134);
-  float _t135 = (-0 * inv_dy);
-  float _t137 = ((1 - ((((_t26 * _t4) + (_t32 * _t10)) + (_t39 * _t17)) + _t25.w)) * inv_dy);
+  float _t135 = (-_t47 * inv_dy);
+  float _t137 = ((1 - _t47) * inv_dy);
   float tmin_y = fminf(_t135, _t137);
   float tmax_y = fmaxf(_t135, _t137);
-  float _t138 = (-0 * inv_dz);
-  float _t140 = ((1 - ((((_t50 * _t4) + (_t56 * _t10)) + (_t63 * _t17)) + _t49.w)) * inv_dz);
+  float _t138 = (-_t71 * inv_dz);
+  float _t140 = ((1 - _t71) * inv_dz);
   float tmin_z = fminf(_t138, _t140);
   float tmax_z = fmaxf(_t138, _t140);
   float _t142 = fmaxf(fmaxf(tmin_x, tmin_y), tmin_z);
@@ -324,8 +327,8 @@ __host__ void _recloop_func0(uint64_t index, Ray* ray, Triangles* triangles, cud
   if (index == 18446744073709551615u) {
     return;
   }
-  uint64_t _t797 = slice<0, 2>(index);
-  if (_t797 == 2u) {
+  uint64_t _t798 = slice<0, 2>(index);
+  if (slice<0, 2>(_t798) == 2u) {
     Aabbs _t17 = (*triangles).aabbs[slice<4, 63>(index)];
     cuda::std::array<float3, 8> _t18 = _t17.aabb_low;
     cuda::std::array<float3, 8> _t23 = _t17.aabb_high;
@@ -378,7 +381,7 @@ __host__ void _recloop_func0(uint64_t index, Ray* ray, Triangles* triangles, cud
       }
     }
   } else {
-    if (_t797 == 3u) {
+    if (slice<0, 2>(_t798) == 3u) {
       Obbs _t248 = (*triangles).obbs[slice<4, 63>(index)];
       float3 _t249 = _t248.mlo;
       float3 _t253 = _t248.mex;
@@ -467,10 +470,10 @@ __host__ uchar3 to_u8_ceil(float3 f) {
   return (uchar3)f2;
 }
 
-__host__ cuda::std::array<uint8_t3, 8> quantize_bounds_high(cuda::std::array<float3, 8> low, cuda::std::array<float3, 8> high) {
+__host__ cuda::std::array<uchar3, 8> quantize_bounds_high(cuda::std::array<float3, 8> low, cuda::std::array<float3, 8> high) {
   float3 mlo = min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
   float3 mex = compute_merged_extent(low, high);
-  return cuda::std::array<uint8_t3, 8>{to_u8_ceil(((high[0] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[1] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[2] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[3] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[4] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[5] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[6] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[7] - mlo) / mex) * make_float3((float)255))};
+  return cuda::std::array<uchar3, 8>{to_u8_ceil(((high[0] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[1] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[2] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[3] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[4] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[5] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[6] - mlo) / mex) * make_float3((float)255)), to_u8_ceil(((high[7] - mlo) / mex) * make_float3((float)255))};
 }
 
 __host__ uchar3 to_u8_floor(float3 f) {
@@ -479,10 +482,10 @@ __host__ uchar3 to_u8_floor(float3 f) {
   return (uchar3)f2;
 }
 
-__host__ cuda::std::array<uint8_t3, 8> quantize_bounds_low(cuda::std::array<float3, 8> low, cuda::std::array<float3, 8> high) {
+__host__ cuda::std::array<uchar3, 8> quantize_bounds_low(cuda::std::array<float3, 8> low, cuda::std::array<float3, 8> high) {
   float3 mlo = min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
   float3 mex = compute_merged_extent(low, high);
-  return cuda::std::array<uint8_t3, 8>{to_u8_floor(((low[0] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[1] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[2] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[3] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[4] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[5] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[6] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[7] - mlo) / mex) * make_float3((float)255))};
+  return cuda::std::array<uchar3, 8>{to_u8_floor(((low[0] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[1] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[2] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[3] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[4] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[5] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[6] - mlo) / mex) * make_float3((float)255)), to_u8_floor(((low[7] - mlo) / mex) * make_float3((float)255))};
 }
 
 __host__ int8_t to_i8(float f) {
@@ -491,11 +494,11 @@ __host__ int8_t to_i8(float f) {
   return (int8_t)f2;
 }
 
-__host__ cuda::std::array<int8_t4, 3> quantize_orientation(cuda::std::array<float4, 3> x) {
-  float4 _t0 = x.x;
-  float4 _t4 = x.y;
-  float4 _t8 = x.z;
-  return cuda::std::array<int8_t4, 3>{char4{to_i8(_t0.x * (float)127), to_i8(_t0.y * (float)127), to_i8(_t0.z * (float)127), to_i8(_t0.w * (float)127)}, char4{to_i8(_t4.x * (float)127), to_i8(_t4.y * (float)127), to_i8(_t4.z * (float)127), to_i8(_t4.w * (float)127)}, char4{to_i8(_t8.x * (float)127), to_i8(_t8.y * (float)127), to_i8(_t8.z * (float)127), to_i8(_t8.w * (float)127)}};
+__host__ cuda::std::array<char4, 3> quantize_orientation(cuda::std::array<float4, 3> x) {
+  float4 _t0 = x[0];
+  float4 _t4 = x[1];
+  float4 _t8 = x[2];
+  return cuda::std::array<char4, 3>{char4{to_i8(_t0.x * (float)127), to_i8(_t0.y * (float)127), to_i8(_t0.z * (float)127), to_i8(_t0.w * (float)127)}, char4{to_i8(_t4.x * (float)127), to_i8(_t4.y * (float)127), to_i8(_t4.z * (float)127), to_i8(_t4.w * (float)127)}, char4{to_i8(_t8.x * (float)127), to_i8(_t8.y * (float)127), to_i8(_t8.z * (float)127), to_i8(_t8.w * (float)127)}};
 }
 
 __host__ uint64_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* aabbs_index, size_t* obbs_index, size_t* primitives_index) {
