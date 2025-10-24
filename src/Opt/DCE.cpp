@@ -579,6 +579,57 @@ void delete_dead_functions(ir::FuncMap &funcs) {
     }
 }
 
+// TODO(cgyurgyik): this should be its own pass.
+class RedundantIfEliminator : public ir::Mutator {
+  public:
+    RedundantIfEliminator() {}
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        active_conditions.push_back(node->cond);
+        ir::Stmt then_case = mutate(node->then_body);
+        ir::Stmt else_case;
+        if (node->else_body.defined()) {
+            else_case = mutate(node->else_body);
+        }
+        active_conditions.pop_back();
+
+        const auto *inner = then_case.as<ir::IfElse>();
+        if (inner && ir::equals(inner->cond, node->cond)) {
+            then_case = inner->then_body;
+        }
+
+        return ir::IfElse::make(node->cond, then_case, else_case);
+    }
+
+    ir::Stmt visit(const ir::Sequence *node) override {
+        std::vector<ir::Stmt> stmts;
+        for (const ir::Stmt &stmt : node->stmts) {
+            ir::Stmt result = mutate(stmt);
+            if (result.defined()) {
+                stmts.push_back(result);
+            }
+        }
+        return ir::Sequence::make(stmts);
+    }
+
+    ir::Stmt mutate(const ir::Stmt &stmt) override {
+        // Check if this is an if-else that matches an active condition.
+        const auto *ite = stmt.as<ir::IfElse>();
+        if (ite && !active_conditions.empty()) {
+            for (const ir::Expr &outer_cond : active_conditions) {
+                if (ir::equals(ite->cond, outer_cond)) {
+                    return mutate(ite->then_body);
+                }
+            }
+        }
+
+        return ir::Mutator::mutate(stmt);
+    }
+
+  private:
+    std::vector<ir::Expr> active_conditions;
+};
+
 } // namespace
 
 // TODO(ajr): for non-exported functions, we can remove mutable args that
@@ -608,6 +659,8 @@ ir::FuncMap DCE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     std::set<std::string> se_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_func_args = func->mutable_args();
+        RedundantIfEliminator eliminator;
+        func->body = eliminator.mutate(std::move(func->body));
         func->body =
             dce(std::move(func->body), mutable_func_args, se_functions);
     }

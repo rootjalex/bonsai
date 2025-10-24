@@ -213,16 +213,20 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
-    d.push_back(std::make_unique<opt::Simplify>());
-    d.push_back(std::make_unique<opt::CSE>());
     // TODO(cgyurgyik): Right now, we don't update functions that are "dead" in
     // the LowerRandom pass because we need to propagate through live functions
     // to get the analysis correct. Ideally we could run this DCE pass much
     // earlier, but this has caused issues that need to be investigated.
-    d.push_back(std::make_unique<opt::DCE>());
-    d.push_back(std::make_unique<opt::Inline>());
+    for (int i = 0; i <= 3; ++i) {
+        // Old cases reveal new cases.
+        d.push_back(std::make_unique<opt::Inline>());
+        d.push_back(std::make_unique<opt::DCE>());
+        d.push_back(std::make_unique<opt::CSE>());
+        d.push_back(std::make_unique<opt::Simplify>());
+        d.push_back(std::make_unique<opt::DCE>());
+    }
+
     // Clean up any dead functions after inlining.
-    d.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.
     if (options.target != BackendTarget::CUDA &&
         options.target != BackendTarget::CPPX) {

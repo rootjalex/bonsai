@@ -22,6 +22,11 @@ namespace bonsai {
 namespace opt {
 
 namespace {
+// For unique variable renaming.
+// TODO(cgyurgyik): global so we can call CSE multiple times without name
+// clashing. We really need a program to track names.
+int64_t counter = 0;
+
 // Prefix for a temporary variable.
 static constexpr char T_PREFIX[] = "_t";
 
@@ -30,6 +35,156 @@ using MutableVariableStack = ir::SetStack<std::string>;
 
 // A set of expressions using IR comparison rather than pointer comparison.
 using ExprSet = std::set<ir::Expr, ir::ExprLessThan>;
+
+class CallReplacer : public ir::Mutator {
+  public:
+    CallReplacer(const ir::Call *target, const ir::Expr &replacement)
+        : target(target), replacement(replacement) {}
+
+    ir::Expr visit(const ir::Call *node) override {
+        if (node == target) {
+            return replacement;
+        }
+        return ir::Mutator::visit(node);
+    }
+
+  private:
+    const ir::Call *target;
+    ir::Expr replacement;
+};
+
+class FindMatchingCalls : public ir::Visitor {
+  public:
+    FindMatchingCalls(const std::vector<std::string> &names) : names(names) {}
+
+    std::vector<const ir::Call *> found_calls;
+
+    void visit(const ir::Call *node) override {
+        const ir::Var *v = node->func.as<ir::Var>();
+        if (v == nullptr)
+            return;
+        for (const std::string &name : names) {
+            if (v->name.starts_with(name)) {
+                found_calls.push_back(node);
+            }
+        }
+        ir::Visitor::visit(node);
+    }
+
+  private:
+    const std::vector<std::string> &names;
+};
+
+class FunctionCallHoister : public ir::Mutator {
+  public:
+    FunctionCallHoister() {}
+
+    ir::Stmt visit(const ir::Store *node) override {
+        FindMatchingCalls finder(names);
+        node->value.accept(&finder);
+
+        if (!finder.found_calls.empty()) {
+            std::vector<ir::Stmt> stmts;
+            ir::Expr new_value = node->value;
+
+            for (const ir::Call *call : finder.found_calls) {
+                std::string new_name = T_PREFIX + std::to_string(counter++);
+                ir::WriteLoc temporary(new_name, call->type);
+                stmts.push_back(ir::Allocate::make(
+                    temporary, call, ir::Allocate::Memory::Stack));
+
+                CallReplacer replacer(call, temporary.to_expr());
+                new_value = replacer.mutate(new_value);
+            }
+
+            stmts.push_back(ir::Store::make(node->loc, new_value));
+            return ir::Sequence::make(stmts);
+        }
+        return ir::Mutator::visit(node);
+    }
+
+    ir::Stmt visit(const ir::Allocate *node) override {
+        if (!node->value.defined()) {
+            return node;
+        }
+        FindMatchingCalls finder(names);
+        node->value.accept(&finder);
+
+        if (!finder.found_calls.empty()) {
+            std::vector<ir::Stmt> stmts;
+            ir::Expr new_value = node->value;
+
+            for (const ir::Call *call : finder.found_calls) {
+                std::string new_name = T_PREFIX + std::to_string(counter++);
+                ir::WriteLoc temporary(new_name, call->type);
+                stmts.push_back(ir::Allocate::make(
+                    temporary, call, ir::Allocate::Memory::Stack));
+
+                CallReplacer replacer(call, temporary.to_expr());
+                new_value = replacer.mutate(new_value);
+            }
+
+            stmts.push_back(
+                ir::Allocate::make(node->loc, new_value, node->memory));
+            return ir::Sequence::make(stmts);
+        }
+        return ir::Mutator::visit(node);
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        FindMatchingCalls finder(names);
+        node->value.accept(&finder);
+
+        if (!finder.found_calls.empty()) {
+            std::vector<ir::Stmt> stmts;
+            ir::Expr new_value = node->value;
+
+            for (const ir::Call *call : finder.found_calls) {
+                std::string new_name = T_PREFIX + std::to_string(counter++);
+                ir::WriteLoc temporary(new_name, call->type);
+
+                stmts.push_back(ir::LetStmt::make(temporary, call));
+
+                CallReplacer replacer(call, temporary.to_expr());
+                new_value = replacer.mutate(new_value);
+            }
+
+            stmts.push_back(ir::LetStmt::make(node->loc, new_value));
+            return ir::Sequence::make(stmts);
+        }
+        return ir::Mutator::visit(node);
+    }
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        FindMatchingCalls finder(names);
+        node->cond.accept(&finder);
+        if (!finder.found_calls.empty()) {
+            std::string new_name = T_PREFIX + std::to_string(counter++);
+            ir::WriteLoc temporary(new_name, node->cond.type());
+            std::vector<ir::Stmt> stmts;
+            stmts.push_back(ir::Allocate::make(temporary, node->cond,
+                                               ir::Allocate::Memory::Stack));
+            ir::Expr v = temporary.to_expr();
+            ir::Stmt then_case = mutate(node->then_body);
+            ir::Stmt else_case;
+            if (node->else_body.defined()) {
+                else_case = mutate(node->else_body);
+            }
+            stmts.push_back(ir::IfElse::make(v, then_case, else_case));
+
+            return ir::Sequence::make(stmts);
+        }
+        ir::Stmt then_case = mutate(node->then_body);
+        ir::Stmt else_case;
+        if (node->else_body.defined()) {
+            else_case = mutate(node->else_body);
+        }
+        return ir::IfElse::make(node->cond, then_case, else_case);
+    }
+
+  private:
+    std::vector<std::string> names = {"intersect", "distmin", "distmax"};
+};
 
 // For checking whether an expression can legally be CSE'd. This is used in two
 // different classes (rename analysis and LVN), so we leave it here.
@@ -518,8 +673,6 @@ struct Rename : public ir::Mutator {
     const ExprSet &to_rename;
     // A list of intermediate statements generated for subexpressions.
     std::vector<ir::Stmt> stmts;
-    // For unique variable renaming.
-    int64_t counter = 0;
 
     // Pushes this `statement` onto the list of generated statements and returns
     // a sequence.
@@ -962,6 +1115,9 @@ ir::FuncMap CSE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
         // Find expressions that have been seen > 1  times.
         func->body.accept(&analysis);
         ExprSet to_rename = analysis.post_process();
+
+        FunctionCallHoister hoister;
+        func->body = hoister.mutate(std::move(func->body));
 
         // Give each of these expressions its own name.
         Rename rename(to_rename);

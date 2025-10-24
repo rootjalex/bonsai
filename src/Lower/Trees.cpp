@@ -382,8 +382,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
     return RewriteFilter(std::move(predicate), intervals).mutate(body);
 }
 
-ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
-                         ir::Expr maybe_filter) {
+std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric,
+                                          ir::Expr best,
+                                          ir::Expr maybe_filter) {
     if (const ir::SetOp *as_set = maybe_filter.as<ir::SetOp>()) {
         if (as_set->op == ir::SetOp::filter) {
             // Can fuse!
@@ -413,14 +414,14 @@ ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
             // Construct fused filter.
             ir::Expr new_lambda =
                 ir::Lambda::make(predicate->args, std::move(new_cond));
-            return filter(std::move(new_lambda), as_set->b);
+            return {filter(std::move(new_lambda), as_set->b), true};
         }
     }
 
     // Not a nested filter, so just wrap in a filter and return
     ir::Expr new_cond = (metric->value < best);
     ir::Expr new_lambda = ir::Lambda::make(metric->args, std::move(new_cond));
-    return filter(std::move(new_lambda), std::move(maybe_filter));
+    return {filter(std::move(new_lambda), std::move(maybe_filter)), false};
 }
 
 ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
@@ -430,10 +431,13 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
         ir::Expr metric;
         ir::WriteLoc loc;
         ir::Type tuple_t;
+        const IntervalMap &intervals;
+        const bool update_from_yfs;
 
-        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t)
-            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)) {
-        }
+        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t,
+                      const IntervalMap &intervals, const bool update_from_yfs)
+            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)),
+              intervals(intervals), update_from_yfs(update_from_yfs) {}
 
         size_t counter = 0;
 
@@ -455,8 +459,14 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
             std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
-            return ir::Accumulate::make(loc, ir::Accumulate::Argmin,
-                                        std::move(update));
+
+            if (!update_from_yfs) {
+                // Yields have been wrapped in ifs
+                return ir::Store::make(loc, std::move(update));
+            } else {
+                return ir::Accumulate::make(loc, ir::Accumulate::Argmin,
+                                            std::move(update));
+            }
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {
@@ -512,10 +522,12 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     local_intervals[best_metric] = Interval{ir::Expr(), best_metric};
 
     // Try to build fused filter inside.
-    ir::Expr fused_filter = try_fuse_filter(lambda, best_metric, inner);
+    // TODO(ajr): scans need to be
+    auto [fused_filter, fused] = try_fuse_filter(lambda, best_metric, inner);
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
-    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t))
+    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t),
+                         intervals, !fused)
                .mutate(body);
 
     return ir::Sequence::make(

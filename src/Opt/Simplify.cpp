@@ -20,6 +20,97 @@ namespace opt {
 
 namespace {
 
+// A brittle conditional simplifier.
+class SimplifyConditional : public ir::Mutator {
+  public:
+    SimplifyConditional() {}
+
+    ir::Stmt visit(const ir::Sequence *node) override {
+        std::vector<ir::Stmt> stmts;
+
+        for (size_t i = 0; i < node->stmts.size(); ++i) {
+            const ir::Stmt &stmt = node->stmts[i];
+
+            const auto *first_if = stmt.as<ir::IfElse>();
+            if (first_if == nullptr || first_if->else_body.defined()) {
+                stmts.push_back(mutate(stmt));
+                continue;
+            }
+
+            if (i + 1 >= node->stmts.size()) {
+                stmts.push_back(mutate(stmt));
+                continue;
+            }
+            const auto *second_if = node->stmts[i + 1].as<ir::IfElse>();
+            if (second_if == nullptr || second_if->else_body.defined()) {
+                stmts.push_back(mutate(stmt));
+                continue;
+            }
+
+            ir::Expr first_cond = first_if->cond;
+            const auto *store = get_single_store(first_if->then_body);
+            if (store == nullptr) {
+                stmts.push_back(mutate(stmt));
+                continue;
+            }
+
+            if (!ir::equals(second_if->cond, store->loc.to_expr())) {
+                stmts.push_back(mutate(stmt));
+                continue;
+            }
+
+            ir::Stmt simplified =
+                simplify_nested_condition(second_if->then_body, first_cond);
+
+            stmts.push_back(mutate(stmt));
+            stmts.push_back(ir::IfElse::make(
+                second_if->cond, std::move(simplified), ir::Stmt()));
+            ++i;
+        }
+        return ir::Sequence::make(std::move(stmts));
+    }
+
+  private:
+    const ir::Store *get_single_store(const ir::Stmt &stmt) {
+        const auto *seq = stmt.as<ir::Sequence>();
+        if (seq == nullptr) {
+            return nullptr;
+        }
+        for (const ir::Stmt &s : seq->stmts) {
+            if (const auto *store = s.as<ir::Store>()) {
+                return store;
+            }
+        }
+        return nullptr;
+    }
+
+    ir::Stmt simplify_nested_condition(const ir::Stmt &stmt,
+                                       const ir::Expr &outer_condition) {
+        const auto *seq = stmt.as<ir::Sequence>();
+        if (seq == nullptr) {
+            return remove_redundant_if(stmt, outer_condition);
+        }
+
+        std::vector<ir::Stmt> new_stmts;
+        for (const auto &s : seq->stmts) {
+            new_stmts.push_back(remove_redundant_if(s, outer_condition));
+        }
+        return ir::Sequence::make(new_stmts);
+    }
+
+    ir::Stmt remove_redundant_if(const ir::Stmt &stmt,
+                                 const ir::Expr &known_true_condition) {
+        const auto *if_else = stmt.as<ir::IfElse>();
+        if (if_else == nullptr) {
+            return stmt;
+        }
+        if (ir::equals(if_else->cond, known_true_condition)) {
+            return if_else->then_body;
+        }
+        return stmt;
+    }
+};
+
 uint64_t log2(uint64_t value) {
     internal_assert(value > 0) << value;
     return std::bit_width(value) - 1;
@@ -633,6 +724,7 @@ ir::FuncMap Simplify::run(ir::FuncMap funcs,
         // Don't try to simplify templated functions.
         if (func->interfaces.empty()) {
             func->body = Simplify::simplify(std::move(func->body));
+            func->body = SimplifyConditional().mutate(std::move(func->body));
         }
     }
     return funcs;

@@ -655,8 +655,11 @@ class BonsaiToCpp : ir::Printer {
         double val = node->value;
 
         // Ensure float is parsed correctly in C++ by forcing float literal
-        // syntax Add 'f' suffix and a decimal point if needed
-        if (std::isnan(val)) {
+        // syntax Add 'f' suffix and a decimal point if needed.
+        if (val == 0.0) {
+            // `0f` is interpreted as an octal constant so we special case this.
+            ss << "0.0";
+        } else if (std::isnan(val)) {
             ss << "NAN";
         } else if (std::isinf(val)) {
             ss << (val < 0 ? "-" : "") << "INFINITY";
