@@ -83,24 +83,6 @@ bool load_object_file(const std::string &object,
     return true;
 }
 
-template <typename S>
-S rand_interval(S rmin, S rmax) {
-    S t = rand() / ((S)RAND_MAX + 1);
-    return (t * (rmax - rmin) + rmin);
-}
-
-template <typename S>
-void euler_to_matrix(S a, S b, S c, Matrix3<S> &R) {
-    auto c1 = std::cos(a);
-    auto c2 = std::cos(b);
-    auto c3 = std::cos(c);
-    auto s1 = std::sin(a);
-    auto s2 = std::sin(b);
-    auto s3 = std::sin(c);
-    R << c1 * c2, -c2 * s1, s2, c3 * s1 + c1 * s2 * s3, c1 * c3 - s1 * s2 * s3,
-        -c2 * s3, s1 * s3 - c1 * c3 * s2, c3 * s1 * s2 + c1 * s3, c2 * c3;
-}
-
 template <typename BV>
 BVHModel<BV> build_tree(const std::vector<Vector3<typename BV::S>> &vertices,
                         const std::vector<Triangle> &triangles) {
