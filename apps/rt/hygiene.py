@@ -49,11 +49,7 @@ def parse_benchmark_data(
     memory_util: Optional[Dict[str, Dict[str, float]]] = None,
     output_file: Optional[str] = None
 ) -> List[Tuple]:
-    """Don't be lazy, read the code bud.
-    Note: in the original benchmarks, there is a typographical error. 
-    This is fixed here, `bvh-q8` -> `bvh8-q8` and similarly for q16.
-
-    """
+    """Don't be lazy, read the code bud."""
     machine, ray_type = parse_filename(filename)
 
     with open(filename, 'r') as f:
@@ -110,10 +106,6 @@ def parse_benchmark_data(
             trace_match = re.match(r'trace time\s*:\s*(\d+)\s*ms', line)
             if trace_match and current_hits is not None and current_ray_count is not None:
                 trace_time = int(trace_match.group(1))
-                if current_layout == 'bvh-q8':
-                    current_layout = 'bvh8-q8'  # fix typo
-                elif current_layout == 'bvh-q16':
-                    current_layout = 'bvh8-q16'  # fix typo
                 group = layout_to_group.get(current_layout)
 
                 total_memory = None
