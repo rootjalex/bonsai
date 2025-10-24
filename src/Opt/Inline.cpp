@@ -118,9 +118,11 @@ class StmtInliner : public ir::Mutator {
             }
 
             if (let || allocate) {
-                ir::Expr initial_value = trailing_return.defined()
-                                             ? trailing_return
-                                             : make_zero(loc.type);
+                // Avoid use-after-def
+                ir::Expr initial_value =
+                    trailing_return.defined() && is_const(trailing_return)
+                        ? trailing_return
+                        : make_zero(loc.type);
                 stmts.push_back(ir::Allocate::make(
                     loc, initial_value, ir::Allocate::Memory::Stack));
             }
@@ -282,6 +284,8 @@ ir::FuncMap Inline::run(ir::FuncMap funcs,
                 function_to_expr[name] = body->value;
                 continue;
             }
+            // TODO(cgyurgyik): this is causing slowdowns for CD (i-cache
+            // pressure perhaps).
             if (name.starts_with("dist") || name.starts_with("intersect")) {
                 function_to_stmt[name] = func->body;
             }
