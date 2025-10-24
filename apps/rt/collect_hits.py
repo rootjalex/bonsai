@@ -6,12 +6,11 @@ import numpy as np
 DEFAULT_LAYOUT_GROUPS = {
     'bvh8': ['bvh8', 'bvh8-align16', 'cl-bvh8', 'cl-bvh8-align16',
              'cl-bvh8-idx', 'cl-bvh8-idx-align16',
-             # 'cl-cw-bvh8-idx', 'cl-cw-bvh8-idx-align16',
              ],
     'bvh2': ['eq', 'pbrt', 'pbrt-align16', 'eq-align16',
              'ptr', 'soaos-align16', 'soaos',
              ],
-    'embree': ['embree-bvh4', 'embree-bvh8'],
+    'embree': ['embree-qbvh8i', 'embree-qbvh8'],
 }
 
 
