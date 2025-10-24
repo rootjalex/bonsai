@@ -7,7 +7,7 @@ TARGET="cpu"
 KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUTS=("pbrt" "pbrt-q16" "fcl")
-N="${1:-10}"
+N="${1:-1}"
 # *NOTE* we are using the FCL OBJ loader for this benchmark, and it doesn't seem to
 #  work with all OBJ files. Therefore, we only choose a select few.
 OBJECTS_A=("hairball" "hairball" "dragon_60_70_10")

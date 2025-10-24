@@ -30,8 +30,68 @@ class ReturnToAssign : public ir::Mutator {
     ir::WriteLoc loc;
 };
 
-// A half-implemented statement inliner. Hard-coded for let, store, and
-// allocate.
+int64_t inline_counter = 0;
+static constexpr char INLINE_PREFIX[] = "__inline";
+
+class VariableRenamer : public ir::Mutator {
+  public:
+    VariableRenamer(const std::map<std::string, std::string> &renaming)
+        : renaming(renaming) {}
+
+    ir::Expr visit(const ir::Var *node) override {
+        auto it = renaming.find(node->name);
+        if (it != renaming.end()) {
+            return ir::Var::make(node->type, it->second);
+        }
+        return ir::Mutator::visit(node);
+    }
+
+    ir::Stmt visit(const ir::Store *node) override {
+        auto it = renaming.find(node->loc.base());
+        if (it != renaming.end()) {
+            return ir::Store::make(ir::WriteLoc(it->second, node->loc.type),
+                                   mutate(node->value));
+        }
+        return ir::Mutator::visit(node);
+    }
+
+    ir::Stmt visit(const ir::Allocate *node) override {
+        auto it = renaming.find(node->loc.base());
+        if (it != renaming.end()) {
+            return ir::Allocate::make(ir::WriteLoc(it->second, node->loc.type),
+                                      mutate(node->value), node->memory);
+        }
+        return ir::Mutator::visit(node);
+    }
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        auto it = renaming.find(node->loc.base());
+        if (it != renaming.end()) {
+            return ir::LetStmt::make(ir::WriteLoc(it->second, node->loc.type),
+                                     mutate(node->value));
+        }
+        return ir::Mutator::visit(node);
+    }
+
+  private:
+    const std::map<std::string, std::string> &renaming;
+};
+
+class CollectVariableNames : public ir::Visitor {
+  public:
+    std::set<std::string> names;
+
+    void visit(const ir::Allocate *node) override {
+        names.insert(node->loc.base());
+        ir::Visitor::visit(node);
+    }
+
+    void visit(const ir::LetStmt *node) override {
+        names.insert(node->loc.base());
+        ir::Visitor::visit(node);
+    }
+};
+
 class StmtInliner : public ir::Mutator {
   public:
     StmtInliner(
@@ -112,13 +172,23 @@ class StmtInliner : public ir::Mutator {
                 repls[argument_names[i]] = call->args[i];
             }
 
-            ir::Expr trailing_return = get_trailing_return_value(seq);
-            if (trailing_return.defined()) {
-                trailing_return = replace(repls, trailing_return);
+            ir::Stmt body = replace(repls, seq);
+
+            CollectVariableNames collector;
+            body.accept(&collector);
+
+            std::map<std::string, std::string> var_renaming;
+            for (const std::string &var_name : collector.names) {
+                var_renaming[var_name] =
+                    INLINE_PREFIX + std::to_string(inline_counter++);
             }
+            // We need to rename inlined variables to avoid name clashing.
+            VariableRenamer renamer(var_renaming);
+            body = renamer.mutate(body);
+
+            ir::Expr trailing_return = get_trailing_return_value(body);
 
             if (let || allocate) {
-                // Avoid use-after-def
                 ir::Expr initial_value =
                     trailing_return.defined() && is_const(trailing_return)
                         ? trailing_return
@@ -127,7 +197,6 @@ class StmtInliner : public ir::Mutator {
                     loc, initial_value, ir::Allocate::Memory::Stack));
             }
 
-            ir::Stmt body = replace(repls, seq);
             body = convert_trailing_return_to_else(body, loc, trailing_return);
             ReturnToAssign m(loc);
             body = m.mutate(body);

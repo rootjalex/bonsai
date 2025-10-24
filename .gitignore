@@ -14,7 +14,7 @@ textures
 
 # benchmarks
 apps/cd/cpu/results/*
-apps/wos/cpu/results/*
+apps/wos/fcpw/results/*
 
 apps/rt/cpu/results-camera/*
 apps/rt/cpu/results-secondary/*
