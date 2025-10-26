@@ -438,13 +438,9 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
             std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
 
-            if (!update_from_yfs) {
-                // Yields have been wrapped in ifs
-                return ir::Store::make(loc, std::move(update));
-            } else {
-                return ir::Accumulate::make(loc, ir::Accumulate::Argmin,
-                                            std::move(update));
-            }
+            // Filter fusion will ensure that any yielded value is better
+            // than the current best.
+            return ir::Store::make(loc, std::move(update));
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {

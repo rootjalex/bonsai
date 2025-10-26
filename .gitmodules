@@ -11,3 +11,6 @@
 [submodule "deps/fcpw"]
 	path = deps/fcpw
 	url = git@github.com:rohan-sawhney/fcpw.git
+[submodule "deps/fcl"]
+	path = deps/fcl
+	url = git@github.com:flexible-collision-library/fcl.git
