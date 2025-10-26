@@ -130,7 +130,7 @@ def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
     return processed_data
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types, output_filename):
     models = sorted(processed_data.keys())
     if len(models) == 0:
         return
@@ -241,6 +241,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         time_unit = 'ns/ray'
 
         unique_groups = sorted(set(all_groups))
+        labels_to_add = []
         for group_idx, group_key in enumerate(unique_groups):
             group_color = group_colors[group_idx % len(group_colors)]
             group_linestyle = line_styles[group_idx % len(line_styles)]
@@ -270,12 +271,12 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             group_time_per_ray = time_per_ray_values[group_mask]
             if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time_per_ray[~is_pareto],
-                           c='lightgray', s=80, alpha=0.5,
+                           c='lightgray', s=64, alpha=0.9,
                            marker='o', edgecolors='gray', linewidth=1, zorder=1)
 
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
-                       c=group_color, s=180, alpha=0.9,
-                       edgecolors='black', linewidth=2.5,
+                       c=group_color, s=64, alpha=0.9,
+                       edgecolors='black', linewidth=1.5,
                        marker=group_marker, label=group_key, zorder=3)
 
             pareto_indices = np.where(is_pareto)[0]
@@ -288,94 +289,150 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                         linestyle=group_linestyle, alpha=0.8, linewidth=3, zorder=2)
 
             for i in pareto_indices:
-                ax.annotate(group_labels[i],
-                            xy=(group_memory[i], group_time_per_ray[i]),
-                            textcoords="offset points",
-                            xytext=(0, 10),
-                            ha='center',
-                            fontsize=8,
-                            fontweight='bold',
-                            bbox=dict(boxstyle='round,pad=0.3',
-                                      facecolor='yellow',
-                                      alpha=0.7,
-                                      edgecolor='black',
-                                      linewidth=1),
-                            zorder=4)
+                labels_to_add.append({
+                    'x': group_memory[i],
+                    'y': group_time_per_ray[i],
+                    'label': group_labels[i],
+                    'is_pareto': True
+                })
 
             if label_dominated_points and np.any(~is_pareto):
                 dominated_indices = np.where(~is_pareto)[0]
                 for i in dominated_indices:
-                    ax.annotate(group_labels[i],
-                                xy=(group_memory[i], group_time_per_ray[i]),
-                                textcoords="offset points",
-                                xytext=(0, 6),
-                                ha='center',
-                                fontsize=7,
-                                color='gray',
-                                alpha=0.8,
-                                bbox=dict(boxstyle='round,pad=0.2',
-                                          facecolor='white',
-                                          alpha=0.5,
-                                          edgecolor='gray',
-                                          linewidth=0.5),
-                                zorder=2)
+                    labels_to_add.append({
+                        'x': group_memory[i],
+                        'y': group_time_per_ray[i],
+                        'label': group_labels[i],
+                        'is_pareto': False
+                    })
 
         memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=11)
+            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=16)
+        ax.tick_params(axis='x', labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
         ax.set_ylabel(f'Time per Ray ({time_unit})',
-                      fontweight='bold', fontsize=11)
-        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=12)
+                      fontweight='bold', fontsize=16)
+        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=16)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
-        ax.legend(fontsize=9, loc='best', framealpha=0.9,
+        ax.legend(fontsize=12, loc='best', framealpha=0.9,
                   edgecolor='black', fancybox=False, shadow=True)
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
         ax.yaxis.set_major_formatter(
             plt.FuncFormatter(lambda y, p: f'{y:,.1f}'))
 
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x_range = xlim[1] - xlim[0]
+        y_range = ylim[1] - ylim[0]
+        x_padding = x_range * 0.025
+        y_padding = y_range * 0.025
+        ax.set_xlim(xlim[0] - x_padding, xlim[1] + x_padding)
+        ax.set_ylim(ylim[0] - y_padding, ylim[1] + y_padding)
+
+        for label_info in labels_to_add:
+            x_pos = label_info['x']
+            y_pos = label_info['y']
+
+            if label_info['is_pareto']:
+                ax.annotate(
+                    label_info['label'],
+                    xy=(x_pos, y_pos),
+                    textcoords="offset pixels",
+                    xytext=(20, 0),      # shift 20 pixels to the right
+                    ha='left',           # align box to the right of the point
+                    va='center',         # vertically centered
+                    fontsize=16,
+                    fontweight='bold',
+                    bbox=dict(
+                        boxstyle='round,pad=0.3',
+                        facecolor='#C8FACD',
+                        alpha=0.7,
+                        edgecolor='black',
+                        linewidth=1
+                    ),
+                    zorder=4
+                )
+            else:
+                ax.annotate(
+                    label_info['label'],
+                    xy=(x_pos, y_pos),
+                    textcoords="offset points",
+                    xytext=(-5, -15),     # ← left 5, down 15 points
+                    ha='right',           # align text box so it extends leftward
+                    va='top',             # anchor top of box to the offset point
+                    fontsize=12,
+                    color='black',
+                    alpha=1.0,
+                    bbox=dict(
+                        boxstyle='round,pad=0.2',
+                        facecolor='white',
+                        alpha=0.9,
+                        edgecolor='gray',
+                        linewidth=0.5
+                    ),
+                    zorder=2
+                )
+
     for idx in range(len(models), len(axes)):
         axes[idx].axis('off')
 
-    title = 'Time per Ray vs Memory Utilization'
+    title = f"Closest Hit Ray Tracing\n"
+    if mean_strategy != 'wavg':
+        title += f'{mean_strategy} - '
     if ray_count_range is not None:
-        title += f'\n{mean_strategy} ({ray_count_range[0]:,} - {ray_count_range[1]:,})'
-    else:
-        title += f'\n{mean_strategy} (all)'
+        title += f'({ray_count_range[0]:,} - {ray_count_range[1]:,}) -'
     if machine_type:
-        title += f' - {machine_type}'
+        if machine_type not in {'x86', 'arm', 'cuda'}:
+            machine_type = machine_type.split(',')
+        else:
+            machine_type = [machine_type]
+        length = len(machine_type)
+        if length > 1:
+            title += "("
+        for i, machine in enumerate(machine_type):
+            if machine in {'x86', 'arm'}:
+                title += f"{machine} (CPU)"
+            if machine in {'cuda'}:
+                title += f"RTX4090 (GPU)"
+            if i + 1 == length:
+                continue
+            title += ', '
+        if length > 1:
+            title += ")"
+
     if ray_type:
-        title += f' - {ray_type}'
+        if ',' in ray_type:
+            types = ray_type.split(',')
+            types = ", ".join(t for t in types)
+            title += f' - ({types})'
+        else:
+            title += f' - {ray_type}'
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=[0, 0, 1, 1])
     if len(all_points) > 0:
         x_range = max(memory_values) - min(memory_values)
         padding = x_range * 0.02
         x_min = min(memory_values) - padding
         x_max = max(memory_values) + padding
         ax.set_xlim(x_min, x_max)
-        ax.margins(x=0)
 
     results_dir = os.path.dirname(
         output_path) if os.path.dirname(output_path) else '.'
     os.makedirs(results_dir, exist_ok=True)
     name = os.path.splitext(os.path.basename(output_path))[0]
+    if output_filename is None:
+        output_filename = f"{name}-{machine_type}-{ray_type}"
+    output_file = os.path.join(results_dir, f"{output_filename}.pdf")
 
-    if ray_count_range is not None:
-        def log2(x): return int(math.log2(x))
-        output_file = os.path.join(
-            results_dir, f'{name}-{mean_strategy}{log2(ray_count_range[0])}-{log2(ray_count_range[1])}.pdf')
-    else:
-        output_file = os.path.join(
-            results_dir, f'{name}-{mean_strategy}.pdf')
-
-    plt.savefig(output_file, dpi=600, bbox_inches='tight')
+    plt.savefig(output_file, dpi=1600, bbox_inches='tight')
     print(f"Pareto frontier plot saved to: {output_file}")
     plt.close()
 
 
-def calculate_speedups(processed_data, memory_data, layout_groups, filename, mean_strategy, machines, ray_types):
+def calculate_speedups(processed_data, memory_data, layout_groups, filename, mean_strategy, machines, ray_types, output_filename):
     speedups = {}
 
     for model in processed_data:
@@ -441,8 +498,10 @@ def calculate_speedups(processed_data, memory_data, layout_groups, filename, mea
     results_dir = os.path.dirname(
         filename) if os.path.dirname(filename) else '.'
     name = os.path.splitext(os.path.basename(filename))[0]
+    if output_filename is None:
+        output_filename = f'{name}-{machine_type}-{ray_type}'
     speedup_file = os.path.join(
-        results_dir, f'{name}-{mean_strategy}.speedups.txt')
+        results_dir, f'{filename}-speedup.txt')
     save_speedups_to_file(speedups, speedup_file, layout_groups)
 
 
@@ -529,7 +588,6 @@ def parse_layout_groups(group_str):
         group_name, layouts_str = group_def.split(':', 1)
         layouts = [l.strip() for l in layouts_str.split(',')]
         groups[group_name.strip()] = layouts
-
     return groups
 
 
@@ -573,7 +631,7 @@ Examples:
     parser.add_argument('--scenes', nargs='+',
                         help='Filter by scene names (e.g., lucy hairball)')
     parser.add_argument('--layouts', nargs='+',
-                        help='Filter by layout names (e.g., bvh8 pbrt)')
+                        help='Filter by layout names or group names (e.g., bvh8 pbrt bvh2)')
     parser.add_argument('--include-embree',
                         action='store_true',
                         help='Include Embree in the results')
@@ -583,21 +641,31 @@ Examples:
                         help='Label dominated points on the plot')
     parser.add_argument('--memory-type', choices=['bvh', 'total'], default='total',
                         help='Memory type to use: bvh (excludes primitives) or total (includes primitives) (default: total)')
-
+    parser.add_argument(
+        '--output_filename', help='name of file to be saved', default=None)
     args = parser.parse_args()
 
     if args.layout_groups:
         layout_groups = parse_layout_groups(args.layout_groups)
     else:
         layout_groups = layout_grouping.retrieve_layout_groups()
-    if not args.include_embree:
+    if 'embree' in layout_groups and not args.include_embree:
         del layout_groups['embree']
 
     all_group_layouts = set()
     for layouts in layout_groups.values():
         all_group_layouts.update(layouts)
 
-    layouts_filter = args.layouts if args.layouts else list(all_group_layouts)
+    if args.layouts:
+        layouts_filter = set()
+        for item in args.layouts:
+            if item in layout_groups:
+                layouts_filter.update(layout_groups[item])
+            else:
+                layouts_filter.add(item)
+        layouts_filter = list(layouts_filter)
+    else:
+        layouts_filter = list(all_group_layouts)
 
     memory_column = 'bvh-memory-b' if args.memory_type == 'bvh' else 'total-memory-b'
 
@@ -636,7 +704,8 @@ Examples:
         args.csv_file,
         args.mean,
         args.machines,
-        args.ray_types
+        args.ray_types,
+        args.output_filename
     )
 
     plot_pareto_frontiers(
@@ -651,5 +720,6 @@ Examples:
         args.label_dominated,
         args.memory_type,
         args.machines,
-        args.ray_types
+        args.ray_types,
+        args.output_filename
     )
