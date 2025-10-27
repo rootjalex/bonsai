@@ -130,7 +130,7 @@ def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
     return processed_data
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types, output_filename):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types, output_filename, remove_legend):
     models = sorted(processed_data.keys())
     if len(models) == 0:
         return
@@ -139,59 +139,69 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     n_cols = min(3, n_models)
     n_rows = (n_models + n_cols - 1) // n_cols
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 8 * n_rows))
+    # Larger figure for bigger fonts
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(16 * n_cols, 13 * n_rows))
     if n_models == 1:
         axes = [axes]
     else:
         axes = axes.flatten() if n_models > 1 else [axes]
 
-    group_colors = ['#0173B2',
-                    '#DE8F05',
-                    '#029E73',
-                    '#CC78BC',
-                    '#CA9161',
-                    '#949494',
-                    '#ECE133',
-                    '#56B4E9',
-                    '#D55E00',
-                    '#F0E442']
+    # Color palettes for different dimensions
+    machine_colors = ['#0173B2', '#DE8F05', '#029E73', '#CC78BC']
+    ray_type_colors = ['#CA9161', '#949494', '#ECE133', '#56B4E9']
+    layout_colors = ['#D55E00', '#F0E442', '#009E73', '#E69F00',
+                     '#56B4E9', '#CC79A7', '#0173B2', '#DE8F05']
 
-    line_styles = [
-        '-',
-        '--',
-        '-.',
-        ':',
-        (0, (5, 2, 1, 2)),
-        (0, (3, 1, 1, 1)),
-        (0, (5, 5)),
-        (0, (1, 1)),
-        (0, (3, 5, 1, 5)),
-        (0, (3, 1, 1, 1, 1, 1))
-    ]
-    marker_styles = ['o', 's', '^', 'D', 'v', '>', 'p', '*', 'h', 'X']
+    # Marker styles for different dimensions
+    machine_markers = ['o', 's', '^', 'D']
+    ray_type_markers = ['v', '>', 'p', '*']
+    layout_markers = ['h', 'X', '<', 'P', 'd', '8', 'H', 'o']
+
+    # Line styles
+    line_styles = ['-', '--', '-.', ':', (0, (5, 2, 1, 2)), (0, (3, 1, 1, 1))]
+
+    # Gray for dominated points
+    dominated_color = '#CCCCCC'
 
     multiple_machines = machines and len(machines) > 1
     multiple_ray_types = ray_types and len(ray_types) > 1
+    multiple_layouts = layout_groups and len(layout_groups) > 1
+
+    # Create consistent mappings based on alphabetical order of all possible values
+    # This ensures consistency across different subsets of machines/ray_types
+    all_possible_machines = ['arm', 'cuda', 'x86']  # Define canonical order
+    all_possible_ray_types = ['primary', 'secondary']  # Define canonical order
+
+    machine_to_idx = {m: i for i, m in enumerate(all_possible_machines)}
+    ray_type_to_idx = {rt: i for i, rt in enumerate(all_possible_ray_types)}
+
+    # Create layout to index mapping
+    layout_list = []
+    for group_name, layouts in layout_groups.items():
+        layout_list.extend(layouts)
+    unique_layouts = sorted(set(layout_list))
+    layout_to_idx = {l: i for i, l in enumerate(unique_layouts)}
 
     for idx, model in enumerate(models):
         ax = axes[idx]
 
         if model not in memory_data:
             ax.text(0.5, 0.5, f'No data for {model}',
-                    ha='center', va='center', fontsize=12)
-            ax.set_title(f'{model.title()}')
+                    ha='center', va='center', fontsize=24)
+            ax.set_title(f'{model.title()}', fontsize=28, fontweight='bold')
             continue
 
         all_points = []
         all_labels = []
-        all_colors = []
+        all_machines = []
+        all_ray_types_list = []
+        all_layouts = []
         all_groups = []
 
         for machine in memory_data[model]:
             for ray_type_key in memory_data[model][machine]:
                 for group_idx, (group_name, layouts) in enumerate(layout_groups.items()):
-                    group_color = group_colors[group_idx % len(group_colors)]
-
                     for layout in layouts:
                         if machine not in processed_data[model]:
                             continue
@@ -212,7 +222,9 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                         if time_per_ray > 0 and memory > 0:
                             all_points.append((memory, time_per_ray))
                             all_labels.append(layout.upper())
-                            all_colors.append(group_color)
+                            all_machines.append(machine)
+                            all_ray_types_list.append(ray_type_key)
+                            all_layouts.append(layout)
 
                             group_key = group_name
                             if multiple_machines:
@@ -225,8 +237,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             print(
                 f"  Warning: No valid data points for model '{model}' - skipping plot")
             ax.text(0.5, 0.5, f'No valid data for {model}',
-                    ha='center', va='center', fontsize=12)
-            ax.set_title(f'{model.title()}')
+                    ha='center', va='center', fontsize=24)
+            ax.set_title(f'{model.title()}', fontsize=28, fontweight='bold')
             continue
 
         print(f"  Plotting {len(all_points)} data points for {model}")
@@ -243,9 +255,48 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         unique_groups = sorted(set(all_groups))
         labels_to_add = []
         for group_idx, group_key in enumerate(unique_groups):
-            group_color = group_colors[group_idx % len(group_colors)]
-            group_linestyle = line_styles[group_idx % len(line_styles)]
-            group_marker = marker_styles[group_idx % len(marker_styles)]
+            # Determine color based on dominant factor
+            if multiple_machines and multiple_ray_types and multiple_layouts:
+                # Use machine color as primary, ray type for marker, layout for line style
+                machine_name = group_key.split('-')[0]
+                color = machine_colors[machine_to_idx[machine_name] % len(
+                    machine_colors)]
+                # Extract ray type
+                ray_type_str = group_key.split('-')[-1]
+                marker = ray_type_markers[ray_type_to_idx[ray_type_str] % len(
+                    ray_type_markers)]
+                # Use group_idx for line style
+                linestyle = line_styles[group_idx % len(line_styles)]
+            elif multiple_machines and multiple_ray_types:
+                # Machine determines color, ray type determines marker
+                machine_name = group_key.split('-')[0]
+                color = machine_colors[machine_to_idx[machine_name] % len(
+                    machine_colors)]
+                ray_type_str = group_key.split('-')[-1]
+                marker = ray_type_markers[ray_type_to_idx[ray_type_str] % len(
+                    ray_type_markers)]
+                linestyle = line_styles[group_idx % len(line_styles)]
+            elif multiple_machines:
+                # Machine determines both color and marker
+                machine_name = group_key.split('-')[0]
+                color = machine_colors[machine_to_idx[machine_name] % len(
+                    machine_colors)]
+                marker = machine_markers[machine_to_idx[machine_name] % len(
+                    machine_markers)]
+                linestyle = line_styles[group_idx % len(line_styles)]
+            elif multiple_ray_types:
+                # Ray type determines both color and marker
+                ray_type_str = group_key.split('-')[-1]
+                color = ray_type_colors[ray_type_to_idx[ray_type_str] % len(
+                    ray_type_colors)]
+                marker = ray_type_markers[ray_type_to_idx[ray_type_str] % len(
+                    ray_type_markers)]
+                linestyle = line_styles[group_idx % len(line_styles)]
+            else:
+                # Layout determines color and marker
+                color = layout_colors[group_idx % len(layout_colors)]
+                marker = layout_markers[group_idx % len(layout_markers)]
+                linestyle = line_styles[group_idx % len(line_styles)]
 
             group_mask = np.array([g == group_key for g in all_groups])
             if not np.any(group_mask):
@@ -269,15 +320,18 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                         break
             group_memory = memory_values[group_mask]
             group_time_per_ray = time_per_ray_values[group_mask]
+
+            # Plot dominated points in gray only if requested
             if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time_per_ray[~is_pareto],
-                           c='lightgray', s=64, alpha=0.9,
-                           marker='o', edgecolors='gray', linewidth=1, zorder=1)
+                           c=dominated_color, s=140, alpha=0.6,
+                           marker='o', edgecolors='gray', linewidth=2, zorder=1)
 
+            # Plot Pareto-optimal points with their assigned colors/markers
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
-                       c=group_color, s=64, alpha=0.9,
-                       edgecolors='black', linewidth=1.5,
-                       marker=group_marker, label=group_key, zorder=3)
+                       c=color, s=140, alpha=0.9,
+                       edgecolors='black', linewidth=3,
+                       marker=marker, label=group_key, zorder=3)
 
             pareto_indices = np.where(is_pareto)[0]
             if len(pareto_indices) > 1:
@@ -285,8 +339,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     pareto_indices, key=lambda i: group_memory[i])
                 pareto_x = [group_memory[i] for i in pareto_sorted]
                 pareto_y = [group_time_per_ray[i] for i in pareto_sorted]
-                ax.plot(pareto_x, pareto_y, color=group_color,
-                        linestyle=group_linestyle, alpha=0.8, linewidth=3, zorder=2)
+                ax.plot(pareto_x, pareto_y, color=color,
+                        linestyle=linestyle, alpha=0.8, linewidth=4.5, zorder=2)
 
             for i in pareto_indices:
                 labels_to_add.append({
@@ -296,6 +350,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     'is_pareto': True
                 })
 
+            # Only add dominated point labels if requested
             if label_dominated_points and np.any(~is_pareto):
                 dominated_indices = np.where(~is_pareto)[0]
                 for i in dominated_indices:
@@ -308,15 +363,16 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
         memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=16)
-        ax.tick_params(axis='x', labelsize=12)
-        ax.tick_params(axis='y', labelsize=12)
+            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=26)
+        ax.tick_params(axis='x', labelsize=22)
+        ax.tick_params(axis='y', labelsize=22)
         ax.set_ylabel(f'Time per Ray ({time_unit})',
-                      fontweight='bold', fontsize=16)
-        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=16)
+                      fontweight='bold', fontsize=26)
+        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=28)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
-        ax.legend(fontsize=12, loc='best', framealpha=0.9,
-                  edgecolor='black', fancybox=False, shadow=True)
+        if not remove_legend:
+            ax.legend(fontsize=20, loc='best', framealpha=0.9,
+                      edgecolor='black', fancybox=False, shadow=True)
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
         ax.yaxis.set_major_formatter(
@@ -340,175 +396,136 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     label_info['label'],
                     xy=(x_pos, y_pos),
                     textcoords="offset pixels",
-                    xytext=(20, 0),      # shift 20 pixels to the right
-                    ha='left',           # align box to the right of the point
-                    va='center',         # vertically centered
-                    fontsize=16,
+                    xytext=(20, 0),
+                    ha='left',
+                    va='center',
+                    fontsize=24,
                     fontweight='bold',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
                         facecolor='#C8FACD',
-                        alpha=0.7,
                         edgecolor='black',
-                        linewidth=1
-                    ),
-                    zorder=4
+                        linewidth=1.5,
+                        alpha=0.9
+                    )
                 )
             else:
                 ax.annotate(
                     label_info['label'],
                     xy=(x_pos, y_pos),
-                    textcoords="offset points",
-                    xytext=(-5, -15),     # ← left 5, down 15 points
-                    ha='right',           # align text box so it extends leftward
-                    va='top',             # anchor top of box to the offset point
-                    fontsize=12,
-                    color='black',
-                    alpha=1.0,
+                    textcoords="offset pixels",
+                    xytext=(15, 0),
+                    ha='left',
+                    va='center',
+                    fontsize=22,
+                    fontweight='normal',
                     bbox=dict(
-                        boxstyle='round,pad=0.2',
-                        facecolor='white',
-                        alpha=0.9,
+                        boxstyle='round,pad=0.3',
+                        facecolor='#EEEEEE',
                         edgecolor='gray',
-                        linewidth=0.5
-                    ),
-                    zorder=2
+                        linewidth=1.0,
+                        alpha=0.7
+                    )
                 )
 
-    for idx in range(len(models), len(axes)):
-        axes[idx].axis('off')
+    plt.tight_layout()
 
-    title = f"Closest Hit Ray Tracing\n"
-    if mean_strategy != 'wavg':
-        title += f'{mean_strategy} - '
-    if ray_count_range is not None:
-        title += f'({ray_count_range[0]:,} - {ray_count_range[1]:,}) -'
-    if machine_type:
-        if machine_type not in {'x86', 'arm', 'cuda'}:
-            machine_type = machine_type.split(',')
-        else:
-            machine_type = [machine_type]
-        length = len(machine_type)
-        if length > 1:
-            title += "("
-        for i, machine in enumerate(machine_type):
-            if machine in {'x86', 'arm'}:
-                title += f"{machine} (CPU)"
-            if machine in {'cuda'}:
-                title += f"RTX4090 (GPU)"
-            if i + 1 == length:
-                continue
-            title += ', '
-        if length > 1:
-            title += ")"
+    if output_filename:
+        output_file = f'{output_filename}.pdf'
+    else:
+        base_csv = os.path.splitext(os.path.basename(output_path))[0]
+        output_file = f'{base_csv}_{mean_strategy}_pareto.pdf'
 
-    if ray_type:
-        if ',' in ray_type:
-            types = ray_type.split(',')
-            types = ", ".join(t for t in types)
-            title += f' - ({types})'
-        else:
-            title += f' - {ray_type}'
-    fig.suptitle(title, fontsize=16, fontweight='bold')
-
-    plt.tight_layout(rect=[0, 0, 1, 1])
-    if len(all_points) > 0:
-        x_range = max(memory_values) - min(memory_values)
-        padding = x_range * 0.02
-        x_min = min(memory_values) - padding
-        x_max = max(memory_values) + padding
-        ax.set_xlim(x_min, x_max)
-
-    results_dir = os.path.dirname(
-        output_path) if os.path.dirname(output_path) else '.'
-    os.makedirs(results_dir, exist_ok=True)
-    name = os.path.splitext(os.path.basename(output_path))[0]
-    if output_filename is None:
-        output_filename = f"{name}-{machine_type}-{ray_type}"
-    output_file = os.path.join(results_dir, f"{output_filename}.pdf")
-
-    plt.savefig(output_file, dpi=1600, bbox_inches='tight')
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Pareto frontier plot saved to: {output_file}")
     plt.close()
 
 
-def calculate_speedups(processed_data, memory_data, layout_groups, filename, mean_strategy, machines, ray_types, output_filename):
-    speedups = {}
+def calculate_speedups(trace_data, memory_data, layout_groups, csv_file, mean_strategy, machines=None, ray_types=None, output_filename=None):
+    speedups = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
 
-    for model in processed_data:
-        speedups[model] = {}
+    for model in trace_data:
+        for machine in trace_data[model]:
+            for ray_type in trace_data[model][machine]:
+                if machine not in memory_data[model]:
+                    continue
+                if ray_type not in memory_data[model][machine]:
+                    continue
 
-        for machine in processed_data[model]:
-            speedups[model][machine] = {}
+                layouts_data = trace_data[model][machine][ray_type]
 
-            for ray_type in processed_data[model][machine]:
-                layouts = processed_data[model][machine][ray_type]
+                if not layouts_data:
+                    continue
 
-                slowest_layout = max(layouts.items(), key=lambda x: x[1])
-                slowest_time = slowest_layout[1]
-                slowest_name = slowest_layout[0]
+                slowest_layout = max(layouts_data, key=layouts_data.get)
+                slowest_time = layouts_data[slowest_layout]
 
-                model_speedups = {}
-                model_memories = {}
-                for layout, time_per_ray in layouts.items():
+                overall_speedups = {}
+                overall_memories = {}
+
+                for layout, time_per_ray in layouts_data.items():
                     speedup = slowest_time / time_per_ray
-                    model_speedups[layout] = speedup
-                    if machine in memory_data[model] and ray_type in memory_data[model][machine] and layout in memory_data[model][machine][ray_type]:
-                        model_memories[layout] = memory_data[model][machine][ray_type][layout]['memory']
+                    overall_speedups[layout] = speedup
 
-                result = {
-                    'overall': {
-                        'speedups': model_speedups,
-                        'memories': model_memories,
-                        'slowest_layout': slowest_name,
-                        'slowest_time': slowest_time
-                    }
+                    if layout in memory_data[model][machine][ray_type]:
+                        memory = memory_data[model][machine][ray_type][layout]['memory']
+                        overall_memories[layout] = memory
+
+                speedups[model][machine][ray_type]['overall'] = {
+                    'slowest_layout': slowest_layout,
+                    'slowest_time': slowest_time,
+                    'speedups': overall_speedups,
+                    'memories': overall_memories
                 }
 
-                group_speedups = {}
-                for group_name, group_layouts in layout_groups.items():
-                    group_data = {layout: layouts[layout] for layout in group_layouts
-                                  if layout in layouts}
+                if layout_groups:
+                    group_speedups_data = {}
 
-                    if not group_data:
-                        continue
+                    for group_name, group_layouts in layout_groups.items():
+                        group_times = {
+                            layout: layouts_data[layout]
+                            for layout in group_layouts if layout in layouts_data
+                        }
 
-                    group_slowest = max(group_data.items(), key=lambda x: x[1])
-                    group_slowest_time = group_slowest[1]
-                    group_slowest_name = group_slowest[0]
+                        if not group_times:
+                            continue
 
-                    group_speedup_data = {}
-                    group_memory_data = {}
-                    for layout, time_per_ray in group_data.items():
-                        speedup = group_slowest_time / time_per_ray
-                        group_speedup_data[layout] = speedup
-                        if machine in memory_data[model] and ray_type in memory_data[model][machine] and layout in memory_data[model][machine][ray_type]:
-                            group_memory_data[layout] = memory_data[model][machine][ray_type][layout]['memory']
+                        group_slowest_layout = max(
+                            group_times, key=group_times.get)
+                        group_slowest_time = group_times[group_slowest_layout]
 
-                    group_speedups[group_name] = {
-                        'speedups': group_speedup_data,
-                        'memories': group_memory_data,
-                        'slowest_layout': group_slowest_name,
-                        'slowest_time': group_slowest_time
-                    }
+                        group_speedups = {}
+                        group_memories = {}
 
-                result['groups'] = group_speedups
-                speedups[model][machine][ray_type] = result
+                        for layout, time_per_ray in group_times.items():
+                            speedup = group_slowest_time / time_per_ray
+                            group_speedups[layout] = speedup
 
-    results_dir = os.path.dirname(
-        filename) if os.path.dirname(filename) else '.'
-    name = os.path.splitext(os.path.basename(filename))[0]
-    if output_filename is None:
-        output_filename = f'{name}-{machine_type}-{ray_type}'
-    speedup_file = os.path.join(
-        results_dir, f'{filename}-speedup.txt')
-    save_speedups_to_file(speedups, speedup_file, layout_groups)
+                            if layout in memory_data[model][machine][ray_type]:
+                                memory = memory_data[model][machine][ray_type][layout]['memory']
+                                group_memories[layout] = memory
 
+                        group_speedups_data[group_name] = {
+                            'slowest_layout': group_slowest_layout,
+                            'slowest_time': group_slowest_time,
+                            'speedups': group_speedups,
+                            'memories': group_memories
+                        }
 
-def save_speedups_to_file(speedups, output_path, layout_groups):
+                    speedups[model][machine][ray_type]['groups'] = group_speedups_data
+
+    if output_filename:
+        output_path = f'{output_filename}_speedups.txt'
+    else:
+        base_csv = os.path.splitext(os.path.basename(csv_file))[0]
+        output_path = f'{base_csv}_{mean_strategy}_speedups.txt'
+
     with open(output_path, 'w') as f:
+        f.write(f"SPEEDUP ANALYSIS\n")
+        f.write(f"Mean Strategy: {mean_strategy.upper()}\n")
+        f.write(f"{'='*90}\n\n")
+
         for model in sorted(speedups.keys()):
-            f.write(f"\n{'='*90}\n")
             f.write(f"Model: {model.upper()}\n")
             f.write(f"{'='*90}\n")
 
@@ -643,6 +660,9 @@ Examples:
                         help='Memory type to use: bvh (excludes primitives) or total (includes primitives) (default: total)')
     parser.add_argument(
         '--output_filename', help='name of file to be saved', default=None)
+    parser.add_argument('--remove-legend',
+                        action='store_true',
+                        help='remove the legend from the plot')
     args = parser.parse_args()
 
     if args.layout_groups:
@@ -721,5 +741,6 @@ Examples:
         args.memory_type,
         args.machines,
         args.ray_types,
-        args.output_filename
+        args.output_filename,
+        args.remove_legend
     )

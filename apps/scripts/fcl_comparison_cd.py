@@ -125,9 +125,8 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     # Adjust layout
     plt.tight_layout()
 
-    # Save as PDF with high DPI
-    plt.savefig(output_file, dpi=1600, bbox_inches='tight', format='pdf')
-    print(f"Saved: {output_file}")
+    plt.savefig(output_file + ".pdf", dpi=1600, bbox_inches='tight')
+    print(f"Saved: {output_file}.pdf")
     plt.close()
 
 
@@ -144,8 +143,8 @@ def main():
                         help='First scene in the collision pair')
     parser.add_argument('--scene2', required=True,
                         help='Second scene in the collision pair')
-    parser.add_argument('--output', default='cd_speedup.pdf',
-                        help='Output file name (default: cd_speedup.pdf)')
+    parser.add_argument('--output', default='cd_speedup',
+                        help='Output file name (default: cd_speedup)')
 
     args = parser.parse_args()
 
