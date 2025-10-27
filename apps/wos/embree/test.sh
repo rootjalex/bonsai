@@ -51,7 +51,7 @@ run_tests() {
 
   
   if [[ "${BVH_SUFFIX}" == "2" ]]; then
-    LAYOUTS=("pbrt-align16")
+    LAYOUTS=("pbrt-align16" "pbrt" "pbrt-q16" "sg-eq")
   else
     LAYOUTS=("bvh8-q8-ci" "bvh8" "bvh8-q16-ci")
   fi
