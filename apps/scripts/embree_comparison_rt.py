@@ -1,0 +1,299 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from typing import List, Dict, Optional
+import os
+
+
+def compute_weighted_average_performance(df: pd.DataFrame, layouts: List[str]) -> pd.DataFrame:
+    """
+    Compute weighted average trace time across all ray_counts for each layout.
+    Weight by ray_count so that configurations with more rays have more influence.
+    Returns performance in ns/ray.
+    """
+    results = []
+
+    for layout in layouts:
+        layout_df = df[df['layout'] == layout]
+        if len(layout_df) == 0:
+            continue
+
+        # Compute weighted average: sum(trace_time * ray_count) / sum(ray_count)
+        total_ray_time = (layout_df['trace_time-ms']
+                          * layout_df['ray_count']).sum()
+        total_rays = layout_df['ray_count'].sum()
+
+        if total_rays > 0:
+            weighted_avg_time_ms = total_ray_time / total_rays
+            # Convert to ns/ray
+            ns_per_ray = (weighted_avg_time_ms * 1e6) / \
+                (total_rays / len(layout_df))
+        else:
+            ns_per_ray = np.nan
+
+        # Get total memory (should be constant across ray_counts for same layout)
+        total_memory = layout_df['total-memory-b'].iloc[0] if len(
+            layout_df) > 0 else np.nan
+
+        results.append({
+            'layout': layout,
+            'ns_per_ray': ns_per_ray,
+            'total_memory_mb': total_memory / (1024**2) if not pd.isna(total_memory) else np.nan
+        })
+
+    return pd.DataFrame(results)
+
+
+def compute_pareto_frontier(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute Pareto frontier: points where no other point has both lower memory and lower ns/ray.
+    Sort by memory for plotting.
+    """
+    # Remove NaN values
+    df_clean = df.dropna(subset=['total_memory_mb', 'ns_per_ray'])
+
+    if len(df_clean) == 0:
+        return pd.DataFrame()
+
+    pareto_points = []
+
+    for idx, row in df_clean.iterrows():
+        # Check if this point is dominated by any other point
+        is_dominated = False
+        for _, other_row in df_clean.iterrows():
+            if (other_row['total_memory_mb'] <= row['total_memory_mb'] and
+                other_row['ns_per_ray'] < row['ns_per_ray']) or \
+               (other_row['total_memory_mb'] < row['total_memory_mb'] and
+                    other_row['ns_per_ray'] <= row['ns_per_ray']):
+                is_dominated = True
+                break
+
+        if not is_dominated:
+            pareto_points.append(row)
+
+    pareto_df = pd.DataFrame(pareto_points)
+    # Sort by memory for plotting
+    pareto_df = pareto_df.sort_values('total_memory_mb')
+
+    return pareto_df
+
+
+def is_on_pareto_frontier(row, pareto_df):
+    """Check if a point is on the Pareto frontier"""
+    if len(pareto_df) == 0:
+        return False
+
+    for _, pareto_row in pareto_df.iterrows():
+        if (abs(row['total_memory_mb'] - pareto_row['total_memory_mb']) < 0.01 and
+                abs(row['ns_per_ray'] - pareto_row['ns_per_ray']) < 0.01):
+            return True
+    return False
+
+
+def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
+                         machines: List[str], ray_types: List[str],
+                         scenes: List[str], output_file: str):
+    """
+    Create a grid of scatter plots (4 per row).
+    Each subplot shows memory (x-axis) vs ns/ray (y-axis) for a machine/ray_type/scene combo.
+    """
+
+    # Calculate grid dimensions
+    n_plots = len(machines) * len(ray_types) * len(scenes)
+    n_cols = 4
+    n_rows = int(np.ceil(n_plots / n_cols))
+
+    # Create figure with tighter spacing
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 4.5 * n_rows))
+
+    # Flatten axes array for easier indexing
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([axes])
+    axes = axes.flatten() if n_rows > 1 or n_cols > 1 else [axes]
+
+    # Define colorblind-friendly colors
+    bonsai_color = '#0173B2'  # Blue for bonsai layouts
+    embree_color = '#DE8F05'  # Orange for embree layouts
+    gray_color = '#CCCCCC'    # Gray for non-Pareto points
+
+    plot_idx = 0
+
+    for machine in machines:
+        for ray_type in ray_types:
+            for scene in scenes:
+                if plot_idx >= len(axes):
+                    break
+
+                ax = axes[plot_idx]
+
+                # Filter data
+                filtered_df = df[
+                    (df['machine'] == machine) &
+                    (df['ray_type'] == ray_type) &
+                    (df['scene'] == scene)
+                ]
+
+                if len(filtered_df) == 0:
+                    ax.text(0.5, 0.5, 'No Data', ha='center', va='center',
+                            fontsize=16, transform=ax.transAxes)
+                    ax.set_title(f"{scene}\n{machine.upper()} | {ray_type.capitalize()}",
+                                 fontsize=16, fontweight='bold')
+                    ax.set_xlabel('Total Memory (MB)',
+                                  fontsize=14, fontweight='bold')
+                    ax.set_ylabel('Performance (ns/ray)',
+                                  fontsize=14, fontweight='bold')
+                    plot_idx += 1
+                    continue
+
+                # Compute weighted averages
+                summary_df = compute_weighted_average_performance(
+                    filtered_df, layouts)
+
+                if len(summary_df) == 0:
+                    ax.text(0.5, 0.5, 'No Layouts', ha='center', va='center',
+                            fontsize=16, transform=ax.transAxes)
+                    ax.set_title(f"{scene}\n{machine.upper()} | {ray_type.capitalize()}",
+                                 fontsize=16, fontweight='bold')
+                    ax.set_xlabel('Total Memory (MB)',
+                                  fontsize=14, fontweight='bold')
+                    ax.set_ylabel('Performance (ns/ray)',
+                                  fontsize=14, fontweight='bold')
+                    plot_idx += 1
+                    continue
+
+                # Compute Pareto frontier
+                pareto_df = compute_pareto_frontier(summary_df)
+
+                # Plot scatter points
+                for _, row in summary_df.iterrows():
+                    layout = row['layout']
+
+                    # Check if on Pareto frontier
+                    on_pareto = is_on_pareto_frontier(row, pareto_df)
+
+                    # Determine color and marker
+                    is_embree = layout.startswith('embree')
+
+                    if on_pareto:
+                        color = embree_color if is_embree else bonsai_color
+                    else:
+                        color = gray_color
+
+                    marker = '^' if is_embree else 'o'
+
+                    # Remove 'embree-' prefix from layout name for display
+                    display_name = layout.replace(
+                        'embree-', '') if is_embree else layout
+
+                    ax.scatter(row['total_memory_mb'], row['ns_per_ray'],
+                               s=200, color=color, alpha=0.7, edgecolors='black',
+                               linewidth=2, marker=marker)
+
+                    # Add label near point
+                    ax.annotate(display_name,
+                                (row['total_memory_mb'], row['ns_per_ray']),
+                                textcoords="offset points",
+                                xytext=(0, 10),
+                                ha='center',
+                                fontsize=11,
+                                fontweight='bold')
+
+                # Plot Pareto frontier line
+                if len(pareto_df) > 0:
+                    ax.plot(pareto_df['total_memory_mb'], pareto_df['ns_per_ray'],
+                            'k--', linewidth=2.5, alpha=0.6, zorder=1)
+
+                # Formatting
+                ax.set_title(f"{scene}\n{machine.upper()} | {ray_type.capitalize()}",
+                             fontsize=16, fontweight='bold', pad=10)
+                ax.set_xlabel('Total Memory (MB)',
+                              fontsize=14, fontweight='bold')
+                ax.set_ylabel('Performance (ns/ray)',
+                              fontsize=14, fontweight='bold')
+                ax.grid(True, alpha=0.3, linestyle='--')
+                ax.tick_params(axis='both', which='major', labelsize=12)
+
+                # Add some padding to axes
+                x_margin = (summary_df['total_memory_mb'].max(
+                ) - summary_df['total_memory_mb'].min()) * 0.15
+                y_margin = (summary_df['ns_per_ray'].max(
+                ) - summary_df['ns_per_ray'].min()) * 0.15
+
+                if not pd.isna(x_margin) and x_margin > 0:
+                    ax.set_xlim(summary_df['total_memory_mb'].min() - x_margin,
+                                summary_df['total_memory_mb'].max() + x_margin)
+                if not pd.isna(y_margin) and y_margin > 0:
+                    ax.set_ylim(summary_df['ns_per_ray'].min() - y_margin,
+                                summary_df['ns_per_ray'].max() + y_margin)
+
+                plot_idx += 1
+
+    # Hide any unused subplots
+    for idx in range(plot_idx, len(axes)):
+        axes[idx].axis('off')
+
+    # Adjust layout - much tighter spacing
+    plt.subplots_adjust(hspace=0.35, wspace=0.25, left=0.05,
+                        right=0.98, top=0.96, bottom=0.05)
+
+    # Add centered legend for entire figure (smaller)
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=bonsai_color,
+               markersize=10, markeredgecolor='black', markeredgewidth=1.5,
+               label='Our Work', linestyle='None'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor=embree_color,
+               markersize=10, markeredgecolor='black', markeredgewidth=1.5,
+               label='Embree', linestyle='None')
+    ]
+
+    # Place legend in center of figure - smaller size
+    fig.legend(handles=legend_elements, loc='center', fontsize=11,
+               framealpha=0.95, edgecolor='black', ncol=1,
+               bbox_to_anchor=(0.5, 0.5))
+
+    # Save
+    plt.savefig(output_file + ".pdf", dpi=1600, bbox_inches='tight')
+    print(f"Saved: {output_file}.pdf")
+    plt.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Generate scatter plots comparing memory vs performance')
+    parser.add_argument('input_csv', help='Input CSV file with benchmark data')
+    parser.add_argument('--layouts', nargs='+', required=True,
+                        help='List of layouts to compare')
+    parser.add_argument('--machines', nargs='+', default=['x86', 'arm'],
+                        help='Machines to generate plots for (default: x86 arm)')
+    parser.add_argument('--ray-types', nargs='+', default=['primary', 'secondary'],
+                        help='Ray types to generate plots for (default: primary secondary)')
+    parser.add_argument('--scenes', nargs='+', required=True,
+                        help='Scenes to generate plots for')
+    parser.add_argument('--output', default='memory_vs_performance',
+                        help='Output file name (default: memory_vs_performance)')
+
+    args = parser.parse_args()
+
+    # Load data
+    print(f"Loading data from {args.input_csv}...")
+    df = pd.read_csv(args.input_csv)
+
+    print(f"Loaded {len(df)} rows")
+    print(f"Generating plots for:")
+    print(f"  Layouts: {args.layouts}")
+    print(f"  Machines: {args.machines}")
+    print(f"  Ray types: {args.ray_types}")
+    print(f"  Scenes: {args.scenes}")
+
+    # Generate plots
+    create_scatter_plots(
+        df, args.layouts, args.machines, args.ray_types, args.scenes, args.output
+    )
+
+    print(f"\nDone! Output saved to {args.output}")
+
+
+if __name__ == "__main__":
+    main()
