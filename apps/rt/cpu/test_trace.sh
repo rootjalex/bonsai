@@ -9,6 +9,7 @@ PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
 OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
+INTERSECTIONS=("mt" "pc") # Moeller-Trumbore or Pluecker Coordinates
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -39,10 +40,11 @@ done
 N="${POSITIONAL_ARGS[0]:-9}" # drop lowest 2 and highest 2 runs in processing
 RAY_TYPE="${POSITIONAL_ARGS[1]:-camera}" 
 SCHEDULE="${POSITIONAL_ARGS[2]:-parallel}" # or single-thread
+INTERSECT="${POSITIONAL_ARGS[3]:-${INTERSECTIONS[0]}}" # default to first intersection type
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 
-echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
+echo "${N}, ${RAY_TYPE}, ${SCHEDULE}, ${INTERSECT}"
 
 DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
 DATA_FILE="${RAY_TYPE}"
@@ -130,7 +132,7 @@ if [[ "$(uname)" == "Linux" ]]; then
   echo "Running on Linux (presumably Redwood)!"
 fi
 
-echo "runs: ${N}, schedule: ${SCHEDULE}"
+echo "runs: ${N}, schedule: ${SCHEDULE}, intersect: ${INTERSECT}"
 > ${DATA_PATH}/${DATA_FILE}.txt # clear
 
 # Function to run tests for a given main file and layouts
@@ -168,17 +170,27 @@ run_tests() {
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
-      echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
+      echo "${APPLICATION}, ${TARGET}, ${LAYOUT}, ${INTERSECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
       # 0. Combine the layout and schedule into a single file.
       LAYOUT_FILE=$(mktemp).bonsai
       cat ${LAYOUT_PATH}/${BVH_SUFFIX}/${LAYOUT}.bonsai > ${LAYOUT_FILE}
       cat ${PREFIX}/schedule.bonsai >> ${LAYOUT_FILE}
       echo "}" >> "${LAYOUT_FILE}"
 
-      # 1. Build the Bonsai compiler.
+    # 1. Build the Bonsai compiler.
       cmake --build build --config Debug -j > /dev/null
+      
+      # 1.5. Prepend intersection import to main.bonsai
+      MAIN_BONSAI_TEMPORARY=$(mktemp).bonsai
+      echo "import apps/rt/cpu/intersect/${INTERSECT};" > ${MAIN_BONSAI_TEMPORARY}
+      cat ${PREFIX}/main.bonsai >> ${MAIN_BONSAI_TEMPORARY}
+      
       # 2. Lower to C++.
-      ./build/compiler -i ${PREFIX}/main.bonsai -l ${LAYOUT_FILE} -b cppx -o ${PREFIX}/${APPLICATION}
+      ./build/compiler -i ${MAIN_BONSAI_TEMPORARY} -l ${LAYOUT_FILE} -b cppx -o ${PREFIX}/${APPLICATION}
+      
+      # Clean up temp main file
+      rm ${MAIN_BONSAI_TEMPORARY}
+      
       # 3. Compile the lowered C++.
       COMMON_FLAGS="-std=c++20 -O3 -march=native -I. -Iapps/${APPLICATION} -Iruntime/CPP"
       if [[ "${SCHEDULE}" == "parallel" ]]; then
@@ -241,7 +253,6 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
   echo "... debug test complete"
 else
-
   echo "running tests with 2-BVH..."
   run_tests "2"  
   echo "... tests complete for 2-BVH"
@@ -249,10 +260,6 @@ else
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"
-
-  # echo "running tests with 8-mixed-BVH..."
-  # run_tests "8_mixed"
-  # echo "... tests complete for 8-mixed-BVH"
 fi
 
 rm -f ${RAY_PATH}/${RAY_FILE}.out

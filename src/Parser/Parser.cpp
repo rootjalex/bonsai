@@ -176,6 +176,7 @@ struct Parser {
             "any",
             // Other builtins
             "cast",
+            "bitcast",
             "eps",
             "permute",
             "select",
@@ -1652,6 +1653,21 @@ struct Parser {
                 }
                 return ir::Cast::make(std::move(template_types[0]),
                                       std::move(args[0]));
+            } else if (name == "bitcast") {
+                // equivalent to c++20's std::bitcast.
+                if (template_types.size() != 1) {
+                    report_error() << "cast() expects a single template "
+                                      "parameter, instead received: "
+                                   << template_types.size();
+                }
+                if (args.size() != 1) {
+                    report_error() << "cast() expects a single argument, "
+                                      "instead received: "
+                                   << args.size();
+                }
+                return ir::Cast::make(std::move(template_types[0]),
+                                      std::move(args[0]),
+                                      ir::Cast::Mode::Reinterpret);
             } else if (name == "eps") {
                 if (template_types.size() != 1) {
                     report_error() << "eps() expects a single template "

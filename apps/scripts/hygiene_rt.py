@@ -76,6 +76,7 @@ def parse_benchmark_data(
         scene_name = lines[0].strip()
 
         current_layout = None
+        current_intersect = None
         application = None
         current_ray_count = None
         current_hits = None
@@ -87,9 +88,13 @@ def parse_benchmark_data(
 
             if line.startswith('rt,'):
                 parts = line.split(',')
-                if len(parts) >= 3:
+                if len(parts) >= 4:
                     application = parts[0].strip()
                     current_layout = parts[2].strip()
+                    current_intersect = parts[3].strip()
+                else:
+                    raise ValueError(
+                        f"Expected format 'rt, <target>, <layout>, <intersect>' but got: {line}")
                 current_ray_count = None
                 current_hits = None
                 continue
@@ -117,6 +122,7 @@ def parse_benchmark_data(
                     machine,
                     scene_name,
                     current_layout,
+                    current_intersect,
                     current_ray_count,
                     current_hits,
                     trace_time,
@@ -144,7 +150,7 @@ def parse_benchmark_data(
         # Write header only if file doesn't exist
         if not file_exists:
             f.write(
-                "app,machine,scene,layout,ray_count,hits,trace_time-ms,group,ray_type,total-memory-b,bvh-memory-b\n")
+                "app,machine,scene,layout,intersect,ray_count,hits,trace_time-ms,group,ray_type,total-memory-b,bvh-memory-b\n")
         for data in results:
             to_csv = ','.join(str(x) for x in data)
             f.write(f"{to_csv}\n")

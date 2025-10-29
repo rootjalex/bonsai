@@ -20,13 +20,13 @@ __attribute__((always_inline)) T reinterpret(const U &bits) {
     static_assert(std::is_trivially_copyable_v<U>,
                   "U must be trivially copyable");
 
-#if __cpp_lib_bit_cast >= 201806L // C++20
+    // #if __cpp_lib_bit_cast >= 201806L // C++20
     return std::bit_cast<T>(bits);
-#else
-    T result;
-    std::memcpy(&result, &bits, sizeof(T));
-    return result;
-#endif
+    // #else
+    //     T result;
+    //     std::memcpy(&result, &bits, sizeof(T));
+    //     return result;
+    // #endif
 }
 
 using std::abs;

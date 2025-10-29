@@ -9,6 +9,7 @@ PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
 OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza" "power-plant")
+INTERSECTIONS=("mt" "pc") # Moeller-Trumbore or Pluecker Coordinates
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -39,6 +40,7 @@ done
 N="${POSITIONAL_ARGS[0]:-9}" # drop lowest 2 and highest 2 runs in processing
 RAY_TYPE="${POSITIONAL_ARGS[1]:-camera}" 
 SCHEDULE="${POSITIONAL_ARGS[2]:-parallel}" # or single-thread
+INTERSECT="${POSITIONAL_ARGS[3]:-${INTERSECTIONS[0]}}" # default to first intersection type
 RAY_PATH="${KERNEL_PATH}/rays"
 RAY_FILE="kernel"
 DATA_PATH="${PREFIX}/results-${RAY_TYPE}"
@@ -48,7 +50,7 @@ PARTITION="sah"
 MIN_POWER=18
 MAX_POWER=23
 
-echo "${N}, ${RAY_TYPE}, ${SCHEDULE}"
+echo "${N}, ${RAY_TYPE}, ${SCHEDULE}, ${INTERSECT}"
 
 # Override for dry run
 if [[ "${DRY_RUN}" == true ]]; then
@@ -119,7 +121,7 @@ mkdir ${DATA_PATH}
 # Install python dependencies for data processing.
 pip install -r ${KERNEL_PATH}/requirements.txt
 
-echo "runs: ${N}"
+echo "runs: ${N}, intersect: ${INTERSECT}"
 > ${DATA_PATH}/${DATA_FILE}.txt
 
 # Function to run tests for a given main file and layouts
@@ -160,7 +162,7 @@ run_tests() {
     echo "${OBJECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
     for LAYOUT in "${LAYOUTS[@]}"; do
       echo "  ${APPLICATION}, ${TARGET}, ${LAYOUT} (${MAIN_FILE})"
-      echo "${APPLICATION}, ${TARGET}, ${LAYOUT}" >> ${DATA_PATH}/${DATA_FILE}.txt
+      echo "${APPLICATION}, ${TARGET}, ${LAYOUT}, ${INTERSECT}" >> ${DATA_PATH}/${DATA_FILE}.txt
       
       LAYOUT_FILE=$(mktemp).bonsai
       cat ${LAYOUT_PATH}/${BVH_SUFFIX}/${LAYOUT}.bonsai > ${LAYOUT_FILE}
@@ -168,7 +170,17 @@ run_tests() {
       echo "}" >> "${LAYOUT_FILE}"
 
       cmake --build build --config Debug -j > /dev/null
-      ./build/compiler -i ${PREFIX}/main.bonsai -l ${LAYOUT_FILE} -b cuda -o ${PREFIX}/${APPLICATION}.h
+      
+      # Prepend intersection import to main.bonsai
+      MAIN_BONSAI_TEMPORARY=$(mktemp).bonsai
+      echo "import apps/rt/cuda/intersect/${INTERSECT};" > ${MAIN_BONSAI_TEMPORARY}
+      cat ${PREFIX}/main.bonsai >> ${MAIN_BONSAI_TEMPORARY}
+      
+      ./build/compiler -i ${MAIN_BONSAI_TEMPORARY} -l ${LAYOUT_FILE} -b cuda -o ${PREFIX}/${APPLICATION}.h
+      
+      # Clean up temp main file
+      rm ${MAIN_BONSAI_TEMPORARY}
+      
       module load cuda
       nvcc -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
       
@@ -197,8 +209,6 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
   echo "... debug test complete"
 else
-
-
   echo "running tests with 2-BVH..."
   run_tests "2"
   echo "... tests complete for 2-BVH"
@@ -206,10 +216,6 @@ else
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"
-
-  # echo "running tests with 8-mixed-BVH..."
-  # run_tests "8_mixed"
-  # echo "... tests complete for 8-mixed-BVH"
 fi
 
 rm -f ${RAY_PATH}/${RAY_FILE}.out

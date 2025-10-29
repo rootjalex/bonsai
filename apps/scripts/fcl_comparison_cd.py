@@ -80,10 +80,6 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     bars = ax.bar(x_pos, summary_df['speedup'],
                   color='#0173B2', alpha=0.7, edgecolor='black', linewidth=4)
 
-    # Add horizontal line at y=1 (FCL baseline) - much thicker
-    ax.axhline(y=1.0, color='red', linestyle='--', linewidth=6,
-               alpha=0.7)
-
     # Color bars: green if faster than FCL, red if slower
     for i, (bar, speedup) in enumerate(zip(bars, summary_df['speedup'])):
         if speedup > 1.0:
@@ -100,7 +96,7 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
                 fontsize=40, fontweight='bold')
 
     # Formatting - all fonts much larger
-    ax.set_title(f"Collision Detection Speedup vs FCL\n{scene1} vs {scene2}",
+    ax.set_title(f"Scene(s): {scene1}, {scene2}",
                  fontsize=52, fontweight='bold', pad=40)
     ax.set_ylabel('Speedup vs FCL', fontsize=48, fontweight='bold')
     ax.set_xlabel('Layout / Machine', fontsize=48, fontweight='bold')
@@ -118,7 +114,7 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
         spine.set_linewidth(3)
 
     # Set y-axis to start at 0 or slightly below minimum
-    y_min = min(0.9, summary_df['speedup'].min() * 0.95)
+    y_min = 1.0
     y_max = summary_df['speedup'].max() * 1.15
     ax.set_ylim(y_min, y_max)
 
@@ -143,7 +139,7 @@ def main():
                         help='First scene in the collision pair')
     parser.add_argument('--scene2', required=True,
                         help='Second scene in the collision pair')
-    parser.add_argument('--output', default='cd_speedup',
+    parser.add_argument('--output_filename', default='cd_speedup',
                         help='Output file name (default: cd_speedup)')
 
     args = parser.parse_args()
@@ -159,9 +155,7 @@ def main():
 
     # Generate chart
     create_bar_chart(df, args.layouts, args.machines,
-                     args.scene1, args.scene2, args.output)
-
-    print(f"\nDone! Output saved to {args.output}")
+                     args.scene1, args.scene2, args.output_filename)
 
 
 if __name__ == "__main__":

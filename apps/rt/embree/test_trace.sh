@@ -8,8 +8,7 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-# "lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" 
-OBJECTS=("white-oak" "sponza" "power-plant")
+OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball"  "white-oak" "sponza" "power-plant")
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -118,7 +117,7 @@ echo "runs: ${N}, schedule: ${SCHEDULE}"
 
 # Function to run tests for a given main file and layouts
 run_tests() {
-  LAYOUTS=("qbvh8" "bvh8" "qbvh8i" "bvh8i" "bvh8v")
+  LAYOUTS=("qbvh8i" "bvh8i")
   echo "-- with layouts: ${LAYOUTS[@]}"
   
 

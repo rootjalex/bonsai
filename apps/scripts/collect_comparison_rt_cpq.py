@@ -128,15 +128,13 @@ def plot_comparison(rt_speedups, cpq_speedups, scenes, layouts, output_file):
 
         # Customize plot
         ax.set_xlabel('Layout', fontsize=32, fontweight='bold')
-        ax.set_ylabel('Relative Performance\n(1.0 = fastest)',
-                      fontsize=32, fontweight='bold')
         ax.set_title(scene.replace('_', ' ').title(),
-                     fontsize=36, fontweight='bold')
+                     fontsize=24, fontweight='bold')
         ax.set_xticks(x)
         ax.set_xticklabels([l.upper() for l in layouts],
-                           rotation=45, ha='right', fontsize=28)
-        ax.tick_params(axis='y', labelsize=28)
-        ax.legend(fontsize=28, loc='best', framealpha=0.9, edgecolor='black')
+                           rotation=35, ha='right', fontsize=20)
+        ax.tick_params(axis='y', labelsize=24)
+        ax.legend(fontsize=24, loc='best', framealpha=0.9, edgecolor='black')
         ax.grid(True, axis='y', linestyle='--', linewidth=1, alpha=0.3)
 
         # Set y-axis to start from 0
@@ -262,7 +260,7 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
     # Special handling for 4 scenes - 2x2 grid
     if n_scenes == 4:
         fig = plt.figure(figsize=(20, 20))
-        gs = fig.add_gridspec(2, 2, hspace=0.5, wspace=0.3)
+        gs = fig.add_gridspec(2, 2, hspace=0.62, wspace=0.3)
         axes = [fig.add_subplot(gs[0, 0]),
                 fig.add_subplot(gs[0, 1]),
                 fig.add_subplot(gs[1, 0]),
@@ -314,10 +312,8 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
                    linewidth=3.5, alpha=0.8)
 
         # Customize plot
-        ax.set_ylabel('Relative Performance', fontsize=36,
-                      fontweight='bold', labelpad=15)
         ax.set_title(scene.replace('_', ' ').title(),
-                     fontsize=40, fontweight='bold', pad=20)
+                     fontsize=28, fontweight='bold', pad=20)
         ax.set_xticks(x)
 
         # Create layout labels without marking dominance
@@ -343,14 +339,14 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
         # Add value labels only on bars that are 1.0x (fastest)
         for bar in bars1:
             height = bar.get_height()
-            if abs(height - 1.0) < 0.002:  # Check if it's 1.0 (fastest)
+            if abs(height - 1.0) < 0.001:  # Check if it's 1.0 (fastest)
                 ax.text(bar.get_x() + bar.get_width()/2., height + y_max*0.01,
                         f'{height:.2f}',
                         ha='center', va='bottom', fontsize=28, fontweight='bold')
 
         for bar in bars2:
             height = bar.get_height()
-            if abs(height - 1.0) < 0.002:  # Check if it's 1.0 (fastest)
+            if abs(height - 1.0) < 0.001:  # Check if it's 1.0 (fastest)
                 ax.text(bar.get_x() + bar.get_width()/2., height + y_max*0.01,
                         f'{height:.2f}',
                         ha='center', va='bottom', fontsize=28, fontweight='bold')
@@ -372,7 +368,7 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
         # Place legend in center of figure
         fig.legend(handles=legend_elements, loc='center', fontsize=28,
                    framealpha=0.95, edgecolor='black', fancybox=False, shadow=True,
-                   bbox_to_anchor=(0.5, 0.470))
+                   bbox_to_anchor=(0.48, 0.470))
     else:
         # For non-2x2 layouts, add legend to each subplot
         for ax in axes:
@@ -449,7 +445,7 @@ Examples:
                         help='Filter RT by ray types (e.g., primary secondary)')
     parser.add_argument('--include-embree', action='store_true',
                         help='Include Embree layouts in comparison (default: excluded)')
-    parser.add_argument('--output', type=str, default='rt_cpq_comparison',
+    parser.add_argument('--output_filename', type=str, default='rt_cpq_comparison',
                         help='Output file name (default: rt_cpq_comparison)')
 
     args = parser.parse_args()
@@ -484,7 +480,7 @@ Examples:
     # Create plot
     print(f"\nGenerating comparison plot...")
     plot_comparison_grouped(rt_speedups, cpq_speedups, args.scenes,
-                            args.layouts, args.output, rt_data_all, cpq_data_all)
+                            args.layouts, args.output_filename, rt_data_all, cpq_data_all)
 
 
 if __name__ == "__main__":

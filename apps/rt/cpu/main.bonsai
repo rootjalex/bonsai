@@ -1,6 +1,61 @@
-import stdlib/distance;
-import stdlib/intersects;
-import stdlib/triangle;
+
+
+// Mimics Embree's ray-aabb intersection.
+// https://github.com/RenderKit/embree/blob/e9b8633e1d271aaf084b7befb925bf878e306c54/kernels/bvh/node_intersector1.h#L485
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    rdir: f32x3 = 1.0 / r.d;
+    
+    dirIsNeg = r.d < 0.0;
+    nearX: f32 = select(dirIsNeg.x, b.high.x, b.low.x);
+    nearY: f32 = select(dirIsNeg.y, b.high.y, b.low.y);
+    nearZ: f32 = select(dirIsNeg.z, b.high.z, b.low.z);
+    farX: f32 = select(dirIsNeg.x, b.low.x, b.high.x);
+    farY: f32 = select(dirIsNeg.y, b.low.y, b.high.y);
+    farZ: f32 = select(dirIsNeg.z, b.low.z, b.high.z);
+    
+    tNearX: f32 = (nearX - r.o.x) * rdir.x;
+    tNearY: f32 = (nearY - r.o.y) * rdir.y;
+    tNearZ: f32 = (nearZ - r.o.z) * rdir.z;
+    tFarX: f32 = (farX - r.o.x) * rdir.x;
+    tFarY: f32 = (farY - r.o.y) * rdir.y;
+    tFarZ: f32 = (farZ - r.o.z) * rdir.z;
+    
+    tNear: mut f32 = max(0.0, max(tNearX, max(tNearY, tNearZ)));
+    tFar: mut f32 = min(r.tmax, min(tFarX, min(tFarY, tFarZ)));
+    if tNear <= tFar {
+        return FInterval{tNear, tFar};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low < r.tmax & extract.high > 0;
+    }
+    return false;
+}
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return -inf;
+}
+
+func distmin(ray : Ray, tri : Triangle) -> Float {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        // TODO(ajr): this is annoying syntax. Fix.
+        isect_ = *isect;
+        return isect_.t;
+    } else {
+        return inf;
+    }
+}
 
 extern triangles : set[Triangle];
 

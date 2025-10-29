@@ -99,7 +99,7 @@ def create_bar_chart(df: pd.DataFrame, layout: str, machines: List[str],
                 fontsize=40, fontweight='bold')
 
     # Formatting - all fonts much larger
-    ax.set_title(f"CPQ Performance vs Embree: {layout}",
+    ax.set_title(f"Layout: {layout}",
                  fontsize=52, fontweight='bold', pad=40)
     ax.set_ylabel('Slowdown vs Embree', fontsize=48, fontweight='bold')
     ax.set_xlabel('Scene / Machine', fontsize=48, fontweight='bold')
