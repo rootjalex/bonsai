@@ -244,7 +244,6 @@ void run_test(const std::string &obj1, int64_t num_queries) {
     std::vector<Triangle> triangles = load_obj(obj1);
     assert(!triangles.empty());
 
-    // Use simple float arrays for vertices and indices
     std::vector<float>
         vertices1; // Store as flat array: x0,y0,z0, x1,y1,z1, ...
     std::vector<unsigned int>
@@ -288,7 +287,7 @@ void run_test(const std::string &obj1, int64_t num_queries) {
     float box_extent[3] = {bbox_max[0] - bbox_min[0], bbox_max[1] - bbox_min[1],
                            bbox_max[2] - bbox_min[2]};
 
-    // Generate random query points within bounding box
+    // Generate random query points within bounding box.
     std::vector<Vec3> query_points;
     std::srand(42); // Fixed seed for reproducibility
 
@@ -372,7 +371,7 @@ void run_test(const std::string &obj1, int64_t num_queries) {
         assert(args->userPtr);
         ClosestPointResult *result = (ClosestPointResult *)args->userPtr;
 
-        // Get triangle vertices
+        // Get triangle vertices.
         unsigned int primID = args->primID;
         const unsigned *indices = result->indices;
         const float *vertices = result->vertices;
@@ -399,14 +398,12 @@ void run_test(const std::string &obj1, int64_t num_queries) {
         pt.vec[1] = args->query->y;
         pt.vec[2] = args->query->z;
 
-        // Use the same distance function as Bonsai
+        // Use the same distance function as Bonsai.
         float dist = distmin_tri(&pt, &tri);
 
         if (dist < result->distance) {
             result->distance = dist;
             result->primID = primID;
-
-            // Update query radius to prune search space
             args->query->radius = dist;
         }
 
@@ -468,7 +465,7 @@ void run_test(const std::string &obj1, int64_t num_queries) {
     verify_results(embree_distances, bonsai_distances, num_queries,
                    /*distance_tolerance=*/1e-4f);
 
-    // Cleanup Embree resources
+    // Cleanup Embree resources.
     rtcReleaseScene(scene);
     rtcReleaseDevice(device);
 }
