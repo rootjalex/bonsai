@@ -11,11 +11,43 @@ def compute_weighted_average_performance(df: pd.DataFrame, layouts: List[str]) -
     Compute weighted average trace time across all ray_counts for each layout.
     Weight by ray_count so that configurations with more rays have more influence.
     Returns performance in ns/ray.
+
+    Handles intersect column:
+    - embree layouts: use intersect from data (mt or pc)
+    - non-embree layouts: determine intersect based on 'q' in layout name
+      - contains 'q' -> intersect = 'mt'
+      - no 'q' -> intersect = 'pc'
     """
     results = []
 
     for layout in layouts:
         layout_df = df[df['layout'] == layout]
+        if len(layout_df) == 0:
+            continue
+
+        # Determine the correct intersect value for this layout
+        is_embree = layout.startswith('embree')
+
+        if is_embree:
+            # For embree layouts, use the intersect value from the data
+            # Should be consistent for all rows of same layout
+            if 'intersect' in layout_df.columns:
+                expected_intersect = layout_df['intersect'].iloc[0]
+                # Filter to only rows with matching intersect
+                layout_df = layout_df[layout_df['intersect']
+                                      == expected_intersect]
+        else:
+            # For non-embree layouts, determine intersect based on presence of 'q'
+            if 'q' in layout.lower():
+                expected_intersect = 'mt'
+            else:
+                expected_intersect = 'pc'
+
+            # Filter to only rows with matching intersect
+            if 'intersect' in layout_df.columns:
+                layout_df = layout_df[layout_df['intersect']
+                                      == expected_intersect]
+
         if len(layout_df) == 0:
             continue
 
@@ -36,8 +68,17 @@ def compute_weighted_average_performance(df: pd.DataFrame, layouts: List[str]) -
         total_memory = layout_df['total-memory-b'].iloc[0] if len(
             layout_df) > 0 else np.nan
 
+        # Create display name: prefix non-embree layouts with "bvh8-"
+        if is_embree:
+            display_layout = layout
+        else:
+            # Add bvh8- prefix if not already present
+            display_layout = layout if layout.startswith(
+                'bvh8-') else f'bvh8-{layout}'
+
         results.append({
-            'layout': layout,
+            'layout': display_layout,
+            'original_layout': layout,
             'ns_per_ray': ns_per_ray,
             'total_memory_mb': total_memory / (1024**2) if not pd.isna(total_memory) else np.nan
         })
@@ -115,7 +156,6 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
     # Define colorblind-friendly colors
     bonsai_color = '#0173B2'  # Blue for bonsai layouts
     embree_color = '#DE8F05'  # Orange for embree layouts
-    gray_color = '#CCCCCC'    # Gray for non-Pareto points
 
     plot_idx = 0
 
@@ -136,13 +176,13 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
 
                 if len(filtered_df) == 0:
                     ax.text(0.5, 0.5, 'No Data', ha='center', va='center',
-                            fontsize=16, transform=ax.transAxes)
+                            fontsize=20, transform=ax.transAxes)
                     ax.set_title(f"{scene}\n{machine.upper()} | {ray_type.capitalize()}",
-                                 fontsize=16, fontweight='bold')
+                                 fontsize=20, fontweight='bold')
                     ax.set_xlabel('Total Memory (MB)',
-                                  fontsize=14, fontweight='bold')
+                                  fontsize=18, fontweight='bold')
                     ax.set_ylabel('Performance (ns/ray)',
-                                  fontsize=14, fontweight='bold')
+                                  fontsize=18, fontweight='bold')
                     plot_idx += 1
                     continue
 
@@ -152,13 +192,13 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
 
                 if len(summary_df) == 0:
                     ax.text(0.5, 0.5, 'No Layouts', ha='center', va='center',
-                            fontsize=16, transform=ax.transAxes)
+                            fontsize=20, transform=ax.transAxes)
                     ax.set_title(f"{scene}\n{machine.upper()} | {ray_type.capitalize()}",
-                                 fontsize=16, fontweight='bold')
+                                 fontsize=20, fontweight='bold')
                     ax.set_xlabel('Total Memory (MB)',
-                                  fontsize=14, fontweight='bold')
+                                  fontsize=18, fontweight='bold')
                     ax.set_ylabel('Performance (ns/ray)',
-                                  fontsize=14, fontweight='bold')
+                                  fontsize=18, fontweight='bold')
                     plot_idx += 1
                     continue
 
@@ -175,19 +215,23 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                     # Determine color and marker
                     is_embree = layout.startswith('embree')
 
-                    if on_pareto:
-                        color = embree_color if is_embree else bonsai_color
-                    else:
-                        color = gray_color
+                    # Always use the original color (not gray)
+                    color = embree_color if is_embree else bonsai_color
+
+                    # Use different alpha for non-Pareto points to show they're dominated
+                    alpha = 0.7 if on_pareto else 0.4
 
                     marker = '^' if is_embree else 'o'
 
                     # Remove 'embree-' prefix from layout name for display
-                    display_name = layout.replace(
-                        'embree-', '') if is_embree else layout
+                    # Remove 'bvh8-' prefix from non-embree layouts for display
+                    if is_embree:
+                        display_name = layout.replace('embree-', '')
+                    else:
+                        display_name = layout.replace('bvh8-', '')
 
                     ax.scatter(row['total_memory_mb'], row['ns_per_ray'],
-                               s=200, color=color, alpha=0.7, edgecolors='black',
+                               s=200, color=color, alpha=alpha, edgecolors='black',
                                linewidth=2, marker=marker)
 
                     # Add label near point
@@ -196,7 +240,7 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                                 textcoords="offset points",
                                 xytext=(0, 10),
                                 ha='center',
-                                fontsize=11,
+                                fontsize=14,
                                 fontweight='bold')
 
                 # Plot Pareto frontier line
@@ -205,14 +249,14 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                             'k--', linewidth=2.5, alpha=0.6, zorder=1)
 
                 # Formatting
-                ax.set_title(f"{scene}\n{machine.upper()} | {ray_type.capitalize()}",
-                             fontsize=16, fontweight='bold', pad=10)
+                ax.set_title(f"{scene} | {machine} | {ray_type}",
+                             fontsize=20, fontweight='bold', pad=10)
                 ax.set_xlabel('Total Memory (MB)',
-                              fontsize=14, fontweight='bold')
-                ax.set_ylabel('Performance (ns/ray)',
-                              fontsize=14, fontweight='bold')
+                              fontsize=18, fontweight='bold')
+                ax.set_ylabel('Latency (ns/ray)',
+                              fontsize=18, fontweight='bold')
                 ax.grid(True, alpha=0.3, linestyle='--')
-                ax.tick_params(axis='both', which='major', labelsize=12)
+                ax.tick_params(axis='both', which='major', labelsize=16)
 
                 # Add some padding to axes
                 x_margin = (summary_df['total_memory_mb'].max(
@@ -241,15 +285,15 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
     from matplotlib.lines import Line2D
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', markerfacecolor=bonsai_color,
-               markersize=10, markeredgecolor='black', markeredgewidth=1.5,
+               markersize=14, markeredgecolor='black', markeredgewidth=2,
                label='Our Work', linestyle='None'),
         Line2D([0], [0], marker='^', color='w', markerfacecolor=embree_color,
-               markersize=10, markeredgecolor='black', markeredgewidth=1.5,
+               markersize=14, markeredgecolor='black', markeredgewidth=2,
                label='Embree', linestyle='None')
     ]
 
     # Place legend in center of figure - smaller size
-    fig.legend(handles=legend_elements, loc='center', fontsize=11,
+    fig.legend(handles=legend_elements, loc='center', fontsize=16,
                framealpha=0.95, edgecolor='black', ncol=1,
                bbox_to_anchor=(0.5, 0.5))
 

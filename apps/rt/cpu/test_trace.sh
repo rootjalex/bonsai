@@ -8,8 +8,8 @@ KERNEL_PATH="apps/${APPLICATION}"
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${KERNEL_PATH}/layouts"
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
-INTERSECTIONS=("mt" "pc") # Moeller-Trumbore or Pluecker Coordinates
+OBJECTS=("lucy" "sheep") # "san-miguel-x35-y22-z47" "hairball" "white-oak" "sponza" "power-plant")
+INTERSECTIONS=("pc") # "mt") # Moeller-Trumbore or Pluecker Coordinates
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -140,17 +140,17 @@ run_tests() {
   local BVH_SUFFIX="$1"
   local SPECIFIC_LAYOUT="${2:-}" # optional: specific layout to test
   
-  LAYOUTS=()
-  if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
-    # (debug mode) test a single layout
-    LAYOUTS=("${SPECIFIC_LAYOUT}")
-  else
-    # test *all* layouts in the folder
-    for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
-      NAME=$(basename "$file" .bonsai)
-      LAYOUTS+=("${NAME}")
-    done
-  fi
+  LAYOUTS=("bvh8-align16" "bvh8")
+  # if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
+  #   # (debug mode) test a single layout
+  #   LAYOUTS=("${SPECIFIC_LAYOUT}")
+  # else
+  #   # test *all* layouts in the folder
+  #   for file in "${LAYOUT_PATH}/${BVH_SUFFIX}"/*.bonsai; do
+  #     NAME=$(basename "$file" .bonsai)
+  #     LAYOUTS+=("${NAME}")
+  #   done
+  # fi
   echo "-- with layouts: ${LAYOUTS[@]}"
   
   # replace `$N$` with BVH_SUFFIX.
@@ -253,9 +253,9 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
   echo "... debug test complete"
 else
-  echo "running tests with 2-BVH..."
-  run_tests "2"  
-  echo "... tests complete for 2-BVH"
+  # echo "running tests with 2-BVH..."
+  # run_tests "2"  
+  # echo "... tests complete for 2-BVH"
 
   echo "running tests with 8-BVH..."
   run_tests "8"

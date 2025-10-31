@@ -9,7 +9,7 @@ import argparse
 import layout_grouping
 
 
-def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=None):
+def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=None, intersect=None):
     df = pd.read_csv(csv_file)
 
     if machines is not None:
@@ -20,6 +20,8 @@ def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=
         df = df[df['scene'].isin(scenes)]
     if layouts is not None:
         df = df[df['layout'].isin(layouts)]
+    if intersect is not None:
+        df = df[df['intersect'] == intersect]
 
     raw_data = defaultdict(lambda: defaultdict(
         lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list)))))
@@ -47,7 +49,7 @@ def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=
     return raw_data, machine_type, ray_type_val
 
 
-def load_memory_data(csv_file, scenes=None, layouts=None, machines=None, ray_types=None, memory_column='bvh-memory-b'):
+def load_memory_data(csv_file, scenes=None, layouts=None, machines=None, ray_types=None, memory_column='bvh-memory-b', intersect=None):
     df = pd.read_csv(csv_file)
 
     if scenes is not None:
@@ -58,6 +60,8 @@ def load_memory_data(csv_file, scenes=None, layouts=None, machines=None, ray_typ
         df = df[df['machine'].isin(machines)]
     if ray_types is not None:
         df = df[df['ray_type'].isin(ray_types)]
+    if intersect is not None:
+        df = df[df['intersect'] == intersect]
 
     memory_data = defaultdict(lambda: defaultdict(
         lambda: defaultdict(lambda: defaultdict(dict))))
@@ -188,8 +192,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
         if model not in memory_data:
             ax.text(0.5, 0.5, f'No data for {model}',
-                    ha='center', va='center', fontsize=24)
-            ax.set_title(f'{model.title()}', fontsize=28, fontweight='bold')
+                    ha='center', va='center', fontsize=32)
+            ax.set_title(f'{model.title()}', fontsize=36, fontweight='bold')
             continue
 
         all_points = []
@@ -237,8 +241,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             print(
                 f"  Warning: No valid data points for model '{model}' - skipping plot")
             ax.text(0.5, 0.5, f'No valid data for {model}',
-                    ha='center', va='center', fontsize=24)
-            ax.set_title(f'{model.title()}', fontsize=28, fontweight='bold')
+                    ha='center', va='center', fontsize=32)
+            ax.set_title(f'{model.title()}', fontsize=36, fontweight='bold')
             continue
 
         print(f"  Plotting {len(all_points)} data points for {model}")
@@ -324,13 +328,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             # Plot dominated points in gray only if requested
             if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time_per_ray[~is_pareto],
-                           c=dominated_color, s=140, alpha=0.6,
-                           marker='o', edgecolors='gray', linewidth=2, zorder=1)
+                           c=dominated_color, s=180, alpha=0.6,
+                           marker='o', edgecolors='gray', linewidth=2.5, zorder=1)
 
             # Plot Pareto-optimal points with their assigned colors/markers
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
-                       c=color, s=140, alpha=0.9,
-                       edgecolors='black', linewidth=3,
+                       c=color, s=180, alpha=0.9,
+                       edgecolors='black', linewidth=3.5,
                        marker=marker, label=group_key, zorder=3)
 
             pareto_indices = np.where(is_pareto)[0]
@@ -340,7 +344,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                 pareto_x = [group_memory[i] for i in pareto_sorted]
                 pareto_y = [group_time_per_ray[i] for i in pareto_sorted]
                 ax.plot(pareto_x, pareto_y, color=color,
-                        linestyle=linestyle, alpha=0.8, linewidth=4.5, zorder=2)
+                        linestyle=linestyle, alpha=0.8, linewidth=5, zorder=2)
 
             for i in pareto_indices:
                 labels_to_add.append({
@@ -363,15 +367,15 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
         memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=26)
-        ax.tick_params(axis='x', labelsize=22)
-        ax.tick_params(axis='y', labelsize=22)
-        ax.set_ylabel(f'Time per Ray ({time_unit})',
-                      fontweight='bold', fontsize=26)
-        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=28)
+            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=32)
+        ax.tick_params(axis='x', labelsize=28)
+        ax.tick_params(axis='y', labelsize=28)
+        ax.set_ylabel(f'Latency ({time_unit})',
+                      fontweight='bold', fontsize=32)
+        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=36)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
         if not remove_legend:
-            ax.legend(fontsize=20, loc='best', framealpha=0.9,
+            ax.legend(fontsize=26, loc='best', framealpha=0.9,
                       edgecolor='black', fancybox=False, shadow=True)
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
@@ -399,13 +403,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     xytext=(20, 0),
                     ha='left',
                     va='center',
-                    fontsize=24,
+                    fontsize=30,
                     fontweight='bold',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
                         facecolor='#C8FACD',
                         edgecolor='black',
-                        linewidth=1.5,
+                        linewidth=2,
                         alpha=0.9
                     )
                 )
@@ -417,13 +421,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     xytext=(15, 0),
                     ha='left',
                     va='center',
-                    fontsize=22,
+                    fontsize=28,
                     fontweight='normal',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
                         facecolor='#EEEEEE',
                         edgecolor='gray',
-                        linewidth=1.0,
+                        linewidth=1.5,
                         alpha=0.7
                     )
                 )
@@ -663,6 +667,8 @@ Examples:
     parser.add_argument('--remove-legend',
                         action='store_true',
                         help='remove the legend from the plot')
+    parser.add_argument('--intersect', type=str, default='mt',
+                        help='Intersect method to filter by (default: mt)')
     args = parser.parse_args()
 
     if args.layout_groups:
@@ -694,7 +700,8 @@ Examples:
         machines=args.machines,
         ray_types=args.ray_types,
         scenes=args.scenes,
-        layouts=layouts_filter
+        layouts=layouts_filter,
+        intersect=args.intersect
     )
     memory_utilization = load_memory_data(
         args.csv_file,
@@ -702,7 +709,8 @@ Examples:
         layouts=layouts_filter,
         machines=args.machines,
         ray_types=args.ray_types,
-        memory_column=memory_column
+        memory_column=memory_column,
+        intersect=args.intersect
     )
 
     ray_count_range = None

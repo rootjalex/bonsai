@@ -44,7 +44,7 @@ def compute_average_performance(df: pd.DataFrame, layouts: List[str], machines: 
 
 
 def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
-                     scene1: str, scene2: str, output_file: str):
+                     scene1: str, scene2: str, output_file: str, show_title: bool = False):
     """
     Create a single bar chart showing speedup over FCL for collision detection.
     Each bar represents a layout/machine combination.
@@ -96,8 +96,9 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
                 fontsize=40, fontweight='bold')
 
     # Formatting - all fonts much larger
-    ax.set_title(f"Scene(s): {scene1}, {scene2}",
-                 fontsize=52, fontweight='bold', pad=40)
+    if show_title:
+        ax.set_title(f"Scene(s): {scene1}, {scene2}",
+                     fontsize=52, fontweight='bold', pad=40)
     ax.set_ylabel('Speedup vs FCL', fontsize=48, fontweight='bold')
     ax.set_xlabel('Layout / Machine', fontsize=48, fontweight='bold')
 
@@ -141,6 +142,8 @@ def main():
                         help='Second scene in the collision pair')
     parser.add_argument('--output_filename', default='cd_speedup',
                         help='Output file name (default: cd_speedup)')
+    parser.add_argument('--show-title', action='store_true',
+                        help='Show title on the plot (default: False)')
 
     args = parser.parse_args()
 
@@ -155,7 +158,7 @@ def main():
 
     # Generate chart
     create_bar_chart(df, args.layouts, args.machines,
-                     args.scene1, args.scene2, args.output_filename)
+                     args.scene1, args.scene2, args.output_filename, args.show_title)
 
 
 if __name__ == "__main__":
