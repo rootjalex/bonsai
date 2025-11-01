@@ -69,8 +69,8 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
   done
 done
 
-for LAYOUT in "${LAYOUTS[@]}"; do
-  python3.11 ${PREFIX}/collect.py ${LAYOUT} ${PREFIX}/results/${LAYOUT}.txt >> ${PREFIX}/results/aggregate.txt
-done
+# for LAYOUT in "${LAYOUTS[@]}"; do
+#   python3.11 ${PREFIX}/collect.py ${LAYOUT} ${PREFIX}/results/${LAYOUT}.txt >> ${PREFIX}/results/aggregate.txt
+# done
 
 exit 0

@@ -89,6 +89,6 @@ target_link_libraries(${APPLICATION}_${LAYOUT}.out
     Eigen3::Eigen
 )
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(${APPLICATION}_${LAYOUT}.out PRIVATE -O3)
 endif()
