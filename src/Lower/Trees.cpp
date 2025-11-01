@@ -472,7 +472,35 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
         ir::Stmt visit(const ir::Scan *node) override { return node; }
 
-        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            if (!update_from_yfs) {
+                return node;
+            }
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            // internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+
+            VolumeMap vols = make_volume_map(lambda->args);
+
+            Interval bounds =
+                predicate_analysis(lambda->value, vols, intervals);
+            internal_assert(bounds.max.defined())
+                << "Cannot accelerate metric: " << lambda->value
+                << " on: " << ir::Stmt(node);
+
+            // Best must be at most max.
+            ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
+
+            ir::Expr empty_expr =
+                ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);
+            std::vector<ir::Expr> values = {std::move(value), empty_expr};
+            ir::Expr update = ir::Build::make(tuple_t, std::move(values));
+            ir::Stmt do_update = ir::Accumulate::make(
+                loc, ir::Accumulate::Argmin, std::move(update));
+            return ir::Sequence::make({std::move(do_update), node});
+        }
     };
 
     const ir::Lambda *lambda = metric.as<ir::Lambda>();

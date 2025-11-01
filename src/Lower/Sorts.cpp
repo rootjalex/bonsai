@@ -232,6 +232,7 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
                     auto temp = std::move(names_in_scope);
                     names_in_scope = get_names_in_scope(*funcs[name]);
                     funcs[name]->body = mutate(funcs[name]->body);
+                    LOG_INFO << funcs[name]->body;
                     names_in_scope = std::move(temp);
                     return node;
                 }

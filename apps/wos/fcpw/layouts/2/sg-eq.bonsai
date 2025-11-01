@@ -1,0 +1,107 @@
+// dequantization of snapped BVH grid with 2^10 - 1 bins. Reference:
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L219
+func dequantize(v: u30, bins: f32x3) -> f32x3 {
+  x_: u32 = (v >> 20) & 1023;
+  y_: u32 = (v >> 10) & 1023;
+  z_: u32 = (v >> 00) & 1023;
+  return f32x3 {
+    fmul_rd(cast[[f32]](x_), bins.x), 
+    fmul_rd(cast[[f32]](y_), bins.y), 
+    fmul_rd(cast[[f32]](z_), bins.z)
+  };
+}
+
+// build tree bins inverse.
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L72
+func build_bins_inverse(low: f32x3, high: f32x3) -> f32x3 {
+        L1: f32x3 = f32x3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
+        L2: mut f32x3 = {1.0, 1.0, 1.0};
+        if (L1.x > 0.0) { L2.x = L1.x; }
+        if (L1.y > 0.0) { L2.y = L1.y; }
+        if (L1.z > 0.0) { L2.z = L1.z; }
+        return f32x3{fdiv_rd(1023.0, L2.x), fdiv_rd(1023.0, L2.y), fdiv_rd(1023.0, L2.z)};
+}
+
+// build tree bins.
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L123
+func build_bins(low: f32x3, high: f32x3) -> f32x3 {
+  bins_inverse: f32x3 = build_bins_inverse(low, high);
+  return f32x3 {frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
+}
+
+// quantization of snapped BVH grid with 2^10 - 1 bins. Reference:
+// https://github.com/mphowardlab/neighbor/blob/52cffd270cd7f6f8bff31e87efcc710069b66050/include/neighbor/kernels/LBVHTraverser.cuh#L100-L103
+func quantize_lo(current: f32x3, world: f32x3, bin_inverse: f32x3) -> u32 {
+    x: u32 = cast[[u32]](max(0.0, floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x))));
+    y: u32 = cast[[u32]](max(0.0, floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y))));
+    z: u32 = cast[[u32]](max(0.0, floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z))));
+    return ((x & 1023u) << 20u) | ((y & 1023u) << 10u) | (z & 1023u);
+}
+func quantize_hi(current: f32x3, world: f32x3, bin_inverse: f32x3) -> u32 {
+    x: u32 = cast[[u32]](max(0.0, floorf(fmul_rd(fsub_rd(world.x, current.x), bin_inverse.x))));
+    y: u32 = cast[[u32]](max(0.0, floorf(fmul_rd(fsub_rd(world.y, current.y), bin_inverse.y))));
+    z: u32 = cast[[u32]](max(0.0, floorf(fmul_rd(fsub_rd(world.z, current.z), bin_inverse.z))));
+    return ((x & 1023u) << 20u) | ((y & 1023u) << 10u) | (z & 1023u);
+}
+
+schedule {
+    tree[[Triangle]] BVH(low : f32x3, high : f32x3) with AABB(low, high)
+      = Interior(left : BVH, right : BVH)
+      | Leaf(nprims: u8, data : array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(index: u32) {
+        wlow: f32x3;
+        whigh: f32x3;
+        bins: f32x3;
+        bins_inv: f32x3;
+
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group nodes[size=node_count] by index {
+            q_min: u30;
+            q_max: u30;
+            nprims: u4;
+            low  = fadd_rd(wlow,  dequantize(q_min, bins));
+            high = fsub_ru(whigh, dequantize(q_max, bins));
+            split nprims {
+                0 -> Interior {
+                    offset : u32;
+                    left = index + 1;
+                    right = index + offset;
+                };
+                _ -> Leaf {
+                    poffset : u32;
+                    data = primitives[poffset : poffset + nprims];
+                };
+            };
+        };
+    };
+
+    build triangles {
+      build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
+        build root {
+          build wlow = low;
+          build whigh = high;
+          build bins_inv = build_bins_inverse(low, high);
+          build bins = build_bins(low, high);
+        }
+        build q_min = quantize_lo(low, wlow, bins_inv);
+        build q_max = quantize_hi(high, whigh, bins_inv);
+        build nprims = 0;
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u8, data: array[Triangle, nprims]) {
+        build q_min = quantize_lo(low, wlow, bins_inv);
+        build q_max = quantize_hi(high, whigh, bins_inv);
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+

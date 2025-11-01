@@ -168,7 +168,28 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
                 const ir::Layout &layout)
             : frames(frames), layout(layout) {}
 
+        ir::Expr visit(const ir::Access *node) override {
+            const auto *e = node->value.as<ir::Extract>();
+            if (e == nullptr) {
+                return mutate(node);
+            }
+            // TODO(cgyurgyik): hack for sorts.
+            const auto *v = e->vec.as<ir::Var>();
+            if (!(v && v->name == "this")) {
+                return mutate(node);
+            }
+            // ll = this[left].low; (used for sorting)
+            return fill(
+                frames,
+                ir::Var::make(ir::Vector_t::make(ir::Float_t::make_f32(), 3),
+                              node->field),
+                layout);
+        }
+
         ir::Expr visit(const ir::Var *var) override {
+            if (var->name == "this") {
+                return var;
+            }
             // check if this is a tree-carried dependency.
             if (var->name == "parent") {
                 return var;

@@ -1,298 +1,211 @@
-std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
-                                       const std::vector<Triangle> &triangles) {
-    Triangle tri = triangles[low];
-    float3 aabb_min = tri.p0;
-    float3 aabb_max = tri.p0;
-    for (uint32_t i = low; i < high; ++i) {
-        Triangle t = triangles[i];
-        for (float3 v : {t.p0, t.p1, t.p2}) {
-            aabb_min = min(aabb_min, v);
-            aabb_max = max(aabb_max, v);
-        }
-    }
-    return {aabb_min, aabb_max};
-}
-
-float surface_area(const float3 &min, const float3 &max) {
-    float3 extent = max - min;
-    return 2.0f *
-           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
-}
-
 float3 triangle_centroid(const Triangle &tri) {
     return (tri.p0 + tri.p1 + tri.p2) * (1.0f / 3.0f);
 }
 
-std::pair<float3, float3> triangle_bounds(const Triangle &tri) {
-    float3 min_ = min(min(tri.p0, tri.p1), tri.p2);
-    float3 max_ = max(max(tri.p0, tri.p1), tri.p2);
-    return {min_, max_};
+constexpr float FCPW_EPSILON = std::numeric_limits<float>::epsilon();
+
+// https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/core/bounding_volumes.h#L135
+
+inline float surface_area(float3 box_min, float3 box_max) {
+    float3 e = max(box_max - box_min, float3{1e-5f, 1e-5f, 1e-5f});
+    float prod = e.x * e.y * e.z;
+    return 2.0f * (prod / e.x + prod / e.y + prod / e.z);
 }
 
-BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
-                               int max_prims_per_leaf, int max_tree_depth) {
-    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
-        [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
-        uint32_t count = high - low;
+inline std::pair<float3, float3>
+compute_triangle_bbox_fcpw(const Triangle &tri) {
+    // Start with invalid box
+    float3 pMin = float3{std::numeric_limits<float>::max(),
+                         std::numeric_limits<float>::max(),
+                         std::numeric_limits<float>::max()};
+    float3 pMax = float3{std::numeric_limits<float>::lowest(),
+                         std::numeric_limits<float>::lowest(),
+                         std::numeric_limits<float>::lowest()};
 
-        auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
+    // expandToInclude each vertex (with epsilon like FCPW)
+    float3 eps = float3{FCPW_EPSILON, FCPW_EPSILON, FCPW_EPSILON};
+    for (int i = 0; i < 3; i++) {
+        float3 v;
+        if (i == 0)
+            v = tri.p0;
+        if (i == 1)
+            v = tri.p1;
+        if (i == 2)
+            v = tri.p2;
+        pMin = min(pMin, v - eps);
+        pMax = max(pMax, v + eps);
+    }
 
-        if (count < max_prims_per_leaf) {
-            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            for (int i = 0; i < count; ++i) {
-                data[i] = triangles[low + i];
-            }
-            assert(depth != 0);
-            return new BVH(Leaf{
-                .low = aabb_min,
-                .high = aabb_max,
-                .nprims = static_cast<uint8_t>(count),
-                .data = data,
-            });
-        }
-
-        float3 extent = aabb_max - aabb_min;
-        int axis = 0;
-        float max_extent = extent.x;
-        if (extent.y > max_extent) {
-            axis = 1;
-            max_extent = extent.y;
-        }
-        if (extent.z > max_extent) {
-            axis = 2;
-        }
-
-        // Partition around midpoint along axis.
-        auto mid_it = triangles.begin() + low + count / 2;
-        std::nth_element(
-            triangles.begin() + low, mid_it, triangles.begin() + high,
-            [&](const Triangle &a, const Triangle &b) {
-                float ca = (axis == 0)   ? (a.p0.x + a.p1.x + a.p2.x)
-                           : (axis == 1) ? (a.p0.y + a.p1.y + a.p2.y)
-                                         : (a.p0.z + a.p1.z + a.p2.z);
-                float cb = (axis == 0)   ? (b.p0.x + b.p1.x + b.p2.x)
-                           : (axis == 1) ? (b.p0.y + b.p1.y + b.p2.y)
-                                         : (b.p0.z + b.p1.z + b.p2.z);
-                return ca < cb;
-            });
-
-        const uint32_t mid = low + count / 2;
-        BVH *left = partition(low, mid, depth + 1);
-        BVH *right = partition(mid, high, depth + 1);
-
-        return new BVH(Interior{
-            .low = aabb_min,
-            .high = aabb_max,
-            .left = left,
-            .right = right,
-        });
-    };
-
-    return partition(0, triangles.size(), /*depth=*/0);
+    return {pMin, pMax};
 }
 
-// Based on FCPW's Bvh_SurfaceArea:
-// https://github.com/rohan-sawhney/fcpw/blob/e36bc9b34af6088fb78ddbb6a93e26686779678a/include/fcpw/utilities/scene_data.h#L21
+// Based on FCPW's BVH SAH implementation.
+// https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L143
+int64_t node_count = 0, leaf_count = 0; // Track counts for comparison.
 BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                                 int max_tree_depth, int nBuckets = 8) {
     constexpr auto MAX = std::numeric_limits<float>::max();
+    constexpr auto MIN = std::numeric_limits<float>::lowest();
 
-    struct BucketInfo {
-        float3 box_min = float3{MAX, MAX, MAX};
-        float3 box_max = float3{-MAX, -MAX, -MAX};
-        int count = 0;
+    struct BoundingBox {
+        float3 pMin = float3{MAX, MAX, MAX};
+        float3 pMax = float3{MIN, MIN, MIN};
+
+        void expandToInclude(const BoundingBox &b) {
+            pMin = min(pMin, b.pMin);
+            pMax = max(pMax, b.pMax);
+        }
+
+        void expandToInclude(float3 centroid) {
+            float3 eps = float3{FCPW_EPSILON, FCPW_EPSILON, FCPW_EPSILON};
+            pMin = min(pMin, centroid - eps);
+            pMax = max(pMax, centroid + eps);
+        }
+
+        float3 extent() const { return pMax - pMin; }
     };
 
-    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
-        [&](uint32_t low, uint32_t high, uint32_t depth) -> BVH * {
-        uint32_t count = high - low;
-        auto [aabb_min, aabb_max] = compute_aabb(low, high, triangles);
+    // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L212
+    std::vector<std::pair<float3, float3>> referenceBoxes(triangles.size());
+    std::vector<float3> referenceCentroids(triangles.size());
 
-        if (count <= leaf_size || depth >= max_tree_depth) {
-            auto *data = (Triangle *)(malloc(sizeof(Triangle) * count));
-            for (uint32_t i = 0; i < count; ++i) {
-                data[i] = triangles[low + i];
+    for (size_t i = 0; i < triangles.size(); ++i) {
+        referenceBoxes[i] = compute_triangle_bbox_fcpw(triangles[i]);
+        referenceCentroids[i] = triangle_centroid(triangles[i]);
+    }
+
+    std::function<BVH *(uint32_t, uint32_t, uint32_t)> partition =
+        [&](uint32_t start, uint32_t end, uint32_t depth) -> BVH * {
+        // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L157
+        node_count++;
+        uint32_t nReferences = end - start;
+
+        // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L159
+        BoundingBox bb, bc;
+        for (uint32_t p = start; p < end; p++) {
+            bb.pMin = min(bb.pMin, referenceBoxes[p].first);
+            bb.pMax = max(bb.pMax, referenceBoxes[p].second);
+            bc.expandToInclude(referenceCentroids[p]);
+        }
+
+        // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L170
+        if (nReferences <= leaf_size || depth >= max_tree_depth) {
+            auto *data = (Triangle *)(malloc(sizeof(Triangle) * nReferences));
+            for (uint32_t i = 0; i < nReferences; ++i) {
+                data[i] = triangles[start + i];
             }
+            leaf_count++;
             return new BVH(Leaf{
-                .low = aabb_min,
-                .high = aabb_max,
-                .nprims = static_cast<uint8_t>(count),
+                .low = bb.pMin,
+                .high = bb.pMax,
+                .nprims = static_cast<uint8_t>(nReferences),
                 .data = data,
             });
         }
 
-        float3 centroid_min = triangle_centroid(triangles[low]);
-        float3 centroid_max = centroid_min;
+        // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L200
+        float3 extent = bb.extent();
+        int splitDim = -1;
+        float splitCoord = 0.0f;
+        float splitCost = MAX;
 
-        for (uint32_t i = low + 1; i < high; ++i) {
-            float3 c = triangle_centroid(triangles[i]);
-            centroid_min = min(centroid_min, c);
-            centroid_max = max(centroid_max, c);
-        }
+        for (int dim = 0; dim < 3; dim++) {
+            float extent_dim = extent[dim];
+            if (extent_dim < 1e-6f)
+                continue;
 
-        int best_axis = -1;
-        int best_bucket = -1;
-        float best_cost = MAX;
-        for (int axis = 0; axis < 3; ++axis) {
-            float aabb_extent = (axis == 0)   ? aabb_max.x - aabb_min.x
-                                : (axis == 1) ? aabb_max.y - aabb_min.y
-                                              : aabb_max.z - aabb_min.z;
+            float bucketWidth = extent_dim / nBuckets;
 
-            if (aabb_extent < 1e-6f)
-                continue; // ...skip degenerate axis
+            // Bin references into buckets.
+            std::vector<BoundingBox> buckets(nBuckets);
+            std::vector<int> bucketCounts(nBuckets, 0);
 
-            float aabb_min_axis = (axis == 0)   ? aabb_min.x
-                                  : (axis == 1) ? aabb_min.y
-                                                : aabb_min.z;
+            for (uint32_t p = start; p < end; p++) {
+                float centroid_dim = referenceCentroids[p][dim];
+                int bucketIndex =
+                    (int)((centroid_dim - bb.pMin[dim]) / bucketWidth);
+                bucketIndex = std::clamp(bucketIndex, 0, nBuckets - 1);
 
-            float bucket_width = aabb_extent / nBuckets;
-            std::vector<BucketInfo> buckets(nBuckets);
-
-            for (uint32_t i = low; i < high; ++i) {
-                float3 c = triangle_centroid(triangles[i]);
-                float c_axis = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
-
-                int bucket_idx = (int)((c_axis - aabb_min_axis) / bucket_width);
-                bucket_idx = std::clamp(bucket_idx, 0, nBuckets - 1);
-
-                auto [tri_min, tri_max] = triangle_bounds(triangles[i]);
-                buckets[bucket_idx].box_min =
-                    min(buckets[bucket_idx].box_min, tri_min);
-                buckets[bucket_idx].box_max =
-                    max(buckets[bucket_idx].box_max, tri_max);
-                buckets[bucket_idx].count++;
+                buckets[bucketIndex].pMin =
+                    min(buckets[bucketIndex].pMin, referenceBoxes[p].first);
+                buckets[bucketIndex].pMax =
+                    max(buckets[bucketIndex].pMax, referenceBoxes[p].second);
+                bucketCounts[bucketIndex]++;
             }
 
-            std::vector<BucketInfo> right_buckets(nBuckets);
-            for (int i = nBuckets - 1; i >= 0; --i) {
-                if (i == nBuckets - 1) {
-                    right_buckets[i] = buckets[i];
-                } else {
-                    right_buckets[i].box_min =
-                        min(right_buckets[i + 1].box_min, buckets[i].box_min);
-                    right_buckets[i].box_max =
-                        max(right_buckets[i + 1].box_max, buckets[i].box_max);
-                    right_buckets[i].count =
-                        right_buckets[i + 1].count + buckets[i].count;
+            // Sweep right to left to build right bucket bounding boxes.
+            std::vector<BoundingBox> rightBuckets(nBuckets);
+            std::vector<int> rightBucketCounts(nBuckets, 0);
+            BoundingBox boxRefRight;
+
+            for (int b = nBuckets - 1; b > 0; b--) {
+                boxRefRight.expandToInclude(buckets[b]);
+                rightBuckets[b] = boxRefRight;
+                rightBucketCounts[b] = bucketCounts[b];
+                if (b != nBuckets - 1) {
+                    rightBucketCounts[b] += rightBucketCounts[b + 1];
                 }
             }
-            BucketInfo left_bucket;
-            for (int split_bucket = 0; split_bucket < nBuckets - 1;
-                 ++split_bucket) {
-                if (buckets[split_bucket].count > 0) {
-                    if (left_bucket.count == 0) {
-                        left_bucket = buckets[split_bucket];
-                    } else {
-                        left_bucket.box_min = min(
-                            left_bucket.box_min, buckets[split_bucket].box_min);
-                        left_bucket.box_max = max(
-                            left_bucket.box_max, buckets[split_bucket].box_max);
-                        left_bucket.count += buckets[split_bucket].count;
+
+            // Evaluate bucket split costs.
+            BoundingBox boxRefLeft;
+            int nReferencesLeft = 0;
+
+            for (int b = 1; b < nBuckets; b++) {
+                boxRefLeft.expandToInclude(buckets[b - 1]);
+                nReferencesLeft += bucketCounts[b - 1];
+                if (nReferencesLeft > 0 && rightBucketCounts[b] > 0) {
+                    float leftArea =
+                        surface_area(boxRefLeft.pMin, boxRefLeft.pMax);
+                    float rightArea = surface_area(rightBuckets[b].pMin,
+                                                   rightBuckets[b].pMax);
+                    float cost = nReferencesLeft * leftArea +
+                                 rightBucketCounts[b] * rightArea;
+                    if (cost < splitCost) {
+                        splitCost = cost;
+                        splitDim = dim;
+                        splitCoord = bb.pMin[dim] + b * bucketWidth;
                     }
                 }
-
-                const BucketInfo &right_bucket =
-                    right_buckets[split_bucket + 1];
-                if (left_bucket.count == 0 || right_bucket.count == 0)
-                    continue;
-
-                // https://github.com/rohan-sawhney/fcpw/blob/e36bc9b34af6088fb78ddbb6a93e26686779678a/include/fcpw/fcpw.inl#L826
-                float left_area =
-                    surface_area(left_bucket.box_min, left_bucket.box_max);
-                float right_area =
-                    surface_area(right_bucket.box_min, right_bucket.box_max);
-                float cost = left_bucket.count * left_area +
-                             right_bucket.count * right_area;
-                if (cost <= best_cost) {
-                    best_cost = cost;
-                    best_axis = axis;
-                    best_bucket = split_bucket;
-                }
             }
         }
-
-        if (best_axis == -1) {
-            uint32_t mid = low + count / 2;
-            float3 extent = aabb_max - aabb_min;
-            int fallback_axis = (extent.x > extent.y && extent.x > extent.z) ? 0
-                                : (extent.y > extent.z)                      ? 1
-                                                        : 2;
-
-            std::nth_element(triangles.begin() + low, triangles.begin() + mid,
-                             triangles.begin() + high,
-                             [&](const Triangle &a, const Triangle &b) {
-                                 float3 ca = triangle_centroid(a);
-                                 float3 cb = triangle_centroid(b);
-                                 float ca_axis = (fallback_axis == 0)   ? ca.x
-                                                 : (fallback_axis == 1) ? ca.y
-                                                                        : ca.z;
-                                 float cb_axis = (fallback_axis == 0)   ? cb.x
-                                                 : (fallback_axis == 1) ? cb.y
-                                                                        : cb.z;
-                                 return ca_axis < cb_axis;
-                             });
-
-            BVH *left = partition(low, mid, depth + 1);
-            BVH *right = partition(mid, high, depth + 1);
-
-            return new BVH(Interior{
-                .low = aabb_min,
-                .high = aabb_max,
-                .left = left,
-                .right = right,
-            });
+        // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L104
+        if (splitDim == -1) {
+            float3 centroid_extent = bc.extent();
+            splitDim = (centroid_extent.x > centroid_extent.y &&
+                        centroid_extent.x > centroid_extent.z)
+                           ? 0
+                       : (centroid_extent.y > centroid_extent.z) ? 1
+                                                                 : 2;
+            splitCoord = (bc.pMin[splitDim] + bc.pMax[splitDim]) * 0.5f;
         }
 
-        float aabb_extent = (best_axis == 0)   ? aabb_max.x - aabb_min.x
-                            : (best_axis == 1) ? aabb_max.y - aabb_min.y
-                                               : aabb_max.z - aabb_min.z;
-        float aabb_min_axis = (best_axis == 0)   ? aabb_min.x
-                              : (best_axis == 1) ? aabb_min.y
-                                                 : aabb_min.z;
-        float bucket_width = aabb_extent / nBuckets;
-
-        auto mid_it = std::partition(
-            triangles.begin() + low, triangles.begin() + high,
-            [&](const Triangle &tri) {
-                float3 c = triangle_centroid(tri);
-                float c_axis = (best_axis == 0)   ? c.x
-                               : (best_axis == 1) ? c.y
-                                                  : c.z;
-                int bucket_idx = (int)((c_axis - aabb_min_axis) / bucket_width);
-                bucket_idx = std::clamp(bucket_idx, 0, nBuckets - 1);
-                return bucket_idx <= best_bucket;
-            });
-
-        uint32_t mid = std::distance(triangles.begin(), mid_it);
-        if (mid == low || mid == high) {
-            mid = low + count / 2;
-            std::nth_element(triangles.begin() + low, triangles.begin() + mid,
-                             triangles.begin() + high,
-                             [&](const Triangle &a, const Triangle &b) {
-                                 float3 ca = triangle_centroid(a);
-                                 float3 cb = triangle_centroid(b);
-                                 float ca_axis = (best_axis == 0)   ? ca.x
-                                                 : (best_axis == 1) ? ca.y
-                                                                    : ca.z;
-                                 float cb_axis = (best_axis == 0)   ? cb.x
-                                                 : (best_axis == 1) ? cb.y
-                                                                    : cb.z;
-                                 return ca_axis < cb_axis;
-                             });
+        uint32_t mid = start;
+        for (uint32_t i = start; i < end; i++) {
+            if (referenceCentroids[i][splitDim] < splitCoord) {
+                std::swap(triangles[i], triangles[mid]);
+                std::swap(referenceBoxes[i], referenceBoxes[mid]);
+                std::swap(referenceCentroids[i], referenceCentroids[mid]);
+                mid++;
+            }
+        }
+        if (mid == start || mid == end) {
+            mid = start + nReferences / 2;
         }
 
-        BVH *left = partition(low, mid, depth + 1);
-        BVH *right = partition(mid, high, depth + 1);
+        // Recursively build left and right children
+        BVH *left = partition(start, mid, depth + 1);
+        BVH *right = partition(mid, end, depth + 1);
 
         return new BVH(Interior{
-            .low = aabb_min,
-            .high = aabb_max,
+            .low = bb.pMin,
+            .high = bb.pMax,
             .left = left,
             .right = right,
         });
     };
 
-    return partition(0, triangles.size(), /*depth=*/0);
+    return partition(0, triangles.size(), 0);
 }
 
 void free_canonical_tree_2(BVH *node) {
@@ -300,14 +213,14 @@ void free_canonical_tree_2(BVH *node) {
         Interior &interior = std::get<Interior>(*node);
         free_canonical_tree_2(interior.left);
         free_canonical_tree_2(interior.right);
-        free(&interior);
+        delete node;
         return;
     }
 
     if (std::holds_alternative<Leaf>(*node)) {
         Leaf &leaf = std::get<Leaf>(*node);
         free(leaf.data);
-        free(&leaf);
+        delete node;
         return;
     }
 
@@ -321,14 +234,15 @@ enum class Heuristic {
 
 BVH *build_canonical_tree_2(std::vector<Triangle> &triangles,
                             Heuristic heuristic = Heuristic::SurfaceArea,
-                            int max_prims_per_leaf = 4, // same as FCPW default!
+                            int max_prims_per_leaf = 4,
                             int max_tree_depth = 64) {
     switch (heuristic) {
-    case Heuristic::SurfaceArea:
+    case Heuristic::SurfaceArea: {
         return build_canonical_tree_2_sah(triangles, max_prims_per_leaf,
                                           max_tree_depth);
+    }
     case Heuristic::MedianSplit:
-        return build_canonical_tree_2_ms(triangles, max_prims_per_leaf,
-                                         max_tree_depth);
+        assert(false && "unimplemented");
+        return nullptr;
     }
 }

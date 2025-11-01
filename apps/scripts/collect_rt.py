@@ -8,6 +8,14 @@ import sys
 import argparse
 import layout_grouping
 
+from matplotlib import rcParams
+rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern"],
+    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional for math
+})
+
 
 def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=None, intersect=None):
     df = pd.read_csv(csv_file)
@@ -134,7 +142,7 @@ def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
     return processed_data
 
 
-def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types, output_filename, remove_legend):
+def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types, output_filename, remove_legend, remove_title):
     models = sorted(processed_data.keys())
     if len(models) == 0:
         return
@@ -153,13 +161,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
     # Color palettes for different dimensions
     machine_colors = ['#0173B2', '#DE8F05', '#029E73', '#CC78BC']
-    ray_type_colors = ['#CA9161', '#949494', '#ECE133', '#56B4E9']
+    ray_type_colors = ['#CA9161', '#56B4E9']
     layout_colors = ['#D55E00', '#F0E442', '#009E73', '#E69F00',
                      '#56B4E9', '#CC79A7', '#0173B2', '#DE8F05']
 
     # Marker styles for different dimensions
     machine_markers = ['o', 's', '^', 'D']
-    ray_type_markers = ['v', '>', 'p', '*']
+    ray_type_markers = ['v', 'p', '*', '>']
     layout_markers = ['h', 'X', '<', 'P', 'd', '8', 'H', 'o']
 
     # Line styles
@@ -193,7 +201,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         if model not in memory_data:
             ax.text(0.5, 0.5, f'No data for {model}',
                     ha='center', va='center', fontsize=32)
-            ax.set_title(f'{model.title()}', fontsize=36, fontweight='bold')
+            if not remove_title:
+                ax.set_title(f'{model}', fontsize=36, fontweight='bold')
             continue
 
         all_points = []
@@ -225,7 +234,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
                         if time_per_ray > 0 and memory > 0:
                             all_points.append((memory, time_per_ray))
-                            all_labels.append(layout.upper())
+                            all_labels.append(layout)
                             all_machines.append(machine)
                             all_ray_types_list.append(ray_type_key)
                             all_layouts.append(layout)
@@ -234,7 +243,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                             if multiple_machines:
                                 group_key = f"{machine}-{group_key}"
                             if multiple_ray_types:
-                                group_key = f"{group_key}-{ray_type_key}"
+                                group_key = f"{ray_type_key}"
                             all_groups.append(group_key)
 
         if not all_points:
@@ -242,7 +251,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                 f"  Warning: No valid data points for model '{model}' - skipping plot")
             ax.text(0.5, 0.5, f'No valid data for {model}',
                     ha='center', va='center', fontsize=32)
-            ax.set_title(f'{model.title()}', fontsize=36, fontweight='bold')
+            if not remove_title:
+                ax.set_title(f'{model}', fontsize=36, fontweight='bold')
             continue
 
         print(f"  Plotting {len(all_points)} data points for {model}")
@@ -372,7 +382,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         ax.tick_params(axis='y', labelsize=28)
         ax.set_ylabel(f'Latency ({time_unit})',
                       fontweight='bold', fontsize=32)
-        ax.set_title(f'{model.title()}', fontweight='bold', fontsize=36)
+        if not remove_title:
+            ax.set_title(f'{model}', fontweight='bold', fontsize=36)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
         if not remove_legend:
             ax.legend(fontsize=26, loc='best', framealpha=0.9,
@@ -400,10 +411,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     label_info['label'],
                     xy=(x_pos, y_pos),
                     textcoords="offset pixels",
-                    xytext=(20, 0),
+                    xytext=(-20, 45),
                     ha='left',
                     va='center',
-                    fontsize=30,
+                    fontsize=38,
                     fontweight='bold',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
@@ -418,17 +429,17 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     label_info['label'],
                     xy=(x_pos, y_pos),
                     textcoords="offset pixels",
-                    xytext=(15, 0),
+                    xytext=(-20, -20),
                     ha='left',
                     va='center',
-                    fontsize=28,
+                    fontsize=38,
                     fontweight='normal',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
                         facecolor='#EEEEEE',
                         edgecolor='gray',
                         linewidth=1.5,
-                        alpha=0.7
+                        alpha=0.8
                     )
                 )
 
@@ -440,7 +451,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         base_csv = os.path.splitext(os.path.basename(output_path))[0]
         output_file = f'{base_csv}_{mean_strategy}_pareto.pdf'
 
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.savefig(output_file, dpi=300, bbox_inches='tight', pad_inches=0.3)
     print(f"Pareto frontier plot saved to: {output_file}")
     plt.close()
 
@@ -526,22 +537,22 @@ def calculate_speedups(trace_data, memory_data, layout_groups, csv_file, mean_st
 
     with open(output_path, 'w') as f:
         f.write(f"SPEEDUP ANALYSIS\n")
-        f.write(f"Mean Strategy: {mean_strategy.upper()}\n")
+        f.write(f"Mean Strategy: {mean_strategy}\n")
         f.write(f"{'='*90}\n\n")
 
         for model in sorted(speedups.keys()):
-            f.write(f"Model: {model.upper()}\n")
+            f.write(f"Model: {model}\n")
             f.write(f"{'='*90}\n")
 
             for machine in sorted(speedups[model].keys()):
-                f.write(f"\nMachine: {machine.upper()}\n")
+                f.write(f"\nMachine: {machine}\n")
                 f.write(f"{'-'*90}\n")
 
                 for ray_type in sorted(speedups[model][machine].keys()):
                     ray_type_data = speedups[model][machine][ray_type]
                     overall = ray_type_data['overall']
 
-                    f.write(f"\nRay Type: {ray_type.upper()}\n")
+                    f.write(f"\nRay Type: {ray_type}\n")
                     f.write(
                         f"Overall Baseline (slowest): {overall['slowest_layout']} @ {overall['slowest_time']*1e6:.3f} ns/ray\n")
 
@@ -557,7 +568,7 @@ def calculate_speedups(trace_data, memory_data, layout_groups, csv_file, mean_st
                             group_slowest_time = group_info['slowest_time']
 
                             f.write(
-                                f"\n{group_name.upper()} Layouts (within-group speedups):\n")
+                                f"\n{group_name} Layouts (within-group speedups):\n")
                             f.write(
                                 f"  Group Baseline: {group_slowest} @ {group_slowest_time*1e6:.3f} ns/ray\n")
                             f.write(
@@ -667,6 +678,9 @@ Examples:
     parser.add_argument('--remove-legend',
                         action='store_true',
                         help='remove the legend from the plot')
+    parser.add_argument('--remove-title',
+                        action='store_true',
+                        help='remove the title from the plot', default=False)
     parser.add_argument('--intersect', type=str, default='mt',
                         help='Intersect method to filter by (default: mt)')
     args = parser.parse_args()
@@ -750,5 +764,6 @@ Examples:
         args.machines,
         args.ray_types,
         args.output_filename,
-        args.remove_legend
+        args.remove_legend,
+        args.remove_title
     )

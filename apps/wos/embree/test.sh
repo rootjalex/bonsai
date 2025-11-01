@@ -53,7 +53,7 @@ run_tests() {
   if [[ "${BVH_SUFFIX}" == "2" ]]; then
     LAYOUTS=("pbrt-align16" "pbrt" "pbrt-q16" "sg-eq")
   else
-    LAYOUTS=("bvh8-q8-ci" "bvh8" "bvh8-q16-ci")
+    LAYOUTS=("bvh8" "bvh8-align16" "bvh8-q8-ci" "bvh8-q16-ci")
   fi
   if [[ -n "${SPECIFIC_LAYOUT}" ]]; then
     # (debug mode) test a single layout
@@ -122,5 +122,6 @@ run_tests() {
 
 run_tests "8"
 run_tests "2"
+
 
 exit 0

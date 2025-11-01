@@ -10,6 +10,14 @@ import numpy as np
 import argparse
 from collections import defaultdict
 
+from matplotlib import rcParams
+rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern"],
+    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional for math
+})
+
 
 def load_rt_data(csv_file, scenes=None, layouts=None, machines=None, ray_types=None, include_embree=False):
     """Load and process ray tracing data."""
@@ -128,10 +136,10 @@ def plot_comparison(rt_speedups, cpq_speedups, scenes, layouts, output_file):
 
         # Customize plot
         ax.set_xlabel('Layout', fontsize=32, fontweight='bold')
-        ax.set_title(scene.replace('_', ' ').title(),
-                     fontsize=24, fontweight='bold')
+        ax.set_title(scene.replace('_', ' '),
+                     fontsize=28, fontweight='bold')
         ax.set_xticks(x)
-        ax.set_xticklabels([l.upper() for l in layouts],
+        ax.set_xticklabels([l for l in layouts],
                            rotation=35, ha='right', fontsize=20)
         ax.tick_params(axis='y', labelsize=24)
         ax.legend(fontsize=24, loc='best', framealpha=0.9, edgecolor='black')
@@ -312,14 +320,14 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
                    linewidth=3.5, alpha=0.8)
 
         # Customize plot
-        ax.set_title(scene.replace('_', ' ').title(),
-                     fontsize=28, fontweight='bold', pad=20)
+        ax.set_title(scene.replace('_', ' '),
+                     fontsize=28, fontweight='bold')
         ax.set_xticks(x)
 
         # Create layout labels without marking dominance
         layout_labels = []
         for layout in scene_layouts:
-            label = layout.upper().replace('_', '-')
+            label = layout.replace('_', '-')
             layout_labels.append(label)
 
         ax.set_xticklabels(layout_labels, rotation=45,
@@ -356,24 +364,24 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
             spine.set_linewidth(2)
 
     # Add legend in the center for 2x2 grid
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=rt_color, edgecolor='black',
+              linewidth=2.5, label='RT'),
+        Patch(facecolor=cpq_color, edgecolor='black',
+              linewidth=2.5, label='CPQ')
+    ]
     if n_scenes == 4:
-        # Create custom legend handles
-        from matplotlib.patches import Patch
-        legend_elements = [
-            Patch(facecolor=rt_color, edgecolor='black',
-                  linewidth=2.5, label='RT'),
-            Patch(facecolor=cpq_color, edgecolor='black',
-                  linewidth=2.5, label='CPQ')
-        ]
         # Place legend in center of figure
         fig.legend(handles=legend_elements, loc='center', fontsize=28,
                    framealpha=0.95, edgecolor='black', fancybox=False, shadow=True,
                    bbox_to_anchor=(0.48, 0.470))
+    elif n_scenes == 2:
+        fig.legend(handles=legend_elements, loc='center', fontsize=28,
+                   framealpha=0.95, edgecolor='black', fancybox=False, shadow=True,
+                   bbox_to_anchor=(0.49, 0.150))
     else:
-        # For non-2x2 layouts, add legend to each subplot
-        for ax in axes:
-            ax.legend(fontsize=32, loc='best', framealpha=0.95, edgecolor='black',
-                      fancybox=False, shadow=True)
+        raise NotImplementedError(f"n_scenes: {n_scenes}")
 
     plt.tight_layout()
     plt.savefig(output_file + ".pdf", dpi=1600, bbox_inches='tight')
@@ -401,7 +409,7 @@ def print_summary(rt_speedups, cpq_speedups, scenes, layouts):
     print("="*80)
 
     for scene in scenes:
-        print(f"\nScene: {scene.upper()}")
+        print(f"\nScene: {scene}")
         print("-"*80)
         print(f"{'Layout':<20} {'RT Speedup':>15} {'CPQ Speedup':>15}")
         print("-"*80)

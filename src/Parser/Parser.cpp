@@ -2620,6 +2620,8 @@ struct Parser {
     // parse_member()
     ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
         push_frame();
+        // TODO(cgyurgyik): For references in `sort`.
+        add_type_to_frame("this", ir::Type(), /*mut=*/false);
         std::vector<ir::Argument> root = parse_func_args(/*is_layout=*/true);
         {
             std::vector<ir::TypedVar> fields;
@@ -2778,13 +2780,16 @@ struct Parser {
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();
-            if (peek_type() != Token::Type::COL && !name_in_scope(name)) {
+            ir::Type found_type;
+            if (name_in_scope(name)) {
+                found_type = get_type_from_frame(name);
+            } else if (peek_type() != Token::Type::COL) {
                 // We need to find types for materializations from the ADT.
                 const auto *bvh_t = abstract_type.as<ir::BVH_t>();
                 internal_assert(bvh_t) << abstract_type;
-                ir::Type found_type;
                 for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
                     for (const auto &[fname, ftype] : variant.fields()) {
+                        add_type_to_frame(fname, ftype, /*mut=*/false);
                         if (fname != name) {
                             continue;
                         }
@@ -2792,11 +2797,6 @@ struct Parser {
                         break;
                     }
                 }
-                if (!found_type.defined()) {
-                    report_error() << "no type found for materialization of `"
-                                   << name << "`";
-                }
-                add_type_to_frame(name, found_type, /*mut=*/false);
             }
             ir::WriteLoc loc = parse_write_loc(name);
             if (consume(Token::Type::COL)) {
@@ -2811,6 +2811,12 @@ struct Parser {
             expect(Token::Type::ASSIGN);
             // TODO: insert built-ins to frame, here or somewhere?
             ir::Expr expr = parse_expr();
+            if (!found_type.defined() && !reads(expr, {"this"})) {
+                // TODO(cgyurgyik): hack for sort, where we materialize
+                // references to bounding boxes for each {low, high}.
+                report_error()
+                    << "no type found for materialization of `" << name << "`";
+            }
             const ir::Type &type = expr.type();
             // if (!expr.defined() || !expr.type().defined() ||
             //     !expr.type().is_primitive()) {

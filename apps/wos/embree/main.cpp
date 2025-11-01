@@ -453,8 +453,7 @@ void run_test(const std::string &obj1, int64_t num_queries) {
         Triangle result = closest_point(&point, &tree);
 
         // Compute the actual distance to the returned triangle.
-        float dist = distmin_tri(&point, &result);
-        bonsai_distances.push_back(dist);
+        bonsai_distances.push_back(distmin_tri(&point, &result));
     }
     t1 = clock::now();
     bonsai_time =

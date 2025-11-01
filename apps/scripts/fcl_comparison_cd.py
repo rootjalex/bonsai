@@ -5,6 +5,14 @@ import argparse
 from typing import List, Dict, Optional
 import os
 
+from matplotlib import rcParams
+rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern"],
+    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional for math
+})
+
 
 def compute_average_performance(df: pd.DataFrame, layouts: List[str], machines: List[str]) -> pd.DataFrame:
     """
@@ -34,7 +42,7 @@ def compute_average_performance(df: pd.DataFrame, layouts: List[str], machines: 
             results.append({
                 'layout': layout,
                 'machine': machine,
-                'label': f"{layout}\n{machine.upper()}",
+                'label': f"{layout}\n{machine}",
                 'avg_bonsai_cd_ms': avg_bonsai_cd,
                 'avg_fcl_cd_ms': avg_fcl_cd,
                 'speedup': speedup
@@ -71,7 +79,7 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     summary_df = summary_df.sort_values('speedup', ascending=False)
 
     # Create figure - large for 0.25x scaling
-    fig, ax = plt.subplots(1, 1, figsize=(max(24, len(summary_df) * 2.4), 16))
+    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(summary_df) * 2.2), 16))
 
     # Create bar positions
     x_pos = np.arange(len(summary_df))
@@ -79,7 +87,8 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     # Create bars with thicker edges
     bars = ax.bar(x_pos, summary_df['speedup'],
                   color='#0173B2', alpha=0.7, edgecolor='black', linewidth=4)
-
+    ax.axhline(y=1.0, color='black', linestyle='--', linewidth=6,
+               alpha=0.7, label='FCL Baseline')
     # Color bars: green if faster than FCL, red if slower
     for i, (bar, speedup) in enumerate(zip(bars, summary_df['speedup'])):
         if speedup > 1.0:
@@ -92,21 +101,21 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height,
                 f'{speedup:.2f}x',
-                ha='center', va='bottom' if height >= 1.0 else 'top',
-                fontsize=40, fontweight='bold')
+                ha='center', va='bottom',
+                fontsize=32, fontweight='bold')
 
     # Formatting - all fonts much larger
     if show_title:
         ax.set_title(f"Scene(s): {scene1}, {scene2}",
                      fontsize=52, fontweight='bold', pad=40)
-    ax.set_ylabel('Speedup vs FCL', fontsize=48, fontweight='bold')
-    ax.set_xlabel('Layout / Machine', fontsize=48, fontweight='bold')
+    ax.set_ylabel('Speedup vs FCL', fontsize=32, fontweight='bold')
+    ax.set_xlabel('Layout / Machine', fontsize=32, fontweight='bold')
 
     # Set x-axis labels (layout + machine) - much larger
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(summary_df['label'], fontsize=40, fontweight='bold')
+    ax.set_xticklabels(summary_df['label'], fontsize=24, fontweight='bold')
 
-    ax.tick_params(axis='y', which='major', labelsize=40, width=3, length=10)
+    ax.tick_params(axis='y', which='major', labelsize=24, width=3, length=10)
     ax.tick_params(axis='x', which='major', width=3, length=10)
     ax.grid(True, alpha=0.3, linestyle='--', axis='y', linewidth=2)
 
@@ -115,9 +124,9 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
         spine.set_linewidth(3)
 
     # Set y-axis to start at 0 or slightly below minimum
-    y_min = 1.0
+    y_min = 0.0
     y_max = summary_df['speedup'].max() * 1.15
-    ax.set_ylim(y_min, y_max)
+    ax.set_ylim(y_min, 1.9)
 
     # Adjust layout
     plt.tight_layout()

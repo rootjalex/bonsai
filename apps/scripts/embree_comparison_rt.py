@@ -5,6 +5,14 @@ import argparse
 from typing import List, Dict, Optional
 import os
 
+from matplotlib import rcParams
+rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern"],
+    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional for math
+})
+
 
 def compute_weighted_average_performance(df: pd.DataFrame, layouts: List[str]) -> pd.DataFrame:
     """
@@ -219,15 +227,16 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                     color = embree_color if is_embree else bonsai_color
 
                     # Use different alpha for non-Pareto points to show they're dominated
-                    alpha = 0.7 if on_pareto else 0.4
+                    alpha = 0.8 if on_pareto else 0.6
 
                     marker = '^' if is_embree else 'o'
 
                     # Remove 'embree-' prefix from layout name for display
                     # Remove 'bvh8-' prefix from non-embree layouts for display
+                    display_name = layout
                     if is_embree:
                         display_name = layout.replace('embree-', '')
-                    else:
+                    elif display_name != 'bvh8':
                         display_name = layout.replace('bvh8-', '')
 
                     ax.scatter(row['total_memory_mb'], row['ns_per_ray'],
@@ -238,9 +247,9 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                     ax.annotate(display_name,
                                 (row['total_memory_mb'], row['ns_per_ray']),
                                 textcoords="offset points",
-                                xytext=(0, 10),
+                                xytext=(13.5, 12),
                                 ha='center',
-                                fontsize=14,
+                                fontsize=12,
                                 fontweight='bold')
 
                 # Plot Pareto frontier line
@@ -249,14 +258,15 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                             'k--', linewidth=2.5, alpha=0.6, zorder=1)
 
                 # Formatting
-                ax.set_title(f"{scene} | {machine} | {ray_type}",
-                             fontsize=20, fontweight='bold', pad=10)
-                ax.set_xlabel('Total Memory (MB)',
-                              fontsize=18, fontweight='bold')
-                ax.set_ylabel('Latency (ns/ray)',
-                              fontsize=18, fontweight='bold')
+                title = f"{scene} | {machine} | {ray_type}"
+                ax.set_title(fr"\textbf{{{title}}}",
+                             fontsize=18, fontweight='bold', pad=7)
+                ax.set_xlabel(r"\textbf{Total Memory (MB)}",
+                              fontsize=12, fontweight='bold')
+                ax.set_ylabel(r"\textbf{Latency (ns/ray)}",
+                              fontsize=12, fontweight='bold')
                 ax.grid(True, alpha=0.3, linestyle='--')
-                ax.tick_params(axis='both', which='major', labelsize=16)
+                ax.tick_params(axis='both', which='major', labelsize=14)
 
                 # Add some padding to axes
                 x_margin = (summary_df['total_memory_mb'].max(
@@ -293,9 +303,9 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
     ]
 
     # Place legend in center of figure - smaller size
-    fig.legend(handles=legend_elements, loc='center', fontsize=16,
+    fig.legend(handles=legend_elements, loc='center', fontsize=13,
                framealpha=0.95, edgecolor='black', ncol=1,
-               bbox_to_anchor=(0.5, 0.5))
+               bbox_to_anchor=(0.515, 0.52))
 
     # Save
     plt.savefig(output_file + ".pdf", dpi=1600, bbox_inches='tight')
