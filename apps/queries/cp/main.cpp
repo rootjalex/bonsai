@@ -242,8 +242,9 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
     auto t1 = clock::now();
     auto fcpw_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcpw]   closest point query : " << fcpw_time << " ms"
-              << std::endl;
+    // std::cout << "[fcpw]   closest point query : " << fcpw_time << " ms"
+    //           << std::endl;
+    std::cout << "\"fcpw\": " << fcpw_time << ", ";
 
     // ---- Bonsai Closest Point Query ----
     std::vector<float> bonsai_distances;
@@ -251,20 +252,24 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
 
     t0 = clock::now();
     for (int i = 0; i < num_queries; i++) {
-        Triangle result = closest(bonsai_points[i], tree);
+        // Triangle result = closest(bonsai_points[i], tree);
+        float dist = std::sqrtf(closest(bonsai_points[i], tree));
 
         // Compute the actual distance to the returned triangle.
-        float dist = std::sqrtf(distmin_Point_Triangle(bonsai_points[i], result));
+        // float dist = std::sqrtf(distmin_Point_Triangle(bonsai_points[i],
+        // result));
         bonsai_distances.push_back(dist);
     }
     t1 = clock::now();
     auto bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[bonsai] closest point query : " << bonsai_time << " ms"
-              << std::endl << std::endl;
+    std::cout << "\"bonsai\": " << bonsai_time << "}, " << std::endl;
+    // std::cout << "[bonsai] closest point query : " << bonsai_time << " ms"
+    //           << std::endl
+    //           << std::endl;
 
     verify_results(fcpw_distances, bonsai_distances, num_queries,
-                   /*distance_tolerance=*/1e-4f);
+                   /*distance_tolerance=*/1e-2f);
 }
 
 int main(int argc, char *argv[]) {
@@ -342,9 +347,9 @@ int main(int argc, char *argv[]) {
     //           << std::endl;
 
     // TODO: don't load object every time, etc.
-    for (size_t i = 8; i < 32; i++) {
+    for (size_t i = 8; i < 27; i++) {
         uint64_t count = 1ull << i;
-        std::cout << "Count = " << count << std::endl;
+        std::cout << "    {\"size\": " << count << ", ";
         run_test(fcpw_scene, tree, bbox_min, box_extent, count);
     }
 

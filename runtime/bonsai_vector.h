@@ -31,7 +31,10 @@ struct vector {
     }
 
     // Default constructor = zero
-    vector() = default;
+    vector() {
+        for (size_t i = 0; i < N; ++i)
+            data[i] = T{};
+    }
 
     // TODO(cgyurgyik): this leads to subtle bugs, e.g.,
     // `vec3_float{1}` will be `{1, 0, 0}`. Remove this.
@@ -298,15 +301,13 @@ size_t argmax(const vector<T, N> &a) {
     size_t p = 0;
     T r = a[0];
     for (int i = 1; i < N; ++i) {
-        if (r <= a[i]) {
-            continue;
+        if (a[i] > r) {
+            r = a[i];
+            p = i;
         }
-        p = i;
-        r = a[i];
     }
     return p;
 }
-
 template <typename T, size_t N>
 static vector<T, N> select(const vector<bool, N> &mask,
                            const vector<T, N> &if_true,

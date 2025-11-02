@@ -116,14 +116,14 @@ func distmin(pt : Point, a : AABB) -> Float {
 
 extern tris : set[Triangle];
 
-// func closest(p : Point) = minimum(|tri| distmin(p, tri), tris);
+func [[export]] closest(p : Point) = minimum(|tri| distmin(p, tri), tris);
 
-func [[export]] closest(p : Point) = argmin(|tri| distmin(p, tri), tris);
+// func [[export]] closest(p : Point) = argmin(|tri| distmin(p, tri), tris);
 
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH, ll lr hl hr : vec3f)
-      //with AABB(ll, hl) on left with AABB(lr, hr) on right
+      // with AABB(ll, hl) on left with AABB(lr, hr) on right
     | Leaf(d : array[Triangle]) with data = d;
 
     tris : TriangleBVH;

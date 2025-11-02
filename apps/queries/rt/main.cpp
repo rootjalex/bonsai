@@ -1,5 +1,9 @@
 #include "runtime/bonsai_cpp.h"
-#include "rt.h"
+#ifdef AJR_PROFILE
+#include "rt_profile.h"
+#else
+#include "rt_gen.h"
+#endif
 
 #include <fcpw/fcpw.h>
 
@@ -17,7 +21,12 @@
 #include <CGAL/AABB_traits_3.h>
 #include <CGAL/AABB_triangle_primitive_3.h>
 
-namespace {
+#include "runtime/bonsai_benchmark.h"
+
+constexpr int k = 7;
+constexpr int m = 1;
+
+// namespace {
 
 std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
                                        const std::vector<Triangle> &triangles) {
@@ -180,6 +189,13 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
             tree.group0_index[i].high[2] = bvh_ptr->flatTree[i].box.pMax[2];
             tree.group0_index[i].nPrims = bvh_ptr->flatTree[i].nReferences;
             tree.group0_index[i].offset = (tree.group0_index[i].nPrims == 0) ? bvh_ptr->flatTree[i].secondChildOffset : bvh_ptr->flatTree[i].referenceOffset;
+
+            if (i == 0) {
+                std::cerr << "Node 0: nPrims=" << tree.group0_index[i].nPrims
+                          << ", offset=" << tree.group0_index[i].offset
+                          << ", secondChildOffset="
+                          << bvh_ptr->flatTree[i].secondChildOffset << "\n";
+            }
         }
     } else {
         std::cerr << "Copying empty tree from FCPW " << std::endl;
@@ -217,7 +233,62 @@ using cgalPoint = cgalKernel::Point_3;
 using cgalTriangle = cgalKernel::Triangle_3;
 using cgalRay = cgalKernel::Ray_3;
 
-using Primitive = CGAL::AABB_triangle_primitive_3<cgalKernel, std::vector<cgalTriangle>::iterator>;
+struct MollerTrumboreIntersection {
+    using Ray = cgalRay;
+    using Triangle = cgalTriangle;
+    using Point = cgalPoint;
+    using Vector = cgalKernel::Vector_3;
+
+    std::optional<Point> operator()(const Ray &ray, const Triangle &tri) const {
+        const float EPS = 1e-6f;
+
+        Point orig = ray.source();
+        Vector dir = ray.to_vector();
+        Point v0 = tri.vertex(0);
+        Point v1 = tri.vertex(1);
+        Point v2 = tri.vertex(2);
+
+        Vector edge1 = v1 - v0;
+        Vector edge2 = v2 - v0;
+        Vector pvec = CGAL::cross_product(dir, edge2);
+        float det = edge1 * pvec;
+
+        if (fabs(det) < EPS)
+            return std::nullopt;
+
+        float invDet = 1.0f / det;
+        Vector tvec = orig - v0;
+        float u = (tvec * pvec) * invDet;
+        if (u < 0.0f || u > 1.0f)
+            return std::nullopt;
+
+        Vector qvec = CGAL::cross_product(tvec, edge1);
+        float v = (dir * qvec) * invDet;
+        if (v < 0.0f || u + v > 1.0f)
+            return std::nullopt;
+
+        float t = (edge2 * qvec) * invDet;
+        if (t < 0.0f)
+            return std::nullopt;
+
+        return std::optional<Point>(orig + dir * t);
+    }
+};
+
+// template <typename K>
+// struct Intersection_traits<K, CGAL::Ray_3, typename K::Line_3> {
+//     typedef typename std::variant<typename K::Segment_3, typename K::Point_3>
+//         variant_type;
+//     typedef typename std::optional<variant_type> result_type;
+// };
+
+// Then use standard traits with your custom primitive
+// using CustomPrimitive =
+//     Custom_triangle_primitive<std::vector<cgalTriangle>::iterator>;
+
+using Primitive =
+    CGAL::AABB_triangle_primitive_3<cgalKernel,
+                                    std::vector<cgalTriangle>::iterator>;
 using Traits = CGAL::AABB_traits_3<cgalKernel, Primitive>;
 using Tree = CGAL::AABB_tree<Traits>;
 
@@ -317,14 +388,16 @@ _tree_layout0 copy_tree(const Tree &aggregate) {
         return tri_count++;
     };
 
-    auto build_tri_range = [&](const CGAL::AABB_node<Traits> &node) -> std::tuple<uint32_t, uint32_t> {
+    auto build_tri_range =
+        [&](const Tree::Node &node) -> std::tuple<uint32_t, uint32_t> {
         const uint32_t offset = tri_count;
         (void)build_triangle(node.left_data().datum());
         (void)build_triangle(node.right_data().datum());
         return std::make_tuple(offset, 2);
     };
 
-    std::function<uint32_t(const CGAL::AABB_node<Traits> &, uint32_t)> recurse = [&](const CGAL::AABB_node<Traits> &node, uint32_t nb_prims) -> uint32_t {
+    std::function<uint32_t(const Tree::Node &, uint32_t)> recurse =
+        [&](const Tree::Node &node, uint32_t nb_prims) -> uint32_t {
         if (node_count >= tree.nCount) {
             std::cerr << "Wrote too many nodes!\n";
             abort();
@@ -337,32 +410,32 @@ _tree_layout0 copy_tree(const Tree &aggregate) {
         tree.group0_index[index].high.y = node.bbox().ymax();
         tree.group0_index[index].high.z = node.bbox().zmax();
         switch (nb_prims) {
-            case 2: {
-                auto [offset, count] = build_tri_range(node);
-                tree.group0_index[index].nPrims = count;
-                tree.group0_index[index].offset = offset;
-                return index;
+        case 2: {
+            auto [offset, count] = build_tri_range(node);
+            tree.group0_index[index].nPrims = count;
+            tree.group0_index[index].offset = offset;
+            return index;
+        }
+        case 3: {
+            // Left triangle, right node, make a node of 3 for us.
+            auto offset = build_triangle(node.left_data().datum());
+            auto [_, count] = build_tri_range(node.right_child());
+            tree.group0_index[index].nPrims = count + 1;
+            tree.group0_index[index].offset = offset;
+            return index;
+        }
+        default: {
+            if (nb_prims < 4) {
+                std::cerr << "UNEXPECTED: " << nb_prims << " primitives\n";
+                abort();
             }
-            case 3: {
-                // Left triangle, right node, make a node of 3 for us.
-                auto offset = build_triangle(node.left_data().datum());
-                auto [_, count] = build_tri_range(node.right_child());
-                tree.group0_index[index].nPrims = count + 1;
-                tree.group0_index[index].offset = offset;
-                return index;
-            }
-            default: {
-                if (nb_prims < 4) {
-                    std::cerr << "UNEXPECTED: " << nb_prims << " primitives\n";
-                    abort();
-                }
-                // Both nodes.
-                (void)recurse(node.left_child(), nb_prims / 2);
-                auto right = recurse(node.right_child(), nb_prims - nb_prims / 2);
-                tree.group0_index[index].nPrims = 0;
-                tree.group0_index[index].offset = right - index;
-                return index;
-            }
+            // Both nodes.
+            (void)recurse(node.left_child(), nb_prims / 2);
+            auto right = recurse(node.right_child(), nb_prims - nb_prims / 2);
+            tree.group0_index[index].nPrims = 0;
+            tree.group0_index[index].offset = right - index;
+            return index;
+        }
         }
     };
 
@@ -699,16 +772,17 @@ void run_bonsai(std::string object, std::vector<int64_t> ray_counts,
                 (void)trace(rays[i], tree); // warmup
             is_first_run = false;
         }
+        size_t hit_count = 0;
 #ifdef AJR_PROFILE
         ajr_profiler_reset();
-#endif
-        size_t hit_count = 0;
+
         auto trace_begin = clock::now(), trace_end = clock::now();
 
         // std::vector<Triangle> hits;
         // hits.reserve(rays.size());
         trace_begin = clock::now();
         for (int i = 0; i < rays.size(); ++i) {
+            fcpw::Interaction<3> interact;
             if (std::optional<Triangle> t = trace(rays[i], tree)) {
                 // hits.push_back(*t);
                 hit_count++;
@@ -720,11 +794,28 @@ void run_bonsai(std::string object, std::vector<int64_t> ray_counts,
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
+        std::cout << "  aabb hits tested = " << distmin_aabb_counter << "\n";
+        std::cout << "  tri  hits tested = " << distmin_triangle_counter
+                  << "\n";
+        ajr_profiler_reset();
+#else
+        auto trace_time =
+            benchmark_function(
+                [&]() {
+                    hit_count = 0;
+                    for (int i = 0; i < rays.size(); ++i) {
+                        if (std::optional<Triangle> t = trace(rays[i], tree)) {
+                            // hits.push_back(*t);
+                            hit_count++;
+                        }
+                    }
+                },
+                k, m) /
+            (double)1e6;
+#endif
         std::cout << "hits       : " << hit_count << "\n";
         std::cout << "trace time : " << trace_time << " ms\n";
 #ifdef AJR_PROFILE
-        std::cout << "  aabb hits tested = " << distmin_aabb_counter << "\n";
-        std::cout << "  tri  hits tested = " << distmin_triangle_counter << "\n";
         ajr_profiler_reset();
 #endif
     }
@@ -803,11 +894,10 @@ void run_fcpw(std::string object, std::vector<int64_t> ray_counts, std::string r
             }
             is_first_run = false;
         }
+        size_t hit_count = 0;
 #ifdef AJR_PROFILE
         ajr_profiler_reset();
-#endif
 
-        size_t hit_count = 0;
         auto trace_begin = clock::now(), trace_end = clock::now();
 
         // std::vector<Triangle> hits;
@@ -826,26 +916,41 @@ void run_fcpw(std::string object, std::vector<int64_t> ray_counts, std::string r
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
-        std::cout << "hits       : " << hit_count << "\n";
-        std::cout << "trace time : " << trace_time << " ms\n";
-#ifdef AJR_PROFILE
         std::cout << "  aabb hits tested = " << fcpw_aabb_counter << "\n";
         std::cout << "  tri  hits tested = " << fcpw_triangle_counter << "\n";
         ajr_profiler_reset();
+#else
+        auto trace_time =
+            benchmark_function(
+                [&]() {
+                    hit_count = 0;
+                    for (int i = 0; i < rays.size(); ++i) {
+                        fcpw::Interaction<3> interact;
+                        if (fcpw_scene.intersect(rays[i], interact)) {
+                            // hits.push_back(*t);
+                            hit_count++;
+                        }
+                    }
+                },
+                k, m) /
+            (double)1e6;
 #endif
+        std::cout << "hits       : " << hit_count << "\n";
+        std::cout << "trace time : " << trace_time << " ms\n";
     }
 }
 
 
 void run_cgal(std::string object, std::vector<int64_t> ray_counts, std::string ray_type) {
-    using cgalKernel = CGAL::Simple_cartesian<float>;
-    using cgalPoint = cgalKernel::Point_3;
-    using cgalTriangle = cgalKernel::Triangle_3;
-    using cgalRay = cgalKernel::Ray_3;
+    // using cgalKernel = CGAL::Simple_cartesian<float>;
+    // using cgalPoint = cgalKernel::Point_3;
+    // using cgalTriangle = cgalKernel::Triangle_3;
+    // using cgalRay = cgalKernel::Ray_3;
 
-    using Primitive = CGAL::AABB_triangle_primitive_3<cgalKernel, std::vector<cgalTriangle>::iterator>;
-    using Traits = CGAL::AABB_traits_3<cgalKernel, Primitive>;
-    using Tree = CGAL::AABB_tree<Traits>;
+    // using Primitive = CGAL::AABB_triangle_primitive_3<cgalKernel,
+    // std::vector<cgalTriangle>::iterator>; using Traits =
+    // CGAL::AABB_traits_3<cgalKernel, Primitive>; using Tree =
+    // CGAL::AABB_tree<Traits>;
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> tris = load_obj(object);
     assert(!tris.empty());
@@ -895,61 +1000,207 @@ void run_cgal(std::string object, std::vector<int64_t> ray_counts, std::string r
                 (void)tree.first_intersection(rays[i]); // warmup
             is_first_run = false;
         }
+        size_t hit_count = 0;
 #ifdef AJR_PROFILE
         ajr_profiler_reset();
-#endif
-        size_t hit_count = 0;
-        auto trace_begin = clock::now();
 
-        for (const auto& ray : rays) {
-            // Optional: get the first intersection point (if any)
-            auto intersection = tree.first_intersection(ray);
+        auto trace_begin = clock::now(), trace_end = clock::now();
 
-            if (intersection) {
-                ++hit_count;
-                // Intersection returns a boost::variant, can be a point or a primitive
-                // if (const Point* p = boost::get<Point>(&*intersection)) {
-                //     std::cout << "Hit at point: " << *p << "\n";
-                // } else if (const Triangle* tri = boost::get<Triangle>(&*intersection)) {
-                //     std::cout << "Hit triangle: " << *tri << "\n";
-                // }
+        // std::vector<Triangle> hits;
+        // hits.reserve(rays.size());
+        trace_begin = clock::now();
+        for (int i = 0; i < rays.size(); ++i) {
+            fcpw::Interaction<3> interact;
+            if (auto intersection = tree.first_intersection(rays[i])) {
+                // hits.push_back(*t);
+                hit_count++;
             }
         }
-
-        auto trace_end = clock::now();
+        trace_end = clock::now();
         // hit_count = hits.size();
 
         auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               trace_end - trace_begin)
                               .count();
+        std::cout << "  aabb hits tested = " << cgal_aabb_counter << "\n";
+        std::cout << "  tri  hits tested = " << cgal_triangle_counter << "\n";
+        ajr_profiler_reset();
+#else
+        auto trace_time =
+            benchmark_function(
+                [&]() {
+                    hit_count = 0;
+                    for (int i = 0; i < rays.size(); ++i) {
+                        if (auto intersection =
+                                tree.first_intersection(rays[i])) {
+                            // hits.push_back(*t);
+                            hit_count++;
+                        }
+                    }
+                },
+                k, m) /
+            (double)1e6;
+#endif
         std::cout << "hits       : " << hit_count << "\n";
         std::cout << "trace time : " << trace_time << " ms\n";
 #ifdef AJR_PROFILE
-        std::cout << "  aabb hits tested = " << distmin_aabb_counter << "\n";
-        std::cout << "  tri  hits tested = " << distmin_triangle_counter << "\n";
         ajr_profiler_reset();
 #endif
     }
 }
 
+void verify_bonsai_vs_fcpw(const std::vector<Ray> &rays,
+                           const fcpw::Scene<3> &fcpw_scene,
+                           const _tree_layout0 &bonsai_tree) {
+    for (size_t i = 0; i < rays.size(); ++i) {
+        const Ray &r = rays[i];
 
-} // namespace
+        // --- Run FCPW ---
+        fcpw::Ray<3> fcpw_ray({r.o[0], r.o[1], r.o[2]},
+                              {r.d[0], r.d[1], r.d[2]}, r.tmax);
+
+        float fcpw_t = std::numeric_limits<float>::infinity();
+
+        fcpw::Interaction<3> interact;
+        bool fcpw_hit = false;
+        if (fcpw_scene.intersect(fcpw_ray, interact)) {
+            fcpw_t = interact.d;
+            fcpw_hit = true;
+        }
+
+        // --- Run Bonsai ---
+        float bonsai_t = std::numeric_limits<float>::infinity();
+        bool bonsai_hit = false;
+        if (std::optional<Triangle> t = trace(rays[i], bonsai_tree)) {
+            bonsai_t = distmin_Ray_Triangle(rays[i], *t);
+            bonsai_hit = true;
+        }
+
+        // --- Compare results ---
+        bool both_miss = !fcpw_hit && !bonsai_hit;
+        bool both_hit = fcpw_hit && bonsai_hit;
+        bool mismatch = false;
+
+        if (both_miss)
+            continue;
+        if (both_hit) {
+            float diff = std::fabs(fcpw_t - bonsai_t);
+            if (diff > 1e-4f)
+                mismatch = true;
+        } else {
+            mismatch = true;
+        }
+
+        if (mismatch) {
+            std::cerr << std::fixed << std::setprecision(6);
+            std::cerr << "Ray mismatch at index " << i << "\n";
+            std::cerr << "Origin: (" << r.o[0] << ", " << r.o[1] << ", "
+                      << r.o[2] << ")\n";
+            std::cerr << "Direction: (" << r.d[0] << ", " << r.d[1] << ", "
+                      << r.d[2] << ")\n";
+            std::cerr << "Inverse (FCPW): (" << fcpw_ray.invD[0] << ", "
+                      << fcpw_ray.invD[1] << ", " << fcpw_ray.invD[2] << ")\n";
+            std::cerr << "Inverse (Bons): (" << (float3{1.0f} / r.d)[0] << ", "
+                      << (float3{1.0f} / r.d)[1] << ", "
+                      << (float3{1.0f} / r.d)[2] << ")\n";
+            std::cerr << "FCPW: " << (fcpw_hit ? "hit" : "miss")
+                      << " t = " << (fcpw_hit ? std::to_string(fcpw_t) : "n/a")
+                      << "\n";
+            std::cerr << "Bonsai: " << (bonsai_hit ? "hit" : "miss") << " t = "
+                      << (bonsai_hit ? std::to_string(bonsai_t) : "n/a")
+                      << "\n";
+            throw std::runtime_error("FCPW vs Bonsai mismatch on ray " +
+                                     std::to_string(i));
+        }
+    }
+
+    std::cout << "All " << rays.size()
+              << " rays matched between FCPW and Bonsai.\n";
+}
+
+void verify(const std::string &object, const std::string &ray_type,
+            const size_t ray_count) {
+    using clock = std::chrono::high_resolution_clock;
+
+    std::string ray_file =
+        "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays/" + object +
+        "_" + std::to_string(ray_count) + "_" + ray_type + ".rays";
+    std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
+
+    std::vector<Triangle> triangles = load_obj(object);
+    assert(!triangles.empty());
+
+    std::vector<fcpw::Vector3> vertices1;
+    std::vector<fcpw::Vector3i> indices1;
+
+    vertices1.reserve(triangles.size() * 3);
+    indices1.reserve(triangles.size());
+
+    for (const Triangle &tri : triangles) {
+        int idx0 = vertices1.size();
+        vertices1.emplace_back(tri.p0[0], tri.p0[1], tri.p0[2]);
+        int idx1 = vertices1.size();
+        vertices1.emplace_back(tri.p1[0], tri.p1[1], tri.p1[2]);
+        int idx2 = vertices1.size();
+        vertices1.emplace_back(tri.p2[0], tri.p2[1], tri.p2[2]);
+        indices1.emplace_back(idx0, idx1, idx2);
+    }
+
+    // ---- FCPW Setup ----
+    auto t0 = clock::now();
+
+    // Create FCPW scene for mesh
+    fcpw::Scene<3> fcpw_scene;
+
+    // Set object count
+    fcpw_scene.setObjectCount(1);
+
+    // Set vertices and triangles for object 0
+    fcpw_scene.setObjectVertices(vertices1, 0);
+    fcpw_scene.setObjectTriangles(indices1, 0);
+
+    // Build the BVH
+    bool printStats = false;
+    bool reduceMemoryFootprint = true;
+    bool vectorize = false;
+    fcpw_scene.build(fcpw::AggregateType::Bvh_SurfaceArea, vectorize,
+                     printStats, reduceMemoryFootprint);
+    auto t1 = clock::now();
+    auto trace_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "FCPW build time : " << trace_time << " ms\n";
+
+    auto tree = copy_tree(fcpw_scene.getSceneData()->aggregate.get());
+
+    verify_bonsai_vs_fcpw(rays, fcpw_scene, tree);
+}
+
+// } // namespace
 
 int main(int argc, char *argv[]) {
     std::string object_file = "white-oak";
     std::string ray_type = "camera";
 
+    const size_t ray_count = 131072;
+
+    // verify(object_file, ray_type, ray_count);
+
     std::vector<int64_t> ray_counts = {131072, 262144, 524288};
     // std::vector<int64_t> ray_counts = {131072,};
 
-    // run_fcpw(object_file, ray_counts, ray_type);
+    run_bonsai(object_file, ray_counts, ray_type);
+    std::cout << "\n\n";
+
+    run_fcpw(object_file, ray_counts, ray_type);
+    std::cout << "\n\n";
 
     run_bonsai(object_file, ray_counts, ray_type);
+    std::cout << "\n\n";
 
     run_cgal(object_file, ray_counts, ray_type);
+    std::cout << "\n\n";
 
     run_bonsai(object_file, ray_counts, ray_type);
 
-    
     return 0;
 }

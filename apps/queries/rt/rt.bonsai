@@ -58,47 +58,59 @@ func cross_(v0 : vec3f, v1 : vec3f) -> vec3f {
 }
 func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
 
-
-
 // pstd::optional<TriangleIntersection> IntersectTriangle
 // shapes.cpp
 func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[Float] {
-    epsilon = eps[[Float]]();
-
+    // Möller-Trumbore intersection algorithm
     pa = tri.p0;
     pb = tri.p1;
     pc = tri.p2;
+
     v1 = pb - pa;
     v2 = pc - pa;
     p = cross(r.d, v2);
     det = dot(v1, p);
 
     // ray and triangle are parallel if det is close to 0
-    if (abs(det) <= epsilon) {
+    if (abs(det) <= eps[[Float]]()) {
         return {};
     }
-
     invDet = 1.0 / det;
 
     s = r.o - pa;
     v = dot(s, p) * invDet;
-    if ((v < 0) || (v > 1)) {
+
+    if (v < 0 || v > 1) {
         return {};
     }
 
     q = cross(s, v1);
     w = dot(r.d, q) * invDet;
-    if ((w < 0) || (v + w > 1)) {
+
+    if (w < 0.0 || v + w > 1.0) {
         return {};
     }
 
     t = dot(v2, q) * invDet;
-    if ((t >= 0.0) && (t <= r.tmax)) {
+
+    if (t >= 0.0 && t <= r.tmax) {
         return {t};
     }
+
     return {};
 }
 
+func orient3d(a : vec3f, b : vec3f, c : vec3f, d : vec3f) {
+    ad = a - d;
+    bd = b - d;
+    cd = c - d;
+    return dot(ad, cross(bd, cd));
+}
+
+func point_in_triangle(p : vec3f, t : Triangle, q : vec3f) {
+    return orient3d(p, q, t.p0, t.p1) <= 0 && orient3d(p, q, t.p1, t.p2) <= 0 &&
+           orient3d(p, q, t.p2, t.p0) <= 0;
+}
 
 func distmax(r : Ray, b : AABB) -> Float {
     interval = intersectsp_ray_aabb(r, b);
@@ -118,7 +130,7 @@ func distmin(r : Ray, b : AABB) -> Float {
     return -inf;
 }
 
-func distmin(ray : Ray, tri : Triangle) -> Float {
+func [[export]] distmin(ray : Ray, tri : Triangle) -> Float {
     isect = intersectsp_ray_tri(ray, tri);
     if isect {
         // TODO(ajr): this is annoying syntax. Fix.
@@ -156,10 +168,12 @@ extern triangles : set[Triangle];
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
 schedule {
-    // tree[[Triangle]] BVH(low high : vector[Float, 3]) with AABB(low, high) =
-    tree[[Triangle]] BVH =
-      | Interior(left : BVH, right : BVH, ll lr hl hr : vec3f, low high : vector[Float, 3]) with AABB(low, high)
-      | Leaf(d : array[Triangle]) with data = d;
+    tree [[Triangle]] BVH(low high : vector[Float, 3]) with AABB(low, high) =
+        // tree[[Triangle]] BVH =
+        //   | Interior(left : BVH, right : BVH, ll lr hl hr : vec3f, low high :
+        //   vector[Float, 3]) with AABB(low, high)
+        | Interior(left : BVH, right : BVH)
+        | Leaf(d : array[Triangle]) with data = d;
 
     triangles : BVH;
 
@@ -169,24 +183,23 @@ schedule {
         nCount : u32;
         group[nCount] index : u32 {
             low : vec3f;
-            nPrims : i32;
+            nPrims:
+                u32;
             high : vec3f;
             offset : u32;
             switch nPrims {
                 0 => Interior {
                     left = index + 1;
                     right = index + offset;
-                    ll = this[left].low;
-                    lr = this[right].low;
-                    hl = this[left].high;
-                    hr = this[right].high;
                 };
                 _ => Leaf { d = range(prims, offset, cast[[u32]](nPrims)); };
             };
         };
     };
 
-    //trace
-         //.sort(triangles.Interior, |i : u8, ray : Ray, ll : vec3f, lr : vec3f, hl : vec3f, hr : vec3f | distmin(ray, AABB{select(i == 1, ll, lr), select(i == 1, hl, hr)}))
-         //.loopify(64);
+    trace
+        //.sort(triangles.Interior, |i : u8, ray : Ray, ll : vec3f, lr : vec3f,
+        // hl : vec3f, hr : vec3f | distmin(ray, AABB{select(i == 1, ll, lr),
+        // select(i == 1, hl, hr)}))
+        .loopify(128);
 }
