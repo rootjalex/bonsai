@@ -79,7 +79,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     return (a + ab * v + ac * w, {{u, v, w}}); // = u*a + v*b + w*c, u = va * denom = 1.0-v-w
 }
 
-func distmin(p : Point, tri : Triangle) -> Float {
+func [[export]] distmin(p : Point, tri : Triangle) -> Float {
     pts = closestPointonTriangle(p, tri);
     d = p.vec - pts[0].vec;
     return dot(d, d); // sqdist
@@ -116,12 +116,14 @@ func distmin(pt : Point, a : AABB) -> Float {
 
 extern tris : set[Triangle];
 
-func closest(p : Point) = minimum(|tri| distmin(p, tri), tris);
+// func closest(p : Point) = minimum(|tri| distmin(p, tri), tris);
+
+func [[export]] closest(p : Point) = argmin(|tri| distmin(p, tri), tris);
 
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH, ll lr hl hr : vec3f)
-      with AABB(ll, hl) on left with AABB(lr, hr) on right
+      //with AABB(ll, hl) on left with AABB(lr, hr) on right
     | Leaf(d : array[Triangle]) with data = d;
 
     tris : TriangleBVH;
@@ -130,18 +132,22 @@ schedule {
         pCount : u32;
         prims : array[Triangle, pCount];
         nCount : u32;
-        group[nCount] index : u16 {
+        group[nCount] index : u32 {
             low : vec3f;
             nPrims : u32;
             high : vec3f;
-            axis : u16; // axis + pad bits.
+            offset : u32;
             switch nPrims {
-                0 => Interior { offset : u16; left = index + 1; right = index + offset; ll = this[left].low; lr = this[right].low; hl = this[left].high; hr = this[right].high; };
-                _ => Leaf { pOffset : u16; d = range(prims, pOffset, cast[[u16]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + offset; ll = this[left].low; lr = this[right].low; hl = this[left].high; hr = this[right].high; };
+                _ => Leaf { d = range(prims, offset, nPrims); };
             };
         };
     };
 
     // TODO: schedule.
     // closest.sort(tris.Interior, |i : u8| 1 - i);
+
+    closest
+         .sort(tris.Interior, |i : u8, p : Point, ll : vec3f, lr : vec3f, hl : vec3f, hr : vec3f | distmin(p, AABB{select(i == 1, ll, lr), select(i == 1, hl, hr)}))
+         .loopify(64);
 }
