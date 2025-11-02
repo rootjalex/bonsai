@@ -74,7 +74,7 @@ struct Printer : public Visitor {
     void print(const Schedule &schedule);
     void print(const Location &loc);
     void print(const Type &type);
-    void print_type_list(const std::vector<Type> &types);
+    virtual void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
     void print(const Expr &expr);
     void print_no_parens(const Expr &expr);

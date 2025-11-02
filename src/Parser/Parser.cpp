@@ -564,7 +564,9 @@ struct Parser {
         return interfaces;
     }
 
-    void parse_geometric_intrinsic(const std::string &name) {
+    void
+    parse_geometric_intrinsic(const std::string &name,
+                              std::vector<ir::Function::Attribute> attributes) {
         // TODO: support generics for geometric intrinsics.
         push_frame();
         std::vector<ir::Function::Argument> args = parse_func_args();
@@ -645,8 +647,7 @@ struct Parser {
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
-            ir::Function::InterfaceList{},
-            std::vector<ir::Function::Attribute>{});
+            ir::Function::InterfaceList{}, std::move(attributes));
 
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(typed_name), std::move(func));
@@ -678,7 +679,8 @@ struct Parser {
         }
         const std::string name = get_id();
         if (is_geometric_intrinsic(name)) {
-            return parse_geometric_intrinsic(name); // special case.
+            return parse_geometric_intrinsic(
+                name, std::move(attributes)); // special case.
         }
 
         if (is_builtin(name)) {

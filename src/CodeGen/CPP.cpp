@@ -355,9 +355,8 @@ class BonsaiToCpp : ir::Printer {
 
     bool should_be_ref(const Type &type) const {
         // TODO: finish
-        const auto *struct_t = type.as<Struct_t>();
-        return type.is<Ref_t, Set_t, BVH_t>() ||
-               (struct_t && struct_t->name.starts_with("_"));
+        // const auto *struct_t = type.as<Struct_t>();
+        return type.is<Ref_t, Set_t, BVH_t, Struct_t>();
     }
 
     void emit_func_decl(const Function &func) {
@@ -694,11 +693,22 @@ class BonsaiToCpp : ir::Printer {
         ss << "]";
     }
 
+    void print_type_list(const std::vector<Type> &types) override {
+        for (size_t i = 0; i < types.size(); i++) {
+            emit_type(ss, types[i]);
+            if (i < types.size() - 1) {
+                ss << ", ";
+            }
+        }
+    }
+
     void visit(const Build *node) override {
         if (node->type.is<Tuple_t>()) {
-            ss << "std::make_tuple(";
+            ss << "std::tuple<";
+            print_type_list(node->type.as<Tuple_t>()->etypes);
+            ss << ">{";
             print_expr_list(node->values);
-            ss << ")";
+            ss << "}";
             return;
         } else if (node->type.is<Struct_t>()) {
             emit_type(ss, node->type);
@@ -831,11 +841,15 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Return *node) override;
 
     void visit(const LetStmt *node) override {
+        internal_assert(node->value.defined());
         ss << get_indent();
         ss << "const ";
         emit_type(ss, node->loc.base_type);
+        if (node->value.is<Extract>()) {
+            // Load by reference instead of copy.
+            ss << "&";
+        }
         ss << " " << node->loc.base;
-        internal_assert(node->value.defined());
         ss << " = ";
         print_no_parens(node->value);
         ss << ";\n";
