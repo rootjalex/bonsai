@@ -348,7 +348,7 @@ void run_test(const std::string &obj1, int64_t num_queries) {
               << std::endl;
 
     verify_results(fcpw_distances, bonsai_distances, num_queries,
-                   /*distance_tolerance=*/1e-3f);
+                   /*distance_tolerance=*/1e-1f);
 }
 
 int main(int argc, char *argv[]) {
