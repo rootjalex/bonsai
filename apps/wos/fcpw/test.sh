@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 
-N="${1:-4}"
+N="${1:-9}"
 N_QUERIES="${2:-100000}"
 OBJECTS=("lucy" "hairball" "white-oak" "sheep" "san-miguel-x35-y22-z47" "sponza" "power-plant")
 
@@ -54,6 +54,7 @@ run_tests() {
 
   # replace `$N$` with BVH_SUFFIX.
   MAIN_FILE="main"
+  FREDWOOD_FLAG=""
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cpp > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cpp
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
   # insert the canonical tree functions (we do it in this hacky way since they're shared between CPU / GPU.
@@ -64,7 +65,6 @@ run_tests() {
     FREDWOOD_FLAG="numactl --physcpubind 0-15" 
   else
     sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r ${PREFIX}/canonical_tree_${BVH_SUFFIX}.h" ${PREFIX}/${MAIN_FILE}.cpp
-    FREWOOD_FLAG=""
   fi
 
   for OBJECT in "${OBJECTS[@]}"; do
