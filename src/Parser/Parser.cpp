@@ -1437,7 +1437,7 @@ struct Parser {
         }
 
         if (name == "inf") {
-            return ir::Infinity::make(f32);
+            return ir::Extrema::make(f32, ir::Extrema::inf);
         }
 
         if (consume(Token::Type::LPAREN)) {
@@ -1564,7 +1564,7 @@ struct Parser {
                        "received: "
                     << type;
                 // TODO: this should be handled in codegen...
-                return ir::FloatImm::make(type, machine_epsilon(type));
+                return ir::Extrema::make(std::move(type), ir::Extrema::eps);
             }
 
             if (!template_types.empty()) {

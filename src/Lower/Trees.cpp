@@ -108,6 +108,8 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
+    // Any child-named volumes
+    std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
     // The list of tagged intervals. Holds scalar interval OR map of field
     // intervals.
     std::vector<
@@ -139,8 +141,8 @@ struct Rewriter : public ir::Mutator {
                 return Interval{std::move(low_expr), std::move(high_expr)};
             };
 
-            if (bvh_node.has_volume()) {
-                const auto &volume = bvh_node.get_volume();
+            auto make_volume =
+                [&](const ir::Annotation::Volume *volume) -> ir::Expr {
                 const auto &inits = volume->initializers;
                 const size_t n_args = inits.size();
                 std::vector<ir::Expr> args(n_args);
@@ -148,8 +150,12 @@ struct Rewriter : public ir::Mutator {
                     const auto &name = inits[j];
                     args[j] = ir::Access::make(name, tree);
                 }
-                ir::Expr vol = ir::Build::make(volume->struct_type, args);
-                volumes.emplace_back(std::move(vol));
+                return ir::Build::make(volume->struct_type, args);
+            };
+
+            if (bvh_node.has_volume()) {
+                const auto &volume = bvh_node.get_volume();
+                volumes.emplace_back(make_volume(volume));
             } else {
                 volumes.emplace_back(); // undef volume
             }
@@ -157,6 +163,7 @@ struct Rewriter : public ir::Mutator {
                          std::map<std::string, Interval>>
                 interval;
             std::map<std::string, ir::Expr> aggregation;
+            std::map<std::string, ir::Expr> built_child_volumes;
             for (const auto &annot : node->arms[i].first.annotations) {
                 if (const auto *a_interval =
                         annot.as<ir::Annotation::Interval>()) {
@@ -189,15 +196,28 @@ struct Rewriter : public ir::Mutator {
                     key += ")";
                     ir::Expr expr = ir::Access::make(agg->value, tree);
                     aggregation[key] = std::move(expr);
+                } else if (const auto *vol =
+                               annot.as<ir::Annotation::Volume>()) {
+                    if (vol->geometry.empty()) {
+                        continue;
+                    }
+                    // Tag on a child.
+                    built_child_volumes[vol->geometry] = make_volume(vol);
                 }
             }
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
+            if (!built_child_volumes.empty()) {
+                child_volumes[var->name] = built_child_volumes;
+            }
 
             ir::Stmt stmt = mutate(node->arms[i].second);
             volumes.pop_back();
             intervals.pop_back();
             aggregations.pop_back();
+            if (!built_child_volumes.empty()) {
+                child_volumes.erase(var->name);
+            }
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
@@ -215,6 +235,35 @@ struct Rewriter : public ir::Mutator {
             // Even if a volume is undefined, needs to be added so
             // predicate analysis knows it's non-varying.
             vols[args[i].name] = volumes[i];
+        }
+        return vols;
+    }
+
+    VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
+                              const ir::Expr &value) const {
+        auto get_volume = [&](const ir::Expr &e) {
+            const ir::Access *access = e.as<ir::Access>();
+            internal_assert(access) << e;
+            const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
+            internal_assert(unwrap) << e;
+            const ir::Var *var = unwrap->value.as<ir::Var>();
+            internal_assert(var) << e;
+            const auto &iter = child_volumes.find(var->name);
+            internal_assert(iter != child_volumes.cend()) << e;
+            const auto &citer = iter->second.find(access->field);
+            internal_assert(citer != iter->second.cend()) << e;
+            return citer->second;
+        };
+        VolumeMap vols;
+        if (args.size() == 1) {
+            vols[args[0].name] = get_volume(value);
+        } else {
+            const auto values = break_tuple(value);
+            internal_assert(args.size() == values.size()) << value;
+            for (size_t i = 0; i < args.size(); i++) {
+                // TODO(ajr): this doesn't work with mismatching BVHs.
+                vols[args[i].name] = get_volume(values[i]);
+            }
         }
         return vols;
     }
@@ -492,7 +541,7 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, tuple_t);
 
-    ir::Expr inf = ir::Infinity::make(std::move(metric_t));
+    ir::Expr inf = ir::Extrema::make(std::move(metric_t), ir::Extrema::inf);
     static const std::vector<ir::Expr> empty_list = {};
     ir::Expr empty = ir::Build::make(ret_type, empty_list);
     std::vector<ir::Expr> values = {inf, std::move(empty)};
@@ -598,8 +647,7 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
             // if any of these values have a volume wrap, use it to tighten the
             // bound. ajr: this is some of the hackiest shit I have ever done,
             // but I think it works...
-            internal_error << "TODO";
-            /*
+            // internal_error << "TODO";
             if (!child_volumes.empty()) {
                 auto as = break_tuple(node->value);
                 std::vector<ir::Expr> upper_bounds;
@@ -653,7 +701,6 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
             ir::Stmt do_update = ir::Accumulate::make(loc, ir::Accumulate::Min,
                                                       std::move(upper_bound));
             return ir::Sequence::make({std::move(do_update), std::move(body)});
-            */
         }
     };
 
@@ -665,7 +712,7 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
     std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, metric_t);
 
-    ir::Expr init = ir::Infinity::make(metric_t);
+    ir::Expr init = ir::Extrema::make(metric_t, ir::Extrema::inf);
 
     // TODO(ajr): is stack memory ok here? it's not an array.
     ir::Stmt header =

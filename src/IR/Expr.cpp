@@ -169,11 +169,12 @@ Expr StringImm::make(std::string value) {
     return node;
 }
 
-Expr Infinity::make(Type t) {
+Expr Extrema::make(Type t, Extrema::OpType op) {
     internal_assert(t.defined() && t.is_numeric())
-        << "Infinity can be made for numeric types only: " << t;
+        << "Extrema can be made for numeric types only: " << t;
 
-    Infinity *node = new Infinity;
+    Extrema *node = new Extrema;
+    node->op = op;
     node->type = std::move(t);
     return node;
 }

@@ -358,7 +358,8 @@ struct BVH_t : TypeNode<BVH_t> {
 
         bool has_volume() const {
             for (const auto &annot : annotations) {
-                if (annot.as<Annotation::Volume>()) {
+                if (annot.as<Annotation::Volume>() &&
+                    annot.as<Annotation::Volume>()->geometry.empty()) {
                     return true;
                 }
             }
@@ -367,7 +368,8 @@ struct BVH_t : TypeNode<BVH_t> {
 
         const Annotation::Volume *get_volume() const {
             for (const auto &annot : annotations) {
-                if (const auto *vol = annot.as<Annotation::Volume>()) {
+                if (const auto *vol = annot.as<Annotation::Volume>();
+                    vol && vol->geometry.empty()) {
                     return vol;
                 }
             }

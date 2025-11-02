@@ -111,7 +111,7 @@ void Visitor::visit(const VecImm *) {}
 
 void Visitor::visit(const StringImm *) {}
 
-void Visitor::visit(const Infinity *) {}
+void Visitor::visit(const Extrema *) {}
 
 void Visitor::visit(const Var *) {}
 

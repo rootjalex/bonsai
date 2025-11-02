@@ -38,7 +38,7 @@ struct Visitor {
     virtual void visit(const BoolImm *);
     virtual void visit(const VecImm *);
     virtual void visit(const StringImm *);
-    virtual void visit(const Infinity *);
+    virtual void visit(const Extrema *);
     virtual void visit(const Var *);
     virtual void visit(const BinOp *);
     virtual void visit(const UnOp *);

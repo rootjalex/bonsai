@@ -121,7 +121,7 @@ bool is_const(const Expr &e) {
                std::all_of(b->values.begin(), b->values.end(),
                            [](const Expr &v) { return is_const(v); });
     }
-    return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
+    return e.is<IntImm, UIntImm, FloatImm, BoolImm, Extrema, VecImm>();
 }
 
 bool is_location_expr(const Expr &expr) {
@@ -171,7 +171,7 @@ Expr make_all_ones(const Type &t) { return make_const(t, bit_mask(t.bits())); }
 
 Expr make_inf(const Type &t) {
     if (t.is<UInt_t, Int_t, Float_t>()) {
-        return Infinity::make(t);
+        return Extrema::make(t, Extrema::inf);
     }
     internal_error << "Unknown infinity for type: " << t;
 }
@@ -261,8 +261,6 @@ Expr constant_cast(const Type &t, const Expr &e) {
         }
     } else if (e.is<Broadcast>()) {
         return constant_cast(t, e.as<Broadcast>()->value);
-    } else if (e.is<Infinity>()) {
-        return Infinity::make(t);
     }
     internal_error << "Unsure how to convert constant to type: " << t
                    << " expr: " << e;
@@ -435,10 +433,10 @@ double machine_epsilon(const Type &t) {
         << t;
     switch (t.bits()) {
     case 32: {
-        return std::numeric_limits<float>::epsilon() * 0.5;
+        return std::numeric_limits<float>::epsilon();
     }
     case 64: {
-        return std::numeric_limits<double>::epsilon() * 0.5;
+        return std::numeric_limits<double>::epsilon();
     }
     default: {
         internal_error << "machine_epsilon() not supported for type: " << t;

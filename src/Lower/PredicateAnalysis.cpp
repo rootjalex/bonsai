@@ -99,7 +99,7 @@ struct PredicateAnalysis : public ir::Visitor {
 
     void visit(const ir::BoolImm *node) override { set(node); }
 
-    void visit(const ir::Infinity *node) override { set(node); }
+    void visit(const ir::Extrema *node) override { set(node); }
 
     void visit(const ir::Var *node) override { set(node); }
 
@@ -324,7 +324,7 @@ struct PredicateAnalysis : public ir::Visitor {
             // Both are fully bounded, at least one is a true interval,
             // and the type is floating point.
 
-            ir::Expr inf = ir::Infinity::make(node->type);
+            ir::Expr inf = ir::Extrema::make(node->type, ir::Extrema::inf);
             ir::Expr zero = make_zero(node->type);
 
             ir::Expr denom_positive = b.min > zero;

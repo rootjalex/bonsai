@@ -40,7 +40,7 @@ struct FloatImm;
 struct BoolImm;
 struct VecImm;
 struct StringImm;
-struct Infinity;
+struct Extrema;
 struct Var;
 struct BinOp;
 struct UnOp;

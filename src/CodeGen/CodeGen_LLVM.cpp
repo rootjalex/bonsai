@@ -689,7 +689,8 @@ void CodeGen_LLVM::visit(const StringImm *node) {
     internal_error << "[unimplemented] StringImm in LLVM: " << Expr(node);
 }
 
-void CodeGen_LLVM::visit(const Infinity *node) {
+void CodeGen_LLVM::visit(const Extrema *node) {
+    internal_error << "TODO: " << Expr(node);
     llvm::Type *inf_type = codegen_type(node->type);
 
     if (inf_type->isFloatTy()) {

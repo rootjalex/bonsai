@@ -114,10 +114,14 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             internal_assert(!found_from)
                 << "Found duplicate YieldFrom when lowering sort(): "
                 << Stmt(node);
-            found_from = true;
             // TODO(ajr): maybe we want a sort() IRNode that can be
             // device-specific?
             std::vector<Expr> exprs = break_tuple(node->value);
+            if (exprs.size() < 2) {
+                return node;
+            }
+            // Otherwise, apply sort.
+            found_from = true;
             std::vector<Expr> costs(exprs.size());
             for (size_t i = 0; i < exprs.size(); i++) {
                 costs[i] = sort_cost(i);

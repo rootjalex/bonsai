@@ -791,11 +791,20 @@ void Printer::visit(const StringImm *node) {
     print_string_imm(os, node->value);
 }
 
-void Printer::visit(const Infinity *node) {
+void Printer::visit(const Extrema *node) {
     os << "(";
     print(node->type);
     os << ")";
-    os << "inf";
+    switch (node->op) {
+    case Extrema::inf: {
+        os << "INF";
+        break;
+    }
+    case Extrema::eps: {
+        os << "EPS";
+        break;
+    }
+    }
 }
 
 void Printer::visit(const Var *node) { os << node->name; }

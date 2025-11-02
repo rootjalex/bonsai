@@ -62,7 +62,7 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         return std::bit_cast<T>(value);
     }
 
-    if (e.is<ir::Infinity>()) {
+    if (e.is<ir::Extrema>()) {
         // Conservatively fail until we find use cases for this.
         return {};
     }

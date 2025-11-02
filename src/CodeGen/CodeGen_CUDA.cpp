@@ -356,7 +356,15 @@ void CodeGen_CUDA::visit(const StringImm *node) {
     print_string_imm(os, node->value);
 }
 
-void CodeGen_CUDA::visit(const Infinity *node) { os << "INFINITY"; }
+void CodeGen_CUDA::visit(const Extrema *node) {
+    if (node->op == Extrema::inf) {
+        os << "INFINITY";
+    } else if (node->op == Extrema::eps) {
+        os << "EPSILON";
+    } else {
+        internal_error << "Failed Extrema codegen for CUDA";
+    }
+}
 
 void CodeGen_CUDA::visit(const Cast *node) {
     ir::Expr value = node->value;

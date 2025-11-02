@@ -24,7 +24,7 @@ enum class IRExprEnum {
     VecImm,
     StringImm,
     Var,
-    Infinity,
+    Extrema,
     BinOp,
     UnOp,
     Select,
@@ -163,10 +163,15 @@ struct Var : ExprNode<Var> {
 };
 
 // Maximum value of a type (inf for float)
-struct Infinity : ExprNode<Infinity> {
-    static Expr make(Type tan);
+struct Extrema : ExprNode<Extrema> {
+    enum OpType {
+        eps,
+        inf,
+    };
+    OpType op;
+    static Expr make(Type t, OpType op);
 
-    static const IRExprEnum node_type = IRExprEnum::Infinity;
+    static const IRExprEnum node_type = IRExprEnum::Extrema;
 };
 
 struct BinOp : ExprNode<BinOp> {

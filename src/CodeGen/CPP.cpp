@@ -216,10 +216,21 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
             ss << (node->value ? "true" : "false");
         }
 
-        void visit(const Infinity *node) override {
+        void visit(const Extrema *node) override {
             ss << "std::numeric_limits<";
             emit_type(ss, node->type);
-            ss << ">::infinity()";
+            ss << ">::";
+            switch (node->op) {
+            case Extrema::inf: {
+                ss << "infinity";
+                break;
+            }
+            case Extrema::eps: {
+                ss << "epsilon";
+                break;
+            }
+            }
+            ss << "()";
         }
 
         void visit(const VecImm *node) override {
@@ -575,10 +586,21 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // void visit(const StringImm *) override;
-    void visit(const Infinity *node) override {
+    void visit(const Extrema *node) override {
         ss << "std::numeric_limits<";
         emit_type(ss, node->type);
-        ss << ">::infinity()";
+        ss << ">::";
+        switch (node->op) {
+        case Extrema::inf: {
+            ss << "infinity";
+            break;
+        }
+        case Extrema::eps: {
+            ss << "epsilon";
+            break;
+        }
+        }
+        ss << "()";
     }
     // void visit(const Var *) override;
     // void print(const BinOp::OpType &op);
@@ -845,10 +867,11 @@ class BonsaiToCpp : ir::Printer {
         ss << get_indent();
         ss << "const ";
         emit_type(ss, node->loc.base_type);
-        if (node->value.is<Extract>()) {
-            // Load by reference instead of copy.
-            ss << "&";
-        }
+        // THIS INDUCES THE MOST FUCKED BUG.
+        // if (node->value.is<Extract>()) {
+        //     // Load by reference instead of copy.
+        //     ss << "&";
+        // }
         ss << " " << node->loc.base;
         ss << " = ";
         print_no_parens(node->value);

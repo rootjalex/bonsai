@@ -273,7 +273,7 @@ Expr Mutator::visit(const VecImm *node) { return node; }
 
 Expr Mutator::visit(const StringImm *node) { return node; }
 
-Expr Mutator::visit(const Infinity *node) { return node; }
+Expr Mutator::visit(const Extrema *node) { return node; }
 
 Expr Mutator::visit(const Var *node) { return node; }
 
