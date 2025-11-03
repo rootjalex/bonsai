@@ -39,7 +39,7 @@ cmake --build build -j
 
 if [[ "$(uname)" == "Linux" ]]; then
     BIND="numactl --physcpubind 0-15"
-    OBJ_DIR="/scratch/cpg/bonsai/apps/rt/data"
+    OBJ_DIR="/scratch/cpg/bonsai/apps/cd/data"
 else
     echo "Warning: numactl only available on Linux; skipping CPU binding"
     BIND=""
