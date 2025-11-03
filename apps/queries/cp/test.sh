@@ -9,7 +9,6 @@ SRC_DIR="apps/queries/cp"
 
 time ./build/compiler -i $SRC_DIR/cp.bonsai -p canonicalize -p lower-trees -p lower-sorts -p lower-externs -p lower-geometrics -p lower-dynamic-sets -p lower-scans -p lower-layouts -p loop-transforms -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields -p lower-generic -p simplify -p lower-logical-operation -p cse -p dce -b cppx -o $SRC_DIR/cp_gen
 
-
 if [[ "$(uname)" == "Darwin" ]]; then
     EIGEN_INCLUDE="-I/opt/homebrew/include/eigen3"
 else

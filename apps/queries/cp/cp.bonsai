@@ -134,9 +134,9 @@ schedule {
         nCount : u32;
         group[nCount] index : u32 {
             low : vec3f;
-            nPrims : u32;
             high : vec3f;
             offset : u32;
+            nPrims : u32;
             switch nPrims {
                 0 => Interior { left = index + 1; right = index + offset; ll = this[left].low; lr = this[right].low; hl = this[left].high; hr = this[right].high; };
                 _ => Leaf { d = range(prims, offset, nPrims); };

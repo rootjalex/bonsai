@@ -228,48 +228,53 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
     }
 
     // ---- FCPW Closest Point Query ----
-    std::vector<float> fcpw_distances;
-    fcpw_distances.reserve(num_queries);
+    std::vector<float> fcpw_distances(num_queries);
 
-    auto t0 = clock::now();
-    for (int i = 0; i < num_queries; i++) {
+    // Do warm-up
+    for (int i = 0; i < std::min(num_queries, 512ll); i++) {
         fcpw::Interaction<3> closest_interaction;
         bool found =
             fcpw_scene.findClosestPoint(fcpw_points[i], closest_interaction);
         assert(found);
-        fcpw_distances.push_back(closest_interaction.d);
+        fcpw_distances[i] = closest_interaction.d;
     }
-    auto t1 = clock::now();
-    auto fcpw_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    // std::cout << "[fcpw]   closest point query : " << fcpw_time << " ms"
-    //           << std::endl;
-    std::cout << "\"fcpw\": " << fcpw_time << ", ";
+
+    // Do benchmarking
+    auto fcpw_time = benchmark_function(
+                         [&]() {
+                             for (int i = 0; i < num_queries; ++i) {
+                                 fcpw::Interaction<3> closest_interaction;
+                                 bool found = fcpw_scene.findClosestPoint(
+                                     fcpw_points[i], closest_interaction);
+                                 fcpw_distances[i] = closest_interaction.d;
+                             }
+                         },
+                         k, m) /
+                     (double)1e6; // ns -> ms
 
     // ---- Bonsai Closest Point Query ----
-    std::vector<float> bonsai_distances;
-    bonsai_distances.reserve(num_queries);
+    std::vector<float> bonsai_distances(num_queries);
 
-    t0 = clock::now();
-    for (int i = 0; i < num_queries; i++) {
-        // Triangle result = closest(bonsai_points[i], tree);
-        float dist = std::sqrtf(closest(bonsai_points[i], tree));
-
-        // Compute the actual distance to the returned triangle.
-        // float dist = std::sqrtf(distmin_Point_Triangle(bonsai_points[i],
-        // result));
-        bonsai_distances.push_back(dist);
+    // Do warm-up
+    for (int i = 0; i < std::min(num_queries, 512ll); i++) {
+        bonsai_distances[i] = std::sqrtf(closest(bonsai_points[i], tree));
     }
-    t1 = clock::now();
-    auto bonsai_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "\"bonsai\": " << bonsai_time << "}, " << std::endl;
-    // std::cout << "[bonsai] closest point query : " << bonsai_time << " ms"
-    //           << std::endl
-    //           << std::endl;
+
+    auto bonsai_time = benchmark_function(
+                           [&]() {
+                               for (int i = 0; i < num_queries; ++i) {
+                                   bonsai_distances[i] = std::sqrtf(
+                                       closest(bonsai_points[i], tree));
+                               }
+                           },
+                           k, m) /
+                       (double)1e6;
 
     verify_results(fcpw_distances, bonsai_distances, num_queries,
                    /*distance_tolerance=*/1e-2f);
+
+    std::cout << "\"fcpw\": " << fcpw_time << ", ";
+    std::cout << "\"bonsai\": " << bonsai_time << "}, " << std::endl;
 }
 
 int main(int argc, char *argv[]) {
