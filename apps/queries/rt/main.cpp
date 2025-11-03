@@ -107,7 +107,9 @@ std::vector<fcpw::Ray<3>> convert_rays(const std::vector<Ray> &rays) {
     return fcpw_rays;
 }
 
-std::vector<Triangle> load_obj(const std::string &object) {
+std::vector<Triangle> load_obj(const std::string &obj_dir,
+                               const std::string &object) {
+    /*
     std::filesystem::path current_path = std::filesystem::current_path();
     while (current_path.has_parent_path()) {
         if (std::filesystem::exists(current_path / "bonsai"))
@@ -115,8 +117,13 @@ std::vector<Triangle> load_obj(const std::string &object) {
         current_path = current_path.parent_path();
     }
 
-    std::string object_path = "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/" + object + ".obj";
-    std::string material_path = "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/" + object;
+    std::string object_path =
+    "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/" + object + ".obj";
+    std::string material_path =
+    "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/" + object;
+    */
+    std::string object_path = obj_dir + "/" + object + ".obj";
+    std::string material_path = obj_dir + "/" + object;
 
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -188,14 +195,10 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
             tree.group0_index[i].high[1] = bvh_ptr->flatTree[i].box.pMax[1];
             tree.group0_index[i].high[2] = bvh_ptr->flatTree[i].box.pMax[2];
             tree.group0_index[i].nPrims = bvh_ptr->flatTree[i].nReferences;
-            tree.group0_index[i].offset = (tree.group0_index[i].nPrims == 0) ? bvh_ptr->flatTree[i].secondChildOffset : bvh_ptr->flatTree[i].referenceOffset;
-
-            if (i == 0) {
-                std::cerr << "Node 0: nPrims=" << tree.group0_index[i].nPrims
-                          << ", offset=" << tree.group0_index[i].offset
-                          << ", secondChildOffset="
-                          << bvh_ptr->flatTree[i].secondChildOffset << "\n";
-            }
+            tree.group0_index[i].offset =
+                (tree.group0_index[i].nPrims == 0)
+                    ? bvh_ptr->flatTree[i].secondChildOffset
+                    : bvh_ptr->flatTree[i].referenceOffset;
         }
     } else {
         std::cerr << "Copying empty tree from FCPW " << std::endl;
@@ -302,10 +305,9 @@ _tree_layout0 copy_tree(Tree aggregate) {
     tree.nCount = static_cast<uint32_t>(aggregate.size());
     if (tree.nCount > 0) {
         tree.group0_index =
-            static_cast<_tree_layout1*>(malloc(sizeof(_tree_layout1) * tree.nCount));
-        if (!tree.group0_index) {
-            std::cerr << "Malloc (nodes) failed" << std::endl;
-            abort();
+            static_cast<_tree_layout1*>(malloc(sizeof(_tree_layout1) *
+tree.nCount)); if (!tree.group0_index) { std::cerr << "Malloc (nodes) failed" <<
+std::endl; abort();
         }
         // copy nodes
         // TODO: could this be a memcpy?
@@ -317,7 +319,8 @@ _tree_layout0 copy_tree(Tree aggregate) {
             tree.group0_index[i].high[1] = bvh_ptr->flatTree[i].box.pMax[1];
             tree.group0_index[i].high[2] = bvh_ptr->flatTree[i].box.pMax[2];
             tree.group0_index[i].nPrims = bvh_ptr->flatTree[i].nReferences;
-            tree.group0_index[i].offset = (tree.group0_index[i].nPrims == 0) ? bvh_ptr->flatTree[i].secondChildOffset : bvh_ptr->flatTree[i].referenceOffset;
+            tree.group0_index[i].offset = (tree.group0_index[i].nPrims == 0) ?
+bvh_ptr->flatTree[i].secondChildOffset : bvh_ptr->flatTree[i].referenceOffset;
         }
     } else {
         std::cerr << "Copying empty tree from FCPW " << std::endl;
@@ -326,22 +329,22 @@ _tree_layout0 copy_tree(Tree aggregate) {
 
     tree.pCount = static_cast<uint32_t>(bvh_ptr->primitives.size());
     if (tree.pCount > 0) {
-        tree.prims = static_cast<Triangle*>(malloc(sizeof(Triangle) * tree.pCount));
-        if (!tree.prims) {
-            std::cerr << "Malloc (triangles) failed" << std::endl;
-            abort();
+        tree.prims = static_cast<Triangle*>(malloc(sizeof(Triangle) *
+tree.pCount)); if (!tree.prims) { std::cerr << "Malloc (triangles) failed" <<
+std::endl; abort();
         }
         for (uint32_t i = 0; i < tree.pCount; ++i) {
             const auto soup = bvh_ptr->primitives[i]->soup;
-            tree.prims[i].p0.x = soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
-            tree.prims[i].p0.y = soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
-            tree.prims[i].p0.z = soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
-            tree.prims[i].p1.x = soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
-            tree.prims[i].p1.y = soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
-            tree.prims[i].p1.z = soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
-            tree.prims[i].p2.x = soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
-            tree.prims[i].p2.y = soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
-            tree.prims[i].p2.z = soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
+            tree.prims[i].p0.x =
+soup->positions[bvh_ptr->primitives[i]->indices[0]][0]; tree.prims[i].p0.y =
+soup->positions[bvh_ptr->primitives[i]->indices[0]][1]; tree.prims[i].p0.z =
+soup->positions[bvh_ptr->primitives[i]->indices[0]][2]; tree.prims[i].p1.x =
+soup->positions[bvh_ptr->primitives[i]->indices[1]][0]; tree.prims[i].p1.y =
+soup->positions[bvh_ptr->primitives[i]->indices[1]][1]; tree.prims[i].p1.z =
+soup->positions[bvh_ptr->primitives[i]->indices[1]][2]; tree.prims[i].p2.x =
+soup->positions[bvh_ptr->primitives[i]->indices[2]][0]; tree.prims[i].p2.y =
+soup->positions[bvh_ptr->primitives[i]->indices[2]][1]; tree.prims[i].p2.z =
+soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
         }
     } else {
         std::cerr << "No triangles?" << std::endl;
@@ -349,7 +352,7 @@ _tree_layout0 copy_tree(Tree aggregate) {
     }
     return tree;
 }
-*/
+
 
 _tree_layout0 copy_tree(const Tree &aggregate) {
     if (aggregate.size() == 0) {
@@ -364,7 +367,8 @@ _tree_layout0 copy_tree(const Tree &aggregate) {
         abort();
     }
 
-    tree.group0_index = static_cast<_tree_layout1*>(calloc(tree.nCount, sizeof(_tree_layout1)));
+    tree.group0_index = static_cast<_tree_layout1*>(calloc(tree.nCount,
+sizeof(_tree_layout1)));
     // TODO: set tree.group0_index fully to 0
     tree.prims = static_cast<Triangle*>(calloc(tree.pCount, sizeof(Triangle)));
 
@@ -442,32 +446,34 @@ _tree_layout0 copy_tree(const Tree &aggregate) {
     recurse(*aggregate.root_node(), aggregate.size());
 
     if (tri_count < tree.pCount) {
-        std::cerr << "Too few triangles: " << tri_count << " stored but " << tree.pCount << "allocated\n";
-        abort();
+        std::cerr << "Too few triangles: " << tri_count << " stored but " <<
+tree.pCount << "allocated\n"; abort();
     }
 
     if (node_count < tree.nCount) {
         for (uint32_t i = 0; i < node_count; i++) {
             const bool is_leaf = tree.group0_index[i].nPrims != 0;
-            if (!is_leaf && (tree.group0_index[i].offset == 0 || (i + tree.group0_index[i].offset) >= node_count)) {
-                std::cerr << "Index: " << i << " has a bad offset of: " << tree.group0_index[i].offset << "\n";
-                std::cerr << node_count << " stored and " << tree.nCount << " allocated.\n";
-                abort();
+            if (!is_leaf && (tree.group0_index[i].offset == 0 || (i +
+tree.group0_index[i].offset) >= node_count)) { std::cerr << "Index: " << i << "
+has a bad offset of: " << tree.group0_index[i].offset << "\n"; std::cerr <<
+node_count << " stored and " << tree.nCount << " allocated.\n"; abort();
             }
         }
         for (uint32_t i = node_count; i < tree.nCount; i++) {
             if (tree.group0_index[i].offset != 0) {
-                std::cerr << "Index: " << i << " has a nonzero offset of: " << tree.group0_index[i].offset << "\n";
-                std::cerr << node_count << " stored and " << tree.nCount << " allocated.\n";
-                abort();
+                std::cerr << "Index: " << i << " has a nonzero offset of: " <<
+tree.group0_index[i].offset << "\n"; std::cerr << node_count << " stored and "
+<< tree.nCount << " allocated.\n"; abort();
             }
         }
-        // std::cerr << "Too few nodes: " << node_count << " stored but " << tree.nCount << "allocated\n";
+        // std::cerr << "Too few nodes: " << node_count << " stored but " <<
+tree.nCount << "allocated\n";
         // abort();
     }
 
     return tree;
 }
+    */
 
 // TODO(ajr): you're going to need to update this so it builds the PBRT and not
 // a canonical tree.
@@ -745,26 +751,27 @@ _tree_layout0 build_triangles(std::vector<Triangle> &triangles, int leaf_size,
 // single-thread closest hit ray tracing.
 // clang++ -std=c++20 -O3 -march=native -I. -Iruntime/CPP -o main.out main.cpp
 // rt.cpp
-void run_bonsai(std::string object, std::vector<int64_t> ray_counts,
-         std::string ray_type) {
+void run_bonsai(const std::string &obj_dir, const std::string &object,
+                const std::string &ray_type, const std::string &ray_dir,
+                int low, int high) {
     using clock = std::chrono::high_resolution_clock;
 
-    std::vector<Triangle> triangles = load_obj(object);
+    std::vector<Triangle> triangles = load_obj(obj_dir, object);
     assert(!triangles.empty());
 
     auto t0 = clock::now();
     auto tree = global_tree_built ? global_tree : build_triangles(triangles, 4, 64);
     auto t1 = clock::now();
     auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "Bonsai build time : " << trace_time << " ms\n";
+    // std::cout << "Bonsai build time : " << trace_time << " ms\n";
 
     bool is_first_run = true;
-    for (const int64_t ray_count : ray_counts) {
-        std::cout << ray_count << std::endl;
-        std::string ray_file = "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" + ray_type +
-                               ".rays";
-        std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
+    for (int64_t c = low; c <= high; c++) {
+        const int64_t ray_count = 1ll << c;
+        const std::string ray_file = ray_dir + "/" + object + "_" +
+                                     std::to_string(ray_count) + "_" +
+                                     ray_type + ".rays";
+        const std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
         assert(!rays.empty());
 
         if (is_first_run) {
@@ -813,17 +820,21 @@ void run_bonsai(std::string object, std::vector<int64_t> ray_counts,
                 k, m) /
             (double)1e6;
 #endif
-        std::cout << "hits       : " << hit_count << "\n";
-        std::cout << "trace time : " << trace_time << " ms\n";
+        // std::cout << "hits       : " << hit_count << "\n";
+        // std::cout << "trace time : " << trace_time << " ms\n";
+        std::cout << "    (\"bonsai\", " << ray_count << ", " << trace_time
+                  << "),\n";
 #ifdef AJR_PROFILE
         ajr_profiler_reset();
 #endif
     }
 }
 
-void run_fcpw(std::string object, std::vector<int64_t> ray_counts, std::string ray_type) {
+void run_fcpw(const std::string &obj_dir, const std::string &object,
+              const std::string &ray_type, const std::string &ray_dir, int low,
+              int high) {
     using clock = std::chrono::high_resolution_clock;
-    std::vector<Triangle> triangles = load_obj(object);
+    std::vector<Triangle> triangles = load_obj(obj_dir, object);
     assert(!triangles.empty());
 
     std::vector<fcpw::Vector3> vertices1;
@@ -866,8 +877,9 @@ void run_fcpw(std::string object, std::vector<int64_t> ray_counts, std::string r
     fcpw_scene.build(fcpw::AggregateType::Bvh_SurfaceArea, vectorize,
                      printStats, reduceMemoryFootprint);
     auto t1 = clock::now();
-    auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "FCPW build time : " << trace_time << " ms\n";
+    auto build_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    // std::cout << "FCPW build time : " << trace_time << " ms\n";
 
     if (global_tree_built) {
         free(global_tree.group0_index);
@@ -877,11 +889,11 @@ void run_fcpw(std::string object, std::vector<int64_t> ray_counts, std::string r
     global_tree_built = true;
 
     bool is_first_run = true;
-    for (const int64_t ray_count : ray_counts) {
-        std::cout << ray_count << std::endl;
-        std::string ray_file = "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" + ray_type +
-                               ".rays";
+    for (int64_t c = low; c <= high; c++) {
+        const int64_t ray_count = 1ll << c;
+        const std::string ray_file = ray_dir + "/" + object + "_" +
+                                     std::to_string(ray_count) + "_" +
+                                     ray_type + ".rays";
         std::vector<Ray> brays = load_rays_binary(ray_file, ray_count);
         auto rays = convert_rays(brays);
         brays.clear();
@@ -935,13 +947,16 @@ void run_fcpw(std::string object, std::vector<int64_t> ray_counts, std::string r
                 k, m) /
             (double)1e6;
 #endif
-        std::cout << "hits       : " << hit_count << "\n";
-        std::cout << "trace time : " << trace_time << " ms\n";
+        std::cout << "    (\"fcpw\", " << ray_count << ", " << trace_time
+                  << "),\n";
+        // std::cout << "hits       : " << hit_count << "\n";
+        // std::cout << "trace time : " << trace_time << " ms\n";
     }
 }
 
-
-void run_cgal(std::string object, std::vector<int64_t> ray_counts, std::string ray_type) {
+void run_cgal(const std::string &obj_dir, const std::string &object,
+              const std::string &ray_type, const std::string &ray_dir, int low,
+              int high) {
     // using cgalKernel = CGAL::Simple_cartesian<float>;
     // using cgalPoint = cgalKernel::Point_3;
     // using cgalTriangle = cgalKernel::Triangle_3;
@@ -952,7 +967,7 @@ void run_cgal(std::string object, std::vector<int64_t> ray_counts, std::string r
     // CGAL::AABB_traits_3<cgalKernel, Primitive>; using Tree =
     // CGAL::AABB_tree<Traits>;
     using clock = std::chrono::high_resolution_clock;
-    std::vector<Triangle> tris = load_obj(object);
+    std::vector<Triangle> tris = load_obj(obj_dir, object);
     assert(!tris.empty());
 
     std::vector<cgalTriangle> triangles;
@@ -967,23 +982,23 @@ void run_cgal(std::string object, std::vector<int64_t> ray_counts, std::string r
     tree.build();
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    std::cout << "CGAL AABB tree build time (ms): "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << "\n";
+    // std::cout << "CGAL AABB tree build time (ms): "
+    //           << std::chrono::duration_cast<std::chrono::milliseconds>(t1 -
+    //           t0).count() << "\n";
 
-    if (global_tree_built) {
-        free(global_tree.group0_index);
-        free(global_tree.prims);
-    }
-    global_tree = copy_tree(tree);
-    global_tree_built = true;
+    // if (global_tree_built) {
+    //     free(global_tree.group0_index);
+    //     free(global_tree.prims);
+    // }
+    // global_tree = copy_tree(tree);
+    // global_tree_built = true;
 
-    
     bool is_first_run = true;
-    for (const int64_t ray_count : ray_counts) {
-        std::cout << ray_count << std::endl;
-        std::string ray_file = "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays/" + object + "_" +
-                               std::to_string(ray_count) + "_" + ray_type +
-                               ".rays";
+    for (int64_t c = low; c <= high; c++) {
+        const int64_t ray_count = 1ll << c;
+        const std::string ray_file = ray_dir + "/" + object + "_" +
+                                     std::to_string(ray_count) + "_" +
+                                     ray_type + ".rays";
         std::vector<Ray> bRays = load_rays_binary(ray_file, ray_count);
         assert(!bRays.empty());
         std::vector<cgalRay> rays;
@@ -1041,8 +1056,10 @@ void run_cgal(std::string object, std::vector<int64_t> ray_counts, std::string r
                 k, m) /
             (double)1e6;
 #endif
-        std::cout << "hits       : " << hit_count << "\n";
-        std::cout << "trace time : " << trace_time << " ms\n";
+        std::cout << "    (\"cgal\", " << ray_count << ", " << trace_time
+                  << "),\n";
+        // std::cout << "hits       : " << hit_count << "\n";
+        // std::cout << "trace time : " << trace_time << " ms\n";
 #ifdef AJR_PROFILE
         ajr_profiler_reset();
 #endif
@@ -1118,16 +1135,17 @@ void verify_bonsai_vs_fcpw(const std::vector<Ray> &rays,
               << " rays matched between FCPW and Bonsai.\n";
 }
 
-void verify(const std::string &object, const std::string &ray_type,
+void verify(const std::string &obj_dir, const std::string &object,
+            const std::string &ray_type, const std::string &ray_dir,
             const size_t ray_count) {
     using clock = std::chrono::high_resolution_clock;
 
-    std::string ray_file =
-        "/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays/" + object +
-        "_" + std::to_string(ray_count) + "_" + ray_type + ".rays";
-    std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
+    const std::string ray_file = ray_dir + "/" + object + "_" +
+                                 std::to_string(ray_count) + "_" + ray_type +
+                                 ".rays";
+    const std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);
 
-    std::vector<Triangle> triangles = load_obj(object);
+    std::vector<Triangle> triangles = load_obj(obj_dir, object);
     assert(!triangles.empty());
 
     std::vector<fcpw::Vector3> vertices1;
@@ -1178,29 +1196,26 @@ void verify(const std::string &object, const std::string &ray_type,
 // } // namespace
 
 int main(int argc, char *argv[]) {
-    std::string object_file = "white-oak";
-    std::string ray_type = "camera";
+    if (argc != 7) {
+        std::cerr << "Usage: ./executable <obj dir> <object name> <ray_dir> "
+                     "<ray_type> <log2(min_ray_count)> <log2(max_ray_count)>"
+                  << std::endl;
+        return 1;
+    }
+    std::string object_dir = argv[1];
+    std::string object = argv[2];
+    std::string ray_dir = argv[3];
+    std::string ray_type = argv[4];
+    int low = atoi(argv[5]);
+    assert(low > 0);
+    int high = atoi(argv[6]);
+    assert(low < high);
 
-    const size_t ray_count = 131072;
+    run_fcpw(object_dir, object, ray_type, ray_dir, low, high);
 
-    // verify(object_file, ray_type, ray_count);
+    run_bonsai(object_dir, object, ray_type, ray_dir, low, high);
 
-    std::vector<int64_t> ray_counts = {131072, 262144, 524288};
-    // std::vector<int64_t> ray_counts = {131072,};
-
-    run_bonsai(object_file, ray_counts, ray_type);
-    std::cout << "\n\n";
-
-    run_fcpw(object_file, ray_counts, ray_type);
-    std::cout << "\n\n";
-
-    run_bonsai(object_file, ray_counts, ray_type);
-    std::cout << "\n\n";
-
-    run_cgal(object_file, ray_counts, ray_type);
-    std::cout << "\n\n";
-
-    run_bonsai(object_file, ray_counts, ray_type);
+    run_cgal(object_dir, object, ray_type, ray_dir, low, high);
 
     return 0;
 }
