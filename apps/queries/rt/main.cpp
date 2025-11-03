@@ -824,7 +824,7 @@ void run_bonsai(const std::string &obj_dir, const std::string &object,
         // std::cout << "hits       : " << hit_count << "\n";
         // std::cout << "trace time : " << trace_time << " ms\n";
         std::cout << "    (\"bonsai\", " << ray_count << ", " << trace_time
-                  << "),\n";
+                  << ")," << std::endl;
         if (trace_time >= (timeout_sec * 1e3)) {
             // timeout
             return;
@@ -953,7 +953,7 @@ void run_fcpw(const std::string &obj_dir, const std::string &object,
             (double)1e6;
 #endif
         std::cout << "    (\"fcpw\", " << ray_count << ", " << trace_time
-                  << "),\n";
+                  << ")," << std::endl;
         if (trace_time >= (timeout_sec * 1e3)) {
             // timeout
             return;
@@ -1066,7 +1066,7 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
             (double)1e6;
 #endif
         std::cout << "    (\"cgal\", " << ray_count << ", " << trace_time
-                  << "),\n";
+                  << ")," << std::endl;
         if (trace_time >= (timeout_sec * 1e3)) {
             // timeout
             return;
