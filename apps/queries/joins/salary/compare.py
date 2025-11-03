@@ -139,7 +139,7 @@ def load_postgres_table(conn, table_name, csv_file):
 
 def run_index_variant(conn, query, system):
     """Run query with all index variants and return average trimmed runtimes."""
-    table0, table1 = "input0", "input1"
+    table0, table1 = "Employees", "Employees"
     runtimes = {}
 
     def time_query(timeout_sec=30):
@@ -238,15 +238,19 @@ def run_index_variant(conn, query, system):
     # exec_sql(f"DROP INDEX idx_{table1}_x_y;")
 
     # Index on both
-    exec_sql(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
-    exec_sql(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
+    # exec_sql(f"CREATE INDEX idx_{table0}_x_y ON {table0}(x, y);")
+    # exec_sql(f"CREATE INDEX idx_{table1}_x_y ON {table1}(x, y);")
+    exec_sql(f"CREATE INDEX idx_{table0}_salary_tax ON {table0}(salary, tax);")
+    # exec_sql(f"CREATE INDEX idx_{table1}_salary_tax ON {table1}(salary, tax);")
+
+
     exec_sql(f"ANALYZE {table0};")
     exec_sql(f"ANALYZE {table1};")
     print(f"\n\n{system} query plan with BOTH index for: {query}")
     print_query_plan(conn, query, db_type=system)
     runtimes["idx0_idx1"] = time_query(timeout)
-    exec_sql(f"DROP INDEX idx_{table0}_x_y;")
-    exec_sql(f"DROP INDEX idx_{table1}_x_y;")
+    exec_sql(f"DROP INDEX idx_{table0}_salary_tax;")
+    # exec_sql(f"DROP INDEX idx_{table1}_salary_tax;")
 
     return runtimes
 
