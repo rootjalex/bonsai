@@ -26,7 +26,7 @@ element FInterval {
     low, high : Float;
 }
 
-func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+func [[inline]] intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     // slab test for ray box intersection
     // source: http://www.jcgt.org/published/0007/03/04/paper-lowres.pdf
     invDir = 1 / r.d;
@@ -42,25 +42,7 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     return FInterval{tNearMax, tFarMin};
 }
 
-element TriangleIntersection {
-    b0, b1, b2, t : Float;
-}
-
-func sqlen(v : vec3f) = sum(v * v);
-func prod_diff(a : Float, b : Float, c : Float, d : Float) -> Float {
-    cd = c * d;
-    diff = fma(a, b, -cd);
-    err = fma(-c, d, cd);
-    return diff + err;
-}
-func cross_(v0 : vec3f, v1 : vec3f) -> vec3f {
-    return {prod_diff(v0.y, v1.z, v0.z, v1.y), prod_diff(v0.z, v1.x, v0.x, v1.z), prod_diff(v0.x, v1.y, v0.y, v1.x)};
-}
-func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
-
-// pstd::optional<TriangleIntersection> IntersectTriangle
-// shapes.cpp
-func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[Float] {
+func [[inline]] intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[Float] {
     // Möller-Trumbore intersection algorithm
     pa = tri.p0;
     pb = tri.p1;
@@ -100,19 +82,7 @@ func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[Float] {
     return {};
 }
 
-func orient3d(a : vec3f, b : vec3f, c : vec3f, d : vec3f) {
-    ad = a - d;
-    bd = b - d;
-    cd = c - d;
-    return dot(ad, cross(bd, cd));
-}
-
-func point_in_triangle(p : vec3f, t : Triangle, q : vec3f) {
-    return orient3d(p, q, t.p0, t.p1) <= 0 && orient3d(p, q, t.p1, t.p2) <= 0 &&
-           orient3d(p, q, t.p2, t.p0) <= 0;
-}
-
-func distmax(r : Ray, b : AABB) -> Float {
+func [[inline]] distmax(r : Ray, b : AABB) -> Float {
     interval = intersectsp_ray_aabb(r, b);
     if interval {
         extract = *interval;
@@ -121,7 +91,7 @@ func distmax(r : Ray, b : AABB) -> Float {
     return inf;
 }
 
-func distmin(r : Ray, b : AABB) -> Float {
+func [[inline]] distmin(r : Ray, b : AABB) -> Float {
     interval = intersectsp_ray_aabb(r, b);
     if interval {
         extract = *interval;
@@ -149,7 +119,7 @@ func distmax(ray : Ray, tri : Triangle) -> Float {
     }
 }
 
-func intersects(r : Ray, b : AABB) -> bool {
+func [[inline]] intersects(r : Ray, b : AABB) -> bool {
     interval = intersectsp_ray_aabb(r, b);
     if interval {
         extract = *interval;
@@ -158,7 +128,7 @@ func intersects(r : Ray, b : AABB) -> bool {
     return false;
 }
 
-func intersects(ray : Ray, tri : Triangle) -> bool {
+func [[inline]] intersects(ray : Ray, tri : Triangle) -> bool {
     return cast[[bool]](intersectsp_ray_tri(ray, tri));
 }
 
