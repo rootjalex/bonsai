@@ -13,6 +13,25 @@ rcParams.update({
 })
 
 
+def format_scene_name(scene: str) -> str:
+    """
+    Format scene names for display.
+    Converts 'san-miguel-x35-y22-z47' to 'san-miguel (35^{\circ}, 22^{\circ}, 47^{\circ})'
+    """
+    import re
+
+    # Check if scene matches the pattern san-miguel-xN-yM-zP
+    match = re.match(r'^(san-miguel)-x(\d+)-y(\d+)-z(\d+)$', scene)
+    if match:
+        base_name = match.group(1)
+        x_val = match.group(2)
+        y_val = match.group(3)
+        z_val = match.group(4)
+        return fr"{base_name} ({x_val}^{{\circ}}, {y_val}^{{\circ}}, {z_val}^{{\circ}})"
+
+    return scene
+
+
 def compute_average_performance(df: pd.DataFrame, layout: str) -> pd.DataFrame:
     """
     Compute average CPQ time for each machine/scene combination for a given layout.
@@ -83,11 +102,11 @@ def create_grouped_bar_chart(df: pd.DataFrame, layout: str, scenes: List[str],
         return
 
     # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(pivot_df) * 3), 16))
+    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(pivot_df) * 2), 8))
 
     # Create bar positions
     x_pos = np.arange(len(pivot_df))
-    bar_width = 0.35
+    bar_width = 0.45
 
     # Create bars for x86 and arm
     x86_data = pivot_df['x86'].fillna(0)
@@ -101,27 +120,27 @@ def create_grouped_bar_chart(df: pd.DataFrame, layout: str, scenes: List[str],
                       edgecolor='black', linewidth=2)
 
     # Add horizontal line at y=1 (FCPW baseline)
-    ax.axhline(y=1.0, color='black', linestyle='--', linewidth=6,
+    ax.axhline(y=1.0, color='black', linestyle='--', linewidth=3,
                alpha=0.7, label='FCPW Baseline')
-
-    # Color bars: green if faster than FCPW, red if slower
-    for bars in [bars_x86, bars_arm]:
-        for bar in bars:
-            height = bar.get_height()
-            if height > 1.0:
-                bar.set_facecolor('#2ECC71')  # Green for faster
-            elif height > 0:
-                bar.set_facecolor('#E74C3C')  # Red for slower
 
     # Add value labels on bars
     for bars in [bars_x86, bars_arm]:
         for bar in bars:
             height = bar.get_height()
             if height > 0:
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                        fr"$\mathbf{{{height:.2f}x}}$",
-                        ha='center', va='bottom',
-                        fontsize=20)
+                # Place label inside bar if below baseline (< 1.0), above if >= 1.0
+                if height < 1.0:
+                    # Inside the bar at the upper part
+                    ax.text(bar.get_x() + bar.get_width()/2., height * 0.95,
+                            fr"$\mathbf{{{height:.2f}x}}$",
+                            ha='center', va='top',
+                            fontsize=16, color='black')
+                else:
+                    # Above the bar
+                    ax.text(bar.get_x() + bar.get_width()/2., height,
+                            fr"$\mathbf{{{height:.2f}x}}$",
+                            ha='center', va='bottom',
+                            fontsize=16)
 
     # Calculate y-axis limit based on tallest bar
     max_speedup = max(x86_data.max(), arm_data.max())
@@ -136,12 +155,12 @@ def create_grouped_bar_chart(df: pd.DataFrame, layout: str, scenes: List[str],
 
     # Set x-axis labels (scene names)
     ax.set_xticks(x_pos)
-    ax.set_xticklabels([fr"$\mathbf{{{scene}}}$" for scene in pivot_df.index],
-                       fontsize=24, rotation=45, ha='right')
+    ax.set_xticklabels([fr"$\mathbf{{{format_scene_name(scene)}}}$" for scene in pivot_df.index],
+                       fontsize=18, rotation=15, ha='right')
 
-    ax.tick_params(axis='y', which='major', labelsize=24, width=3, length=10)
+    ax.tick_params(axis='y', which='major', labelsize=20, width=3, length=10)
     ax.tick_params(axis='x', which='major', width=3, length=10)
-    ax.grid(True, alpha=0.3, linestyle='--', axis='y', linewidth=2)
+    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
 
     # Thicker spines
     for spine in ax.spines.values():
@@ -151,8 +170,8 @@ def create_grouped_bar_chart(df: pd.DataFrame, layout: str, scenes: List[str],
     ax.set_ylim(0.0, y_limit)
 
     # Add legend
-    ax.legend(fontsize=28, loc='upper right', frameon=True, edgecolor='black',
-              linewidth=2, framealpha=0.9)
+    ax.legend(fontsize=18, loc='upper left', bbox_to_anchor=(0.22, 1.0),
+              frameon=True, edgecolor='black', framealpha=0.9)
 
     # Adjust layout
     plt.tight_layout()

@@ -6,14 +6,13 @@ import os
 from collections import defaultdict
 import sys
 import argparse
-import layout_grouping
 
 from matplotlib import rcParams
 rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
     "font.serif": ["Computer Modern"],
-    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional for math
+    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional, for math.
 })
 
 
@@ -181,9 +180,9 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     multiple_layouts = layout_groups and len(layout_groups) > 1
 
     # Create consistent mappings based on alphabetical order of all possible values
-    # This ensures consistency across different subsets of machines/ray_types
-    all_possible_machines = ['arm', 'cuda', 'x86']  # Define canonical order
-    all_possible_ray_types = ['primary', 'secondary']  # Define canonical order
+    # This ensures consistency across different subsets of machines/ray_types.
+    all_possible_machines = ['arm', 'cuda', 'x86']
+    all_possible_ray_types = ['primary', 'secondary']
 
     machine_to_idx = {m: i for i, m in enumerate(all_possible_machines)}
     ray_type_to_idx = {rt: i for i, rt in enumerate(all_possible_ray_types)}
@@ -269,20 +268,18 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
         unique_groups = sorted(set(all_groups))
         labels_to_add = []
         for group_idx, group_key in enumerate(unique_groups):
-            # Determine color based on dominant factor
+            # Determine color based on dominant factor.
             if multiple_machines and multiple_ray_types and multiple_layouts:
-                # Use machine color as primary, ray type for marker, layout for line style
+                # Use machine color as primary, ray type for marker, layout for line style.
                 machine_name = group_key.split('-')[0]
                 color = machine_colors[machine_to_idx[machine_name] % len(
                     machine_colors)]
-                # Extract ray type
                 ray_type_str = group_key.split('-')[-1]
                 marker = ray_type_markers[ray_type_to_idx[ray_type_str] % len(
                     ray_type_markers)]
-                # Use group_idx for line style
                 linestyle = line_styles[group_idx % len(line_styles)]
             elif multiple_machines and multiple_ray_types:
-                # Machine determines color, ray type determines marker
+                # Machine determines color, ray type determines marker.
                 machine_name = group_key.split('-')[0]
                 color = machine_colors[machine_to_idx[machine_name] % len(
                     machine_colors)]
@@ -291,7 +288,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     ray_type_markers)]
                 linestyle = line_styles[group_idx % len(line_styles)]
             elif multiple_machines:
-                # Machine determines both color and marker
+                # Machine determines both color and marker.
                 machine_name = group_key.split('-')[0]
                 color = machine_colors[machine_to_idx[machine_name] % len(
                     machine_colors)]
@@ -299,7 +296,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     machine_markers)]
                 linestyle = line_styles[group_idx % len(line_styles)]
             elif multiple_ray_types:
-                # Ray type determines both color and marker
+                # Ray type determines both color and marker.
                 ray_type_str = group_key.split('-')[-1]
                 color = ray_type_colors[ray_type_to_idx[ray_type_str] % len(
                     ray_type_colors)]
@@ -307,7 +304,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     ray_type_markers)]
                 linestyle = line_styles[group_idx % len(line_styles)]
             else:
-                # Layout determines color and marker
+                # Layout determines color and marker.
                 color = layout_colors[group_idx % len(layout_colors)]
                 marker = layout_markers[group_idx % len(layout_markers)]
                 linestyle = line_styles[group_idx % len(line_styles)]
@@ -335,13 +332,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             group_memory = memory_values[group_mask]
             group_time_per_ray = time_per_ray_values[group_mask]
 
-            # Plot dominated points in gray only if requested
+            # Plot dominated points in gray only if requested.
             if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time_per_ray[~is_pareto],
                            c=dominated_color, s=180, alpha=0.6,
-                           marker='o', edgecolors='gray', linewidth=2.5, zorder=1)
+                           marker='o', edgecolors='gray', linewidth=2.5, zorder=6)
 
-            # Plot Pareto-optimal points with their assigned colors/markers
+            # Plot Pareto-optimal points with their assigned colors/markers.
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
                        c=color, s=180, alpha=0.9,
                        edgecolors='black', linewidth=3.5,
@@ -364,7 +361,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     'is_pareto': True
                 })
 
-            # Only add dominated point labels if requested
+            # Only add dominated point labels if requested.
             if label_dominated_points and np.any(~is_pareto):
                 dominated_indices = np.where(~is_pareto)[0]
                 for i in dominated_indices:
@@ -377,13 +374,14 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
         memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            f'{memory_label} ({memory_unit})', fontweight='bold', fontsize=32)
+            rf"\textbf{{{memory_label} ({memory_unit})}}", fontweight='bold', fontsize=32)
         ax.tick_params(axis='x', labelsize=28)
         ax.tick_params(axis='y', labelsize=28)
-        ax.set_ylabel(f'Latency ({time_unit})',
+        ax.set_ylabel(rf"\textbf{{Latency ({time_unit})}}",
                       fontweight='bold', fontsize=32)
         if not remove_title:
-            ax.set_title(f'{model}', fontweight='bold', fontsize=36)
+            ax.set_title(rf"\textbf{{{model}}}",
+                         fontweight='bold', fontsize=36)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
         if not remove_legend:
             ax.legend(fontsize=26, loc='best', framealpha=0.9,
@@ -414,7 +412,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     xytext=(-20, 45),
                     ha='left',
                     va='center',
-                    fontsize=38,
+                    fontsize=32,
                     fontweight='bold',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
@@ -429,7 +427,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     label_info['label'],
                     xy=(x_pos, y_pos),
                     textcoords="offset pixels",
-                    xytext=(-20, -20),
+                    xytext=(-20, -45),
                     ha='left',
                     va='center',
                     fontsize=38,
@@ -457,6 +455,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
 
 
 def calculate_speedups(trace_data, memory_data, layout_groups, csv_file, mean_strategy, machines=None, ray_types=None, output_filename=None):
+    """Additional script for optionally calculating speedups between layouts."""
     speedups = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
 
     for model in trace_data:
@@ -608,64 +607,70 @@ def calculate_speedups(trace_data, memory_data, layout_groups, csv_file, mean_st
     print(f"Speedups saved to: {output_path}")
 
 
-def parse_layout_groups(group_str):
-    if not group_str:
+def parse_layout_groups(s: str):
+    """Useful when trying to parse a subset of layouts."""
+    if not s:
         return {}
 
     groups = {}
-    for group_def in group_str.split(';'):
-        group_def = group_def.strip()
-        if ':' not in group_def:
+    for d in s.split(';'):
+        d = d.strip()
+        if ':' not in d:
             continue
-        group_name, layouts_str = group_def.split(':', 1)
+        name, layouts_str = d.split(':', 1)
         layouts = [l.strip() for l in layouts_str.split(',')]
-        groups[group_name.strip()] = layouts
+        groups[name.strip()] = layouts
     return groups
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Generate Pareto frontier plots from benchmark CSV data',
+        description='Generate Pareto frontier plots from benchmark CSV data.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Basic usage with default settings
-  python3 collect_trace.py results.csv
+  python3 collect_rt.py results.csv
   
-  # Specify mean strategy
-  python3 collect_trace.py results.csv --mean wavg
+  # Specify mean strategy.
+  python3 collect_rt.py results.csv --mean wavg
   
-  # Filter by machine and ray type
-  python3 collect_trace.py results.csv --machines x86 cuda --ray-types primary
+  # Filter by machine and ray type.
+  python3 collect_rt.py results.csv --machines x86 cuda --ray-types primary
   
-  # Filter by specific scenes
-  python3 collect_trace.py results.csv --scenes lucy hairball
+  # Filter by specific scenes.
+  python3 collect_rt.py results.csv --scenes lucy hairball
   
-  # Filter by specific layouts
-  python3 collect_trace.py results.csv --layouts bvh8 bvh8-q8 pbrt
+  # Filter by specific layouts.
+  python3 collect_rt.py results.csv --layouts bvh8 bvh8-q8 pbrt
   
-  # Define custom layout groups
-  python3 collect_trace.py results.csv --layout-groups "bvh8:bvh8,bvh8-q8;bvh2:pbrt,sg-eq"
+  # Define custom layout groups.
+  python3 collect_rt.py results.csv --layout-groups "bvh8:bvh8,bvh8-q8;bvh2:pbrt,sg-eq"
   
-  # Combine multiple filters
-  python3 collect_trace.py results.csv --machines x86 --ray-types primary --mean geo --scenes lucy
-        """
-    )
+  # Combine multiple filters.
+  python3 collect_rt.py results.csv --machines x86 --ray-types primary --mean geo --scenes lucy
+
+  # (complex example) script for collecting data-dependent example in the Evaluation:
+  python3 collect_rt.py rt-results.csv \
+    --machines cuda --ray-types primary \
+    --scenes lucy power-plant \
+    --layout-groups "bvh2:pbrt-q16,pbrt-q16-soaos,pbrt,sg-eq" \
+    --label-dominated --output_filename data-dependent1 --remove-legend
+""")
 
     parser.add_argument(
         'csv_file', help='Path to CSV file with benchmark data')
     parser.add_argument('--mean', choices=['wavg', 'geo', 'arithmetic'], default='wavg',
-                        help='Mean strategy to use (default: wavg)')
+                        help='Mean strategy to use (default: weighted average)')
     parser.add_argument('--machines', nargs='+',
-                        help='Filter by machine types (e.g., x86 cuda)')
+                        help='Filter by machine types (e.g., x86 cuda arm)')
     parser.add_argument('--ray-types', nargs='+',
                         help='Filter by ray types (e.g., primary secondary)')
     parser.add_argument('--scenes', nargs='+',
                         help='Filter by scene names (e.g., lucy hairball)')
     parser.add_argument('--layouts', nargs='+',
                         help='Filter by layout names or group names (e.g., bvh8 pbrt bvh2)')
-    parser.add_argument('--include-embree',
-                        action='store_true',
+    parser.add_argument('--include-embree', action='store_true',
                         help='Include Embree in the results')
     parser.add_argument('--layout-groups', type=str,
                         help='Define layout groups as "group1:layout1,layout2;group2:layout3,layout4"')
@@ -688,7 +693,15 @@ Examples:
     if args.layout_groups:
         layout_groups = parse_layout_groups(args.layout_groups)
     else:
-        layout_groups = layout_grouping.retrieve_layout_groups()
+        layout_groups = {
+            'bvh8': ['bvh8', 'bvh8-align16', 'bvh8-q8',
+                     'bvh8-q16', 'bvh8-q16-ci', 'bvh8-q8-align16', 'bvh8-q8-ci-align16',
+                     'bvh8-q8-ci', 'bvh8-q16-align16', 'bvh8-q16-ci-align16'],
+            'bvh2': ['sg-eq', 'pbrt', 'pbrt-align16', 'sg-eq-align16',
+                     'ptr', 'pbrt-soaos', 'pbrt-soaos-align16',
+                     'pbrt-q16-soaos', 'pbrt-q16'],
+            'embree': ['embree-qbvh8i', 'embree-bvh8i'],
+        }
     if 'embree' in layout_groups and not args.include_embree:
         del layout_groups['embree']
 
@@ -708,7 +721,6 @@ Examples:
         layouts_filter = list(all_group_layouts)
 
     memory_column = 'bvh-memory-b' if args.memory_type == 'bvh' else 'total-memory-b'
-
     raw_data, machine_type, ray_type = load_csv_data(
         args.csv_file,
         machines=args.machines,
@@ -738,7 +750,6 @@ Examples:
             for ray_type_key in trace_data[model][machine]:
                 layouts = list(trace_data[model][machine][ray_type_key].keys())
                 print(f"  {machine}/{ray_type_key}: {layouts}")
-
     calculate_speedups(
         trace_data,
         memory_utilization,

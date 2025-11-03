@@ -88,11 +88,11 @@ def parse_benchmark_data(
                     i += 1
                     continue
 
-                # Look for start of a measurement (embree tree construction comes first)
-                embree_build_match = re.match(
-                    r'\[embree\]\s+tree construction\s*:\s*(\d+)\s*ms', line)
-                if embree_build_match:
-                    embree_build = int(embree_build_match.group(1))
+                # Look for start of a measurement (fcpw tree construction comes first)
+                fcpw_build_match = re.match(
+                    r'\[fcpw\]\s+tree construction\s*:\s*(\d+)\s*ms', line)
+                if fcpw_build_match:
+                    fcpw_build = int(fcpw_build_match.group(1))
 
                     # Next line should be bonsai tree construction
                     i += 1
@@ -105,16 +105,16 @@ def parse_benchmark_data(
                         continue
                     bonsai_build = int(bonsai_build_match.group(1))
 
-                    # Next line should be embree closest point query
+                    # Next line should be fcpw closest point query
                     i += 1
                     if i >= len(lines):
                         break
                     line = lines[i].strip()
-                    embree_cpq_match = re.match(
-                        r'\[embree\]\s+closest point query\s*:\s*(\d+)\s*ms', line)
-                    if not embree_cpq_match:
+                    fcpw_cpq_match = re.match(
+                        r'\[fcpw\]\s+closest point query\s*:\s*(\d+)\s*ms', line)
+                    if not fcpw_cpq_match:
                         continue
-                    embree_cpq = int(embree_cpq_match.group(1))
+                    fcpw_cpq = int(fcpw_cpq_match.group(1))
 
                     # Next line should be bonsai closest point query
                     i += 1
@@ -147,9 +147,9 @@ def parse_benchmark_data(
                         layout,
                         query_count,
                         bonsai_cpq,
-                        embree_cpq,
+                        fcpw_cpq,
                         bonsai_build,
-                        embree_build,
+                        fcpw_build,
                         group,
                         total_memory,
                         bvh_memory
@@ -176,8 +176,8 @@ def parse_benchmark_data(
         # Write header only if file doesn't exist
         if not file_exists:
             f.write(
-                "app,machine,scene,layout,query-count,cpq-time-ms,embree-cpq-time-ms,"
-                "build-time-ms,embree-build-time-ms,group,total-memory-b,bvh-memory-b\n"
+                "app,machine,scene,layout,query-count,cpq-time-ms,fcpw-cpq-time-ms,"
+                "build-time-ms,fcpw-build-time-ms,group,total-memory-b,bvh-memory-b\n"
             )
         for data in results:
             to_csv = ','.join(str(x) for x in data)

@@ -78,8 +78,8 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     # Sort by speedup
     summary_df = summary_df.sort_values('speedup', ascending=False)
 
-    # Create figure - large for 0.25x scaling
-    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(summary_df) * 2.2), 16))
+    # Create figure - reduced height from 16 to 8
+    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(summary_df) * 2.2), 8))
 
     # Create bar positions
     x_pos = np.arange(len(summary_df))
@@ -108,8 +108,8 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     if show_title:
         ax.set_title(f"Scene(s): {scene1}, {scene2}",
                      fontsize=52, fontweight='bold', pad=40)
-    ax.set_ylabel('Speedup vs FCL', fontsize=32, fontweight='bold')
-    ax.set_xlabel('Layout / Machine', fontsize=32, fontweight='bold')
+    ax.set_ylabel(r'\textbf{Speedup vs FCL}', fontsize=32, fontweight='bold')
+    ax.set_xlabel(r'\textbf{Layout / Machine}', fontsize=32, fontweight='bold')
 
     # Set x-axis labels (layout + machine) - much larger
     ax.set_xticks(x_pos)

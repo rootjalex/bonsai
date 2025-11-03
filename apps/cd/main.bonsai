@@ -104,17 +104,6 @@ func intersects(a: Triangle, b: Triangle) -> bool {
     return fcl_triangle_intersect(a.p0, a.p1, a.p2, b.p0, b.p1, b.p2);
 }
 
-func axis(A: f32x3, extents: f32x3, v0: f32x3, v1: f32x3, v2: f32x3) -> bool {
-    R = dot(extents, abs(A));
-    P0 = dot(v0, A);
-    P1 = dot(v1, A);
-    P2 = dot(v2, A);
-    Pmin = min(min(P0, P1), P2);
-    Pmax = max(max(P0, P1), P2);
-    
-    return Pmax >= -R & Pmin <= R;
-}
-
 
 func intersects(a : AABB, b : AABB) -> bool {
     low = max(a.low, b.low);
