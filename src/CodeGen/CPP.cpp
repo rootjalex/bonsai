@@ -870,7 +870,7 @@ class BonsaiToCpp : ir::Printer {
         if (node->value.is<Extract>()) {
             // Load by reference instead of copy.
             if (const auto *struct_t = node->value.type().as<Struct_t>();
-                struct_t && !struct_t->name.starts_with("_")) {
+                struct_t && struct_t->name.starts_with("_tree")) {
                 // DO NOT DO THIS OPTIMIZATION ON ANY COMPILER-GENERATED TYPES.
                 // THIS INDUCES THE MOST FUCKED BUG.
                 ss << "&";
