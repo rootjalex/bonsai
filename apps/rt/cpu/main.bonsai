@@ -20,8 +20,8 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     tFarY: f32 = (farY - r.o.y) * rdir.y;
     tFarZ: f32 = (farZ - r.o.z) * rdir.z;
     
-    tNear: mut f32 = max(0.0, max(tNearX, max(tNearY, tNearZ)));
-    tFar: mut f32 = min(r.tmax, min(tFarX, min(tFarY, tFarZ)));
+    tNear: f32 = max(0.0, max(tNearX, max(tNearY, tNearZ)));
+    tFar:  f32 = min(r.tmax, min(tFarX, min(tFarY, tFarZ)));
     if tNear <= tFar {
         return FInterval{tNear, tFar};
     }

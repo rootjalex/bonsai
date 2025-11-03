@@ -1,25 +1,25 @@
 import stdlib/numerics;
 
 element TriangleIntersection {
-    b0, b1, b2, t : Float;
+    b0, b1, b2, t : f32;
 }
 
 element Triangle {
-    p0, p1, p2 : vec3f;
+    p0, p1, p2 : f32x3;
 }
 
 element AABB {
-    low, high : vec3f;
+    low, high : f32x3;
 }
 
 element Ray {
-    o : vec3f;
-    d : vec3f;
-    tmax : Float = inf;
+    o : f32x3;
+    d : f32x3;
+    tmax : f32 = inf;
 }
 
 element FInterval {
-    low, high : Float;
+    low, high : f32;
 }
 
 // Embree variant of Pluecker coordinates
@@ -41,8 +41,8 @@ func intersectsp_ray_tri(ray : Ray, tri : Triangle) -> option[TriangleIntersecti
 
     e: f32 = eps[[f32]]() * abs(UVW);
 
-    minUVW: f32 = min(vec3f{U, V, W});
-    maxUVW: f32 = max(vec3f{U, V, W});
+    minUVW: f32 = min(f32x3{U, V, W});
+    maxUVW: f32 = max(f32x3{U, V, W});
     
     if !(minUVW >= -e || maxUVW <= e) { return {}; }
 

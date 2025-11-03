@@ -12,11 +12,26 @@ rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
     "font.serif": ["Computer Modern"],
-    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional, for math.
+    # "text.latex.preamble": r"\usepackage{amsmath}",  # optional, for Latex math.
 })
 
 
 def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=None, intersect=None):
+    """
+    # Columns:
+    # - app:            application, e.g., 'rt'
+    # - machine:        architecture, e.g., 'x86'
+    # - scene:          model, e.g., 'lucy'
+    # - layout:         physical specification, e.g., 'pbrt'
+    # - intersect:      ray-triangle intersection method, e.g., 'pc' (Plücker coordinates)
+    # - ray_count:      number of rays for this trial
+    # - hits:           number of model hits recorded
+    # - group:          one of {'bvh2' (system), 'bvh8' (system), 'embree'}
+    # - ray_type:       ray distribution, e.g., 'primary'
+    # - total_memory_b: total memory utilized
+    # - bvh_memory_b:   total BVH memory utilized (minus 36B * # triangles)
+    #                   (note: Embree may have negative numbers due to aggressive vertex compression)
+    """
     df = pd.read_csv(csv_file)
 
     if machines is not None:
@@ -308,15 +323,12 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                 color = layout_colors[group_idx % len(layout_colors)]
                 marker = layout_markers[group_idx % len(layout_markers)]
                 linestyle = line_styles[group_idx % len(line_styles)]
-
             group_mask = np.array([g == group_key for g in all_groups])
             if not np.any(group_mask):
                 continue
-
             group_points = points[group_mask]
             group_labels = [all_labels[i]
                             for i in range(len(all_labels)) if group_mask[i]]
-
             is_pareto = np.ones(len(group_points), dtype=bool)
             for i in range(len(group_points)):
                 if not is_pareto[i]:
@@ -331,13 +343,11 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                         break
             group_memory = memory_values[group_mask]
             group_time_per_ray = time_per_ray_values[group_mask]
-
             # Plot dominated points in gray only if requested.
             if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time_per_ray[~is_pareto],
                            c=dominated_color, s=180, alpha=0.6,
                            marker='o', edgecolors='gray', linewidth=2.5, zorder=6)
-
             # Plot Pareto-optimal points with their assigned colors/markers.
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
                        c=color, s=180, alpha=0.9,
@@ -371,7 +381,6 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                         'label': group_labels[i],
                         'is_pareto': False
                     })
-
         memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
             rf"\textbf{{{memory_label} ({memory_unit})}}", fontweight='bold', fontsize=32)
@@ -655,7 +664,9 @@ Examples:
     --machines cuda --ray-types primary \
     --scenes lucy power-plant \
     --layout-groups "bvh2:pbrt-q16,pbrt-q16-soaos,pbrt,sg-eq" \
-    --label-dominated --output_filename data-dependent1 --remove-legend
+    --label-dominated \
+    --output_filename data-dependent1 \
+    --remove-legend
 """)
 
     parser.add_argument(
@@ -742,7 +753,6 @@ Examples:
     ray_count_range = None
     trace_data = process_trace_data(
         raw_data, mean_strategy=args.mean, ray_count_range=None)
-
     print(f"Models found: {list(trace_data.keys())}")
     for model in trace_data:
         print(f"\n{model}:")
