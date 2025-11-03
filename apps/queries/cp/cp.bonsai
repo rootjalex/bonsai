@@ -79,7 +79,7 @@ func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     return (a + ab * v + ac * w, {{u, v, w}}); // = u*a + v*b + w*c, u = va * denom = 1.0-v-w
 }
 
-func [[export]] distmin(p : Point, tri : Triangle) -> Float {
+func [[inline]] distmin(p : Point, tri : Triangle) -> Float {
     pts = closestPointonTriangle(p, tri);
     d = p.vec - pts[0].vec;
     return dot(d, d); // sqdist
@@ -100,14 +100,14 @@ func SqDistPointAABB(pt : Point, a : AABB) -> Float {
 //    return SqDistPointAABB(pt, a);  // sqdist
 //}
 
-func distmax(pt : Point, a : AABB) -> Float {
+func [[inline]] distmax(pt : Point, a : AABB) -> Float {
     u = a.low - pt.vec;
     v = pt.vec - a.high;
     d = min(u, v);
     return dot(d, d); // sqdist
 }
 
-func distmin(pt : Point, a : AABB) -> Float {
+func [[inline]] distmin(pt : Point, a : AABB) -> Float {
     u = a.low - pt.vec;
     v = pt.vec - a.high;
     d = max(max(u, v), 0.0);

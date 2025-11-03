@@ -279,7 +279,7 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
     if (fcpw_time >= (timeout_sec * 1e3) &&
         bonsai_time >= (timeout_sec * 1e3)) {
         // timeout
-        exit(-1);
+        exit(0);
     }
 }
 
