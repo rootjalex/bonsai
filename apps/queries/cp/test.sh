@@ -12,7 +12,7 @@ time ./build/compiler -i $SRC_DIR/cp.bonsai -p canonicalize -p lower-trees -p lo
 if [[ "$(uname)" == "Darwin" ]]; then
     EIGEN_INCLUDE="-I/opt/homebrew/include/eigen3"
 else
-    EIGEN_INCLUDE="-I/usr/include/eigen3"
+    EIGEN_INCLUDE="-I/scratch/ajroot/conda/miniconda3/envs/pldi26/include/eigen3"
 fi
 
 INCLUDES="-I. -I$SRC_DIR -Ideps/fcpw/include $EIGEN_INCLUDE -I/Users/ajroot/projects/cgal/install/include -I/opt/homebrew/opt/boost/include"
@@ -25,19 +25,21 @@ time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/m
 
 if [[ "$(uname)" == "Linux" ]]; then
     BIND="numactl --physcpubind 0-15"
+    DIR="/scratch/ajroot/pldi-data/objs"
 else
     echo "Warning: numactl only available on Linux; skipping CPU binding"
     BIND=""
+    DIR="/Users/ajroot/Downloads/xxx"
 fi
 
 echo "dragon = ["
-$BIND ./$SRC_DIR/main.out /Users/ajroot/Downloads/xxx/dragon
+$BIND ./$SRC_DIR/main.out "$DIR/dragon"
 echo "]"
 echo "white-oak = ["
-$BIND ./$SRC_DIR/main.out /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/white-oak
+$BIND ./$SRC_DIR/main.out "$DIR/white-oak"
 echo "]"
 echo "hairball = ["
-$BIND ./$SRC_DIR/main.out /Users/ajroot/Downloads/xxx/hairball
+$BIND ./$SRC_DIR/main.out "$DIR/hairball"
 echo "]"
 
 # time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/cp.cpp -DAJR_PROFILE

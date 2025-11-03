@@ -11,15 +11,16 @@
 #include "tiny_obj_loader.h"
 
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <random>
 #include <thread>
 #include <vector>
 
-#include <CGAL/Simple_cartesian.h>
-#include <CGAL/AABB_tree.h>
 #include <CGAL/AABB_traits_3.h>
+#include <CGAL/AABB_tree.h>
 #include <CGAL/AABB_triangle_primitive_3.h>
+#include <CGAL/Simple_cartesian.h>
 
 #include "runtime/bonsai_benchmark.h"
 
