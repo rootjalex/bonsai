@@ -5,6 +5,15 @@
 #include <utility>
 #include <variant>
 
+template <typename... Fs>
+struct overload : Fs... {
+    using Fs::operator()...;
+};
+
+// Deduction guide must be at namespace scope
+template <typename... Fs>
+overload(Fs...) -> overload<Fs...>;
+
 template <typename... Ts>
 struct tree {
     std::variant<Ts...> value;
@@ -24,13 +33,4 @@ struct tree {
     decltype(auto) match(Fs &&...fs) const {
         return std::visit(overload{std::forward<Fs>(fs)...}, value);
     }
-
-  private:
-    // Helper to allow overloaded lambdas
-    template <typename... Fs>
-    struct overload : Fs... {
-        using Fs::operator()...;
-    };
-    template <typename... Fs>
-    overload(Fs...) -> overload<Fs...>;
 };
