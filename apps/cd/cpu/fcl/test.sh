@@ -47,6 +47,7 @@ else
 fi
 
 # run
+$BIND ./build/main $OBJ_DIR dragon_60_70_10 dragon
 $BIND ./build/main $OBJ_DIR dragon_60_70_10 hairball_60_70_10
 $BIND ./build/main $OBJ_DIR hairball dragon
 $BIND ./build/main $OBJ_DIR hairball hairball_60_70_10

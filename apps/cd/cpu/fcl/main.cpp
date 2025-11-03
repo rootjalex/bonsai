@@ -364,7 +364,8 @@ void run_test(const std::string &directory, const std::string &obj1,
     assert(!v2.empty() && "no vertices found!");
     assert(!T2.empty() && "no triangles found!");
 
-    std::cout << "    (\"" << obj1 << "\", \"" << obj2 << "\", ";
+    std::cout << "    {\"dataset0\": \"" << obj1 << "\", \"dataset1\": \""
+              << obj2 << "\", ";
 
     auto t0 = clock::now();
     std::vector<Triangle> T1s = construct_triangles(T1, v1);
@@ -380,7 +381,7 @@ void run_test(const std::string &directory, const std::string &obj1,
     auto t1 = clock::now();
     auto bonsai_build_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << bonsai_build_time << ", ";
+    std::cout << "\"bonsai_build\":" << bonsai_build_time << ", ";
     // std::cout << "[bonsai] tree construction   : " << bonsai_time << " ms"
     //           << std::endl;
 #ifdef AJR_PROFILING
@@ -395,7 +396,7 @@ void run_test(const std::string &directory, const std::string &obj1,
         benchmark_function(
             [&]() { bonsai_collisions = collisions(tree1, tree2); }, k, m) /
         (double)1e6;
-    std::cout << bonsai_cd_time << ", ";
+    std::cout << "\"bonsai\":" << bonsai_cd_time << ", ";
 
     // t1 = clock::now();
     // bonsai_time =
@@ -420,7 +421,7 @@ void run_test(const std::string &directory, const std::string &obj1,
     t1 = clock::now();
     auto fcl_build_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << fcl_build_time << ", ";
+    std::cout << "\"fcl_build\":" << fcl_build_time << ", ";
     // std::cout << "[fcl]    tree construction   : " << fcl_time << " ms"
     //           << std::endl;
 
@@ -440,7 +441,7 @@ void run_test(const std::string &directory, const std::string &obj1,
             [&]() { fcl_collisions = fcl::collide_test<fcl::AABB<S>>(m1, m2); },
             k, m) /
         (double)1e6;
-    std::cout << fcl_cd_time << ")\n";
+    std::cout << "\"FCL\":" << fcl_cd_time << "},\n";
 #ifdef AJR_PROFILING
     std::cout << " [fcl]  aabb hits  tested = " << fcl_aabb_counter << "\n";
     std::cout << " [fcl]  tri hits   tested = " << fcl_tri_counter << "\n";
