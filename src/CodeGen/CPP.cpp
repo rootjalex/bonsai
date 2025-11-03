@@ -867,11 +867,15 @@ class BonsaiToCpp : ir::Printer {
         ss << get_indent();
         ss << "const ";
         emit_type(ss, node->loc.base_type);
-        // THIS INDUCES THE MOST FUCKED BUG.
-        // if (node->value.is<Extract>()) {
-        //     // Load by reference instead of copy.
-        //     ss << "&";
-        // }
+        if (node->value.is<Extract>()) {
+            // Load by reference instead of copy.
+            if (const auto *struct_t = node->value.type().as<Struct_t>();
+                struct_t && !struct_t->name.starts_with("_")) {
+                // DO NOT DO THIS OPTIMIZATION ON ANY COMPILER-GENERATED TYPES.
+                // THIS INDUCES THE MOST FUCKED BUG.
+                ss << "&";
+            }
+        }
         ss << " " << node->loc.base;
         ss << " = ";
         print_no_parens(node->value);
