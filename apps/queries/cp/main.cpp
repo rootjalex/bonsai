@@ -231,7 +231,7 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
     std::vector<float> fcpw_distances(num_queries);
 
     // Do warm-up
-    for (int i = 0; i < std::min(num_queries, 512ll); i++) {
+    for (int i = 0; i < std::min(num_queries, (int64_t)512); i++) {
         fcpw::Interaction<3> closest_interaction;
         bool found =
             fcpw_scene.findClosestPoint(fcpw_points[i], closest_interaction);
@@ -256,7 +256,7 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
     std::vector<float> bonsai_distances(num_queries);
 
     // Do warm-up
-    for (int i = 0; i < std::min(num_queries, 512ll); i++) {
+    for (int i = 0; i < std::min(num_queries, (int64_t)512); i++) {
         bonsai_distances[i] = std::sqrtf(closest(bonsai_points[i], tree));
     }
 
