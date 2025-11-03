@@ -59,8 +59,8 @@ tree_layout build_fcl_tree_median_split(
         if (count <= max_prims_per_leaf || depth >= max_tree_depth) {
             nodes.emplace_back(node_layout{.low = aabb_min,
                                            .high = aabb_max,
-                                           .nPrims = count,
-                                           .offset = low});
+                                           .offset = low,
+                                           .nPrims = count});
             return index;
         }
 
@@ -127,7 +127,7 @@ tree_layout build_fcl_tree_median_split(
 
         // Reserve node space
         nodes.emplace_back(node_layout{
-            .low = aabb_min, .high = aabb_max, .nPrims = 0, .offset = 0});
+            .low = aabb_min, .high = aabb_max, .offset = 0, .nPrims = 0});
 
         // Recursively build left and right subtrees
         const uint32_t mid = low + c1;

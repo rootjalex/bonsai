@@ -142,9 +142,9 @@ schedule {
         nCount: u32;
         group[nCount] index : u32 {
             low : f32x3;
-            nPrims : u32;
             high : f32x3;
             offset : u32;
+            nPrims : u32;
             switch nPrims {
                 0 => Interior { left = index + 1; right = index + offset; };
                 _ => Leaf { d = range(prims, offset, cast[[u32]](nPrims)); };
@@ -158,9 +158,9 @@ schedule {
         nCount : u32;
         group[nCount] index : u32 {
             low : f32x3;
-            nPrims : u32;
             high : f32x3;
             offset : u32;
+            nPrims : u32;
             switch nPrims {
                 0 => Interior { left = index + 1; right = index + offset; };
                 _ => Leaf { d = range(prims, offset, nPrims); };
