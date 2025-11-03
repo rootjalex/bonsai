@@ -24,8 +24,16 @@ COMPILE_FLAGS="-O3 -march=native"
 
 time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/rt_gen.cpp
 # time clang++ -std=c++20 -S -emit-llvm $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/rt.ll $SRC_DIR/rt_gen.cpp
+
+if [[ "$(uname)" == "Linux" ]]; then
+    BIND="numactl --physcpubind 0-15"
+else
+    echo "Warning: numactl only available on Linux; skipping CPU binding"
+    BIND=""
+fi
+
 echo "white_oak = ["
-./$SRC_DIR/main.out /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/ white-oak /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays camera 17 19
+$BIND ./$SRC_DIR/main.out /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/ white-oak /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays camera 17 19
 echo "]"
 # time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/rt.cpp -DAJR_PROFILE
 

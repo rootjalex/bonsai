@@ -824,6 +824,10 @@ void run_bonsai(const std::string &obj_dir, const std::string &object,
         // std::cout << "trace time : " << trace_time << " ms\n";
         std::cout << "    (\"bonsai\", " << ray_count << ", " << trace_time
                   << "),\n";
+        if (trace_time >= (timeout_sec * 1e3)) {
+            // timeout
+            return;
+        }
 #ifdef AJR_PROFILE
         ajr_profiler_reset();
 #endif
@@ -949,6 +953,10 @@ void run_fcpw(const std::string &obj_dir, const std::string &object,
 #endif
         std::cout << "    (\"fcpw\", " << ray_count << ", " << trace_time
                   << "),\n";
+        if (trace_time >= (timeout_sec * 1e3)) {
+            // timeout
+            return;
+        }
         // std::cout << "hits       : " << hit_count << "\n";
         // std::cout << "trace time : " << trace_time << " ms\n";
     }
@@ -1058,6 +1066,10 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
 #endif
         std::cout << "    (\"cgal\", " << ray_count << ", " << trace_time
                   << "),\n";
+        if (trace_time >= (timeout_sec * 1e3)) {
+            // timeout
+            return;
+        }
         // std::cout << "hits       : " << hit_count << "\n";
         // std::cout << "trace time : " << trace_time << " ms\n";
 #ifdef AJR_PROFILE

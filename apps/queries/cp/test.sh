@@ -22,14 +22,22 @@ COMPILE_FLAGS="-O3 -march=native"
 
 time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/cp_gen.cpp
 # time clang++ -std=c++20 -S -emit-llvm $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/cp.ll $SRC_DIR/cp.cpp
+
+if [[ "$(uname)" == "Linux" ]]; then
+    BIND="numactl --physcpubind 0-15"
+else
+    echo "Warning: numactl only available on Linux; skipping CPU binding"
+    BIND=""
+fi
+
 echo "dragon = ["
-./$SRC_DIR/main.out /Users/ajroot/Downloads/xxx/dragon
+$BIND ./$SRC_DIR/main.out /Users/ajroot/Downloads/xxx/dragon
 echo "]"
 echo "white-oak = ["
-./$SRC_DIR/main.out /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/white-oak
+$BIND ./$SRC_DIR/main.out /Users/ajroot/projects/pldi-bonsai/apps/queries/rt/white-oak
 echo "]"
 echo "hairball = ["
-./$SRC_DIR/main.out /Users/ajroot/Downloads/xxx/hairball
+$BIND ./$SRC_DIR/main.out /Users/ajroot/Downloads/xxx/hairball
 echo "]"
 
 # time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/cp.cpp -DAJR_PROFILE
