@@ -61,6 +61,7 @@ struct Function {
     enum class Attribute {
         exported,  // Whether this will be exported to C++.
         imported,  // Whether this function was imported from another file.
+        inlined,   // whether this function should be marked inline
         kernel,    // Whether this function is a parallel kernel.
         setup_rng, // Whether this function must set up rng state.
     };
@@ -143,6 +144,11 @@ struct Function {
     bool is_imported() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::imported) != attributes.cend();
+    }
+
+    bool is_inlined() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::inlined) != attributes.cend();
     }
 
     bool is_kernel() const {

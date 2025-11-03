@@ -8,7 +8,7 @@ element AABB {
     low, high : f32x3;
 }
 
-func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3, 
+func [[inline]] project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3,
               q1: f32x3, q2: f32x3, q3: f32x3) -> i32 {
     P1 = dot(ax, p1);
     P2 = dot(ax, p2);
@@ -29,7 +29,7 @@ func project6(ax: f32x3, p1: f32x3, p2: f32x3, p3: f32x3,
 }
 
 // https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/narrowphase/detail/traversal/collision/intersect-inl.h#L728
-func fcl_triangle_intersect(P1: f32x3, P2: f32x3, P3: f32x3,
+func [[inline]] fcl_triangle_intersect(P1: f32x3, P2: f32x3, P3: f32x3,
                         Q1: f32x3, Q2: f32x3, Q3: f32x3) -> bool {
     p1 : f32x3 = {0.0, 0.0, 0.0};
     p2 = P2 - P1;
@@ -100,23 +100,11 @@ func fcl_triangle_intersect(P1: f32x3, P2: f32x3, P3: f32x3,
     return true;
 }
 
-func intersects(a: Triangle, b: Triangle) -> bool {
+func [[inline]] intersects(a: Triangle, b: Triangle) -> bool {
     return fcl_triangle_intersect(a.p0, a.p1, a.p2, b.p0, b.p1, b.p2);
 }
 
-func axis(A: f32x3, extents: f32x3, v0: f32x3, v1: f32x3, v2: f32x3) -> bool {
-    R = dot(extents, abs(A));
-    P0 = dot(v0, A);
-    P1 = dot(v1, A);
-    P2 = dot(v2, A);
-    Pmin = min(min(P0, P1), P2);
-    Pmax = max(max(P0, P1), P2);
-    
-    return Pmax >= -R & Pmin <= R;
-}
-
-
-func intersects(a : AABB, b : AABB) -> bool {
+func [[inline]] intersects(a : AABB, b : AABB) -> bool {
     low = max(a.low, b.low);
     high = min(a.high, b.high);
     return all(low <= high);
