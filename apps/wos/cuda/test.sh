@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 N="${POSITIONAL_ARGS[0]:-9}" # number of runs
-N_QUERIES="${POSITIONAL_ARGS[1]:-100000}" # number of queries per run
+N_QUERIES="${POSITIONAL_ARGS[1]:-1000000}" # number of queries per run
 DATA_PATH="${PREFIX}/results"
 DATA_FILE="closest_point"
 PARTITION="sah"
