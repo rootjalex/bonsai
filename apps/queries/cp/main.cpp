@@ -202,7 +202,9 @@ void verify_results(const std::vector<float> &fcpw_distances,
     exit(-1);
 }
 
-void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const fcpw::Vector3 &bbox_min, const fcpw::Vector3 &box_extent, int64_t num_queries) {
+void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree,
+              const fcpw::Vector3 &bbox_min, const fcpw::Vector3 &box_extent,
+              bool &fcpw_timedout, bool &bonsai_timedout, int64_t num_queries) {
     using clock = std::chrono::high_resolution_clock;
 
     // Generate random query points within bounding box
@@ -249,7 +251,7 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
                                  fcpw_distances[i] = closest_interaction.d;
                              }
                          },
-                         k, m) /
+                         fcpw_timedout, k, m) /
                      (double)1e6; // ns -> ms
 
     // ---- Bonsai Closest Point Query ----
@@ -267,7 +269,7 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree, const
                                        closest(bonsai_points[i], tree));
                                }
                            },
-                           k, m) /
+                           bonsai_timedout, k, m) /
                        (double)1e6;
 
     verify_results(fcpw_distances, bonsai_distances, num_queries,
@@ -357,11 +359,13 @@ int main(int argc, char *argv[]) {
     // std::cout << "[bonsai] tree construction   : " << bonsai_time << " ms"
     //           << std::endl;
 
-    // TODO: don't load object every time, etc.
+    bool fcpw_timedout = false, bonsai_timedout = false;
+
     for (size_t i = 8; i < 27; i++) {
         uint64_t count = 1ull << i;
         std::cout << "    {\"size\": " << count << ", ";
-        run_test(fcpw_scene, tree, bbox_min, box_extent, count);
+        run_test(fcpw_scene, tree, bbox_min, box_extent, fcpw_timedout,
+                 bonsai_timedout, count);
     }
 
     return 0;

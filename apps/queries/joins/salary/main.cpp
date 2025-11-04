@@ -186,6 +186,7 @@ _tree_layout0 build_tree(const set<Employee> &input) {
     return tree;
 }
 
+// TODO: carry over timeouts?
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <csv_file>\n";
@@ -205,11 +206,19 @@ int main(int argc, char** argv) {
 
     auto build_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
-    auto [nested, single, dual] = benchmark_join<false, uint64_t, uint64_t>("salary join", employees, employees, tree, tree, k, m, query_nested, query_single, query_dual);
+    bool nested_timedout = false, single_timedout = false,
+         dual_timedout = false;
+
+    auto [nested, single, dual] = benchmark_join<false, uint64_t, uint64_t>(
+        "salary join", employees, employees, tree, tree, k, m, query_nested,
+        query_single, query_dual, nested_timedout, single_timedout,
+        dual_timedout);
+
+    bool unfused_timedout = false;
 
     // For an ablation study.
-    auto [unfused_time, _] = benchmark_function2(
-        [&] { return query_dual_unfused(tree, tree); }, k, m);
+    auto [unfused_time, _] = benchmark_function(
+        [&] { return query_dual_unfused(tree, tree); }, unfused_timedout, k, m);
 
     std::cout << "(\"bonsai_salary\", " << employees.size() << ", "
               << (double)nested / (1e9) << ", " << (double)build_time / (1e9)

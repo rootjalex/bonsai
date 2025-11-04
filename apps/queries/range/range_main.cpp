@@ -203,6 +203,7 @@ void verify_IntervalTree(const uint64_t input_index,
 #define PROFILE 1
 
 double benchmark_range_query(const set<float> &input, const _tree_layout0 &tree,
+                             bool &linear_timedout, bool &indexed_timedout,
                              const int k, const int m) {
     float low = -10;
     float high = 10;
@@ -212,12 +213,13 @@ double benchmark_range_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "range_query", input, tree, k, m, range_query, range_query_fast, low,
-        high);
+        "range_query", input, tree, k, m, range_query, range_query_fast,
+        linear_timedout, indexed_timedout, low, high);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
+                          bool &linear_timedout, bool &indexed_timedout,
                           const int k, const int m) {
     float value = 42;
 #ifndef PROFILE
@@ -225,11 +227,13 @@ double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "eq_query", input, tree, k, m, eq_query, eq_query_fast, value);
+        "eq_query", input, tree, k, m, eq_query, eq_query_fast, linear_timedout,
+        indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
+                           bool &linear_timedout, bool &indexed_timedout,
                            const int k, const int m) {
     float value = 10.0f;
 #ifndef PROFILE
@@ -237,11 +241,13 @@ double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "abs_query", input, tree, k, m, abs_query, abs_query_fast, value);
+        "abs_query", input, tree, k, m, abs_query, abs_query_fast,
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
+                           bool &linear_timedout, bool &indexed_timedout,
                            const int k, const int m) {
     float value = 100.0f;
 #ifndef PROFILE
@@ -249,11 +255,13 @@ double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "sqr_query", input, tree, k, m, sqr_query, sqr_query_fast, value);
+        "sqr_query", input, tree, k, m, sqr_query, sqr_query_fast,
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
+                             bool &linear_timedout, bool &indexed_timedout,
                              const int k, const int m) {
     float value = 10.0f;
 #ifndef PROFILE
@@ -261,11 +269,13 @@ double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "round_query", input, tree, k, m, round_query, round_query_fast, value);
+        "round_query", input, tree, k, m, round_query, round_query_fast,
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
+                            bool &linear_timedout, bool &indexed_timedout,
                             const int k, const int m) {
     float value = 0.0f;
 #ifndef PROFILE
@@ -273,11 +283,13 @@ double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "poly_query", input, tree, k, m, poly_query, poly_query_fast, value);
+        "poly_query", input, tree, k, m, poly_query, poly_query_fast,
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
+                            bool &linear_timedout, bool &indexed_timedout,
                             const int k, const int m) {
     float value = std::sqrt(10.0f);
 #ifndef PROFILE
@@ -285,7 +297,8 @@ double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
-        "sqrt_query", input, tree, k, m, sqrt_query, sqrt_query_fast, value);
+        "sqrt_query", input, tree, k, m, sqrt_query, sqrt_query_fast,
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -310,7 +323,8 @@ std::pair<float, float> compute_mean_and_stdev(const std::vector<float> &data) {
 }
 
 double benchmark_stddev_query(const set<float> &input,
-                              const _tree_layout0 &tree, const int k,
+                              const _tree_layout0 &tree, bool &linear_timedout,
+                              bool &indexed_timedout, const int k,
                               const int m) {
     const auto [mean, stddev] = compute_mean_and_stdev(input.data);
     const float stddev3 = stddev * 3;
@@ -321,7 +335,7 @@ double benchmark_stddev_query(const set<float> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, set<float>>(
         "stddev_query", input, tree, k, m, stddev_query, stddev_query_fast,
-        mean, stddev3);
+        linear_timedout, indexed_timedout, mean, stddev3);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -391,8 +405,16 @@ int main() {
     results[6].first = "sqrt_query";
     results[6].second.reserve(test_sizes.size());
     results[7].first = "stddev_query";
-    results[6].second.reserve(test_sizes.size());
+    results[7].second.reserve(test_sizes.size());
 #endif
+
+    bool linear_timeouts[N_BENCHMARKS], indexed_timeouts[N_BENCHMARKS];
+
+    for (size_t i = 0; i < N_BENCHMARKS; i++) {
+        linear_timeouts[i] = false;
+        indexed_timeouts[i] = false;
+    }
+
     for (size_t size : test_sizes) {
         // std::cout << size << std::endl;
 #ifndef PROFILE
@@ -424,7 +446,8 @@ int main() {
 #ifdef PROFILE
         results[0].second.push_back(
 #endif
-            benchmark_range_query(input_set, input_tree, k, m)
+            benchmark_range_query(input_set, input_tree, linear_timeouts[0],
+                                  indexed_timeouts[0], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -433,7 +456,8 @@ int main() {
 #ifdef PROFILE
         results[1].second.push_back(
 #endif
-            benchmark_eq_query(input_set, input_tree, k, m)
+            benchmark_eq_query(input_set, input_tree, linear_timeouts[1],
+                               indexed_timeouts[1], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -442,7 +466,8 @@ int main() {
 #ifdef PROFILE
         results[2].second.push_back(
 #endif
-            benchmark_abs_query(input_set, input_tree, k, m)
+            benchmark_abs_query(input_set, input_tree, linear_timeouts[2],
+                                indexed_timeouts[2], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -451,7 +476,8 @@ int main() {
 #ifdef PROFILE
         results[3].second.push_back(
 #endif
-            benchmark_sqr_query(input_set, input_tree, k, m)
+            benchmark_sqr_query(input_set, input_tree, linear_timeouts[3],
+                                indexed_timeouts[3], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -460,7 +486,8 @@ int main() {
 #ifdef PROFILE
         results[4].second.push_back(
 #endif
-            benchmark_round_query(input_set, input_tree, k, m)
+            benchmark_round_query(input_set, input_tree, linear_timeouts[4],
+                                  indexed_timeouts[4], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -469,7 +496,8 @@ int main() {
 #ifdef PROFILE
         results[5].second.push_back(
 #endif
-            benchmark_poly_query(input_set, input_tree, k, m)
+            benchmark_poly_query(input_set, input_tree, linear_timeouts[5],
+                                 indexed_timeouts[5], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -478,7 +506,8 @@ int main() {
 #ifdef PROFILE
         results[6].second.push_back(
 #endif
-            benchmark_sqrt_query(input_set, input_tree, k, m)
+            benchmark_sqrt_query(input_set, input_tree, linear_timeouts[6],
+                                 indexed_timeouts[6], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -487,7 +516,8 @@ int main() {
 #ifdef PROFILE
         results[7].second.push_back(
 #endif
-            benchmark_stddev_query(input_set, input_tree, k, m)
+            benchmark_stddev_query(input_set, input_tree, linear_timeouts[7],
+                                   indexed_timeouts[7], k, m)
 #ifdef PROFILE
         )
 #endif

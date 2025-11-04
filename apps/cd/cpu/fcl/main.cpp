@@ -392,9 +392,12 @@ void run_test(const std::string &directory, const std::string &obj1,
     // Warm-up
     auto bonsai_collisions = collisions(tree1, tree2);
 
+    bool timed_out = false;
+
     auto bonsai_cd_time =
         benchmark_function(
-            [&]() { bonsai_collisions = collisions(tree1, tree2); }, k, m) /
+            [&]() { bonsai_collisions = collisions(tree1, tree2); }, timed_out,
+            k, m) /
         (double)1e6;
     std::cout << "\"bonsai\":" << bonsai_cd_time << ", ";
 
@@ -436,10 +439,11 @@ void run_test(const std::string &directory, const std::string &obj1,
     //     t0).count();
     // std::cout << "[fcl]    collision detection : " << fcl_time << " ms"
     //           << std::endl;
+    bool fcl_timed_out = false;
     auto fcl_cd_time =
         benchmark_function(
             [&]() { fcl_collisions = fcl::collide_test<fcl::AABB<S>>(m1, m2); },
-            k, m) /
+            fcl_timed_out, k, m) /
         (double)1e6;
     std::cout << "\"FCL\":" << fcl_cd_time << "},\n";
 #ifdef AJR_PROFILING

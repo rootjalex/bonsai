@@ -39,13 +39,15 @@ DIST_FLAGS="$DIST_DEFINE"
 time ./build/compiler -i $SRC_DIR/joins.bonsai -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p loop-transforms -p lower-recloops -p lower-foreachs -p unswitch -p lower-yields -p simplify -b cppx -o $SRC_DIR/joins_gen
 time clang++ -std=c++20 -O3 -g -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/joins_gen.cpp -I. $DIST_DEFINE
 if [[ "$(uname)" == "Linux" ]]; then
-   numactl --physcpubind 0-15 ./$SRC_DIR/main.out &> $SRC_DIR/bonsai_results.txt
+    DIR="/scratch/ajroot/pldi-data"
+    numactl --physcpubind 0-15 ./$SRC_DIR/main.out $DIR &> $SRC_DIR/bonsai_results.txt
 else
-    ./$SRC_DIR/main.out &> $SRC_DIR/bonsai_results.txt
+    DIR="/Users/ajroot/projects/pldi-bonsai/data"
+    ./$SRC_DIR/main.out $DIR &> results/dist2d_bonsai_results.txt
 fi
 
 if [[ "$(uname)" == "Linux" ]]; then
    numactl --physcpubind 0-15 python $SRC_DIR/compare.py &> $SRC_DIR/db_results.txt
 else
-    python $SRC_DIR/compare.py &> $SRC_DIR/db_results.txt
+    python $SRC_DIR/compare.py &> results/dist2d_db_results.txt
 fi

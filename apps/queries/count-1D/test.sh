@@ -73,6 +73,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     killall -STOP Spotlight  # pause indexing
 fi
 
+echo "Running count1d"
 if [[ "$(uname)" == "Linux" ]]; then
     numactl --physcpubind 0-15 ./$SRC_DIR/count1d_main.out
 else
@@ -84,6 +85,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     killall -STOP Spotlight  # pause indexing
 fi
 
+echo "Running count1d_aug"
 if [[ "$(uname)" == "Linux" ]]; then
     numactl --physcpubind 0-15 ./$SRC_DIR/count1d_aug_main.out
 else
@@ -106,6 +108,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     killall -STOP Spotlight  # pause indexing
 fi
 
+echo "Running count1d ablation"
 if [[ "$(uname)" == "Linux" ]]; then
    numactl --physcpubind 0-15 ./$SRC_DIR/count1d_main_ablation2.out
 else

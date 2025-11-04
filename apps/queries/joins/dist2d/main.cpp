@@ -229,69 +229,75 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
 #define PROFILE 0
 
-auto benchmark_chebyshev(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                         const int k, const int m) {
+auto benchmark_chebyshev(const set<Point> &input0, const set<Point> &input1,
+                         const _tree_layout0 &tree0, const _tree_layout0 &tree1,
+                         bool &nested_timedout, bool &single_timedout,
+                         bool &dual_timedout, const int k, const int m) {
     float value = 0.0001;
 #ifndef PROFILE
     std::cout << "Chebyshev query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
-            ("chebyshev", input0, input1, tree0, tree1, k, m,
-             chebyshev, chebyshev_single, chebyshev_dual, value);
+    return benchmark_join<PROFILE == 1, set<std::tuple<Point, Point>>,
+                          set<std::tuple<Point, set<Point>>>>(
+        "chebyshev", input0, input1, tree0, tree1, k, m, chebyshev,
+        chebyshev_single, chebyshev_dual, nested_timedout, single_timedout,
+        dual_timedout, value);
 }
-
-auto benchmark_cosine(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                         const int k, const int m) {
+/*
+auto benchmark_cosine(const set<Point> &input0, const set<Point> &input1, const
+_tree_layout0 &tree0, const _tree_layout0 &tree1, const int k, const int m) {
     float value = 0.0001;
 #ifndef PROFILE
     std::cout << "Cosine query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
+    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>,
+set<std::tuple<Point, set<Point>>>>
             ("cosine", input0, input1, tree0, tree1, k, m,
              cosine, cosine_single, cosine_dual, value);
 }
+*/
 
-
-auto benchmark_donut(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                         const int k, const int m) {
+auto benchmark_donut(const set<Point> &input0, const set<Point> &input1,
+                     const _tree_layout0 &tree0, const _tree_layout0 &tree1,
+                     bool &nested_timedout, bool &single_timedout,
+                     bool &dual_timedout, const int k, const int m) {
     float value0 = 0.0001;
     float value1 = 0.0002;
 #ifndef PROFILE
     std::cout << "donut query, bounds = " << value0 << ", " << value1 << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
-            ("donut", input0, input1, tree0, tree1, k, m,
-             donut, donut_single, donut_dual, value0, value1);
+    return benchmark_join<PROFILE == 1, set<std::tuple<Point, Point>>,
+                          set<std::tuple<Point, set<Point>>>>(
+        "donut", input0, input1, tree0, tree1, k, m, donut, donut_single,
+        donut_dual, nested_timedout, single_timedout, dual_timedout, value0,
+        value1);
 }
 
-
-auto benchmark_euclidean(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                         const int k, const int m) {
-    float value = 0.0001;
-#ifndef PROFILE
-    std::cout << "euclidean query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
+/*
+auto benchmark_euclidean(const set<Point> &input0, const set<Point> &input1,
+const _tree_layout0 &tree0, const _tree_layout0 &tree1, const int k, const int
+m) { float value = 0.0001; #ifndef PROFILE std::cout << "euclidean query, value
+= " << value << std::endl; std::cout << "Input size: " << input.size() <<
+std::endl; #endif return benchmark_join<PROFILE == 1, set <std::tuple<Point,
+Point>>, set<std::tuple<Point, set<Point>>>>
             ("euclidean", input0, input1, tree0, tree1, k, m,
              euclidean, euclidean_single, euclidean_dual, value);
 }
 
 
-auto benchmark_manhattan(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                         const int k, const int m) {
-    float value = 0.0001;
-#ifndef PROFILE
-    std::cout << "manhattan query, value = " << value << std::endl;
-    std::cout << "Input size: " << input.size() << std::endl;
-#endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
+auto benchmark_manhattan(const set<Point> &input0, const set<Point> &input1,
+const _tree_layout0 &tree0, const _tree_layout0 &tree1, const int k, const int
+m) { float value = 0.0001; #ifndef PROFILE std::cout << "manhattan query, value
+= " << value << std::endl; std::cout << "Input size: " << input.size() <<
+std::endl; #endif return benchmark_join<PROFILE == 1, set <std::tuple<Point,
+Point>>, set<std::tuple<Point, set<Point>>>>
             ("manhattan", input0, input1, tree0, tree1, k, m,
              manhattan, manhattan_single, manhattan_dual, value);
 }
+*/
 
 template <typename T>
 void pretty_print_vector(const std::vector<T> &vec) {
@@ -309,7 +315,12 @@ void pretty_print_vector(const std::vector<T> &vec) {
 
 // #define EXPORT 1
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        std::cerr << "Usage: ./main.out <write directory>\n";
+        return 1;
+    }
+    const std::string write_dir = argv[1];
     const int k = 7; // total runs
     const int m = 1; // number of fastest and slowest to drop
 
@@ -342,11 +353,10 @@ int main() {
 #ifdef PROFILE
     pretty_print_vector(test_sizes);
     std::cout << std::endl;
-    static constexpr int N_BENCHMARKS = 1;
-    // std::vector<std::pair<std::string, std::vector<double>>> results(
-    //     N_BENCHMARKS);
-    // results[0].first = "abs(a.x - b.x) < 0.1";
-    // results[0].second.reserve(test_sizes.size());
+
+    bool cheb_nested_timedout = false, cheb_single_timedout = false,
+         cheb_dual_timedout = false, donut_nested_timedout = false,
+         donut_single_timedout = false, donut_dual_timedout = false;
 
 #endif
     for (size_t size : test_sizes) {
@@ -358,13 +368,10 @@ int main() {
         auto input_set0 = generate_random_set(rng, size);
         auto input_set1 = generate_random_set(rng, size);
 
-        export_to_csv(input_set0,
-                      "/scratch/ajroot/pldi-data/joins_dist2d_uniform_input0_"
-                      "joins_dist2d_uniform_input0_" +
-                          std::to_string(size) + ".csv");
-        export_to_csv(input_set1,
-                      "/scratch/ajroot/pldi-data/joins_dist2d_uniform_input1_" +
-                          std::to_string(size) + ".csv");
+        export_to_csv(input_set0, write_dir + "/joins_dist2d_uniform_input0_" +
+                                      std::to_string(size) + ".csv");
+        export_to_csv(input_set1, write_dir + "/joins_dist2d_uniform_input1_" +
+                                      std::to_string(size) + ".csv");
 
         // Build tree
         auto t_build_start = std::chrono::high_resolution_clock::now();
@@ -383,13 +390,18 @@ int main() {
         // verify_IntervalTree(0, input_tree1);
 
         {
-        auto [nested, single, dual] = benchmark_chebyshev(input_set0, input_set1, input_tree0, input_tree1, k, m);
+            auto [nested, single, dual] = benchmark_chebyshev(
+                input_set0, input_set1, input_tree0, input_tree1,
+                cheb_nested_timedout, cheb_single_timedout, cheb_dual_timedout,
+                k, m);
 
-    
-// #ifdef PROFILE
-//         results[0].second.push_back((dual > 0) ? (double)nested / (double)dual : std::numeric_limits<double>::max());
-// #endif
-        std::cout << "chebyshev: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
+            // #ifdef PROFILE
+            //         results[0].second.push_back((dual > 0) ? (double)nested /
+            //         (double)dual : std::numeric_limits<double>::max());
+            // #endif
+            std::cout << "chebyshev: (" << size << ", " << nested << ", "
+                      << build_time << ", " << single << ", " << dual << ")"
+                      << std::endl;
         }
 
         // {
@@ -398,8 +410,13 @@ int main() {
         // }
 
         {
-        auto [nested, single, dual] = benchmark_donut(input_set0, input_set1, input_tree0, input_tree1, k, m);
-        std::cout << "donut: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
+            auto [nested, single, dual] = benchmark_donut(
+                input_set0, input_set1, input_tree0, input_tree1,
+                donut_nested_timedout, donut_single_timedout,
+                donut_dual_timedout, k, m);
+            std::cout << "donut: (" << size << ", " << nested << ", "
+                      << build_time << ", " << single << ", " << dual << ")"
+                      << std::endl;
         }
 
         // {

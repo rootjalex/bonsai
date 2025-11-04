@@ -22,7 +22,7 @@ timeout = 30 # seconds
 sqlite_db = "sqlite_test.db"
 duckdb_db = "duckdb_test.db"
 csv_dir = "./apps/queries/joins/salary"
-output_csv = "join_results.csv"
+output_csv = "salary_join_results.csv"
 
 # -------------------------------
 # Utility functions

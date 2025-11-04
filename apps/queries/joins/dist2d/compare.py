@@ -22,7 +22,7 @@ timeout = 30 # seconds
 sqlite_db = "sqlite_test.db"
 duckdb_db = "duckdb_test.db"
 csv_dir = "../pldi-data"
-output_csv = "join_results.csv"
+output_csv = "dist2d_join_results.csv"
 
 # -------------------------------
 # Utility functions
@@ -288,7 +288,7 @@ ON SQRT((a.x - b.x)*(a.x - b.x) + (a.y - b.y)*(a.y - b.y))
 # -------------------------------
 def main():
     # Collect CSV pairs
-    csv_files = glob.glob(f"{csv_dir}/*.csv")
+    csv_files = [f for f in glob.glob(f"{csv_dir}/*.csv") if "circle" not in f]
     pattern = re.compile(r"^(.*)_input([01])_(\d+)\.csv$")
     size_to_files = defaultdict(dict)
 

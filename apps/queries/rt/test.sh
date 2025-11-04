@@ -36,8 +36,14 @@ else
     RAY_DIR="/Users/ajroot/projects/pldi-bonsai/apps/queries/rt/rays"
 fi
 
+echo "dragon = ["
+$BIND ./$SRC_DIR/main.out $OBJ_DIR dragon $RAY_DIR camera 15 25
+echo "]"
 echo "white_oak = ["
-$BIND ./$SRC_DIR/main.out $OBJ_DIR white-oak $RAY_DIR camera 17 19
+$BIND ./$SRC_DIR/main.out $OBJ_DIR white-oak $RAY_DIR camera 15 25
+echo "]"
+echo "hairball = ["
+$BIND ./$SRC_DIR/main.out $OBJ_DIR hairball $RAY_DIR camera 15 25
 echo "]"
 # time clang++ -std=c++20 $COMPILE_FLAGS $INCLUDES -o $SRC_DIR/main.out $SRC_DIR/main.cpp $SRC_DIR/rt.cpp -DAJR_PROFILE
 

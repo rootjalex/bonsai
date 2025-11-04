@@ -307,7 +307,8 @@ void verify_IntervalTree(const uint64_t input_index,
 #define PROFILE 0
 
 double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
-                             const int k, const int m) {
+                            bool &linear_timedout, bool &indexed_timedout,
+                            const int k, const int m) {
     float value = 50;
 #ifndef PROFILE
     std::cout << "Absd query, value = " << value << std::endl;
@@ -315,13 +316,14 @@ double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
         "abs(x - y) <= 10", input, tree, k, m, absd_query, absd_query_fast,
-        value);
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_absd_count_query(const set<Point> &input,
-                                  const _tree_layout0 &tree, const int k,
-                                  const int m) {
+                                  const _tree_layout0 &tree,
+                                  bool &linear_timedout, bool &indexed_timedout,
+                                  const int k, const int m) {
     float value = 50;
 #ifndef PROFILE
     std::cout << "Absd query, value = " << value << std::endl;
@@ -329,12 +331,14 @@ double benchmark_absd_count_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
         "COUNT(abs(x - y) <= 10)", input, tree, k, m, absd_count_query,
-        absd_count_query_fast, value);
+        absd_count_query_fast, linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_absd_count_aug_query(const set<Point> &input,
-                                      const _tree_layout4 &tree, const int k,
+                                      const _tree_layout4 &tree,
+                                      bool &linear_timedout,
+                                      bool &indexed_timedout, const int k,
                                       const int m) {
     float value = 50;
 #ifndef PROFILE
@@ -343,11 +347,12 @@ double benchmark_absd_count_aug_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
         "aug COUNT(abs(x - y) <= 10)", input, tree, k, m, absd_count_query,
-        absd_count_query_fast_aug, value);
+        absd_count_query_fast_aug, linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
+                            bool &linear_timedout, bool &indexed_timedout,
                             const int k, const int m) {
     float value = 50;
 #ifndef PROFILE
@@ -356,13 +361,14 @@ double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
         "abs(x + y) <= 10", input, tree, k, m, abss_query, abss_query_fast,
-        value);
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abss_count_query(const set<Point> &input,
-                                  const _tree_layout0 &tree, const int k,
-                                  const int m) {
+                                  const _tree_layout0 &tree,
+                                  bool &linear_timedout, bool &indexed_timedout,
+                                  const int k, const int m) {
     float value = 50;
 #ifndef PROFILE
     std::cout << "Abss query, value = " << value << std::endl;
@@ -370,12 +376,14 @@ double benchmark_abss_count_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
         "COUNT(abs(x + y) <= 10)", input, tree, k, m, abss_count_query,
-        abss_count_query_fast, value);
+        abss_count_query_fast, linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_abss_count_aug_query(const set<Point> &input,
-                                      const _tree_layout4 &tree, const int k,
+                                      const _tree_layout4 &tree,
+                                      bool &linear_timedout,
+                                      bool &indexed_timedout, const int k,
                                       const int m) {
     float value = 50;
 #ifndef PROFILE
@@ -384,12 +392,13 @@ double benchmark_abss_count_aug_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
         "aug COUNT(abs(x + y) <= 10)", input, tree, k, m, abss_count_query,
-        abss_count_query_fast_aug, value);
+        abss_count_query_fast_aug, linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_circle_query(const set<Point> &input,
-                              const _tree_layout0 &tree, const int k,
+                              const _tree_layout0 &tree, bool &linear_timedout,
+                              bool &indexed_timedout, const int k,
                               const int m) {
     float value = 300;
 #ifndef PROFILE
@@ -398,12 +407,14 @@ double benchmark_circle_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
         "x^2 + y^2 <= 100", input, tree, k, m, circle_query, circle_query_fast,
-        value);
+        linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_circle_count_query(const set<Point> &input,
-                                    const _tree_layout0 &tree, const int k,
+                                    const _tree_layout0 &tree,
+                                    bool &linear_timedout,
+                                    bool &indexed_timedout, const int k,
                                     const int m) {
     float value = 300;
 #ifndef PROFILE
@@ -412,12 +423,14 @@ double benchmark_circle_count_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
         "COUNT(x^2 + y^2 <= 100)", input, tree, k, m, circle_count_query,
-        circle_count_query_fast, value);
+        circle_count_query_fast, linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
 double benchmark_circle_count_aug_query(const set<Point> &input,
-                                        const _tree_layout4 &tree, const int k,
+                                        const _tree_layout4 &tree,
+                                        bool &linear_timedout,
+                                        bool &indexed_timedout, const int k,
                                         const int m) {
     float value = 300;
 #ifndef PROFILE
@@ -426,7 +439,7 @@ double benchmark_circle_count_aug_query(const set<Point> &input,
 #endif
     auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
         "aug COUNT(x^2 + y^2 <= 100)", input, tree, k, m, circle_count_query,
-        circle_count_query_fast_aug, value);
+        circle_count_query_fast_aug, linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -501,8 +514,15 @@ int main() {
     results[7].second.reserve(test_sizes.size());
     results[8].first = "r\"aug COUNT($x^2 + y^2 \\leq 10$)\"";
     results[8].second.reserve(test_sizes.size());
-
 #endif
+
+    bool linear_timeouts[N_BENCHMARKS], indexed_timeouts[N_BENCHMARKS];
+
+    for (size_t i = 0; i < N_BENCHMARKS; i++) {
+        linear_timeouts[i] = false;
+        indexed_timeouts[i] = false;
+    }
+
     for (size_t size : test_sizes) {
         std::cout << size << std::endl;
 #ifndef PROFILE
@@ -535,7 +555,8 @@ int main() {
 #ifdef PROFILE
         results[0].second.push_back(
 #endif
-            benchmark_absd_query(input_set, input_tree, k, m)
+            benchmark_absd_query(input_set, input_tree, linear_timeouts[0],
+                                 indexed_timeouts[0], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -544,7 +565,8 @@ int main() {
 #ifdef PROFILE
         results[1].second.push_back(
 #endif
-            benchmark_abss_query(input_set, input_tree, k, m)
+            benchmark_abss_query(input_set, input_tree, linear_timeouts[1],
+                                 indexed_timeouts[1], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -553,7 +575,8 @@ int main() {
 #ifdef PROFILE
         results[2].second.push_back(
 #endif
-            benchmark_circle_query(input_set, input_tree, k, m)
+            benchmark_circle_query(input_set, input_tree, linear_timeouts[2],
+                                   indexed_timeouts[2], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -562,7 +585,9 @@ int main() {
 #ifdef PROFILE
         results[3].second.push_back(
 #endif
-            benchmark_absd_count_query(input_set, input_tree, k, m)
+            benchmark_absd_count_query(input_set, input_tree,
+                                       linear_timeouts[3], indexed_timeouts[3],
+                                       k, m)
 #ifdef PROFILE
         )
 #endif
@@ -571,7 +596,9 @@ int main() {
 #ifdef PROFILE
         results[4].second.push_back(
 #endif
-            benchmark_abss_count_query(input_set, input_tree, k, m)
+            benchmark_abss_count_query(input_set, input_tree,
+                                       linear_timeouts[4], indexed_timeouts[4],
+                                       k, m)
 #ifdef PROFILE
         )
 #endif
@@ -580,7 +607,9 @@ int main() {
 #ifdef PROFILE
         results[5].second.push_back(
 #endif
-            benchmark_circle_count_query(input_set, input_tree, k, m)
+            benchmark_circle_count_query(input_set, input_tree,
+                                         linear_timeouts[5],
+                                         indexed_timeouts[5], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -589,7 +618,9 @@ int main() {
 #ifdef PROFILE
         results[6].second.push_back(
 #endif
-            benchmark_absd_count_aug_query(input_set, input_tree_aug, k, m)
+            benchmark_absd_count_aug_query(input_set, input_tree_aug,
+                                           linear_timeouts[6],
+                                           indexed_timeouts[6], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -598,7 +629,9 @@ int main() {
 #ifdef PROFILE
         results[7].second.push_back(
 #endif
-            benchmark_abss_count_aug_query(input_set, input_tree_aug, k, m)
+            benchmark_abss_count_aug_query(input_set, input_tree_aug,
+                                           linear_timeouts[7],
+                                           indexed_timeouts[7], k, m)
 #ifdef PROFILE
         )
 #endif
@@ -607,7 +640,9 @@ int main() {
 #ifdef PROFILE
         results[8].second.push_back(
 #endif
-            benchmark_circle_count_aug_query(input_set, input_tree_aug, k, m)
+            benchmark_circle_count_aug_query(input_set, input_tree_aug,
+                                             linear_timeouts[8],
+                                             indexed_timeouts[8], k, m)
 #ifdef PROFILE
         )
 #endif

@@ -180,19 +180,21 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
 #define PROFILE 0
 
-
-
-auto benchmark_donut(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                         const int k, const int m) {
+auto benchmark_donut(const set<Point> &input0, const set<Point> &input1,
+                     const _tree_layout0 &tree0, const _tree_layout0 &tree1,
+                     bool &nested_timedout, bool &single_timedout,
+                     bool &dual_timedout, const int k, const int m) {
     float value0 = 10;
     float value1 = 20;
 #ifndef PROFILE
     std::cout << "donut query, bounds = " << value0 << ", " << value1 << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
-            ("donut", input0, input1, tree0, tree1, k, m,
-             donut, donut_single, donut_dual, value0, value1);
+    return benchmark_join<PROFILE == 1, set<std::tuple<Point, Point>>,
+                          set<std::tuple<Point, set<Point>>>>(
+        "donut", input0, input1, tree0, tree1, k, m, donut, donut_single,
+        donut_dual, nested_timedout, single_timedout, dual_timedout, value0,
+        value1);
 }
 
 template <typename T>
@@ -212,8 +214,8 @@ void pretty_print_vector(const std::vector<T> &vec) {
 // #define EXPORT 1
 
 int main(int argc, char** argv) {
-    const int k = 1; // total runs
-    const int m = 0; // number of fastest and slowest to drop
+    const int k = 7; // total runs
+    const int m = 1; // number of fastest and slowest to drop
 
     // Parse radius from command line if provided
     float radius = 5.0f;
@@ -242,11 +244,9 @@ int main(int argc, char** argv) {
 #ifdef PROFILE
     pretty_print_vector(test_sizes);
     std::cout << std::endl;
-    static constexpr int N_BENCHMARKS = 1;
-    // std::vector<std::pair<std::string, std::vector<double>>> results(
-    //     N_BENCHMARKS);
-    // results[0].first = "abs(a.x - b.x) < 0.1";
-    // results[0].second.reserve(test_sizes.size());
+
+    bool nested_timedout = false, single_timedout = false,
+         dual_timedout = false;
 
 #endif
     for (size_t size : test_sizes) {
@@ -272,14 +272,13 @@ int main(int argc, char** argv) {
         // verify_IntervalTree(0, input_tree);
 #endif
 
-        // {
-        // auto [nested, single, dual] = benchmark_cosine(input_set0, input_set1, input_tree0, input_tree1, k, m);
-        // std::cout << "cosine: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
-        // }
-
         {
-        auto [nested, single, dual] = benchmark_donut(input_set0, input_set1, input_tree0, input_tree1, k, m);
-        std::cout << "donut: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
+            auto [nested, single, dual] = benchmark_donut(
+                input_set0, input_set1, input_tree0, input_tree1,
+                nested_timedout, single_timedout, dual_timedout, k, m);
+            std::cout << "donut: (" << size << ", " << nested << ", "
+                      << build_time << ", " << single << ", " << dual << ")"
+                      << std::endl;
         }
 
         std::free(input_tree0.prims);

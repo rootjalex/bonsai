@@ -766,6 +766,8 @@ void run_bonsai(const std::string &obj_dir, const std::string &object,
     auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     // std::cout << "Bonsai build time : " << trace_time << " ms\n";
 
+    bool timedout = false;
+
     bool is_first_run = true;
     for (int64_t c = low; c <= high; c++) {
         const int64_t ray_count = 1ll << c;
@@ -818,7 +820,7 @@ void run_bonsai(const std::string &obj_dir, const std::string &object,
                         }
                     }
                 },
-                k, m) /
+                timedout, k, m) /
             (double)1e6;
 #endif
         // std::cout << "hits       : " << hit_count << "\n";
@@ -894,6 +896,9 @@ void run_fcpw(const std::string &obj_dir, const std::string &object,
     global_tree_built = true;
 
     bool is_first_run = true;
+
+    bool timedout = false;
+
     for (int64_t c = low; c <= high; c++) {
         const int64_t ray_count = 1ll << c;
         const std::string ray_file = ray_dir + "/" + object + "_" +
@@ -949,7 +954,7 @@ void run_fcpw(const std::string &obj_dir, const std::string &object,
                         }
                     }
                 },
-                k, m) /
+                timedout, k, m) /
             (double)1e6;
 #endif
         std::cout << "    (\"fcpw\", " << ray_count << ", " << trace_time
@@ -1001,6 +1006,8 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
     // }
     // global_tree = copy_tree(tree);
     // global_tree_built = true;
+
+    bool timedout = false;
 
     bool is_first_run = true;
     for (int64_t c = low; c <= high; c++) {
@@ -1062,7 +1069,7 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
                         }
                     }
                 },
-                k, m) /
+                timedout, k, m) /
             (double)1e6;
 #endif
         std::cout << "    (\"cgal\", " << ray_count << ", " << trace_time
