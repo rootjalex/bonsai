@@ -14,7 +14,7 @@ element Triangle {
 }
 
 // Source: RTCD 5.1.5 pg. 141
-func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
+func [[inline]] closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     p = pt.vec;
     a = tri.p0;
     b = tri.p1;
@@ -84,21 +84,6 @@ func [[inline]] distmin(p : Point, tri : Triangle) -> Float {
     d = p.vec - pts[0].vec;
     return dot(d, d); // sqdist
 }
-
-// Source: RTCD 5.1.3.1 pg. 131
-func SqDistPointAABB(pt : Point, a : AABB) -> Float {
-    // For each axis, count any excess distance outside box extents.
-    v = pt.vec;
-    sqLow = (a.low - v) * (a.low - v);
-    low = select(v < a.low, sqLow, 0.0);
-    sqHigh = (v - a.high) * (v - a.high);
-    high = select(v > a.high, sqHigh, 0.0);
-    return sum(low + high);
-}
-
-//func distmin(pt : Point, a : AABB) -> Float {
-//    return SqDistPointAABB(pt, a);  // sqdist
-//}
 
 func [[inline]] distmax(pt : Point, a : AABB) -> Float {
     u = a.low - pt.vec;

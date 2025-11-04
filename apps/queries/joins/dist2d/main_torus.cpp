@@ -58,6 +58,93 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
 
 #define USE_APPROX_SAH
 
+uint64_t build_range(_tree_layout0 &tree, uint64_t &next_node, uint64_t low,
+                     uint64_t high, bool prev_split_on_x) {
+    constexpr uint64_t MAX_LEAF_COUNT = 8;
+
+    uint64_t count = high - low;
+    uint64_t this_index = next_node++;
+    assert(this_index < tree.nCount);
+
+    // tree.group0_index[this_index].dCount = high - low;
+
+    // Compute bounding box for current range
+    float xl = tree.prims[low].x, xh = tree.prims[low].x;
+    float yl = tree.prims[low].y, yh = tree.prims[low].y;
+    for (uint64_t i = low + 1; i < high; ++i) {
+        xl = std::min(xl, tree.prims[i].x);
+        xh = std::max(xh, tree.prims[i].x);
+        yl = std::min(yl, tree.prims[i].y);
+        yh = std::max(yh, tree.prims[i].y);
+    }
+    tree.group0_index[this_index].xl = xl;
+    tree.group0_index[this_index].xh = xh;
+    tree.group0_index[this_index].yl = yl;
+    tree.group0_index[this_index].yh = yh;
+
+    if (count <= MAX_LEAF_COUNT) {
+        // Leaf node
+        tree.group0_index[this_index].nPrims = count;
+        tree.group0_index[this_index].offset = low;
+    } else {
+        tree.group0_index[this_index].nPrims = 0;
+
+        // Choose split axis: longest dimension
+        bool split_on_x = (xh - xl) >= (yh - yl);
+
+        // Sort on that axis
+        if (split_on_x && !prev_split_on_x) {
+            std::sort(tree.prims + low, tree.prims + high,
+                      [](const Point &a, const Point &b) { return a.x < b.x; });
+        } else if (!split_on_x && prev_split_on_x) {
+            std::sort(tree.prims + low, tree.prims + high,
+                      [](const Point &a, const Point &b) { return a.y < b.y; });
+        }
+
+        // Fast binned split: pick index that minimizes left/right interval
+        // ratio
+        const bool sx = split_on_x;
+        const float first = sx ? tree.prims[low].x : tree.prims[low].y;
+        const float last = sx ? tree.prims[high - 1].x : tree.prims[high - 1].y;
+
+        float best_ratio = std::numeric_limits<float>::max();
+        uint64_t best_mid = low + count / 2;
+
+        if (sx) {
+            for (uint64_t i = 1; i < count; ++i) {
+                float left = tree.prims[low + i - 1].x - first;
+                float right = last - tree.prims[low + i].x;
+                float ratio = std::abs(left / (right + 1e-9f) - 1.0f);
+                if (ratio < best_ratio) {
+                    best_ratio = ratio;
+                    best_mid = low + i;
+                }
+            }
+        } else {
+            for (uint64_t i = 1; i < count; ++i) {
+                float left = tree.prims[low + i - 1].y - first;
+                float right = last - tree.prims[low + i].y;
+                float ratio = std::abs(left / (right + 1e-9f) - 1.0f);
+                if (ratio < best_ratio) {
+                    best_ratio = ratio;
+                    best_mid = low + i;
+                }
+            }
+        }
+
+        uint64_t mid = best_mid;
+
+        // Recursively build subtrees
+        uint64_t left = build_range(tree, next_node, low, mid, split_on_x);
+        uint64_t right = build_range(tree, next_node, mid, high, split_on_x);
+
+        // Set split offset (offset from this node to right child)
+        uint64_t offset = right - this_index;
+        tree.group0_index[this_index].offset = offset;
+    }
+    return this_index;
+}
+
 _tree_layout0 build_tree(const set<Point> &input) {
     _tree_layout0 tree;
     tree.pCount = input.size();
@@ -82,106 +169,12 @@ _tree_layout0 build_tree(const set<Point> &input) {
 
     uint64_t next_node = 0;
 
-    // uint64_t max_depth = 0;
+    // Sort on x initially
+    std::sort(tree.prims, tree.prims + tree.pCount,
+              [](const Point &a, const Point &b) { return a.x < b.x; });
 
-    // TODO: add parameters that pass the xl/xh/yl/yh values.
-    std::function<uint64_t(uint64_t, uint64_t, uint64_t)> handle_range =
-        [&](uint64_t low, uint64_t high, uint64_t depth) -> uint64_t {
-        // assert(depth < MAX_TREE_DEPTH);
-        // max_depth = std::max(max_depth, depth);
+    build_range(tree, next_node, /*low=*/0, /*high=*/tree.pCount, true);
 
-        uint64_t count = high - low;
-        uint64_t this_index = next_node++;
-        assert(this_index < tree.nCount);
-
-        // tree.group0_index[this_index].dCount = high - low;
-
-        // Compute bounding box for current range
-        float xl = tree.prims[low].x, xh = tree.prims[low].x;
-        float yl = tree.prims[low].y, yh = tree.prims[low].y;
-        for (uint64_t i = low + 1; i < high; ++i) {
-            xl = std::min(xl, tree.prims[i].x);
-            xh = std::max(xh, tree.prims[i].x);
-            yl = std::min(yl, tree.prims[i].y);
-            yh = std::max(yh, tree.prims[i].y);
-        }
-        tree.group0_index[this_index].xl = xl;
-        tree.group0_index[this_index].xh = xh;
-        tree.group0_index[this_index].yl = yl;
-        tree.group0_index[this_index].yh = yh;
-
-        if (count <= MAX_LEAF_COUNT) {
-            // Leaf node
-            tree.group0_index[this_index].nPrims = count;
-            tree.group0_index[this_index].offset = low;
-            // reinterpret_cast<_tree_layout3 *>(
-            //     &tree.group0_index[this_index].split0on_nPrims)
-            //     ->pOffset = low;
-        } else {
-            tree.group0_index[this_index].nPrims = 0;
-
-            // Choose split axis: longest dimension
-            bool split_on_x = (xh - xl) >= (yh - yl);
-
-            // Sort on that axis
-            if (split_on_x) {
-                std::sort(
-                    tree.prims + low, tree.prims + high,
-                    [](const Point &a, const Point &b) { return a.x < b.x; });
-            } else {
-                std::sort(
-                    tree.prims + low, tree.prims + high,
-                    [](const Point &a, const Point &b) { return a.y < b.y; });
-            }
-
-#ifdef USE_APPROX_SAH
-            // Fast binned split: pick index that minimizes left/right interval
-            // ratio
-            uint64_t best_mid = low + count / 2;
-            float best_ratio = std::numeric_limits<float>::max();
-            for (uint64_t i = 1; i < count; ++i) {
-                float left_size =
-                    (split_on_x ? tree.prims[low + i - 1].x
-                                : tree.prims[low + i - 1].y) -
-                    (split_on_x ? tree.prims[low].x : tree.prims[low].y);
-                float right_size = (split_on_x ? tree.prims[high - 1].x
-                                               : tree.prims[high - 1].y) -
-                                   (split_on_x ? tree.prims[low + i].x
-                                               : tree.prims[low + i].y);
-
-                float ratio = std::abs(left_size / (right_size + 1e-9) - 1.0f);
-                if (ratio < best_ratio) {
-                    best_ratio = ratio;
-                    best_mid = low + i;
-                }
-            }
-
-            uint64_t mid = best_mid;
-
-            // Recursively build subtrees
-            uint64_t left = handle_range(low, mid, depth + 1);
-            uint64_t right = handle_range(mid, high, depth + 1);
-#else
-            // Split in the middle (median)
-            uint64_t mid = low + count / 2;
-
-            // Recursively build subtrees
-            uint64_t left = handle_range(low, mid, depth + 1);
-            uint64_t right = handle_range(mid, high, depth + 1);
-#endif
-            // Set split offset (offset from this node to right child)
-            uint64_t offset = right - this_index;
-            tree.group0_index[this_index].offset = offset;
-            // reinterpret_cast<_tree_layout2 *>(
-            //     &tree.group0_index[this_index].split0on_nPrims)
-            //     ->offset = offset;
-        }
-        return this_index;
-    };
-
-    // TODO: pass bounding box info computed via sort...?
-    handle_range(/*low=*/0, /*high=*/tree.pCount, /*depth=*/0);
-    // std::cout << "max_depth = " << max_depth << std::endl;
     return tree;
 }
 
@@ -219,8 +212,8 @@ void pretty_print_vector(const std::vector<T> &vec) {
 // #define EXPORT 1
 
 int main(int argc, char** argv) {
-    const int k = 7; // total runs
-    const int m = 1; // number of fastest and slowest to drop
+    const int k = 1; // total runs
+    const int m = 0; // number of fastest and slowest to drop
 
     // Parse radius from command line if provided
     float radius = 5.0f;

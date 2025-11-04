@@ -792,7 +792,7 @@ class BonsaiToCpp : ir::Printer {
         for (size_t i = 0, e = node->args.size(); i < e; i++) {
             const TypedVar &tvar = node->args[i];
             emit_signature_type(tvar.type, false);
-            ss << tvar.name;
+            ss << " " << tvar.name;
             if (i + 1 == e) {
                 continue;
             }
