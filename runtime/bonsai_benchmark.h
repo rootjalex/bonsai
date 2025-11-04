@@ -30,6 +30,15 @@ inline void flush_cache() {
 static constexpr int64_t timeout_sec = 30; // timeout after 30s
 static constexpr int64_t timeout_ns = timeout_sec * 1000000000;
 
+inline double dropped_average(const std::vector<int64_t> &times, int m) {
+    std::vector<int64_t> sorted = times;
+    std::sort(sorted.begin(), sorted.end());
+    auto begin = sorted.begin() + m;
+    auto end = sorted.end() - m;
+    int64_t sum = std::accumulate(begin, end, int64_t{0});
+    return static_cast<double>(sum) / std::distance(begin, end);
+}
+
 template <typename Func>
 // k is the number of runs, m is the number of low and high runs to drop.
 auto benchmark_function(Func &&func, bool &timed_out, int k, int m) {
@@ -40,16 +49,27 @@ auto benchmark_function(Func &&func, bool &timed_out, int k, int m) {
     }
 
     if (timed_out) {
-        return std::make_tuple((double)timeout_ns, RetT{});
+        if constexpr (std::is_void_v<RetT>) {
+            return (double)timeout_ns;
+        } else {
+            return std::make_tuple((double)timeout_ns, RetT{});
+        }
     }
 
     std::vector<int64_t> times;
     times.reserve(k);
 
     for (int i = 0; i < (k - 1); ++i) {
-        auto start = std::chrono::high_resolution_clock::now();
-        auto result = func();
-        auto end = std::chrono::high_resolution_clock::now();
+        auto start = std::chrono::high_resolution_clock::now(),
+             end = std::chrono::high_resolution_clock::now();
+        if constexpr (std::is_void_v<RetT>) {
+            func();
+            end = std::chrono::high_resolution_clock::now();
+        } else {
+            auto result = func();
+            end = std::chrono::high_resolution_clock::now();
+            (void)result; // discard after getting timing info
+        }
 
         const auto time_ns =
             std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
@@ -57,26 +77,32 @@ auto benchmark_function(Func &&func, bool &timed_out, int k, int m) {
         times.push_back(time_ns);
         if (time_ns >= timeout_ns) {
             timed_out = true;
-            return std::make_tuple((double)timeout_ns, RetT{});
+            if constexpr (std::is_void_v<RetT>) {
+                return (double)timeout_ns;
+            } else {
+                return std::make_tuple((double)timeout_ns, RetT{});
+            }
         }
         // deallocate result
     }
 
     // Now get the result, assume we won't timeout if we haven't yet.
     auto t0 = std::chrono::high_resolution_clock::now();
-    auto result = func();
-    auto t1 = std::chrono::high_resolution_clock::now();
-    times.push_back(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-
-    std::sort(times.begin(), times.end());
-    auto begin = times.begin() + m;
-    auto end = times.end() - m;
-
-    // average of middle runs
-    int64_t sum = std::accumulate(begin, end, int64_t{0});
-    const double avg = (double)sum / std::distance(begin, end);
-    return std::make_tuple(avg, result);
+    if constexpr (std::is_void_v<RetT>) {
+        func();
+        auto t1 = std::chrono::high_resolution_clock::now();
+        times.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0)
+                .count());
+        return dropped_average(times, m);
+    } else {
+        auto result = func();
+        auto t1 = std::chrono::high_resolution_clock::now();
+        times.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0)
+                .count());
+        return std::make_tuple(dropped_average(times, m), result);
+    }
 }
 
 template <bool verbose, typename Result, typename Input, typename Tree,
