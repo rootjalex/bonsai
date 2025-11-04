@@ -120,5 +120,7 @@ std::set<std::string> find_side_effects(const ir::FuncMap &functions);
 bool has_side_effects(const ir::Expr &expr,
                       const std::set<std::string> &side_effect_functions);
 
+uint64_t ast_size(const Expr &expr);
+
 } // namespace ir
 } // namespace bonsai

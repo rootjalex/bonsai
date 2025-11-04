@@ -546,5 +546,19 @@ std::set<std::string> find_side_effects(const ir::FuncMap &functions) {
     return side_effects;
 }
 
+uint64_t ast_size(const Expr &expr) {
+    struct Counter : Mutator {
+        uint64_t counter = 0;
+        Expr mutate(const Expr &expr) override {
+            counter++;
+            return Mutator::mutate(expr);
+        }
+    };
+
+    Counter counter;
+    counter.mutate(expr);
+    return counter.counter;
+}
+
 } // namespace ir
 } // namespace bonsai

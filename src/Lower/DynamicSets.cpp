@@ -116,12 +116,12 @@ Program LowerDynamicSets::run(Program program,
         Type dynamic_array_t = Set_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;
         LowerDynamicSetCall lower(dynamic_array_t);
-        func->body = lower.mutate(std::move(func->body));
+        func->body = lower.mutate(func->body);
         if (name.starts_with("_traverse_tree")) {
             LowerDynamicSetImpl lower(dynamic_array_t);
             // Canonicalize this into a sequence so we only need to handle a
             // single case.
-            func->body = lower.mutate(std::move(func->body));
+            func->body = lower.mutate(func->body);
         }
     }
     return program;

@@ -49,7 +49,7 @@ ir::FuncMap LowerLogicalOperations::run(ir::FuncMap funcs,
                                         const CompilerOptions &options) const {
     for (auto &[_, func] : funcs) {
         LowerImpl lower;
-        func->body = lower.mutate(std::move(func->body));
+        func->body = lower.mutate(func->body);
     }
     return funcs;
 }

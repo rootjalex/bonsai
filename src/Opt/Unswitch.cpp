@@ -33,6 +33,18 @@ struct UnswitchImpl : public Mutator {
     //   if (a) { foo() }
     //   else { bar() }
     // }
+    // And
+    // if (a) {
+    //   if (b) { foo() } else { bazz() }
+    // } else {
+    //   if (b) { bar() } else { fazz() }
+    // }
+    // ->
+    // if (b) {
+    //   if (a) { foo() } else { bar() }
+    // } else {
+    //   if (a) { bazz() } else { fazz() }
+    // }
     Stmt visit(const IfElse *node) override {
         Stmt stmt = Mutator::visit(node);
         node = stmt.as<IfElse>();
@@ -40,24 +52,60 @@ struct UnswitchImpl : public Mutator {
 
         // No else body, can't apply this rewrite.
         if (!node->else_body.defined()) {
-            return node;
+            return Mutator::visit(node);
         }
-        const IfElse *then_if = node->then_body.as<IfElse>();
-        const IfElse *else_if = node->else_body.as<IfElse>();
+
+        Stmt then_body = mutate(node->then_body);
+        Stmt else_body = mutate(node->else_body);
+        const IfElse *then_if = then_body.as<IfElse>();
+        const IfElse *else_if = else_body.as<IfElse>();
         if (then_if == nullptr || else_if == nullptr) {
-            return node;
+            if (then_body.same_as(node->then_body) &&
+                else_body.same_as(node->else_body)) {
+                return node;
+            } else {
+                return IfElse::make(node->cond, std::move(then_body),
+                                    std::move(else_body));
+            }
         }
-        if (then_if->else_body.defined() || else_if->else_body.defined()) {
-            // Rewrite results in same sized IR, no reduction order.
-            // TODO(ajr): can we use comparisons of `cond` to make a
-            // reduction order?
-            return node;
+
+        // Need to reduce the size of the IR, or this can flip-flop.
+        const bool no_else =
+            !(then_if->else_body.defined() || else_if->else_body.defined());
+        const bool reduction_order_satisfied =
+            no_else; // || (ast_size(then_if->cond) > ast_size(node->cond));
+
+        if (!reduction_order_satisfied) {
+            // TODO: reorder to merge this with the above condition
+            if (then_body.same_as(node->then_body) &&
+                else_body.same_as(node->else_body)) {
+                return node;
+            } else {
+                return IfElse::make(node->cond, std::move(then_body),
+                                    std::move(else_body));
+            }
         }
+
         if (equals(then_if->cond, else_if->cond)) {
             // Success!
-            Stmt inner = IfElse::make(node->cond, then_if->then_body,
-                                      else_if->then_body);
-            return IfElse::make(then_if->cond, std::move(inner));
+            const Expr &a = node->cond;
+            const Expr &b = then_if->cond;
+            const Stmt &foo = then_if->then_body;
+            const Stmt &bazz = then_if->else_body;
+            const Stmt &bar = else_if->then_body;
+            const Stmt &fazz = else_if->else_body;
+
+            Stmt left = IfElse::make(a, foo, bar);
+            Stmt body;
+            if (no_else) {
+                body = IfElse::make(b, std::move(left));
+            } else {
+                // ast size difference, keep else bodies
+                Stmt right = IfElse::make(a, bazz, fazz);
+                body = IfElse::make(b, std::move(left), std::move(right));
+            }
+            // Keep trying.
+            return mutate(body);
         }
         return node;
     }

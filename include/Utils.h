@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IR/Equality.h"
 #include "IR/Expr.h"
 #include "IR/Printer.h"
 #include "IR/Type.h"
@@ -127,6 +128,9 @@ ir::Expr replace(const std::string &var_name, ir::Expr repl,
                  const ir::Expr &orig);
 
 ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
+                 const ir::Expr &orig);
+
+ir::Expr replace(const std::map<ir::Expr, ir::Expr, ir::ExprLessThan> &repls,
                  const ir::Expr &orig);
 
 ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,

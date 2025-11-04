@@ -24,6 +24,10 @@ namespace opt {
 namespace {
 // Prefix for a temporary variable.
 static constexpr char T_PREFIX[] = "_t";
+// For unique variable renaming.
+static int64_t counter = 0;
+
+std::string fresh_name() { return T_PREFIX + std::to_string(counter++); }
 
 // Stack of mutable variable names for a given function.
 using MutableVariableStack = ir::SetStack<std::string>;
@@ -88,6 +92,13 @@ class RenameAnalysis : public ir::Visitor {
         update_count(node);
         substitute(node->a).accept(this);
         substitute(node->b).accept(this);
+    }
+
+    void visit(const ir::Select *node) override {
+        update_count(node);
+        substitute(node->cond).accept(this);
+        substitute(node->tvalue).accept(this);
+        substitute(node->fvalue).accept(this);
     }
 
     void visit(const ir::Access *node) override {
@@ -242,6 +253,133 @@ class RenameAnalysis : public ir::Visitor {
     }
 };
 
+struct IfElseHandler : public ir::Mutator {
+
+    std::set<ir::Expr, ir::ExprLessThan> get_evaled(const ir::Expr &expr) {
+        struct AbsolutelyEvaluatedGetter : ir::Visitor {
+            std::set<ir::Expr, ir::ExprLessThan> expressions;
+
+            void visit(const ir::BinOp *node) override {
+                switch (node->op) {
+                // Logical variables cannot safely emit temporary variables.
+                // We could eventually special case for the left most operand of
+                // the logical operation, which will always execute.
+                case ir::BinOp::OpType::LAnd:
+                case ir::BinOp::OpType::LOr:
+                    // node->a's expressions are *always* evaluated,
+                    expressions.insert(node->a);
+                    node->a.accept(this);
+                    return;
+                default:
+                    expressions.insert(node); // can duplicate for nested BinOps
+                    expressions.insert(node->a);
+                    expressions.insert(node->b);
+                    node->a.accept(this);
+                    node->b.accept(this);
+                    return;
+                }
+            }
+
+            // Adopt Halide semantics of both sides are always evaluated.
+            void visit(const ir::Select *node) override {
+                expressions.insert(node->cond);
+                node->cond.accept(this);
+                node->tvalue.accept(this);
+                node->fvalue.accept(this);
+            }
+
+            void visit(const ir::Intrinsic *node) override {
+                expressions.insert(node);
+                for (const auto &expr : node->args) {
+                    expressions.insert(expr);
+                    expr.accept(this);
+                }
+            }
+        };
+
+        AbsolutelyEvaluatedGetter getter;
+        expr.accept(&getter);
+        return getter.expressions;
+    }
+
+    std::map<ir::Expr, int64_t, ir::ExprLessThan>
+    get_freq(const ir::Expr &expr) {
+        struct GetFrequencies : ir::Mutator {
+            std::map<ir::Expr, int64_t, ir::ExprLessThan> frequencies;
+
+            ir::Expr mutate(const ir::Expr &expr) override {
+                frequencies[expr]++;
+                return ir::Mutator::mutate(expr);
+            }
+        };
+
+        GetFrequencies getter;
+        getter.mutate(expr);
+        return getter.frequencies;
+    }
+
+    bool should_rename(const ir::Expr &e) {
+        return !e.is<ir::Var>() && !is_const(e);
+    }
+
+    ir::Stmt visit(const ir::IfElse *node) override {
+        const ir::BinOp *bop = node->cond.as<ir::BinOp>();
+        if (!bop ||
+            !(bop->op == ir::BinOp::LAnd || bop->op == ir::BinOp::LOr)) {
+            return ir::Mutator::visit(node);
+        }
+
+        auto exprs = get_evaled(node->cond);
+        if (exprs.empty()) {
+            return ir::Mutator::visit(node);
+        }
+
+        auto freqs = get_freq(node->cond);
+
+        std::vector<ir::Expr> candidates;
+        candidates.reserve(exprs.size());
+        // TODO: only legal without side-effects.
+
+        for (const auto &c : exprs) {
+            if (should_rename(c) && freqs[c] > 1) {
+                candidates.push_back(c);
+            }
+        }
+
+        if (candidates.empty()) {
+            return ir::Mutator::visit(node);
+        }
+
+        // Sort candidates by size (smaller first) to avoid overlapping
+        // replacements.
+        // TODO: cache sizes, this could be expensive.
+        std::sort(candidates.begin(), candidates.end(),
+                  [&](const ir::Expr &a, const ir::Expr &b) {
+                      return ast_size(a) < ast_size(b);
+                  });
+
+        std::map<ir::Expr, ir::Expr, ir::ExprLessThan> replacements;
+        std::vector<ir::Stmt> stmts;
+
+        for (const ir::Expr &e : candidates) {
+            ir::Expr repl = replace(replacements, e);
+            auto name = fresh_name();
+            ir::WriteLoc location(name, repl.type());
+            stmts.push_back(ir::LetStmt::make(location, std::move(repl)));
+            replacements[e] = ir::Var::make(e.type(), name);
+        }
+
+        ir::Expr new_cond = replace(replacements, node->cond);
+
+        ir::Stmt th = mutate(node->then_body);
+        ir::Stmt el = mutate(node->else_body);
+
+        stmts.push_back(ir::IfElse::make(std::move(new_cond), std::move(th),
+                                         std::move(el)));
+        return ir::Sequence::make(std::move(stmts));
+    }
+};
+
 // Gives an expression its own variable name if it fits certain criteria. For
 // example,
 //   g(foo(i), bar(j));
@@ -352,8 +490,7 @@ struct Rename : public ir::Mutator {
             if (!rename) {
                 return op;
             }
-            ir::WriteLoc location(T_PREFIX + std::to_string(counter++),
-                                  node->type);
+            ir::WriteLoc location(fresh_name(), node->type);
             stmts.push_back(ir::LetStmt::make(location, std::move(op)));
             return ir::Var::make(node->type, location.base);
         }
@@ -369,7 +506,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return intrinsic;
         }
-        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
+        ir::WriteLoc location(fresh_name(), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(intrinsic)));
         return ir::Var::make(node->type, location.base);
     }
@@ -381,7 +518,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return access;
         }
-        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
+        ir::WriteLoc location(fresh_name(), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(access)));
         return ir::Var::make(node->type, location.base);
     }
@@ -396,7 +533,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return build;
         }
-        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
+        ir::WriteLoc location(fresh_name(), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(build)));
         return ir::Var::make(node->type, location.base);
     }
@@ -409,7 +546,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return cast;
         }
-        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
+        ir::WriteLoc location(fresh_name(), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(cast)));
         return ir::Var::make(node->type, location.base);
     }
@@ -422,7 +559,7 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return extract;
         }
-        ir::WriteLoc location(T_PREFIX + std::to_string(counter++), node->type);
+        ir::WriteLoc location(fresh_name(), node->type);
         stmts.push_back(ir::LetStmt::make(location, std::move(extract)));
         return ir::Var::make(node->type, location.base);
     }
@@ -437,10 +574,13 @@ struct Rename : public ir::Mutator {
         if (!rename) {
             return call;
         }
-        ir::WriteLoc loc(T_PREFIX + std::to_string(counter++), node->type);
+        ir::WriteLoc loc(fresh_name(), node->type);
         stmts.push_back(ir::LetStmt::make(loc, std::move(call)));
         return ir::Var::make(node->type, loc.base);
     }
+
+    // Do not CSE out of a lambda
+    ir::Expr visit(const ir::Lambda *node) override { return node; }
 
   private:
     bool is_trivial(const ir::Expr &e) {
@@ -492,8 +632,6 @@ struct Rename : public ir::Mutator {
     const ExprSet &to_rename;
     // A list of intermediate statements generated for subexpressions.
     std::vector<ir::Stmt> stmts;
-    // For unique variable renaming.
-    int64_t counter = 0;
 
     // Pushes this `statement` onto the list of generated statements and returns
     // a sequence.
@@ -742,7 +880,7 @@ class LVN : public ir::Mutator {
             return ir::Access::make(op->field, substitute(op->value));
         }
         if (const auto *op = e.as<ir::Cast>()) {
-            return ir::Cast::make(op->type, substitute(op->value));
+            return ir::Cast::make(op->type, substitute(op->value), op->mode);
         }
         if (const auto *op = e.as<ir::Extract>()) {
             return ir::Extract::make(substitute(op->vec), substitute(op->idx));
@@ -931,6 +1069,10 @@ ir::FuncMap CSE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
             name.starts_with("rec_count") || name.starts_with("count")) {
             continue;
         }
+
+        // Handle IfElse statements
+        // func->body = IfElseHandler().mutate(func->body);
+
         const std::set<std::string> &mutable_arguments = func->mutable_args();
         RenameAnalysis analysis(side_effect_functions, mutable_arguments);
         // Find expressions that have been seen > 1  times.
@@ -939,16 +1081,16 @@ ir::FuncMap CSE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
 
         // Give each of these expressions its own name.
         Rename rename(to_rename);
-        func->body = rename.mutate(std::move(func->body));
+        func->body = rename.mutate(func->body);
 
         // Perform local value numbering, as well as the common subexpression
         // elimination.
         LVN lvn(side_effect_functions, mutable_arguments);
-        func->body = lvn.mutate(std::move(func->body));
+        func->body = lvn.mutate(func->body);
 
         // Propagate copies.
         CopyPropagation cp(mutable_arguments);
-        func->body = cp.mutate(std::move(func->body));
+        func->body = cp.mutate(func->body);
 
         // Temporaries that appear once should be rewritten to their respective
         // value. We perform dead code elimination first to get rid of unused

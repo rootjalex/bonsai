@@ -205,7 +205,7 @@ ir::FuncMap Mutability::run(ir::FuncMap funcs,
         // First rewrite calls and derefs.
         RewriteMutables rewriter(func->mutable_args(), func->immutable_args());
 
-        func->body = rewriter.mutate(std::move(func->body));
+        func->body = rewriter.mutate(func->body);
         // Then rewrite function signature.
         for (auto &arg_sig : func->args) {
             ir::Type t = arg_sig.type;

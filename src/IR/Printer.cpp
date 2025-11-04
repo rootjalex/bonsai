@@ -1234,16 +1234,16 @@ void Printer::visit(const IfElse *node) {
             break;
         }
 
-        if (const IfElse *nested_if = node->else_body.as<IfElse>()) {
-            os << get_indent() << "} else ";
-            node = nested_if;
-        } else {
-            os << get_indent() << "} else {\n";
-            indent++;
-            print(node->else_body);
-            indent--;
-            break;
-        }
+        // if (const IfElse *nested_if = node->else_body.as<IfElse>()) {
+        //     os << get_indent() << "} else ";
+        //     node = nested_if;
+        // } else {
+        os << get_indent() << "} else {\n";
+        indent++;
+        print(node->else_body);
+        indent--;
+        break;
+            // }
     }
 
     os << get_indent() << "}\n";

@@ -113,10 +113,9 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
     // Next, update function bodies.
     for (auto &[name, func] : new_functions) {
         if (func->is_exported() && func->ret_type.is<ir::Void_t>()) {
-            func->body = RtOP(*func).mutate(std::move(func->body));
+            func->body = RtOP(*func).mutate(func->body);
         }
-        func->body =
-            ReplaceExportedCalls(exported_funcs).mutate(std::move(func->body));
+        func->body = ReplaceExportedCalls(exported_funcs).mutate(func->body);
     }
     return new_functions;
 }

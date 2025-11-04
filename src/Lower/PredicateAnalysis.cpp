@@ -447,9 +447,9 @@ struct PredicateAnalysis : public ir::Visitor {
             internal_assert(node->args.size() == 1);
             Interval a = get(node->args[0]);
             if (a.is_bounded()) {
-                interval.min = select(a.min >= 0, a.min * a.min,
-                                      select(a.max <= 0, a.max * a.max, 0));
-                interval.max = max(a.min * a.min, a.max * a.max);
+                interval.min = select(a.min >= 0, sqr(a.min),
+                                      select(a.max <= 0, sqr(a.max), 0));
+                interval.max = max(sqr(a.min), sqr(a.max));
             }
             return;
         }
