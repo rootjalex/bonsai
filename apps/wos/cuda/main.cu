@@ -5,6 +5,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -126,7 +127,7 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 void run(const std::string &object, const std::string &partition,
-         const std::string &layout, const std::vector<int64_t> &query_counts) {
+         const std::string &layout, int64_t n_runs, int64_t n_queries) {
     using clock = std::chrono::high_resolution_clock;
     std::vector<Triangle> triangles = load_obj(object);
     assert(!triangles.empty());
@@ -147,38 +148,72 @@ void run(const std::string &object, const std::string &partition,
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
 
-    bool is_first_run = true;
-    for (const int64_t query_count : query_counts) {
-        std::cout << query_count << std::endl;
+    std::cout << "Running " << n_runs << " iterations with " << n_queries
+              << " queries per run" << std::endl;
 
-        // Generate random query points
-        std::vector<Point> query_points =
-            generate_random_points(triangles, query_count);
-        assert(!query_points.empty());
+    // Generate random query points once (reused across runs)
+    std::vector<Point> query_points =
+        generate_random_points(triangles, n_queries);
+    assert(!query_points.empty());
 
-        Point *points =
-            reinterpret_cast<Point *>(malloc(sizeof(Point) * query_count));
-        std::copy(query_points.begin(), query_points.end(), points);
-        query_points.clear();
+    Point *points =
+        reinterpret_cast<Point *>(malloc(sizeof(Point) * n_queries));
+    std::copy(query_points.begin(), query_points.end(), points);
 
-        if (is_first_run) {
-            (void)closest_points(query_count, points, &tree); // warm-up run
-            is_first_run = false;
-        }
+    // Warm-up run
+    (void)closest_points(n_queries, points, &tree);
 
+    // Statistics tracking
+    std::vector<long long> query_times;
+    query_times.reserve(n_runs);
+
+    // Run N times
+    for (int64_t run = 0; run < n_runs; run++) {
         auto query_begin = clock::now();
-        Triangle *results = closest_points(query_count, points, &tree);
+        Triangle *results = closest_points(n_queries, points, &tree);
         auto query_end = clock::now();
 
         auto query_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               query_end - query_begin)
                               .count();
-        std::cout << "query time       : " << query_time << " ms\n";
-        std::cout << std::flush;
+        query_times.push_back(query_time);
 
-        free(points);
+        std::cout << "Run " << (run + 1) << "/" << n_runs
+                  << " - query time: " << query_time << " ms" << std::endl;
+
         free(results);
     }
+
+    // Calculate statistics
+    long long total_time = 0;
+    long long min_time = query_times[0];
+    long long max_time = query_times[0];
+
+    for (auto time : query_times) {
+        total_time += time;
+        min_time = std::min(min_time, time);
+        max_time = std::max(max_time, time);
+    }
+
+    double avg_time = static_cast<double>(total_time) / n_runs;
+
+    // Calculate median (if N >= 5, we could also calculate with trimmed mean)
+    std::vector<long long> sorted_times = query_times;
+    std::sort(sorted_times.begin(), sorted_times.end());
+    long long median_time = sorted_times[n_runs / 2];
+
+    // Output statistics
+    std::cout << "\n=== Statistics ===" << std::endl;
+    std::cout << "n_queries        : " << n_queries << std::endl;
+    std::cout << "n_runs           : " << n_runs << std::endl;
+    std::cout << "min time         : " << min_time << " ms" << std::endl;
+    std::cout << "max time         : " << max_time << " ms" << std::endl;
+    std::cout << "median time      : " << median_time << " ms" << std::endl;
+    std::cout << "avg time         : " << avg_time << " ms" << std::endl;
+    std::cout << "total time       : " << total_time << " ms" << std::endl;
+    std::cout << std::flush;
+
+    free(points);
 }
 
 bool is_digit(std::string s) {
@@ -194,20 +229,25 @@ bool is_digit(std::string s) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    assert(argc > 5);
-    int i = 1;
-    std::string object_file = argv[i++];
-    std::string partition = argv[i++];
-    std::string layout = argv[i++];
-    std::vector<int64_t> query_counts;
-    assert(is_digit(argv[i]));
-    const int64_t size = std::atoi(argv[i++]);
-
-    query_counts.reserve(size);
-    for (; i < 5 + size; ++i) {
-        assert(is_digit(argv[i]));
-        query_counts.push_back(std::atoi(argv[i]));
+    // Expected arguments: ./program object partition layout N N_QUERIES
+    if (argc != 6) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <object> <partition> <layout> <N_runs> <N_queries>"
+                  << std::endl;
+        return 1;
     }
-    run(object_file, partition, layout, query_counts);
+
+    std::string object_file = argv[1];
+    std::string partition = argv[2];
+    std::string layout = argv[3];
+
+    assert(is_digit(argv[4]));
+    int64_t n_runs = std::atoi(argv[4]);
+
+    assert(is_digit(argv[5]));
+    int64_t n_queries = std::atoi(argv[5]);
+
+    run(object_file, partition, layout, n_runs, n_queries);
+
     return 0;
 }

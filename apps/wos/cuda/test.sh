@@ -37,8 +37,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${POSITIONAL_ARGS[0]:-9}" # drop lowest 2 and highest 2 runs in processing
-N_QUERIES="${POSITIONAL_ARGS[1]:-100000}"
+N="${POSITIONAL_ARGS[0]:-9}" # number of runs
+N_QUERIES="${POSITIONAL_ARGS[1]:-100000}" # number of queries per run
 DATA_PATH="${PREFIX}/results"
 DATA_FILE="closest_point"
 PARTITION="sah"
@@ -76,13 +76,6 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   echo "found ${DEBUG_LAYOUT} in ${LAYOUT_PATH}/${DEBUG_BVH_SUFFIX}/"
 fi
 
-QUERY_COUNTS=(${N_QUERIES})
-
-ARGV="${#QUERY_COUNTS[@]}"
-for COUNT in "${QUERY_COUNTS[@]}"; do
-    ARGV="${ARGV} ${COUNT}"
-done
-
 if [[ "$(pwd)" == */${PREFIX} ]]; then
   cd ../../..
 fi
@@ -116,7 +109,7 @@ run_tests() {
   fi
   echo "-- with layouts: ${LAYOUTS[@]}"
   
-  MAIN_FILE="main_closest"
+  MAIN_FILE="main"
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" ${PREFIX}/${MAIN_FILE}.cu > ${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cu
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
   # insert the canonical tree functions (we do it in this hacky way since they're shared between CPU / GPU.
@@ -154,14 +147,14 @@ run_tests() {
       nvcc -Iapps/wos -Iapps/rt -Iruntime/CUDA -O3 ${PREFIX}/${MAIN_FILE}.cu -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out
       
       EXECUTABLE="${PREFIX}/${APPLICATION}_${LAYOUT}.out"
-      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${LAYOUT} ${ARGV}"
+      # Pass N and N_QUERIES as arguments to the executable
+      EXECUTE="./${EXECUTABLE} ${OBJECT} ${PARTITION} ${LAYOUT} ${N} ${N_QUERIES}"
       if [[ "${DEBUG_MODE}" == true ]]; then
         EXECUTE="compute-sanitizer ${EXECUTE}"
       fi
       echo "${EXECUTE}"
-      for ((i=0; i < N; i++)); do
-        ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
-      done
+      # Run the executable only once - it will handle N runs internally
+      ${EXECUTE} | tee -a ${DATA_PATH}/${DATA_FILE}.txt
       
       rm ${PREFIX}/${APPLICATION}.h
       rm ${PREFIX}/${APPLICATION}_${LAYOUT}.out
