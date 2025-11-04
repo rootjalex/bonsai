@@ -9,7 +9,7 @@ RAY_TRACING_PATH="apps/rt" # share same trees as 'rt'.
 PREFIX="${KERNEL_PATH}/${TARGET}"
 LAYOUT_PATH="${RAY_TRACING_PATH}/layouts" # share same layouts as 'rt'.
 
-OBJECTS=("lucy" "sheep" "san-miguel-x35-y22-z47" "white-oak" "hairball" "sponza" "power-plant")
+OBJECTS=("white-oak" "lucy" "sheep" "san-miguel-x35-y22-z47" "hairball" "sponza" "power-plant")
 
 DRY_RUN=false
 DEBUG_MODE=false
@@ -171,13 +171,13 @@ if [[ "${DEBUG_MODE}" == true ]]; then
   run_tests "${DEBUG_BVH_SUFFIX}" "${DEBUG_LAYOUT}"
   echo "... debug test complete"
 else
-  echo "running tests with 2-BVH..."
-  run_tests "2"
-  echo "... tests complete for 2-BVH"
-
   echo "running tests with 8-BVH..."
   run_tests "8"
   echo "... tests complete for 8-BVH"
+
+  echo "running tests with 2-BVH..."
+  run_tests "2"
+  echo "... tests complete for 2-BVH"
 fi
 
 exit 0
