@@ -138,20 +138,13 @@ void run(const std::string &object, const std::string &partition,
     } else if (partition == "ms") {
         heuristic = Heuristic::MedianSplit;
     } else {
-        std::cout << "unexpected construction partitioning strategy: "
-                  << partition << std::endl;
-        std::cout << std::flush;
         exit(1);
     }
 
     BVH *canonical_tree = build_canonical_tree_$N$(triangles, heuristic);
     Triangles tree = build_triangles(canonical_tree);
     free_canonical_tree_$N$(canonical_tree);
-
-    std::cout << "Running " << n_runs << " iterations with " << n_queries
-              << " queries per run" << std::endl;
-
-    // Generate random query points once (reused across runs)
+    // Generate random query points once (reused across runs).
     std::vector<Point> query_points =
         generate_random_points(triangles, n_queries);
     assert(!query_points.empty());
@@ -160,14 +153,9 @@ void run(const std::string &object, const std::string &partition,
         reinterpret_cast<Point *>(malloc(sizeof(Point) * n_queries));
     std::copy(query_points.begin(), query_points.end(), points);
 
-    // Warm-up run
+    // Warm-up run.
     (void)closest_points(n_queries, points, &tree);
-
-    // Statistics tracking
-    std::vector<long long> query_times;
-    query_times.reserve(n_runs);
-
-    // Run N times
+    // Run N times.
     for (int64_t run = 0; run < n_runs; run++) {
         auto query_begin = clock::now();
         Triangle *results = closest_points(n_queries, points, &tree);
@@ -176,43 +164,9 @@ void run(const std::string &object, const std::string &partition,
         auto query_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               query_end - query_begin)
                               .count();
-        query_times.push_back(query_time);
-
-        std::cout << "Run " << (run + 1) << "/" << n_runs
-                  << " - query time: " << query_time << " ms" << std::endl;
-
+        std::cout << layout << ", " object << ", " << query_time << std::endl;
         free(results);
     }
-
-    // Calculate statistics
-    long long total_time = 0;
-    long long min_time = query_times[0];
-    long long max_time = query_times[0];
-
-    for (auto time : query_times) {
-        total_time += time;
-        min_time = std::min(min_time, time);
-        max_time = std::max(max_time, time);
-    }
-
-    double avg_time = static_cast<double>(total_time) / n_runs;
-
-    // Calculate median (if N >= 5, we could also calculate with trimmed mean)
-    std::vector<long long> sorted_times = query_times;
-    std::sort(sorted_times.begin(), sorted_times.end());
-    long long median_time = sorted_times[n_runs / 2];
-
-    // Output statistics
-    std::cout << "\n=== Statistics ===" << std::endl;
-    std::cout << "n_queries        : " << n_queries << std::endl;
-    std::cout << "n_runs           : " << n_runs << std::endl;
-    std::cout << "min time         : " << min_time << " ms" << std::endl;
-    std::cout << "max time         : " << max_time << " ms" << std::endl;
-    std::cout << "median time      : " << median_time << " ms" << std::endl;
-    std::cout << "avg time         : " << avg_time << " ms" << std::endl;
-    std::cout << "total time       : " << total_time << " ms" << std::endl;
-    std::cout << std::flush;
-
     free(points);
 }
 
