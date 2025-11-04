@@ -1007,28 +1007,28 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # Basic usage with default settings
-  python3 collect_rt.py results.csv
+  python3 collect_dse.py results.csv
   
   # Specify mean strategy.
-  python3 collect_rt.py results.csv --mean wavg
+  python3 collect_dse.py results.csv --mean wavg
   
   # Filter by machine and ray type.
-  python3 collect_rt.py results.csv --machines x86 cuda --ray-types primary
+  python3 collect_dse.py results.csv --machines x86 cuda --ray-types primary
   
   # Filter by specific scenes.
-  python3 collect_rt.py results.csv --scenes lucy hairball
+  python3 collect_dse.py results.csv --scenes lucy hairball
   
   # Filter by specific layouts.
-  python3 collect_rt.py results.csv --layouts bvh8 bvh8-q8 pbrt
+  python3 collect_dse.py results.csv --layouts bvh8 bvh8-q8 pbrt
   
   # Define custom layout groups.
-  python3 collect_rt.py results.csv --layout-groups "bvh8:bvh8,bvh8-q8;bvh2:pbrt,sg-eq"
+  python3 collect_dse.py results.csv --layout-groups "bvh8:bvh8,bvh8-q8;bvh2:pbrt,sg-eq"
   
   # Combine multiple filters.
-  python3 collect_rt.py results.csv --machines x86 --ray-types primary --mean geo --scenes lucy
+  python3 collect_dse.py results.csv --machines x86 --ray-types primary --mean geo --scenes lucy
 
   # (complex example 1) script for collecting data-dependent example in the Evaluation:
-  python3 collect_rt.py rt-results.csv \
+  python3 collect_dse.py rt-results.csv \
     --machines cuda --ray-types primary \
     --scenes lucy power-plant \
     --layout-groups "bvh2:pbrt-q16,pbrt-q16-soaos,pbrt,sg-eq" \
@@ -1037,7 +1037,7 @@ Examples:
     --remove-legend
     
   # (complex example 2) script for collecting algorithm-dependent example in the Evaluation:
-  python3.11 collect_rt.py rt-results.csv --compare-cpq cpq-results.csv \
+  python3.11 collect_dse.py rt-results.csv --compare-cpq cpq-results.csv \
       --machine cuda \
       --ray-type primary \
       --layouts bvh2 \
