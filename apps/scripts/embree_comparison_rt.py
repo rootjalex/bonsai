@@ -145,18 +145,14 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
                             scenes: List[str], output_file: str):
     """
     Create 4 plots in a row showing best and worst case performance differences on x86 and arm.
-    For each machine, finds the single best and worst (scene, ray_type) combination by:
-    - Computing Pareto frontier for each scenario
-    - Averaging ns/ray over Pareto frontier layouts (or best performer if no frontier exists)
-    - Selecting scenario with min/max average as best/worst case
     Format: [x86-best, x86-worst, arm-best, arm-worst]
     """
     # Create figure with 4 subplots in a row
     fig, axes = plt.subplots(1, 4, figsize=(24, 5))
 
     # Define colorblind-friendly colors
-    bonsai_color = '#0173B2'  # Blue for bonsai layouts
-    embree_color = '#DE8F05'  # Orange for embree layouts
+    bonsai_color = '#882255'
+    embree_color = '#44AA99'  # Orange for embree layouts
 
     plot_configs = [
         ('x86', 'best'),
@@ -169,7 +165,7 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
         ax = axes[idx]
 
         # First, compute average performance for each (scene, ray_type) combination
-        # across Pareto frontier layouts (or best performer if no Pareto frontier exists)
+        # across all layouts to find the best/worst scenario
         scenario_avg_performance = {}
 
         for ray_type in ray_types:
@@ -191,21 +187,11 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
                 if len(summary_df) == 0:
                     continue
 
-                # Compute Pareto frontier
-                pareto_df = compute_pareto_frontier(summary_df)
-
-                # Calculate average performance
-                if len(pareto_df) > 0:
-                    # Average over Pareto frontier layouts
-                    avg_perf = pareto_df['ns_per_ray'].mean()
-                else:
-                    # No Pareto frontier - use best performing layout
-                    avg_perf = summary_df['ns_per_ray'].min()
-
+                # Calculate average performance across all layouts for this scenario
+                avg_perf = summary_df['ns_per_ray'].mean()
                 scenario_avg_performance[(scene, ray_type)] = {
                     'avg_performance': avg_perf,
-                    'data': summary_df,
-                    'pareto_count': len(pareto_df)
+                    'data': summary_df
                 }
 
         if len(scenario_avg_performance) == 0:
@@ -229,8 +215,8 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
             selected_scene, selected_ray_type = worst_scenario[0]
             case_df = worst_scenario[1]['data']
 
-        print(f"{machine.upper()} {case}: selected ({selected_scene}, {selected_ray_type}) "
-              f"with {best_scenario[1]['pareto_count'] if case == 'best' else worst_scenario[1]['pareto_count']} Pareto points")
+        print(
+            f"{machine.upper()} {case}: selected ({selected_scene}, {selected_ray_type})")
 
         # Compute Pareto frontier for this case
         pareto_df = compute_pareto_frontier(case_df)
@@ -246,14 +232,18 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
             is_embree = layout.startswith('embree')
             color = embree_color if is_embree else bonsai_color
             alpha = 0.8 if on_pareto else 0.6
-            marker = '^' if is_embree else 'o'
+            marker = 'p' if is_embree else '*'
 
             # Remove prefixes for display
             display_name = layout
-            if is_embree:
+            if not on_pareto:
+                display_name = ""
+            elif is_embree:
                 display_name = layout.replace('embree-', '')
             elif display_name != 'bvh8':
                 display_name = layout.replace('bvh8-', '')
+            if len(display_name) > 0:
+                display_name = fr"\textbf{{{display_name}}}"
 
             ax.scatter(row['total_memory_mb'], row['ns_per_ray'],
                        s=200, color=color, alpha=alpha, edgecolors='black',
@@ -263,9 +253,9 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
             ax.annotate(display_name,
                         (row['total_memory_mb'], row['ns_per_ray']),
                         textcoords="offset points",
-                        xytext=(13.5, 12),
+                        xytext=(15, 12),
                         ha='center',
-                        fontsize=12,
+                        fontsize=18,
                         fontweight='bold')
 
         # Plot Pareto frontier line
@@ -276,13 +266,13 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
         # Formatting with scene and ray_type in title
         title = f"({selected_scene}, {machine}, {selected_ray_type})"
         ax.set_title(fr"\textbf{{{title}}}",
-                     fontsize=18, fontweight='bold', pad=7)
+                     fontsize=26, fontweight='bold', pad=7)
         ax.set_xlabel(r"\textbf{Total Memory (MB)}",
-                      fontsize=12, fontweight='bold')
+                      fontsize=20, fontweight='bold')
         ax.set_ylabel(r"\textbf{Latency (ns/ray)}",
-                      fontsize=12, fontweight='bold')
+                      fontsize=20, fontweight='bold')
         ax.grid(True, alpha=0.3, linestyle='--')
-        ax.tick_params(axis='both', which='major', labelsize=12)
+        ax.tick_params(axis='both', which='major', labelsize=14)
 
         # Add some padding to axes
         if len(case_df) > 0:
@@ -305,20 +295,20 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
     # Add legend
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], marker='o', color='w', markerfacecolor=bonsai_color,
+        Line2D([0], [0], marker='*', color='w', markerfacecolor=bonsai_color,
                markersize=14, markeredgecolor='black', markeredgewidth=2,
                label='Our Work', linestyle='None'),
-        Line2D([0], [0], marker='^', color='w', markerfacecolor=embree_color,
+        Line2D([0], [0], marker='p', color='w', markerfacecolor=embree_color,
                markersize=14, markeredgecolor='black', markeredgewidth=2,
                label='Embree', linestyle='None')
     ]
 
-    fig.legend(handles=legend_elements, loc='center', fontsize=13,
+    fig.legend(handles=legend_elements, loc='center', fontsize=22,
                framealpha=0.95, edgecolor='black', ncol=1,
-               bbox_to_anchor=(0.515, 0.795))
+               bbox_to_anchor=(0.105, 0.83))
 
     # Save
-    output_path = output_file + "_best_worst.pdf"
+    output_path = output_file + ".pdf"
     plt.savefig(output_path, dpi=1600, bbox_inches='tight')
     print(f"Saved: {output_path}")
     plt.close()
@@ -418,7 +408,9 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                     # Remove 'embree-' prefix from layout name for display
                     # Remove 'bvh8-' prefix from non-embree layouts for display
                     display_name = layout
-                    if is_embree:
+                    if not on_pareto:
+                        display_name = ""
+                    elif is_embree:
                         display_name = layout.replace('embree-', '')
                     elif display_name != 'bvh8':
                         display_name = layout.replace('bvh8-', '')
@@ -431,9 +423,9 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                     ax.annotate(display_name,
                                 (row['total_memory_mb'], row['ns_per_ray']),
                                 textcoords="offset points",
-                                xytext=(13.5, 12),
+                                xytext=(18.5, 12),
                                 ha='center',
-                                fontsize=12,
+                                fontsize=20,
                                 fontweight='bold')
 
                 # Plot Pareto frontier line
@@ -444,11 +436,11 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                 # Formatting
                 title = f"({scene}, {machine}, {ray_type})"
                 ax.set_title(fr"\textbf{{{title}}}",
-                             fontsize=18, fontweight='bold', pad=7)
+                             fontsize=26, fontweight='bold', pad=7)
                 ax.set_xlabel(r"\textbf{Total Memory (MB)}",
-                              fontsize=12, fontweight='bold')
+                              fontsize=20, fontweight='bold')
                 ax.set_ylabel(r"\textbf{Latency (ns/ray)}",
-                              fontsize=12, fontweight='bold')
+                              fontsize=20, fontweight='bold')
                 ax.grid(True, alpha=0.3, linestyle='--')
                 ax.tick_params(axis='both', which='major', labelsize=14)
 

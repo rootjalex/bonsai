@@ -71,6 +71,46 @@ def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=
     return raw_data, machine_type, ray_type_val
 
 
+def load_cpq_csv_data(csv_file, machines=None, scenes=None, layouts=None, query_count=None):
+    """
+    # Columns:
+    # - app:            application, e.g., 'cpq' or 'wos'
+    # - machine:        architecture, e.g., 'cuda'
+    # - scene:          model, e.g., 'lucy'
+    # - layout:         physical specification, e.g., 'bvh8-q8-ci'
+    # - query-count:    number of queries for this trial
+    # - cpq-time-ms:    closest point query time in milliseconds
+    # - fcpw-cpq-time-ms, build-time-ms, fcpw-build-time-ms: FCPW-related metrics (may be NA)
+    # - group:          layout group
+    # - total-memory-b: total memory utilized
+    # - bvh-memory-b:   BVH memory utilized
+    """
+    df = pd.read_csv(csv_file)
+
+    if machines is not None:
+        df = df[df['machine'].isin(machines)]
+    if scenes is not None:
+        df = df[df['scene'].isin(scenes)]
+    if layouts is not None:
+        df = df[df['layout'].isin(layouts)]
+    if query_count is not None:
+        df = df[df['query-count'] == query_count]
+
+    raw_data = defaultdict(lambda: defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))))
+
+    for _, row in df.iterrows():
+        model = row['scene']
+        machine = row['machine']
+        layout = row['layout']
+        q_count = row['query-count']
+        cpq_time = row['cpq-time-ms']
+
+        raw_data[model][machine][layout][q_count].append(cpq_time)
+
+    return raw_data
+
+
 def load_memory_data(csv_file, scenes=None, layouts=None, machines=None, ray_types=None, memory_column='bvh-memory-b', intersect=None):
     df = pd.read_csv(csv_file)
 
@@ -100,7 +140,31 @@ def load_memory_data(csv_file, scenes=None, layouts=None, machines=None, ray_typ
     return memory_data
 
 
+def load_cpq_memory_data(csv_file, scenes=None, layouts=None, machines=None, memory_column='bvh-memory-b'):
+    df = pd.read_csv(csv_file)
+
+    if scenes is not None:
+        df = df[df['scene'].isin(scenes)]
+    if layouts is not None:
+        df = df[df['layout'].isin(layouts)]
+    if machines is not None:
+        df = df[df['machine'].isin(machines)]
+
+    memory_data = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+
+    for _, row in df.iterrows():
+        model = row['scene']
+        machine = row['machine']
+        layout = row['layout']
+
+        if pd.notna(row[memory_column]):
+            memory_data[model][machine][layout]['memory'] = row[memory_column]
+
+    return memory_data
+
+
 def calculate_average(values):
+    """Drop lowest and highest 2 times, then average."""
     if not values:
         return 0
 
@@ -116,7 +180,7 @@ def calculate_average(values):
     return sum(filtered_values) / len(filtered_values)
 
 
-def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
+def process_rt_data(raw_data, mean_strategy, ray_count_range=None):
     processed_data = defaultdict(lambda: defaultdict(
         lambda: defaultdict(lambda: defaultdict(dict))))
     R = (0, sys.maxsize) if ray_count_range is None else ray_count_range
@@ -156,6 +220,312 @@ def process_trace_data(raw_data, mean_strategy, ray_count_range=None):
     return processed_data
 
 
+def process_cpq_data(raw_data, mean_strategy):
+    """Process CPQ data to get time per query."""
+    processed_data = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(dict)))
+
+    for model in raw_data:
+        for machine in raw_data[model]:
+            for layout in raw_data[model][machine]:
+                time_per_query_values = []
+                query_counts = []
+                for query_count_key in raw_data[model][machine][layout]:
+                    query_count = int(query_count_key) if isinstance(
+                        query_count_key, str) else query_count_key
+                    values = raw_data[model][machine][layout][query_count_key]
+                    avg_value = calculate_average(values)
+                    if avg_value > 0:
+                        time_per_query = avg_value / query_count
+                        time_per_query_values.append(time_per_query)
+                        query_counts.append(query_count)
+                if not time_per_query_values:
+                    continue
+                if mean_strategy == 'geo':
+                    result = math.exp(
+                        sum(math.log(t) for t in time_per_query_values) / len(time_per_query_values))
+                elif mean_strategy == 'wavg':
+                    total_queries = sum(query_counts)
+                    result = sum(
+                        t * q for t, q in zip(time_per_query_values, query_counts)) / total_queries
+                else:
+                    assert mean_strategy == 'arithmetic', mean_strategy
+                    result = sum(time_per_query_values) / \
+                        len(time_per_query_values)
+                processed_data[model][machine][layout] = result
+
+    return processed_data
+
+
+def calculate_rt_cpq_speedups(rt_data, cpq_data, output_filename):
+    """Calculate speedups between RT and CPQ for matching layouts."""
+    speedups = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+
+    models = sorted(set(list(rt_data.keys()) + list(cpq_data.keys())))
+
+    for model in models:
+        if model not in rt_data or model not in cpq_data:
+            continue
+
+        for machine in rt_data[model]:
+            if machine not in cpq_data[model]:
+                continue
+
+            for ray_type in rt_data[model][machine]:
+                rt_layouts = rt_data[model][machine][ray_type]
+                cpq_layouts = cpq_data[model][machine]
+                common_layouts = set(rt_layouts.keys()) & set(
+                    cpq_layouts.keys())
+
+                for layout in common_layouts:
+                    rt_time = rt_layouts[layout]
+                    cpq_time = cpq_layouts[layout]
+                    speedup = rt_time / cpq_time
+
+                    speedups[model][machine][ray_type][layout] = {
+                        'rt_time_ns': rt_time * 1e6,
+                        'cpq_time_ns': cpq_time * 1e6,
+                        'cpq_vs_rt_speedup': speedup
+                    }
+
+    output_path = f'{output_filename}.txt' if output_filename else 'rt_cpq_speedups.txt'
+
+    with open(output_path, 'w') as f:
+        f.write("RT vs CPQ SPEEDUP ANALYSIS\n")
+        f.write(f"{'='*100}\n\n")
+
+        for model in sorted(speedups.keys()):
+            f.write(f"Model: {model}\n")
+            f.write(f"{'='*100}\n")
+
+            for machine in sorted(speedups[model].keys()):
+                f.write(f"\nMachine: {machine}\n")
+                f.write(f"{'-'*100}\n")
+
+                for ray_type in sorted(speedups[model][machine].keys()):
+                    f.write(f"\nRay Type: {ray_type}\n")
+                    f.write(
+                        f"  {'Layout':<30} {'RT (ns)':<15} {'CPQ (ns)':<15} {'CPQ Speedup':<15}\n")
+                    f.write(f"  {'-'*30} {'-'*15} {'-'*15} {'-'*15}\n")
+
+                    layout_data = speedups[model][machine][ray_type]
+                    # Sort by speedup
+                    sorted_layouts = sorted(layout_data.items(),
+                                            key=lambda x: x[1]['cpq_vs_rt_speedup'],
+                                            reverse=True)
+
+                    for layout, data in sorted_layouts:
+                        f.write(
+                            f"  {layout:<30} {data['rt_time_ns']:<15.2f} {data['cpq_time_ns']:<15.2f} {data['cpq_vs_rt_speedup']:<15.3f}x\n")
+
+                    f.write("\n")
+
+        f.write(f"\n{'='*100}\n")
+        f.write("Speedup = RT_time / CPQ_time (values > 1 mean CPQ is faster)\n")
+
+    print(f"RT vs CPQ speedups saved to: {output_path}")
+    return speedups
+
+
+def plot_rt_cpq_comparison(rt_data, rt_memory, cpq_data, cpq_memory, layout_groups, output_filename, memory_type, machines, ray_types):
+    """Plot comparison between RT and CPQ data."""
+    models = sorted(set(list(rt_data.keys()) + list(cpq_data.keys())))
+    if len(models) == 0:
+        return
+
+    n_models = len(models)
+    n_cols = min(3, n_models)
+    n_rows = (n_models + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(16 * n_cols, 13 * n_rows))
+    if n_models == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten() if n_models > 1 else [axes]
+    rt_color = '#332288'
+    cpq_color = '#88CCEE'
+    rt_marker = 'P'
+    cpq_marker = 'v'
+    rt_linestyle = '-'
+    cpq_linestyle = '--'
+
+    for idx, model in enumerate(models):
+        ax = axes[idx]
+
+        rt_points = []
+        rt_labels = []
+        cpq_points = []
+        cpq_labels = []
+        if model in rt_data:
+            for machine in rt_data[model]:
+                if machines and machine not in machines:
+                    continue
+                for ray_type in rt_data[model][machine]:
+                    if ray_types and ray_type not in ray_types:
+                        continue
+                    for layout in rt_data[model][machine][ray_type]:
+                        if model in rt_memory and machine in rt_memory[model] and ray_type in rt_memory[model][machine]:
+                            if layout in rt_memory[model][machine][ray_type]:
+                                time_per_ray = rt_data[model][machine][ray_type][layout]
+                                memory = rt_memory[model][machine][ray_type][layout]['memory']
+                                if time_per_ray > 0 and memory > 0:
+                                    rt_points.append((memory, time_per_ray))
+                                    rt_labels.append(layout)
+
+        if model in cpq_data:
+            for machine in cpq_data[model]:
+                if machines and machine not in machines:
+                    continue
+                for layout in cpq_data[model][machine]:
+                    if model in cpq_memory and machine in cpq_memory[model]:
+                        if layout in cpq_memory[model][machine]:
+                            time_per_query = cpq_data[model][machine][layout]
+                            memory = cpq_memory[model][machine][layout]['memory']
+                            if time_per_query > 0 and memory > 0:
+                                cpq_points.append((memory, time_per_query))
+                                cpq_labels.append(layout)
+
+        if not rt_points and not cpq_points:
+            ax.text(0.5, 0.5, f'No data for {model}',
+                    ha='center', va='center', fontsize=32)
+            ax.set_title(f'{model}', fontsize=36, fontweight='bold')
+            continue
+
+        if cpq_points:
+            cpq_points_arr = np.array(cpq_points)
+            cpq_x = cpq_points_arr[:, 0] / 1024 / 1024  # Convert to MB
+            cpq_y = cpq_points_arr[:, 1] * 1e6  # Convert to ns
+
+            is_pareto = np.ones(len(cpq_points_arr), dtype=bool)
+            for i in range(len(cpq_points_arr)):
+                if not is_pareto[i]:
+                    continue
+                for j in range(len(cpq_points_arr)):
+                    if i == j:
+                        continue
+                    if (cpq_points_arr[j, 0] <= cpq_points_arr[i, 0] and
+                        cpq_points_arr[j, 1] <= cpq_points_arr[i, 1] and
+                            (cpq_points_arr[j, 0] < cpq_points_arr[i, 0] or cpq_points_arr[j, 1] < cpq_points_arr[i, 1])):
+                        is_pareto[i] = False
+                        break
+
+            ax.scatter(cpq_x[is_pareto], cpq_y[is_pareto],
+                       c=cpq_color, s=180, alpha=0.9,
+                       edgecolors='black', linewidth=3.5,
+                       marker=cpq_marker, label='CPQ (Closest Point Query)', zorder=3)
+
+            pareto_indices = np.where(is_pareto)[0]
+            if len(pareto_indices) > 1:
+                pareto_sorted = sorted(pareto_indices, key=lambda i: cpq_x[i])
+                pareto_x = [cpq_x[i] for i in pareto_sorted]
+                pareto_y = [cpq_y[i] for i in pareto_sorted]
+                ax.plot(pareto_x, pareto_y, color=cpq_color,
+                        linestyle=cpq_linestyle, alpha=0.8, linewidth=5, zorder=2)
+
+            for i in pareto_indices:
+                ax.annotate(
+                    cpq_labels[i],
+                    xy=(cpq_x[i], cpq_y[i]),
+                    textcoords="offset pixels",
+                    xytext=(-20, -45),
+                    ha='left',
+                    va='center',
+                    fontsize=40,
+                    fontweight='bold',
+                    bbox=dict(
+                        boxstyle='round,pad=0.3',
+                        facecolor='#FFE4B5',
+                        edgecolor='black',
+                        linewidth=2,
+                        alpha=0.9
+                    )
+                )
+
+        if rt_points:
+            rt_points_arr = np.array(rt_points)
+            rt_x = rt_points_arr[:, 0] / 1024 / 1024  # Convert to MB
+            rt_y = rt_points_arr[:, 1] * 1e6  # Convert to ns
+
+            is_pareto = np.ones(len(rt_points_arr), dtype=bool)
+            for i in range(len(rt_points_arr)):
+                if not is_pareto[i]:
+                    continue
+                for j in range(len(rt_points_arr)):
+                    if i == j:
+                        continue
+                    if (rt_points_arr[j, 0] <= rt_points_arr[i, 0] and
+                        rt_points_arr[j, 1] <= rt_points_arr[i, 1] and
+                            (rt_points_arr[j, 0] < rt_points_arr[i, 0] or rt_points_arr[j, 1] < rt_points_arr[i, 1])):
+                        is_pareto[i] = False
+                        break
+
+            ax.scatter(rt_x[is_pareto], rt_y[is_pareto],
+                       c=rt_color, s=180, alpha=0.9,
+                       edgecolors='black', linewidth=3.5,
+                       marker=rt_marker, label='CHRT (Closest Hit Ray Tracing)', zorder=3)
+
+            pareto_indices = np.where(is_pareto)[0]
+            if len(pareto_indices) > 1:
+                pareto_sorted = sorted(pareto_indices, key=lambda i: rt_x[i])
+                pareto_x = [rt_x[i] for i in pareto_sorted]
+                pareto_y = [rt_y[i] for i in pareto_sorted]
+                ax.plot(pareto_x, pareto_y, color=rt_color,
+                        linestyle=rt_linestyle, alpha=0.8, linewidth=5, zorder=2)
+
+            for i in pareto_indices:
+                ax.annotate(
+                    rt_labels[i],
+                    xy=(rt_x[i], rt_y[i]),
+                    textcoords="offset pixels",
+                    xytext=(-20, 45),
+                    ha='left',
+                    va='center',
+                    fontsize=40,
+                    fontweight='bold',
+                    bbox=dict(
+                        boxstyle='round,pad=0.3',
+                        facecolor='#C8FACD',
+                        edgecolor='black',
+                        linewidth=2,
+                        alpha=0.9
+                    )
+                )
+
+        memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
+        ax.set_xlabel(
+            rf"\textbf{{{memory_label} (MB)}}", fontweight='bold', fontsize=38)
+        ax.tick_params(axis='x', labelsize=32)
+        ax.tick_params(axis='y', labelsize=32)
+        ax.set_ylabel(rf"\textbf{{Latency (ns/ray or ns/query)}}",
+                      fontweight='bold', fontsize=38)
+        ax.set_title(rf"\textbf{{({model}, {machine})}}",
+                     fontweight='bold', fontsize=40)
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
+        ax.legend(fontsize=40, loc='best', framealpha=0.9,
+                  edgecolor='black', fancybox=False, shadow=True)
+        ax.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
+        ax.yaxis.set_major_formatter(
+            plt.FuncFormatter(lambda y, p: f'{y:,.1f}'))
+
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x_range = xlim[1] - xlim[0]
+        y_range = ylim[1] - ylim[0]
+        x_padding = x_range * 0.025
+        y_padding = y_range * 0.025
+        ax.set_xlim(xlim[0] - x_padding, xlim[1] + x_padding)
+        ax.set_ylim(ylim[0] - y_padding, ylim[1] + y_padding)
+
+    plt.tight_layout()
+
+    output_file = f'{output_filename}.pdf' if output_filename else 'rt-cpq-comparison.pdf'
+    plt.savefig(output_file, dpi=600, bbox_inches='tight', pad_inches=0.3)
+    print(f"RT-CPQ comparison plot saved to: {output_file}")
+    plt.close()
+
+
 def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_path, machine_type, mean_strategy, ray_type, ray_count_range, label_dominated_points, memory_type, machines, ray_types, output_filename, remove_legend, remove_title):
     models = sorted(processed_data.keys())
     if len(models) == 0:
@@ -183,10 +553,8 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     machine_markers = ['o', 's', '^', 'D']
     ray_type_markers = ['v', 'p', '*', '>']
     layout_markers = ['h', 'X', '<', 'P', 'd', '8', 'H', 'o']
-
     # Line styles
     line_styles = ['-', '--', '-.', ':', (0, (5, 2, 1, 2)), (0, (3, 1, 1, 1))]
-
     # Gray for dominated points
     dominated_color = '#CCCCCC'
 
@@ -383,17 +751,17 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     })
         memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            rf"\textbf{{{memory_label} ({memory_unit})}}", fontweight='bold', fontsize=32)
-        ax.tick_params(axis='x', labelsize=28)
-        ax.tick_params(axis='y', labelsize=28)
+            rf"\textbf{{{memory_label} ({memory_unit})}}", fontweight='bold', fontsize=40)
+        ax.tick_params(axis='x', labelsize=32)
+        ax.tick_params(axis='y', labelsize=32)
         ax.set_ylabel(rf"\textbf{{Latency ({time_unit})}}",
-                      fontweight='bold', fontsize=32)
+                      fontweight='bold', fontsize=40)
         if not remove_title:
             ax.set_title(rf"\textbf{{{model}}}",
-                         fontweight='bold', fontsize=36)
+                         fontweight='bold', fontsize=40)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
         if not remove_legend:
-            ax.legend(fontsize=26, loc='best', framealpha=0.9,
+            ax.legend(fontsize=45, loc='best', framealpha=0.9,
                       edgecolor='black', fancybox=False, shadow=True)
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
@@ -418,10 +786,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     label_info['label'],
                     xy=(x_pos, y_pos),
                     textcoords="offset pixels",
-                    xytext=(-20, 45),
+                    xytext=(22, 40),
                     ha='left',
                     va='center',
-                    fontsize=32,
+                    fontsize=40,
                     fontweight='bold',
                     bbox=dict(
                         boxstyle='round,pad=0.3',
@@ -659,7 +1027,7 @@ Examples:
   # Combine multiple filters.
   python3 collect_rt.py results.csv --machines x86 --ray-types primary --mean geo --scenes lucy
 
-  # (complex example) script for collecting data-dependent example in the Evaluation:
+  # (complex example 1) script for collecting data-dependent example in the Evaluation:
   python3 collect_rt.py rt-results.csv \
     --machines cuda --ray-types primary \
     --scenes lucy power-plant \
@@ -667,6 +1035,14 @@ Examples:
     --label-dominated \
     --output_filename data-dependent1 \
     --remove-legend
+    
+  # (complex example 2) script for collecting algorithm-dependent example in the Evaluation:
+  python3.11 collect_rt.py rt-results.csv --compare-cpq cpq-results.csv \
+      --machine cuda \
+      --ray-type primary \
+      --layouts bvh2 \
+      --scenes san-miguel-x35-y22-z47 \ 
+      --output_filename algorithm-dependent
 """)
 
     parser.add_argument(
@@ -699,6 +1075,8 @@ Examples:
                         help='remove the title from the plot', default=False)
     parser.add_argument('--intersect', type=str, default='mt',
                         help='Intersect method to filter by (default: mt)')
+    parser.add_argument('--compare-cpq', type=str, default=None,
+                        help='Path to CPQ CSV file for comparison plots')
     args = parser.parse_args()
 
     if args.layout_groups:
@@ -732,6 +1110,7 @@ Examples:
         layouts_filter = list(all_group_layouts)
 
     memory_column = 'bvh-memory-b' if args.memory_type == 'bvh' else 'total-memory-b'
+    # Load CHRT data.
     raw_data, machine_type, ray_type = load_csv_data(
         args.csv_file,
         machines=args.machines,
@@ -750,16 +1129,50 @@ Examples:
         intersect=args.intersect
     )
 
+    if args.compare_cpq:
+        C = 2**20  # Filter RT data to only use 2^20 rays for CPQ comparison.
+        R = (C, C)
+        # Process RT data.
+        trace_data = process_rt_data(
+            raw_data, mean_strategy=args.mean, ray_count_range=R)
+        # Load and process CPQ data.
+        cpq_raw_data = load_cpq_csv_data(
+            args.compare_cpq,
+            machines=args.machines,
+            scenes=args.scenes,
+            layouts=layouts_filter,
+            query_count=C
+        )
+        cpq_memory = load_cpq_memory_data(
+            args.compare_cpq,
+            scenes=args.scenes,
+            layouts=layouts_filter,
+            machines=args.machines,
+            memory_column=memory_column
+        )
+        cpq_data = process_cpq_data(cpq_raw_data, mean_strategy=args.mean)
+        calculate_rt_cpq_speedups(
+            trace_data,
+            cpq_data,
+            args.output_filename
+        )
+        plot_rt_cpq_comparison(
+            trace_data,
+            memory_utilization,
+            cpq_data,
+            cpq_memory,
+            layout_groups,
+            args.output_filename,
+            args.memory_type,
+            args.machines,
+            args.ray_types
+        )
+        exit(0)
+
+    # Standard RT-only analysis.
     ray_count_range = None
-    trace_data = process_trace_data(
-        raw_data, mean_strategy=args.mean, ray_count_range=None)
-    print(f"Models found: {list(trace_data.keys())}")
-    for model in trace_data:
-        print(f"\n{model}:")
-        for machine in trace_data[model]:
-            for ray_type_key in trace_data[model][machine]:
-                layouts = list(trace_data[model][machine][ray_type_key].keys())
-                print(f"  {machine}/{ray_type_key}: {layouts}")
+    trace_data = process_rt_data(
+        raw_data, mean_strategy=args.mean, ray_count_range=ray_count_range)
     calculate_speedups(
         trace_data,
         memory_utilization,
@@ -788,3 +1201,4 @@ Examples:
         args.remove_legend,
         args.remove_title
     )
+    exit(0)

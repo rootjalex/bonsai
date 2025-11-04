@@ -136,7 +136,7 @@ def plot_comparison(rt_speedups, cpq_speedups, scenes, layouts, output_file):
 
         # Customize plot
         ax.set_xlabel('Layout', fontsize=32, fontweight='bold')
-        ax.set_title(scene.replace('_', ' '),
+        ax.set_title(f"{scene.replace('_', ' ')}",
                      fontsize=28, fontweight='bold')
         ax.set_xticks(x)
         ax.set_xticklabels([l for l in layouts],
