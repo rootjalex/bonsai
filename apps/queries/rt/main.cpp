@@ -1235,7 +1235,17 @@ int main(int argc, char *argv[]) {
 
     run_bonsai(object_dir, object, ray_type, ray_dir, low, high);
 
-    run_cgal(object_dir, object, ray_type, ray_dir, low, high);
+    try {
+        run_cgal(object_dir, object, ray_type, ray_dir, low, high);
+    } catch (const CGAL::Precondition_exception &e) {
+        std::cerr << "Caught CGAL precondition violation:\n"
+                  << "  what(): " << e.what() << std::endl;
+    } catch (const std::exception &e) {
+        std::cerr << "Caught unexpected exception:\n"
+                  << "  " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Caught unknown non-std exception from CGAL." << std::endl;
+    }
 
     return 0;
 }
