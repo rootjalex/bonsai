@@ -37,8 +37,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-N="${POSITIONAL_ARGS[0]:-9}" # number of runs
-N_QUERIES="${POSITIONAL_ARGS[1]:-1000000}" # number of queries per run
+N="${POSITIONAL_ARGS[0]:-9}"
+N_QUERIES="${POSITIONAL_ARGS[1]:-1048576}" # 2^20
 DATA_PATH="${PREFIX}/results"
 DATA_FILE="closest_point"
 PARTITION="sah"
