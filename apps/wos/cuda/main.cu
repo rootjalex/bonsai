@@ -164,7 +164,8 @@ void run(const std::string &object, const std::string &partition,
         auto query_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               query_end - query_begin)
                               .count();
-        std::cout << layout << ", " object << ", " << query_time << std::endl;
+        std::cout << layout << ", " << object << ", " << query_time
+                  << std::endl;
         free(results);
     }
     free(points);
