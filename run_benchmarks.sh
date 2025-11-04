@@ -44,6 +44,7 @@ run_step "RT" "./apps/queries/rt/test.sh" "results/rt_benchmark.txt"
 run_step "CPQ" "./apps/queries/cp/test.sh" "results/cp_benchmark.txt"
 run_step "CD" "./apps/cd/cpu/fcl/test.sh" "results/cd_benchmark.txt"
 
+run_step "Torus" "./apps/queries/joins/dist2d/test_torus.sh" "results/torus.txt"
 run_step "1D" "./apps/queries/range/test.sh" "results/range1d_sah.txt"
 run_step "count-1D" "./apps/queries/count-1D/test.sh" "results/count1d_sah.txt"
 run_step "2D" "./apps/queries/2D/test.sh" "results/dim2_sah.txt"
