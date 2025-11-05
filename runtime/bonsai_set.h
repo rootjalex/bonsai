@@ -222,12 +222,12 @@ std::tuple<T1, T2> argmin(const std::tuple<T1, T2> &a,
 }
 
 template <typename T>
-inline uint32_t count(const set<T> &input) {
+inline uint64_t count(const set<T> &input) {
     return input.size();
 }
 
 template <typename T, typename i_t>
-inline uint32_t count(const range<T, i_t> &input) {
+inline uint64_t count(const range<T, i_t> &input) {
     return input.count;
 }
 
