@@ -14,7 +14,7 @@ element Triangle {
 }
 
 // Source: RTCD 5.1.5 pg. 141
-func [[inline]] closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
+func closestPointonTriangle(pt : Point, tri : Triangle) -> (Point, Point) {
     p = pt.vec;
     a = tri.p0;
     b = tri.p1;
