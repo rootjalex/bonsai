@@ -780,11 +780,20 @@ class BonsaiToCpp : ir::Printer {
         ss << "_" << node->type.as<Struct_t>()->name;
     }
 
-    // void visit(const Intrinsic *node) override {
-    //     ss << to_string_cpp(node->op) << "(";
-    //     print_expr_list(node->args);
-    //     ss << ")";
-    // }
+    void visit(const Intrinsic *node) override {
+        if (node->op == Intrinsic::sqrt && node->type.is_float() &&
+            node->type.bits() == 32) {
+            // Redwood uses double sqrt(double) by default.
+            ss << "sqrtf(";
+            print_expr_list(node->args);
+            ss << ")";
+        } else {
+            ir::Printer::visit(node);
+        }
+        // ss << to_string_cpp(node->op) << "(";
+        // print_expr_list(node->args);
+        // ss << ")";
+    }
 
     // void visit(const Generator *) override;
     void visit(const Lambda *node) override {

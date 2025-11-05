@@ -272,17 +272,14 @@ void run_test(const fcpw::Scene<3> &fcpw_scene, const _tree_layout0 &tree,
                            bonsai_timedout, k, m) /
                        (double)1e6;
 
-    verify_results(fcpw_distances, bonsai_distances, num_queries,
-                   /*distance_tolerance=*/1e-2f);
-
     std::cout << "\"fcpw\": " << fcpw_time << ", ";
     std::cout << "\"bonsai\": " << bonsai_time << "}, " << std::endl;
 
-    if (fcpw_time >= (timeout_sec * 1e3) &&
-        bonsai_time >= (timeout_sec * 1e3)) {
-        // timeout
-        exit(0);
+    if (fcpw_timedout || bonsai_timedout) {
+        return;
     }
+    verify_results(fcpw_distances, bonsai_distances, num_queries,
+                   /*distance_tolerance=*/1e-2f);
 }
 
 int main(int argc, char *argv[]) {

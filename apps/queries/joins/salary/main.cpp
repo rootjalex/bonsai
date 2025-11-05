@@ -206,8 +206,8 @@ int main(int argc, char** argv) {
 
     auto build_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
-    bool nested_timedout = false, single_timedout = false,
-         dual_timedout = false;
+    bool nested_timedout = (employees.size() >= 262144),
+         single_timedout = false, dual_timedout = false;
 
     auto [nested, single, dual] = benchmark_join<false, uint64_t, uint64_t>(
         "salary join", employees, employees, tree, tree, k, m, query_nested,
@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
     std::cout << "(\"bonsai_salary\", " << employees.size() << ", "
               << (double)nested / (1e9) << ", " << (double)build_time / (1e9)
               << ", " << (double)single / (1e9) << ", " << (double)dual / (1e9)
-              << ", " << (double)unfused_time / (1e9) << ")" << std::endl;
+              << ", " << (double)unfused_time / (1e9) << ")," << std::endl;
 
     return 0;
 }

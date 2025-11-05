@@ -29,6 +29,7 @@ using std::abs;
 using std::max;
 using std::min;
 using std::round;
+using std::sqrtf;
 
 template <typename T>
 __attribute__((always_inline)) T sqr(const T &v) {
