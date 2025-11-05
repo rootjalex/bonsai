@@ -329,12 +329,11 @@ int main(int argc, char **argv) {
     std::mt19937 rng(42);
 
     std::vector<size_t> test_sizes = {
-        1ull << 8,  1ull << 9,        1ull << 10, 1ull << 11, 1ull << 12,
-        1ull << 13, 1ull << 14,       1ull << 15, 1ull << 16, 1ull << 17,
-        1ull << 18, 1ull << 19,       1ull << 20, 1ull << 21, 1ull << 22,
-        1ull << 23, (1ull << 24) - 1, // using 24 bit indices.
-        // 1ull << 25, 1ull << 26, 1ull << 27,
-        // 1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
+        1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12, 1ull << 13,
+        1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17, 1ull << 18, 1ull << 19,
+        1ull << 20, 1ull << 21, 1ull << 22, 1ull << 23, 1ull << 24, 1ull << 25,
+        1ull << 26, 1ull << 27, 1ull << 28, 1ull << 29, 1ull << 30,
+        // 1ull << 31, (1ull << 32) - 1
     };
 #if defined(USE_NORMAL)
     std::cout << "normal distribution" << std::endl;

@@ -77,16 +77,16 @@ schedule {
         pCount : u64;
         prims : array[Point, pCount];
         nCount : u64;
-        group[nCount] index : u32 {
+        group[nCount] index : u64 {
             xl : f32;
             xh : f32;
             yl : f32;
             yh : f32;
             nPrims : u8;
-            offset : u24;
+            offset : u56;
             switch nPrims {
-                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
-                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u64]](offset), cast[[u64]](nPrims)); };
             };
         };
     };
@@ -95,16 +95,16 @@ schedule {
         pCount : u64;
         prims : array[Point, pCount];
         nCount : u64;
-        group[nCount] index : u32 {
+        group[nCount] index : u64 {
             xl : f32;
             xh : f32;
             yl : f32;
             yh : f32;
             nPrims : u8;
-            offset : u24;
+            offset : u56;
             switch nPrims {
-                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
-                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u64]](offset), cast[[u64]](nPrims)); };
             };
         };
     };
