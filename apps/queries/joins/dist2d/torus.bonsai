@@ -1,0 +1,69 @@
+element Point {
+    x, y : f32;
+}
+
+extern input0 : set[Point];
+extern input1 : set[Point];
+extern tree0 : set[Point];
+extern tree1 : set[Point];
+
+// TODO: allow lets in lambdas (need to update predicate analysis though?)
+func [[export]] donut(rmin : f32, rmax : f32) = filter(|a : Point, b : Point| {
+    sqrt(sqr(a.x - b.x) + sqr(a.y - b.y)) >= rmin && sqrt(sqr(a.x - b.x) + sqr(a.y - b.y)) <= rmax
+}, product(input0, input1));
+
+func [[export]] donut_dual(rmin : f32, rmax : f32) = filter(|a : Point, b : Point| {
+    sqrt(sqr(a.x - b.x) + sqr(a.y - b.y)) >= rmin && sqrt(sqr(a.x - b.x) + sqr(a.y - b.y)) <= rmax
+}, product(tree0, tree1));
+
+func lookup_donut(rmin : f32, rmax : f32, a : Point) = filter(|b : Point| {
+    sqrt(sqr(a.x - b.x) + sqr(a.y - b.y)) >= rmin && sqrt(sqr(a.x - b.x) + sqr(a.y - b.y)) <= rmax
+}, tree1);
+
+func [[export]] donut_single(rmin : f32, rmax : f32) = map(|a : Point| (a, lookup_donut(rmin, rmax, a)), input0);
+
+
+schedule {
+    tree[[Point]] AABBTree(xl xh yl yh : f32) with x in [xl, xh] with y in [yl, yh] =
+    | Interior(left : AABBTree, right : AABBTree)
+    | Leaf(d : array[Point]) with data = d;
+
+    tree0 : AABBTree;
+    tree1 : AABBTree;
+
+    layout tree0 {
+        pCount : u64;
+        prims : array[Point, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            xl : f32;
+            xh : f32;
+            yl : f32;
+            yh : f32;
+            nPrims : u8;
+            offset : u56;
+            switch nPrims {
+                0 => Interior { left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u64]](offset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+
+    layout tree1 {
+        pCount : u64;
+        prims : array[Point, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            xl : f32;
+            xh : f32;
+            yl : f32;
+            yh : f32;
+            nPrims : u8;
+            offset : u56;
+            switch nPrims {
+                0 => Interior { left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u64]](offset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+}
