@@ -21,7 +21,7 @@ func dual_query_nocount() = filter(|r : Employee, s : Employee| r.salary < s.sal
 func [[export]] query_dual_unfused() = count(dual_query_nocount());
 
 schedule {
-    tree[[Employee]] AABBTree(sl sh tl th : f32, c : u32) with salary in [sl, sh] with tax in [tl, th] with count() = c =
+    tree[[Employee]] AABBTree(sl sh tl th : f32, c : u64) with salary in [sl, sh] with tax in [tl, th] with count() = c =
     | Interior(left : AABBTree, right : AABBTree)
     | Leaf(d : array[Employee]) with data = d;
 
@@ -32,18 +32,18 @@ schedule {
         pCount : u64;
         prims : array[Employee, pCount];
         nCount : u64;
-        group[nCount] index : u32 {
+        group[nCount] index : u64 {
             sl : f32;
             sh : f32;
             tl : f32;
             th : f32;
             nPrims : u8;
-            offset : u24;
+            offset : u56;
             switch nPrims {
-                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
-                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u64]](offset), cast[[u64]](nPrims)); };
             };
-            c : u32;
+            c : u64;
         };
     };
 
@@ -51,18 +51,18 @@ schedule {
         pCount : u64;
         prims : array[Employee, pCount];
         nCount : u64;
-        group[nCount] index : u32 {
+        group[nCount] index : u64 {
             sl : f32;
             sh : f32;
             tl : f32;
             th : f32;
             nPrims : u8;
-            offset : u24;
+            offset : u56;
             switch nPrims {
-                0 => Interior { left = index + 1; right = index + cast[[u32]](offset); };
-                 _ => Leaf { d = range(prims, cast[[u32]](offset), cast[[u32]](nPrims)); };
+                0 => Interior { left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d = range(prims, cast[[u64]](offset), cast[[u64]](nPrims)); };
             };
-            c : u32;
+            c : u64;
         };
     };
 }
