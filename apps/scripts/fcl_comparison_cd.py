@@ -10,8 +10,23 @@ rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
     "font.serif": ["Computer Modern"],
-    # "text.latex.preamble": r"\usepackage{amsmath}",  # Optional for math
 })
+
+
+def format_scene_name(scene: str) -> str:
+    """
+    Format scene names for display.
+    Converts 'hairball_60_70_10' to 'hairball (60^{\circ}, 70^{\circ}, 10^{\circ})'
+    """
+    import re
+    match = re.match(r'^(hairball)_(\d+)_(\d+)_(\d+)$', scene)
+    if match:
+        base_name = match.group(1)
+        x_val = match.group(2)
+        y_val = match.group(3)
+        z_val = match.group(4)
+        return fr"\texttt{{{base_name}}} ({x_val}^{{\circ}}, {y_val}^{{\circ}}, {z_val}^{{\circ}})"
+    return fr"\texttt{{{scene}}}"
 
 
 def compute_average_performance(df: pd.DataFrame, layouts: List[str], machines: List[str]) -> pd.DataFrame:
@@ -21,19 +36,17 @@ def compute_average_performance(df: pd.DataFrame, layouts: List[str], machines: 
     """
     results = []
 
-    for machine in machines:
-        for layout in layouts:
+    for layout in layouts:
+        for machine in machines:
             layout_df = df[(df['layout'] == layout) &
                            (df['machine'] == machine)]
 
             if len(layout_df) == 0:
                 continue
 
-            # Average collision times
             avg_bonsai_cd = layout_df['collision-time-ms'].mean()
             avg_fcl_cd = layout_df['fcl-collision-time-ms'].mean()
 
-            # Compute speedup (fcl / bonsai) - higher is better
             if avg_bonsai_cd > 0:
                 speedup = avg_fcl_cd / avg_bonsai_cd
             else:
@@ -42,7 +55,6 @@ def compute_average_performance(df: pd.DataFrame, layouts: List[str], machines: 
             results.append({
                 'layout': layout,
                 'machine': machine,
-                'label': f"{layout}\n{machine}",
                 'avg_bonsai_cd_ms': avg_bonsai_cd,
                 'avg_fcl_cd_ms': avg_fcl_cd,
                 'speedup': speedup
@@ -58,7 +70,6 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     Each bar represents a layout/machine combination.
     """
 
-    # Filter data by scene combo
     filtered_df = df[
         (df['scene1'] == scene1) &
         (df['scene2'] == scene2)
@@ -68,67 +79,81 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
         print(f"No data found for scene pair '{scene1}' vs '{scene2}'")
         return
 
-    # Compute averages
     summary_df = compute_average_performance(filtered_df, layouts, machines)
 
     if len(summary_df) == 0:
         print(f"No data found for specified layouts and machines")
         return
 
-    # Sort by speedup
-    summary_df = summary_df.sort_values('speedup', ascending=False)
+    pivot_df = summary_df.pivot(
+        index='layout', columns='machine', values='speedup')
 
-    # Create figure - reduced height from 16 to 8
-    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(summary_df) * 2.2), 8))
+    pivot_df = pivot_df.reindex(layouts)
+    pivot_df = pivot_df.dropna(how='all')
 
-    # Create bar positions
-    x_pos = np.arange(len(summary_df))
+    if len(pivot_df) == 0:
+        print(f"No valid data after pivoting")
+        return
 
-    # Create bars with thicker edges
-    bars = ax.bar(x_pos, summary_df['speedup'],
-                  color='#0173B2', alpha=0.7, edgecolor='black', linewidth=4)
-    ax.axhline(y=1.0, color='black', linestyle='--', linewidth=6,
-               alpha=0.7, label='FCL Baseline')
-    # Color bars: green if faster than FCL, red if slower
-    for i, (bar, speedup) in enumerate(zip(bars, summary_df['speedup'])):
-        if speedup > 1.0:
-            bar.set_color('#2ECC71')  # Green for faster
-        else:
-            bar.set_color('#E74C3C')  # Red for slower
+    fig, ax = plt.subplots(1, 1, figsize=(min(24, len(pivot_df) * 2), 4))
 
-    # Add value labels on bars - much larger
-    for i, (bar, speedup) in enumerate(zip(bars, summary_df['speedup'])):
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{speedup:.2f}x',
-                ha='center', va='bottom',
-                fontsize=32, fontweight='bold')
+    x_pos = np.arange(len(pivot_df)) * 1.5
+    bar_width = 0.70
 
-    # Formatting - all fonts much larger
+    x86_data = pivot_df['x86'].fillna(0)
+    arm_data = pivot_df['arm'].fillna(0)
+
+    bars_x86 = ax.bar(x_pos - bar_width/2, x86_data, bar_width,
+                      label='x86', color='#0173B2', alpha=0.7,
+                      edgecolor='black', linewidth=2)
+    bars_arm = ax.bar(x_pos + bar_width/2, arm_data, bar_width,
+                      label='arm', color='#DE8F05', alpha=0.7,
+                      edgecolor='black', linewidth=2)
+
+    ax.axhline(y=1.0, color='black', linestyle='--', linewidth=3,
+               alpha=0.7)
+
+    for bars in [bars_x86, bars_arm]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                if height < 1.0:
+                    ax.text(bar.get_x() + bar.get_width()/2., height * 0.95,
+                            fr"$\mathbf{{{height:.2f}x}}$",
+                            ha='center', va='top',
+                            fontsize=18, color='black')
+                else:
+                    ax.text(bar.get_x() + bar.get_width()/2., height,
+                            fr"$\mathbf{{{height:.2f}x}}$",
+                            ha='center', va='bottom',
+                            fontsize=18)
+
+    max_speedup = max(x86_data.max(), arm_data.max())
+    y_limit = max_speedup * 1.15
+
     if show_title:
-        ax.set_title(f"Scene(s): {scene1}, {scene2}",
-                     fontsize=52, fontweight='bold', pad=40)
-    ax.set_ylabel(r'\textbf{Speedup vs FCL}', fontsize=32, fontweight='bold')
-    ax.set_xlabel(r'\textbf{Layout / Machine}', fontsize=32, fontweight='bold')
+        ax.set_title(f"${format_scene_name(scene1)}$, ${format_scene_name(scene2)}$",
+                     fontsize=32, pad=40)
+    ax.set_ylabel(r"$\mathbf{FCL \textsc{ } / \textsc{ Scion}}$", fontsize=25)
+    ax.set_yticks([1])
+    ax.set_xlabel(r"$\mathbf{Layout}$", fontsize=25)
 
-    # Set x-axis labels (layout + machine) - much larger
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(summary_df['label'], fontsize=24, fontweight='bold')
+    ax.set_xticklabels([fr"$\mathbf{{\texttt{{{layout}}}}}$" for layout in pivot_df.index],
+                       fontsize=24)
 
-    ax.tick_params(axis='y', which='major', labelsize=24, width=3, length=10)
+    ax.tick_params(axis='y', which='major', labelsize=26, width=3, length=10)
     ax.tick_params(axis='x', which='major', width=3, length=10)
-    ax.grid(True, alpha=0.3, linestyle='--', axis='y', linewidth=2)
+    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
 
-    # Thicker spines
     for spine in ax.spines.values():
         spine.set_linewidth(3)
 
-    # Set y-axis to start at 0 or slightly below minimum
-    y_min = 0.0
-    y_max = summary_df['speedup'].max() * 1.15
-    ax.set_ylim(y_min, 1.9)
+    ax.set_ylim(0.0, y_limit)
 
-    # Adjust layout
+    ax.legend(fontsize=19, loc='lower left',
+              frameon=True, edgecolor='black', framealpha=0.9)
+
     plt.tight_layout()
 
     plt.savefig(output_file + ".pdf", dpi=1600, bbox_inches='tight')
@@ -156,7 +181,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Load data
     print(f"Loading data from {args.input_csv}...")
     df = pd.read_csv(args.input_csv)
 
@@ -165,7 +189,6 @@ def main():
     print(f"Layouts: {args.layouts}")
     print(f"Machines: {args.machines}")
 
-    # Generate chart
     create_bar_chart(df, args.layouts, args.machines,
                      args.scene1, args.scene2, args.output_filename, args.show_title)
 

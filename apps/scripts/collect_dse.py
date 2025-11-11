@@ -16,6 +16,24 @@ rcParams.update({
 })
 
 
+def format_scene_name(scene: str) -> str:
+    """
+    Format scene names for display.
+    Converts 'san-miguel-x35-y22-z47' to 'san-miguel (35^{\circ}, 22^{\circ}, 47^{\circ})'
+    """
+    import re
+    # Check if scene matches the pattern san-miguel-xN-yM-zP.
+    match = re.match(r'^(san-miguel)-x(\d+)-y(\d+)-z(\d+)$', scene)
+    if match:
+        base_name = match.group(1)
+        x_val = match.group(2)
+        y_val = match.group(3)
+        z_val = match.group(4)
+        suffix = fr"^{{({x_val}^{{\circ}}, {y_val}^{{\circ}}, {z_val}^{{\circ}})}}"
+        return fr"\texttt{{{base_name}}}{suffix}"
+    return fr"\texttt{{{scene}}}"
+
+
 def load_csv_data(csv_file, machines=None, ray_types=None, scenes=None, layouts=None, intersect=None):
     """
     # Columns:
@@ -411,7 +429,7 @@ def plot_rt_cpq_comparison(rt_data, rt_memory, cpq_data, cpq_memory, layout_grou
                         break
 
             ax.scatter(cpq_x[is_pareto], cpq_y[is_pareto],
-                       c=cpq_color, s=180, alpha=0.9,
+                       c=cpq_color, s=400, alpha=0.9,
                        edgecolors='black', linewidth=3.5,
                        marker=cpq_marker, label='CPQ (Closest Point Query)', zorder=3)
 
@@ -492,17 +510,17 @@ def plot_rt_cpq_comparison(rt_data, rt_memory, cpq_data, cpq_memory, layout_grou
                     )
                 )
 
-        memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
+        memory_label = r'Memory Utilization, without $\triangle$s' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
-            rf"\textbf{{{memory_label} (MB)}}", fontweight='bold', fontsize=38)
-        ax.tick_params(axis='x', labelsize=32)
-        ax.tick_params(axis='y', labelsize=32)
-        ax.set_ylabel(rf"\textbf{{Latency (ns/ray or ns/query)}}",
-                      fontweight='bold', fontsize=38)
-        ax.set_title(rf"\textbf{{({model}, {machine})}}",
-                     fontweight='bold', fontsize=40)
+            rf"\textbf{{{memory_label} (MB)}}", fontweight='bold', fontsize=40)
+        ax.tick_params(axis='x', labelsize=35)
+        ax.tick_params(axis='y', labelsize=35)
+        ax.set_ylabel(rf"\textbf{{Latency (ns/query or ns/ray)}}",
+                      fontweight='bold', fontsize=40)
+        ax.set_title(rf"$\mathbf{{({format_scene_name(model)}, {machine})}}$",
+                     fontweight='bold', fontsize=42)
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
-        ax.legend(fontsize=40, loc='best', framealpha=0.9,
+        ax.legend(fontsize=42, loc='best', framealpha=0.9,
                   edgecolor='black', fancybox=False, shadow=True)
         ax.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
@@ -549,13 +567,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     layout_colors = ['#D55E00', '#F0E442', '#009E73', '#E69F00',
                      '#56B4E9', '#CC79A7', '#0173B2', '#DE8F05']
 
-    # Marker styles for different dimensions
     machine_markers = ['o', 's', '^', 'D']
     ray_type_markers = ['v', 'p', '*', '>']
     layout_markers = ['h', 'X', '<', 'P', 'd', '8', 'H', 'o']
-    # Line styles
     line_styles = ['-', '--', '-.', ':', (0, (5, 2, 1, 2)), (0, (3, 1, 1, 1))]
-    # Gray for dominated points
     dominated_color = '#CCCCCC'
 
     multiple_machines = machines and len(machines) > 1
@@ -570,7 +585,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
     machine_to_idx = {m: i for i, m in enumerate(all_possible_machines)}
     ray_type_to_idx = {rt: i for i, rt in enumerate(all_possible_ray_types)}
 
-    # Create layout to index mapping
+    # Create layout to index mapping.
     layout_list = []
     for group_name, layouts in layout_groups.items():
         layout_list.extend(layouts)
@@ -714,11 +729,11 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
             # Plot dominated points in gray only if requested.
             if label_dominated_points and np.any(~is_pareto):
                 ax.scatter(group_memory[~is_pareto], group_time_per_ray[~is_pareto],
-                           c=dominated_color, s=180, alpha=0.6,
+                           c=dominated_color, s=250, alpha=0.6,
                            marker='o', edgecolors='gray', linewidth=2.5, zorder=6)
             # Plot Pareto-optimal points with their assigned colors/markers.
             ax.scatter(group_memory[is_pareto], group_time_per_ray[is_pareto],
-                       c=color, s=180, alpha=0.9,
+                       c=color, s=300, alpha=0.9,
                        edgecolors='black', linewidth=3.5,
                        marker=marker, label=group_key, zorder=3)
 
@@ -749,7 +764,7 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                         'label': group_labels[i],
                         'is_pareto': False
                     })
-        memory_label = 'Memory Utilization (excluding primitives)' if memory_type == 'bvh' else 'Memory Utilization'
+        memory_label = r'Memory Utilization, without $\triangle$s' if memory_type == 'bvh' else 'Memory Utilization'
         ax.set_xlabel(
             rf"\textbf{{{memory_label} ({memory_unit})}}", fontweight='bold', fontsize=40)
         ax.tick_params(axis='x', labelsize=32)
@@ -786,13 +801,13 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     label_info['label'],
                     xy=(x_pos, y_pos),
                     textcoords="offset pixels",
-                    xytext=(22, 40),
+                    xytext=(20, 38),
                     ha='left',
                     va='center',
-                    fontsize=40,
+                    fontsize=42,
                     fontweight='bold',
                     bbox=dict(
-                        boxstyle='round,pad=0.3',
+                        boxstyle='round,pad=0.15',
                         facecolor='#C8FACD',
                         edgecolor='black',
                         linewidth=2,
@@ -807,10 +822,10 @@ def plot_pareto_frontiers(processed_data, memory_data, layout_groups, output_pat
                     xytext=(-20, -45),
                     ha='left',
                     va='center',
-                    fontsize=38,
+                    fontsize=42,
                     fontweight='normal',
                     bbox=dict(
-                        boxstyle='round,pad=0.3',
+                        boxstyle='round,pad=0.15',
                         facecolor='#EEEEEE',
                         edgecolor='gray',
                         linewidth=1.5,
