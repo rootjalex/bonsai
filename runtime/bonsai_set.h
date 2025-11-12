@@ -128,21 +128,20 @@ template <typename T, typename Predicate>
 set<T> filter(Predicate &&predicate, const set<T> &input) {
     std::vector<T> result;
 
-    input.for_each([&](const T &item) {
-        bool keep;
-
+    const auto &data = input.data; // avoid repeated vector access
+    for (size_t i = 0; i < data.size(); ++i) {
         if constexpr (is_tuple_v<T>) {
             // Expand tuple elements when calling predicate
-            keep = std::apply(predicate, item);
+            if (std::apply(predicate, data[i])) {
+                result.push_back(data[i]);
+            }
         } else {
             // Pass item directly
-            keep = predicate(item);
+            if (predicate(data[i])) {
+                result.push_back(data[i]);
+            }
         }
-
-        if (keep) {
-            result.push_back(item);
-        }
-    });
+    }
 
     return set<T>(std::move(result));
 }
