@@ -254,13 +254,20 @@ nested_join(Predicate &&predicate,
             const set<T> &input0,
             const set<U> &input1) {
     std::vector<std::tuple<T, U>> result;
-    input0.for_each([&](const T &item0) {
-        input1.for_each([&](const U &item1) {
+
+    const auto &data0 = input0.data;
+    const auto &data1 = input1.data;
+
+    for (size_t i = 0; i < data0.size(); ++i) {
+        for (size_t j = 0; j < data1.size(); ++j) {
+            const auto &item0 = data0[i];
+            const auto &item1 = data1[j];
             if (predicate(item0, item1)) {
-                result.push_back(std::make_tuple(item0, item1));
+                result.emplace_back(std::make_tuple(item0, item1));
             }
-        });
-    });
+        }
+    }
+
     return set<std::tuple<T, U>>(std::move(result));
 }
 
@@ -268,13 +275,20 @@ template <typename Predicate, typename T, typename U>
 uint64_t nested_join_count(Predicate &&predicate, const set<T> &input0,
                            const set<U> &input1) {
     uint64_t result = 0;
-    input0.for_each([&](const T &item0) {
-        input1.for_each([&](const U &item1) {
+
+    const auto &data0 = input0.data;
+    const auto &data1 = input1.data;
+
+    for (size_t i = 0; i < data0.size(); ++i) {
+        for (size_t j = 0; j < data1.size(); ++j) {
+            const auto &item0 = data0[i];
+            const auto &item1 = data1[j];
             if (predicate(item0, item1)) {
                 result++;
             }
-        });
-    });
+        }
+    }
+
     return result;
 }
 
