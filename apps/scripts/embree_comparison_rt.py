@@ -266,7 +266,7 @@ def create_best_worst_plots(df: pd.DataFrame, layouts: List[str],
         # Formatting with scene and ray_type in title
         title = f"({selected_scene}, {machine}, {selected_ray_type})"
         ax.set_title(fr"\textbf{{{title}}}",
-                     fontsize=26, fontweight='bold', pad=7)
+                     fontsize=20, fontweight='bold', pad=7)
         ax.set_xlabel(r"\textbf{Total Memory (MB)}",
                       fontsize=20, fontweight='bold')
         ax.set_ylabel(r"\textbf{Latency (ns/ray)}",
@@ -436,7 +436,7 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
                 # Formatting
                 title = f"({scene}, {machine}, {ray_type})"
                 ax.set_title(fr"\textbf{{{title}}}",
-                             fontsize=26, fontweight='bold', pad=7)
+                             fontsize=18, fontweight='bold', pad=7)
                 ax.set_xlabel(r"\textbf{Total Memory (MB)}",
                               fontsize=20, fontweight='bold')
                 ax.set_ylabel(r"\textbf{Latency (ns/ray)}",
@@ -479,9 +479,9 @@ def create_scatter_plots(df: pd.DataFrame, layouts: List[str],
     ]
 
     # Place legend in center of figure - smaller size
-    fig.legend(handles=legend_elements, loc='center', fontsize=13,
+    fig.legend(handles=legend_elements, loc='center', fontsize=18,
                framealpha=0.95, edgecolor='black', ncol=1,
-               bbox_to_anchor=(0.515, 0.795))
+               bbox_to_anchor=(0.105, 0.945))
 
     # Save
     plt.savefig(output_file + ".pdf", dpi=1600, bbox_inches='tight')
