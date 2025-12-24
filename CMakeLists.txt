@@ -141,6 +141,8 @@ target_sources(
     src/Parser/Lexer.cpp
     src/Parser/Parser.cpp
     src/Parser/Token.cpp
+    src/SSA/Convert.cpp
+    src/SSA/SSA.cpp
     src/Utils.cpp
 )
 
@@ -227,6 +229,8 @@ target_sources(
     include/Parser/Lexer.h
     include/Parser/Parser.h
     include/Parser/Token.h
+    include/SSA/Convert.h
+    include/SSA/SSA.h
     include/RefCount.h
     include/Scope.h
     include/Utils.h

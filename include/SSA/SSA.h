@@ -1,0 +1,136 @@
+#pragma once
+
+#include <iostream>
+#include <memory>
+#include <vector>
+
+#include "IR/Type.h"
+
+namespace bonsai {
+namespace ir {
+namespace ssa {
+
+struct Argument {
+    Type type;
+    std::string name;
+
+    void dump(std::ostream &os) const;
+};
+
+struct Constant {
+    Type type;
+    std::variant<int64_t, uint64_t, double> data;
+
+    void dump(std::ostream &os) const;
+};
+
+struct Instruction;
+
+struct Value {
+    std::variant<Argument, Constant, std::shared_ptr<Instruction>> data;
+
+    Value(Argument argument) : data(std::move(argument)) {}
+    Value(Constant constant) : data(std::move(constant)) {}
+    Value(std::shared_ptr<Instruction> instr) : data(std::move(instr)) {};
+
+    const Type &get_type() const;
+
+    void dump(std::ostream &os) const;
+};
+
+struct Block;
+
+struct Instruction {
+    enum class Op {
+        // Keep this sorted!
+        Add,
+        Bc,
+        Call,
+        Div,
+        Leq,
+        LoadField,
+        Lt,
+        MakeStruct,
+        Max,
+        Min,
+        Mul,
+        Set, // TODO: needed?
+        Sub,
+    };
+
+    std::string name;
+    Type type;
+    Op op;
+    std::vector<std::shared_ptr<Value>> operands;
+    std::weak_ptr<Block> owner;
+
+    Instruction(std::string name, Type type, Op op)
+        : name(std::move(name)), type(std::move(type)), op(op) {}
+
+    void dump(std::ostream &os) const;
+};
+
+struct Terminator {
+    struct Jump {
+        // Unconditional
+        std::string name;
+        std::vector<std::shared_ptr<Value>> args;
+    };
+    struct Dispatch {
+        // Conditional
+        std::shared_ptr<Value> cond;
+        std::vector<Jump> targets;
+    };
+    struct Return {
+        std::shared_ptr<Value> value; // possibly empty
+    };
+    std::variant<std::monostate, Jump, Dispatch, Return> data;
+
+    bool defined() const {
+        return !std::holds_alternative<std::monostate>(data);
+    }
+
+    void dump(std::ostream &os) const;
+};
+
+struct Function;
+
+struct Block {
+    std::string name;
+    std::vector<Argument> args; // take the place of phis
+    std::vector<std::shared_ptr<Instruction>> instrs;
+    Terminator terminator; // always a jmp/dispatch/return
+    std::weak_ptr<Function> owner;
+
+    // Duplicated data; for lookups *only*.
+    std::map<std::string, std::shared_ptr<Value>> lookups;
+
+    std::vector<std::weak_ptr<Block>> preds;
+
+    // If value is defined in this block, returns it, otherwise adds it as an
+    // argument recursively until it finds the block it is defined in!
+    std::shared_ptr<Value> get_value(const std::string &name, const Type &type);
+
+    void dump(std::ostream &os) const;
+};
+
+struct Function {
+    // First block is entry block.
+    std::vector<std::shared_ptr<Block>> blocks;
+    ir::Type ret_type; // convenience.
+
+    void dump(std::ostream &os) const;
+};
+
+// Useful helper for std::variant
+template <class... Ts>
+struct overloads : Ts... {
+    using Ts::operator()...;
+};
+
+template <class... Ts>
+overloads(Ts...) -> overloads<Ts...>;
+
+} // namespace ssa
+} // namespace ir
+} // namespace bonsai

@@ -1,0 +1,432 @@
+#include "SSA/Convert.h"
+
+#include "SSA/SSA.h"
+
+#include "IR/Analysis.h"
+#include "IR/Printer.h"
+#include "IR/Visitor.h"
+
+#include "Utils.h"
+
+namespace bonsai {
+namespace ir {
+namespace ssa {
+
+struct FunctionBuilder : Visitor {
+    std::shared_ptr<Value> value = nullptr;
+    std::shared_ptr<Block> block = nullptr;
+
+    std::shared_ptr<ssa::Function> function;
+
+    FunctionBuilder(const ir::Function &func) {
+        function = std::make_shared<Function>();
+        block = std::make_shared<Block>();
+        block->name = func.name;
+        block->owner = function;
+
+        for (const auto &arg : func.args) {
+            internal_assert(!arg.default_value.defined())
+                << "TODO: handle default values: " << func.name << " has "
+                << arg.name << " = " << arg.default_value;
+            internal_assert(!arg.mutating)
+                << "TODO: handle mutable arguments: " << func.name << " has "
+                << arg.name << " as mutable";
+            Argument a = {arg.type, arg.name};
+            block->args.push_back(a);
+            auto [_, inserted] = block->lookups.insert(
+                {arg.name, std::make_shared<Value>(std::move(a))});
+            internal_assert(inserted)
+                << "Failed to insert argument: " << arg.name
+                << " of function: " << func.name;
+        }
+
+        function->blocks.push_back(block);
+        function->ret_type = func.ret_type;
+
+        func.body.accept(this);
+    }
+
+    // TODO: cache for unmutable expressions!
+    std::shared_ptr<Value> get_value(const Expr &expr) {
+        value = nullptr;
+        expr.accept(this);
+        internal_assert(value) << expr << " failed to produce SSA value";
+        return std::move(value);
+    }
+
+    void make_instruction(const std::string &name, Type type,
+                          std::shared_ptr<Value> v) {
+        internal_assert(block) << "Tried to append instruction to empty block";
+
+        // If v already refers to an Instruction, just rename it (copy
+        // propagation)
+        if (auto instr_ptr =
+                std::get_if<std::shared_ptr<Instruction>>(&v->data)) {
+            internal_assert(*instr_ptr) << "Null instruction value";
+
+            auto &instr = *instr_ptr;
+
+            // Update name
+            instr->name = name;
+
+            // Update lookup table
+            auto [it, inserted] = block->lookups.insert({name, v});
+            if (!inserted) {
+                it->second = v; // overwrite existing entry
+            }
+
+            return;
+        }
+
+        // Otherwise, create a new Set instruction
+        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+            name, std::move(type), Instruction::Op::Set);
+        instr->operands = {std::move(v)};
+        instr->owner = block;
+        block->instrs.push_back(instr);
+
+        auto [_, inserted] =
+            block->lookups.insert({name, std::make_shared<Value>(instr)});
+        internal_assert(inserted) << name << "already exists in block!\n";
+    }
+
+    uint64_t counter = 0;
+    std::string get_unique_name() { return "@" + std::to_string(counter++); }
+
+    std::shared_ptr<Value>
+    make_instruction(Type type, Instruction::Op op,
+                     std::vector<std::shared_ptr<Value>> vs) {
+        internal_assert(block) << "Tried to append instruction to empty block";
+        std::string name = get_unique_name();
+        std::shared_ptr<Instruction> instr =
+            std::make_shared<Instruction>(name, std::move(type), op);
+        instr->operands = std::move(vs);
+        instr->owner = block;
+        block->instrs.push_back(instr);
+        auto v = std::make_shared<Value>(std::move(instr));
+        auto [_, inserted] = block->lookups.insert({name, v});
+        internal_assert(inserted) << name << "already exists in block!\n";
+        return v;
+    }
+
+    uint64_t block_counter = 0;
+    std::string get_block_name(const std::string &prefix) {
+        return "!" + prefix + "_" + std::to_string(block_counter++);
+    }
+
+    std::shared_ptr<Block> make_block(const std::string &prefix) {
+        std::shared_ptr<Block> new_block = std::make_shared<Block>();
+        new_block->name = get_block_name(prefix);
+        new_block->owner = function;
+        function->blocks.push_back(new_block);
+        return new_block;
+    }
+
+    void set_block_jump(const std::string &name) {
+        internal_assert(!block->terminator.defined())
+            << "set_block_jmp(" << name << ") on block " << block->name
+            << " that already has terminator";
+        block->terminator.data = Terminator::Jump{.name = name};
+    }
+
+    void visit(const IfElse *node) override {
+        auto v = get_value(node->cond); // in current block
+        internal_assert(!block->terminator.defined());
+        std::shared_ptr<Block> then_case = make_block("then");
+        std::shared_ptr<Block> else_case =
+            node->else_body.defined() ? make_block("else") : nullptr;
+
+        const bool then_needs_merge = !always_returns(node->then_body);
+        const bool else_needs_merge =
+            !node->else_body.defined() || !always_returns(node->else_body);
+        const bool needs_merge = then_needs_merge || else_needs_merge;
+        std::shared_ptr<Block> merge_block =
+            needs_merge ? make_block("merge") : nullptr;
+
+        block->terminator.data = Terminator::Dispatch{
+            .cond = std::move(v),
+            // v == 0
+            {Terminator::Jump{.name = node->else_body.defined()
+                                          ? else_case->name
+                                          : merge_block->name},
+             // v != 0
+             Terminator::Jump{.name = then_case->name}}};
+
+        auto curr_block = std::move(block);
+
+        then_case->preds.push_back(curr_block);
+        block = then_case;
+        node->then_body.accept(this);
+
+        if (then_needs_merge) {
+            // *current* insert block is predecessor to merge.
+            merge_block->preds.push_back(block);
+            set_block_jump(merge_block->name);
+        }
+
+        if (node->else_body.defined()) {
+            else_case->preds.push_back(curr_block);
+            block = else_case;
+            node->else_body.accept(this);
+
+            if (else_needs_merge) {
+                merge_block->preds.push_back(block);
+                set_block_jump(merge_block->name);
+            } // otherwise returns
+        } else {
+            // Dispatch goes to merge block if condition is false
+            merge_block->preds.push_back(curr_block);
+        }
+
+        if (merge_block) {
+            block = merge_block;
+        }
+    }
+
+    void visit(const LetStmt *node) override {
+        auto v = get_value(node->value);
+        (void)make_instruction(node->loc.base, node->loc.base_type,
+                               std::move(v));
+    }
+
+    void visit(const Return *node) override {
+        auto v = get_value(node->value);
+        block->terminator.data = Terminator::Return{v};
+    }
+
+    template <typename T>
+    std::shared_ptr<Value> make_constant(ir::Type type, T data) {
+        Constant c{.type = std::move(type), .data = data};
+        return std::make_shared<Value>(std::move(c));
+    }
+
+    void visit(const FloatImm *node) override {
+        value = make_constant(node->type, node->value);
+    }
+
+    void visit(const Access *node) override {
+        auto v = get_value(node->value);
+        static const Type u32 = UInt_t::make(32);
+        const Struct_t *struct_t = node->value.type().as<Struct_t>();
+        internal_assert(struct_t)
+            << node->value.type().as<Struct_t>() << " of " << Expr(node);
+        auto idx = find_struct_index(node->field, struct_t->fields);
+        auto vidx = make_constant(u32, (uint64_t)idx);
+        value = make_instruction(node->type, Instruction::Op::LoadField,
+                                 {std::move(v), std::move(vidx)});
+    }
+
+    void visit(const Broadcast *node) override {
+        auto v = get_value(node->value);
+        static const Type u32 = UInt_t::make(32);
+        auto lanes = make_constant(u32, (uint64_t)node->lanes);
+        value = make_instruction(node->type, Instruction::Op::Bc,
+                                 {std::move(v), std::move(lanes)});
+    }
+
+    Instruction::Op get_binop(BinOp::OpType op) {
+        switch (op) {
+        case BinOp::Add:
+            return Instruction::Op::Add;
+        case BinOp::Mul:
+            return Instruction::Op::Mul;
+        case BinOp::Div:
+            return Instruction::Op::Div;
+        case BinOp::Sub:
+            return Instruction::Op::Sub;
+        // case BinOp::Mod:
+        //     return Instruction::Op::Mod;
+        // case BinOp::Neq:
+        //     return Instruction::Op::Neq;
+        // case BinOp::Eq:
+        //     return Instruction::Op::Eq;
+        case BinOp::Le:
+            return Instruction::Op::Leq;
+        case BinOp::Lt:
+            return Instruction::Op::Lt;
+        // case BinOp::LAnd:
+        //     return Instruction::Op::LAnd;
+        // case BinOp::LOr:
+        //     return Instruction::Op::LOr;
+        // case BinOp::Xor:
+        //     return Instruction::Op::Xor;
+        // case BinOp::BwAnd:
+        //     return Instruction::Op::BwAnd;
+        // case BinOp::BwOr:
+        //     return Instruction::Op::BwOr;
+        // case BinOp::Shl:
+        //     return Instruction::Op::Shl;
+        // case BinOp::Shr:
+        //     return Instruction::Op::Shr;
+        default: {
+            internal_error << "TODO: handle: " << to_string(op);
+        }
+        }
+    }
+
+    void visit(const BinOp *node) override {
+        auto a = get_value(node->a);
+        auto b = get_value(node->b);
+        auto op = get_binop(node->op);
+        value = make_instruction(node->type, op, {std::move(a), std::move(b)});
+    }
+
+    Instruction::Op get_intrinsic(const Intrinsic::OpType &op) {
+        switch (op) {
+        // case Intrinsic::abs:
+        //     return "abs";
+        // case Intrinsic::cos:
+        //     return "cos";
+        // case Intrinsic::cross:
+        //     return "cross";
+        // case Intrinsic::dot:
+        //     return "dot";
+        // case Intrinsic::fma:
+        //     return "fma";
+        case Intrinsic::max:
+            return Instruction::Op::Max;
+        case Intrinsic::min:
+            return Instruction::Op::Min;
+        // case Intrinsic::norm:
+        //     return "norm";
+        // case Intrinsic::pow:
+        //     return "pow";
+        // case Intrinsic::rand:
+        //     return "rand";
+        // case Intrinsic::round:
+        //     return "round";
+        // case Intrinsic::sin:
+        //     return "sin";
+        // case Intrinsic::sqr:
+        //     return "sqr";
+        // case Intrinsic::sqrt:
+        //     return "sqrt";
+        // case Intrinsic::tan:
+        //     return "tan";
+        default: {
+            internal_error << "TODO: handle: " << to_string(op);
+        }
+        }
+    }
+
+    void visit(const Intrinsic *node) override {
+        std::vector<std::shared_ptr<Value>> args;
+        args.reserve(node->args.size());
+        for (const auto &arg : node->args) {
+            args.emplace_back(get_value(arg));
+        }
+        auto op = get_intrinsic(node->op);
+        value = make_instruction(node->type, op, std::move(args));
+    }
+
+    void visit(const Var *node) override {
+        internal_assert(block);
+        value = block->get_value(node->name, node->type);
+    }
+
+    Instruction::Op get_vreduce(const VectorReduce::OpType &op) {
+        switch (op) {
+        case VectorReduce::Add:
+            return Instruction::Op::Add;
+        // case VectorReduce::Idxmin:
+        //     return "idxmin";
+        // case VectorReduce::Idxmax:
+        //     return "idxmax";
+        case VectorReduce::Mul:
+            return Instruction::Op::Mul;
+        case VectorReduce::Min:
+            return Instruction::Op::Min;
+        case VectorReduce::Max:
+            return Instruction::Op::Max;
+        // case VectorReduce::Or:
+        //     return "any";
+        // case VectorReduce::And:
+        //     return "all";
+        default: {
+            internal_error << "TODO: handle: " << to_string(op);
+        }
+        }
+    }
+
+    void visit(const VectorReduce *node) override {
+        auto a = get_value(node->value);
+        auto op = get_vreduce(node->op);
+        value = make_instruction(node->type, op, {std::move(a)});
+    }
+
+    RESTRICT_VISITOR(IntImm);
+    RESTRICT_VISITOR(UIntImm);
+    // RESTRICT_VISITOR(FloatImm);
+    RESTRICT_VISITOR(BoolImm);
+    RESTRICT_VISITOR(VecImm);
+    RESTRICT_VISITOR(StringImm);
+    RESTRICT_VISITOR(Extrema);
+    // RESTRICT_VISITOR(Var);
+    // RESTRICT_VISITOR(BinOp);
+    RESTRICT_VISITOR(UnOp);
+    RESTRICT_VISITOR(Select);
+    RESTRICT_VISITOR(Cast);
+    // RESTRICT_VISITOR(Broadcast);
+    // RESTRICT_VISITOR(VectorReduce);
+    RESTRICT_VISITOR(VectorShuffle);
+    RESTRICT_VISITOR(Ramp);
+    RESTRICT_VISITOR(Extract);
+    RESTRICT_VISITOR(Build);
+    // RESTRICT_VISITOR(Access);
+    RESTRICT_VISITOR(Unwrap);
+    // RESTRICT_VISITOR(Intrinsic);
+    RESTRICT_VISITOR(Generator);
+    RESTRICT_VISITOR(Lambda);
+    RESTRICT_VISITOR(GeomOp);
+    RESTRICT_VISITOR(SetOp);
+    RESTRICT_VISITOR(AggOp);
+    RESTRICT_VISITOR(Call);
+    RESTRICT_VISITOR(Instantiate);
+    RESTRICT_VISITOR(PtrTo);
+    RESTRICT_VISITOR(Deref);
+    RESTRICT_VISITOR(AtomicAdd);
+
+    RESTRICT_VISITOR(CallStmt);
+    RESTRICT_VISITOR(Print);
+    // RESTRICT_VISITOR(Return);
+    // RESTRICT_VISITOR(LetStmt);
+    // RESTRICT_VISITOR(IfElse);
+    RESTRICT_VISITOR(DoWhile);
+    // RESTRICT_VISITOR(Sequence); // default behavior is fine.
+    RESTRICT_VISITOR(Allocate);
+    RESTRICT_VISITOR(Free);
+    RESTRICT_VISITOR(Store);
+    RESTRICT_VISITOR(Accumulate);
+    RESTRICT_VISITOR(Label);
+    RESTRICT_VISITOR(RecLoop);
+    RESTRICT_VISITOR(Match);
+    RESTRICT_VISITOR(Yield);
+    RESTRICT_VISITOR(Iterate);
+    RESTRICT_VISITOR(Scan);
+    RESTRICT_VISITOR(YieldFrom);
+    RESTRICT_VISITOR(ForAll);
+    RESTRICT_VISITOR(ForEach);
+    RESTRICT_VISITOR(Continue);
+    RESTRICT_VISITOR(Launch);
+    RESTRICT_VISITOR(Append);
+};
+
+std::shared_ptr<ssa::Function>
+build(const std::shared_ptr<ir::Function> &func) {
+    std::cout << *func << std::endl;
+    FunctionBuilder builder(*func);
+    return builder.function;
+}
+
+ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
+                              const CompilerOptions &options) const {
+    for (auto &[name, func] : funcs) {
+        auto f = build(func);
+        f->dump(std::cout);
+    }
+    return funcs;
+}
+
+} // namespace ssa
+} // namespace ir
+} // namespace bonsai

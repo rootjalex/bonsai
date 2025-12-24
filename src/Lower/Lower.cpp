@@ -33,6 +33,7 @@
 #include "Opt/Inline.h"
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
+#include "SSA/Convert.h"
 
 #include "CompilerOptions.h"
 #include "Error.h"
@@ -108,6 +109,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<opt::Inline>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
+    manager.register_pass<ir::ssa::ConvertToSSA>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
