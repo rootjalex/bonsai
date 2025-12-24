@@ -128,38 +128,64 @@ void Terminator::dump(std::ostream &os) const {
 std::shared_ptr<Value> Block::get_value(const std::string &name,
                                         const Type &type) {
     auto it = lookups.find(name);
-    if (it == lookups.end()) {
-        // Needed from calling block.
-        const auto func = owner.lock();
-        internal_assert(func && !func->blocks.empty() &&
-                        this != func->blocks.front().get())
-            << "Var: " << name
-            << " not in current block, and current block is entry!";
-        Argument a = {type, name};
-        args.push_back(a);
-        auto value = std::make_shared<Value>(std::move(a));
-        auto [_, inserted] = lookups.insert({name, value});
-        internal_assert(inserted)
-            << "Failed to insert necessary argument: " << name;
-        // This cannot induce a cycle because the insert happens before
-        // recursion! Do *NOT* reorder these.
-        // TODO: should NOT recurse through `returns`!! But those shouldn't be
-        // predecessors anyways...
-        for (const auto &pred : preds) {
-            auto p = pred.lock();
-            internal_assert(p) << "Predecessor pointer died";
-            // TODO: Terminators need to be updated as well!!
-            internal_assert(!std::holds_alternative<Terminator::Return>(p->terminator.data))
-                << "Block: " << p->name << " returns but is listed as a predecessor to: " << name;
-            (void)p->get_value(name, type);
-        }
-        
-        return value;
+
+    if (it != lookups.end()) {
+        internal_assert(equals(type, it->second->get_type()))
+            << "Expected type: " << type << " for var: " << name << " but got "
+            << it->second->get_type() << " instead.";
+        return it->second;
     }
-    internal_assert(equals(type, it->second->get_type()))
-        << "Expected type: " << type << " for var: " << name << " but got "
-        << it->second->get_type() << " instead.";
-    return it->second;
+
+    // Needed from calling block.
+    const auto func = owner.lock();
+    internal_assert(func && !func->blocks.empty() &&
+                    this != func->blocks.front().get())
+        << "Var: " << name
+        << " not in current block, and current block is entry!";
+    Argument a = {type, name};
+    args.push_back(a);
+    auto value = std::make_shared<Value>(std::move(a));
+    auto [_, inserted] = lookups.insert({name, value});
+    internal_assert(inserted)
+        << "Failed to insert necessary argument: " << name;
+    // This cannot induce a cycle because the insert happens before
+    // recursion! Do *NOT* reorder these.
+    for (const auto &pred : preds) {
+        auto p = pred.lock();
+        internal_assert(p) << "Predecessor pointer died";
+
+        std::visit(overloads{
+                       [&](const std::monostate &m) {
+                           (void)m;
+                           internal_error << "Block: " << p->name
+                                          << " is a predecessor to: " << name
+                                          << " but does not have a terminator.";
+                       },
+                       [&](Terminator::Jump &j) {
+                           // Recursively adds to parent block.
+                           j.args.push_back(p->get_value(name, type));
+                       },
+                       [&](Terminator::Dispatch &d) {
+                           for (auto &target : d.targets) {
+                               if (target.name == this->name) {
+                                   // Recursively adds to parent block.
+                                   target.args.push_back(
+                                       p->get_value(name, type));
+                                   // Can we early-return here?
+                               }
+                           }
+                       },
+                       [&](const Terminator::Return &r) {
+                           (void)r;
+                           internal_error
+                               << "Block: " << p->name
+                               << " returns but is listed as a predecessor to: "
+                               << name;
+                       },
+                   },
+                   p->terminator.data);
+    }
+    return value;
 }
 
 void Block::dump(std::ostream &os) const {
@@ -184,7 +210,6 @@ void Function::dump(std::ostream &os) const {
     for (size_t i = 0; i < blocks.size(); ++i) {
         if (i == 0) {
             os << "func ";
-        } else {
         }
         blocks[i]->dump(os);
         os << "\n";
