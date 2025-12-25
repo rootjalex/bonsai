@@ -20,6 +20,15 @@ ir::Expr cross_product(const ir::Expr &a, const ir::Expr &b) {
     return ir::Build::make(a.type(), {s0, s1, s2});
 }
 
+ir::Expr dot_product(const ir::Expr &a, const ir::Expr &b) {
+    const uint32_t lanes = a.type().lanes();
+    ir::Expr acc = ir::Extract::make(a, 0) * ir::Extract::make(b, 0);
+    for (uint32_t i = 1; i < lanes; ++i) {
+        acc = acc + ir::Extract::make(a, i) * ir::Extract::make(b, i);
+    }
+    return acc;
+}
+
 ir::Expr argmax(const ir::Expr &a) {
     internal_assert(a.type().element_of().is_scalar())
         << "TODO: implement argmax lowering for 2D: " << a;

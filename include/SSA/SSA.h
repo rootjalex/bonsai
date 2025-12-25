@@ -19,7 +19,8 @@ struct Argument {
 
 struct Constant {
     Type type;
-    std::variant<int64_t, uint64_t, double> data;
+    // string -> function call!
+    std::variant<bool, int64_t, uint64_t, double, std::string> data;
 
     void dump(std::ostream &os) const;
 };
@@ -43,10 +44,18 @@ struct Block;
 struct Instruction {
     enum class Op {
         // Keep this sorted!
+        Abs,
         Add,
+        Alloc,
         Bc,
         Call,
+        Cast,
         Div,
+        Eps,
+        Eq,
+        ExtractIdx,
+        LAnd,
+        LOr,
         Leq,
         LoadField,
         Lt,
@@ -54,18 +63,30 @@ struct Instruction {
         Max,
         Min,
         Mul,
-        Set, // TODO: needed?
+        Reinterpret,
+        Set,
         Sub,
     };
 
+    // empty -> side-effect-y call.
     std::string name;
     Type type;
     Op op;
+
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;
 
-    Instruction(std::string name, Type type, Op op)
-        : name(std::move(name)), type(std::move(type)), op(op) {}
+    Instruction(std::string name, Type type, Op op,
+                std::vector<std::shared_ptr<Value>> operands,
+                std::weak_ptr<Block> owner)
+        : name(std::move(name)), type(std::move(type)), op(op),
+          operands(std::move(operands)), owner(std::move(owner)) {}
+
+    // Make a call instruction.
+    Instruction(std::vector<std::shared_ptr<Value>> operands,
+                std::weak_ptr<Block> owner)
+        : op(Instruction::Op::Call), operands(std::move(operands)),
+          owner(std::move(owner)) {}
 
     void dump(std::ostream &os) const;
 };

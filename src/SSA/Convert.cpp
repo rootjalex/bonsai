@@ -6,6 +6,8 @@
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 
+#include "Lower/Intrinsics.h"
+
 #include "Utils.h"
 
 namespace bonsai {
@@ -28,9 +30,11 @@ struct FunctionBuilder : Visitor {
             internal_assert(!arg.default_value.defined())
                 << "TODO: handle default values: " << func.name << " has "
                 << arg.name << " = " << arg.default_value;
-            internal_assert(!arg.mutating)
-                << "TODO: handle mutable arguments: " << func.name << " has "
-                << arg.name << " as mutable";
+            // TODO: Ref_t???
+            Type type = arg.mutating ? Ptr_t::make(arg.type) : arg.type;
+            // internal_assert(!arg.mutating)
+            //     << "TODO: handle mutable arguments: " << func.name << " has "
+            //     << arg.name << " as mutable";
             Argument a = {arg.type, arg.name};
             block->args.push_back(a);
             auto [_, inserted] = block->lookups.insert(
@@ -79,10 +83,9 @@ struct FunctionBuilder : Visitor {
         }
 
         // Otherwise, create a new Set instruction
+        std::vector<std::shared_ptr<Value>> vs = {std::move(v)};
         std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            name, std::move(type), Instruction::Op::Set);
-        instr->operands = {std::move(v)};
-        instr->owner = block;
+            name, std::move(type), Instruction::Op::Set, std::move(vs), block);
         block->instrs.push_back(instr);
 
         auto [_, inserted] =
@@ -98,10 +101,8 @@ struct FunctionBuilder : Visitor {
                      std::vector<std::shared_ptr<Value>> vs) {
         internal_assert(block) << "Tried to append instruction to empty block";
         std::string name = get_unique_name();
-        std::shared_ptr<Instruction> instr =
-            std::make_shared<Instruction>(name, std::move(type), op);
-        instr->operands = std::move(vs);
-        instr->owner = block;
+        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+            name, std::move(type), op, std::move(vs), block);
         block->instrs.push_back(instr);
         auto v = std::make_shared<Value>(std::move(instr));
         auto [_, inserted] = block->lookups.insert({name, v});
@@ -190,8 +191,55 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const Return *node) override {
-        auto v = get_value(node->value);
+        std::shared_ptr<Value> v = nullptr;
+        if (node->value.defined()) {
+            v = get_value(node->value);
+        }
         block->terminator.data = Terminator::Return{v};
+    }
+
+    void visit(const CallStmt *node) override {
+        auto func = get_value(node->func);
+        std::vector<std::shared_ptr<Value>> args;
+        args.reserve(1 + node->args.size());
+        args.emplace_back(std::move(func));
+        for (const auto &arg : node->args) {
+            args.emplace_back(get_value(arg));
+        }
+        std::shared_ptr<Instruction> instr =
+            std::make_shared<Instruction>(std::move(args), block);
+        block->instrs.push_back(instr);
+    }
+
+    void visit(const Append *node) override {
+        static const Type f_void_t = Function_t::make(Void_t::make(), {});
+        static const std::shared_ptr<Value> call =
+            make_constant(f_void_t, "append");
+        auto v = get_value(node->value);
+        auto loc = get_value(node->loc.to_expr());
+        std::vector<std::shared_ptr<Value>> args = {call, std::move(loc),
+                                                    std::move(v)};
+        std::shared_ptr<Instruction> instr =
+            std::make_shared<Instruction>(std::move(args), block);
+        block->instrs.push_back(instr);
+    }
+
+    void visit(const Allocate *node) override {
+        internal_assert(node->memory == Allocate::Heap)
+            << "TODO: handle memory locations in SSA!";
+        internal_assert(!node->value.defined())
+            << "TODO: handle values in Allocate SSA! " << node->value;
+
+        std::vector<std::shared_ptr<Value>> args;
+        std::shared_ptr<Instruction> instr =
+            std::make_shared<Instruction>(node->loc.base, node->loc.base_type,
+                                          Instruction::Op::Alloc, args, block);
+        block->instrs.push_back(instr);
+
+        auto [_, inserted] = block->lookups.insert(
+            {node->loc.base, std::make_shared<Value>(instr)});
+        internal_assert(inserted)
+            << node->loc.base << "already exists in block!\n";
     }
 
     template <typename T>
@@ -200,8 +248,25 @@ struct FunctionBuilder : Visitor {
         return std::make_shared<Value>(std::move(c));
     }
 
+    void visit(const IntImm *node) override {
+        value = make_constant(node->type, node->value);
+    }
+
+    void visit(const UIntImm *node) override {
+        value = make_constant(node->type, node->value);
+    }
+
     void visit(const FloatImm *node) override {
         value = make_constant(node->type, node->value);
+    }
+
+    void visit(const BoolImm *node) override {
+        value = make_constant(node->type, node->value);
+    }
+
+    void visit(const Extrema *node) override {
+        internal_assert(node->op == Extrema::eps) << "TODO: inf";
+        value = make_instruction(node->type, Instruction::Op::Eps, {});
     }
 
     void visit(const Access *node) override {
@@ -214,14 +279,6 @@ struct FunctionBuilder : Visitor {
         auto vidx = make_constant(u32, (uint64_t)idx);
         value = make_instruction(node->type, Instruction::Op::LoadField,
                                  {std::move(v), std::move(vidx)});
-    }
-
-    void visit(const Broadcast *node) override {
-        auto v = get_value(node->value);
-        static const Type u32 = UInt_t::make(32);
-        auto lanes = make_constant(u32, (uint64_t)node->lanes);
-        value = make_instruction(node->type, Instruction::Op::Bc,
-                                 {std::move(v), std::move(lanes)});
     }
 
     Instruction::Op get_binop(BinOp::OpType op) {
@@ -238,16 +295,18 @@ struct FunctionBuilder : Visitor {
         //     return Instruction::Op::Mod;
         // case BinOp::Neq:
         //     return Instruction::Op::Neq;
-        // case BinOp::Eq:
-        //     return Instruction::Op::Eq;
+        case BinOp::Eq:
+            return Instruction::Op::Eq;
         case BinOp::Le:
             return Instruction::Op::Leq;
         case BinOp::Lt:
             return Instruction::Op::Lt;
-        // case BinOp::LAnd:
-        //     return Instruction::Op::LAnd;
-        // case BinOp::LOr:
-        //     return Instruction::Op::LOr;
+        case BinOp::LAnd:
+            // TODO: SHORT CIRCUITING!!!
+            return Instruction::Op::LAnd;
+        case BinOp::LOr:
+            // TODO: SHORT CIRCUITING!!!
+            return Instruction::Op::LOr;
         // case BinOp::Xor:
         //     return Instruction::Op::Xor;
         // case BinOp::BwAnd:
@@ -271,10 +330,55 @@ struct FunctionBuilder : Visitor {
         value = make_instruction(node->type, op, {std::move(a), std::move(b)});
     }
 
+    void visit(const Broadcast *node) override {
+        auto v = get_value(node->value);
+        static const Type u32 = UInt_t::make(32);
+        auto lanes = make_constant(u32, (uint64_t)node->lanes);
+        value = make_instruction(node->type, Instruction::Op::Bc,
+                                 {std::move(v), std::move(lanes)});
+    }
+
+    void visit(const Build *node) override {
+        std::vector<std::shared_ptr<Value>> args;
+        args.reserve(node->values.size());
+        for (const auto &arg : node->values) {
+            args.emplace_back(get_value(arg));
+        }
+        value = make_instruction(node->type, Instruction::Op::MakeStruct,
+                                 std::move(args));
+    }
+
+    void visit(const Cast *node) override {
+        auto v = get_value(node->value);
+        Instruction::Op op = (node->mode == Cast::Mode::Reinterpret)
+                                 ? Instruction::Op::Reinterpret
+                                 : Instruction::Op::Cast;
+        value = make_instruction(node->type, op, {std::move(v)});
+    }
+
+    void visit(const Call *node) override {
+        auto func = get_value(node->func);
+        std::vector<std::shared_ptr<Value>> args;
+        args.reserve(1 + node->args.size());
+        args.emplace_back(std::move(func));
+        for (const auto &arg : node->args) {
+            args.emplace_back(get_value(arg));
+        }
+        value = make_instruction(node->type, Instruction::Op::Call,
+                                 std::move(args));
+    }
+
+    void visit(const Extract *node) override {
+        auto vec = get_value(node->vec);
+        auto idx = get_value(node->idx);
+        value = make_instruction(node->type, Instruction::Op::ExtractIdx,
+                                 {std::move(vec), std::move(idx)});
+    }
+
     Instruction::Op get_intrinsic(const Intrinsic::OpType &op) {
         switch (op) {
-        // case Intrinsic::abs:
-        //     return "abs";
+        case Intrinsic::abs:
+            return Instruction::Op::Abs;
         // case Intrinsic::cos:
         //     return "cos";
         // case Intrinsic::cross:
@@ -310,6 +414,17 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const Intrinsic *node) override {
+        if (node->op == Intrinsic::dot) {
+            internal_assert(node->args.size() == 2);
+            ir::Expr e = lower::dot_product(node->args[0], node->args[1]);
+            e.accept(this);
+            return;
+        } else if (node->op == Intrinsic::cross) {
+            internal_assert(node->args.size() == 2);
+            ir::Expr e = lower::cross_product(node->args[0], node->args[1]);
+            e.accept(this);
+            return;
+        }
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());
         for (const auto &arg : node->args) {
@@ -321,7 +436,12 @@ struct FunctionBuilder : Visitor {
 
     void visit(const Var *node) override {
         internal_assert(block);
-        value = block->get_value(node->name, node->type);
+        if (node->type.is_func()) {
+            // TODO: what about named lambdas??
+            value = make_constant(node->type, node->name);
+        } else {
+            value = block->get_value(node->name, node->type);
+        }
     }
 
     Instruction::Op get_vreduce(const VectorReduce::OpType &op) {
@@ -354,24 +474,24 @@ struct FunctionBuilder : Visitor {
         value = make_instruction(node->type, op, {std::move(a)});
     }
 
-    RESTRICT_VISITOR(IntImm);
-    RESTRICT_VISITOR(UIntImm);
+    // RESTRICT_VISITOR(IntImm);
+    // RESTRICT_VISITOR(UIntImm);
     // RESTRICT_VISITOR(FloatImm);
-    RESTRICT_VISITOR(BoolImm);
+    // RESTRICT_VISITOR(BoolImm);
     RESTRICT_VISITOR(VecImm);
     RESTRICT_VISITOR(StringImm);
-    RESTRICT_VISITOR(Extrema);
+    // RESTRICT_VISITOR(Extrema);
     // RESTRICT_VISITOR(Var);
     // RESTRICT_VISITOR(BinOp);
     RESTRICT_VISITOR(UnOp);
     RESTRICT_VISITOR(Select);
-    RESTRICT_VISITOR(Cast);
+    // RESTRICT_VISITOR(Cast);
     // RESTRICT_VISITOR(Broadcast);
     // RESTRICT_VISITOR(VectorReduce);
     RESTRICT_VISITOR(VectorShuffle);
     RESTRICT_VISITOR(Ramp);
-    RESTRICT_VISITOR(Extract);
-    RESTRICT_VISITOR(Build);
+    // RESTRICT_VISITOR(Extract);
+    // RESTRICT_VISITOR(Build);
     // RESTRICT_VISITOR(Access);
     RESTRICT_VISITOR(Unwrap);
     // RESTRICT_VISITOR(Intrinsic);
@@ -380,20 +500,20 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(GeomOp);
     RESTRICT_VISITOR(SetOp);
     RESTRICT_VISITOR(AggOp);
-    RESTRICT_VISITOR(Call);
+    // RESTRICT_VISITOR(Call);
     RESTRICT_VISITOR(Instantiate);
     RESTRICT_VISITOR(PtrTo);
     RESTRICT_VISITOR(Deref);
     RESTRICT_VISITOR(AtomicAdd);
 
-    RESTRICT_VISITOR(CallStmt);
+    // RESTRICT_VISITOR(CallStmt);
     RESTRICT_VISITOR(Print);
     // RESTRICT_VISITOR(Return);
     // RESTRICT_VISITOR(LetStmt);
     // RESTRICT_VISITOR(IfElse);
     RESTRICT_VISITOR(DoWhile);
     // RESTRICT_VISITOR(Sequence); // default behavior is fine.
-    RESTRICT_VISITOR(Allocate);
+    // RESTRICT_VISITOR(Allocate);
     RESTRICT_VISITOR(Free);
     RESTRICT_VISITOR(Store);
     RESTRICT_VISITOR(Accumulate);
@@ -408,13 +528,16 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(Append);
+    // RESTRICT_VISITOR(Append);
 };
 
 std::shared_ptr<ssa::Function>
 build(const std::shared_ptr<ir::Function> &func) {
     std::cout << *func << std::endl;
     FunctionBuilder builder(*func);
+    if (!builder.block->terminator.defined()) {
+        builder.block->terminator.data = Terminator::Return{};
+    }
     return builder.function;
 }
 

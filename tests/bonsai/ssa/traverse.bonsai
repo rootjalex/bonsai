@@ -1,0 +1,28 @@
+extern input : set[f32];
+
+func [[export]] range_query_fast(low : f32, high : f32) = filter(|i : f32| low <= i && i <= high, input);
+
+schedule {
+    tree[[f32]] IntervalTree(low high : f32) with data in [low, high] =
+    | Interior(left : IntervalTree, right : IntervalTree)
+    | Leaf(d : f32) with data = d;
+
+    input : IntervalTree;
+
+    // query_fast.loopify(64); ?
+
+    layout input {
+        pCount : u64;
+        prims : array[f32, pCount];
+        nCount : u64;
+        group[nCount] index : u64 {
+            low : f32;
+            high : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { d : f32; }; // pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims));
+            };
+        };
+    };
+}

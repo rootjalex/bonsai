@@ -12,7 +12,10 @@ namespace ssa {
 void Argument::dump(std::ostream &os) const { os << name << " : " << type; }
 
 void Constant::dump(std::ostream &os) const {
-    os << "(" << type << ")";
+    if (!type.is_func()) {
+        // Func signatures are too annoying to read.
+        os << "(" << type << ")";
+    }
     std::visit([&](auto &&v) { os << v; }, data);
 }
 
@@ -41,14 +44,30 @@ const Type &Value::get_type() const {
 
 static const char *op_name(Instruction::Op op) {
     switch (op) {
+    case Instruction::Op::Abs:
+        return "add";
     case Instruction::Op::Add:
         return "add";
+    case Instruction::Op::Alloc:
+        return "alloc";
     case Instruction::Op::Bc:
         return "bc";
     case Instruction::Op::Call:
         return "call";
+    case Instruction::Op::Cast:
+        return "cast";
     case Instruction::Op::Div:
         return "div";
+    case Instruction::Op::Eps:
+        return "eps";
+    case Instruction::Op::Eq:
+        return "eq";
+    case Instruction::Op::ExtractIdx:
+        return "extract_idx";
+    case Instruction::Op::LAnd:
+        return "land";
+    case Instruction::Op::LOr:
+        return "lor";
     case Instruction::Op::Leq:
         return "leq";
     case Instruction::Op::LoadField:
@@ -63,6 +82,8 @@ static const char *op_name(Instruction::Op op) {
         return "min";
     case Instruction::Op::Mul:
         return "mul";
+    case Instruction::Op::Reinterpret:
+        return "reinterpret";
     case Instruction::Op::Set:
         return "set";
     case Instruction::Op::Sub:
@@ -73,10 +94,29 @@ static const char *op_name(Instruction::Op op) {
 
 void Instruction::dump(std::ostream &os) const {
     // TODO: print type?
-    os << name << " = ";
-    os << op_name(op) << "(";
-    for (size_t i = 0, e = operands.size(); i < e; i++) {
-        if (i) {
+    if (!name.empty()) {
+        os << name << " = ";
+    }
+
+    size_t start = 0;
+
+    if (op == Instruction::Op::Call) {
+        os << "call ";
+        internal_assert(operands.size() >= 1) << name;
+        operands[0]->dump(os);
+        start = 1;
+    } else {
+        os << op_name(op);
+        if (op == Instruction::Op::Alloc || op == Instruction::Op::Cast ||
+            op == Instruction::Op::Eps || op == Instruction::Op::MakeStruct ||
+            op == Instruction::Op::Reinterpret) {
+            os << "<" << type << ">";
+        }
+    }
+    os << "(";
+
+    for (size_t i = start, e = operands.size(); i < e; i++) {
+        if (i > start) {
             os << ", ";
         }
         operands[i]->dump(os);
@@ -138,6 +178,12 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
 
     // Needed from calling block.
     const auto func = owner.lock();
+    if (!(func && !func->blocks.empty() &&
+          this != func->blocks.front().get())) {
+        if (func) {
+            func->dump(std::cerr);
+        }
+    }
     internal_assert(func && !func->blocks.empty() &&
                     this != func->blocks.front().get())
         << "Var: " << name
