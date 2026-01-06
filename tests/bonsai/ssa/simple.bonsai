@@ -61,6 +61,28 @@ func example2(a : f32, b : f32) {
     return p;
 }
 
+func example3(a : f32, b : f32) {
+    p : mut f32 = 0.0;
+
+    if (a > b) {
+        p = a * 2;
+    } else {
+        p = b + 4;
+    }
+    return p;
+}
+
+func example4(a : f32, b : f32) {
+    p : mut f32 = 1.0;
+
+    if (a > b) {
+        p = p + 2;
+    } else {
+        p = b + 4;
+    }
+    return p;
+}
+
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     // slab test for ray box intersection
     // source: http://www.jcgt.org/published/0007/03/04/paper-lowres.pdf

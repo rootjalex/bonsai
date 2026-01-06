@@ -186,8 +186,7 @@ struct FunctionBuilder : Visitor {
 
     void visit(const LetStmt *node) override {
         auto v = get_value(node->value);
-        (void)make_instruction(node->loc.base, node->loc.base_type,
-                               std::move(v));
+        make_instruction(node->loc.base, node->loc.base_type, std::move(v));
     }
 
     void visit(const Return *node) override {
@@ -225,6 +224,17 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const Allocate *node) override {
+        if (node->memory == Allocate::Stack) {
+            // TODO: require simple (non-struct) type?
+            if (node->value.defined()) {
+                // Handle like a LetStmt, this is a primitive type that will
+                // just be updated.
+                auto v = get_value(node->value);
+                make_instruction(node->loc.base, node->loc.base_type,
+                                 std::move(v));
+            }
+            return;
+        }
         internal_assert(node->memory == Allocate::Heap)
             << "TODO: handle memory locations in SSA!";
         internal_assert(!node->value.defined())
@@ -240,6 +250,19 @@ struct FunctionBuilder : Visitor {
             {node->loc.base, std::make_shared<Value>(instr)});
         internal_assert(inserted)
             << node->loc.base << "already exists in block!\n";
+    }
+
+    void visit(const Store *node) override {
+        internal_assert(node->loc.accesses.empty())
+            << "TODO: handle mutating stores in SSA: " << Stmt(node);
+        internal_assert(node->loc.type.is_stack_allocatable())
+            << "TODO: handle non-primitive (heap) stores in SSA: "
+            << Stmt(node);
+        auto v = get_value(node->value);
+
+        // Overwrite the name with v (insert if missing).
+        // All successors of the current block will receive v.
+        block->lookups[node->loc.base] = v;
     }
 
     template <typename T>
@@ -515,7 +538,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Sequence); // default behavior is fine.
     // RESTRICT_VISITOR(Allocate);
     RESTRICT_VISITOR(Free);
-    RESTRICT_VISITOR(Store);
+    // RESTRICT_VISITOR(Store);
     RESTRICT_VISITOR(Accumulate);
     RESTRICT_VISITOR(Label);
     RESTRICT_VISITOR(RecLoop);
