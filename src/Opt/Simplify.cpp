@@ -267,6 +267,7 @@ struct Simplifier : ir::Mutator {
                 // x % 2^n -> x & (2^n - 1)
                 return a & make_const(type, *c_b - 1);
             }
+            return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::LAnd: {
             if (ir::Expr e = constant_fold_integral(std::logical_and<>{}, a, b);

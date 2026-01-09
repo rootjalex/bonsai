@@ -64,6 +64,8 @@ static const char *op_name(Instruction::Op op) {
         return "eq";
     case Instruction::Op::ExtractIdx:
         return "extract_idx";
+    case Instruction::Op::GEP:
+        return "gep";
     case Instruction::Op::LAnd:
         return "land";
     case Instruction::Op::LOr:
@@ -80,11 +82,15 @@ static const char *op_name(Instruction::Op op) {
         return "max";
     case Instruction::Op::Min:
         return "min";
+    case Instruction::Op::Mod:
+        return "mod";
     case Instruction::Op::Mul:
         return "mul";
     case Instruction::Op::Reinterpret:
         return "reinterpret";
     case Instruction::Op::Set:
+        return "set";
+    case Instruction::Op::Store:
         return "set";
     case Instruction::Op::Sub:
         return "sub";
@@ -93,6 +99,16 @@ static const char *op_name(Instruction::Op op) {
 }
 
 void Instruction::dump(std::ostream &os) const {
+    if (op == Instruction::Op::Store) {
+        internal_assert(name.empty())
+            << "Name must be empty for store: " << name;
+        os << "store ";
+        internal_assert(operands.size() == 2);
+        operands[0]->dump(os);
+        os << " ";
+        operands[1]->dump(os);
+        return;
+    }
     // TODO: print type?
     if (!name.empty()) {
         os << name << " = ";
@@ -124,17 +140,26 @@ void Instruction::dump(std::ostream &os) const {
     os << ")";
 }
 
+namespace {
+
+void dump_target(std::ostream &os, const Terminator::Jump &j) {
+    os << j.name << "(";
+    for (size_t i = 0; i < j.args.size(); ++i) {
+        if (i)
+            os << ", ";
+        j.args[i]->dump(os);
+    }
+    os << ")";
+}
+
+} // namespace
+
 void Terminator::dump(std::ostream &os) const {
     std::visit(overloads{
                    [&](const std::monostate &m) { os << "<EMPTY>"; },
                    [&](const Jump &j) {
-                       os << "jmp " << j.name << "(";
-                       for (size_t i = 0; i < j.args.size(); ++i) {
-                           if (i)
-                               os << ", ";
-                           j.args[i]->dump(os);
-                       }
-                       os << ")";
+                       os << "jmp ";
+                       dump_target(os, j);
                    },
                    [&](const Dispatch &d) {
                        os << "dispatch ";
@@ -143,14 +168,7 @@ void Terminator::dump(std::ostream &os) const {
                        for (size_t i = 0; i < d.targets.size(); ++i) {
                            if (i)
                                os << ", ";
-                           os << d.targets[i].name << "(";
-                           for (size_t j = 0; j < d.targets[i].args.size();
-                                ++j) {
-                               if (j)
-                                   os << ", ";
-                               d.targets[i].args[j]->dump(os);
-                           }
-                           os << ")";
+                           dump_target(os, d.targets[i]);
                        }
                        os << "]";
                    },
@@ -161,6 +179,19 @@ void Terminator::dump(std::ostream &os) const {
                            r.value->dump(os);
                        }
                    },
+                   [&](const ParFor &p) {
+                       os << "parfor " << p.index << " ";
+                       p.start->dump(os);
+                       os << ":";
+                       p.end->dump(os);
+                       os << ":";
+                       p.stride->dump(os);
+                       os << " ";
+                       dump_target(os, p.body);
+                       os << " ";
+                       dump_target(os, p.cont);
+                   },
+                   [&](const Yield &y) { os << "yield"; },
                },
                data);
 }
@@ -228,7 +259,21 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
                                << " returns but is listed as a predecessor to: "
                                << name;
                        },
-                   },
+                       [&](Terminator::ParFor &pf) {
+                           if (pf.body.name == this->name) {
+                               // Recursively adds to parent block.
+                               pf.body.args.push_back(p->get_value(name, type));
+                           } else if (pf.cont.name == this->name) {
+                               // Recursively adds to parent block.
+                               pf.cont.args.push_back(p->get_value(name, type));
+                           } else {
+                               p->dump(std::cerr);
+                               internal_error << this->name
+                                              << " lists predecessor ^ that "
+                                                 "does not point to it.";
+                           }
+                       },
+                       [&](const Terminator::Yield &y) { (void)y; }},
                    p->terminator.data);
     }
     return value;

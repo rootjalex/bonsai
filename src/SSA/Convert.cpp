@@ -205,12 +205,13 @@ struct FunctionBuilder : Visitor {
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
         }
-        std::shared_ptr<Instruction> instr =
-            std::make_shared<Instruction>(std::move(args), block);
+        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+            Instruction::Op::Call, std::move(args), block);
         block->instrs.push_back(instr);
     }
 
     void visit(const Append *node) override {
+        // TODO: this type is not right.
         static const Type f_void_t = Function_t::make(Void_t::make(), {});
         static const std::shared_ptr<Value> call =
             make_constant(f_void_t, "append");
@@ -218,8 +219,8 @@ struct FunctionBuilder : Visitor {
         auto loc = get_value(node->loc.to_expr());
         std::vector<std::shared_ptr<Value>> args = {call, std::move(loc),
                                                     std::move(v)};
-        std::shared_ptr<Instruction> instr =
-            std::make_shared<Instruction>(std::move(args), block);
+        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+            Instruction::Op::Call, std::move(args), block);
         block->instrs.push_back(instr);
     }
 
@@ -253,16 +254,92 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const Store *node) override {
-        internal_assert(node->loc.accesses.empty())
-            << "TODO: handle mutating stores in SSA: " << Stmt(node);
-        internal_assert(node->loc.type.is_stack_allocatable())
-            << "TODO: handle non-primitive (heap) stores in SSA: "
-            << Stmt(node);
+        if (node->loc.accesses.empty()) {
+            internal_assert(node->loc.type.is_stack_allocatable())
+                << "TODO: handle non-primitive (heap) stores in SSA: "
+                << Stmt(node);
+            auto v = get_value(node->value);
+
+            // Overwrite the name with v (insert if missing).
+            // All successors of the current block will receive v.
+            block->lookups[node->loc.base] = v;
+            return;
+        }
+
+        // Get the stored value *first*.
+        // Before evaluating the lhs.
         auto v = get_value(node->value);
 
-        // Overwrite the name with v (insert if missing).
-        // All successors of the current block will receive v.
-        block->lookups[node->loc.base] = v;
+        // Create GEP
+        // TODO: should this be a pointer to the type??
+        auto var = block->get_value(node->loc.base, node->loc.base_type);
+
+        for (const auto &value : node->loc.accesses) {
+            if (std::holds_alternative<std::string>(value)) {
+                internal_error << "TODO: handle stores to field vars in SSA: "
+                               << Stmt(node);
+            } else {
+                Expr idx = std::get<Expr>(value);
+                auto i = get_value(idx);
+
+                // TODO: FIGURE OUT TYPE!!
+                // TODO: aligned load first?? not sure how this works.
+                // LLVM is weird here.
+                var = make_instruction(Type(), Instruction::Op::GEP,
+                                       {std::move(var), std::move(i)});
+            }
+        }
+
+        std::vector<std::shared_ptr<Value>> args = {std::move(var),
+                                                    std::move(v)};
+        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+            Instruction::Op::Store, std::move(args), block);
+        block->instrs.push_back(instr);
+    }
+
+    void visit(const ParFor *node) override {
+        auto start = get_value(node->slice.begin);
+        auto end = get_value(node->slice.end);
+        auto stride = get_value(node->slice.stride);
+
+        // Create body and continuation blocks.
+        auto body_block = make_block("par_body");
+        body_block->preds.push_back(block);
+        auto cont_block = make_block("par_cont");
+        cont_block->preds.push_back(block);
+
+        // Save the current block
+        internal_assert(!block->terminator.defined());
+        auto header_block = std::move(block);
+
+        // Terminate header with parfor
+        header_block->terminator.data = Terminator::ParFor{
+            .index = node->index,
+            .start = std::move(start),
+            .end = std::move(end),
+            .stride = std::move(stride),
+            // 'args' is empty for now (implicit capture via CFG lookup)
+            .body = Terminator::Jump{.name = body_block->name},
+            .cont = Terminator::Jump{.name = cont_block->name}};
+
+        // Set up loop index (MUST BE FIRST ARG).
+        Argument loop_idx{.type = node->slice.begin.type(),
+                          .name = node->index};
+        body_block->args.push_back(loop_idx);
+        auto [_, inserted] = body_block->lookups.insert(
+            {node->index, std::make_shared<Value>(std::move(loop_idx))});
+        internal_assert(inserted)
+            << node->index << "already exists in block!\n";
+
+        block = body_block;
+
+        node->body.accept(this);
+        internal_assert(!block->terminator.defined())
+            << "ParFor block for: " << node->body << " has terminator.";
+        block->terminator.data = Terminator::Yield{};
+
+        // Continue compilation in the continuation block
+        block = cont_block;
     }
 
     template <typename T>
@@ -314,8 +391,8 @@ struct FunctionBuilder : Visitor {
             return Instruction::Op::Div;
         case BinOp::Sub:
             return Instruction::Op::Sub;
-        // case BinOp::Mod:
-        //     return Instruction::Op::Mod;
+        case BinOp::Mod:
+            return Instruction::Op::Mod;
         // case BinOp::Neq:
         //     return Instruction::Op::Neq;
         case BinOp::Eq:
@@ -549,7 +626,6 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(ForAll);
     RESTRICT_VISITOR(ForEach);
-    RESTRICT_VISITOR(ParFor); // TODO
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
     // RESTRICT_VISITOR(Append);

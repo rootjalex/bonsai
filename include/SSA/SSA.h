@@ -54,6 +54,7 @@ struct Instruction {
         Eps,
         Eq,
         ExtractIdx,
+        GEP,
         LAnd,
         LOr,
         Leq,
@@ -62,13 +63,15 @@ struct Instruction {
         MakeStruct,
         Max,
         Min,
+        Mod,
         Mul,
         Reinterpret,
         Set,
+        Store,
         Sub,
     };
 
-    // empty -> side-effect-y call.
+    // empty -> side-effect-y call or store.
     std::string name;
     Type type;
     Op op;
@@ -82,11 +85,10 @@ struct Instruction {
         : name(std::move(name)), type(std::move(type)), op(op),
           operands(std::move(operands)), owner(std::move(owner)) {}
 
-    // Make a call instruction.
-    Instruction(std::vector<std::shared_ptr<Value>> operands,
+    // Make a side-effect-y instruction
+    Instruction(Op op, std::vector<std::shared_ptr<Value>> operands,
                 std::weak_ptr<Block> owner)
-        : op(Instruction::Op::Call), operands(std::move(operands)),
-          owner(std::move(owner)) {}
+        : op(op), operands(std::move(operands)), owner(std::move(owner)) {}
 
     void dump(std::ostream &os) const;
 };
@@ -105,7 +107,19 @@ struct Terminator {
     struct Return {
         std::shared_ptr<Value> value; // possibly empty
     };
-    std::variant<std::monostate, Jump, Dispatch, Return> data;
+    struct ParFor {
+        std::string index;
+        std::shared_ptr<Value> start, end, stride;
+
+        // Body block varying index (first) and <n> uniform arguments.
+        Jump body;
+        Jump cont; // after the body. index out of scope.
+    };
+    struct Yield {
+        // Ends a ParFor block
+    };
+
+    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield> data;
 
     bool defined() const {
         return !std::holds_alternative<std::monostate>(data);
@@ -120,7 +134,7 @@ struct Block {
     std::string name;
     std::vector<Argument> args; // take the place of phis
     std::vector<std::shared_ptr<Instruction>> instrs;
-    Terminator terminator; // always a jmp/dispatch/return
+    Terminator terminator;
     std::weak_ptr<Function> owner;
 
     // Duplicated data; for lookups *only*.

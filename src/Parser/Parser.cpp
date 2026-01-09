@@ -845,7 +845,6 @@ struct Parser {
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
         } else if (consume(Token::Type::PARFOR)) {
-            std::cout << "Found the parfor!\n";
             std::string idx = get_id();
             if (name_in_scope(idx)) {
                 report_error() << idx << " already in scope.";

@@ -1,0 +1,15 @@
+func foo(i : i32, a : mut array[i32]) {
+    if i % 3 == 0 {
+        a[i] = i / 2;
+    } else {
+        a[i] = i * 3;
+    }
+    return;
+}
+
+func example(n : i32, a : mut array[i32, n]) {
+    parfor i in 0:n {
+        foo(i, a);
+    }
+    return;
+}
