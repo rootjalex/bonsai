@@ -90,6 +90,7 @@ struct Scan;
 struct YieldFrom;
 struct ForAll;
 struct ForEach;
+struct ParFor;
 struct Continue;
 struct Launch;
 struct Append;

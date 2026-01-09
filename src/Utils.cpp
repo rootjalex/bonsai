@@ -268,6 +268,11 @@ Expr constant_cast(const Type &t, const Expr &e) {
 
 Expr cast_to(const Type &t, const Expr &e) {
     // TODO: merge with try_match_types?
+    internal_assert(t.defined()) << "cast_to(undef, " << e << ")";
+    internal_assert(e.defined()) << "cast_to(" << t << ", undef)";
+    internal_assert(e.type().defined())
+        << e << " has undefined type, can't cast to: " << t;
+
     if (equals(t, e.type())) {
         return e;
     }

@@ -165,6 +165,7 @@ struct Printer : public Visitor {
     void visit(const YieldFrom *) override;
     void visit(const ForAll *) override;
     void visit(const ForEach *) override;
+    void visit(const ParFor *) override;
     void visit(const Continue *) override;
     void visit(const Launch *) override;
     void visit(const Append *) override;

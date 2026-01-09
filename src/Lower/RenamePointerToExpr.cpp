@@ -111,6 +111,19 @@ struct Rename : public ir::Mutator {
             ir::ForAll::make(node->index, std::move(slice), std::move(body)));
     }
 
+    ir::Stmt visit(const ir::ParFor *node) override {
+        ir::Stmt body = mutate(node->body);
+        // This should be lowered after so that any expressions generated are
+        // not placed in the `body`.
+        ir::ParFor::Slice slice = ir::ParFor::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
+        return make(
+            ir::ParFor::make(node->index, std::move(slice), std::move(body)));
+    }
+
     ir::Stmt visit(const ir::DoWhile *node) override {
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);

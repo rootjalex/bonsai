@@ -283,6 +283,13 @@ void Visitor::visit(const ForAll *node) {
     node->body.accept(this);
 }
 
+void Visitor::visit(const ParFor *node) {
+    node->slice.begin.accept(this);
+    node->slice.end.accept(this);
+    node->slice.stride.accept(this);
+    node->body.accept(this);
+}
+
 void Visitor::visit(const Continue *node) {}
 
 void Visitor::visit(const Launch *node) {

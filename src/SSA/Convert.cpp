@@ -549,6 +549,7 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(ForAll);
     RESTRICT_VISITOR(ForEach);
+    RESTRICT_VISITOR(ParFor); // TODO
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
     // RESTRICT_VISITOR(Append);

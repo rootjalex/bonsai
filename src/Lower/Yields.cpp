@@ -46,6 +46,12 @@ struct FindSoloYield : public ir::Visitor {
         in_loop--;
     }
 
+    void visit(const ir::ParFor *node) override {
+        in_loop++;
+        ir::Visitor::visit(node);
+        in_loop--;
+    }
+
     void visit(const ir::DoWhile *node) override {
         in_loop++;
         ir::Visitor::visit(node);

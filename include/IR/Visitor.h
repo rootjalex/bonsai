@@ -84,6 +84,7 @@ struct Visitor {
     virtual void visit(const YieldFrom *);
     virtual void visit(const ForAll *);
     virtual void visit(const ForEach *);
+    virtual void visit(const ParFor *);
     virtual void visit(const Continue *);
     virtual void visit(const Launch *);
     virtual void visit(const Append *);

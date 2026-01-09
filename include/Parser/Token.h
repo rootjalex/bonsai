@@ -49,6 +49,7 @@ class Token {
         GROUP,  // group
         SWITCH, // switch
 
+        PARFOR,
         // WHILE, // while
         FOR,   // for
         IF,    // if

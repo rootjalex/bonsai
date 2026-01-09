@@ -677,6 +677,25 @@ Stmt Mutator::visit(const ForAll *node) {
                         std::move(body));
 }
 
+Stmt Mutator::visit(const ParFor *node) {
+    Stmt body = mutate(node->body);
+    ParFor::Slice s = node->slice;
+    Expr begin = mutate(s.begin);
+    Expr end = mutate(s.end);
+    Expr stride = mutate(s.stride);
+    if (body.same_as(node->body) && begin.same_as(s.begin) &&
+        end.same_as(s.end) && stride.same_as(s.stride)) {
+        return node;
+    }
+    return ParFor::make(std::move(node->index),
+                        ParFor::Slice{
+                            .begin = std::move(begin),
+                            .end = std::move(end),
+                            .stride = std::move(stride),
+                        },
+                        std::move(body));
+}
+
 Stmt Mutator::visit(const Continue *node) { return node; }
 
 Stmt Mutator::visit(const Launch *node) {

@@ -1417,6 +1417,23 @@ void Printer::visit(const YieldFrom *node) {
     end_stmt();
 }
 
+void Printer::visit(const ForAll *node) {
+    os << get_indent();
+    os << "forall " << node->index << " in [";
+
+    const ForAll::Slice &s = node->slice;
+    print_no_parens(s.begin);
+    os << ":";
+    print_no_parens(s.end);
+    os << ":";
+    print_no_parens(s.stride);
+    os << "] {\n";
+    ++indent;
+    print(node->body);
+    --indent;
+    os << get_indent() << "}\n";
+}
+
 void Printer::visit(const ForEach *node) {
     os << get_indent();
     os << "foreach " << node->name << " in ";
@@ -1429,11 +1446,11 @@ void Printer::visit(const ForEach *node) {
     end_stmt();
 }
 
-void Printer::visit(const ForAll *node) {
+void Printer::visit(const ParFor *node) {
     os << get_indent();
-    os << "forall " << node->index << " in [";
+    os << "parfor " << node->index << " in [";
 
-    const ForAll::Slice &s = node->slice;
+    const ParFor::Slice &s = node->slice;
     print_no_parens(s.begin);
     os << ":";
     print_no_parens(s.end);

@@ -844,6 +844,59 @@ struct Parser {
             ir::Expr ret = parse_expr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
+        } else if (consume(Token::Type::PARFOR)) {
+            std::cout << "Found the parfor!\n";
+            std::string idx = get_id();
+            if (name_in_scope(idx)) {
+                report_error() << idx << " already in scope.";
+            }
+            ir::Type type;
+            if (consume(Token::Type::COL)) {
+                type = parse_type();
+            }
+            expect(Token::Type::IN);
+            ir::Expr low = parse_expr();
+            expect(Token::Type::COL);
+            ir::Expr high = parse_expr();
+            ir::Expr stride;
+            if (consume(Token::Type::COL)) {
+                stride = parse_expr();
+            }
+
+            if (type.defined()) {
+                low = cast_to(type, low);
+                high = cast_to(type, low);
+
+                stride =
+                    stride.defined() ? cast_to(type, stride) : make_one(type);
+            }
+
+            internal_assert(low.type().defined() && high.type().defined())
+                << "Expected types for parfor bounds: " << low << " and "
+                << high;
+
+            internal_assert(ir::equals(low.type(), high.type()))
+                << "Expected matching types for parfor bounds: " << low
+                << " vs. " << high;
+
+            if (!stride.defined()) {
+                stride = make_one(low.type());
+            }
+
+            push_frame();
+
+            add_type_to_frame(idx, low.type(), /*mutating=*/false);
+
+            ir::Stmt body = parse_statement();
+
+            pop_frame();
+
+            ir::ParFor::Slice slice{.begin = std::move(low),
+                                    .end = std::move(high),
+                                    .stride = std::move(stride)};
+
+            return ir::ParFor::make(std::move(idx), std::move(slice),
+                                    std::move(body));
         } else if (consume(Token::Type::PRINT)) {
             expect(Token::Type::LPAREN);
             std::vector<ir::Expr> args =

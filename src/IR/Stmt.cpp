@@ -297,6 +297,37 @@ Expr ForAll::count() const {
     return BinOp::make(BinOp::OpType::Div, z, s);
 }
 
+Stmt ParFor::make(std::string index, Slice slice, Stmt body) {
+    ParFor *node = new ParFor;
+    internal_assert(!index.empty()) << "Empty index name in ParFor::make";
+    // Header is optionally defined.
+    internal_assert(slice.begin.defined())
+        << "Undefined Slice.begin in ParFor::make";
+    internal_assert(slice.end.defined())
+        << "Undefined Slice.end in ParFor::make";
+    internal_assert(slice.stride.defined())
+        << "Undefined Slice.stride in ParFor::make";
+    internal_assert(body.defined()) << "Undefined body in ParFor::make";
+    internal_assert(equals(slice.begin.type(), slice.end.type()));
+    internal_assert(equals(slice.begin.type(), slice.stride.type()));
+    node->index = std::move(index);
+    node->slice = std::move(slice);
+    node->body = std::move(body);
+    return node;
+}
+
+Type ParFor::index_type() const { return slice.begin.type(); }
+
+Expr ParFor::count() const {
+    Type idx_t = index_type();
+    Expr b = slice.begin, e = slice.end, s = slice.stride;
+    // ((e - b) + (s - 1)) / s
+    Expr x = BinOp::make(BinOp::OpType::Sub, e, b);
+    Expr y = BinOp::make(BinOp::OpType::Sub, s, make_one(idx_t));
+    Expr z = BinOp::make(BinOp::OpType::Add, x, y);
+    return BinOp::make(BinOp::OpType::Div, z, s);
+}
+
 Stmt Continue::make() {
     static Stmt global_break = new Continue;
     return global_break;

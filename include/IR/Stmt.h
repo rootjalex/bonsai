@@ -37,6 +37,7 @@ enum class IRStmtEnum {
     YieldFrom,
     ForAll,
     ForEach,
+    ParFor,
     Continue,
     Launch,
     Append,
@@ -298,6 +299,25 @@ struct ForAll : StmtNode<ForAll> {
     static Stmt make(std::string index, Slice slice, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::ForAll;
+};
+
+// TODO: We just want Sequential for and parallel for, no need for
+// foreach/forall/parfor/etc
+struct ParFor : StmtNode<ParFor> {
+    struct Slice {
+        Expr begin, end, stride;
+    } slice;
+    std::string index;
+    Stmt body;
+
+    Type index_type() const;
+
+    // Returns the iteration count.
+    Expr count() const;
+
+    static Stmt make(std::string index, Slice slice, Stmt body);
+
+    static const IRStmtEnum node_type = IRStmtEnum::ParFor;
 };
 
 // End iterating inside this loop.

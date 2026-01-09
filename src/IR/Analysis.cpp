@@ -129,6 +129,21 @@ struct GatherFreeVars : public Visitor {
         seen_vars.erase(node->name);
     }
 
+    void visit(const ir::ParFor *node) override {
+        node->slice.begin.accept(this);
+        node->slice.end.accept(this);
+        node->slice.stride.accept(this);
+
+        // Now insert iteration var.
+        internal_assert(!seen_vars.contains(node->index));
+        seen_vars.insert(node->index);
+
+        node->body.accept(this);
+
+        // Erase iteration var.
+        seen_vars.erase(node->index);
+    }
+
     void visit(const ir::RecLoop *node) override {
         for (const auto &arg : node->args) {
             seen_vars.insert(arg.name);
@@ -179,6 +194,7 @@ struct AlwaysReturns : public Visitor {
     // it should simplify.
     void visit(const ForAll *node) override { returns = false; }
     void visit(const DoWhile *node) override { returns = false; }
+    void visit(const ParFor *node) override { returns = false; }
 
     RESTRICT_VISITOR(RecLoop);
     RESTRICT_VISITOR(ForEach);

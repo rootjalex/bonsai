@@ -129,6 +129,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::ON;
     if (token == "in")
         return Token::Type::IN;
+    if (token == "parfor")
+        return Token::Type::PARFOR;
     if (token == "layout")
         return Token::Type::LAYOUT;
     if (token == "group")

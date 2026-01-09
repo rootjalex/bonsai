@@ -1049,6 +1049,8 @@ class BonsaiToCpp : ir::Printer {
         decrement();
         ss << get_indent() << "}\n";
     }
+    RESTRICT_VISITOR(ForEach);
+    RESTRICT_VISITOR(ParFor);
     // void visit(const ForEach *) override;
     // void visit(const Continue *) override;
     // void visit(const Launch *) override;
