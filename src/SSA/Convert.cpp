@@ -229,7 +229,8 @@ struct FunctionBuilder : Visitor {
             .call = Terminator::Jump{.name = call_name, std::move(args)},
             // 'args' is empty for now (implicit capture via CFG lookup)
             // Does not receive output of call, because value is dropped.
-            .cont = Terminator::Jump{.name = cont_block->name}};
+            .cont = Terminator::Jump{.name = cont_block->name},
+            .drop = true};
 
         block = cont_block;
     }
@@ -498,12 +499,17 @@ struct FunctionBuilder : Visitor {
         call_block->terminator.data = Terminator::Call{
             .call = Terminator::Jump{.name = call_name, std::move(args)},
             // TODO: `args` takes an argument that is the result of the call.
-            .cont = Terminator::Jump{.name = cont_block->name}};
+            .cont = Terminator::Jump{.name = cont_block->name},
+            .drop = false};
 
         block = cont_block;
 
+        std::string name = get_unique_name(); // name of returned item
+        Argument arg{.type = node->type, .name = name};
+        block->args.push_back(arg);
         // TODO value must now be the load of the first argument from the
         // cont_block!
+        value = std::make_shared<Value>(std::move(arg));
     }
 
     void visit(const Extract *node) override {

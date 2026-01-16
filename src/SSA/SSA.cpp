@@ -195,7 +195,11 @@ void Terminator::dump(std::ostream &os) const {
                    },
                    [&](const Yield &y) { os << "yield"; },
                    [&](const Call &c) {
-                       os << "callc ";
+                       os << "call";
+                       if (!c.drop) {
+                           os << "c";
+                       }
+                       os << " ";
                        dump_target(os, c.call);
                        os << " ";
                        dump_target(os, c.cont);

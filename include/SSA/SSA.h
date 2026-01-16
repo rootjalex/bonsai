@@ -123,6 +123,7 @@ struct Terminator {
         Jump call; // call to make
         Jump cont; // continuation to return to. if call returns a value, it is
                    // appended as the first argument to cont
+        bool drop = true;
     };
 
     std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call> data;
