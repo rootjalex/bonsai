@@ -1,8 +1,18 @@
+func bar(i : i32, a : mut array[i32]) {
+    a[i] = i / 2;
+    return;
+}
+
+func fiz(i : i32, a : mut array[i32]) {
+    a[i] = i * 3;
+    return;
+}
+
 func foo(i : i32, a : mut array[i32]) {
     if i % 3 == 0 {
-        a[i] = i / 2;
+        bar(i, a);
     } else {
-        a[i] = i * 3;
+        fiz(i, a);
     }
     return;
 }

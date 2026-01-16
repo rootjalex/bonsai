@@ -50,10 +50,10 @@ static const char *op_name(Instruction::Op op) {
         return "add";
     case Instruction::Op::Alloc:
         return "alloc";
+    case Instruction::Op::Append:
+        return "append";
     case Instruction::Op::Bc:
         return "bc";
-    case Instruction::Op::Call:
-        return "call";
     case Instruction::Op::Cast:
         return "cast";
     case Instruction::Op::Div:
@@ -108,6 +108,15 @@ void Instruction::dump(std::ostream &os) const {
         os << " ";
         operands[1]->dump(os);
         return;
+    } else if (op == Instruction::Op::Append) {
+        internal_assert(name.empty())
+            << "Name must be empty for append: " << name;
+        os << "append ";
+        internal_assert(operands.size() == 2);
+        operands[0]->dump(os);
+        os << " ";
+        operands[1]->dump(os);
+        return;
     }
     // TODO: print type?
     if (!name.empty()) {
@@ -116,18 +125,11 @@ void Instruction::dump(std::ostream &os) const {
 
     size_t start = 0;
 
-    if (op == Instruction::Op::Call) {
-        os << "call ";
-        internal_assert(operands.size() >= 1) << name;
-        operands[0]->dump(os);
-        start = 1;
-    } else {
-        os << op_name(op);
-        if (op == Instruction::Op::Alloc || op == Instruction::Op::Cast ||
-            op == Instruction::Op::Eps || op == Instruction::Op::MakeStruct ||
-            op == Instruction::Op::Reinterpret) {
-            os << "<" << type << ">";
-        }
+    os << op_name(op);
+    if (op == Instruction::Op::Alloc || op == Instruction::Op::Cast ||
+        op == Instruction::Op::Eps || op == Instruction::Op::MakeStruct ||
+        op == Instruction::Op::Reinterpret) {
+        os << "<" << type << ">";
     }
     os << "(";
 
@@ -192,6 +194,12 @@ void Terminator::dump(std::ostream &os) const {
                        dump_target(os, p.cont);
                    },
                    [&](const Yield &y) { os << "yield"; },
+                   [&](const Call &c) {
+                       os << "callc ";
+                       dump_target(os, c.call);
+                       os << " ";
+                       dump_target(os, c.cont);
+                   },
                },
                data);
 }
@@ -273,7 +281,22 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
                                                  "does not point to it.";
                            }
                        },
-                       [&](const Terminator::Yield &y) { (void)y; }},
+                       [&](const Terminator::Yield &y) { (void)y; },
+                       [&](Terminator::Call &c) {
+                           if (c.call.name == this->name) {
+                               // Recursively adds to parent block.
+                               c.call.args.push_back(p->get_value(name, type));
+                           } else if (c.cont.name == this->name) {
+                               // Recursively adds to parent block.
+                               c.cont.args.push_back(p->get_value(name, type));
+                           } else {
+                               p->dump(std::cerr);
+                               internal_error << this->name
+                                              << " lists predecessor ^ that "
+                                                 "does not point to it.";
+                           }
+                       }},
+
                    p->terminator.data);
     }
     return value;

@@ -47,8 +47,8 @@ struct Instruction {
         Abs,
         Add,
         Alloc,
+        Append, // side-effect-y
         Bc,
-        Call,
         Cast,
         Div,
         Eps,
@@ -67,11 +67,11 @@ struct Instruction {
         Mul,
         Reinterpret,
         Set,
-        Store,
+        Store, // side-effect-y
         Sub,
     };
 
-    // empty -> side-effect-y call or store.
+    // empty -> side-effect-y (store/append)
     std::string name;
     Type type;
     Op op;
@@ -118,8 +118,14 @@ struct Terminator {
     struct Yield {
         // Ends a ParFor block
     };
+    struct Call {
+        // Call + call's return continuation
+        Jump call; // call to make
+        Jump cont; // continuation to return to. if call returns a value, it is
+                   // appended as the first argument to cont
+    };
 
-    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield> data;
+    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call> data;
 
     bool defined() const {
         return !std::holds_alternative<std::monostate>(data);

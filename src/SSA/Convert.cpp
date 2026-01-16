@@ -197,30 +197,51 @@ struct FunctionBuilder : Visitor {
         block->terminator.data = Terminator::Return{v};
     }
 
+    std::string get_call_name(const std::shared_ptr<Value> &v) const {
+        if (const auto *c = std::get_if<Constant>(&(v->data))) {
+            if (const auto *s = std::get_if<std::string>(&(c->data))) {
+                return *s;
+            }
+        }
+        v->dump(std::cerr);
+        internal_error << "In SSA call lowering ^ is not a string call.";
+    }
+
     void visit(const CallStmt *node) override {
         auto func = get_value(node->func);
         std::vector<std::shared_ptr<Value>> args;
-        args.reserve(1 + node->args.size());
-        args.emplace_back(std::move(func));
+        args.reserve(node->args.size());
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
         }
-        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            Instruction::Op::Call, std::move(args), block);
-        block->instrs.push_back(instr);
+
+        auto call_name = get_call_name(func);
+
+        // Create continuation block.
+        auto cont_block = make_block(call_name + "_call_cont");
+        cont_block->preds.push_back(block);
+
+        // End the current block with a Call
+        internal_assert(!block->terminator.defined());
+        auto call_block = std::move(block);
+
+        call_block->terminator.data = Terminator::Call{
+            .call = Terminator::Jump{.name = call_name, std::move(args)},
+            // 'args' is empty for now (implicit capture via CFG lookup)
+            // Does not receive output of call, because value is dropped.
+            .cont = Terminator::Jump{.name = cont_block->name}};
+
+        block = cont_block;
     }
 
     void visit(const Append *node) override {
-        // TODO: this type is not right.
-        static const Type f_void_t = Function_t::make(Void_t::make(), {});
-        static const std::shared_ptr<Value> call =
-            make_constant(f_void_t, "append");
         auto v = get_value(node->value);
         auto loc = get_value(node->loc.to_expr());
-        std::vector<std::shared_ptr<Value>> args = {call, std::move(loc),
+        std::vector<std::shared_ptr<Value>> args = {std::move(loc),
                                                     std::move(v)};
+
         std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            Instruction::Op::Call, std::move(args), block);
+            Instruction::Op::Append, std::move(args), block);
         block->instrs.push_back(instr);
     }
 
@@ -459,13 +480,30 @@ struct FunctionBuilder : Visitor {
     void visit(const Call *node) override {
         auto func = get_value(node->func);
         std::vector<std::shared_ptr<Value>> args;
-        args.reserve(1 + node->args.size());
-        args.emplace_back(std::move(func));
+        args.reserve(node->args.size());
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
         }
-        value = make_instruction(node->type, Instruction::Op::Call,
-                                 std::move(args));
+
+        auto call_name = get_call_name(func);
+
+        // Create continuation block.
+        auto cont_block = make_block(call_name + "_call_cont");
+        cont_block->preds.push_back(block);
+
+        // End the current block with a Call
+        internal_assert(!block->terminator.defined());
+        auto call_block = std::move(block);
+
+        call_block->terminator.data = Terminator::Call{
+            .call = Terminator::Jump{.name = call_name, std::move(args)},
+            // TODO: `args` takes an argument that is the result of the call.
+            .cont = Terminator::Jump{.name = cont_block->name}};
+
+        block = cont_block;
+
+        // TODO value must now be the load of the first argument from the
+        // cont_block!
     }
 
     void visit(const Extract *node) override {
