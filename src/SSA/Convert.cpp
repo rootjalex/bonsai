@@ -319,6 +319,54 @@ struct FunctionBuilder : Visitor {
         block->instrs.push_back(instr);
     }
 
+    Instruction::Op get_acc_op(const Accumulate::OpType op) {
+        switch (op) {
+        case Accumulate::Add: {
+            return Instruction::Op::Add;
+        }
+        case Accumulate::Mul: {
+            return Instruction::Op::Mul;
+        }
+        case Accumulate::Sub: {
+            return Instruction::Op::Sub;
+        }
+        case Accumulate::Min: {
+            return Instruction::Op::Min;
+        }
+        case Accumulate::Max: {
+            return Instruction::Op::Max;
+        }
+        default: {
+            internal_error << "TODO: handle all Accumulate ops -> SSA ops: "
+                           << (int)op;
+            return Instruction::Op::Add;
+        }
+        }
+    }
+
+    void visit(const Accumulate *node) override {
+        internal_assert(node->loc.accesses.empty())
+            << "TODO: handle accumulate to member/index: " << Stmt(node);
+        internal_assert(node->loc.type.is_stack_allocatable())
+            << "TODO: handle non-primitive (heap) accumulates in SSA: "
+            << Stmt(node);
+        auto v = get_value(node->value);
+
+        auto curr = block->get_value(node->loc.base, node->loc.base_type);
+
+        auto op = get_acc_op(node->op);
+
+        std::vector<std::shared_ptr<Value>> args = {std::move(curr),
+                                                    std::move(v)};
+
+        std::shared_ptr<Instruction> instr =
+            std::make_shared<Instruction>(op, std::move(args), block);
+
+        // Overwrite the name with v (insert if missing).
+        // All successors of the current block will receive v.
+        block->lookups[node->loc.base] = std::make_shared<Value>(instr);
+    }
+
     void visit(const ParFor *node) override {
         auto start = get_value(node->slice.begin);
         auto end = get_value(node->slice.end);
@@ -660,7 +708,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Allocate);
     RESTRICT_VISITOR(Free);
     // RESTRICT_VISITOR(Store);
-    RESTRICT_VISITOR(Accumulate);
+    // RESTRICT_VISITOR(Accumulate);
     RESTRICT_VISITOR(Label);
     RESTRICT_VISITOR(RecLoop);
     RESTRICT_VISITOR(Match);
