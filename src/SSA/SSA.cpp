@@ -42,6 +42,20 @@ const Type &Value::get_type() const {
     return *ty;
 }
 
+std::optional<Argument> Value::get_argument() const {
+    return std::visit(
+        overloads{
+            [](const std::shared_ptr<Instruction> &i)
+                -> std::optional<Argument> {
+                internal_assert(i->type.defined());
+                return Argument{i->type, i->name};
+            },
+            [](const Constant &c) -> std::optional<Argument> { return {}; },
+            [](const Argument &a) -> std::optional<Argument> { return a; },
+        },
+        data);
+}
+
 static const char *op_name(Instruction::Op op) {
     switch (op) {
     case Instruction::Op::Abs:
@@ -50,6 +64,8 @@ static const char *op_name(Instruction::Op op) {
         return "add";
     case Instruction::Op::Alloc:
         return "alloc";
+    case Instruction::Op::Alloca:
+        return "alloca";
     case Instruction::Op::Append:
         return "append";
     case Instruction::Op::Bc:
@@ -72,6 +88,8 @@ static const char *op_name(Instruction::Op op) {
         return "lor";
     case Instruction::Op::Leq:
         return "leq";
+    case Instruction::Op::Load:
+        return "load";
     case Instruction::Op::LoadField:
         return "load_field";
     case Instruction::Op::Lt:
@@ -126,8 +144,9 @@ void Instruction::dump(std::ostream &os) const {
     size_t start = 0;
 
     os << op_name(op);
-    if (op == Instruction::Op::Alloc || op == Instruction::Op::Cast ||
-        op == Instruction::Op::Eps || op == Instruction::Op::MakeStruct ||
+    if (op == Instruction::Op::Alloc || op == Instruction::Op::Alloca ||
+        op == Instruction::Op::Cast || op == Instruction::Op::Eps ||
+        op == Instruction::Op::MakeStruct ||
         op == Instruction::Op::Reinterpret) {
         os << "<" << type << ">";
     }
@@ -323,6 +342,8 @@ void Block::dump(std::ostream &os) const {
     terminator.dump(os);
     os << "\n";
 }
+
+void Block::dump() const { this->dump(std::cout); }
 
 void Function::dump(std::ostream &os) const {
     for (size_t i = 0; i < blocks.size(); ++i) {

@@ -10,6 +10,8 @@
 
 #include "Utils.h"
 
+#include <iostream>
+
 namespace bonsai {
 namespace ir {
 namespace ssa {
@@ -74,6 +76,7 @@ struct FunctionBuilder : Visitor {
             instr->name = name;
 
             // Update lookup table
+            // TODO: remove existing name??
             auto [it, inserted] = block->lookups.insert({name, v});
             if (!inserted) {
                 it->second = v; // overwrite existing entry
@@ -184,6 +187,36 @@ struct FunctionBuilder : Visitor {
         }
     }
 
+    void visit(const DoWhile *node) override {
+        std::shared_ptr<Block> loop_head = make_block("do_while");
+        internal_assert(!block->terminator.defined());
+        block->terminator.data = Terminator::Jump{.name = loop_head->name};
+        loop_head->preds.push_back(block);
+        auto entry_block = std::move(block);
+        block = loop_head;
+        node->body.accept(this);
+
+        // If the block terminator is defined, it should be a return,
+        // (should never happen?), otherwise need to make a dispatch terminator.
+        // Should the condition be made in the body though? I guess so. That's
+        // kinda weird.
+        auto v = get_value(node->cond);
+        internal_assert(!block->terminator.defined());
+
+        std::shared_ptr<Block> loop_end = make_block("do_while_end");
+
+        block->terminator.data =
+            Terminator::Dispatch{.cond = std::move(v),
+                                 // v == 0
+                                 {Terminator::Jump{.name = loop_end->name},
+                                  // v != 0
+                                  //  TODO: copy arguments?
+                                  Terminator::Jump{.name = loop_head->name}}};
+        loop_end->preds.push_back(block);
+        loop_head->preds.push_back(block); // possible self-cycle?
+        block = loop_end;
+    }
+
     void visit(const LetStmt *node) override {
         auto v = get_value(node->value);
         make_instruction(node->loc.base, node->loc.base_type, std::move(v));
@@ -207,13 +240,30 @@ struct FunctionBuilder : Visitor {
         internal_error << "In SSA call lowering ^ is not a string call.";
     }
 
+    std::vector<std::vector<std::shared_ptr<Value>>> live_call_vars;
+
     void visit(const CallStmt *node) override {
         auto func = get_value(node->func);
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());
+
+        internal_assert(live_call_vars.empty());
+        live_call_vars.push_back({}); // empty stack
+
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
+            // Getting the value might have pushed another stack onto
+            // live_call_vars, so push to the front.
+            live_call_vars.front().push_back(args.back());
+            /*
+            auto as_arg = args.back()->get_argument();
+            if (as_arg.has_value()) {
+                live_call_vars.front().push_back(*as_arg);
+            }
+                */
         }
+        // No longer needed
+        live_call_vars.clear();
 
         auto call_name = get_call_name(func);
 
@@ -247,28 +297,26 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const Allocate *node) override {
-        if (node->memory == Allocate::Stack) {
+        if (node->memory == Allocate::Stack && node->value.defined()) {
             // TODO: require simple (non-struct) type?
-            if (node->value.defined()) {
-                // Handle like a LetStmt, this is a primitive type that will
-                // just be updated.
-                auto v = get_value(node->value);
-                make_instruction(node->loc.base, node->loc.base_type,
-                                 std::move(v));
-            }
+            // Handle like a LetStmt, this is a primitive type that will
+            // just be updated.
+            auto v = get_value(node->value);
+            make_instruction(node->loc.base, node->loc.base_type, std::move(v));
             return;
         }
-        internal_assert(node->memory == Allocate::Heap)
-            << "TODO: handle memory locations in SSA!";
+        auto op = (node->memory == Allocate::Stack) ? Instruction::Op::Alloca
+                                                    : Instruction::Op::Alloc;
+
         internal_assert(!node->value.defined())
             << "TODO: handle values in Allocate SSA! " << node->value;
 
         std::vector<std::shared_ptr<Value>> args;
-        std::shared_ptr<Instruction> instr =
-            std::make_shared<Instruction>(node->loc.base, node->loc.base_type,
-                                          Instruction::Op::Alloc, args, block);
+        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+            node->loc.base, node->loc.base_type, op, args, block);
         block->instrs.push_back(instr);
 
+        // TODO: should this be a load? I think it should...
         auto [_, inserted] = block->lookups.insert(
             {node->loc.base, std::make_shared<Value>(instr)});
         internal_assert(inserted)
@@ -344,27 +392,67 @@ struct FunctionBuilder : Visitor {
         }
     }
 
+    // TODO: dedup with Store visitor
     void visit(const Accumulate *node) override {
-        internal_assert(node->loc.accesses.empty())
-            << "TODO: handle accumulate to member/index: " << Stmt(node);
-        internal_assert(node->loc.type.is_stack_allocatable())
-            << "TODO: handle non-primitive (heap) accumulates in SSA: "
-            << Stmt(node);
         auto v = get_value(node->value);
-
-        auto curr = block->get_value(node->loc.base, node->loc.base_type);
-
         auto op = get_acc_op(node->op);
 
-        std::vector<std::shared_ptr<Value>> args = {std::move(curr),
-                                                    std::move(v)};
+        // Handle local variables
+        if (node->loc.accesses.empty()) {
+            internal_assert(node->loc.type.is_stack_allocatable())
+                << "TODO: handle non-primitive (heap) accumulates in SSA: "
+                << Stmt(node);
 
-        std::shared_ptr<Instruction> instr =
-            std::make_shared<Instruction>(op, std::move(args), block);
+            // Get current value from lookup
+            auto curr = block->get_value(node->loc.base, node->loc.base_type);
 
-        // Overwrite the name with v (insert if missing).
-        // All successors of the current block will receive v.
-        block->lookups[node->loc.base] = std::make_shared<Value>(instr);
+            std::vector<std::shared_ptr<Value>> args = {std::move(curr),
+                                                        std::move(v)};
+
+            // Create instruction and add to block
+            std::string name = get_unique_name();
+            std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+                std::move(name), node->loc.type, op, std::move(args), block);
+            block->instrs.push_back(instr);
+
+            // Update lookup (Rename)
+            block->lookups[node->loc.base] = std::make_shared<Value>(instr);
+            return;
+        }
+
+        // Memory Access (GEP -> Load -> Op -> Store)
+
+        // Calculate address (TODO: dedup with Store)
+        auto ptr = block->get_value(node->loc.base, node->loc.base_type);
+
+        for (const auto &value : node->loc.accesses) {
+            if (std::holds_alternative<std::string>(value)) {
+                internal_error
+                    << "TODO: handle accumulates to field vars in SSA: "
+                    << Stmt(node);
+            } else {
+                Expr idx = std::get<Expr>(value);
+                auto i = get_value(idx);
+
+                // Update ptr with GEP result
+                ptr = make_instruction(Type(), Instruction::Op::GEP,
+                                       {std::move(ptr), std::move(i)});
+            }
+        }
+
+        // Load current value from memory
+        auto curr_val =
+            make_instruction(node->loc.type, Instruction::Op::Load, {ptr});
+
+        // Perform Arithmetic
+        auto new_val = make_instruction(node->loc.type, op, {curr_val, v});
+
+        // Store result back
+        std::vector<std::shared_ptr<Value>> store_args = {ptr, new_val};
+        std::shared_ptr<Instruction> store_instr =
+            std::make_shared<Instruction>(Instruction::Op::Store,
+                                          std::move(store_args), block);
+        block->instrs.push_back(store_instr);
     }
 
     void visit(const ParFor *node) override {
@@ -530,9 +618,21 @@ struct FunctionBuilder : Visitor {
         auto func = get_value(node->func);
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());
+
+        const int live_idx = live_call_vars.size();
+        live_call_vars.push_back({}); // empty stack
+
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
+            live_call_vars[live_idx].push_back(args.back());
+            /*
+            auto as_arg = args.back()->get_argument();
+            if (as_arg.has_value()) {
+                live_call_vars[live_idx].push_back(*as_arg);
+            }
+            */
         }
+        live_call_vars.pop_back();
 
         auto call_name = get_call_name(func);
 
@@ -544,19 +644,39 @@ struct FunctionBuilder : Visitor {
         internal_assert(!block->terminator.defined());
         auto call_block = std::move(block);
 
+        // Collect any live vars that need to be passed through
+        // to the continuation.
+        std::vector<std::shared_ptr<Value>> cont_args;
+        for (const auto &list_lv : live_call_vars) {
+            for (const auto &lv : list_lv) {
+                if (!std::holds_alternative<Constant>(lv->data)) {
+                    cont_args.push_back(lv);
+                }
+            }
+        }
+
         call_block->terminator.data = Terminator::Call{
             .call = Terminator::Jump{.name = call_name, std::move(args)},
-            // TODO: `args` takes an argument that is the result of the call.
-            .cont = Terminator::Jump{.name = cont_block->name},
+            // cont `args` takes an argument that is the result of the call.
+            // Pass any live vars!
+            .cont = Terminator::Jump{.name = cont_block->name, cont_args},
             .drop = false};
 
         block = cont_block;
 
         std::string name = get_unique_name(); // name of returned item
         Argument arg{.type = node->type, .name = name};
+        // Get live vars as arguments.
         block->args.push_back(arg);
-        // TODO value must now be the load of the first argument from the
-        // cont_block!
+        for (const auto &list_lv : live_call_vars) {
+            for (const auto &lv : list_lv) {
+                const auto arg = lv->get_argument();
+                if (arg.has_value()) {
+                    block->args.push_back(*arg);
+                }
+            }
+        }
+        // value must now be the load of the first argument from the cont_block!
         value = std::make_shared<Value>(std::move(arg));
     }
 
@@ -703,7 +823,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Return);
     // RESTRICT_VISITOR(LetStmt);
     // RESTRICT_VISITOR(IfElse);
-    RESTRICT_VISITOR(DoWhile);
+    // RESTRICT_VISITOR(DoWhile);
     // RESTRICT_VISITOR(Sequence); // default behavior is fine.
     // RESTRICT_VISITOR(Allocate);
     RESTRICT_VISITOR(Free);

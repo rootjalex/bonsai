@@ -36,6 +36,8 @@ struct Value {
 
     const Type &get_type() const;
 
+    std::optional<Argument> get_argument() const;
+
     void dump(std::ostream &os) const;
 };
 
@@ -46,7 +48,8 @@ struct Instruction {
         // Keep this sorted!
         Abs,
         Add,
-        Alloc,
+        Alloc,  // on heap
+        Alloca, // on stack
         Append, // side-effect-y
         Bc,
         Cast,
@@ -58,6 +61,7 @@ struct Instruction {
         LAnd,
         LOr,
         Leq,
+        Load, // from ptr
         LoadField,
         Lt,
         MakeStruct,
@@ -154,6 +158,7 @@ struct Block {
     std::shared_ptr<Value> get_value(const std::string &name, const Type &type);
 
     void dump(std::ostream &os) const;
+    void dump() const; // defaults to std::cout
 };
 
 struct Function {
