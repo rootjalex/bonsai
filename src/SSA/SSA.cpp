@@ -186,9 +186,10 @@ void Terminator::dump(std::ostream &os) const {
                        os << "dispatch ";
                        d.cond->dump(os);
                        os << " [";
-                       for (size_t i = 0; i < d.targets.size(); ++i) {
-                           if (i)
+                       for (size_t i = 0; i < d.targets.size(); i++) {
+                           if (i) {
                                os << ", ";
+                           }
                            dump_target(os, d.targets[i]);
                        }
                        os << "]";
@@ -225,6 +226,60 @@ void Terminator::dump(std::ostream &os) const {
                    },
                },
                data);
+}
+
+void Block::make_instruction(const std::string &name, Type type,
+                             std::shared_ptr<Value> v) {
+    // If v already refers to an Instruction, just rename it (copy
+    // propagation)
+    if (auto instr_ptr = std::get_if<std::shared_ptr<Instruction>>(&v->data)) {
+        internal_assert(*instr_ptr) << "Null instruction value";
+
+        auto &instr = *instr_ptr;
+
+        // Update name
+        instr->name = name;
+
+        // Update lookup table
+        // TODO: remove existing name??
+        auto [it, inserted] = lookups.insert({name, v});
+        if (!inserted) {
+            it->second = v; // overwrite existing entry
+        }
+
+        return;
+    }
+
+    // Otherwise, create a new Set instruction
+    std::vector<std::shared_ptr<Value>> vs = {std::move(v)};
+    std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+        name, std::move(type), Instruction::Op::Set, std::move(vs),
+        weak_from_this());
+    instrs.push_back(instr);
+
+    auto [_, inserted] = lookups.insert({name, std::make_shared<Value>(instr)});
+    internal_assert(inserted) << name << "already exists in block!\n";
+}
+
+std::shared_ptr<Value>
+Block::make_instruction(Type type, Instruction::Op op,
+                        std::vector<std::shared_ptr<Value>> vs,
+                        bool allow_rename) {
+    auto locked = owner.lock();
+    internal_assert(locked)
+        << "Function was deallocated during make_instruction";
+    std::string name = locked->get_unique_name();
+    std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
+        name, std::move(type), op, std::move(vs), weak_from_this());
+    instrs.push_back(instr);
+    auto v = std::make_shared<Value>(std::move(instr));
+    if (allow_rename) {
+        lookups[name] = v;
+    } else {
+        auto [_, inserted] = lookups.insert({name, v});
+        internal_assert(inserted) << name << "already exists in block!\n";
+    }
+    return v;
 }
 
 std::shared_ptr<Value> Block::get_value(const std::string &name,

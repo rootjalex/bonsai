@@ -1,5 +1,6 @@
 #include "SSA/Convert.h"
 
+#include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
 #include "IR/Analysis.h"
@@ -58,59 +59,6 @@ struct FunctionBuilder : Visitor {
         expr.accept(this);
         internal_assert(value) << expr << " failed to produce SSA value";
         return std::move(value);
-    }
-
-    void make_instruction(const std::string &name, Type type,
-                          std::shared_ptr<Value> v) {
-        internal_assert(block) << "Tried to append instruction to empty block";
-
-        // If v already refers to an Instruction, just rename it (copy
-        // propagation)
-        if (auto instr_ptr =
-                std::get_if<std::shared_ptr<Instruction>>(&v->data)) {
-            internal_assert(*instr_ptr) << "Null instruction value";
-
-            auto &instr = *instr_ptr;
-
-            // Update name
-            instr->name = name;
-
-            // Update lookup table
-            // TODO: remove existing name??
-            auto [it, inserted] = block->lookups.insert({name, v});
-            if (!inserted) {
-                it->second = v; // overwrite existing entry
-            }
-
-            return;
-        }
-
-        // Otherwise, create a new Set instruction
-        std::vector<std::shared_ptr<Value>> vs = {std::move(v)};
-        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            name, std::move(type), Instruction::Op::Set, std::move(vs), block);
-        block->instrs.push_back(instr);
-
-        auto [_, inserted] =
-            block->lookups.insert({name, std::make_shared<Value>(instr)});
-        internal_assert(inserted) << name << "already exists in block!\n";
-    }
-
-    uint64_t counter = 0;
-    std::string get_unique_name() { return "@" + std::to_string(counter++); }
-
-    std::shared_ptr<Value>
-    make_instruction(Type type, Instruction::Op op,
-                     std::vector<std::shared_ptr<Value>> vs) {
-        internal_assert(block) << "Tried to append instruction to empty block";
-        std::string name = get_unique_name();
-        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            name, std::move(type), op, std::move(vs), block);
-        block->instrs.push_back(instr);
-        auto v = std::make_shared<Value>(std::move(instr));
-        auto [_, inserted] = block->lookups.insert({name, v});
-        internal_assert(inserted) << name << "already exists in block!\n";
-        return v;
     }
 
     uint64_t block_counter = 0;
@@ -219,7 +167,8 @@ struct FunctionBuilder : Visitor {
 
     void visit(const LetStmt *node) override {
         auto v = get_value(node->value);
-        make_instruction(node->loc.base, node->loc.base_type, std::move(v));
+        block->make_instruction(node->loc.base, node->loc.base_type,
+                                std::move(v));
     }
 
     void visit(const Return *node) override {
@@ -302,7 +251,8 @@ struct FunctionBuilder : Visitor {
             // Handle like a LetStmt, this is a primitive type that will
             // just be updated.
             auto v = get_value(node->value);
-            make_instruction(node->loc.base, node->loc.base_type, std::move(v));
+            block->make_instruction(node->loc.base, node->loc.base_type,
+                                    std::move(v));
             return;
         }
         auto op = (node->memory == Allocate::Stack) ? Instruction::Op::Alloca
@@ -355,8 +305,8 @@ struct FunctionBuilder : Visitor {
                 // TODO: FIGURE OUT TYPE!!
                 // TODO: aligned load first?? not sure how this works.
                 // LLVM is weird here.
-                var = make_instruction(Type(), Instruction::Op::GEP,
-                                       {std::move(var), std::move(i)});
+                var = block->make_instruction(Type(), Instruction::Op::GEP,
+                                              {std::move(var), std::move(i)});
             }
         }
 
@@ -410,13 +360,9 @@ struct FunctionBuilder : Visitor {
                                                         std::move(v)};
 
             // Create instruction and add to block
-            std::string name = get_unique_name();
-            std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-                std::move(name), node->loc.type, op, std::move(args), block);
-            block->instrs.push_back(instr);
+            auto instr = block->make_instruction(
+                node->loc.type, op, std::move(args), /*allow_rename*/ true);
 
-            // Update lookup (Rename)
-            block->lookups[node->loc.base] = std::make_shared<Value>(instr);
             return;
         }
 
@@ -435,17 +381,18 @@ struct FunctionBuilder : Visitor {
                 auto i = get_value(idx);
 
                 // Update ptr with GEP result
-                ptr = make_instruction(Type(), Instruction::Op::GEP,
-                                       {std::move(ptr), std::move(i)});
+                ptr = block->make_instruction(Type(), Instruction::Op::GEP,
+                                              {std::move(ptr), std::move(i)});
             }
         }
 
         // Load current value from memory
-        auto curr_val =
-            make_instruction(node->loc.type, Instruction::Op::Load, {ptr});
+        auto curr_val = block->make_instruction(node->loc.type,
+                                                Instruction::Op::Load, {ptr});
 
         // Perform Arithmetic
-        auto new_val = make_instruction(node->loc.type, op, {curr_val, v});
+        auto new_val =
+            block->make_instruction(node->loc.type, op, {curr_val, v});
 
         // Store result back
         std::vector<std::shared_ptr<Value>> store_args = {ptr, new_val};
@@ -524,7 +471,7 @@ struct FunctionBuilder : Visitor {
 
     void visit(const Extrema *node) override {
         internal_assert(node->op == Extrema::eps) << "TODO: inf";
-        value = make_instruction(node->type, Instruction::Op::Eps, {});
+        value = block->make_instruction(node->type, Instruction::Op::Eps, {});
     }
 
     void visit(const Access *node) override {
@@ -535,8 +482,8 @@ struct FunctionBuilder : Visitor {
             << node->value.type().as<Struct_t>() << " of " << Expr(node);
         auto idx = find_struct_index(node->field, struct_t->fields);
         auto vidx = make_constant(u32, (uint64_t)idx);
-        value = make_instruction(node->type, Instruction::Op::LoadField,
-                                 {std::move(v), std::move(vidx)});
+        value = block->make_instruction(node->type, Instruction::Op::LoadField,
+                                        {std::move(v), std::move(vidx)});
     }
 
     Instruction::Op get_binop(BinOp::OpType op) {
@@ -585,15 +532,16 @@ struct FunctionBuilder : Visitor {
         auto a = get_value(node->a);
         auto b = get_value(node->b);
         auto op = get_binop(node->op);
-        value = make_instruction(node->type, op, {std::move(a), std::move(b)});
+        value = block->make_instruction(node->type, op,
+                                        {std::move(a), std::move(b)});
     }
 
     void visit(const Broadcast *node) override {
         auto v = get_value(node->value);
         static const Type u32 = UInt_t::make(32);
         auto lanes = make_constant(u32, (uint64_t)node->lanes);
-        value = make_instruction(node->type, Instruction::Op::Bc,
-                                 {std::move(v), std::move(lanes)});
+        value = block->make_instruction(node->type, Instruction::Op::Bc,
+                                        {std::move(v), std::move(lanes)});
     }
 
     void visit(const Build *node) override {
@@ -602,8 +550,8 @@ struct FunctionBuilder : Visitor {
         for (const auto &arg : node->values) {
             args.emplace_back(get_value(arg));
         }
-        value = make_instruction(node->type, Instruction::Op::MakeStruct,
-                                 std::move(args));
+        value = block->make_instruction(node->type, Instruction::Op::MakeStruct,
+                                        std::move(args));
     }
 
     void visit(const Cast *node) override {
@@ -611,7 +559,7 @@ struct FunctionBuilder : Visitor {
         Instruction::Op op = (node->mode == Cast::Mode::Reinterpret)
                                  ? Instruction::Op::Reinterpret
                                  : Instruction::Op::Cast;
-        value = make_instruction(node->type, op, {std::move(v)});
+        value = block->make_instruction(node->type, op, {std::move(v)});
     }
 
     void visit(const Call *node) override {
@@ -664,7 +612,7 @@ struct FunctionBuilder : Visitor {
 
         block = cont_block;
 
-        std::string name = get_unique_name(); // name of returned item
+        std::string name = function->get_unique_name(); // name of returned item
         Argument arg{.type = node->type, .name = name};
         // Get live vars as arguments.
         block->args.push_back(arg);
@@ -683,8 +631,8 @@ struct FunctionBuilder : Visitor {
     void visit(const Extract *node) override {
         auto vec = get_value(node->vec);
         auto idx = get_value(node->idx);
-        value = make_instruction(node->type, Instruction::Op::ExtractIdx,
-                                 {std::move(vec), std::move(idx)});
+        value = block->make_instruction(node->type, Instruction::Op::ExtractIdx,
+                                        {std::move(vec), std::move(idx)});
     }
 
     Instruction::Op get_intrinsic(const Intrinsic::OpType &op) {
@@ -743,7 +691,7 @@ struct FunctionBuilder : Visitor {
             args.emplace_back(get_value(arg));
         }
         auto op = get_intrinsic(node->op);
-        value = make_instruction(node->type, op, std::move(args));
+        value = block->make_instruction(node->type, op, std::move(args));
     }
 
     void visit(const Var *node) override {
@@ -783,7 +731,7 @@ struct FunctionBuilder : Visitor {
     void visit(const VectorReduce *node) override {
         auto a = get_value(node->value);
         auto op = get_vreduce(node->op);
-        value = make_instruction(node->type, op, {std::move(a)});
+        value = block->make_instruction(node->type, op, {std::move(a)});
     }
 
     // RESTRICT_VISITOR(IntImm);
@@ -855,10 +803,28 @@ build(const std::shared_ptr<ir::Function> &func) {
 
 ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
+    FuncMap fmap;
+
     for (auto &[name, func] : funcs) {
         auto f = build(func);
         f->dump(std::cout);
+        fmap[name] = std::move(f);
     }
+
+    /*
+    std::cout << "Before" << std::endl;
+    std::cout << fmap.contains("trace") << std::endl;
+    fmap["trace"]->dump(std::cout);
+
+    // Apply scheduling (until we implement interface).
+    split(fmap, "trace", "i", 8, "io", "ii", true);
+
+    std::cout << "After" << std::endl;
+    std::cout << fmap.contains("trace") << std::endl;
+    fmap["trace"]->dump(std::cout);
+    exit(-1);
+    */
+
     return funcs;
 }
 

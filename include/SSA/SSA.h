@@ -130,7 +130,8 @@ struct Terminator {
         bool drop = true;
     };
 
-    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call> data;
+    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call>
+        data;
 
     bool defined() const {
         return !std::holds_alternative<std::monostate>(data);
@@ -141,7 +142,7 @@ struct Terminator {
 
 struct Function;
 
-struct Block {
+struct Block : public std::enable_shared_from_this<Block> {
     std::string name;
     std::vector<Argument> args; // take the place of phis
     std::vector<std::shared_ptr<Instruction>> instrs;
@@ -152,6 +153,13 @@ struct Block {
     std::map<std::string, std::shared_ptr<Value>> lookups;
 
     std::vector<std::weak_ptr<Block>> preds;
+
+    void make_instruction(const std::string &name, Type type,
+                          std::shared_ptr<Value> v);
+    std::shared_ptr<Value>
+    make_instruction(Type type, Instruction::Op op,
+                     std::vector<std::shared_ptr<Value>> vs,
+                     bool allow_rename = false);
 
     // If value is defined in this block, returns it, otherwise adds it as an
     // argument recursively until it finds the block it is defined in!
@@ -167,6 +175,11 @@ struct Function {
     ir::Type ret_type; // convenience.
 
     void dump(std::ostream &os) const;
+
+    std::string get_unique_name() { return "@" + std::to_string(name_counter++); }
+
+  private:
+    size_t name_counter;
 };
 
 // Useful helper for std::variant

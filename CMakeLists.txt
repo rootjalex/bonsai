@@ -142,6 +142,7 @@ target_sources(
     src/Parser/Parser.cpp
     src/Parser/Token.cpp
     src/SSA/Convert.cpp
+    src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
     src/Utils.cpp
 )
@@ -230,6 +231,7 @@ target_sources(
     include/Parser/Parser.h
     include/Parser/Token.h
     include/SSA/Convert.h
+    include/SSA/Rewrite.h
     include/SSA/SSA.h
     include/RefCount.h
     include/Scope.h
