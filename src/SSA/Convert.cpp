@@ -811,19 +811,23 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
         fmap[name] = std::move(f);
     }
 
-    /*
     std::cout << "Before" << std::endl;
     std::cout << fmap.contains("trace") << std::endl;
     fmap["trace"]->dump(std::cout);
 
     // Apply scheduling (until we implement interface).
-    split(fmap, "trace", "i", 8, "io", "ii", true);
+    // split(fmap, "trace", "i", 8, "io", "ii", true);
+    // TODO: make this accept non-constant sizes!
+    // defer(fmap, "trace", Queue_t{"mq", "root", "root", 256},
+    //       {Cursor{{"i", "color", "sky_color"}}});
+    defer(fmap, "trace", Queue_t{"mq", "root", "root", 256},
+          {Cursor{{"i", "color", "brdf_eval"}}});
 
     std::cout << "After" << std::endl;
     std::cout << fmap.contains("trace") << std::endl;
     fmap["trace"]->dump(std::cout);
+
     exit(-1);
-    */
 
     return funcs;
 }
