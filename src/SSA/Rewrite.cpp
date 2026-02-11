@@ -74,7 +74,11 @@ tuple<Type, Continuation> FindPath(const FuncMap &funcs,
                                    const Cursor &cursor) {
     using ContStack = vector<pair<string, string>>;
     ContStack cont_stack;
-    vector<vector<Type>> state_stack;
+    // Each stack frame of the cursor logs the types needed for the
+    // continuation, and the set of values saved. The values are for
+    // deduplication. Ideally, we would track unique values through dataflow
+    // analysis: this is an important TODO.
+    vector<pair<vector<Type>, set<shared_ptr<Value>>>> state_stack;
     set<string> visited; // func_name + block_name
 
     // Current set of uniforms in DFS traversal.
@@ -91,7 +95,7 @@ tuple<Type, Continuation> FindPath(const FuncMap &funcs,
     auto flatten_state_stack = [&state_stack]() {
         vector<Type> types;
         for (const auto &ts : state_stack) {
-            for (const auto &t : ts) {
+            for (const auto &t : ts.first) {
                 types.push_back(t);
             }
         }
@@ -115,9 +119,13 @@ tuple<Type, Continuation> FindPath(const FuncMap &funcs,
     auto save_type_state =
         [&](const std::vector<std::shared_ptr<Value>> &args) {
             for (const auto &arg : args) {
-                // TODO: deduplicate!! this tracks all live state...
-                if (!is_uniform(arg)) {
-                    state_stack.back().push_back(arg->get_type());
+                // TODO: deduplicate through all frames?
+                // That requires dataflow through all blocks,
+                // Similar to uniform analysis.
+                if (!is_uniform(arg) &&
+                    !state_stack.back().second.contains(arg)) {
+                    state_stack.back().first.push_back(arg->get_type());
+                    state_stack.back().second.insert(arg);
                 }
             }
         };
