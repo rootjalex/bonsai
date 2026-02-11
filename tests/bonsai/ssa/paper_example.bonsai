@@ -1,0 +1,47 @@
+// Trivial examples for now;
+element Tree = f32;
+element Ray {
+    data : f32;
+}
+
+element Intersection {
+    value : f32;
+    miss : bool;
+}
+
+func isect(t : Tree, ray : Ray) -> Intersection {
+    return Intersection{t * ray.data, t < ray.data};
+}
+
+func sky_color(ray : Ray) {
+    return ray.data;
+}
+
+func brdf_eval(is : Intersection, ray : Ray) {
+    return is.value;
+}
+
+func bounce(is : Intersection, ray : Ray) {
+    return is.value - ray.data;
+}
+
+func color(t : Tree, ray : Ray, output : mut array[f32], i : i32) -> void {
+    is = isect(t, ray);
+
+    if is.miss {
+        output[i] += sky_color(ray);
+        return;
+    }
+
+    output[i] += brdf_eval(is, ray);
+
+    color(t, bounce(is, ray), output, i);
+}
+
+func trace(t : Tree, n : i32, output : mut array[f32, n], crays : array[Ray, n]) {
+  parfor i in 0:n {
+    ray = crays[i];
+    color(t, ray, output, i);
+  }
+  return;
+}

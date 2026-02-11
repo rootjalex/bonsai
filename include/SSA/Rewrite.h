@@ -23,7 +23,7 @@ struct Cursor {
 
 struct Queue_t {
     std::string qname;
-    std::string owner;
+    Cursor owner;
     std::string storage;
     // TODO: make this accept non-constant sizes!
     int size;
