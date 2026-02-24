@@ -15,6 +15,8 @@ using FuncMap = std::map<std::string, std::shared_ptr<ssa::Function>>;
 
 void split(FuncMap &funcs, std::string func, std::string idx, int factor, std::string outer, std::string inner, bool exact);
 
+void loopify(FuncMap &funcs, std::string func, int size = 0);
+
 struct Cursor {
     std::list<std::string> ids;
 

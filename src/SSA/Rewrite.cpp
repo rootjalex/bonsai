@@ -563,6 +563,51 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
     f->blocks = std::move(blocks);
 }
 
+void loopify(FuncMap &funcs, std::string func, int size) {
+    internal_assert(size == 0)
+        << "TODO: support queue-based loopify on: " << func;
+
+    internal_assert(funcs.contains(func)) << func;
+    auto f = funcs[func];
+
+    // Find any tail calls with empty return continuations and convert them into
+    // jumps.
+
+    BlockMap bmap = make_block_map(f);
+
+    for (auto &block : f->blocks) {
+        if (!std::holds_alternative<Terminator::Call>(block->terminator.data)) {
+            continue;
+        }
+
+        Terminator::Call call =
+            std::get<Terminator::Call>(block->terminator.data);
+        if (call.call.name != func) {
+            // Not a tail call.
+            continue;
+        }
+
+        internal_assert(call.cont.args.empty() && call.drop)
+            << "Cannot loopify tail-call in: " << func
+            << ", has continuation arguments to: " << call.cont.name;
+
+        internal_assert(bmap.contains(call.cont.name))
+            << "BlockMap for " << func
+            << " does not contain continutation target: " << call.cont.name;
+
+        const auto cont = bmap.at(call.cont.name);
+
+        internal_assert(
+            cont->instrs.empty() &&
+            std::holds_alternative<Terminator::Return>(cont->terminator.data))
+            << "Cannot loopify tail-call in: " << func
+            << ", has non-empty continuation: " << call.cont.name;
+
+        // Replace call terminator with direct jump.
+        block->terminator.data = call.call;
+    }
+}
+
 // TODO: make this accept non-constant sizes!
 void defer(FuncMap &funcs, const string &func, const Queue_t &queue_t,
            const vector<Cursor> &cursors) {
