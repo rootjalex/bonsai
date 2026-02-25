@@ -265,6 +265,30 @@ std::shared_ptr<Value>
 Block::make_instruction(Type type, Instruction::Op op,
                         std::vector<std::shared_ptr<Value>> vs,
                         bool allow_rename) {
+    // Re-thread any operands from other blocks (necessary due to call
+    // continuations).
+    for (auto &operand : vs) {
+        std::visit(overloads{
+                       [&](const std::shared_ptr<Instruction> &i) {
+                           if (i->owner.lock().get() != this) {
+                               operand = get_value(i->name, i->type);
+                           }
+                       },
+                       [&](const Argument &a) {
+                           auto it = lookups.find(a.name);
+                           if (it != lookups.end()) {
+                               // Already local — use the canonical local value.
+                               operand = it->second;
+                               return;
+                           }
+                           // Not local — thread it in.
+                           operand = get_value(a.name, a.type);
+                       },
+                       [](const Constant &) {}, // constants need no threading
+                   },
+                   operand->data);
+    }
+
     auto locked = owner.lock();
     internal_assert(locked)
         << "Function was deallocated during make_instruction";

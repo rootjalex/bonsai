@@ -189,30 +189,39 @@ struct FunctionBuilder : Visitor {
         internal_error << "In SSA call lowering ^ is not a string call.";
     }
 
-    std::vector<std::vector<std::shared_ptr<Value>>> live_call_vars;
+    // Make args consistent in current block.
+    void rethread(std::vector<std::shared_ptr<Value>> &args) {
+        for (auto &arg : args) {
+            std::visit(overloads{
+                           [&](const Argument &a) {
+                               auto it = block->lookups.find(a.name);
+                               if (it != block->lookups.end()) {
+                                   arg = it->second;
+                               } else {
+                                   arg = block->get_value(a.name, a.type);
+                               }
+                           },
+                           [&](const std::shared_ptr<Instruction> &i) {
+                               if (i->owner.lock().get() != block.get()) {
+                                   arg = block->get_value(i->name, i->type);
+                               }
+                           },
+                           [](const Constant &) {},
+                       },
+                       arg->data);
+        }
+    }
 
     void visit(const CallStmt *node) override {
         auto func = get_value(node->func);
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());
 
-        internal_assert(live_call_vars.empty());
-        live_call_vars.push_back({}); // empty stack
-
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
-            // Getting the value might have pushed another stack onto
-            // live_call_vars, so push to the front.
-            live_call_vars.front().push_back(args.back());
-            /*
-            auto as_arg = args.back()->get_argument();
-            if (as_arg.has_value()) {
-                live_call_vars.front().push_back(*as_arg);
-            }
-                */
         }
-        // No longer needed
-        live_call_vars.clear();
+        // Make args consistent in current block.
+        rethread(args);
 
         auto call_name = get_call_name(func);
 
@@ -567,20 +576,11 @@ struct FunctionBuilder : Visitor {
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());
 
-        const int live_idx = live_call_vars.size();
-        live_call_vars.push_back({}); // empty stack
-
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
-            live_call_vars[live_idx].push_back(args.back());
-            /*
-            auto as_arg = args.back()->get_argument();
-            if (as_arg.has_value()) {
-                live_call_vars[live_idx].push_back(*as_arg);
-            }
-            */
         }
-        live_call_vars.pop_back();
+        // Make args consistent in current block.
+        rethread(args);
 
         auto call_name = get_call_name(func);
 
@@ -592,40 +592,23 @@ struct FunctionBuilder : Visitor {
         internal_assert(!block->terminator.defined());
         auto call_block = std::move(block);
 
-        // Collect any live vars that need to be passed through
-        // to the continuation.
-        std::vector<std::shared_ptr<Value>> cont_args;
-        for (const auto &list_lv : live_call_vars) {
-            for (const auto &lv : list_lv) {
-                if (!std::holds_alternative<Constant>(lv->data)) {
-                    cont_args.push_back(lv);
-                }
-            }
-        }
-
         call_block->terminator.data = Terminator::Call{
             .call = Terminator::Jump{.name = call_name, std::move(args)},
             // cont `args` takes an argument that is the result of the call.
             // Pass any live vars!
-            .cont = Terminator::Jump{.name = cont_block->name, cont_args},
+            .cont = Terminator::Jump{.name = cont_block->name},
             .drop = false};
 
         block = cont_block;
 
         std::string name = function->get_unique_name(); // name of returned item
+
         Argument arg{.type = node->type, .name = name};
-        // Get live vars as arguments.
+        auto arg_value = std::make_shared<Value>(arg);
+        // Insert call arg into block args and block lookups!
         block->args.push_back(arg);
-        for (const auto &list_lv : live_call_vars) {
-            for (const auto &lv : list_lv) {
-                const auto arg = lv->get_argument();
-                if (arg.has_value()) {
-                    block->args.push_back(*arg);
-                }
-            }
-        }
-        // value must now be the load of the first argument from the cont_block!
-        value = std::make_shared<Value>(std::move(arg));
+        block->lookups.insert({name, arg_value});
+        value = arg_value;
     }
 
     void visit(const Extract *node) override {
