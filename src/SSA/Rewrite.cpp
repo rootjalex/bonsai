@@ -597,6 +597,14 @@ void loopify(FuncMap &funcs, std::string func, int size) {
         // Replace call terminator with direct jump.
         block->terminator.data = call.call;
 
+        // Remove block as predecessor to continuation block.
+        std::erase_if(cont->preds, [&](const auto &p) {
+            const auto ptr = p.lock();
+            internal_assert(ptr);
+            return ptr->name == block->name;
+        });
+
+        // Add block as predecessor to entry block.
         f->blocks[0]->preds.push_back(block);
     }
 }
