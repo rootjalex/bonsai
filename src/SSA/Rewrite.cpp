@@ -1,5 +1,6 @@
 #include "SSA/Convert.h"
 
+#include "SSA/Analysis.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
@@ -26,16 +27,6 @@ using std::tuple;
 using std::vector;
 
 namespace {
-
-using BlockMap = map<string, shared_ptr<Block>>;
-
-BlockMap make_block_map(const shared_ptr<Function> &func) {
-    BlockMap bmap;
-    for (const auto &block : func->blocks) {
-        bmap[block->name] = block;
-    }
-    return bmap;
-}
 
 template <typename T>
 struct OrderedSet {
@@ -605,6 +596,8 @@ void loopify(FuncMap &funcs, std::string func, int size) {
 
         // Replace call terminator with direct jump.
         block->terminator.data = call.call;
+
+        f->blocks[0]->preds.push_back(block);
     }
 }
 
