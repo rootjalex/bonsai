@@ -1,0 +1,13 @@
+func foo(a : f32) = a + 1.0;
+
+func bar(a : f32) = a - 1.0;
+
+func color(a : f32, b : f32) {
+    c : mut f32 = 0.0;
+
+    if (b < 0.0) {
+        c = 2.0;
+    }
+
+    return a + c * foo(b + bar(a));
+}

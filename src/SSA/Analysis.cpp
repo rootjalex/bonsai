@@ -118,8 +118,6 @@ OriginMap make_origin_map(const ssa::Function &func) {
             internal_assert(bmap.contains(j.name)) << j.name;
             if (j.name != func.blocks[0]->name &&
                 bmap.at(j.name)->preds.size() < 2) {
-                std::cout << "skipping " << j.name << " in terminator of "
-                          << block->name << "\n";
                 return;
             }
 

@@ -47,6 +47,15 @@ struct Instruction {
     enum class Op {
         // Keep this sorted!
         Abs,
+        // Accs are side-effect-y
+        AccAdd,
+        AccMul,
+        AccSub,
+        AccArgmin,
+        AccArgmax,
+        AccMin,
+        AccMax,
+
         Add,
         Alloc,  // on heap
         Alloca, // on stack

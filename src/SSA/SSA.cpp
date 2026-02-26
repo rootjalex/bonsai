@@ -59,7 +59,21 @@ std::optional<Argument> Value::get_argument() const {
 static const char *op_name(Instruction::Op op) {
     switch (op) {
     case Instruction::Op::Abs:
-        return "add";
+        return "abs";
+    case Instruction::Op::AccAdd:
+        return "acc.add";
+    case Instruction::Op::AccMul:
+        return "acc.mul";
+    case Instruction::Op::AccSub:
+        return "acc.sub";
+    case Instruction::Op::AccArgmin:
+        return "acc.argmin";
+    case Instruction::Op::AccArgmax:
+        return "acc.argmax";
+    case Instruction::Op::AccMin:
+        return "accmin";
+    case Instruction::Op::AccMax:
+        return "acc.max";
     case Instruction::Op::Add:
         return "add";
     case Instruction::Op::Alloc:
@@ -109,18 +123,58 @@ static const char *op_name(Instruction::Op op) {
     case Instruction::Op::Set:
         return "set";
     case Instruction::Op::Store:
-        return "set";
+        return "store";
     case Instruction::Op::Sub:
         return "sub";
     }
-    return "unknown";
+}
+
+bool is_store_instr(const Instruction::Op &op) {
+    switch (op) {
+    case Instruction::Op::AccAdd:
+    case Instruction::Op::AccMul:
+    case Instruction::Op::AccSub:
+    case Instruction::Op::AccArgmin:
+    case Instruction::Op::AccArgmax:
+    case Instruction::Op::AccMin:
+    case Instruction::Op::Store:
+        return true;
+    case Instruction::Op::AccMax:
+    case Instruction::Op::Abs:
+    case Instruction::Op::Add:
+    case Instruction::Op::Alloc:
+    case Instruction::Op::Alloca:
+    case Instruction::Op::Append:
+    case Instruction::Op::Bc:
+    case Instruction::Op::Cast:
+    case Instruction::Op::Div:
+    case Instruction::Op::Eps:
+    case Instruction::Op::Eq:
+    case Instruction::Op::ExtractIdx:
+    case Instruction::Op::GEP:
+    case Instruction::Op::LAnd:
+    case Instruction::Op::LOr:
+    case Instruction::Op::Leq:
+    case Instruction::Op::Load:
+    case Instruction::Op::LoadField:
+    case Instruction::Op::Lt:
+    case Instruction::Op::MakeStruct:
+    case Instruction::Op::Max:
+    case Instruction::Op::Min:
+    case Instruction::Op::Mod:
+    case Instruction::Op::Mul:
+    case Instruction::Op::Reinterpret:
+    case Instruction::Op::Set:
+    case Instruction::Op::Sub:
+        return false;
+    }
 }
 
 void Instruction::dump(std::ostream &os) const {
-    if (op == Instruction::Op::Store) {
+    if (is_store_instr(op)) {
         internal_assert(name.empty())
-            << "Name must be empty for store: " << name;
-        os << "store ";
+            << "Name must be empty for store/acc: " << name;
+        os << op_name(op) << " ";
         internal_assert(operands.size() == 2);
         operands[0]->dump(os);
         os << " ";
@@ -136,10 +190,9 @@ void Instruction::dump(std::ostream &os) const {
         operands[1]->dump(os);
         return;
     }
-    // TODO: print type?
-    if (!name.empty()) {
-        os << name << " = ";
-    }
+
+    internal_assert(!name.empty()) << op_name(op);
+    os << name << " = ";
 
     size_t start = 0;
 
@@ -341,65 +394,65 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
         auto p = pred.lock();
         internal_assert(p) << "Predecessor pointer died";
 
-        std::visit(overloads{
-                       [&](const std::monostate &m) {
-                           (void)m;
-                           internal_error << "Block: " << p->name
-                                          << " is a predecessor to: " << name
-                                          << " but does not have a terminator.";
-                       },
-                       [&](Terminator::Jump &j) {
-                           // Recursively adds to parent block.
-                           j.args.push_back(p->get_value(name, type));
-                       },
-                       [&](Terminator::Dispatch &d) {
-                           for (auto &target : d.targets) {
-                               if (target.name == this->name) {
-                                   // Recursively adds to parent block.
-                                   target.args.push_back(
-                                       p->get_value(name, type));
-                                   // Can we early-return here?
-                               }
-                           }
-                       },
-                       [&](const Terminator::Return &r) {
-                           (void)r;
-                           internal_error
-                               << "Block: " << p->name
-                               << " returns but is listed as a predecessor to: "
-                               << name;
-                       },
-                       [&](Terminator::ParFor &pf) {
-                           if (pf.body.name == this->name) {
-                               // Recursively adds to parent block.
-                               pf.body.args.push_back(p->get_value(name, type));
-                           } else if (pf.cont.name == this->name) {
-                               // Recursively adds to parent block.
-                               pf.cont.args.push_back(p->get_value(name, type));
-                           } else {
-                               p->dump(std::cerr);
-                               internal_error << this->name
-                                              << " lists predecessor ^ that "
-                                                 "does not point to it.";
-                           }
-                       },
-                       [&](const Terminator::Yield &y) { (void)y; },
-                       [&](Terminator::Call &c) {
-                           if (c.call.name == this->name) {
-                               // Recursively adds to parent block.
-                               c.call.args.push_back(p->get_value(name, type));
-                           } else if (c.cont.name == this->name) {
-                               // Recursively adds to parent block.
-                               c.cont.args.push_back(p->get_value(name, type));
-                           } else {
-                               p->dump(std::cerr);
-                               internal_error << this->name
-                                              << " lists predecessor ^ that "
-                                                 "does not point to it.";
-                           }
-                       }},
+        std::visit(
+            overloads{[&](const std::monostate &m) {
+                          (void)m;
+                          internal_error << "Block: " << p->name
+                                         << " is a predecessor to: " << name
+                                         << " but does not have a terminator.";
+                      },
+                      [&](Terminator::Jump &j) {
+                          // Recursively adds to parent block.
+                          j.args.push_back(p->get_value(name, type));
+                      },
+                      [&](Terminator::Dispatch &d) {
+                          for (auto &target : d.targets) {
+                              if (target.name == this->name) {
+                                  // Recursively adds to parent block.
+                                  target.args.push_back(
+                                      p->get_value(name, type));
+                                  // Can we early-return here?
+                              }
+                          }
+                      },
+                      [&](const Terminator::Return &r) {
+                          (void)r;
+                          internal_error
+                              << "Block: " << p->name
+                              << " returns but is listed as a predecessor to: "
+                              << name;
+                      },
+                      [&](Terminator::ParFor &pf) {
+                          if (pf.body.name == this->name) {
+                              // Recursively adds to parent block.
+                              pf.body.args.push_back(p->get_value(name, type));
+                          } else if (pf.cont.name == this->name) {
+                              // Recursively adds to parent block.
+                              pf.cont.args.push_back(p->get_value(name, type));
+                          } else {
+                              p->dump(std::cerr);
+                              internal_error << this->name
+                                             << " lists predecessor ^ that "
+                                                "does not point to it.";
+                          }
+                      },
+                      [&](const Terminator::Yield &y) { (void)y; },
+                      [&](Terminator::Call &c) {
+                          if (c.call.name == this->name) {
+                              // Recursively adds to parent block.
+                              c.call.args.push_back(p->get_value(name, type));
+                          } else if (c.cont.name == this->name) {
+                              // Recursively adds to parent block.
+                              c.cont.args.push_back(p->get_value(name, type));
+                          } else {
+                              p->dump(std::cerr);
+                              internal_error << this->name
+                                             << " lists predecessor ^ that "
+                                                "does not point to it.";
+                          }
+                      }},
 
-                   p->terminator.data);
+            p->terminator.data);
     }
     return value;
 }

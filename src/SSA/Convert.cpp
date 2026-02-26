@@ -329,24 +329,24 @@ struct FunctionBuilder : Visitor {
     Instruction::Op get_acc_op(const Accumulate::OpType op) {
         switch (op) {
         case Accumulate::Add: {
-            return Instruction::Op::Add;
+            return Instruction::Op::AccAdd;
         }
         case Accumulate::Mul: {
-            return Instruction::Op::Mul;
+            return Instruction::Op::AccMul;
         }
         case Accumulate::Sub: {
-            return Instruction::Op::Sub;
+            return Instruction::Op::AccSub;
         }
         case Accumulate::Min: {
-            return Instruction::Op::Min;
+            return Instruction::Op::AccMin;
         }
         case Accumulate::Max: {
-            return Instruction::Op::Max;
+            return Instruction::Op::AccMax;
         }
         default: {
             internal_error << "TODO: handle all Accumulate ops -> SSA ops: "
                            << (int)op;
-            return Instruction::Op::Add;
+            return Instruction::Op::AccAdd;
         }
         }
     }
@@ -375,7 +375,7 @@ struct FunctionBuilder : Visitor {
             return;
         }
 
-        // Memory Access (GEP -> Load -> Op -> Store)
+        // Memory Access (GEP -> AccOp)
 
         // Calculate address (TODO: dedup with Store)
         auto ptr = block->get_value(node->loc.base, node->loc.base_type);
@@ -395,20 +395,11 @@ struct FunctionBuilder : Visitor {
             }
         }
 
-        // Load current value from memory
-        auto curr_val = block->make_instruction(node->loc.type,
-                                                Instruction::Op::Load, {ptr});
-
-        // Perform Arithmetic
-        auto new_val =
-            block->make_instruction(node->loc.type, op, {curr_val, v});
-
-        // Store result back
-        std::vector<std::shared_ptr<Value>> store_args = {ptr, new_val};
-        std::shared_ptr<Instruction> store_instr =
-            std::make_shared<Instruction>(Instruction::Op::Store,
-                                          std::move(store_args), block);
-        block->instrs.push_back(store_instr);
+        std::vector<std::shared_ptr<Value>> args = {std::move(ptr),
+                                                    std::move(v)};
+        std::shared_ptr<Instruction> instr =
+            std::make_shared<Instruction>(op, std::move(args), block);
+        block->instrs.push_back(instr);
     }
 
     void visit(const ParFor *node) override {
