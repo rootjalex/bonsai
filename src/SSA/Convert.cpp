@@ -1,5 +1,6 @@
 #include "SSA/Convert.h"
 
+#include "SSA/CodeGen_Stmt.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
@@ -163,6 +164,10 @@ struct FunctionBuilder : Visitor {
         loop_end->preds.push_back(block);
         loop_head->preds.push_back(block); // possible self-cycle?
         block = loop_end;
+    }
+
+    void visit(const While *node) override {
+        internal_error << "TODO: convert While to SSA\n";
     }
 
     void visit(const LetStmt *node) override {
@@ -785,10 +790,6 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
         fmap[name] = std::move(f);
     }
 
-    std::cout << "Before" << std::endl;
-    std::cout << fmap.contains("color") << std::endl;
-    fmap["color"]->dump(std::cout);
-
     // Apply scheduling (until we implement interface).
     // split(fmap, "trace", "i", 8, "io", "ii", true);
     // TODO: make this accept non-constant sizes!
@@ -797,15 +798,24 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
     // defer(fmap, "trace", Queue_t{"mq", Cursor{{"root"}}, "root", 256},
     //       {Cursor{{"i", "color", "brdf_eval"}}});
 
-    loopify(fmap, "color");
+    if (fmap.contains("color")) {
+        std::cout << "Before (color):" << std::endl;
+        fmap["color"]->dump(std::cout);
 
-    std::cout << "After" << std::endl;
-    std::cout << fmap.contains("color") << std::endl;
-    fmap["color"]->dump(std::cout);
+        loopify(fmap, "color");
 
-    exit(-1);
+        std::cout << "After (color):" << std::endl;
+        std::cout << fmap.contains("color") << std::endl;
+        fmap["color"]->dump(std::cout);
+    }
 
-    return funcs;
+    ir::FuncMap new_funcs;
+
+    for (const auto &[fname, f] : fmap) {
+        new_funcs[fname] = codegen_stmt(*f);
+    }
+
+    return new_funcs;
 }
 
 } // namespace ssa

@@ -539,6 +539,8 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         blocks.push_back(inner_loop);
         blocks.push_back(outer_yield);
 
+        // TODO: fix loop body predecessors?
+
         block->terminator.data = Terminator::ParFor{
             outer,
             parfor.start,

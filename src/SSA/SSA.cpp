@@ -464,7 +464,24 @@ void Block::dump(std::ostream &os) const {
             os << ", ";
         args[i].dump(os);
     }
-    os << "):\n";
+    os << "): ";
+
+    if (!preds.empty()) {
+        os << "// preds: ";
+        bool first = true;
+        for (const auto &p : preds) {
+            const auto ptr = p.lock();
+            internal_assert(ptr);
+            if (!first) {
+                os << ", ";
+            }
+            first = false;
+            os << ptr->name;
+        }
+    }
+
+    os << "\n";
+
     for (auto &i : instrs) {
         os << "  ";
         i->dump(os);

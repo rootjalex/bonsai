@@ -1,140 +1,31 @@
-// import stdlib/distance;
-// import stdlib/intersects;
-// import stdlib/triangle;
-
-element Float = f32;
-element vec3f = vector[Float, 3];
-
-element Triangle {
-    p0, p1, p2 : vec3f;
+func afoo(a : f32) {
+    return a + 1.0;
 }
 
-element Ray {
-    o : vec3f;
-    // tmin : Float = 0;
-    d : vec3f;
-    tmax : Float = inf;
-    // TODO: medium
-    // TODO: differential?
-}
-
-element AABB {
-    low, high : vec3f;
-}
-
-element FInterval {
-    low, high : Float;
-}
-
-func a_intersectsp_ray_aabb(r : Ray, b : AABB) -> f32 {
-    // slab test for ray box intersection
-    // source: http://www.jcgt.org/published/0007/03/04/paper-lowres.pdf
-    invDir = 1 / r.d;
-    t0 = (b.low - r.o) * invDir;
-    t1 = (b.high - r.o) * invDir;
-    tNear = min(t0, t1);
-    tFar = max(t0, t1);
-    tNearMax : f32 = max(0.0, max(tNear));
-    tFarMin = min(tFar); // TODO: and of r.tMax
-    return tNearMax;
-}
-
-func example(a : f32, b : f32) {
-    p = a * b;
-    s = a + b;
-    if (a > b) {
-        return p / s;
-    }
-    return p;
-}
-
-func example2(a : f32, b : f32) {
-    p = a * b;
-    s = a + b;
-    if (a > b) {
-        if (a + 1 > b) {
-            return p / s;
-        } else {
-            return s;
-        }
-    }
-    return p;
-}
-
-func example3(a : f32, b : f32) {
-    p : mut f32 = 0.0;
-
-    if (a > b) {
-        p = a * 2;
+func bfoo(a : f32) {
+    if (a < 0.0) {
+        return a + 1.0;
     } else {
-        p = b + 4;
+        return a;
     }
-    return p;
 }
 
-func example4(a : f32, b : f32) {
-    p : mut f32 = 1.0;
-
-    if (a > b) {
-        p = p + 2;
+func cfoo(a : f32) {
+    b : mut f32 = 0.0;
+    if (a < 0.0) {
+        b = 1.0;
     } else {
-        p = b + 4;
+        b = 0.0;
     }
-    return p;
+    return b;
 }
 
-func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    // slab test for ray box intersection
-    // source: http://www.jcgt.org/published/0007/03/04/paper-lowres.pdf
-    invDir = 1 / r.d;
-    t0 = (b.low - r.o) * invDir;
-    t1 = (b.high - r.o) * invDir;
-    tNear = min(t0, t1);
-    tFar = max(t0, t1);
-    tNearMax : f32 = max(0.0, max(tNear));
-    tFarMin = min(tFar); // TODO: and of r.tMax
-    if (tNearMax > tFarMin) {
-        return {}; // false
+func color(out : mut array[f32, 8], i : i8, a : f32) -> void {
+    if (a < 0.0) {
+        color(out, i, a + 1.0);
+        return;
+    } else {
+        out[i] = a;
+        return;
     }
-    return FInterval{tNearMax, tFarMin};
-}
-
-func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[Float] {
-    // Möller-Trumbore intersection algorithm
-    pa = tri.p0;
-    pb = tri.p1;
-    pc = tri.p2;
-
-    v1 = pb - pa;
-    v2 = pc - pa;
-    p = cross(r.d, v2);
-    det = dot(v1, p);
-
-    // ray and triangle are parallel if det is close to 0
-    if (abs(det) <= eps[[Float]]()) {
-        return {};
-    }
-    invDet = 1.0 / det;
-
-    s = r.o - pa;
-    v = dot(s, p) * invDet;
-
-    if (v < 0 || v > 1) {
-        return {};
-    }
-
-    q = cross(s, v1);
-    w = dot(r.d, q) * invDet;
-
-    if (w < 0.0 || v + w > 1.0) {
-        return {};
-    }
-
-    t = dot(v2, q) * invDet;
-
-    if (t >= 0.0 && t <= r.tmax) {
-        return {t};
-    }
-
-    return {};
 }
