@@ -784,7 +784,10 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
     FuncMap fmap;
 
-    for (auto &[name, func] : funcs) {
+    TypeMap func_type_map;
+
+    for (const auto &[name, func] : funcs) {
+        func_type_map[name] = func->call_type();
         auto f = build(func);
         f->dump(std::cout);
         fmap[name] = std::move(f);
@@ -812,7 +815,7 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
     ir::FuncMap new_funcs;
 
     for (const auto &[fname, f] : fmap) {
-        new_funcs[fname] = codegen_stmt(*f);
+        new_funcs[fname] = codegen_stmt(*f, func_type_map);
     }
 
     return new_funcs;

@@ -698,10 +698,18 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
 
 Stmt structurize(const std::string &start, const std::string &exit,
                  const BlockMap &block_map, const DominatorMap &dom,
-                 const BlockInfoMap &info, const ArgMutabilityMap &mut_map) {
+                 const BlockInfoMap &info, const ArgMutabilityMap &mut_map,
+                 const TypeMap &func_type_map) {
 
     std::vector<Stmt> stmts;
     std::string name = start;
+
+    auto append = [&](const Stmt &stmt) {
+        if (stmt.defined()) {
+            // guard against empty blocks.
+            stmts.push_back(stmt);
+        }
+    };
 
     auto emit_jump_args = [&](const std::string &target,
                               const std::vector<std::shared_ptr<Value>> &vals) {
@@ -713,14 +721,13 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
         for (size_t i = 0; i < vals.size(); i++) {
             if (muts[i]) {
-                stmts.push_back(
-                    Store::make(WriteLoc(target_block->args[i].name,
-                                         target_block->args[i].type),
-                                codegen_value(vals[i])));
+                append(Store::make(WriteLoc(target_block->args[i].name,
+                                            target_block->args[i].type),
+                                   codegen_value(vals[i])));
             }
             /*else {
                 // Immutable: bind at the jump site as a let
-                stmts.push_back(
+                append(
                     LetStmt::make(WriteLoc(target_block->args[i].name,
                                            target_block->args[i].type),
                                   codegen_value(vals[i])));
@@ -735,7 +742,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
         // Emit this block's instructions
         for (auto &instr : block->instrs) {
-            stmts.push_back(codegen_instruction(*instr));
+            append(codegen_instruction(*instr));
         }
 
         std::visit(
@@ -778,7 +785,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         auto &muts = mut_map.at(name);
                         for (size_t i = 0; i < block->args.size(); i++) {
                             if (muts[i]) {
-                                stmts.push_back(Allocate::make(
+                                append(Allocate::make(
                                     WriteLoc(block->args[i].name,
                                              block->args[i].type),
                                     Var::make(block->args[i].type,
@@ -788,8 +795,9 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         }
                         */
 
-                        Stmt body = structurize(bi.loop_body, name, block_map,
-                                                dom, info, mut_map);
+                        Stmt body =
+                            structurize(bi.loop_body, name, block_map, dom,
+                                        info, mut_map, func_type_map);
 
                         Expr loop_cond = inline_expr(d.cond);
                         if (bi.loop_body != t1) {
@@ -797,7 +805,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                                                    std::move(loop_cond));
                         }
 
-                        stmts.push_back(
+                        append(
                             While::make(std::move(loop_cond), std::move(body)));
                         name = bi.loop_exit; // advance past the loop
 
@@ -827,7 +835,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                             for (size_t i = 0; i < merge_block->args.size();
                                  i++) {
                                 if (muts[i]) {
-                                    stmts.push_back(Allocate::make(
+                                    append(Allocate::make(
                                         WriteLoc(merge_block->args[i].name,
                                                  merge_block->args[i].type),
                                         Var::make(merge_block->args[i].type,
@@ -838,29 +846,31 @@ Stmt structurize(const std::string &start, const std::string &exit,
                             */
                         }
 
-                        Stmt true_body = structurize(t1, merge, block_map, dom,
-                                                     info, mut_map);
-                        Stmt false_body = structurize(t0, merge, block_map, dom,
-                                                      info, mut_map);
+                        Stmt true_body =
+                            structurize(t1, merge, block_map, dom, info,
+                                        mut_map, func_type_map);
+                        Stmt false_body =
+                            structurize(t0, merge, block_map, dom, info,
+                                        mut_map, func_type_map);
 
-                        stmts.push_back(IfElse::make(std::move(cond),
-                                                     std::move(true_body),
-                                                     std::move(false_body)));
+                        append(IfElse::make(std::move(cond),
+                                            std::move(true_body),
+                                            std::move(false_body)));
                         name = merge; // advance past the if/else
                     }
                 },
 
                 [&](const Terminator::Return &r) {
-                    if (r.value)
-                        stmts.push_back(
-                            ir::Return::make(codegen_value(r.value)));
-                    else
-                        stmts.push_back(ir::Return::make());
+                    if (r.value) {
+                        append(ir::Return::make(codegen_value(r.value)));
+                    } else {
+                        append(ir::Return::make());
+                    }
                     name = exit; // terminate the while loop
                 },
 
                 [&](const Terminator::Yield &) {
-                    stmts.push_back(Continue::make());
+                    append(Continue::make());
                     name = exit; // terminate the while loop
                 },
 
@@ -873,36 +883,90 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
                     // Body is a genuinely separate sub-CFG, must recurse
                     Stmt body = structurize(p.body.name, "", block_map, dom,
-                                            info, mut_map);
-                    stmts.push_back(ir::ParFor::make(p.index, std::move(slice),
-                                                     std::move(body)));
+                                            info, mut_map, func_type_map);
+                    append(ir::ParFor::make(p.index, std::move(slice),
+                                            std::move(body)));
                     name = p.cont.name; // advance past the parfor
                 },
 
-                [&](const Terminator::Call &) {
-                    internal_error << "TODO: Call lifting";
+                [&](const Terminator::Call &c) {
+                    auto &cont_block = block_map.at(c.cont.name);
+
+                    // A call continuation always has exactly one predecessor —
+                    // the call site.
+                    internal_assert(cont_block->preds.size() == 1)
+                        << "Call continuation " << c.cont.name << " has "
+                        << cont_block->preds.size()
+                        << " predecessors, expected exactly 1";
+
+                    // Since there is only one predecessor, no arg can be
+                    // mutable — there is nothing to merge.
+                    auto &muts = mut_map.at(c.cont.name);
+                    for (size_t i = 0; i < muts.size(); i++) {
+                        internal_assert(!muts[i])
+                            << "Call continuation " << c.cont.name << " arg "
+                            << i << " (" << cont_block->args[i].name
+                            << ") is mutable, but continuations with one "
+                               "predecessor "
+                               "should never have mutable args";
+                    }
+
+                    std::vector<Expr> call_args;
+                    for (auto &arg : c.call.args) {
+                        call_args.push_back(codegen_value(arg));
+                    }
+
+                    internal_assert(func_type_map.contains(c.call.name))
+                        << c.call.name;
+                    Type func_t = func_type_map.at(c.call.name);
+                    Expr call_func = Var::make(func_t, c.call.name);
+
+                    if (c.drop) {
+                        append(CallStmt::make(std::move(call_func),
+                                              std::move(call_args)));
+                    } else {
+                        internal_assert(!cont_block->args.empty())
+                            << "Call continuation " << c.cont.name
+                            << " has no args, but drop=false requires a return "
+                               "value binding";
+                        auto &ret_arg = cont_block->args[0];
+                        append(
+                            LetStmt::make(WriteLoc(ret_arg.name, ret_arg.type),
+                                          Call::make(std::move(call_func),
+                                                     std::move(call_args))));
+                    }
+
+                    // Bind all continuation args (immutable, so all become
+                    // let-bindings)
+                    // emit_jump_args(c.cont.name, c.cont.args);
+
+                    name = c.cont.name;
                 },
 
             },
             block->terminator.data);
     }
 
-    std::cout << start << " versus exit: " << exit << std::endl;
+    if (stmts.empty()) {
+        return Stmt();
+    }
     return Sequence::make(std::move(stmts));
 }
 
-Stmt codegen_body(const ssa::Function &func) {
+Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
     std::cout << "codegen for: " << func.blocks[0]->name << std::endl;
     const auto block_map = make_block_map(func);
     const auto dom = compute_dominators(func, block_map);
     const auto info = classify_blocks(func, block_map, dom);
     const auto mut_map = get_mutability_map(func);
-    return structurize(func.blocks[0]->name, "", block_map, dom, info, mut_map);
+    return structurize(func.blocks[0]->name, "", block_map, dom, info, mut_map,
+                       func_type_map);
 }
 
 } // namespace
 
-std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func) {
+std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
+                                           const TypeMap &func_type_map) {
     internal_assert(!func.blocks.empty());
     std::string name = func.blocks[0]->name;
     std::vector<ir::Function::Argument> args;
@@ -914,7 +978,7 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func) {
 
     Type ret_type = func.ret_type;
 
-    Stmt body = codegen_body(func);
+    Stmt body = codegen_body(func, func_type_map);
 
     func.dump(std::cout);
 
