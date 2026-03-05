@@ -79,6 +79,7 @@ struct Mutator {
     virtual Stmt visit(const LetStmt *);
     virtual Stmt visit(const IfElse *);
     virtual Stmt visit(const DoWhile *);
+    virtual Stmt visit(const While *);
     virtual Stmt visit(const Sequence *);
     virtual Stmt visit(const Allocate *);
     virtual Stmt visit(const Free *);

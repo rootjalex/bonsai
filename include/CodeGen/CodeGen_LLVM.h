@@ -156,6 +156,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::LetStmt *) override;
     virtual void visit(const ir::IfElse *) override;
     virtual void visit(const ir::DoWhile *) override;
+    virtual void visit(const ir::While *) override;
     // default behavior is fine.
     // virtual void visit(const ir::Sequence *) override;
     virtual void visit(const ir::Allocate *) override;

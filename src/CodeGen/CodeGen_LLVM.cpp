@@ -2080,6 +2080,10 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     frames.pop_frame();
 }
 
+void CodeGen_LLVM::visit(const While *node) {
+    internal_error << "TODO: While loop codegen in LLVM";
+}
+
 void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
     std::string name = node->loc.base;
     Type type = node->loc.base_type;

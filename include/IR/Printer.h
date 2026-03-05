@@ -151,6 +151,7 @@ struct Printer : public Visitor {
     void visit(const LetStmt *) override;
     void visit(const IfElse *) override;
     void visit(const DoWhile *) override;
+    void visit(const While *) override;
     void visit(const Sequence *) override;
     void visit(const Allocate *) override;
     void visit(const Free *) override;

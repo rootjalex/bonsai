@@ -70,6 +70,7 @@ struct Visitor {
     virtual void visit(const LetStmt *);
     virtual void visit(const IfElse *);
     virtual void visit(const DoWhile *);
+    virtual void visit(const While *);
     virtual void visit(const Sequence *);
     virtual void visit(const Allocate *);
     virtual void visit(const Free *);

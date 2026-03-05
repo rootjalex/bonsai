@@ -1048,6 +1048,16 @@ void CodeGen_CUDA::visit(const DoWhile *node) {
     os << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const While *node) {
+    os << get_indent() << "while(";
+    print_no_parens(node->cond);
+    os << ") {\n";
+    increment();
+    node->body.accept(this);
+    decrement();
+    os << get_indent() << "}\n";
+}
+
 void CodeGen_CUDA::visit(const Label *node) {
     os << '/' << '/' << node->name << '\n';
     node->body.accept(this);

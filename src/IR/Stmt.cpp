@@ -84,6 +84,19 @@ Stmt DoWhile::make(Stmt body, Expr cond) {
         << cond.type();
 
     DoWhile *node = new DoWhile;
+    node->body = std::move(body);
+    node->cond = std::move(cond);
+    return node;
+}
+
+Stmt While::make(Expr cond, Stmt body) {
+    internal_assert(cond.defined()) << "Undefined condition in While::make";
+    internal_assert(cond.type().defined() && cond.type().is_bool())
+        << "Non-boolean condition in While::make: " << cond << " of type "
+        << cond.type();
+    internal_assert(body.defined()) << "Undefined body in While::make";
+
+    While *node = new While;
     node->cond = std::move(cond);
     node->body = std::move(body);
     return node;

@@ -195,6 +195,13 @@ class RenameAnalysis : public ir::Visitor {
         pop_frame();
     }
 
+    void visit(const ir::While *node) override {
+        push_frame();
+        node->cond.accept(this);
+        node->body.accept(this);
+        pop_frame();
+    }
+
     void visit(const ir::YieldFrom *node) override { node->value.accept(this); }
 
     // Yields a set of expressions that have been seen more than 1 time.
@@ -469,6 +476,12 @@ struct Rename : public ir::Mutator {
         return make(ir::DoWhile::make(std::move(body), std::move(cond)));
     }
 
+    ir::Stmt visit(const ir::While *node) override {
+        ir::Expr cond = mutate(node->cond);
+        ir::Stmt body = mutate(node->body);
+        return make(ir::While::make(std::move(cond), std::move(body)));
+    }
+
     ir::Stmt visit(const ir::YieldFrom *node) override {
         return make(ir::YieldFrom::make(mutate(node->value)));
     }
@@ -731,6 +744,14 @@ class LVN : public ir::Mutator {
         return ir::DoWhile::make(std::move(body), std::move(cond));
     }
 
+    ir::Stmt visit(const ir::While *node) override {
+        push_frame();
+        ir::Expr cond = mutate(node->cond);
+        ir::Stmt body = mutate(node->body);
+        pop_frame();
+        return ir::While::make(std::move(cond), std::move(body));
+    }
+
     ir::Stmt visit(const ir::YieldFrom *node) override {
         return ir::YieldFrom::make(mutate(node->value));
     }
@@ -976,6 +997,14 @@ class CopyPropagation : public ir::Mutator {
         ir::Expr cond = mutate(node->cond);
         pop_frame();
         return ir::DoWhile::make(std::move(body), std::move(cond));
+    }
+
+    ir::Stmt visit(const ir::While *node) override {
+        push_frame();
+        ir::Expr cond = mutate(node->cond);
+        ir::Stmt body = mutate(node->body);
+        pop_frame();
+        return ir::While::make(std::move(cond), std::move(body));
     }
 
     // Cannot propagate copies through mutable variables.

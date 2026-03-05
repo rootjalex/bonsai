@@ -1261,6 +1261,18 @@ void Printer::visit(const DoWhile *node) {
     end_stmt();
 }
 
+void Printer::visit(const While *node) {
+    os << get_indent();
+    os << "while (";
+    print_no_parens(node->cond);
+    os << ") {\n";
+    indent++;
+    print(node->body);
+    indent--;
+    os << get_indent() << "}";
+    end_stmt();
+}
+
 void Printer::visit(const Sequence *node) {
     for (const auto &stmt : node->stmts) {
         stmt.accept(this);

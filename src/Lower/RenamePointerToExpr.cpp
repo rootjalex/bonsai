@@ -130,6 +130,12 @@ struct Rename : public ir::Mutator {
         return make(ir::DoWhile::make(std::move(body), std::move(cond)));
     }
 
+    ir::Stmt visit(const ir::While *node) override {
+        ir::Expr cond = mutate(node->cond);
+        ir::Stmt body = mutate(node->body);
+        return make(ir::While::make(std::move(cond), std::move(body)));
+    }
+
     ir::Stmt visit(const ir::YieldFrom *node) override {
         return make(ir::YieldFrom::make(mutate(node->value)));
     }

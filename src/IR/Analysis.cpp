@@ -194,6 +194,7 @@ struct AlwaysReturns : public Visitor {
     // it should simplify.
     void visit(const ForAll *node) override { returns = false; }
     void visit(const DoWhile *node) override { returns = false; }
+    void visit(const While *node) override { returns = false; }
     void visit(const ParFor *node) override { returns = false; }
 
     RESTRICT_VISITOR(RecLoop);
@@ -226,6 +227,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
+    RESTRICT_VISITOR(While);
     RESTRICT_VISITOR(Launch);
     RESTRICT_VISITOR(Append);
 

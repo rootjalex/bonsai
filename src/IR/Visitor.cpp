@@ -228,6 +228,11 @@ void Visitor::visit(const DoWhile *node) {
     node->cond.accept(this);
 }
 
+void Visitor::visit(const While *node) {
+    node->cond.accept(this);
+    node->body.accept(this);
+}
+
 void Visitor::visit(const Sequence *node) { visit_list(this, node->stmts); }
 
 void Visitor::visit(const Allocate *node) {

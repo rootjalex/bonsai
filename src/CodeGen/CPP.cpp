@@ -896,6 +896,7 @@ class BonsaiToCpp : ir::Printer {
     }
     // void visit(const IfElse *) override;
     // void visit(const DoWhile *) override;
+    // void visit(const While *) override;
     // void visit(const Sequence *) override;
     void visit(const Allocate *node) override {
         internal_assert(node->memory == Allocate::Memory::Stack ||

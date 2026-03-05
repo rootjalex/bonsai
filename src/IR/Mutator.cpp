@@ -536,6 +536,15 @@ Stmt Mutator::visit(const DoWhile *node) {
     return DoWhile::make(std::move(body), std::move(cond));
 }
 
+Stmt Mutator::visit(const While *node) {
+    Expr cond = mutate(node->cond);
+    Stmt body = mutate(node->body);
+    if (cond.same_as(node->cond) && body.same_as(node->body)) {
+        return node;
+    }
+    return While::make(std::move(cond), std::move(body));
+}
+
 Stmt Mutator::visit(const Sequence *node) {
     auto [stmts, not_changed] = visit_list(this, node->stmts);
     if (not_changed) {
