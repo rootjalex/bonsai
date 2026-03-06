@@ -287,6 +287,10 @@ generate_rays() {
   else
     GEN_CXX="${CXX:-clang++}"
     GEN_FLAGS="${GEN_FLAGS} -fopenmp"
+    # If libomp is in conda, add its include/lib paths
+    if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/include" ]]; then
+      GEN_FLAGS="${GEN_FLAGS} -I${CONDA_PREFIX}/include -L${CONDA_PREFIX}/lib"
+    fi
   fi
   ${GEN_CXX} ${GEN_FLAGS} -o "${RAY_PATH}/kernel.out" "${KERNEL_PATH}/generate.cpp"
 
