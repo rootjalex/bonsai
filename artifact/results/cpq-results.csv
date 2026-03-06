@@ -1,0 +1,2 @@
+app,machine,scene,layout,query-count,cpq-time-ms,fcpw-cpq-time-ms,build-time-ms,fcpw-build-time-ms,group,total-memory-b,bvh-memory-b
+cpq,arm,hairball,pbrt,1000,4,3,1657,1326,bvh2,122237920,18557920

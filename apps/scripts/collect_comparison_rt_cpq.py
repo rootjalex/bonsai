@@ -71,25 +71,31 @@ def load_cpq_data(csv_file, scenes=None, layouts=None, machines=None, include_em
     return result
 
 
-def calculate_speedups(data, metric_col):
-    """Calculate speedup relative to fastest layout for each scene."""
+def calculate_speedups(data, metric_col, reference_layout=None):
+    """Calculate speedup relative to a reference layout (or fastest) for each scene."""
     speedups = {}
 
     for scene in data['scene'].unique():
         scene_data = data[data['scene'] == scene]
 
-        # Find the fastest time for THIS scene
-        fastest_time = scene_data[metric_col].min()
+        if reference_layout is not None:
+            ref_rows = scene_data[scene_data['layout'] == reference_layout]
+            if ref_rows.empty:
+                continue
+            ref_time = ref_rows[metric_col].values[0]
+        else:
+            # Find the fastest time for THIS scene
+            ref_time = scene_data[metric_col].min()
 
-        # Calculate speedup relative to scene's fastest
-        # Speedup = fastest_time / layout_time
-        # Speedup = 1.0 means this is the fastest for this scene
-        # Speedup < 1.0 means slower (e.g., 0.5 = 2x slower)
+        # Calculate speedup relative to reference
+        # Speedup > 1.0 means faster than reference
+        # Speedup = 1.0 means same as reference
+        # Speedup < 1.0 means slower than reference
         scene_speedups = {}
         for _, row in scene_data.iterrows():
             layout = row['layout']
             time = row[metric_col]
-            speedup = fastest_time / time
+            speedup = ref_time / time
             scene_speedups[layout] = speedup
 
         speedups[scene] = scene_speedups
@@ -404,6 +410,8 @@ def plot_comparison_grouped(rt_speedups, cpq_speedups, scenes, layouts, output_f
 
 def print_summary(rt_speedups, cpq_speedups, scenes, layouts):
     """Print summary statistics."""
+    from scipy.stats import gmean
+
     print("\n" + "="*80)
     print("PERFORMANCE COMPARISON SUMMARY")
     print("="*80)
@@ -411,7 +419,7 @@ def print_summary(rt_speedups, cpq_speedups, scenes, layouts):
     for scene in scenes:
         print(f"\nScene: {scene}")
         print("-"*80)
-        print(f"{'Layout':<20} {'RT Speedup':>15} {'CPQ Speedup':>15}")
+        print(f"{'Layout':<30} {'RT Speedup':>15} {'CPQ Speedup':>15}")
         print("-"*80)
 
         for layout in layouts:
@@ -421,7 +429,85 @@ def print_summary(rt_speedups, cpq_speedups, scenes, layouts):
             rt_str = f"{rt_speedup:.3f}x" if rt_speedup > 0 else "N/A"
             cpq_str = f"{cpq_speedup:.3f}x" if cpq_speedup > 0 else "N/A"
 
-            print(f"{layout:<20} {rt_str:>15} {cpq_str:>15}")
+            print(f"{layout:<30} {rt_str:>15} {cpq_str:>15}")
+
+    # Aggregate statistics across scenes
+    print("\n" + "="*80)
+    print("AGGREGATE STATISTICS ACROSS SCENES")
+    print("="*80)
+
+    # Collect per-layout stats
+    for label, speedups, metric in [("RT", rt_speedups, "RT"), ("CPQ", cpq_speedups, "CPQ")]:
+        print(f"\n--- {label} ---")
+        print(f"{'Layout':<30} {'GeoMean':>10} {'ArithMean':>10} {'Min':>10} {'Max':>10} {'Wins':>6}")
+        print("-"*80)
+
+        layout_geomeans = []
+        for layout in layouts:
+            vals = [speedups[s].get(layout, 0) for s in scenes]
+            vals = [v for v in vals if v > 0]
+            if not vals:
+                print(f"{layout:<30} {'N/A':>10} {'N/A':>10} {'N/A':>10} {'N/A':>10} {'N/A':>6}")
+                continue
+            geo = gmean(vals)
+            arith = np.mean(vals)
+            mn = min(vals)
+            mx = max(vals)
+            wins = sum(1 for v in vals if abs(v - 1.0) < 0.001)
+            layout_geomeans.append((layout, geo))
+            print(f"{layout:<30} {geo:>9.3f}x {arith:>9.3f}x {mn:>9.3f}x {mx:>9.3f}x {wins:>6}")
+
+        # Print ranking by geometric mean
+        layout_geomeans.sort(key=lambda x: x[1], reverse=True)
+        print(f"\n{label} Ranking (by geometric mean speedup):")
+        for rank, (layout, geo) in enumerate(layout_geomeans, 1):
+            print(f"  {rank}. {layout:<28} {geo:.3f}x")
+
+
+def print_fcpw_comparison(csv_file, scenes, layout, machines=None):
+    """Print summary statistics comparing cpq-time-ms (Scion) vs fcpw-cpq-time-ms (FCPW) for a given layout."""
+    from scipy.stats import gmean
+
+    df = pd.read_csv(csv_file)
+    df = df[df['layout'] == layout]
+    if scenes is not None:
+        df = df[df['scene'].isin(scenes)]
+    if machines is not None:
+        df = df[df['machine'].isin(machines)]
+
+    available_machines = sorted(df['machine'].unique())
+
+    for machine in available_machines:
+        mdf = df[df['machine'] == machine]
+
+        # Group by scene, using geometric mean across runs
+        grouped = mdf.groupby('scene').agg(
+            scion_time=('cpq-time-ms', lambda x: gmean(x)),
+            fcpw_time=('fcpw-cpq-time-ms', lambda x: gmean(x)),
+            query_count=('query-count', 'first'),
+        ).reset_index()
+
+        grouped['speedup'] = grouped['fcpw_time'] / grouped['scion_time']
+
+        print("\n" + "="*80)
+        print(f"FCPW / Scion CPQ COMPARISON (layout: {layout}, machine: {machine})")
+        print("="*80)
+        print(f"{'Scene':<30} {'Scion (ms)':>12} {'FCPW (ms)':>12} {'Speedup':>10}")
+        print("-"*80)
+
+        speedups = []
+        for _, row in grouped.iterrows():
+            speedup = row['speedup']
+            speedups.append(speedup)
+            print(f"{row['scene']:<30} {row['scion_time']:>12.1f} {row['fcpw_time']:>12.1f} {speedup:>9.2f}x")
+
+        print("-"*80)
+        geo = gmean(speedups)
+        arith = np.mean(speedups)
+        print(f"{'Geometric Mean':<30} {'':>12} {'':>12} {geo:>9.2f}x")
+        print(f"{'Arithmetic Mean':<30} {'':>12} {'':>12} {arith:>9.2f}x")
+        print(f"{'Min':<30} {'':>12} {'':>12} {min(speedups):>9.2f}x")
+        print(f"{'Max':<30} {'':>12} {'':>12} {max(speedups):>9.2f}x")
 
 
 def main():
@@ -441,11 +527,13 @@ Examples:
         """
     )
 
-    parser.add_argument('rt_csv', help='Path to ray tracing CSV file')
-    parser.add_argument('cpq_csv', help='Path to CPQ CSV file')
+    parser.add_argument('rt_csv', nargs='?', default=None,
+                        help='Path to ray tracing CSV file')
+    parser.add_argument('cpq_csv', nargs='?', default=None,
+                        help='Path to CPQ CSV file')
     parser.add_argument('--scenes', nargs='+', required=True,
                         help='Scenes to compare (e.g., lucy hairball)')
-    parser.add_argument('--layouts', nargs='+', required=True,
+    parser.add_argument('--layouts', nargs='+', default=None,
                         help='Layouts to compare (e.g., pbrt pbrt-q16 bvh8)')
     parser.add_argument('--machines', nargs='+', default=None,
                         help='Filter by machine (e.g., x86)')
@@ -455,8 +543,24 @@ Examples:
                         help='Include Embree layouts in comparison (default: excluded)')
     parser.add_argument('--output_filename', type=str, default='rt_cpq_comparison',
                         help='Output file name (default: rt_cpq_comparison)')
+    parser.add_argument('--reference-layout', type=str, default=None,
+                        help='Reference layout for speedup calculation (default: fastest)')
+    parser.add_argument('--compare-fcpw', type=str, default=None, metavar='CPQ_CSV',
+                        help='Compare cpq-time-ms vs fcpw-cpq-time-ms for a layout (use with --compare-fcpw-layout)')
+    parser.add_argument('--compare-fcpw-layout', type=str, default='pbrt',
+                        help='Layout to use for FCPW comparison (default: pbrt)')
 
     args = parser.parse_args()
+
+    if args.compare_fcpw:
+        print_fcpw_comparison(args.compare_fcpw, args.scenes,
+                              args.compare_fcpw_layout, machines=args.machines)
+        return
+
+    if not args.rt_csv or not args.cpq_csv:
+        parser.error('rt_csv and cpq_csv are required unless using --compare-fcpw')
+    if not args.layouts:
+        parser.error('--layouts is required unless using --compare-fcpw')
 
     # Load data - first load ALL layouts to find global fastest
     print("Loading all ray tracing data for speedup calculation...")
@@ -475,9 +579,13 @@ Examples:
                                  include_embree=args.include_embree)
 
     # Calculate speedups using all layouts
-    print("Calculating speedups relative to fastest across all layouts...")
-    rt_speedups = calculate_speedups(rt_data_all, 'time_per_ray')
-    cpq_speedups = calculate_speedups(cpq_data_all, 'time_per_query')
+    ref = args.reference_layout
+    if ref:
+        print(f"Calculating speedups relative to '{ref}'...")
+    else:
+        print("Calculating speedups relative to fastest across all layouts...")
+    rt_speedups = calculate_speedups(rt_data_all, 'time_per_ray', reference_layout=ref)
+    cpq_speedups = calculate_speedups(cpq_data_all, 'time_per_query', reference_layout=ref)
 
     # Filter to only the requested layouts for display
     print(f"Filtering to requested layouts: {args.layouts}")

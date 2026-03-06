@@ -1,0 +1,13 @@
+hairball
+rt, embree, embree-qbvh8i, pc
+262144
+hits       : 262144
+trace time : 198 ms
+
+rt, embree, embree-bvh8i, mt
+262144
+hits       : 262144
+trace time : 138 ms
+
+---
+

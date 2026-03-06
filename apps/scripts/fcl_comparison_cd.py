@@ -161,12 +161,48 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     plt.close()
 
 
+def print_fcl_comparison(csv_file, scene1, scene2, layout, machines=None):
+    """Print summary statistics comparing collision-time-ms (Scion) vs fcl-collision-time-ms (FCL) for a given layout."""
+    from scipy.stats import gmean
+
+    df = pd.read_csv(csv_file)
+    df = df[(df['layout'] == layout) &
+            (df['scene1'] == scene1) &
+            (df['scene2'] == scene2)]
+    if machines is not None:
+        df = df[df['machine'].isin(machines)]
+
+    available_machines = sorted(df['machine'].unique())
+
+    for machine in available_machines:
+        mdf = df[df['machine'] == machine]
+
+        scion_time = gmean(mdf['collision-time-ms'])
+        fcl_time = gmean(mdf['fcl-collision-time-ms'])
+        speedup = fcl_time / scion_time if scion_time > 0 else np.nan
+
+        print("\n" + "="*80)
+        print(f"FCL / Scion CD COMPARISON (layout: {layout}, machine: {machine})")
+        print(f"Scenes: {scene1}, {scene2}")
+        print("="*80)
+        print(f"{'':>30} {'Scion (ms)':>12} {'FCL (ms)':>12} {'Speedup':>10}")
+        print("-"*80)
+        print(f"{'collision-time':>30} {scion_time:>12.1f} {fcl_time:>12.1f} {speedup:>9.2f}x")
+
+        # Also show build times if available
+        if 'build-time-ms' in mdf.columns and 'fcl-build-time-ms' in mdf.columns:
+            scion_build = gmean(mdf['build-time-ms'])
+            fcl_build = gmean(mdf['fcl-build-time-ms'])
+            build_speedup = fcl_build / scion_build if scion_build > 0 else np.nan
+            print(f"{'build-time':>30} {scion_build:>12.1f} {fcl_build:>12.1f} {build_speedup:>9.2f}x")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Generate bar chart comparing collision detection performance to FCL')
     parser.add_argument(
         'input_csv', help='Input CSV file with collision detection benchmark data')
-    parser.add_argument('--layouts', nargs='+', required=True,
+    parser.add_argument('--layouts', nargs='+', default=None,
                         help='Layouts to compare')
     parser.add_argument('--machines', nargs='+', default=['x86', 'arm'],
                         help='Machines to include (default: x86 arm)')
@@ -178,8 +214,20 @@ def main():
                         help='Output file name (default: cd_speedup)')
     parser.add_argument('--show-title', action='store_true',
                         help='Show title on the plot (default: False)')
+    parser.add_argument('--compare-fcl', action='store_true',
+                        help='Print FCL vs Scion comparison summary statistics')
+    parser.add_argument('--compare-fcl-layout', type=str, default='pbrt',
+                        help='Layout to use for FCL comparison (default: pbrt)')
 
     args = parser.parse_args()
+
+    if args.compare_fcl:
+        print_fcl_comparison(args.input_csv, args.scene1, args.scene2,
+                             args.compare_fcl_layout, machines=args.machines)
+        return
+
+    if not args.layouts:
+        parser.error('--layouts is required unless using --compare-fcl')
 
     print(f"Loading data from {args.input_csv}...")
     df = pd.read_csv(args.input_csv)

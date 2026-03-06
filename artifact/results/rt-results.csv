@@ -1,0 +1,7 @@
+app,machine,scene,layout,intersect,ray_count,hits,trace_time-ms,group,ray_type,total-memory-b,bvh-memory-b
+rt,arm,hairball,pbrt,mt,262144,262144,58,bvh2,primary,122237920,18557920
+rt,arm,hairball,pbrt-q16,mt,262144,262144,78,bvh2,primary,112958960,9278960
+rt,arm,hairball,bvh8,mt,262144,262144,127,bvh8,primary,114136832,10456832
+rt,arm,hairball,bvh8-q8,mt,262144,262144,147,bvh8,primary,109235192,5555192
+rt,arm,hairball,embree-qbvh8i,pc,262144,262144,204,embree,primary,85185265,-18494735
+rt,arm,hairball,embree-bvh8i,mt,262144,262144,140,embree,primary,98058633,-5621367

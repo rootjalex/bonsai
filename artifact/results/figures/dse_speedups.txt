@@ -1,0 +1,29 @@
+SPEEDUP ANALYSIS
+Mean Strategy: wavg
+==========================================================================================
+
+Model: hairball
+==========================================================================================
+
+Machine: arm
+------------------------------------------------------------------------------------------
+
+Ray Type: primary
+Overall Baseline (slowest): bvh8-q8 @ 560.760 ns/ray
+
+bvh8 Layouts (within-group speedups):
+  Group Baseline: bvh8-q8 @ 560.760 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  bvh8                                1.157x      484.47    111461.8       1.157x
+  bvh8-q8                             1.000x      560.76    106675.0       1.000x *
+
+bvh2 Layouts (within-group speedups):
+  Group Baseline: pbrt-q16 @ 297.546 ns/ray
+  Layout                            Speedup    Time (ns)  Memory (KB)   vs Overall
+  ------------------------------ ---------- ------------ ------------ ------------
+  pbrt                                1.345x      221.25    119373.0       2.534x
+  pbrt-q16                            1.000x      297.55    110311.5       1.885x *
+
+==========================================================================================
+* = baseline (slowest layout in group)

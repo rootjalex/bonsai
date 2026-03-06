@@ -1,0 +1,22 @@
+hairball
+rt, cpu, pbrt, mt
+262144
+hits       : 262144
+trace time : 60 ms
+rt, cpu, pbrt-q16, mt
+262144
+hits       : 262144
+trace time : 79 ms
+---
+
+hairball
+rt, cpu, bvh8, mt
+262144
+hits       : 262144
+trace time : 134 ms
+rt, cpu, bvh8-q8, mt
+262144
+hits       : 262144
+trace time : 148 ms
+---
+
