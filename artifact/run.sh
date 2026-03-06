@@ -198,12 +198,12 @@ install_deps() {
         conda install -y -c conda-forge embree eigen libomp 2>/dev/null || true
       }
 
-      # If conda clang still not available, install clang via apt as fallback.
-      if [[ ! -x "${CONDA_PREFIX}/bin/clang++" ]] && ! command -v clang++ &>/dev/null; then
-        log "  Conda clang unavailable; installing system clang via apt..."
+      # If conda clang or libomp not available, install via apt as fallback.
+      if [[ ! -x "${CONDA_PREFIX}/bin/clang++" ]] || [[ ! -f "${CONDA_PREFIX}/include/omp.h" ]]; then
+        log "  Installing clang and libomp via apt..."
         if command -v apt-get &>/dev/null; then
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang llvm-dev libomp-dev 2>/dev/null || true
+          sudo apt-get install -y -qq clang libomp-dev 2>/dev/null || true
         fi
       fi
 
@@ -288,7 +288,7 @@ generate_rays() {
     GEN_CXX="${CXX:-clang++}"
     GEN_FLAGS="${GEN_FLAGS} -fopenmp"
     # If libomp is in conda, add its include/lib paths
-    if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/include" ]]; then
+    if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -f "${CONDA_PREFIX}/include/omp.h" ]]; then
       GEN_FLAGS="${GEN_FLAGS} -I${CONDA_PREFIX}/include -L${CONDA_PREFIX}/lib"
     fi
   fi
