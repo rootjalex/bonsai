@@ -208,6 +208,17 @@ install_deps() {
         conda install -y -c conda-forge llvm-openmp 2>/dev/null || \
           conda install -y -c conda-forge openmp 2>/dev/null || true
       fi
+      # Ensure eigen is installed (needed by FCPW/FCL builds)
+      local _eigen_found=false
+      for _d in "${CONDA_PREFIX}/share/eigen3/cmake" \
+                "${CONDA_PREFIX}/lib/cmake/eigen3" \
+                "${CONDA_PREFIX}/share/cmake/eigen3"; do
+        if [[ -f "${_d}/Eigen3Config.cmake" ]]; then _eigen_found=true; break; fi
+      done
+      if [[ "${_eigen_found}" == false ]]; then
+        log "  Installing Eigen3..."
+        conda install -y -c conda-forge eigen 2>/dev/null || true
+      fi
 
       if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
         export CC="${CONDA_PREFIX}/bin/clang"
@@ -530,6 +541,15 @@ else:
       fi
       if [[ -n "${CONDA_PREFIX:-}" ]]; then
         EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_PREFIX_PATH=${CONDA_PREFIX}"
+        # Eigen3 from conda may be in share/eigen3/cmake or lib/cmake/eigen3
+        for _eigen_dir in "${CONDA_PREFIX}/share/eigen3/cmake" \
+                          "${CONDA_PREFIX}/lib/cmake/eigen3" \
+                          "${CONDA_PREFIX}/share/cmake/eigen3"; do
+          if [[ -f "${_eigen_dir}/Eigen3Config.cmake" ]]; then
+            EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DEigen3_DIR=${_eigen_dir}"
+            break
+          fi
+        done
       fi
       cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" ../.. ${EXTRA_CMAKE_FLAGS}
       make -j"${NPROC}"
@@ -873,6 +893,14 @@ run_fcl_comparison() {
       fi
       if [[ -n "${CONDA_PREFIX:-}" ]]; then
         EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_PREFIX_PATH=${CONDA_PREFIX}"
+        for _eigen_dir in "${CONDA_PREFIX}/share/eigen3/cmake" \
+                          "${CONDA_PREFIX}/lib/cmake/eigen3" \
+                          "${CONDA_PREFIX}/share/cmake/eigen3"; do
+          if [[ -f "${_eigen_dir}/Eigen3Config.cmake" ]]; then
+            EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DEigen3_DIR=${_eigen_dir}"
+            break
+          fi
+        done
       fi
       cmake -DLAYOUT="${LAYOUT}" .. ${EXTRA_CMAKE_FLAGS} > /dev/null 2>&1
       make -j"${NPROC}" main_library > /dev/null 2>&1
