@@ -198,13 +198,15 @@ install_deps() {
         conda install -y -c conda-forge embree eigen libomp 2>/dev/null || true
       }
 
-      # If conda clang or libomp not available, install via apt as fallback.
-      if [[ ! -x "${CONDA_PREFIX}/bin/clang++" ]] || [[ ! -f "${CONDA_PREFIX}/include/omp.h" ]]; then
-        log "  Installing clang and libomp via apt..."
-        if command -v apt-get &>/dev/null; then
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang libomp-dev 2>/dev/null || true
-        fi
+      # If conda clang or libomp not available, try installing them individually.
+      if [[ ! -x "${CONDA_PREFIX}/bin/clang++" ]]; then
+        log "  Retrying clang install..."
+        conda install -y -c conda-forge clang_linux-64 2>/dev/null || true
+      fi
+      if [[ ! -f "${CONDA_PREFIX}/include/omp.h" ]]; then
+        log "  Installing libomp separately..."
+        conda install -y -c conda-forge llvm-openmp 2>/dev/null || \
+          conda install -y -c conda-forge openmp 2>/dev/null || true
       fi
 
       if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
@@ -219,15 +221,15 @@ install_deps() {
       fi
       export LLVM_ROOT="${CONDA_PREFIX}"
     else
-      # System package manager (Ubuntu/Debian)
-      if command -v apt-get &>/dev/null; then
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq cmake clang-19 llvm-19-dev libomp-dev \
-          libembree-dev libeigen3-dev python3-pip 2>/dev/null || true
+      # No conda — expect dependencies to be pre-installed.
+      log "No conda environment detected. Ensure the following are installed:"
+      log "  cmake (>= 3.30), clang, llvm-dev (19.x), libomp-dev, embree (4.x), eigen3"
+      if command -v clang++ &>/dev/null; then
+        export CC="clang"
+        export CXX="clang++"
+      fi
+      if [[ -d "/usr/lib/llvm-19" ]]; then
         export LLVM_ROOT="/usr/lib/llvm-19"
-      else
-        log "WARNING: No supported package manager found. Please install manually:"
-        log "  cmake, clang-19, llvm-19-dev, libomp-dev, embree (4.x), eigen3"
       fi
     fi
   fi
