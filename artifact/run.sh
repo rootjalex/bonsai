@@ -188,19 +188,34 @@ install_deps() {
       log "  Installing cmake >= 3.30..."
       conda install -y -c conda-forge "cmake>=3.30" || \
         fail "Failed to install cmake >= 3.30 via conda. Install manually."
-      log "  Installing LLVM 19, Embree, Eigen, OpenMP..."
+      # Install each group separately to isolate solver conflicts.
+      log "  Installing LLVM 19, clang, Embree, Eigen, OpenMP..."
       conda install -y -c conda-forge llvmdev=19.1.6 clangdev=19.1.6 \
-        embree eigen libomp 2>/dev/null || \
-        log "WARNING: Some conda packages failed to install. Check dependencies."
+        embree eigen libomp 2>/dev/null || {
+        log "  WARNING: Full conda install failed; trying packages individually..."
+        conda install -y -c conda-forge clangdev=19.1.6 llvmdev=19.1.6 2>/dev/null || \
+          conda install -y -c conda-forge clangdev llvmdev 2>/dev/null || true
+        conda install -y -c conda-forge embree eigen libomp 2>/dev/null || true
+      }
+
+      # If conda clang still not available, install clang via apt as fallback.
+      if [[ ! -x "${CONDA_PREFIX}/bin/clang++" ]] && ! command -v clang++ &>/dev/null; then
+        log "  Conda clang unavailable; installing system clang via apt..."
+        if command -v apt-get &>/dev/null; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang llvm-dev libomp-dev 2>/dev/null || true
+        fi
+      fi
+
       if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
         export CC="${CONDA_PREFIX}/bin/clang"
         export CXX="${CONDA_PREFIX}/bin/clang++"
       elif command -v clang++ &>/dev/null; then
-        log "  Conda clang not found; using system clang++"
+        log "  Using system clang++: $(command -v clang++)"
         export CC="clang"
         export CXX="clang++"
       else
-        fail "clang++ not found. Install clang via conda (conda install -c conda-forge clangdev) or system package manager."
+        fail "clang++ not found. Install via: conda install -c conda-forge clangdev, or: sudo apt install clang"
       fi
       export LLVM_ROOT="${CONDA_PREFIX}"
     else
