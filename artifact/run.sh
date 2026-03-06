@@ -219,6 +219,12 @@ install_deps() {
         log "  Installing Eigen3..."
         conda install -y -c conda-forge eigen 2>/dev/null || true
       fi
+      # X11 dev headers needed by Polyscope/GLFW on Linux
+      if [[ ! -f "${CONDA_PREFIX}/include/X11/Xcursor/Xcursor.h" ]]; then
+        log "  Installing X11 dev libraries (needed by Polyscope/GLFW)..."
+        conda install -y -c conda-forge xorg-libxcursor xorg-libxi \
+          xorg-libxinerama xorg-libxrandr xorg-libx11 xorg-libxext 2>/dev/null || true
+      fi
 
       if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
         export CC="${CONDA_PREFIX}/bin/clang"
