@@ -524,11 +524,14 @@ else:
       local BUILD_DIRECTORY="build_${BVH_SUFFIX}_${LAYOUT}"
       mkdir -p "${BUILD_DIRECTORY}" && cd "${BUILD_DIRECTORY}"
 
-      local CLANG_FLAG=""
+      local EXTRA_CMAKE_FLAGS=""
       if [[ "$(uname)" == "Linux" ]] && [[ -x "${CONDA_PREFIX:-}/bin/clang++" ]]; then
-        CLANG_FLAG="-DCMAKE_CXX_COMPILER=${CONDA_PREFIX}/bin/clang++"
+        EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_COMPILER=${CONDA_PREFIX}/bin/clang++"
       fi
-      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" ../.. ${CLANG_FLAG}
+      if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_PREFIX_PATH=${CONDA_PREFIX}"
+      fi
+      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" ../.. ${EXTRA_CMAKE_FLAGS}
       make -j"${NPROC}"
 
       cd "${ROOT_DIR}"
@@ -864,13 +867,16 @@ run_fcl_comparison() {
       cd "${PREFIX}"
       mkdir -p build && cd build
 
-      local CLANG_FLAG=""
+      local EXTRA_CMAKE_FLAGS=""
       if [[ "$(uname)" == "Linux" ]] && [[ -x "${CONDA_PREFIX:-}/bin/clang++" ]]; then
-        CLANG_FLAG="-DCMAKE_CXX_COMPILER=${CONDA_PREFIX}/bin/clang++"
+        EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_COMPILER=${CONDA_PREFIX}/bin/clang++"
       fi
-      cmake -DLAYOUT="${LAYOUT}" .. ${CLANG_FLAG} > /dev/null 2>&1
+      if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_PREFIX_PATH=${CONDA_PREFIX}"
+      fi
+      cmake -DLAYOUT="${LAYOUT}" .. ${EXTRA_CMAKE_FLAGS} > /dev/null 2>&1
       make -j"${NPROC}" main_library > /dev/null 2>&1
-      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" .. ${CLANG_FLAG} > /dev/null 2>&1
+      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" .. ${EXTRA_CMAKE_FLAGS} > /dev/null 2>&1
       make -j"${NPROC}" > /dev/null 2>&1
 
       cd "${ROOT_DIR}"
