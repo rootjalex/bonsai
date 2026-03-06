@@ -192,8 +192,12 @@ install_deps() {
       conda install -y -c conda-forge llvmdev=19.1.6 clangdev=19.1.6 \
         embree eigen libomp 2>/dev/null || \
         log "WARNING: Some conda packages failed to install. Check dependencies."
-      export CC="${CONDA_PREFIX}/bin/clang"
-      export CXX="${CONDA_PREFIX}/bin/clang++"
+      if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
+        export CC="${CONDA_PREFIX}/bin/clang"
+        export CXX="${CONDA_PREFIX}/bin/clang++"
+      else
+        log "  Conda clang not found; using system compiler"
+      fi
       export LLVM_ROOT="${CONDA_PREFIX}"
     else
       # System package manager (Ubuntu/Debian)
@@ -493,7 +497,7 @@ else:
       mkdir -p "${BUILD_DIRECTORY}" && cd "${BUILD_DIRECTORY}"
 
       local CLANG_FLAG=""
-      if [[ "$(uname)" == "Linux" ]] && [[ -n "${CONDA_PREFIX:-}" ]]; then
+      if [[ "$(uname)" == "Linux" ]] && [[ -x "${CONDA_PREFIX:-}/bin/clang++" ]]; then
         CLANG_FLAG="-DCMAKE_CXX_COMPILER=${CONDA_PREFIX}/bin/clang++"
       fi
       cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" ../.. ${CLANG_FLAG}
@@ -833,7 +837,7 @@ run_fcl_comparison() {
       mkdir -p build && cd build
 
       local CLANG_FLAG=""
-      if [[ "$(uname)" == "Linux" ]] && [[ -n "${CONDA_PREFIX:-}" ]]; then
+      if [[ "$(uname)" == "Linux" ]] && [[ -x "${CONDA_PREFIX:-}/bin/clang++" ]]; then
         CLANG_FLAG="-DCMAKE_CXX_COMPILER=${CONDA_PREFIX}/bin/clang++"
       fi
       cmake -DLAYOUT="${LAYOUT}" .. ${CLANG_FLAG} > /dev/null 2>&1
