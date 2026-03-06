@@ -183,9 +183,15 @@ install_deps() {
     # Check for conda environment (used on evaluation machines)
     if [[ -n "${CONDA_PREFIX:-}" ]]; then
       log "Conda environment detected: ${CONDA_PREFIX}"
-      # Install via conda-forge
-      conda install -y -c conda-forge cmake llvmdev=19.1.6 clangdev=19.1.6 \
-        embree eigen libomp 2>/dev/null || true
+      # Install via conda-forge. Split into separate installs so that a
+      # conflict in one group doesn't block the others.
+      log "  Installing cmake >= 3.30..."
+      conda install -y -c conda-forge "cmake>=3.30" || \
+        fail "Failed to install cmake >= 3.30 via conda. Install manually."
+      log "  Installing LLVM 19, Embree, Eigen, OpenMP..."
+      conda install -y -c conda-forge llvmdev=19.1.6 clangdev=19.1.6 \
+        embree eigen libomp 2>/dev/null || \
+        log "WARNING: Some conda packages failed to install. Check dependencies."
       export CC="${CONDA_PREFIX}/bin/clang"
       export CXX="${CONDA_PREFIX}/bin/clang++"
       export LLVM_ROOT="${CONDA_PREFIX}"

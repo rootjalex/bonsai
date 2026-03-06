@@ -76,3 +76,6 @@ deps/llvm-install
 
 # randomly generated rays for ray-tracing app.
 *.rays
+
+# results for artifact
+artifact/results/

@@ -1,3 +1,0 @@
-app,machine,scene1,scene2,layout,collisions,collision-time-ms,fcl-collision-time-ms,build-time-ms,fcl-build-time-ms,group,triangle-memory-b
-cd,arm,hairball,hairball_60_70_10,pbrt,5118441,9015,15263,2973,4477,bvh2,207360000
-cd,arm,hairball,hairball_60_70_10,fcl,5118441,9779,15473,2841,4394,None,207360000

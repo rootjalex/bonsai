@@ -1,5 +1,0 @@
---- hairball - pbrt - 1000 ---
-[fcpw]   tree construction   : 1324 ms
-[bonsai] tree construction   : 1623 ms
-[fcpw]   closest point query : 4 ms
-[bonsai] closest point query : 4 ms
