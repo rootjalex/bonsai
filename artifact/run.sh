@@ -196,7 +196,18 @@ install_deps() {
         export CC="${CONDA_PREFIX}/bin/clang"
         export CXX="${CONDA_PREFIX}/bin/clang++"
       else
-        log "  Conda clang not found; using system compiler"
+        log "  Conda clang not found; falling back to system compiler"
+        # Find a working C++ compiler on the system
+        if command -v clang++ &>/dev/null; then
+          export CC="clang"
+          export CXX="clang++"
+        elif command -v g++ &>/dev/null; then
+          export CC="gcc"
+          export CXX="g++"
+        else
+          fail "No C++ compiler found. Install clang++ or g++."
+        fi
+        log "  Using ${CXX}"
       fi
       export LLVM_ROOT="${CONDA_PREFIX}"
     else
