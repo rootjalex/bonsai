@@ -78,4 +78,4 @@ deps/llvm-install
 *.rays
 
 # results for artifact
-artifact/results/
+artifact/results/*
