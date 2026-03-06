@@ -423,6 +423,9 @@ run_bonsai_rt_layouts() {
       else
         APP_CXX="${CXX:-clang++}"
         COMMON_FLAGS="${COMMON_FLAGS} -fopenmp"
+        if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/include" ]]; then
+          COMMON_FLAGS="${COMMON_FLAGS} -I${CONDA_PREFIX}/include -L${CONDA_PREFIX}/lib"
+        fi
       fi
       local COMPILE_CMD="${APP_CXX} ${COMMON_FLAGS} -o ${PREFIX}/${APPLICATION}_${LAYOUT}.out ${PREFIX}/${MAIN_FILE}.cpp ${PREFIX}/${APPLICATION}.cpp"
       if [[ "$(uname)" == "Linux" ]] && [[ -n "${CONDA_PREFIX:-}" ]]; then
