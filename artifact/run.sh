@@ -1135,13 +1135,25 @@ main() {
   if [[ "${SHORT}" == true ]]; then
     log "=== SHORT RUN MODE: quick smoke test ==="
   fi
-  if [[ "${GPU}" == true ]]; then
+  if [[ "${ALL}" == true ]]; then
+    log "=== ALL MODE: CPU + GPU benchmarks ==="
+  elif [[ "${GPU}" == true ]]; then
     log "=== GPU MODE: CUDA benchmarks ==="
   fi
 
   if should_run 0; then install_deps;          fi
   if should_run 1; then build_compiler;         fi
-  if [[ "${GPU}" == true ]]; then
+  if [[ "${ALL}" == true ]]; then
+    # CPU steps first
+    if should_run 2; then run_dse_rt;             fi
+    if should_run 3; then run_dse_cpq;            fi
+    if should_run 4; then run_embree_comparison;  fi
+    if should_run 5; then run_fcl_comparison;     fi
+    if should_run 6; then run_fcpw_comparison;    fi
+    # Then GPU steps
+    if should_run 2; then run_dse_rt_cuda;        fi
+    if should_run 3; then run_dse_cpq_cuda;       fi
+  elif [[ "${GPU}" == true ]]; then
     if should_run 2; then run_dse_rt_cuda;        fi
     if should_run 3; then run_dse_cpq_cuda;       fi
     if should_run 4; then log "Step 4: Embree comparison — skipped (CPU only, not available with --gpu)"; fi
