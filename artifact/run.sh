@@ -219,13 +219,8 @@ install_deps() {
         log "  Installing Eigen3..."
         conda install -y -c conda-forge eigen 2>/dev/null || true
       fi
-      # X11 dev headers needed by Polyscope/GLFW on Linux
-      if [[ ! -f "${CONDA_PREFIX}/include/X11/Xcursor/Xcursor.h" ]]; then
-        log "  Installing X11 dev libraries (needed by Polyscope/GLFW)..."
-        conda install -y -c conda-forge xorg-libxcursor xorg-libxi \
-          xorg-libxinerama xorg-libxrandr xorg-libx11 xorg-libxext \
-          mesa-libgl-devel-cos7-x86_64 2>/dev/null || true
-      fi
+      # Note: Polyscope/GLFW is built with mock GL backend (headless benchmark),
+      # so X11/GL dev headers are not required.
 
       if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
         export CC="${CONDA_PREFIX}/bin/clang"
@@ -558,7 +553,10 @@ else:
           fi
         done
       fi
-      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" ../.. ${EXTRA_CMAKE_FLAGS}
+      # Force mock GL backend — this is a headless benchmark, no rendering needed.
+      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" \
+        -DPOLYSCOPE_BACKEND_OPENGL3_GLFW=OFF -DPOLYSCOPE_BACKEND_OPENGL_MOCK=ON \
+        ../.. ${EXTRA_CMAKE_FLAGS}
       make -j"${NPROC}"
 
       cd "${ROOT_DIR}"
