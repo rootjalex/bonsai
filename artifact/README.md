@@ -101,47 +101,85 @@ execution.
 
 ## Step-by-Step Instructions
 
-### Full Evaluation
+### Running Benchmarks
 
-To reproduce all results from the paper:
-
-```bash
-./artifact/run.sh
-```
-
-**Estimated time**: Several hours (varies by hardware). The full evaluation
-runs 26 layouts across 7 scenes, 2 ray types, 2 intersection methods, with
-9 repetitions each.
-
-### GPU Evaluation
-
-To run GPU (CUDA) benchmarks for ray tracing and closest point queries:
+Run benchmarks on each machine independently. Results are written to
+`artifact/results/` with architecture-tagged filenames so they do not conflict.
 
 ```bash
-./artifact/run.sh --gpu              # Full GPU evaluation
-./artifact/run.sh --gpu --short      # Quick GPU smoke test
+./artifact/run.sh benchmark              # CPU benchmarks (several hours)
+./artifact/run.sh benchmark --short      # Quick smoke test (~10 min)
+./artifact/run.sh benchmark --gpu        # GPU (CUDA) benchmarks only
+./artifact/run.sh benchmark --gpu --short  # Quick GPU smoke test
 ```
 
-This requires an NVIDIA GPU with the CUDA toolkit (`nvcc`) installed. On HPC
-systems, you may need to `module load cuda` first. The `--gpu` flag runs steps
-2-3 on the GPU; steps 4-6 (Embree, FCL, FCPW) are CPU-only and are skipped.
+The default mode (no subcommand) is `benchmark`:
+
+```bash
+./artifact/run.sh                        # Same as: ./artifact/run.sh benchmark
+./artifact/run.sh --short                # Same as: ./artifact/run.sh benchmark --short
+```
+
+GPU mode requires an NVIDIA GPU with the CUDA toolkit (`nvcc`) installed. On
+HPC systems, you may need to `module load cuda` first. The `--gpu` flag runs
+steps 2-3 on the GPU; steps 4-6 (Embree, FCL, FCPW) are CPU-only and are
+skipped.
+
+### Generating Figures
+
+After collecting results from all machines into one `artifact/results/`
+directory, generate figures:
+
+```bash
+./artifact/run.sh figures
+```
+
+This converts raw `.txt` results to CSV, then produces PDF figures and LaTeX
+tables matching the paper.
+
+### All-in-One
+
+To run CPU benchmarks, GPU benchmarks, and generate figures in sequence:
+
+```bash
+./artifact/run.sh all                    # Full CPU + GPU + figures
+./artifact/run.sh all --short            # Quick smoke test of everything
+```
+
+### Multi-Machine Workflow
+
+The paper evaluates on three platforms (x86, arm, CUDA). To reproduce:
+
+1. Run benchmarks on each machine:
+   ```bash
+   arm-machine$  ./artifact/run.sh benchmark
+   x86-machine$  ./artifact/run.sh benchmark
+   gpu-machine$  ./artifact/run.sh benchmark --gpu
+   ```
+2. Collect all `artifact/results/` directories into one location (e.g., via
+   `rsync` or `scp`). Files are architecture-tagged (`arm-camera.txt`,
+   `x86-camera.txt`, `cuda-camera.txt`, etc.) so they do not overwrite each
+   other.
+3. Generate figures from the combined data:
+   ```bash
+   ./artifact/run.sh figures
+   ```
 
 ### Running Individual Steps
 
 Each step can be run independently. Use `--help` for full documentation:
 
 ```bash
-./artifact/run.sh --help         # Show all options and step descriptions
-./artifact/run.sh --step 0       # Install dependencies only
-./artifact/run.sh --step 1       # Build the Scion compiler
-./artifact/run.sh --step 2       # DSE: Ray tracing (Table 1, Figure 7)
-./artifact/run.sh --step 3       # DSE: Closest point queries (Table 1, Figure 7)
-./artifact/run.sh --step 4       # Embree comparison (Figure 8)
-./artifact/run.sh --step 5       # FCL comparison (Figure 9a)
-./artifact/run.sh --step 6       # FCPW comparison (Figure 9b)
-./artifact/run.sh --step 7       # Generate figures from collected data
-./artifact/run.sh --step 2 --gpu # DSE: Ray tracing on GPU (CUDA)
-./artifact/run.sh --step 3 --gpu # DSE: Closest point queries on GPU (CUDA)
+./artifact/run.sh --help                 # Show all options and step descriptions
+./artifact/run.sh benchmark --step 0     # Install dependencies only
+./artifact/run.sh benchmark --step 1     # Build the Scion compiler
+./artifact/run.sh benchmark --step 2     # DSE: Ray tracing (Table 1, Figure 7)
+./artifact/run.sh benchmark --step 3     # DSE: Closest point queries (Table 1, Figure 7)
+./artifact/run.sh benchmark --step 4     # Embree comparison (Figure 8)
+./artifact/run.sh benchmark --step 5     # FCL comparison (Figure 9a)
+./artifact/run.sh benchmark --step 6     # FCPW comparison (Figure 9b)
+./artifact/run.sh benchmark --step 2 --gpu  # DSE: Ray tracing on GPU (CUDA)
+./artifact/run.sh benchmark --step 3 --gpu  # DSE: Closest point queries on GPU (CUDA)
 ```
 
 ### Output Format

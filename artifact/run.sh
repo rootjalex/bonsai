@@ -29,12 +29,23 @@ NPROC=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 SHORT=false
 STEP=""
 GPU=false
-ALL=false
+MODE="benchmark"   # benchmark, figures, or all
 show_help() {
   cat <<'HELPEOF'
-Usage: ./artifact/run.sh [OPTIONS]
+Usage: ./artifact/run.sh [MODE] [OPTIONS]
 
 PLDI 2026 Artifact: Data Layout Polymorphism for Bounding Volume Hierarchies
+
+Modes (choose one):
+  benchmark      Run benchmarks on the current machine (steps 0-6).
+                 This is the default if no mode is specified.
+
+  figures        Generate figures from collected data (step 7 only).
+                 Run this after collecting results from all machines
+                 into artifact/results/.
+
+  all            Run benchmarks (CPU + GPU) then generate figures.
+                 Equivalent to: benchmark, then benchmark --gpu, then figures.
 
 Options:
   --short        Quick smoke test (~10 minutes). Runs 1 scene, 1 repetition,
@@ -49,12 +60,9 @@ Options:
                  FCPW comparisons) are CPU-only and are skipped with --gpu.
                  Requires: nvcc (CUDA toolkit) on PATH.
 
-  --all          Run both CPU and GPU evaluations, in that order. Equivalent to
-                 running without --gpu first, then with --gpu. Requires nvcc.
-
   --help, -h     Show this help message and exit.
 
-Steps:
+Benchmark steps:
   0   Install dependencies (brew/conda/apt, Python venv)
   1   Build the Scion compiler
   2   Design Space Exploration: Ray Tracing (Table 1, Figure 7)
@@ -66,28 +74,39 @@ Steps:
   4   Embree comparison: Ray Tracing (Figure 8)       [CPU only]
   5   FCL comparison: Collision Detection (Figure 9a)  [CPU only]
   6   FCPW comparison: Closest Point Queries (Figure 9b) [CPU only]
-  7   Generate figures from collected data (Figures 6-9)
+
+Multi-machine workflow:
+  1. Run benchmarks on each machine:
+       machine-A$ ./artifact/run.sh benchmark
+       machine-B$ ./artifact/run.sh benchmark --gpu
+  2. Collect all results into one artifact/results/ directory.
+     Raw data files are architecture-tagged (e.g., arm-camera.txt,
+     x86-camera.txt, cuda-camera.txt) so they do not conflict.
+  3. Generate figures from the combined data:
+       $ ./artifact/run.sh figures
 
 Examples:
-  ./artifact/run.sh                    # Full CPU evaluation (several hours)
-  ./artifact/run.sh --short            # Quick smoke test (~10 min)
-  ./artifact/run.sh --gpu              # Full GPU evaluation
-  ./artifact/run.sh --gpu --short      # Quick GPU smoke test
-  ./artifact/run.sh --step 2           # Run only RT DSE (CPU)
-  ./artifact/run.sh --step 2 --gpu     # Run only RT DSE (GPU)
-  ./artifact/run.sh --all               # Full CPU + GPU evaluation
-  ./artifact/run.sh --all --short       # Quick CPU + GPU smoke test
-  ./artifact/run.sh --step 7           # Generate figures from existing data
+  ./artifact/run.sh                        # CPU benchmarks (default)
+  ./artifact/run.sh benchmark              # CPU benchmarks (explicit)
+  ./artifact/run.sh benchmark --short      # Quick smoke test (~10 min)
+  ./artifact/run.sh benchmark --gpu        # GPU benchmarks only
+  ./artifact/run.sh benchmark --gpu --short  # Quick GPU smoke test
+  ./artifact/run.sh benchmark --step 2     # Run only RT DSE (CPU)
+  ./artifact/run.sh figures                # Generate figures from results
+  ./artifact/run.sh all                    # CPU + GPU benchmarks + figures
+  ./artifact/run.sh all --short            # Quick all-in-one smoke test
 HELPEOF
   exit 0
 }
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --short)    SHORT=true;  shift ;;
-    --step)     STEP="$2";   shift 2 ;;
-    --gpu)      GPU=true;    shift ;;
-    --all)      ALL=true;    shift ;;
+    benchmark)  MODE="benchmark"; shift ;;
+    figures)    MODE="figures";   shift ;;
+    all)        MODE="all";       shift ;;
+    --short)    SHORT=true;       shift ;;
+    --step)     STEP="$2";        shift 2 ;;
+    --gpu)      GPU=true;         shift ;;
     --help|-h)  show_help ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -1135,38 +1154,42 @@ main() {
   if [[ "${SHORT}" == true ]]; then
     log "=== SHORT RUN MODE: quick smoke test ==="
   fi
-  if [[ "${ALL}" == true ]]; then
-    log "=== ALL MODE: CPU + GPU benchmarks ==="
-  elif [[ "${GPU}" == true ]]; then
-    log "=== GPU MODE: CUDA benchmarks ==="
+  log "=== MODE: ${MODE} ==="
+
+  # ── Benchmark mode (steps 0-6) ───────────────────────────────────────────
+  if [[ "${MODE}" == "benchmark" || "${MODE}" == "all" ]]; then
+    if should_run 0; then install_deps;          fi
+    if should_run 1; then build_compiler;         fi
+
+    if [[ "${MODE}" == "all" ]]; then
+      # CPU steps first
+      if should_run 2; then run_dse_rt;             fi
+      if should_run 3; then run_dse_cpq;            fi
+      if should_run 4; then run_embree_comparison;  fi
+      if should_run 5; then run_fcl_comparison;     fi
+      if should_run 6; then run_fcpw_comparison;    fi
+      # Then GPU steps
+      if should_run 2; then run_dse_rt_cuda;        fi
+      if should_run 3; then run_dse_cpq_cuda;       fi
+    elif [[ "${GPU}" == true ]]; then
+      if should_run 2; then run_dse_rt_cuda;        fi
+      if should_run 3; then run_dse_cpq_cuda;       fi
+      if should_run 4; then log "Step 4: Embree comparison — skipped (CPU only)"; fi
+      if should_run 5; then log "Step 5: FCL comparison — skipped (CPU only)"; fi
+      if should_run 6; then log "Step 6: FCPW comparison — skipped (CPU only)"; fi
+    else
+      if should_run 2; then run_dse_rt;             fi
+      if should_run 3; then run_dse_cpq;            fi
+      if should_run 4; then run_embree_comparison;  fi
+      if should_run 5; then run_fcl_comparison;     fi
+      if should_run 6; then run_fcpw_comparison;    fi
+    fi
   fi
 
-  if should_run 0; then install_deps;          fi
-  if should_run 1; then build_compiler;         fi
-  if [[ "${ALL}" == true ]]; then
-    # CPU steps first
-    if should_run 2; then run_dse_rt;             fi
-    if should_run 3; then run_dse_cpq;            fi
-    if should_run 4; then run_embree_comparison;  fi
-    if should_run 5; then run_fcl_comparison;     fi
-    if should_run 6; then run_fcpw_comparison;    fi
-    # Then GPU steps
-    if should_run 2; then run_dse_rt_cuda;        fi
-    if should_run 3; then run_dse_cpq_cuda;       fi
-  elif [[ "${GPU}" == true ]]; then
-    if should_run 2; then run_dse_rt_cuda;        fi
-    if should_run 3; then run_dse_cpq_cuda;       fi
-    if should_run 4; then log "Step 4: Embree comparison — skipped (CPU only, not available with --gpu)"; fi
-    if should_run 5; then log "Step 5: FCL comparison — skipped (CPU only, not available with --gpu)"; fi
-    if should_run 6; then log "Step 6: FCPW comparison — skipped (CPU only, not available with --gpu)"; fi
-  else
-    if should_run 2; then run_dse_rt;             fi
-    if should_run 3; then run_dse_cpq;            fi
-    if should_run 4; then run_embree_comparison;  fi
-    if should_run 5; then run_fcl_comparison;     fi
-    if should_run 6; then run_fcpw_comparison;    fi
+  # ── Figures mode (step 7) ────────────────────────────────────────────────
+  if [[ "${MODE}" == "figures" || "${MODE}" == "all" ]]; then
+    generate_figures
   fi
-  if should_run 7; then generate_figures;       fi
 
   log "=== All steps complete ==="
   log "Results are in: ${RESULTS_DIR}/"
