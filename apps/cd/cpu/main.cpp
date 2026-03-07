@@ -16,7 +16,7 @@ bool load_object_file(const std::string &object,
                       std::vector<Vector3<S>> &points,
                       std::vector<Triangle> &triangles) {
     // Format is assumed to be Wavefront OBJ.
-    std::string path = "apps/cd/data/" + object + ".obj";
+    std::string path = "artifact/scenes/cd/" + object + ".obj";
     FILE *file = fopen(path.data(), "rb");
     if (file == nullptr) {
         std::cerr << "file: " << path << " does not exist" << std::endl;

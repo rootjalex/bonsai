@@ -1,7 +1,7 @@
 # Artifact: Data Layout Polymorphism for Bounding Volume Hierarchies
 
 **Paper**: *Data Layout Polymorphism for Bounding Volume Hierarchies*
-**Authors**: Christophe Gyurgyik, Alexander J Root, Fredrik Kjolstad
+**Authors**: **redacted**
 **Venue**: PLDI 2026
 
 ## Overview
@@ -31,11 +31,6 @@ The full evaluation was conducted on three platforms:
 | MBP M2 | Apple M2 Pro (10 cores) | arm64 | 16 GB | macOS 14+ |
 | GPU | NVIDIA GeForce RTX 4090 | CUDA | 24 GB GDDR6X | Ubuntu 22.04 |
 
-The artifact can be evaluated on any machine with:
-- macOS (Apple Silicon or Intel) or Linux (x86_64 or aarch64)
-- At least 8 GB RAM (16 GB recommended)
-- At least 5 GB free disk space
-
 Any deviation from this may affect the results. In fact, that is the entire thesis of this work.
 
 ### Software Requirements
@@ -43,7 +38,7 @@ Any deviation from this may affect the results. In fact, that is the entire thes
 The run script installs all dependencies automatically. For reference:
 - CMake >= 3.30
 - LLVM 19.1.6 (Clang/LLVM)
-- Embree 4.x (ray tracing comparison; installed via brew/conda, `find_package(embree 4.0)`)
+- Embree 4.x (ray tracing comparison; installed via `brew` / `conda`, `find_package(embree 4.0)`)
 - OpenMP (parallel execution)
 - Eigen3 (linear algebra)
 - Python 3 with matplotlib, numpy, pandas (analysis scripts)
@@ -107,13 +102,14 @@ Run benchmarks on each machine independently. Results are written to
 `artifact/results/` with architecture-tagged filenames so they do not conflict.
 
 ```bash
-./artifact/run.sh benchmark              # CPU benchmarks (several hours)
-./artifact/run.sh benchmark --short      # Quick smoke test (~10 min)
-./artifact/run.sh benchmark --gpu        # GPU (CUDA) benchmarks only
+./artifact/run.sh benchmark                # CPU benchmarks (several hours)
+./artifact/run.sh benchmark --short        # Quick smoke test (~10 min)
+./artifact/run.sh benchmark --gpu          # GPU (CUDA) benchmarks only
 ./artifact/run.sh benchmark --gpu --short  # Quick GPU smoke test
 ```
 
-**NOTE**: Running all benchmarks across x86, ARM, and GPU requires > 24 hours as we performance a large fan across 42 different evaluation contexts, and additionally require testing different ray-triangle intersections for fair comparison with Embree.
+**NOTE**: Running all benchmarks across x86, ARM, and GPU requires > 24 hours as we performance a large fan across 42 different 
+evaluation contexts, and additionally require testing different ray-triangle intersections for fair comparison with Embree.
 
 The default mode (no subcommand) is `benchmark`:
 
@@ -163,6 +159,7 @@ The paper evaluates on three platforms (x86, arm, CUDA). To reproduce:
    `rsync` or `scp`):
    ```bash
    rsync -av x86-machine:bonsai/artifact/results/ artifact/results/
+   rsync -av arm-machine:bonsai/artifact/results/ artifact/results/
    rsync -av gpu-machine:bonsai/artifact/results/ artifact/results/
    ```
    All raw data files are architecture-tagged, so they do not overwrite each
@@ -189,77 +186,32 @@ the current contents of `artifact/results/`.
 Each step can be run independently. Use `--help` for full documentation:
 
 ```bash
-./artifact/run.sh --help                 # Show all options and step descriptions
-./artifact/run.sh benchmark --step 0     # Install dependencies only
-./artifact/run.sh benchmark --step 1     # Build the Scion compiler
-./artifact/run.sh benchmark --step 2     # DSE: Ray tracing (Table 1, Figure 7)
-./artifact/run.sh benchmark --step 3     # DSE: Closest point queries (Table 1, Figure 7)
-./artifact/run.sh benchmark --step 4     # Embree comparison (Figure 8)
-./artifact/run.sh benchmark --step 5     # FCL comparison (Figure 9a)
-./artifact/run.sh benchmark --step 6     # FCPW comparison (Figure 9b)
-./artifact/run.sh benchmark --step 2 --gpu  # DSE: Ray tracing on GPU (CUDA)
-./artifact/run.sh benchmark --step 3 --gpu  # DSE: Closest point queries on GPU (CUDA)
+./artifact/run.sh --help                    # Show all options and step descriptions
+./artifact/run.sh benchmark --step 0        # Install dependencies only
+./artifact/run.sh benchmark --step 1        # Build the Scion compiler
+./artifact/run.sh benchmark --step 2        # DSE: Ray tracing (Table 1, Figure 15{a,b}, 16)
+./artifact/run.sh benchmark --step 3        # DSE: Closest point queries (Figure 16)
+./artifact/run.sh benchmark --step 4        # Embree comparison (Figure 18, Appendix D)
+./artifact/run.sh benchmark --step 5        # FCL comparison (Figure 19a)
+./artifact/run.sh benchmark --step 6        # FCPW comparison (Figure 19b)
+./artifact/run.sh benchmark --step 2 --gpu  # DSE: Ray tracing on GPU (CUDA) (Figure 15{a,b}, 16)
+./artifact/run.sh benchmark --step 3 --gpu  # DSE: Closest point queries on GPU (CUDA) (Figure 16)
 ```
-
-### Output Format
-
-All benchmark results are written as plain text to `artifact/results/`:
-
-```
-artifact/results/
-├── rt/                     # Ray tracing DSE raw data
-│   ├── <arch>-<ray_type>.txt  # CPU: e.g. arm-camera.txt, x86-secondary.txt
-│   └── cuda-<ray_type>.txt   # GPU: e.g. cuda-camera.txt (with --gpu)
-├── cpq/                    # Closest point query raw data
-│   ├── <arch>-dse.txt          # CPU: e.g. arm-dse.txt, x86-dse.txt
-│   └── cuda-dse.txt           # GPU results (with --gpu)
-├── embree/                 # Embree comparison raw data
-│   └── <arch>-<ray_type>.txt
-├── cd/                     # Collision detection raw data
-│   └── <arch>-fcl_comparison.txt  # e.g. arm-fcl_comparison.txt
-├── rt-results.csv          # Hygiened RT + Embree CSV (input to plotting)
-├── cpq-results.csv         # Hygiened CPQ CSV
-├── cd-results.csv          # Hygiened CD CSV
-└── figures/                # Generated PDF figures
-    ├── dse.pdf                         # Figure 7: DSE Pareto frontiers
-    ├── data-dependent1.pdf             # Figure 6a: Data-dependent Pareto
-    ├── data-dependent2.pdf             # Figure 6b: Data-dependent speedup
-    ├── machine-dependent1.pdf          # Figure 6c: Machine-dependent Pareto
-    ├── algorithm-dependent.pdf         # Figure 6d: Algorithm-dependent
-    ├── embree-comparison-rt.pdf        # Figure 8: Embree comparison
-    ├── fcl-comparison-cd_*.pdf         # Figure 9a: FCL comparison
-    ├── fcpw-comparison-cpq.pdf         # Figure 9b: FCPW comparison
-    └── novel-layout-table.tex          # Table: Novel layout domination
-```
-
-### Mapping Outputs to Paper Figures and Tables
-
-| Step | Script | Output | Paper Reference |
-|------|--------|--------|-----------------|
-| 2 | `hygiene_rt.py` → `collect_dse.py` | `dse.pdf` | Figure 7: DSE Pareto frontiers |
-| 2 | `collect_dse.py` | `data-dependent1.pdf` | Figure 6a: Data-dependent Pareto |
-| 2 | `speedup_bar_chart.py` | `data-dependent2.pdf` | Figure 6b: Data-dependent speedup |
-| 2 | `collect_dse.py` | `machine-dependent1.pdf` | Figure 6c: Machine-dependent Pareto |
-| 2,3 | `collect_dse.py --compare-cpq` | `algorithm-dependent.pdf` | Figure 6d: Algorithm-dependent |
-| 4 | `embree_comparison_rt.py` | `embree-comparison-rt.pdf` | Figure 8: Embree comparison |
-| 5 | `fcl_comparison_cd.py` | `fcl-comparison-cd_*.pdf` | Figure 9a: FCL comparison |
-| 6 | `fcpw_comparison_cpq.py` | `fcpw-comparison-cpq.pdf` | Figure 9b: FCPW comparison |
-| 2 | `is_pareto_optimal.py` | `novel-layout-table.tex` | Table 1: Novel layout domination |
-
----
 
 ## Claims Supported by the Artifact
 
 ### Supported Claims
 
-1. **Pareto-optimal layouts vary across algorithms, architectures, and workload
-   characteristics** (Section 6.1, Table 1, Figure 7). The DSE (steps 2-3)
+1. **Pareto-optimal layouts vary across algorithms, architectures, and workload characteristics** 
+   (Section 8.2, Table 1, Figures 15 and 16). The design space exploration
    demonstrates that no single layout dominates across all scenarios. The
    Pareto frontier analysis shows different layouts are optimal for different
-   (scene, ray type, architecture) combinations.
+   (scene, ray type, architecture) combinations. Additionally we provide a script at 
+   `artifacts/collect_dse.py` (and part of the Supplemental Materials) to explore the
+   results of the entire evaluation space.
 
 2. **Scion-generated code is competitive with hand-optimized libraries**
-   (Section 6.2-6.3, Figures 8-9). Steps 4-6 compare Scion against:
+   (Section 8.3, Figures 18 and 19). Steps 4-6 compare Scion against:
    - **Embree** (Intel's production ray tracing library): Scion matches or
      exceeds Embree performance on several layout/scene combinations while
      exploring a broader design space. In other cases, Scion performances much 
@@ -268,16 +220,6 @@ artifact/results/
      outperforms FCL across tested configurations.
    - **FCPW** (Fast Closest Point in the West): Scion-generated closest
      point queries are competitive with FCPW.
-
-3. **The design space is large and non-trivial** (Section 6.1). The 26 layouts
-   (9 BVH2 variants + 10 BVH8 variants + 7 mixed variants) each differ in
-   quantization, alignment, data layout (AOS/SOA), and compression strategy.
-   Scion enables exploring this space by decoupling layout from algorithm.
-
-4. **Scion compiles BVH traversal algorithms from a high-level specification**
-   (Section 4-5). The compiler build (step 1) and subsequent benchmark
-   compilation demonstrate end-to-end code generation from `.bonsai` source
-   to optimized native code.
 
 ### Note on CPQ Traversal Optimization
 
@@ -293,56 +235,6 @@ contributions of this paper: Scion's layout polymorphism operates independently
 of algorithmic choices, and this manual edit does not affect any layout-related
 results. Future versions of Scion will support this scheduling optimization
 as a built-in directive.
-
----
-
-## Artifact Layout
-
-```
-bonsai/
-├── artifact/
-│   ├── README.md          # This file
-│   └── run.sh             # Push-button evaluation script
-├── compiler.cpp           # Scion compiler entry point
-├── include/               # Compiler headers
-├── src/                   # Compiler source (parser, IR, lowering, codegen)
-│   ├── Parser/            # Lexer and parser
-│   ├── IR/                # Intermediate representation
-│   ├── Lower/             # Lowering passes (layouts, trees, loops, ...)
-│   ├── Opt/               # Optimization passes (CSE, DCE, fusion, ...)
-│   └── CodeGen/           # Code generation (LLVM, C++, CUDA)
-├── stdlib/                # Bonsai standard library (.bonsai files)
-│   ├── aabb.bonsai        # Axis-aligned bounding boxes
-│   ├── triangle.bonsai    # Triangle primitives
-│   ├── ray.bonsai         # Ray definitions
-│   ├── distance.bonsai    # Distance/closest point functions
-│   └── intersects.bonsai  # Intersection tests
-├── runtime/CPP/           # C++ runtime support headers
-├── runtime/CUDA/          # CUDA runtime support headers
-├── apps/
-│   ├── rt/                # Ray tracing application
-│   │   ├── cpu/           # CPU benchmark (Scion-generated)
-│   │   ├── cuda/          # GPU benchmark (Scion-generated, CUDA)
-│   │   ├── embree/        # Embree baseline
-│   │   ├── layouts/{2,8}/ # BVH layout definitions
-│   │   └── data/          # OBJ mesh files (7 scenes)
-│   ├── cd/                # Collision detection application
-│   │   ├── cpu/           # CPU benchmark (Scion vs. FCL)
-│   │   └── data/          # OBJ mesh files
-│   ├── wos/               # Walk-on-Spheres / closest point queries
-│   │   ├── cuda/          # GPU benchmark (CUDA)
-│   │   └── fcpw/          # FCPW comparison (CPU)
-│   └── scripts/           # Analysis and plotting scripts
-│       ├── collect_dse.py
-│       ├── embree_comparison_rt.py
-│       ├── fcl_comparison_cd.py
-│       └── collect_comparison_rt_cpq.py
-├── tests/                 # Compiler test suite
-├── cmake/                 # CMake modules
-└── CMakeLists.txt         # Top-level build configuration
-```
-
----
 
 ## Troubleshooting
 
@@ -367,12 +259,6 @@ build from source (https://github.com/RenderKit/embree/releases).
 ```bash
 brew install libomp
 ```
-
-### Mesh data files missing
-
-The OBJ mesh files (lucy, hairball, dragon, etc.) are included in the
-repository under `apps/rt/data/` and `apps/cd/data/`. If missing, the
-benchmarks will fail with a "file not found" error.
 
 ### Python plotting errors
 

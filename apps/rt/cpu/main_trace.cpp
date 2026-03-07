@@ -26,8 +26,8 @@ std::vector<Triangle> load_obj(const std::string &object) {
         current_path = current_path.parent_path();
     }
 
-    std::string object_path = "apps/rt/data/" + object + ".obj";
-    std::string material_path = "apps/rt/data/" + object;
+    std::string object_path = "artifact/scenes/rt/" + object + ".obj";
+    std::string material_path = "artifact/scenes/rt/" + object;
 
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -97,7 +97,7 @@ void run(std::string object, std::string partition, bool is_single_threaded,
     bool is_first_run = true;
     for (const int64_t ray_count : ray_counts) {
         std::cout << ray_count << std::endl;
-        std::string ray_file = "apps/rt/rays/" + object + "_" +
+        std::string ray_file = "artifact/rays/" + object + "_" +
                                std::to_string(ray_count) + "_" + ray_type +
                                ".rays";
         std::vector<Ray> rays = load_rays_binary(ray_file, ray_count);

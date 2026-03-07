@@ -182,6 +182,15 @@ detect_platform() {
   log "Platform: ${PLATFORM}/${ARCH} ($(nproc 2>/dev/null || sysctl -n hw.logicalcpu) cores)"
 }
 
+# ── Scene data check ──────────────────────────────────────────────────────────
+setup_scenes() {
+  local SCENES_DIR="${SCRIPT_DIR}/scenes"
+  if [[ ! -d "${SCENES_DIR}/rt" ]]; then
+    fail "Scene data not found in ${SCENES_DIR}/rt/. See artifact/README.md."
+  fi
+  mkdir -p "${SCRIPT_DIR}/rays"
+}
+
 # ── Step 0: Install dependencies ────────────────────────────────────────────
 install_deps() {
   log "Step 0: Installing dependencies..."
@@ -299,8 +308,30 @@ generate_rays() {
   log "Generating rays (type=${RAY_TYPE})..."
 
   cd "${ROOT_DIR}"
-  local RAY_PATH="apps/rt/rays"
+  local RAY_PATH="artifact/rays"
   local KERNEL_PATH="apps/rt"
+
+  local RAY_COUNTS=()
+  for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
+    RAY_COUNTS+=($((2**p)))
+  done
+
+  # Check if all needed ray files already exist (pre-generated).
+  # If so, skip compilation entirely — no OpenMP or clang++ required.
+  local ALL_EXIST=true
+  for RAY_COUNT in "${RAY_COUNTS[@]}"; do
+    for OBJECT in "${RT_OBJECTS[@]}"; do
+      if [[ ! -f "${RAY_PATH}/${OBJECT}_${RAY_COUNT}_${RAY_TYPE}.rays" ]]; then
+        ALL_EXIST=false
+        break 2
+      fi
+    done
+  done
+
+  if [[ "${ALL_EXIST}" == true ]]; then
+    log "  All ray files already exist, skipping compilation and generation."
+    return 0
+  fi
 
   # Build ray generator (use system clang on macOS to avoid sysroot issues)
   local GEN_CXX="/usr/bin/clang++"
@@ -321,11 +352,6 @@ generate_rays() {
     fi
   fi
   ${GEN_CXX} ${GEN_FLAGS} -o "${RAY_PATH}/kernel.out" "${KERNEL_PATH}/generate.cpp"
-
-  local RAY_COUNTS=()
-  for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
-    RAY_COUNTS+=($((2**p)))
-  done
 
   for RAY_COUNT in "${RAY_COUNTS[@]}"; do
     for OBJECT in "${RT_OBJECTS[@]}"; do
@@ -1159,6 +1185,7 @@ main() {
   # ── Benchmark mode (steps 0-6) ───────────────────────────────────────────
   if [[ "${MODE}" == "benchmark" || "${MODE}" == "all" ]]; then
     if should_run 0; then install_deps;          fi
+    setup_scenes
     if should_run 1; then build_compiler;         fi
 
     if [[ "${MODE}" == "all" ]]; then
