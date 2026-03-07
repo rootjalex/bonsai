@@ -29,6 +29,7 @@ NPROC=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 SHORT=false
 STEP=""
 GPU=false
+ALL=false
 show_help() {
   cat <<'HELPEOF'
 Usage: ./artifact/run.sh [OPTIONS]
@@ -47,6 +48,9 @@ Options:
                  and run on an NVIDIA GPU using nvcc. Steps 4-6 (Embree, FCL,
                  FCPW comparisons) are CPU-only and are skipped with --gpu.
                  Requires: nvcc (CUDA toolkit) on PATH.
+
+  --all          Run both CPU and GPU evaluations, in that order. Equivalent to
+                 running without --gpu first, then with --gpu. Requires nvcc.
 
   --help, -h     Show this help message and exit.
 
@@ -71,6 +75,8 @@ Examples:
   ./artifact/run.sh --gpu --short      # Quick GPU smoke test
   ./artifact/run.sh --step 2           # Run only RT DSE (CPU)
   ./artifact/run.sh --step 2 --gpu     # Run only RT DSE (GPU)
+  ./artifact/run.sh --all               # Full CPU + GPU evaluation
+  ./artifact/run.sh --all --short       # Quick CPU + GPU smoke test
   ./artifact/run.sh --step 7           # Generate figures from existing data
 HELPEOF
   exit 0
@@ -81,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --short)    SHORT=true;  shift ;;
     --step)     STEP="$2";   shift 2 ;;
     --gpu)      GPU=true;    shift ;;
+    --all)      ALL=true;    shift ;;
     --help|-h)  show_help ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
