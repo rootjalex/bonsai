@@ -72,11 +72,29 @@ if(NOT fcl_FOUND)
     set(ENABLE_DOUBLE_PRECISION ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(ccd)
     
-    # After making ccd available, set up variables for FCL to find it
-    set(CCD_INCLUDE_DIRS ${ccd_SOURCE_DIR}/src CACHE STRING "" FORCE)
+    # After making ccd available, set up variables for FCL to find it.
+    # FCL 0.7.0 uses pkg_check_modules to find CCD, which won't find the
+    # FetchContent-built version. Set the variables FCL expects directly
+    # and also set PKG_CONFIG_PATH so pkg-config can find the generated .pc file.
+    set(CCD_INCLUDE_DIRS ${ccd_SOURCE_DIR}/src ${ccd_BINARY_DIR}/src CACHE STRING "" FORCE)
     set(CCD_LIBRARIES ccd CACHE STRING "" FORCE)
     set(ccd_FOUND TRUE CACHE BOOL "" FORCE)
-    
+    set(CCD_FOUND TRUE CACHE BOOL "" FORCE)
+    # Generate a minimal ccd.pc for pkg-config
+    file(MAKE_DIRECTORY ${ccd_BINARY_DIR}/pkgconfig)
+    file(WRITE ${ccd_BINARY_DIR}/pkgconfig/ccd.pc
+"prefix=${ccd_BINARY_DIR}
+libdir=${ccd_BINARY_DIR}/src
+includedir=${ccd_SOURCE_DIR}/src
+
+Name: ccd
+Description: libccd (built via FetchContent)
+Version: 2.1
+Libs: -L\${libdir} -lccd
+Cflags: -I\${includedir}
+")
+    set(ENV{PKG_CONFIG_PATH} "${ccd_BINARY_DIR}/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+
     # Now fetch FCL
     FetchContent_Declare(
         fcl
