@@ -156,14 +156,31 @@ The paper evaluates on three platforms (x86, arm, CUDA). To reproduce:
    x86-machine$  ./artifact/run.sh benchmark
    gpu-machine$  ./artifact/run.sh benchmark --gpu
    ```
+
 2. Collect all `artifact/results/` directories into one location (e.g., via
-   `rsync` or `scp`). Files are architecture-tagged (`arm-camera.txt`,
-   `x86-camera.txt`, `cuda-camera.txt`, etc.) so they do not overwrite each
-   other.
+   `rsync` or `scp`):
+   ```bash
+   rsync -av x86-machine:bonsai/artifact/results/ artifact/results/
+   rsync -av gpu-machine:bonsai/artifact/results/ artifact/results/
+   ```
+   All raw data files are architecture-tagged, so they do not overwrite each
+   other:
+   - RT: `rt/arm-camera.txt`, `rt/x86-camera.txt`, `rt/cuda-camera.txt`, ...
+   - CPQ: `cpq/arm-dse.txt`, `cpq/x86-dse.txt`, `cpq/cuda-dse.txt`
+   - CD: `cd/arm-fcl_comparison.txt`, `cd/x86-fcl_comparison.txt`
+   - Embree: `embree/arm-camera.txt`, `embree/x86-camera.txt`, ...
+
 3. Generate figures from the combined data:
    ```bash
    ./artifact/run.sh figures
    ```
+
+**Note on data safety:** The script never deletes the `artifact/results/`
+directory. Each benchmark step truncates only its own output file (e.g.,
+running on arm only overwrites `arm-*.txt` files, leaving `x86-*.txt` and
+`cuda-*.txt` untouched). The `figures` mode regenerates the intermediate CSV
+files from the raw `.txt` data each time, so CSVs are always consistent with
+the current contents of `artifact/results/`.
 
 ### Running Individual Steps
 

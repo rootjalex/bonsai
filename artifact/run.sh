@@ -144,8 +144,8 @@ else
   RT_8_LAYOUTS=("bvh8" "bvh8-align16" "bvh8-q8" "bvh8-q8-align16" "bvh8-q8-ci" "bvh8-q8-ci-align16" "bvh8-q16" "bvh8-q16-align16" "bvh8-q16-ci" "bvh8-q16-ci-align16")
   EMBREE_LAYOUTS=("qbvh8i" "bvh8i")
   CD_N=9
-  CD_OBJECTS_A=("hairball" "hairball" "dragon_60_70_10")
-  CD_OBJECTS_B=("hairball_60_70_10" "dragon" "hairball_60_70_10")
+  CD_OBJECTS_A=("hairball")
+  CD_OBJECTS_B=("hairball_60_70_10")
   CD_LAYOUTS=("pbrt" "pbrt-q16" "fcl")
   CPQ_N=9
   CPQ_OBJECTS=("lucy" "hairball" "white-oak" "sheep" "san-miguel-x35-y22-z47" "sponza" "power-plant")
