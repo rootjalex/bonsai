@@ -189,36 +189,21 @@ install_deps() {
       conda install -y -c conda-forge "cmake>=3.30" || \
         fail "Failed to install cmake >= 3.30 via conda. Install manually."
       # Install each group separately to isolate solver conflicts.
-      log "  Installing LLVM 19, clang, Embree, Eigen, OpenMP..."
-      conda install -y -c conda-forge llvmdev=19.1.6 clangdev=19.1.6 \
-        embree eigen libomp 2>/dev/null || {
-        log "  WARNING: Full conda install failed; trying packages individually..."
-        conda install -y -c conda-forge clangdev=19.1.6 llvmdev=19.1.6 2>/dev/null || \
-          conda install -y -c conda-forge clangdev llvmdev 2>/dev/null || true
-        conda install -y -c conda-forge embree eigen libomp 2>/dev/null || true
-      }
-
-      # If conda clang or libomp not available, try installing them individually.
-      if [[ ! -x "${CONDA_PREFIX}/bin/clang++" ]]; then
-        log "  Retrying clang install..."
+      # Install each package individually to avoid solver conflicts.
+      log "  Installing clang and LLVM..."
+      conda install -y -c conda-forge clangdev=19.1.6 llvmdev=19.1.6 2>/dev/null || \
+        conda install -y -c conda-forge clangdev llvmdev 2>/dev/null || \
         conda install -y -c conda-forge clang_linux-64 2>/dev/null || true
-      fi
-      if [[ ! -f "${CONDA_PREFIX}/include/omp.h" ]]; then
-        log "  Installing libomp separately..."
-        conda install -y -c conda-forge llvm-openmp 2>/dev/null || \
-          conda install -y -c conda-forge openmp 2>/dev/null || true
-      fi
-      # Ensure eigen is installed (needed by FCPW/FCL builds)
-      local _eigen_found=false
-      for _d in "${CONDA_PREFIX}/share/eigen3/cmake" \
-                "${CONDA_PREFIX}/lib/cmake/eigen3" \
-                "${CONDA_PREFIX}/share/cmake/eigen3"; do
-        if [[ -f "${_d}/Eigen3Config.cmake" ]]; then _eigen_found=true; break; fi
-      done
-      if [[ "${_eigen_found}" == false ]]; then
-        log "  Installing Eigen3..."
-        conda install -y -c conda-forge eigen 2>/dev/null || true
-      fi
+
+      log "  Installing OpenMP..."
+      conda install -y -c conda-forge llvm-openmp 2>/dev/null || \
+        conda install -y -c conda-forge openmp 2>/dev/null || true
+
+      log "  Installing Embree..."
+      conda install -y -c conda-forge embree 2>/dev/null || true
+
+      log "  Installing Eigen3..."
+      conda install -y -c conda-forge eigen 2>/dev/null || true
       # Note: Polyscope/GLFW is built with mock GL backend (headless benchmark),
       # so X11/GL dev headers are not required.
 
@@ -825,7 +810,11 @@ run_embree_comparison() {
   # Build Embree benchmark
   mkdir -p "${PREFIX}/build"
   cd "${PREFIX}/build"
-  cmake .. || fail "Embree cmake configure failed. Is Embree 4.x installed? (conda install -c conda-forge embree)"
+  local EMBREE_CMAKE_FLAGS=""
+  if [[ -n "${CONDA_PREFIX:-}" ]]; then
+    EMBREE_CMAKE_FLAGS="-DCMAKE_PREFIX_PATH=${CONDA_PREFIX}"
+  fi
+  cmake .. ${EMBREE_CMAKE_FLAGS} || fail "Embree cmake configure failed. Is Embree 4.x installed? (conda install -c conda-forge embree)"
   cmake --build . -j"${NPROC}" || fail "Embree build failed."
   cd "${ROOT_DIR}"
 
