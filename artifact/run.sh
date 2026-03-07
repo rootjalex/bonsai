@@ -223,7 +223,8 @@ install_deps() {
       if [[ ! -f "${CONDA_PREFIX}/include/X11/Xcursor/Xcursor.h" ]]; then
         log "  Installing X11 dev libraries (needed by Polyscope/GLFW)..."
         conda install -y -c conda-forge xorg-libxcursor xorg-libxi \
-          xorg-libxinerama xorg-libxrandr xorg-libx11 xorg-libxext 2>/dev/null || true
+          xorg-libxinerama xorg-libxrandr xorg-libx11 xorg-libxext \
+          mesa-libgl-devel-cos7-x86_64 2>/dev/null || true
       fi
 
       if [[ -x "${CONDA_PREFIX}/bin/clang++" ]]; then
