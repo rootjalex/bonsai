@@ -98,22 +98,26 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
     fig, ax = plt.subplots(1, 1, figsize=(min(24, len(pivot_df) * 2), 4))
 
     x_pos = np.arange(len(pivot_df)) * 1.5
+
+    available_machines = [m for m in pivot_df.columns if m in machines]
+    machine_colors = {'x86': '#0173B2', 'arm': '#DE8F05', 'cuda': '#029E73'}
+    n_machines = len(available_machines)
     bar_width = 0.70
 
-    x86_data = pivot_df['x86'].fillna(0)
-    arm_data = pivot_df['arm'].fillna(0)
-
-    bars_x86 = ax.bar(x_pos - bar_width/2, x86_data, bar_width,
-                      label='x86', color='#0173B2', alpha=0.7,
+    all_bars = []
+    for i, machine in enumerate(available_machines):
+        data = pivot_df[machine].fillna(0)
+        offset = (i - (n_machines - 1) / 2) * bar_width
+        color = machine_colors.get(machine, '#666666')
+        bars = ax.bar(x_pos + offset, data, bar_width,
+                      label=machine, color=color, alpha=0.7,
                       edgecolor='black', linewidth=2)
-    bars_arm = ax.bar(x_pos + bar_width/2, arm_data, bar_width,
-                      label='arm', color='#DE8F05', alpha=0.7,
-                      edgecolor='black', linewidth=2)
+        all_bars.append(bars)
 
     ax.axhline(y=1.0, color='black', linestyle='--', linewidth=3,
                alpha=0.7)
 
-    for bars in [bars_x86, bars_arm]:
+    for bars in all_bars:
         for bar in bars:
             height = bar.get_height()
             if height > 0:
@@ -128,7 +132,7 @@ def create_bar_chart(df: pd.DataFrame, layouts: List[str], machines: List[str],
                             ha='center', va='bottom',
                             fontsize=18)
 
-    max_speedup = max(x86_data.max(), arm_data.max())
+    max_speedup = max(pivot_df[m].fillna(0).max() for m in available_machines)
     y_limit = max_speedup * 1.15
 
     if show_title:
