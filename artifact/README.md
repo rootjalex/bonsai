@@ -52,7 +52,7 @@ The run script installs all dependencies automatically. For reference:
   [`libccd@v2.1`](https://github.com/danfis/libccd/tree/v2.1))
 - FCPW (closest point queries; auto-fetched by CMake via FetchContent,
   [`fcpw@e36bc9b`](https://github.com/rohan-sawhney/fcpw/tree/e36bc9b34af6088fb78ddbb6a93e26686779678a))
-- CUDA toolkit with nvcc (GPU evaluation only; `--gpu` flag)
+- CUDA driver 12.6 (GPU evaluation only; `--gpu` flag)
 
 ---
 
@@ -112,6 +112,8 @@ Run benchmarks on each machine independently. Results are written to
 ./artifact/run.sh benchmark --gpu        # GPU (CUDA) benchmarks only
 ./artifact/run.sh benchmark --gpu --short  # Quick GPU smoke test
 ```
+
+**NOTE**: Running all benchmarks across x86, ARM, and GPU requires > 24 hours as we performance a large fan across 42 different evaluation contexts, and additionally require testing different ray-triangle intersections for fair comparison with Embree.
 
 The default mode (no subcommand) is `benchmark`:
 
@@ -277,22 +279,6 @@ artifact/results/
    compilation demonstrate end-to-end code generation from `.bonsai` source
    to optimized native code.
 
-### Claims NOT Fully Reproducible
-
-1. **Exact performance numbers**: Absolute performance depends on the specific
-   hardware. The artifact reproduces the *relative* performance trends
-   (speedups, Pareto dominance relationships) rather than exact millisecond
-   timings from the paper.
-
-2. **Multi-architecture comparison**: The paper evaluates on three specific
-   machines (MBP M2, x86 server, arm server). The artifact runs on whichever
-   machine the evaluator has available. Cross-architecture trends require
-   running on multiple systems.
-
-3. **GPU (CUDA) results**: The CUDA backend requires an NVIDIA GPU and CUDA
-   toolkit. Use `./artifact/run.sh --gpu` to run GPU benchmarks. Without an
-   NVIDIA GPU, only CPU results can be reproduced.
-
 ### Note on CPQ Traversal Optimization
 
 The closest-point query (CPQ) benchmarks apply a manual patch to the
@@ -388,17 +374,6 @@ The OBJ mesh files (lucy, hairball, dragon, etc.) are included in the
 repository under `apps/rt/data/` and `apps/cd/data/`. If missing, the
 benchmarks will fail with a "file not found" error.
 
-### CUDA / nvcc not found (GPU mode)
-
-On HPC systems, load the CUDA module before running:
-
-```bash
-module load cuda
-./artifact/run.sh --gpu
-```
-
-On other systems, ensure the CUDA toolkit is installed and `nvcc` is on PATH.
-
 ### Python plotting errors
 
 Install the required Python packages:
@@ -406,23 +381,3 @@ Install the required Python packages:
 ```bash
 pip3 install matplotlib numpy pandas
 ```
-
----
-
-## Reusability
-
-Scion is designed to be extensible. To add a new BVH layout:
-
-1. Create a `.bonsai` layout file (see `apps/rt/layouts/` for examples)
-2. The compiler generates optimized C++ for any valid layout specification
-3. No changes to the traversal algorithm are needed
-
-To add a new traversal algorithm:
-
-1. Write the algorithm in Bonsai DSL (see `apps/rt/cpu/main.bonsai`)
-2. The compiler applies layout transformations automatically
-3. All existing layouts work with the new algorithm
-
-This decoupling is the core contribution of the paper: layout choices are
-independent of algorithmic choices, enabling systematic exploration of the
-combined design space.
