@@ -553,9 +553,7 @@ else:
           fi
         done
       fi
-      # Force mock GL backend — this is a headless benchmark, no rendering needed.
       cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" -DBVH_SUFFIX="${BVH_SUFFIX}" \
-        -DPOLYSCOPE_BACKEND_OPENGL3_GLFW=OFF -DPOLYSCOPE_BACKEND_OPENGL_MOCK=ON \
         ../.. ${EXTRA_CMAKE_FLAGS}
       make -j"${NPROC}"
 

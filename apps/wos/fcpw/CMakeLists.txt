@@ -19,6 +19,11 @@ endif()
 
 include(FetchContent)
 
+# Only need mock backend for headless benchmarks (avoids X11/GL dependencies)
+set(POLYSCOPE_BACKEND_OPENGL3_GLFW OFF CACHE BOOL "" FORCE)
+set(POLYSCOPE_BACKEND_OPENGL3_EGL OFF CACHE BOOL "" FORCE)
+set(POLYSCOPE_BACKEND_OPENGL_MOCK ON CACHE BOOL "" FORCE)
+
 FetchContent_Declare(
     polyscope
     GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git
