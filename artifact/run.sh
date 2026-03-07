@@ -825,8 +825,8 @@ run_embree_comparison() {
   # Build Embree benchmark
   mkdir -p "${PREFIX}/build"
   cd "${PREFIX}/build"
-  cmake .. > /dev/null 2>&1
-  cmake --build . -j"${NPROC}" > /dev/null 2>&1
+  cmake .. || fail "Embree cmake configure failed. Is Embree 4.x installed? (conda install -c conda-forge embree)"
+  cmake --build . -j"${NPROC}" || fail "Embree build failed."
   cd "${ROOT_DIR}"
 
   for RAY_TYPE in "${RT_RAY_TYPES[@]}"; do
