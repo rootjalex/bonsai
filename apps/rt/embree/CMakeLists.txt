@@ -61,28 +61,25 @@ endif()
 # Create executable
 add_executable(main_trace main_trace.cpp)
 
+# Include directories (needed regardless of OpenMP)
+target_include_directories(main_trace PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}          # apps/rt/embree
+    ${CMAKE_CURRENT_SOURCE_DIR}/..       # apps/rt
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../runtime/CPP  # runtime/CPP
+)
+target_compile_options(main_trace PRIVATE -O3 -march=native)
+
 # Link Embree library
 target_link_libraries(main_trace PRIVATE embree)
 
 # Link OpenMP if available
 if(OPENMP_FOUND)
     if(APPLE)
-        target_compile_options(main_trace PRIVATE ${OpenMP_CXX_FLAGS} -O3 -march=native)
+        target_compile_options(main_trace PRIVATE ${OpenMP_CXX_FLAGS})
         target_link_libraries(main_trace PRIVATE ${OpenMP_omp_LIBRARY})
-        target_include_directories(main_trace PRIVATE
-        ${LIBOMP_PREFIX}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}          # apps/rt/embree
-        ${CMAKE_CURRENT_SOURCE_DIR}/..       # apps/rt
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../runtime/CPP  # runtime/CPP
-    )
+        target_include_directories(main_trace PRIVATE ${LIBOMP_PREFIX}/include)
     else()
         target_link_libraries(main_trace PRIVATE OpenMP::OpenMP_CXX)
-        target_include_directories(main_trace PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}          # apps/rt/embree
-        ${CMAKE_CURRENT_SOURCE_DIR}/..       # apps/rt
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../runtime/CPP  # runtime/CPP
-    )
-    target_compile_options(main_trace PRIVATE -O3 -march=native)
     endif()
     target_compile_definitions(main_trace PRIVATE HAVE_OPENMP)
 endif()

@@ -813,6 +813,12 @@ run_embree_comparison() {
   local EMBREE_CMAKE_FLAGS=""
   if [[ -n "${CONDA_PREFIX:-}" ]]; then
     EMBREE_CMAKE_FLAGS="-DCMAKE_PREFIX_PATH=${CONDA_PREFIX}"
+    # Help find_package(OpenMP) locate libomp from conda
+    if [[ -f "${CONDA_PREFIX}/include/omp.h" ]]; then
+      EMBREE_CMAKE_FLAGS="${EMBREE_CMAKE_FLAGS} -DOpenMP_C_FLAGS=-fopenmp -DOpenMP_CXX_FLAGS=-fopenmp"
+      EMBREE_CMAKE_FLAGS="${EMBREE_CMAKE_FLAGS} -DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp"
+      EMBREE_CMAKE_FLAGS="${EMBREE_CMAKE_FLAGS} -DOpenMP_omp_LIBRARY=${CONDA_PREFIX}/lib/libomp.so"
+    fi
   fi
   cmake .. ${EMBREE_CMAKE_FLAGS} || fail "Embree cmake configure failed. Is Embree 4.x installed? (conda install -c conda-forge embree)"
   cmake --build . -j"${NPROC}" || fail "Embree build failed."
