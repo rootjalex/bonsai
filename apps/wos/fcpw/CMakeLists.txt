@@ -97,3 +97,8 @@ target_link_libraries(${APPLICATION}_${LAYOUT}.out
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(${APPLICATION}_${LAYOUT}.out PRIVATE -O3)
 endif()
+
+# On conda environments, link against conda's libstdc++ to avoid version mismatch
+if(DEFINED ENV{CONDA_PREFIX})
+    target_link_options(${APPLICATION}_${LAYOUT}.out PRIVATE "-Wl,-rpath,$ENV{CONDA_PREFIX}/lib")
+endif()

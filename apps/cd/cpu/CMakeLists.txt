@@ -131,3 +131,10 @@ target_link_libraries(${APPLICATION}_${LAYOUT} PRIVATE Eigen3::Eigen fcl)
 set_target_properties(${APPLICATION}_${LAYOUT} PROPERTIES
     OUTPUT_NAME "${APPLICATION}_${LAYOUT}.out"
 )
+
+# On conda environments, link against conda's libstdc++ to avoid version mismatch
+if(DEFINED ENV{CONDA_PREFIX})
+    set(CONDA_PREFIX $ENV{CONDA_PREFIX})
+    target_link_options(main_library PUBLIC "-Wl,-rpath,${CONDA_PREFIX}/lib")
+    target_link_options(${APPLICATION}_${LAYOUT} PRIVATE "-Wl,-rpath,${CONDA_PREFIX}/lib")
+endif()

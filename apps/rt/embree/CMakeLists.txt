@@ -84,6 +84,11 @@ if(OPENMP_FOUND)
     target_compile_definitions(main_trace PRIVATE HAVE_OPENMP)
 endif()
 
+# On conda environments, link against conda's libstdc++ to avoid version mismatch
+if(DEFINED ENV{CONDA_PREFIX})
+    target_link_options(main_trace PRIVATE "-Wl,-rpath,$ENV{CONDA_PREFIX}/lib")
+endif()
+
 # Print information
 message(STATUS "Embree version: ${embree_VERSION}")
 message(STATUS "Embree includes: ${EMBREE_INCLUDE_DIRS}")
