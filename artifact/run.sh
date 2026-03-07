@@ -3,7 +3,7 @@
 # PLDI 2026 Artifact: Data Layout Polymorphism for Bounding Volume Hierarchies.
 #
 # We use three hardware platforms,
-#   (1) Intel Core i9-14900K with 24 CPU cores (8 performacne, 16 efficiency) and AVX-512 (512-bit)
+#   (1) Intel Core i9-14900K with 24 CPU cores (8 performance, 16 efficiency) and AVX-512 (512-bit)
 #       996 KiB L1, 32 MiB L2, and 36 MiB L3
 #   (2) Apple MacBook M2 Pro with 10 CPU cores, Neon (128-bit)
 #       16 GIB of unified memory

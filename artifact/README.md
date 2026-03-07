@@ -25,11 +25,11 @@ The artifact reproduces the main experimental results from the paper:
 
 The full evaluation was conducted on three platforms:
 
-| Machine | CPU | Arch | RAM | OS |
-|---------|-----|------|-----|-----|
-| MBP M2  | Apple M2 Pro | arm64 | 16 GB | macOS 14+ |
-| x86 Server | Intel Xeon (Redwood) | x86_64 | 64+ GB | Ubuntu 22.04 |
-| arm Server | Graviton / Ampere | aarch64 | 32+ GB | Ubuntu 22.04 |
+| Machine | CPU / GPU | Arch | RAM | OS |
+|---------|----------|------|-----|-----|
+| x86 Desktop | Intel Core i9-14900K (24 cores) | x86_64 | 64 GB | Ubuntu 22.04 |
+| MBP M2 | Apple M2 Pro (10 cores) | arm64 | 16 GB | macOS 14+ |
+| GPU | NVIDIA GeForce RTX 4090 | CUDA | 24 GB GDDR6X | Ubuntu 22.04 |
 
 The artifact can be evaluated on any machine with:
 - macOS (Apple Silicon or Intel) or Linux (x86_64 or aarch64)
