@@ -72,13 +72,16 @@ if(NOT fcl_FOUND)
     set(ENABLE_DOUBLE_PRECISION ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(ccd)
     
-    # After making ccd available, set up variables so FCL skips its CCD search.
-    # FCL 0.7.0 checks: if(NOT ccd_FOUND) ... find CCD ... endif()
-    # By setting ccd_FOUND before FetchContent_MakeAvailable(fcl), FCL's
-    # entire CCD search block is skipped.
-    set(ccd_FOUND TRUE CACHE BOOL "" FORCE)
-    set(CCD_INCLUDE_DIRS "${ccd_SOURCE_DIR}/src" CACHE STRING "" FORCE)
-    set(CCD_LIBRARIES ccd CACHE STRING "" FORCE)
+    # FCL 0.7.0 calls find_package(ccd QUIET) which needs a ccd-config.cmake.
+    # Generate one pointing to the FetchContent-built libccd so FCL finds it.
+    file(MAKE_DIRECTORY ${ccd_BINARY_DIR}/ccd-config)
+    file(WRITE ${ccd_BINARY_DIR}/ccd-config/ccd-config.cmake
+"set(CCD_INCLUDE_DIRS \"${ccd_SOURCE_DIR}/src\")
+set(CCD_LIBRARIES ccd)
+set(ccd_FOUND TRUE)
+set(CCD_FOUND TRUE)
+")
+    list(APPEND CMAKE_PREFIX_PATH ${ccd_BINARY_DIR}/ccd-config)
 
     # Now fetch FCL
     FetchContent_Declare(
