@@ -84,7 +84,7 @@ This takes approximately **10 minutes** and exercises the full pipeline:
 
 ### Step 3: Verify output
 
-After the short run completes, you should see:
+After the short run completes, you should see (amongst other noise):
 
 ```
 [  OK  ] Scion compiler built successfully
@@ -154,12 +154,12 @@ artifact/results/
 │   ├── <arch>-<ray_type>.txt  # CPU: e.g. arm-camera.txt, x86-secondary.txt
 │   └── cuda-<ray_type>.txt   # GPU: e.g. cuda-camera.txt (with --gpu)
 ├── cpq/                    # Closest point query raw data
-│   ├── dse.txt                # CPU results
+│   ├── <arch>-dse.txt          # CPU: e.g. arm-dse.txt, x86-dse.txt
 │   └── cuda-dse.txt           # GPU results (with --gpu)
 ├── embree/                 # Embree comparison raw data
 │   └── <arch>-<ray_type>.txt
 ├── cd/                     # Collision detection raw data
-│   └── fcl_comparison.txt
+│   └── <arch>-fcl_comparison.txt  # e.g. arm-fcl_comparison.txt
 ├── rt-results.csv          # Hygiened RT + Embree CSV (input to plotting)
 ├── cpq-results.csv         # Hygiened CPQ CSV
 ├── cd-results.csv          # Hygiened CD CSV
@@ -174,6 +174,22 @@ artifact/results/
     ├── fcpw-comparison-cpq.pdf         # Figure 9b: FCPW comparison
     └── novel-layout-table.tex          # Table: Novel layout domination
 ```
+
+### Mapping Outputs to Paper Figures and Tables
+
+| Step | Script | Output | Paper Reference |
+|------|--------|--------|-----------------|
+| 2 | `hygiene_rt.py` → `collect_dse.py` | `dse.pdf` | Figure 7: DSE Pareto frontiers |
+| 2 | `collect_dse.py` | `data-dependent1.pdf` | Figure 6a: Data-dependent Pareto |
+| 2 | `speedup_bar_chart.py` | `data-dependent2.pdf` | Figure 6b: Data-dependent speedup |
+| 2 | `collect_dse.py` | `machine-dependent1.pdf` | Figure 6c: Machine-dependent Pareto |
+| 2,3 | `collect_dse.py --compare-cpq` | `algorithm-dependent.pdf` | Figure 6d: Algorithm-dependent |
+| 4 | `embree_comparison_rt.py` | `embree-comparison-rt.pdf` | Figure 8: Embree comparison |
+| 5 | `fcl_comparison_cd.py` | `fcl-comparison-cd_*.pdf` | Figure 9a: FCL comparison |
+| 6 | `fcpw_comparison_cpq.py` | `fcpw-comparison-cpq.pdf` | Figure 9b: FCPW comparison |
+| 2 | `is_pareto_optimal.py` | `novel-layout-table.tex` | Table 1: Novel layout domination |
+
+---
 
 ## Claims Supported by the Artifact
 

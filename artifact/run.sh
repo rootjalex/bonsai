@@ -218,6 +218,8 @@ install_deps() {
         fail "clang++ not found. Install via: conda install -c conda-forge clangdev, or: sudo apt install clang"
       fi
       export LLVM_ROOT="${CONDA_PREFIX}"
+      # Ensure conda libraries are found at runtime (avoids GLIBCXX version mismatch)
+      export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
     else
       # No conda — expect dependencies to be pre-installed.
       log "No conda environment detected. Ensure the following are installed:"
@@ -463,7 +465,7 @@ run_dse_cpq() {
   local PREFIX="apps/wos/fcpw"
   local LAYOUT_PATH="apps/wos/fcpw/layouts"
   local BVH_SUFFIX="2"
-  local OUTFILE="${RESULTS_DIR}/cpq/dse.txt"
+  local OUTFILE="${RESULTS_DIR}/cpq/${ARCH}-dse.txt"
   > "${OUTFILE}"
 
   for OBJECT in "${CPQ_OBJECTS[@]}"; do
@@ -864,7 +866,7 @@ run_fcl_comparison() {
 
   local APPLICATION="cd"
   local PREFIX="apps/cd/cpu"
-  local OUTFILE="${RESULTS_DIR}/cd/fcl_comparison.txt"
+  local OUTFILE="${RESULTS_DIR}/cd/${ARCH}-fcl_comparison.txt"
   > "${OUTFILE}"
 
   for ((i=0; i<${#CD_OBJECTS_A[@]}; i++)); do
@@ -929,7 +931,7 @@ run_fcpw_comparison() {
   # The WOS benchmark already includes FCPW timing data in its output.
   # If step 3 was run, results are already available.
 
-  if [[ -f "${RESULTS_DIR}/cpq/dse.txt" ]]; then
+  if [[ -f "${RESULTS_DIR}/cpq/${ARCH}-dse.txt" ]]; then
     ok "FCPW comparison data already collected in step 3"
   else
     log "Running CPQ benchmarks (includes FCPW comparison)..."
@@ -984,35 +986,40 @@ generate_figures() {
 
   # ── 7c: Hygiene CD data ────────────────────────────────────────────────
   rm -f "${CD_CSV}"
-  if [[ -d "${RESULTS_DIR}/cd" ]] && [[ -f "${RESULTS_DIR}/cd/fcl_comparison.txt" ]]; then
+  if [[ -d "${RESULTS_DIR}/cd" ]]; then
     log "  Converting CD results to CSV..."
-    cd "${SCRIPTS}"
-    python3 hygiene_cd.py "${RESULTS_DIR}/cd/fcl_comparison.txt" "${CD_CSV}" \
-      --machine "${ARCH}" || \
-      log "  WARNING: hygiene_cd.py failed"
-    cd "${ROOT_DIR}"
+    # Process all <arch>-fcl_comparison.txt files
+    for txt_file in "${RESULTS_DIR}/cd/"*-fcl_comparison.txt; do
+      [[ -f "${txt_file}" ]] || continue
+      # Extract machine from filename: <arch>-fcl_comparison.txt -> <arch>
+      local cd_machine
+      cd_machine="$(basename "${txt_file}" | sed 's/-fcl_comparison\.txt$//')"
+      log "    hygiene_cd.py ${txt_file} (machine=${cd_machine})"
+      cd "${SCRIPTS}"
+      python3 hygiene_cd.py "${txt_file}" "${CD_CSV}" \
+        --machine "${cd_machine}" || \
+        log "    WARNING: hygiene_cd.py failed on ${txt_file}"
+      cd "${ROOT_DIR}"
+    done
   fi
 
   # ── 7d: Hygiene CPQ data ───────────────────────────────────────────────
   rm -f "${CPQ_CSV}"
   if [[ -d "${RESULTS_DIR}/cpq" ]]; then
     log "  Converting CPQ results to CSV..."
-    # Process CPU CPQ results
-    if [[ -f "${RESULTS_DIR}/cpq/dse.txt" ]]; then
+    # Process all <arch>-dse.txt and cuda-dse.txt files
+    for txt_file in "${RESULTS_DIR}/cpq/"*-dse.txt; do
+      [[ -f "${txt_file}" ]] || continue
+      # Extract machine from filename: <arch>-dse.txt -> <arch>, cuda-dse.txt -> cuda
+      local cpq_machine
+      cpq_machine="$(basename "${txt_file}" | sed 's/-dse\.txt$//')"
+      log "    hygiene_cpq.py ${txt_file} (machine=${cpq_machine})"
       cd "${SCRIPTS}"
-      python3 hygiene_cpq.py "${RESULTS_DIR}/cpq/dse.txt" "${CPQ_CSV}" \
-        --machine "${ARCH}" || \
-        log "  WARNING: hygiene_cpq.py failed (CPU)"
+      python3 hygiene_cpq.py "${txt_file}" "${CPQ_CSV}" \
+        --machine "${cpq_machine}" || \
+        log "    WARNING: hygiene_cpq.py failed on ${txt_file}"
       cd "${ROOT_DIR}"
-    fi
-    # Process CUDA CPQ results
-    if [[ -f "${RESULTS_DIR}/cpq/cuda-dse.txt" ]]; then
-      cd "${SCRIPTS}"
-      python3 hygiene_cpq.py "${RESULTS_DIR}/cpq/cuda-dse.txt" "${CPQ_CSV}" \
-        --machine "cuda" || \
-        log "  WARNING: hygiene_cpq.py failed (CUDA)"
-      cd "${ROOT_DIR}"
-    fi
+    done
   fi
 
   # ── 7e: Generate plots from CSVs ───────────────────────────────────────
@@ -1059,7 +1066,7 @@ generate_figures() {
     # -- Embree comparison (Figure 8) --
     log "  Generating Embree comparison (Figure 8)..."
     python3 "${SCRIPTS}/embree_comparison_rt.py" "${RT_CSV}" \
-      --scenes "${RT_OBJECTS[@]}" \
+      --scenes hairball san-miguel-x35-y22-z47 power-plant white-oak sponza lucy sheep \
       --layouts bvh8-q8-ci bvh8-q16-ci bvh8 embree-bvh8i embree-qbvh8i \
       --machines "${ARCH}" \
       --best \
