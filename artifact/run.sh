@@ -900,10 +900,10 @@ run_fcl_comparison() {
           fi
         done
       fi
-      cmake -DLAYOUT="${LAYOUT}" .. ${EXTRA_CMAKE_FLAGS} > /dev/null 2>&1
-      make -j"${NPROC}" main_library > /dev/null 2>&1
-      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" .. ${EXTRA_CMAKE_FLAGS} > /dev/null 2>&1
-      make -j"${NPROC}" > /dev/null 2>&1
+      cmake -DLAYOUT="${LAYOUT}" .. ${EXTRA_CMAKE_FLAGS} || fail "CD cmake configure failed (layout=${LAYOUT})"
+      make -j"${NPROC}" main_library || fail "CD main_library build failed (layout=${LAYOUT})"
+      cmake -DLAYOUT="${LAYOUT}" -DAPPLICATION="${APPLICATION}" .. ${EXTRA_CMAKE_FLAGS} || fail "CD cmake reconfigure failed (layout=${LAYOUT})"
+      make -j"${NPROC}" || fail "CD build failed (layout=${LAYOUT})"
 
       cd "${ROOT_DIR}"
 
