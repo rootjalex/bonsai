@@ -244,7 +244,7 @@ If CMake cannot find LLVM 19, set the path explicitly:
 
 ```bash
 export LLVM_ROOT=/path/to/llvm-19
-# On macOS with Homebrew:
+# Or, on macOS with Homebrew:
 export LLVM_ROOT=$(brew --prefix llvm@19)
 ```
 

@@ -1,11 +1,11 @@
-// NOTE: The current version of Scion does not yet support the priority-queue
-// scheduling optimization used for closest-point queries. We therefore perform
-// this transformation manually by replacing the generated _traverse_tree
-// function with the version below, which reorders child visits by distance.
-// Future versions of Scion will support this scheduling directive natively.
-// Regardless, this paper's claims concern data layout polymorphism, and the
-// traversal algorithm is an orthogonal input to the system; this manual edit
-// does not affect the layout-related results.
+// NOTE: The current version of our compiler does not yet support the
+// priority-queue scheduling optimization used for closest-point queries. We
+// therefore perform this transformation manually by replacing the generated
+// _traverse_tree function with the version below, which reorders child visits
+// by distance. Future versions of Scion will support this scheduling directive
+// natively. Regardless, this paper's claims concern data layout polymorphism,
+// and the traversal algorithm is an orthogonal input to the system; this manual
+// edit does not affect the layout-related results.
 
 Triangle _traverse_tree0(const Point *__restrict__ p,
                          const Triangles *__restrict__ triangles) {
