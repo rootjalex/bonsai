@@ -1,0 +1,2 @@
+trace.loopify(64);
+chrt.gpu_thread(i0);

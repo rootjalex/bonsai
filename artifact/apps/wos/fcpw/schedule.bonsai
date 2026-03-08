@@ -1,0 +1,4 @@
+
+closest_point
+  .sort(triangles.Interior, |i : u8, p: Point, ll : vec3f, lr : vec3f, hl : vec3f, hr : vec3f | distmin(p, AABB{select(i == 1, ll, lr), select(i == 1, hl, hr)}))
+  .loopify(64);

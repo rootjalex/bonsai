@@ -51,12 +51,11 @@ The run script installs all dependencies automatically. For reference:
 
 ---
 
-## Getting Started Guide (~30 minutes)
+## Getting Started (~30 minutes)
 
-### Step 1: Clone and enter the repository
+### Step 1: Enter the repository
 
 ```bash
-git clone <repository-url> bonsai
 cd bonsai
 ```
 
@@ -206,16 +205,17 @@ Each step can be run independently. Use `--help` for full documentation:
    (Section 8.2, Table 1, Figures 15 and 16). The design space exploration
    demonstrates that no single layout dominates across all scenarios. The
    Pareto frontier analysis shows different layouts are optimal for different
-   (scene, ray type, architecture) combinations. Additionally we provide a script at 
-   `artifacts/collect_dse.py` (and part of the Supplemental Materials) to explore the
-   results of the entire evaluation space.
+   (scene, ray type, architecture) combinations. Additionally we provide a 
+   script at `artifacts/collect_dse.py` (and part of the Supplemental Materials) 
+   to explore the results of the entire evaluation space.
 
 2. **Scion-generated code is competitive with hand-optimized libraries**
    (Section 8.3, Figures 18 and 19). Steps 4-6 compare Scion against:
    - **Embree** (Intel's production ray tracing library): Scion matches or
      exceeds Embree performance on several layout/scene combinations while
      exploring a broader design space. In other cases, Scion performances much 
-     worse due to a lack of scheduling
+     worse due to the lack of scheduling optimizations performed by Embree, 
+     e.g., vectorization.
    - **FCL** (Flexible Collision Library): Scion-generated collision detection
      outperforms FCL across tested configurations.
    - **FCPW** (Fast Closest Point in the West): Scion-generated closest
@@ -253,12 +253,6 @@ export LLVM_ROOT=$(brew --prefix llvm@19)
 On macOS: `brew install embree`
 On Linux: Install from conda-forge (`conda install -c conda-forge embree`) or
 build from source (https://github.com/RenderKit/embree/releases).
-
-### OpenMP not found (macOS)
-
-```bash
-brew install libomp
-```
 
 ### Python plotting errors
 

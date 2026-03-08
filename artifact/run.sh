@@ -186,7 +186,7 @@ detect_platform() {
 setup_scenes() {
   local SCENES_DIR="${SCRIPT_DIR}/scenes"
   if [[ ! -d "${SCENES_DIR}/rt" ]]; then
-    fail "Scene data not found in ${SCENES_DIR}/rt/. See artifact/README.md."
+    fail "Scene data not found in ${SCENES_DIR}/rt/."
   fi
   mkdir -p "${SCRIPT_DIR}/rays"
 }
@@ -309,7 +309,7 @@ generate_rays() {
 
   cd "${ROOT_DIR}"
   local RAY_PATH="artifact/rays"
-  local KERNEL_PATH="apps/rt"
+  local KERNEL_PATH="artifact/apps/rt"
 
   local RAY_COUNTS=()
   for ((p=MIN_POWER; p<=MAX_POWER; p++)); do
@@ -379,8 +379,8 @@ run_dse_rt() {
   done
 
   local APPLICATION="rt"
-  local PREFIX="apps/rt/cpu"
-  local LAYOUT_PATH="apps/rt/layouts"
+  local PREFIX="artifact/apps/rt/cpu"
+  local LAYOUT_PATH="artifact/apps/rt/layouts"
   local PARTITION="sah"
 
   for RAY_TYPE in "${RT_RAY_TYPES[@]}"; do
@@ -415,8 +415,8 @@ run_bonsai_rt_layouts() {
   local OUTFILE="$7"
 
   local APPLICATION="rt"
-  local PREFIX="apps/rt/cpu"
-  local LAYOUT_PATH="apps/rt/layouts"
+  local PREFIX="artifact/apps/rt/cpu"
+  local LAYOUT_PATH="artifact/apps/rt/layouts"
   local SCHEDULE="parallel"
 
   read -ra LAYOUTS <<< "${LAYOUTS_STR}"
@@ -428,9 +428,9 @@ run_bonsai_rt_layouts() {
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" "${PREFIX}/${MAIN_FILE}.cpp" > "${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cpp"
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
   if [[ "$(uname)" == "Linux" ]]; then
-    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cpp"
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r artifact/apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cpp"
   else
-    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cpp"
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r artifact/apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cpp"
   fi
 
   for OBJECT in "${RT_OBJECTS[@]}"; do
@@ -458,7 +458,7 @@ run_bonsai_rt_layouts() {
       # Prepend intersection import
       local MAIN_BONSAI
       MAIN_BONSAI=$(mktemp).bonsai
-      echo "import apps/rt/cpu/intersect/${INTERSECT};" > "${MAIN_BONSAI}"
+      echo "import artifact/apps/rt/cpu/intersect/${INTERSECT};" > "${MAIN_BONSAI}"
       cat "${PREFIX}/main.bonsai" >> "${MAIN_BONSAI}"
 
       # Lower to C++
@@ -467,7 +467,7 @@ run_bonsai_rt_layouts() {
 
       # Compile (use system clang on macOS to avoid sysroot issues)
       local APP_CXX="/usr/bin/clang++"
-      local COMMON_FLAGS="-std=c++20 -O3 -march=native -I. -Iapps/${APPLICATION} -Iruntime/CPP"
+      local COMMON_FLAGS="-std=c++20 -O3 -march=native -I. -Iartifact/apps/${APPLICATION} -Iartifact/runtime/CPP"
       if [[ "${PLATFORM}" == "macos" ]]; then
         local OMP_PREFIX
         OMP_PREFIX="$(brew --prefix libomp 2>/dev/null || echo "")"
@@ -514,8 +514,8 @@ run_dse_cpq() {
   mkdir -p "${RESULTS_DIR}/cpq"
 
   local APPLICATION="wos"
-  local PREFIX="apps/wos/fcpw"
-  local LAYOUT_PATH="apps/wos/fcpw/layouts"
+  local PREFIX="artifact/apps/wos/fcpw"
+  local LAYOUT_PATH="artifact/apps/wos/fcpw/layouts"
   local BVH_SUFFIX="2"
   local OUTFILE="${RESULTS_DIR}/cpq/${ARCH}-dse.txt"
   > "${OUTFILE}"
@@ -536,7 +536,7 @@ run_dse_cpq() {
       cmake --build build -j"${NPROC}" > /dev/null 2>&1
 
       # Lower to C++ (generate wos.h and wos.cpp)
-      ./build/compiler -i "apps/wos/main.bonsai" -l "${LAYOUT_FILE}" -b cppx -o "${PREFIX}/${APPLICATION}"
+      ./build/compiler -i "artifact/apps/wos/main.bonsai" -l "${LAYOUT_FILE}" -b cppx -o "${PREFIX}/${APPLICATION}"
 
       # Patch: replace the generated _traverse_tree0 with an optimized version
       # that uses priority-queue child ordering (visiting the nearer child first).
@@ -628,8 +628,8 @@ run_dse_rt_cuda() {
   done
 
   local APPLICATION="rt"
-  local PREFIX="apps/rt/cuda"
-  local LAYOUT_PATH="apps/rt/layouts"
+  local PREFIX="artifact/apps/rt/cuda"
+  local LAYOUT_PATH="artifact/apps/rt/layouts"
   local PARTITION="sah"
 
   # Try to load CUDA module (Linux HPC systems)
@@ -670,8 +670,8 @@ run_cuda_rt_layouts() {
   local OUTFILE="$7"
 
   local APPLICATION="rt"
-  local PREFIX="apps/rt/cuda"
-  local LAYOUT_PATH="apps/rt/layouts"
+  local PREFIX="artifact/apps/rt/cuda"
+  local LAYOUT_PATH="artifact/apps/rt/layouts"
 
   read -ra LAYOUTS <<< "${LAYOUTS_STR}"
 
@@ -682,9 +682,9 @@ run_cuda_rt_layouts() {
   sed "s/\\\$N\\\$/${BVH_SUFFIX}/g" "${PREFIX}/${MAIN_FILE}.cu" > "${PREFIX}/${MAIN_FILE}_${BVH_SUFFIX}.cu"
   MAIN_FILE="${MAIN_FILE}_${BVH_SUFFIX}"
   if [[ "$(uname)" == "Linux" ]]; then
-    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cu"
+    sed -i "/\/\/ AUTO-GENERATED canonical_tree/r artifact/apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cu"
   else
-    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cu"
+    sed -i '' "/\/\/ AUTO-GENERATED canonical_tree/r artifact/apps/rt/canonical_tree_${BVH_SUFFIX}.h" "${PREFIX}/${MAIN_FILE}.cu"
   fi
 
   for OBJECT in "${RT_OBJECTS[@]}"; do
@@ -711,7 +711,7 @@ run_cuda_rt_layouts() {
       # Prepend intersection import
       local MAIN_BONSAI
       MAIN_BONSAI=$(mktemp).bonsai
-      echo "import apps/rt/cuda/intersect/${INTERSECT};" > "${MAIN_BONSAI}"
+      echo "import artifact/apps/rt/cuda/intersect/${INTERSECT};" > "${MAIN_BONSAI}"
       cat "${PREFIX}/main.bonsai" >> "${MAIN_BONSAI}"
 
       # Lower to CUDA header
@@ -719,7 +719,7 @@ run_cuda_rt_layouts() {
       rm "${MAIN_BONSAI}"
 
       # Compile with nvcc
-      nvcc -Iapps/rt -Iruntime/CUDA -O3 \
+      nvcc -Iartifact/apps/rt -Iartifact/runtime/CUDA -O3 \
         "${PREFIX}/${MAIN_FILE}.cu" -o "${PREFIX}/${APPLICATION}_${LAYOUT}.out"
 
       # Run (no --schedule arg on GPU)
@@ -748,8 +748,8 @@ run_dse_cpq_cuda() {
   mkdir -p "${RESULTS_DIR}/cpq"
 
   local APPLICATION="wos"
-  local PREFIX="apps/wos/cuda"
-  local RAY_TRACING_PATH="apps/rt"
+  local PREFIX="artifact/apps/wos/cuda"
+  local RAY_TRACING_PATH="artifact/apps/rt"
   local LAYOUT_PATH="${RAY_TRACING_PATH}/layouts"  # shares layouts with RT
   local PARTITION="sah"
   local OUTFILE="${RESULTS_DIR}/cpq/cuda-dse.txt"
@@ -776,8 +776,8 @@ run_cuda_cpq_layouts() {
   local OUTFILE="$4"
 
   local APPLICATION="wos"
-  local PREFIX="apps/wos/cuda"
-  local RAY_TRACING_PATH="apps/rt"
+  local PREFIX="artifact/apps/wos/cuda"
+  local RAY_TRACING_PATH="artifact/apps/rt"
   local LAYOUT_PATH="${RAY_TRACING_PATH}/layouts"
 
   read -ra LAYOUTS <<< "${LAYOUTS_STR}"
@@ -823,7 +823,7 @@ run_cuda_cpq_layouts() {
       rm "${MAIN_BONSAI}"
 
       # Compile with nvcc
-      nvcc -Iapps/wos -Iapps/rt -Iruntime/CUDA -O3 \
+      nvcc -Iartifact/apps/wos -Iartifact/apps/rt -Iartifact/runtime/CUDA -O3 \
         "${PREFIX}/${MAIN_FILE}.cu" -o "${PREFIX}/${APPLICATION}_${LAYOUT}.out"
 
       # Run: WOS CUDA handles N runs internally
@@ -858,7 +858,7 @@ run_embree_comparison() {
     ARGV="${ARGV} ${COUNT}"
   done
 
-  local PREFIX="apps/rt/embree"
+  local PREFIX="artifact/apps/rt/embree"
   local SCHEDULE="parallel"
 
   # Build Embree benchmark
@@ -917,7 +917,7 @@ run_fcl_comparison() {
   mkdir -p "${RESULTS_DIR}/cd"
 
   local APPLICATION="cd"
-  local PREFIX="apps/cd/cpu"
+  local PREFIX="artifact/apps/cd/cpu"
   local OUTFILE="${RESULTS_DIR}/cd/${ARCH}-fcl_comparison.txt"
   > "${OUTFILE}"
 
@@ -932,7 +932,7 @@ run_fcl_comparison() {
       cmake --build build -j"${NPROC}" > /dev/null 2>&1
 
       # Lower to C++
-      ./build/compiler -i "apps/${APPLICATION}/main.bonsai" \
+      ./build/compiler -i "artifact/apps/${APPLICATION}/main.bonsai" \
         -l "${PREFIX}/${LAYOUT}.bonsai" -b cppx -o "${PREFIX}/${APPLICATION}"
 
       # Build executable
@@ -1001,7 +1001,7 @@ generate_figures() {
     source "${ROOT_DIR}/artifact/.venv/bin/activate"
   fi
 
-  local SCRIPTS="apps/scripts"
+  local SCRIPTS="artifact/apps/scripts"
   mkdir -p "${RESULTS_DIR}/figures"
 
   local RT_CSV="${RESULTS_DIR}/rt-results.csv"
