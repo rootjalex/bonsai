@@ -229,12 +229,12 @@ replaces the generated `_traverse_tree0` function with a version that uses
 priority-queue child ordering (visiting the nearer child first), which is a
 standard scheduling optimization for nearest-neighbor traversals.
 
-The current version of Scion does not yet support this scheduling directive
-natively. However, the traversal algorithm is orthogonal to the data layout
-contributions of this paper: Scion's layout polymorphism operates independently
-of algorithmic choices, and this manual edit does not affect any layout-related
-results. Future versions of Scion will support this scheduling optimization
-as a built-in directive.
+The current version of Scion's compiler (Bonsai) does not yet support this 
+scheduling directive natively. However, the traversal algorithm is orthogonal 
+to the data layout contributions of this paper: Scion's layout polymorphism 
+operates independently of algorithmic choices, and this manual edit does not 
+affect any layout-related results. A future version of the Bonsai compiler 
+does supports this optimization as a built-in scheduling rewrite.
 
 ## Troubleshooting
 
