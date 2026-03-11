@@ -14,7 +14,8 @@
 # Usage:
 #   ./artifact/run.sh              # Full evaluation (several hours)
 #   ./artifact/run.sh --short      # Quick smoke test (~10 minutes)
-#   ./artifact/run.sh --step N     # Run only step N (1=build, 2=DSE RT, 3=DSE CPQ,
+#   ./artifact/run.sh --step N     # Run only step N
+#                                  #  (1=build, 2=DSE RT, 3=DSE CPQ,
 #                                  #   4=Embree comparison, 5=FCL comparison,
 #                                  #   6=FCPW comparison, 7=generate figures)
 #
@@ -66,10 +67,10 @@ Benchmark steps:
   0   Install dependencies (brew/conda/apt, Python venv)
   1   Build the Scion compiler
   2   Design Space Exploration: Ray Tracing (Table 1, Figure 7)
-      CPU: 26 BVH layouts × 7 scenes × 2 ray types × 2 intersections
+      CPU: 26 BVH layouts x 7 scenes x 2 ray types x 2 intersections
       GPU (--gpu): same layouts (excluding 'ptr') compiled with nvcc
   3   Design Space Exploration: Closest Point Queries (Table 1, Figure 7)
-      CPU: BVH2 layouts × 7 scenes, with FCPW comparison
+      CPU: BVH2 layouts x 7 scenes, with FCPW comparison
       GPU (--gpu): BVH2+BVH8 layouts via CUDA (no FCPW comparison)
   4   Embree comparison: Ray Tracing (Figure 8)       [CPU only]
   5   FCL comparison: Collision Detection (Figure 9a)  [CPU only]
@@ -131,7 +132,6 @@ if [[ "${SHORT}" == true ]]; then
   CPQ_LAYOUTS=("pbrt")
   MIN_POWER=18
   MAX_POWER=18
-  # GPU-specific (CUDA skips 'ptr' layout)
   CUDA_RT_2_LAYOUTS=("pbrt" "pbrt-q16")
   CUDA_RT_8_LAYOUTS=("bvh8" "bvh8-q8")
   CUDA_CPQ_N_QUERIES=1000
