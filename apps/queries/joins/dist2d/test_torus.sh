@@ -17,7 +17,7 @@ else
 fi
 
 $BIND ./$SRC_DIR/main_torus.out 1 &> $SRC_DIR/torus1_results.txt
-$BIND ./$SRC_DIR/main_torus.out 5 &> $SRC_DIR/torus5_results.txt
+# $BIND ./$SRC_DIR/main_torus.out 5 &> $SRC_DIR/torus5_results.txt
 $BIND ./$SRC_DIR/main_torus.out 100 &> $SRC_DIR/torus100_results.txt
-$BIND ./$SRC_DIR/main_torus.out 1000 &> $SRC_DIR/torus1000_results.txt
+#$BIND ./$SRC_DIR/main_torus.out 1000 &> $SRC_DIR/torus1000_results.txt
 $BIND ./$SRC_DIR/main_torus.out 100000 &> $SRC_DIR/torus100000_results.txt

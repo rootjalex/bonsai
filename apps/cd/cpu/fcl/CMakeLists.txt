@@ -16,7 +16,7 @@ if (USE_PROFILING)
   set(BONSAI_SRC "cd_profiled.cpp")
 else()
   message(STATUS "Using unprofiled build")
-  set(FCL_PATH "/Users/ajroot/projects/pldi-bonsai/deps/fcl/build/install")
+  set(FCL_PATH "/scratch/ajroot/pldi-bonsai/deps/fcl/build/install")
   set(BONSAI_SRC "cd_gen.cpp")
 endif()
 
