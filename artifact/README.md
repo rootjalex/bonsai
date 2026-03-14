@@ -33,6 +33,22 @@ The full evaluation was conducted on three platforms:
 
 Any deviation from this may affect the results. In fact, that is the entire thesis of this work.
 
+### Memory Requirements
+
+| Path | Size | Contents |
+|------|------|----------|
+| `artifact/rays/`   | ~5 GB    | Precomputed ray sets        |
+| `artifact/scenes/` | ~5 GB    | Scene geometry (BVH inputs) |
+| Remaining files    | < 1 GB   | Other                       |
+
+ `rays.tar.gz` and `scenes.tar.gz` will be decompressed automatically at the 
+ start of each run. To produce compressed archives from an existing uncompressed 
+ checkout, pass the `--compress` flag:
+
+```bash
+./artifact/run.sh --compress        # compress rays/ and scenes/ in place
+```
+
 ### Software Requirements
 
 The run script installs all dependencies automatically. For reference:
@@ -53,10 +69,11 @@ The run script installs all dependencies automatically. For reference:
 
 ## Getting Started (~30 minutes)
 
-### Step 1: Enter the repository
+### Step 1: Enter the root directory
 
 ```bash
-cd bonsai
+unzip bonsai-artifact.zip
+cd bonsai-artifact
 ```
 
 ### Step 2: Run the short smoke test
@@ -101,21 +118,14 @@ Run benchmarks on each machine independently. Results are written to
 `artifact/results/` with architecture-tagged filenames so they do not conflict.
 
 ```bash
-./artifact/run.sh benchmark                # CPU benchmarks (several hours)
-./artifact/run.sh benchmark --short        # Quick smoke test (~10 min)
+./artifact/run.sh benchmark                # CPU benchmarks
+./artifact/run.sh benchmark --short        # Quick smoke test
 ./artifact/run.sh benchmark --gpu          # GPU (CUDA) benchmarks only
 ./artifact/run.sh benchmark --gpu --short  # Quick GPU smoke test
 ```
 
 **NOTE**: Running all benchmarks across x86, ARM, and GPU requires > 24 hours as we performance a large fan across 42 different 
 evaluation contexts, and additionally require testing different ray-triangle intersections for fair comparison with Embree.
-
-The default mode (no subcommand) is `benchmark`:
-
-```bash
-./artifact/run.sh                        # Same as: ./artifact/run.sh benchmark
-./artifact/run.sh --short                # Same as: ./artifact/run.sh benchmark --short
-```
 
 GPU mode requires an NVIDIA GPU with the CUDA toolkit (`nvcc`) installed. On
 HPC systems, you may need to `module load cuda` first. The `--gpu` flag runs
@@ -206,8 +216,8 @@ Each step can be run independently. Use `--help` for full documentation:
    demonstrates that no single layout dominates across all scenarios. The
    Pareto frontier analysis shows different layouts are optimal for different
    (scene, ray type, architecture) combinations. Additionally we provide a 
-   script at `artifacts/collect_dse.py` (and part of the Supplemental Materials) 
-   to explore the results of the entire evaluation space.
+   script `artifacts/collect_dse.py` and full dataset in the Supplementary 
+   Materials to query the results of the design space exploration.
 
 2. **Scion-generated code is competitive with hand-optimized libraries**
    (Section 8.3, Figures 18 and 19). Steps 4-6 compare Scion against:
@@ -236,28 +246,3 @@ operates independently of algorithmic choices, and this manual edit does not
 affect any layout-related results. A future version of the Bonsai compiler 
 does supports this optimization as a built-in scheduling rewrite.
 
-## Troubleshooting
-
-### LLVM not found
-
-If CMake cannot find LLVM 19, set the path explicitly:
-
-```bash
-export LLVM_ROOT=/path/to/llvm-19
-# Or, on macOS with Homebrew:
-export LLVM_ROOT=$(brew --prefix llvm@19)
-```
-
-### Embree not found
-
-On macOS: `brew install embree`
-On Linux: Install from conda-forge (`conda install -c conda-forge embree`) or
-build from source (https://github.com/RenderKit/embree/releases).
-
-### Python plotting errors
-
-Install the required Python packages:
-
-```bash
-pip3 install matplotlib numpy pandas
-```

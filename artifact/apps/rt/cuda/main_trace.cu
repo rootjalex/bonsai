@@ -61,14 +61,6 @@ std::vector<Ray> load_rays_binary(const std::string &filename,
 }
 
 std::vector<Triangle> load_obj(const std::string &object) {
-    std::filesystem::path current_path = std::filesystem::current_path();
-    while (current_path.has_parent_path()) {
-        if (std::filesystem::exists(current_path / "bonsai")) {
-            break;
-        }
-        current_path = current_path.parent_path();
-    }
-
     std::string object_path = "artifact/scenes/rt/" + object + ".obj";
     std::string material_path = "artifact/scenes/rt/" + object;
 

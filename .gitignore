@@ -77,5 +77,9 @@ deps/llvm-install
 # randomly generated rays for ray-tracing app.
 *.rays
 
+# packaged up rays / scenes
+*.tar.gz
+
 # results for artifact
 artifact/results/*
+bonsai-artifact/*

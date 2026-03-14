@@ -30,7 +30,8 @@ NPROC=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 SHORT=false
 STEP=""
 GPU=false
-MODE="benchmark"   # benchmark, figures, or all
+COMPRESS=false
+MODE="benchmark"  # benchmark, figures, or all
 show_help() {
   cat <<'HELPEOF'
 Usage: ./artifact/run.sh [MODE] [OPTIONS]
@@ -60,6 +61,12 @@ Options:
                  and run on an NVIDIA GPU using nvcc. Steps 4-6 (Embree, FCL,
                  FCPW comparisons) are CPU-only and are skipped with --gpu.
                  Requires: nvcc (CUDA toolkit) on PATH.
+
+  --compress     Compress artifact/rays/ and artifact/scenes/ into
+                 rays.tar.gz and scenes.tar.gz in place. Can be used
+                 standalone or combined with a benchmark run. The run
+                 script automatically decompresses these archives at
+                 startup if the uncompressed directories are absent.
 
   --help, -h     Show this help message and exit.
 
@@ -108,6 +115,7 @@ while [[ $# -gt 0 ]]; do
     --short)    SHORT=true;       shift ;;
     --step)     STEP="$2";        shift 2 ;;
     --gpu)      GPU=true;         shift ;;
+    --compress) COMPRESS=true;    shift ;;
     --help|-h)  show_help ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -117,8 +125,8 @@ done
 if [[ "${SHORT}" == true ]]; then
   RT_N=1                           # number of repetitions
   RT_OBJECTS=("hairball")          # single scene
-  RT_RAY_TYPES=("camera")         # single ray type
-  RT_INTERSECTIONS=("mt")         # single intersection method
+  RT_RAY_TYPES=("camera")          # single ray type
+  RT_INTERSECTIONS=("mt")          # single intersection method
   RT_2_LAYOUTS=("pbrt" "pbrt-q16")
   RT_8_LAYOUTS=("bvh8" "bvh8-q8")
   EMBREE_LAYOUTS=("qbvh8i" "bvh8i")
@@ -180,6 +188,80 @@ detect_platform() {
     *)              fail "Unsupported architecture: $(uname -m)" ;;
   esac
   log "Platform: ${PLATFORM}/${ARCH} ($(nproc 2>/dev/null || sysctl -n hw.logicalcpu) cores)"
+}
+
+# ── Data compression / decompression ─────────────────────────────────────────
+uncompress_data() {
+  local ARTIFACT_DIR="${SCRIPT_DIR}"
+  local did_something=false
+
+  if [[ "${SHORT}" == true ]]; then
+    # Short run: only extract the single hairball scene and one rays file.
+    if [[ -f "${ARTIFACT_DIR}/rays.tar.gz" && \
+          ! -f "${ARTIFACT_DIR}/rays/hairball_262144_camera.rays" ]]; then
+      log "Decompressing rays.tar.gz (short run: hairball only) -> rays/ ..."
+      mkdir -p "${ARTIFACT_DIR}/rays"
+      tar -xzf "${ARTIFACT_DIR}/rays.tar.gz" -C "${ARTIFACT_DIR}" \
+        rays/hairball_262144_camera.rays
+      ok "Decompressed rays.tar.gz"
+      did_something=true
+    fi
+
+    if [[ -f "${ARTIFACT_DIR}/scenes.tar.gz" && \
+          ! -f "${ARTIFACT_DIR}/scenes/rt/hairball.obj" ]]; then
+      log "Decompressing scenes.tar.gz (short run: hairball only) -> scenes/ ..."
+      mkdir -p "${ARTIFACT_DIR}/scenes/rt" "${ARTIFACT_DIR}/scenes/cd"
+      tar -xzf "${ARTIFACT_DIR}/scenes.tar.gz" -C "${ARTIFACT_DIR}" \
+        scenes/rt/hairball.obj \
+        scenes/cd/hairball.obj \
+        scenes/cd/hairball_60_70_10.obj
+      ok "Decompressed scenes.tar.gz"
+      did_something=true
+    fi
+  else
+    # Full run: check for a non-hairball scene to detect partial (short-run) extractions.
+    if [[ -f "${ARTIFACT_DIR}/rays.tar.gz" && \
+          ! -f "${ARTIFACT_DIR}/rays/lucy_262144_camera.rays" ]]; then
+      log "Decompressing rays.tar.gz -> rays/ ..."
+      tar -xzf "${ARTIFACT_DIR}/rays.tar.gz" -C "${ARTIFACT_DIR}"
+      ok "Decompressed rays.tar.gz"
+      did_something=true
+    fi
+
+    if [[ -f "${ARTIFACT_DIR}/scenes.tar.gz" && \
+          ! -f "${ARTIFACT_DIR}/scenes/rt/lucy.obj" ]]; then
+      log "Decompressing scenes.tar.gz -> scenes/ ..."
+      tar -xzf "${ARTIFACT_DIR}/scenes.tar.gz" -C "${ARTIFACT_DIR}"
+      ok "Decompressed scenes.tar.gz"
+      did_something=true
+    fi
+  fi
+
+  if [[ "${did_something}" == false ]]; then
+    log "No compressed archives to decompress (or directories already present)."
+  fi
+}
+
+compress_data() {
+  local ARTIFACT_DIR="${SCRIPT_DIR}"
+
+  if [[ -d "${ARTIFACT_DIR}/rays" ]]; then
+    log "Compressing rays/ -> rays.tar.gz ..."
+    tar -czf "${ARTIFACT_DIR}/rays.tar.gz" -C "${ARTIFACT_DIR}" rays
+    ok "Compressed rays/ -> rays.tar.gz"
+  else
+    log "  rays/ not found, skipping."
+  fi
+
+  if [[ -d "${ARTIFACT_DIR}/scenes" ]]; then
+    log "Compressing scenes/ -> scenes.tar.gz ..."
+    tar -czf "${ARTIFACT_DIR}/scenes.tar.gz" -C "${ARTIFACT_DIR}" scenes
+    ok "Compressed scenes/ -> scenes.tar.gz"
+  else
+    log "  scenes/ not found, skipping."
+  fi
+
+  ok "Compression complete."
 }
 
 # ── Scene data check ──────────────────────────────────────────────────────────
@@ -286,14 +368,14 @@ build_compiler() {
   log "Step 1: Building Scion compiler..."
   cd "${ROOT_DIR}"
 
-  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -5
-  cmake --build build -j"${NPROC}" 2>&1 | tail -3
+  cmake -S bonsai -B bonsai/build -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -5
+  cmake --build bonsai/build -j"${NPROC}" 2>&1 | tail -3
 
   # Verify compiler works
-  if [[ ! -x build/compiler ]]; then
+  if [[ ! -x bonsai/build/compiler ]]; then
     # Try alternate location
-    if [[ -x build/bin/compiler ]]; then
-      ln -sf "${ROOT_DIR}/build/bin/compiler" "${ROOT_DIR}/build/compiler" 2>/dev/null || true
+    if [[ -x bonsai/build/bin/compiler ]]; then
+      ln -sf "${ROOT_DIR}/bonsai/build/bin/compiler" "${ROOT_DIR}/bonsai/build/compiler" 2>/dev/null || true
     else
       fail "Compiler binary not found after build"
     fi
@@ -453,7 +535,7 @@ run_bonsai_rt_layouts() {
       echo "}" >> "${LAYOUT_FILE}"
 
       # Build compiler (incremental)
-      cmake --build build -j"${NPROC}" > /dev/null 2>&1
+      cmake --build bonsai/build -j"${NPROC}" > /dev/null 2>&1
 
       # Prepend intersection import
       local MAIN_BONSAI
@@ -462,7 +544,7 @@ run_bonsai_rt_layouts() {
       cat "${PREFIX}/main.bonsai" >> "${MAIN_BONSAI}"
 
       # Lower to C++
-      ./build/compiler -i "${MAIN_BONSAI}" -l "${LAYOUT_FILE}" -b cppx -o "${PREFIX}/${APPLICATION}"
+      ./bonsai/build/compiler -i "${MAIN_BONSAI}" -l "${LAYOUT_FILE}" -b cppx -o "${PREFIX}/${APPLICATION}"
       rm "${MAIN_BONSAI}"
 
       # Compile (use system clang on macOS to avoid sysroot issues)
@@ -533,10 +615,10 @@ run_dse_cpq() {
       echo "}" >> "${LAYOUT_FILE}"
 
       # Build compiler (incremental)
-      cmake --build build -j"${NPROC}" > /dev/null 2>&1
+      cmake --build bonsai/build -j"${NPROC}" > /dev/null 2>&1
 
       # Lower to C++ (generate wos.h and wos.cpp)
-      ./build/compiler -i "artifact/apps/wos/main.bonsai" -l "${LAYOUT_FILE}" -b cppx -o "${PREFIX}/${APPLICATION}"
+      ./bonsai/build/compiler -i "artifact/apps/wos/main.bonsai" -l "${LAYOUT_FILE}" -b cppx -o "${PREFIX}/${APPLICATION}"
 
       # Patch: replace the generated _traverse_tree0 with an optimized version
       # that uses priority-queue child ordering (visiting the nearer child first).
@@ -706,7 +788,7 @@ run_cuda_rt_layouts() {
       echo "}" >> "${LAYOUT_FILE}"
 
       # Build compiler (incremental)
-      cmake --build build -j"${NPROC}" > /dev/null 2>&1
+      cmake --build bonsai/build -j"${NPROC}" > /dev/null 2>&1
 
       # Prepend intersection import
       local MAIN_BONSAI
@@ -715,7 +797,7 @@ run_cuda_rt_layouts() {
       cat "${PREFIX}/main.bonsai" >> "${MAIN_BONSAI}"
 
       # Lower to CUDA header
-      ./build/compiler -i "${MAIN_BONSAI}" -l "${LAYOUT_FILE}" -b cuda -o "${PREFIX}/${APPLICATION}.h"
+      ./bonsai/build/compiler -i "${MAIN_BONSAI}" -l "${LAYOUT_FILE}" -b cuda -o "${PREFIX}/${APPLICATION}.h"
       rm "${MAIN_BONSAI}"
 
       # Compile with nvcc
@@ -813,13 +895,13 @@ run_cuda_cpq_layouts() {
       echo "}" >> "${LAYOUT_FILE}"
 
       # Build compiler (incremental)
-      cmake --build build -j"${NPROC}" > /dev/null 2>&1
+      cmake --build bonsai/build -j"${NPROC}" > /dev/null 2>&1
 
       # Lower to CUDA header
       local MAIN_BONSAI
       MAIN_BONSAI=$(mktemp).bonsai
       cat "${PREFIX}/main.bonsai" > "${MAIN_BONSAI}"
-      ./build/compiler -i "${MAIN_BONSAI}" -l "${LAYOUT_FILE}" -b cuda -o "${PREFIX}/${APPLICATION}.h"
+      ./bonsai/build/compiler -i "${MAIN_BONSAI}" -l "${LAYOUT_FILE}" -b cuda -o "${PREFIX}/${APPLICATION}.h"
       rm "${MAIN_BONSAI}"
 
       # Compile with nvcc
@@ -929,10 +1011,10 @@ run_fcl_comparison() {
       echo "--- ${OBJECT_A} - ${OBJECT_B} - ${LAYOUT} ---" >> "${OUTFILE}"
 
       # Build compiler
-      cmake --build build -j"${NPROC}" > /dev/null 2>&1
+      cmake --build bonsai/build -j"${NPROC}" > /dev/null 2>&1
 
       # Lower to C++
-      ./build/compiler -i "artifact/apps/${APPLICATION}/main.bonsai" \
+      ./bonsai/build/compiler -i "artifact/apps/${APPLICATION}/main.bonsai" \
         -l "${PREFIX}/${LAYOUT}.bonsai" -b cppx -o "${PREFIX}/${APPLICATION}"
 
       # Build executable
@@ -1181,6 +1263,13 @@ main() {
     log "=== SHORT RUN MODE: quick smoke test ==="
   fi
   log "=== MODE: ${MODE} ==="
+
+  if [[ "${COMPRESS}" == true ]]; then
+    compress_data
+    exit 0
+  fi
+
+  uncompress_data
 
   # ── Benchmark mode (steps 0-6) ───────────────────────────────────────────
   if [[ "${MODE}" == "benchmark" || "${MODE}" == "all" ]]; then
