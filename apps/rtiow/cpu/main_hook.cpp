@@ -66,8 +66,11 @@ _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
         if (count <= 2) {
             // Leaf node
             tree.group0_index[this_index].nPrims = count;
-            *reinterpret_cast<uint16_t *>(
-                &tree.group0_index[this_index].split0on_nPrims) = low;
+            // *reinterpret_cast<uint16_t *>(
+            //     &tree.group0_index[this_index].split0on_nPrims) = low;
+            _tree_layout2 *internal_data = reinterpret_cast<_tree_layout2 *>(
+                &tree.group0_index[this_index].split0on_nPrims);
+            internal_data->offset = static_cast<uint16_t>(low);
             if (count == 1) {
                 tree.group0_index[this_index].center = spheres[low].s.center;
                 tree.group0_index[this_index].radius = spheres[low].s.radius;

@@ -52,4 +52,19 @@ struct vector {
                 break;
         }
     }
+
+    vector operator-(const vector &other) const {
+        vector out;
+        for (size_t i = 0; i < N; ++i)
+            out[i] = data[i] - other[i];
+        return out;
+    }
+
+    vector operator*(const vector &other) const {
+        vector out;
+        for (size_t i = 0; i < N; ++i)
+            out[i] = data[i] * other[i];
+        return out;
+    }
+
 } __attribute__((packed));

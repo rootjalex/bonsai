@@ -1,14 +1,42 @@
 #pragma once
 
 #include <cstdint>
+#include "runtime/bonsai_cpp.h"
+
 
 extern "C" {
-typedef float vec3_float __attribute__((vector_size(12)));
+using vec3_float = vector<float, 3>;
 struct Sphere {
     vec3_float center;
     float radius;
 };
-typedef int32_t vec3_int32_t __attribute__((vector_size(12)));
+struct MaterialSphere {
+    Sphere s;
+    uint32_t material;
+    vec3_float albedo;
+    float fuzz;
+};
+using vec2_uint8_t = vector<uint8_t, 2>;
+struct _tree_layout1 {
+    vec3_float center;
+    float radius;
+    uint8_t nPrims;
+    uint8_t axis;
+    vec2_uint8_t split0on_nPrims;
+} __attribute__((packed));
+struct _tree_layout0 {
+    uint32_t pCount;
+    MaterialSphere* prims;
+    uint32_t count;
+    _tree_layout1* group0_index;
+} __attribute__((packed));
+struct _tree_layout2 {
+    uint16_t offset;
+} __attribute__((packed));
+struct _tree_layout3 {
+    uint16_t pOffset;
+} __attribute__((packed));
+using vec3_int32_t = vector<int32_t, 3>;
 struct Camera {
     float aspect_ratio;
     int32_t width;
@@ -21,27 +49,7 @@ struct Camera {
     float defocus_angle = 0;
     float focus_dist = 10;
 };
-struct MaterialSphere {
-    Sphere s;
-    uint32_t material;
-    vec3_float albedo;
-    float fuzz;
-};
-typedef uint8_t vec2_uint8_t __attribute__((vector_size(2)));
-struct _tree_layout1 {
-    vec3_float center;
-    float radius;
-    uint8_t nPrims;
-    uint8_t axis;
-    vec2_uint8_t split0on_nPrims;
-} __attribute__((packed));
-struct _tree_layout0 {
-    uint32_t pCount;
-    MaterialSphere *prims;
-    uint32_t count;
-    _tree_layout1 *group0_index;
-} __attribute__((packed));
 
-void bounding_sphere(Sphere &_ret0, const Sphere &a, const Sphere &b);
-vec3_int32_t **image(const Camera &c, const _tree_layout0 &spheres);
+void bounding_sphere(Sphere& _ret0, const Sphere& a, const Sphere& b);
+vec3_int32_t** image(const Camera& c, const _tree_layout0& spheres);
 }
