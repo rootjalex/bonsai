@@ -184,7 +184,7 @@ schedule {
     // TODO: generic over primitive types!
     tree[[MaterialSphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
     | Interior(left : SphereBVH, right : SphereBVH, axis : u8)
-    | Leaf(data : array[MaterialSphere]) with data = data;
+    | Leaf(d : array[MaterialSphere]) with data = d;
 
     spheres : SphereBVH;
 
@@ -199,7 +199,7 @@ schedule {
             axis : u8;
             switch nPrims {
                 0 => Interior { offset : u16; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
+                _ => Leaf { pOffset : u16; d = range(prims, pOffset, cast[[u16]](nPrims)); };
             };
         };
     };

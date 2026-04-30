@@ -5,7 +5,8 @@
 
 
 extern "C" {
-using vec3_float = vector<float, 3>;
+// using vec3_float = vector<float, 3>;
+typedef float vec3_float __attribute__((vector_size(12)));
 struct Sphere {
     vec3_float center;
     float radius;
