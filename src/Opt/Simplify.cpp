@@ -242,8 +242,8 @@ struct Simplifier : ir::Mutator {
                 return zero;
             }
             if (is_const_zero(a)) {
-                // 0 - a = -a
-                return -a;
+                // 0 - b = -b
+                return -b;
             }
             return make(node, std::move(a), std::move(b));
         }
