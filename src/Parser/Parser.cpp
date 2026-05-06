@@ -42,7 +42,7 @@ class ParseErrorReport {
                        begin_column = current.column_begin();
         std::ifstream file(file_name);
         std::string line;
-        for (int i = 1; i <= begin_line; ++i) {
+        for (uint64_t i = 1; i <= begin_line; ++i) {
             internal_assert(static_cast<bool>(std::getline(file, line)));
         }
 

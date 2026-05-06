@@ -36,7 +36,9 @@ cmake -G "Unix Makefiles" -S deps/llvm-project/llvm -B deps/llvm-build \
       -DLLVM_ENABLE_LIBXML2=OFF \
       -DLLVM_ENABLE_ZLIB=OFF \
       -DLLVM_ENABLE_ZSTD=OFF \
-      -DLLVM_BUILD_32_BITS=OFF
+      -DLLVM_BUILD_32_BITS=OFF \
+      -DLLVM_USE_LINKER=lld \
+      -DBUILD_SHARED_LIBS=ON
 cmake --build deps/llvm-build -j<N PARALLELISM>
 cmake --install deps/llvm-build --prefix deps/llvm-install
 ```

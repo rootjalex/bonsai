@@ -44,6 +44,9 @@ if (bonsai_SKIP_INSTALL_RULES)
     set(CMAKE_SKIP_INSTALL_RULES ON)
 endif ()
 
+# Ensure the executable can find the LLVM shared libs at runtime
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 ##
 # Dependencies
 
@@ -58,7 +61,10 @@ find_package(
     target
     passes
     native
-    # irbuilder
+    mc              # <--- Added for TargetRegistry/Triple
+    instcombine     # <--- Added for InstCombinePass
+    scalaropts      # <--- Added for SimplifyCFG/GVN/Reassociate
+    ipo             # <--- Added for AlwaysInliner / RelLookupTable
     orcjit
     executionengine # Required for LLJIT
     runtimeDyld # Required for JIT execution

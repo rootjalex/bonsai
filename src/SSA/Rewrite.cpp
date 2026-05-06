@@ -13,6 +13,7 @@
 #include "Utils.h"
 
 #include <iostream>
+#include <functional>
 
 namespace bonsai {
 namespace ir {

@@ -99,11 +99,13 @@ struct FunctionBuilder : Visitor {
         block->terminator.data = Terminator::Dispatch{
             .cond = std::move(v),
             // v == 0
+            .targets =
             {Terminator::Jump{.name = node->else_body.defined()
                                           ? else_case->name
-                                          : merge_block->name},
+                                          : merge_block->name,
+                              .args = {}},
              // v != 0
-             Terminator::Jump{.name = then_case->name}}};
+             Terminator::Jump{.name = then_case->name, .args = {}}}};
 
         auto curr_block = std::move(block);
 
@@ -157,10 +159,11 @@ struct FunctionBuilder : Visitor {
         block->terminator.data =
             Terminator::Dispatch{.cond = std::move(v),
                                  // v == 0
-                                 {Terminator::Jump{.name = loop_end->name},
+                                 .targets =
+                                 {Terminator::Jump{.name = loop_end->name, .args = {}},
                                   // v != 0
                                   //  TODO: copy arguments?
-                                  Terminator::Jump{.name = loop_head->name}}};
+                                  Terminator::Jump{.name = loop_head->name, .args = {}}}};
         loop_end->preds.push_back(block);
         loop_head->preds.push_back(block); // possible self-cycle?
         block = loop_end;
@@ -239,10 +242,10 @@ struct FunctionBuilder : Visitor {
         auto call_block = std::move(block);
 
         call_block->terminator.data = Terminator::Call{
-            .call = Terminator::Jump{.name = call_name, std::move(args)},
+            .call = Terminator::Jump{.name = call_name, .args = std::move(args)},
             // 'args' is empty for now (implicit capture via CFG lookup)
             // Does not receive output of call, because value is dropped.
-            .cont = Terminator::Jump{.name = cont_block->name},
+            .cont = Terminator::Jump{.name = cont_block->name, .args = {}},
             .drop = true};
 
         block = cont_block;
@@ -589,7 +592,7 @@ struct FunctionBuilder : Visitor {
         auto call_block = std::move(block);
 
         call_block->terminator.data = Terminator::Call{
-            .call = Terminator::Jump{.name = call_name, std::move(args)},
+            .call = Terminator::Jump{.name = call_name, .args = std::move(args)},
             // cont `args` takes an argument that is the result of the call.
             // Pass any live vars!
             .cont = Terminator::Jump{.name = cont_block->name},
