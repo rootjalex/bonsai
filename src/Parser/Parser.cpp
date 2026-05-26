@@ -861,6 +861,28 @@ struct Parser {
                 expect(Token::Type::SEMICOL);
                 return ir::Append::make(std::move(loc), std::move(value));
             }
+            if (id == "forall") {
+                // forall i in [begin:end:stride] { <body> }
+                std::string index = get_id();
+                id = get_id();
+                if (std::string keyword = "in"; id != keyword) {
+                    report_error() << "[unexpected keyword] expected `"
+                                   << keyword << "`, received: " << id;
+                }
+                expect(Token::Type::LBRACKET);
+                ir::Expr begin = parse_expr();
+                expect(Token::Type::COL);
+                ir::Expr end = parse_expr();
+                expect(Token::Type::COL);
+                ir::Expr stride = parse_expr();
+                expect(Token::Type::RBRACKET);
+                push_frame();
+                add_type_to_frame(index, begin.type(), /*mut=*/true);
+                ir::Stmt body = parse_statement();
+                pop_frame();
+                return ir::ForAll::make(
+                    index, ir::ForAll::Slice{begin, end, stride}, body);
+            }
             if (id == "alloc") {
                 id = get_id();
                 expect(Token::Type::COL);
