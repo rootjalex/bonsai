@@ -1,0 +1,37 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/vector_ops
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vector_ops.cpp -I. -o tests/bonsai/correctness/cpp/main_vector_ops.o, clang++ tests/bonsai/correctness/cpp/main_vector_ops.o tests/bonsai/correctness/cpp/vector_ops.o -o tests/bonsai/correctness/cpp/vector_ops, ./tests/bonsai/correctness/cpp/vector_ops, rm tests/bonsai/correctness/cpp/vector_ops, rm tests/bonsai/correctness/cpp/main_vector_ops.o, rm tests/bonsai/correctness/cpp/vector_ops.h, rm tests/bonsai/correctness/cpp/vector_ops.o
+
+// The C++ backend emits a bonsai vector as a native clang vector, so that its
+// layout and argument passing match the `<N x T>` the LLVM backend generates.
+// The operations below are the ones whose generated code calls into
+// runtime/bonsai_vector.h (select, the reductions, elementwise min/max) or
+// relies on native vector arithmetic, exercised across the exported boundary
+// where a layout mismatch would show up.
+element vec3f = vector[f32, 3];
+
+element Bundle {
+    dir : vec3f;
+    weight : f32;
+}
+
+// Passing and returning a vector by value: the case that was silently
+// dropping a lane when the C++ type was a struct of three floats.
+func [[export]] scale(v : vec3f, k : f32) -> vec3f = v * k;
+
+// A vector inside a struct: the field after it used to be read at the wrong
+// offset.
+func [[export]] weight_of(b : Bundle) -> f32 = b.weight;
+
+func [[export]] shifted(b : Bundle, k : f32) -> vec3f = b.dir + k;
+
+// Elementwise min/max, which lower to runtime helpers.
+func [[export]] clamp_each(v : vec3f, lo : vec3f, hi : vec3f) -> vec3f =
+    min(max(v, lo), hi);
+
+// A varying condition per lane: this lowers to select().
+func [[export]] pick(v : vec3f, w : vec3f) -> vec3f = select(v < w, v, w);
+
+// Reductions over the lanes.
+func [[export]] total(v : vec3f) -> f32 = sum(v);
+
+func [[export]] biggest(v : vec3f) -> f32 = max(v);

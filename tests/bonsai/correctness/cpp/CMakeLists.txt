@@ -5,6 +5,7 @@ add_bonsai_tests(
     struct.bonsai
     swap.bonsai
     vec.bonsai
+    vector_ops.bonsai
     vectorize_add_one.bonsai
     vectorize_gather.bonsai
     vectorize_scale.bonsai

@@ -290,12 +290,17 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         ss << ";\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
-        ss << "using ";
-        emit_type(ss, type); // get the name
-        ss << " = vector<";
+        // A native vector rather than a struct of elements: this is the only
+        // spelling whose size, alignment and argument passing match the
+        // `<N x T>` the LLVM backend generates for the same type. A struct of
+        // three floats is 12 bytes and arrives in two registers, where
+        // `<3 x float>` is 16 bytes and arrives in one, so the two sides
+        // disagreed about both field offsets and calls.
+        ss << "typedef ";
         emit_type(ss, vector_t->etype);
-        // ss << " __attribute__((vector_size(";
-        ss << ", " << vector_t->lanes << ">;\n";
+        ss << " ";
+        emit_type(ss, type); // get the name
+        ss << " __attribute__((ext_vector_type(" << vector_t->lanes << ")));\n";
         return;
     } else if (const BVH_t *bvh_t = type.as<BVH_t>()) {
         for (const auto &node : bvh_t->nodes) {
@@ -680,10 +685,13 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void visit(const Broadcast *node) override {
+        // Casting a scalar to a native vector type splats it across the
+        // lanes; brace initialisation would only set the first one.
+        ss << "(";
         emit_type(ss, ir::Vector_t::make(node->value.type(), node->lanes));
-        ss << "{";
+        ss << ")(";
         node->value.accept(this);
-        ss << "}";
+        ss << ")";
     }
 
     void visit(const VectorReduce *node) override {

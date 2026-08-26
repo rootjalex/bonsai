@@ -463,3 +463,174 @@ bool reduce_or(const vector<bool, N> &v) {
 }
 
 static_assert(sizeof(vector<float, 3>) == sizeof(float) * 3);
+
+//===--------------------------------------------------------------------===//
+// Native vectors
+//===--------------------------------------------------------------------===//
+//
+// Generated code spells a bonsai vector as a native clang vector --
+// `T __attribute__((ext_vector_type(N)))` -- because that is the only C++
+// type whose size, alignment and argument passing match the `<N x T>` the
+// LLVM backend emits for the same value. (The class above is 12 bytes for a
+// float3 and arrives in two registers; `<3 x float>` is 16 bytes and arrives
+// in one.) So the helpers generated code calls have to exist for native
+// vectors too. Arithmetic, comparison and indexing come from the compiler;
+// what follows is everything else.
+//
+// A native vector has no members to hang a lane count off, hence the
+// templates and `__builtin_vectorelements`.
+
+template <typename V>
+concept native_vector =
+    !std::is_class_v<V> && requires { __builtin_vectorelements(V); };
+
+template <native_vector V>
+using vector_element_t = std::remove_cvref_t<decltype(std::declval<V>()[0])>;
+
+template <native_vector V>
+inline constexpr size_t vector_lanes_v = __builtin_vectorelements(V);
+
+// Elementwise operations.
+
+template <native_vector V>
+V max(V a, V b) {
+    return __builtin_elementwise_max(a, b);
+}
+
+template <native_vector V>
+V min(V a, V b) {
+    return __builtin_elementwise_min(a, b);
+}
+
+template <native_vector V>
+V abs(V v) {
+    return __builtin_elementwise_abs(v);
+}
+
+template <native_vector V>
+V ceil(V v) {
+    return __builtin_elementwise_ceil(v);
+}
+
+template <native_vector V>
+V floor(V v) {
+    return __builtin_elementwise_floor(v);
+}
+
+template <native_vector V>
+V round(V v) {
+    return __builtin_elementwise_round(v);
+}
+
+// Lane selection. A comparison of native vectors yields a vector of integers
+// (all bits set where true), and the conditional operator on vectors selects
+// per lane, so the mask type is whatever the comparison produced rather than
+// a vector of bool.
+template <native_vector M, native_vector V>
+V select(M mask, V a, V b) {
+    return mask ? a : b;
+}
+
+// Reductions. Written as loops rather than __builtin_reduce_*, which does not
+// cover floating point addition and multiplication; clang turns these back
+// into reduction intrinsics anyway.
+
+template <native_vector V>
+vector_element_t<V> reduce_add(V v) {
+    vector_element_t<V> t = v[0];
+    for (size_t i = 1; i < vector_lanes_v<V>; ++i) {
+        t += v[i];
+    }
+    return t;
+}
+
+template <native_vector V>
+vector_element_t<V> reduce_mul(V v) {
+    vector_element_t<V> t = v[0];
+    for (size_t i = 1; i < vector_lanes_v<V>; ++i) {
+        t *= v[i];
+    }
+    return t;
+}
+
+template <native_vector V>
+vector_element_t<V> reduce_max(V v) {
+    return __builtin_reduce_max(v);
+}
+
+template <native_vector V>
+vector_element_t<V> reduce_min(V v) {
+    return __builtin_reduce_min(v);
+}
+
+template <native_vector V>
+bool reduce_and(V v) {
+    for (size_t i = 0; i < vector_lanes_v<V>; ++i) {
+        if (!v[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <native_vector V>
+bool reduce_or(V v) {
+    for (size_t i = 0; i < vector_lanes_v<V>; ++i) {
+        if (v[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <native_vector V>
+size_t reduce_idxmax(V v) {
+    size_t t = 0;
+    for (size_t i = 1; i < vector_lanes_v<V>; ++i) {
+        if (v[i] > v[t]) {
+            t = i;
+        }
+    }
+    return t;
+}
+
+template <native_vector V>
+size_t reduce_idxmin(V v) {
+    size_t t = 0;
+    for (size_t i = 1; i < vector_lanes_v<V>; ++i) {
+        if (v[i] < v[t]) {
+            t = i;
+        }
+    }
+    return t;
+}
+
+template <native_vector V>
+size_t argmax(V v) {
+    return reduce_idxmax(v);
+}
+
+// Geometric helpers, as used by the standard library's distance and
+// intersection routines.
+
+template <native_vector V>
+vector_element_t<V> dot(V a, V b) {
+    return reduce_add(a * b);
+}
+
+template <native_vector V>
+vector_element_t<V> norm(V v) {
+    return std::sqrt(dot(v, v));
+}
+
+template <native_vector V>
+V normalize(V v) {
+    return v / norm(v);
+}
+
+template <native_vector V>
+    requires(vector_lanes_v<V> == 3)
+V cross(V a, V b) {
+    return V{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+             a.x * b.y - a.y * b.x};
+}
