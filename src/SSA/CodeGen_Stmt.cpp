@@ -73,6 +73,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::AccMin:
     case Instruction::Op::AccMax:
     case Instruction::Op::Append:
+    case Instruction::Op::Print:
     case Instruction::Op::Store:
     case Instruction::Op::Alloc:
     case Instruction::Op::Alloca:
@@ -83,6 +84,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Cast:
     case Instruction::Op::Div:
     case Instruction::Op::Eps:
+    case Instruction::Op::Inf:
     case Instruction::Op::Eq:
     case Instruction::Op::ExtractIdx:
     case Instruction::Op::GEP:
@@ -222,6 +224,8 @@ Stmt codegen_instruction(const Instruction &instr) {
             auto val = codegen_value(instr.operands[1]);
             return Accumulate::make(std::move(loc), op, std::move(val));
         }
+        case Instruction::Op::Print:
+            return Print::make(codegen_values(instr.operands));
         case Instruction::Op::Append:
             internal_error << "TODO: Append codegen!\n";
         case Instruction::Op::Store: {
@@ -304,6 +308,11 @@ Stmt codegen_instruction(const Instruction &instr) {
     case Instruction::Op::Eps: {
         internal_assert(args.size() == 0) << args.size();
         value = Extrema::make(instr.type, Extrema::eps);
+        break;
+    }
+    case Instruction::Op::Inf: {
+        internal_assert(args.size() == 0) << args.size();
+        value = Extrema::make(instr.type, Extrema::inf);
         break;
     }
     case Instruction::Op::Eq: {

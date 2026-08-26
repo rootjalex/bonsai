@@ -1,5 +1,71 @@
----CODE---
-1
----STDERR---
-[internal] Error: src/SSA/Convert.cpp:797
-Restricted Visitor class does not handle: N6bonsai2ir5PtrToE
+type Intersection = struct Intersection{ value : f32; miss : bool }
+type Ray = struct Ray{ data : f32 }
+type Tree = f32
+
+func bounce(is : (Intersection*), ray : (Ray*)) -> f32 {
+  let @0 = (*is) in
+  let @1 = @0.value in
+  let @2 = (*ray) in
+  let @3 = @2.data in
+  let @4 = @1 - @3 in
+  return @4
+}
+
+func brdf_eval(is : (Intersection*), ray : (Ray*)) -> f32 {
+  let @0 = (*is) in
+  let @1 = @0.value in
+  return @1
+}
+
+func color(t : f32, ray : (Ray*), output : mut f32[], i : i32) -> void {
+  let @0 = isect(t, ray) in
+  alloc is : mut Intersection := @0
+  let @1 = is.miss in
+  if (@1) {
+    let @2 = sky_color(ray) in
+    output[i] += @2
+    return
+  } else {
+    @4 : mut Intersection
+    @4 = is
+    let @5 = brdf_eval(@4, ray) in
+    output[i] += @5
+    @7 : mut Intersection
+    @7 = is
+    let @8 = bounce(@7, ray) in
+    @9 : mut f32
+    @9 = @8
+    color(t, @9, output, i)
+    return
+  }
+}
+
+func isect(t : f32, ray : (Ray*)) -> Intersection {
+  let @0 = (*ray) in
+  let @1 = @0.data in
+  let @2 = t * @1 in
+  let @3 = (*ray) in
+  let @4 = @3.data in
+  let @5 = t < @4 in
+  let @6 = build<Intersection>(@2, @5) in
+  return @6
+}
+
+func sky_color(ray : (Ray*)) -> f32 {
+  let @0 = (*ray) in
+  let @1 = @0.data in
+  return @1
+}
+
+func trace(t : f32, n : i32, output : mut f32[n], crays : Ray[n]) -> void {
+  parfor i in [0:n:1] {
+    let ray = crays[i] in
+    @1 : mut Ray
+    @1 = ray
+    color(t, @1, output, i)
+    continue
+  }
+  return
+}
+
+

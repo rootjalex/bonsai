@@ -1,0 +1,59 @@
+//! flags: -p ssa -b llvm -e
+
+// Runs code compiled through the SSA pipeline, rather than only inspecting
+// what it generates.
+//
+// Each of these was a hard failure of `-p ssa` until recently: a mutable
+// local of any non-array type ("Allocation of struct without initial value"),
+// `print` (no case in ConvertToSSA), taking an address (no case for PtrTo,
+// which Mutability introduces at every call passing a struct), and unary
+// negation (no case for UnOp). Together they are most of what an ordinary
+// function does, which is why this could not be tested by running anything
+// before.
+element Pair {
+    a : f32;
+    b : f32;
+}
+
+// A struct argument: the caller has to take its address, since Mutability
+// rewrites the parameter to a pointer.
+func sum_pair(p : Pair) -> f32 {
+    return p.a + p.b;
+}
+
+func mutate(v : mut f32) -> void {
+    v *= 3.0;
+    return;
+}
+
+func main() -> i32 {
+    // A mutable local, accumulated into.
+    t : mut f32 = 1.5;
+    t += 2.0;
+    t *= 2.0;
+    print(t);
+
+    // Assigned in both arms of a branch, so it needs a real join.
+    y : mut f32 = 0.0;
+    if (t < 10.0) {
+        y = t;
+    } else {
+        y = -t;
+    }
+    print(y);
+
+    // Unary negation and logical not.
+    print(-t, !(t < 0.0));
+
+    // A struct passed by value, and a mutable argument passed by pointer.
+    p : Pair = {1.25, 2.75};
+    print(sum_pair(p));
+
+    m : mut f32 = 2.0;
+    mutate(m);
+    print(m);
+
+    // Several values in one print, including a computed one.
+    print(t, m, t + m);
+    return 0;
+}

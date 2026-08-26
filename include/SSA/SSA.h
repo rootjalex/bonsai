@@ -72,6 +72,7 @@ struct Instruction {
         Eq,
         ExtractIdx,
         GEP,
+        Inf,
         LAnd,
         LOr,
         Leq,
@@ -83,6 +84,7 @@ struct Instruction {
         Min,
         Mod,
         Mul,
+        Print, // side-effect-y
         // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
         // This is what a vectorized loop index becomes, and an index of
         // this shape is what makes a memory access dense rather than a

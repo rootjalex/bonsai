@@ -8,12 +8,14 @@ add_bonsai_tests(
     dynamic-array.bonsai
     exported-function.bonsai
     exported-recursive-function.bonsai
+    extrema.bonsai
     function-type.bonsai
     nested-exported-function.bonsai
     option.bonsai
     print-str.bonsai
     print-float.bonsai
     print.bonsai
+    ssa-pipeline.bonsai
     map-func.bonsai
     map.bonsai
     mut-array-param.bonsai

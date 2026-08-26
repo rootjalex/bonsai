@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm
+
+// A mutable local of a non-vector, non-array type, compiled through the SSA
+// pipeline.
+//
+// The SSA builder splits a declaration's initializer into a separate Store
+// (see the Allocate visitor in SSA/Convert.cpp), so every allocation reaches
+// the backend with no initial value. CodeGen_LLVM used to reject that for
+// anything but an array -- "Allocation of struct without initial value" --
+// which meant no `mut` scalar could survive `-p ssa`. Storage with no
+// initializer is now simply declared and left for the Store that follows.
+//
+// The generated IR should carry no alloca at all: LLVM's own mem2reg turns
+// these into registers, so what comes out is the arithmetic.
+func running_total(a : f32, b : f32) -> f32 {
+    t : mut = a;
+    t += b;
+    t *= 2.0;
+    return t;
+}
+
+// A mutable local assigned in both arms of a branch, which is the shape that
+// needs a real phi rather than a straight-line store.
+func clamp_low(x : f32, lo : f32) -> f32 {
+    y : mut = x;
+    if (x < lo) {
+        y = lo;
+    } else {
+        y = x * 2.0;
+    }
+    return y;
+}
+
+// A mutable local of struct type: the case the old error message named.
+element Pair {
+    a : f32;
+    b : f32;
+}
+
+func swap_fields(p : Pair) -> Pair {
+    q : mut Pair = {p.b, p.a};
+    return q;
+}

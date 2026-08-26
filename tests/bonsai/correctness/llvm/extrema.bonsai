@@ -1,0 +1,38 @@
+//! flags: -b llvm -e
+
+// `inf` and `eps[[T]]()` reaching the LLVM backend.
+//
+// Their codegen was unreachable: the visitor began with an unconditional
+// internal error, so the (already written) infinity path never ran and eps
+// had no path at all. Every numeric routine in the standard library that
+// scales an error bound by eps, or seeds a minimum search with inf, failed to
+// compile as a result.
+element Float = f32;
+
+// The gamma factor from the standard library's robust intersection bounds,
+// which is where eps actually gets used.
+func gamma(n : i32) -> Float =
+    (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
+
+func main() -> i32 {
+    // eps is the gap between one and the next representable value, so adding
+    // it to one is distinguishable but adding half of it is not.
+    e : Float = eps[[Float]]();
+    print(1.0 + e > 1.0);
+    print(1.0 + e * 0.5 > 1.0);
+
+    // Infinity compares greater than any finite value and survives
+    // arithmetic that would overflow.
+    big : Float = inf;
+    print(big > 3.4e38);
+    print(big - 1.0 > 3.4e38);
+
+    // Seeding a minimum with infinity, the usual reason to want it.
+    best : mut Float = inf;
+    best = min(best, 2.5);
+    best = min(best, 7.5);
+    print(best);
+
+    print(gamma(3) > 0.0);
+    return 0;
+}

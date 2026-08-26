@@ -90,6 +90,8 @@ static const char *op_name(Instruction::Op op) {
         return "div";
     case Instruction::Op::Eps:
         return "eps";
+    case Instruction::Op::Inf:
+        return "inf";
     case Instruction::Op::Eq:
         return "eq";
     case Instruction::Op::ExtractIdx:
@@ -118,6 +120,8 @@ static const char *op_name(Instruction::Op op) {
         return "mod";
     case Instruction::Op::Mul:
         return "mul";
+    case Instruction::Op::Print:
+        return "print";
     case Instruction::Op::Ramp:
         return "ramp";
     case Instruction::Op::Reinterpret:
@@ -153,6 +157,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Cast:
     case Instruction::Op::Div:
     case Instruction::Op::Eps:
+    case Instruction::Op::Inf:
     case Instruction::Op::Eq:
     case Instruction::Op::ExtractIdx:
     case Instruction::Op::GEP:
@@ -167,6 +172,9 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
+    // Print has a side effect, but is not a store: it has no address
+    // operand, and takes as many operands as it prints.
+    case Instruction::Op::Print:
     case Instruction::Op::Ramp:
     case Instruction::Op::Reinterpret:
     case Instruction::Op::Select:
@@ -199,6 +207,18 @@ void Instruction::dump(std::ostream &os) const {
         operands[0]->dump(os);
         os << " ";
         operands[1]->dump(os);
+        return;
+    } else if (op == Instruction::Op::Print) {
+        internal_assert(name.empty())
+            << "Name must be empty for print: " << name;
+        os << "print(";
+        for (size_t i = 0; i < operands.size(); i++) {
+            if (i != 0) {
+                os << ", ";
+            }
+            operands[i]->dump(os);
+        }
+        os << ")";
         return;
     }
 

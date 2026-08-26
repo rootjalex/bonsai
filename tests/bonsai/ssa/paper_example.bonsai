@@ -1,12 +1,12 @@
 //! flags: -p ssa
 
-// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
-// When the bug is fixed this test will fail; re-bless it with the IR it then
-// produces and drop this notice.
+// The example from the paper, carried through SSA form and back.
 //
-// ConvertToSSA has no case for PtrTo, so a program that takes the address of
-// something (here, via the tree traversal this example lowers to) cannot go
-// through the SSA pipeline.
+// It exercises taking addresses: Lower/Mutability.cpp rewrites struct and
+// `mut` parameters into pointers and wraps every matching call argument in a
+// PtrTo, so a program with struct-taking functions cannot reach SSA form
+// without a case for it. Values that have no address of their own get a stack
+// slot to point at, which is what the allocas below are.
 
 // Trivial examples for now;
 element Tree = f32;

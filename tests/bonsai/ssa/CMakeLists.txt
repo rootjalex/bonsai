@@ -3,11 +3,11 @@ add_bonsai_tests(
     FILES
     calls.bonsai
     divergence.bonsai
-    known-limitation-mut-local.bonsai
     known-limitation-parfor-codegen.bonsai
-    known-limitation-print.bonsai
+    mut-local.bonsai
     paper_example.bonsai
     parfor.bonsai
+    print.bonsai
     simple.bonsai
     traverse.bonsai
     vectorize-ir.bonsai

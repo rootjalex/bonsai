@@ -1,0 +1,23 @@
+func show_conditional(a : f32) -> void {
+  let @0 = a < 0f in
+  if (@0) {
+    print(a)
+  } else {
+    let @1 = 0f - a in
+    print(@1)
+  }
+  return
+}
+
+func show_scalar(a : f32) -> void {
+  print(a)
+  return
+}
+
+func show_several(a : f32, b : i32) -> void {
+  let @0 = a * 2f in
+  print(a, b, @0)
+  return
+}
+
+

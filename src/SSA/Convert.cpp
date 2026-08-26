@@ -273,6 +273,15 @@ struct FunctionBuilder : Visitor {
         block = cont_block;
     }
 
+    void visit(const Print *node) override {
+        std::vector<std::shared_ptr<Value>> args;
+        args.reserve(node->args.size());
+        for (const Expr &arg : node->args) {
+            args.push_back(get_value(arg));
+        }
+        block->make_side_effect(Instruction::Op::Print, std::move(args));
+    }
+
     void visit(const Append *node) override {
         auto v = get_value(node->value);
         auto loc = get_value(node->loc.to_expr());
@@ -510,8 +519,10 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const Extrema *node) override {
-        internal_assert(node->op == Extrema::eps) << "TODO: inf";
-        value = block->make_instruction(node->type, Instruction::Op::Eps, {});
+        const Instruction::Op op = node->op == Extrema::eps
+                                       ? Instruction::Op::Eps
+                                       : Instruction::Op::Inf;
+        value = block->make_instruction(node->type, op, {});
     }
 
     void visit(const Access *node) override {
@@ -718,6 +729,70 @@ struct FunctionBuilder : Visitor {
         }
     }
 
+    void visit(const UnOp *node) override {
+        // Neither negation nor logical not has its own SSA opcode: negation
+        // is a subtraction from zero, and a not is a select between the two
+        // boolean constants, both of which the backends already lower.
+        auto a = get_value(node->a);
+        switch (node->op) {
+        case UnOp::Neg: {
+            auto zero = std::make_shared<Value>(
+                node->type.is_float()
+                    ? Constant{node->type, 0.0}
+                    : Constant{node->type, static_cast<int64_t>(0)});
+            value = block->make_instruction(node->type, Instruction::Op::Sub,
+                                            {std::move(zero), std::move(a)});
+            return;
+        }
+        case UnOp::Not: {
+            auto true_ = std::make_shared<Value>(Constant{node->type, true});
+            auto false_ = std::make_shared<Value>(Constant{node->type, false});
+            value = block->make_instruction(
+                node->type, Instruction::Op::Select,
+                {std::move(a), std::move(false_), std::move(true_)});
+            return;
+        }
+        }
+    }
+
+    void visit(const PtrTo *node) override {
+        // The address of a value. Lower/Mutability.cpp introduces these at
+        // call sites, for arguments a callee takes by pointer.
+        internal_assert(node->expr.defined()) << "PtrTo of nothing";
+
+        // Addressing what a pointer already points at is that pointer. (The
+        // IR folds this away when it builds the node, so this only catches
+        // what survives.)
+        if (const Deref *deref = node->expr.as<Deref>()) {
+            value = get_value(deref->expr);
+            return;
+        }
+
+        // An element of an array: the address is an offset from the array,
+        // which is what GEP computes.
+        if (const Extract *extract = node->expr.as<Extract>();
+            extract != nullptr && extract->vec.type().is_reference()) {
+            auto base = get_value(extract->vec);
+            auto index = get_value(extract->idx);
+            value = block->make_instruction(node->type, Instruction::Op::GEP,
+                                            {std::move(base), std::move(index)});
+            return;
+        }
+
+        // Anything else is a value that has no address yet, so it needs
+        // storage to point at: give it a stack slot and put it there. This is
+        // how a struct passed by pointer reaches a callee that expects one.
+        internal_assert(!node->expr.type().is<Struct_t>() ||
+                        !node->expr.is<Access>())
+            << "TODO: address of a struct field in SSA: " << Expr(node);
+
+        auto v = get_value(node->expr);
+        auto slot = block->make_instruction(
+            Ptr_t::make(node->expr.type()), Instruction::Op::Alloca, {});
+        block->make_side_effect(Instruction::Op::Store, {slot, std::move(v)});
+        value = slot;
+    }
+
     void visit(const Deref *node) override {
         // `node->expr` is a pointer (e.g. a `mut` argument/local, wrapped by
         // Lower/Mutability.cpp); Load reads through it to produce a value of
@@ -775,7 +850,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Extrema);
     // RESTRICT_VISITOR(Var);
     // RESTRICT_VISITOR(BinOp);
-    RESTRICT_VISITOR(UnOp);
+    // RESTRICT_VISITOR(UnOp);
     // RESTRICT_VISITOR(Select);
     // RESTRICT_VISITOR(Cast);
     // RESTRICT_VISITOR(Broadcast);
@@ -794,12 +869,12 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(AggOp);
     // RESTRICT_VISITOR(Call);
     RESTRICT_VISITOR(Instantiate);
-    RESTRICT_VISITOR(PtrTo);
+    // RESTRICT_VISITOR(PtrTo);
     // RESTRICT_VISITOR(Deref);
     RESTRICT_VISITOR(AtomicAdd);
 
     // RESTRICT_VISITOR(CallStmt);
-    RESTRICT_VISITOR(Print);
+    // RESTRICT_VISITOR(Print);
     // RESTRICT_VISITOR(Return);
     // RESTRICT_VISITOR(LetStmt);
     // RESTRICT_VISITOR(IfElse);

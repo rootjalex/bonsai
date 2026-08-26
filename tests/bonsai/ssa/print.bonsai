@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// `print` survives the round trip through SSA form.
+//
+// ConvertToSSA had no case for Print at all, so any function that printed
+// could not go through the SSA pipeline -- which is why vectorization
+// correctness tests had to be written against the C++ backend with a
+// hand-written driver instead of just running them with `-b llvm -e`. A print
+// is now a side-effecting instruction carrying one operand per printed value,
+// which structurize() turns back into a Print statement.
+func show_scalar(a : f32) -> void {
+    print(a);
+    return;
+}
+
+// Several values in one print, and a computed one: the operands have to keep
+// their order and their definitions.
+func show_several(a : f32, b : i32) -> void {
+    print(a, b, a * 2.0);
+    return;
+}
+
+// Printing inside control flow, so the instruction has to land in the right
+// block rather than being hoisted.
+func show_conditional(a : f32) -> void {
+    if (a < 0.0) {
+        print(a);
+    } else {
+        print(-a);
+    }
+    return;
+}

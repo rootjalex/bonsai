@@ -1,5 +1,7 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
+#include <limits>
+
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/MDBuilder.h>
@@ -693,30 +695,59 @@ void CodeGen_LLVM::visit(const StringImm *node) {
 }
 
 void CodeGen_LLVM::visit(const Extrema *node) {
-    internal_error << "TODO: " << Expr(node);
-    llvm::Type *inf_type = codegen_type(node->type);
+    llvm::Type *type = codegen_type(node->type);
+    // A vector of them is the scalar splatted; ConstantFP/ConstantInt::get
+    // build the splat when handed a vector type, but the queries below have
+    // to be asked of the element type.
+    llvm::Type *scalar = type->getScalarType();
 
-    if (inf_type->isFloatTy()) {
-        value = llvm::ConstantFP::get(
-            inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEsingle()));
-    } else if (inf_type->isDoubleTy()) {
-        value = llvm::ConstantFP::get(
-            inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEdouble()));
-    } else if (inf_type->isHalfTy()) {
-        value = llvm::ConstantFP::get(
-            inf_type, llvm::APFloat::getInf(llvm::APFloat::IEEEhalf()));
-    } else if (inf_type->isIntegerTy()) {
-        const uint32_t bits = inf_type->getIntegerBitWidth();
-        bool is_signed = node->type.is_int();
-
-        llvm::APInt max_val = is_signed ? llvm::APInt::getSignedMaxValue(bits)
-                                        : llvm::APInt::getMaxValue(bits);
-
-        value = llvm::ConstantInt::get(inf_type, max_val);
-    } else {
-        internal_error << "Infinity codegen not yet supported for type: "
-                       << node->type;
+    switch (node->op) {
+    case Extrema::inf: {
+        if (scalar->isFloatingPointTy()) {
+            value = llvm::ConstantFP::getInfinity(type);
+            return;
+        }
+        if (scalar->isIntegerTy()) {
+            // An integer has no infinity; the largest representable value is
+            // what an unbounded starting point means for one.
+            const uint32_t bits = scalar->getIntegerBitWidth();
+            const llvm::APInt max_val = node->type.is_int()
+                                            ? llvm::APInt::getSignedMaxValue(bits)
+                                            : llvm::APInt::getMaxValue(bits);
+            value = llvm::ConstantInt::get(type, max_val);
+            return;
+        }
+        break;
     }
+    case Extrema::eps: {
+        // The gap between one and the next representable value, which is what
+        // the numerics in the standard library scale their error bounds by.
+        if (scalar->isFloatTy()) {
+            value = llvm::ConstantFP::get(
+                type, double(std::numeric_limits<float>::epsilon()));
+            return;
+        }
+        if (scalar->isDoubleTy()) {
+            value = llvm::ConstantFP::get(
+                type, std::numeric_limits<double>::epsilon());
+            return;
+        }
+        if (scalar->isHalfTy()) {
+            // 2^-10, half precision having a ten bit significand.
+            value = llvm::ConstantFP::get(type, 0x1p-10);
+            return;
+        }
+        if (scalar->isIntegerTy()) {
+            // The smallest step between two distinct integers.
+            value = llvm::ConstantInt::get(type, 1);
+            return;
+        }
+        break;
+    }
+    }
+
+    internal_error << "Extrema codegen not yet supported for type: "
+                   << node->type << " in: " << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Var *node) {
@@ -922,8 +953,21 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             value = builder->CreateXor(a, b);
             return;
         }
-        case BinOp::LOr:
-        case BinOp::LAnd:
+        // Short circuiting is already gone by this point (see
+        // Lower/LogicalOperations.cpp), so these are plain bitwise
+        // operations on i1.
+        case BinOp::LAnd: {
+            value = builder->CreateAnd(a, b);
+            return;
+        }
+        case BinOp::LOr: {
+            value = builder->CreateOr(a, b);
+            return;
+        }
+        case BinOp::Eq: {
+            value = builder->CreateICmpEQ(a, b);
+            return;
+        }
         default: {
             internal_error << "Unimplemented BinOp lowering for boolean: "
                            << Expr(node);
@@ -2251,10 +2295,12 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         rhs = (node->memory == Allocate::Memory::Stack)
                   ? create_alloca_at_entry(etype, name, size)
                   : create_malloc(etype, size, /*zero_initialize=*/false, name);
-    } else {
-        internal_error << "Allocation of struct without initial value: "
-                       << Stmt(node);
     }
+    // Anything else with no initial value just declares storage, which is
+    // left uninitialized until something stores to it. The SSA pipeline
+    // relies on this: its builder splits a declaration's initializer into a
+    // separate Store (see the Allocate visitor in SSA/Convert.cpp), so every
+    // allocation reaches here without one.
     // This must alloca the ptr and store
     internal_assert(node->loc.accesses.empty())
         << "Allocating Allocate to non-local value: " << Stmt(node);
@@ -2264,6 +2310,8 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     // slot holding a pointer to them, so that indexing it needs no load --
     // the same way an array argument arrives (see Type::is_reference).
     if (allocate_type.is_reference()) {
+        internal_assert(rhs) << "Array allocation produced no storage: "
+                             << Stmt(node);
         frames.add_to_frame(name, rhs);
         return;
     }
@@ -2271,8 +2319,10 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     llvm::Type *value_type = codegen_type(node->loc.base_type);
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
-    // TODO: when is isVolatile true?
-    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+    if (rhs != nullptr) {
+        // TODO: when is isVolatile true?
+        builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+    }
 }
 
 void CodeGen_LLVM::visit(const Store *node) {
