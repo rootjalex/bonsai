@@ -1,0 +1,23 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the stride vectorize() walks an array of per-lane vectors at.
+//
+// A gang of eight vec3f cannot be held as such, so each component becomes its
+// own strided read. The stride is the size of one array element, and a
+// three-float vector is padded to four floats -- the generated code asks the
+// target for that size rather than assuming it, and the LLVM here is where a
+// packed twelve instead of a padded sixteen would show up. Both answers
+// produce plausible floats at run time, so only the addresses tell.
+element vec3f = vector[f32, 3];
+
+func sum_components(inp : array[vec3f, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    v = inp[i];
+    out[i] = v.x + v.y + v.z;
+  }
+  return;
+}
+
+schedule {
+  sum_components.vectorize(i);
+}

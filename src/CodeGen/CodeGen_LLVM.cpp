@@ -699,6 +699,14 @@ void CodeGen_LLVM::visit(const SizeOf *node) {
     // <3 x float> is twelve bytes of data in sixteen bytes of storage.
     const uint64_t bytes =
         module->getDataLayout().getTypeAllocSize(codegen_type(node->of));
+    // Type::bytes() spells the same rule out for the front end, where there
+    // is no target to ask. If the two ever disagree, the front end is
+    // handing out a stride the generated code does not use.
+    if (node->of.is_vector()) {
+        internal_assert(bytes == node->of.bytes())
+            << "Type::bytes() says " << node->of.bytes() << " for "
+            << node->of << ", but the target lays it out in " << bytes;
+    }
     value = llvm::ConstantInt::get(codegen_type(node->type), bytes);
 }
 

@@ -30,4 +30,5 @@ add_bonsai_tests(
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
     vectorize_scale.bonsai
+    vectorize_soa.bonsai
 )

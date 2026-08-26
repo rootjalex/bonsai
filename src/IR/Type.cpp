@@ -35,8 +35,27 @@ uint32_t Type::bytes() const {
     if (is<Int_t, UInt_t, Float_t>()) {
         // TODO(ajr): is this always right?
         return (bits() + 7) / 8;
-    } else if (is<Vector_t>()) {
-        return as<Vector_t>()->lanes * as<Vector_t>()->etype.bytes();
+    } else if (is<Bool_t>()) {
+        // Not (bits() + 7) / 8 by luck: a bool occupies a whole byte in
+        // memory even though it carries one bit, and a vector of them is
+        // stored a byte per lane.
+        return 1;
+    } else if (auto *as_vec = as<Vector_t>()) {
+        // How much a vector *occupies*, which is not how much data it
+        // holds: both backends round the lane count up to a power of two,
+        // so a vector[f32,3] is twelve bytes of floats inside sixteen
+        // bytes of storage. That is LLVM's getTypeAllocSize for
+        // <3 x float>, and it is what clang gives the ext_vector_type(3)
+        // the C++ backend emits. Returning the packed twelve would mean
+        // walking an array of them three floats at a time and landing in
+        // the middle of the next element.
+        //
+        // This duplicates a rule the targets own, so it is only for the
+        // front end, where there is no target to ask yet. Code that is
+        // generating IR should emit an ir::SizeOf and let the backend
+        // answer; CodeGen_LLVM checks the two against each other.
+        return next_power_of_two(static_cast<int32_t>(as_vec->lanes)) *
+               as_vec->etype.bytes();
     }
     internal_error << "[unimplemented] bytes() called on: " << *this;
 }
