@@ -3,6 +3,8 @@
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/SSA.h"
 
+#include <map>
+#include <memory>
 #include <string>
 
 namespace bonsai {
@@ -36,11 +38,24 @@ namespace ssa {
 // turns them into vectors along with everything else derived from the loop
 // index.
 //
+// `entry_mask` is the mask the region starts under. A ParFor body runs with
+// every lane enabled and passes nothing here; a function specialized for a
+// conditional call site runs under the mask of that call, and then every
+// block inside it is predicated by that mask -- including the ones whose own
+// predicate is uniform, which would otherwise need no mask at all.
+//
 // Requires reducible control flow and, for now, a region without loops: a
 // divergent loop has to be turned into a uniform one first (section 3.3 of
 // the paper), which is not implemented yet.
-void linearize(Function &func, const std::string &entry,
-               const Divergence &divergence);
+// Returns the execution mask of each block that has one. A block that is
+// absent runs with every lane of the gang enabled and needs no predication;
+// callers use this to predicate anything linearization does not handle
+// itself, such as a call made under a mask.
+using BlockMasks = std::map<std::string, std::shared_ptr<Value>>;
+
+BlockMasks linearize(Function &func, const std::string &entry,
+                     const Divergence &divergence,
+                     const std::shared_ptr<Value> &entry_mask = nullptr);
 
 } // namespace ssa
 } // namespace ir

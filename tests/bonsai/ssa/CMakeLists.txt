@@ -11,5 +11,6 @@ add_bonsai_tests(
     print.bonsai
     simple.bonsai
     traverse.bonsai
+    vectorize-calls.bonsai
     vectorize-ir.bonsai
 )

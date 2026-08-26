@@ -1,0 +1,72 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_calls
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_calls.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_calls.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_calls.o tests/bonsai/correctness/cpp/vectorize_calls.o -o tests/bonsai/correctness/cpp/vectorize_calls, ./tests/bonsai/correctness/cpp/vectorize_calls, rm tests/bonsai/correctness/cpp/vectorize_calls, rm tests/bonsai/correctness/cpp/main_vectorize_calls.o, rm tests/bonsai/correctness/cpp/vectorize_calls.h, rm tests/bonsai/correctness/cpp/vectorize_calls.o
+
+// Calls from inside a gang, run for real.
+//
+// The IR-level test shows which variants are generated; this one checks they
+// compute the right thing -- in particular that a masked variant writes only
+// the lanes its caller had enabled, which an unmasked one called by mistake
+// would get wrong in a way no amount of reading the IR proves.
+func scale(x : f32, k : f32) -> f32 = x * k;
+
+// A callee with its own divergent branch, folded inside the variant.
+func clip(x : f32, lo : f32) -> f32 {
+  if (x < lo) {
+    return lo;
+  }
+  return x;
+}
+
+// A callee that writes through a pointer, so that the mask has something
+// observable to suppress: the lanes their caller disabled must not be
+// written.
+func store_to(out : mut array[f32, 8], i : i32, v : f32) -> void {
+  out[i] = v;
+  return;
+}
+
+func [[export]] unconditional(a : array[f32, 8], k : f32,
+                              out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = scale(a[i], k);
+  }
+  return;
+}
+
+func [[export]] with_branch(a : array[f32, 8], lo : f32,
+                            out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = clip(a[i], lo);
+  }
+  return;
+}
+
+// The call is made by only the lanes whose value is positive, and the callee
+// stores. If the masked variant is missing or its mask is wrong, the other
+// lanes get written too.
+func [[export]] conditional_store(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] > 0.0) {
+      store_to(out, i, a[i] * 100.0);
+    }
+  }
+  return;
+}
+
+// Both call sites of the same function: one unconditional, one masked.
+func [[export]] both_ways(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = scale(a[i], 2.0);
+    if (a[i] > 0.0) {
+      out[i] = scale(a[i], 100.0);
+    }
+  }
+  return;
+}
+
+schedule {
+  unconditional.vectorize(i);
+  with_branch.vectorize(i);
+  conditional_store.vectorize(i);
+  both_ways.vectorize(i);
+}

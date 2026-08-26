@@ -1,0 +1,85 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @both_ways(ptr nocapture noundef readonly %a, float noundef %k, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+both_ways_entry:
+  %extract = load <8 x float>, ptr %a, align 32
+  %.splatinsert.i = insertelement <8 x float> poison, float %k, i64 0
+  %.splat.i = shufflevector <8 x float> %.splatinsert.i, <8 x float> poison, <8 x i32> zeroinitializer
+  %0 = fmul <8 x float> %.splat.i, %extract
+  store <8 x float> %0, ptr %out, align 32
+  %extract2 = load <8 x float>, ptr %a, align 32
+  %1 = fcmp ogt <8 x float> %extract2, zeroinitializer
+  %2 = fmul <8 x float> %extract2, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr %out, i32 32, <8 x i1> %1)
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite)
+define void @conditional_store(ptr nocapture noundef readonly %a, ptr noundef %out) local_unnamed_addr #1 {
+conditional_store_entry:
+  %extract = load <8 x float>, ptr %a, align 32
+  %0 = fcmp ogt <8 x float> %extract, zeroinitializer
+  %1 = fmul <8 x float> %extract, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
+  %store_ptrs.i = getelementptr inbounds float, ptr %out, <8 x i64> <i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %1, <8 x ptr> %store_ptrs.i, i32 4, <8 x i1> %0)
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @scale(float noundef %x, float noundef %k) local_unnamed_addr #2 {
+scale_entry:
+  %0 = fmul float %x, %k
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @"scale$gang8_v0"(<8 x float> noundef %x, float noundef %k) local_unnamed_addr #2 {
+"scale$gang8_v0_entry":
+  %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
+  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
+  %0 = fmul <8 x float> %.splat, %x
+  ret <8 x float> %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef %k, <8 x i1> noundef %"!mask") local_unnamed_addr #2 {
+"scale$gang8_v0$masked_entry":
+  %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
+  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
+  %0 = fmul <8 x float> %.splat, %x
+  ret <8 x float> %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @store_to(ptr nocapture noundef writeonly %out, i32 noundef %i, float noundef %v) local_unnamed_addr #3 {
+store_to_entry:
+  %0 = sext i32 %i to i64
+  %out1 = getelementptr inbounds float, ptr %out, i64 %0
+  store float %v, ptr %out1, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
+define void @"store_to$gang8_v1_v2$masked"(ptr noundef %out, <8 x i32> noundef %i, <8 x float> noundef %v, <8 x i1> noundef %"!mask") local_unnamed_addr #4 {
+"store_to$gang8_v1_v2$masked_entry":
+  %0 = sext <8 x i32> %i to <8 x i64>
+  %store_ptrs = getelementptr inbounds float, ptr %out, <8 x i64> %0
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %v, <8 x ptr> %store_ptrs, i32 4, <8 x i1> %"!mask")
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr nocapture, i32 immarg, <8 x i1>) #5
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
+declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, i32 immarg, <8 x i1>) #6
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite) }
+attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #4 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write) }
+attributes #5 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #6 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }

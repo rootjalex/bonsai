@@ -7,6 +7,7 @@ add_bonsai_tests(
     vec.bonsai
     vector_ops.bonsai
     vectorize_add_one.bonsai
+    vectorize_calls.bonsai
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
     vectorize_scale.bonsai

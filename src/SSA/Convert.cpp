@@ -945,6 +945,21 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
     }
 
+    // A transform may have added functions -- vectorize() specializes the
+    // callees of a gang -- whose types nothing has recorded yet. Their
+    // signature is whatever their entry block takes and their return says.
+    for (const auto &[name, f] : fmap) {
+        if (func_type_map.contains(name)) {
+            continue;
+        }
+        internal_assert(!f->blocks.empty()) << name << " has no blocks";
+        std::vector<Function_t::ArgSig> args;
+        for (const auto &arg : f->blocks.front()->args) {
+            args.push_back(Function_t::ArgSig{arg.type, arg.mutating});
+        }
+        func_type_map[name] = Function_t::make(f->ret_type, std::move(args));
+    }
+
     ir::FuncMap new_funcs;
 
     for (const auto &[fname, f] : fmap) {

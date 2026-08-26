@@ -149,6 +149,7 @@ target_sources(
     src/Parser/Token.cpp
     src/SSA/Analysis.cpp
     src/SSA/AnalyzeDivergence.cpp
+    src/SSA/CloneFunction.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/Convert.cpp
     src/SSA/DumpAnalysis.cpp
@@ -245,6 +246,7 @@ target_sources(
     include/Parser/Token.h
     include/SSA/Analysis.h
     include/SSA/AnalyzeDivergence.h
+    include/SSA/CloneFunction.h
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
     include/SSA/DumpAnalysis.h

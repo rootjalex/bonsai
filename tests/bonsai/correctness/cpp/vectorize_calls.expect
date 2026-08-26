@@ -1,0 +1,7 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_calls.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_calls.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_calls.o tests/bonsai/correctness/cpp/vectorize_calls.o -o tests/bonsai/correctness/cpp/vectorize_calls
+[test] ./tests/bonsai/correctness/cpp/vectorize_calls
+-12 -3 0 3 6 -9 15 -6
+0 0 0 1 2 0 5 0
+-99 -99 -99 100 200 -99 500 -99
+-8 -2 0 100 200 -6 500 -4

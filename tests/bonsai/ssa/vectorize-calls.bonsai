@@ -1,0 +1,65 @@
+//! flags: -p ssa
+
+// Golden for how a gang calls a function.
+//
+// The callee is specialized for the shape its arguments arrive in: the
+// parameters a gang passes per lane become vectors, the ones it passes once
+// stay scalar, and the original scalar function is left alone for whoever
+// still calls it that way.
+//
+// Whether the variant takes a mask depends on the call, not the callee:
+//
+//   * a call every lane makes needs no mask, and its variant has no mask
+//     parameter and no predication inside -- paying for one would be waste;
+//   * a call inside folded control flow is made by only some lanes, so its
+//     variant takes the caller's mask as a final `!mask` parameter and runs
+//     under it;
+//   * `scale` below is called both ways, so both variants exist.
+//
+// This mirrors how ispc passes the mask (section 5.7: functions that need one
+// take it as an extra parameter).
+func scale(x : f32, k : f32) -> f32 = x * k;
+
+func both_ways(a : array[f32, 8], k : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = scale(a[i], k);
+    if (a[i] > 0.0) {
+      out[i] = scale(a[i], 100.0);
+    }
+  }
+  return;
+}
+
+// A callee that branches internally on a varying argument: the branch is
+// divergent inside the variant and gets folded there, independently of the
+// caller.
+func clip(x : f32, lo : f32) -> f32 {
+  if (x < lo) {
+    return lo;
+  }
+  return x;
+}
+
+func clip_all(a : array[f32, 8], lo : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = clip(a[i], lo);
+  }
+  return;
+}
+
+// Nothing varying is passed here, so the callee needs no vector parameters at
+// all -- only its result is spread across the lanes, by the caller.
+func constant_of(k : f32) -> f32 = k * 2.0;
+
+func uniform_arg(k : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = constant_of(k);
+  }
+  return;
+}
+
+schedule {
+  both_ways.vectorize(i);
+  clip_all.vectorize(i);
+  uniform_arg.vectorize(i);
+}

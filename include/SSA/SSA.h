@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "IR/Function.h"
@@ -208,8 +210,23 @@ struct Function {
 
     std::string get_unique_name() { return "@" + std::to_string(name_counter++); }
 
+    // Makes sure `get_unique_name` will not hand out `name` again. A copy of
+    // a function starts its counter at zero, so it has to be told about the
+    // names its instructions already carry (see SSA/CloneFunction.h).
+    void reserve_name(const std::string &name) {
+        if (name.size() < 2 || name[0] != '@') {
+            return;
+        }
+        const std::string digits = name.substr(1);
+        if (digits.find_first_not_of("0123456789") != std::string::npos) {
+            return;
+        }
+        name_counter =
+            std::max<size_t>(name_counter, std::stoull(digits) + 1);
+    }
+
   private:
-    size_t name_counter;
+    size_t name_counter = 0;
 };
 
 // Useful helper for std::variant

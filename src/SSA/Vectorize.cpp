@@ -1,5 +1,6 @@
 #include "SSA/Analysis.h"
 #include "SSA/AnalyzeDivergence.h"
+#include "SSA/CloneFunction.h"
 #include "SSA/Linearize.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
@@ -197,11 +198,14 @@ void substitute(Block &block, const string &name,
     }
 }
 
-// Widens a block argument in place. Every reference to it -- in this block's
-// operands, and in the argument list itself -- is the same Argument by name,
-// so the type has to be updated in all of them.
-void widen_argument(Block &block, const string &name, uint32_t lanes) {
-    for (auto &arg : block.args) {
+// Widens a block argument in place. A reference to it is a copy of the same
+// Argument rather than a pointer to one, so every copy has to be retyped --
+// and after linearization those copies are spread across the region, since
+// folding the branches let values be used directly instead of being threaded
+// through arguments.
+void widen_argument(const BlockMap &blocks, const set<string> &region,
+                    const string &owner, const string &name, uint32_t lanes) {
+    for (auto &arg : blocks.at(owner)->args) {
         if (arg.name == name) {
             arg.type = widen(arg.type, lanes);
         }
@@ -215,15 +219,251 @@ void widen_argument(Block &block, const string &name, uint32_t lanes) {
             }
         }
     };
-    for (const auto &instr : block.instrs) {
-        for (const auto &operand : instr->operands) {
-            retype(operand);
+
+    for (const string &block_name : region) {
+        Block &block = *blocks.at(block_name);
+        for (const auto &instr : block.instrs) {
+            for (const auto &operand : instr->operands) {
+                retype(operand);
+            }
+        }
+        std::visit(overloads{
+                       [&](std::monostate &) {},
+                       [&](Terminator::Jump &t) {
+                           for (auto &a : t.args) {
+                               retype(a);
+                           }
+                       },
+                       [&](Terminator::Dispatch &t) {
+                           retype(t.cond);
+                           for (auto &target : t.targets) {
+                               for (auto &a : target.args) {
+                                   retype(a);
+                               }
+                           }
+                       },
+                       [&](Terminator::Return &t) { retype(t.value); },
+                       [&](Terminator::ParFor &t) {
+                           for (auto &a : t.body.args) {
+                               retype(a);
+                           }
+                           for (auto &a : t.cont.args) {
+                               retype(a);
+                           }
+                       },
+                       [&](Terminator::Yield &) {},
+                       [&](Terminator::Call &t) {
+                           for (auto &a : t.call.args) {
+                               retype(a);
+                           }
+                           for (auto &a : t.cont.args) {
+                               retype(a);
+                           }
+                       },
+                   },
+                   block.terminator.data);
+        const auto it = block.lookups.find(name);
+        if (it != block.lookups.end()) {
+            retype(it->second);
         }
     }
-    const auto it = block.lookups.find(name);
-    if (it != block.lookups.end()) {
-        retype(it->second);
+}
+
+// Turns every varying value in the region into one value per lane: its type
+// becomes a vector, and the uniform values it is combined with are broadcast
+// to match. Blocks are visited in execution order, so an instruction's
+// operands have already been widened by the time it is reached.
+void widen_region(Function &func, const string &entry, const Divergence &div,
+                  uint32_t lanes) {
+    const BlockMap blocks = make_block_map(func);
+    const AdjacencyMap all_succs = compute_successors(func);
+    const set<string> region = reachable_from(entry, all_succs);
+
+    AdjacencyMap succs;
+    for (const string &name : region) {
+        succs[name];
+        for (const string &s : all_succs.at(name)) {
+            if (region.count(s)) {
+                succs[name].push_back(s);
+            }
+        }
     }
+
+    for (const string &name : reverse_postorder(entry, succs)) {
+        Block &block = *blocks.at(name);
+
+        for (const Argument &arg : block.args) {
+            if (div.args.count({name, arg.name})) {
+                widen_argument(blocks, region, name, arg.name, lanes);
+            }
+        }
+
+        vector<shared_ptr<Instruction>> widened;
+        for (const auto &instr : block.instrs) {
+            if (!div.instrs.count(instr.get())) {
+                widened.push_back(instr);
+                continue;
+            }
+
+            // Every lane's copy of a value has to be there for the ones that
+            // vary to be combined with it, so uniform operands are broadcast
+            // up to the gang width.
+            for (const size_t k : value_operands(*instr)) {
+                shared_ptr<Value> &operand = instr->operands[k];
+                if (operand->get_type().is_vector()) {
+                    continue;
+                }
+                auto count = std::make_shared<Value>(
+                    Constant{UInt_t::make(32), uint64_t(lanes)});
+                auto bc = std::make_shared<Instruction>(
+                    func.get_unique_name(), widen(operand->get_type(), lanes),
+                    Instruction::Op::Bc,
+                    vector<shared_ptr<Value>>{operand, count},
+                    block.shared_from_this());
+                widened.push_back(bc);
+                operand = std::make_shared<Value>(bc);
+            }
+
+            // A store has no result, and an instruction built per-lane in the
+            // first place (the ramp) is already the right type; everything
+            // else now produces one value per lane.
+            if (instr->type.defined() && !instr->name.empty() &&
+                !instr->type.is_vector()) {
+                instr->type = widen(instr->type, lanes);
+            }
+            widened.push_back(instr);
+        }
+        block.instrs = std::move(widened);
+    }
+}
+
+// A callee, specialized for how a gang calls it: which of its parameters
+// arrive as vectors, and whether the call is made under a mask.
+struct VariantKey {
+    string callee;
+    vector<bool> varying;
+    bool masked = false;
+    uint32_t lanes = 0;
+
+    bool operator<(const VariantKey &o) const {
+        return std::tie(callee, varying, masked, lanes) <
+               std::tie(o.callee, o.varying, o.masked, o.lanes);
+    }
+};
+
+// The name a variant is generated under. A function called both ways ends up
+// with two of these, and a scalar caller keeps calling the original.
+string variant_name(const VariantKey &key) {
+    string name = key.callee + "$gang" + std::to_string(key.lanes);
+    for (size_t i = 0; i < key.varying.size(); i++) {
+        if (key.varying[i]) {
+            name += "_v" + std::to_string(i);
+        }
+    }
+    return key.masked ? name + "$masked" : name;
+}
+
+// Builds the variant: a copy of the callee whose varying parameters are
+// vectors, vectorized the same way a ParFor body is.
+//
+// A masked variant takes the caller's execution mask as a final parameter and
+// runs entirely under it, so its stores write only the lanes the caller had
+// enabled. An unmasked variant has no such parameter and no such masking,
+// which is why it is worth having both: a call that is always executed should
+// not pay for predication (ispc section 5.7 passes the mask the same way, and
+// only for functions that need it).
+shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
+                                const string &name) {
+    const auto original = funcs.find(key.callee);
+    internal_assert(original != funcs.end())
+        << "Cannot vectorize a call to unknown function: " << key.callee;
+
+    auto variant = clone_function(*original->second);
+    Block &entry_block = *variant->blocks.front();
+
+    // The entry block carries the function's name (see FunctionBuilder in
+    // SSA/Convert.cpp), and that is the name the generated code is emitted
+    // under -- so without renaming it the variant would collide with the
+    // function it was specialized from.
+    const string old_entry = entry_block.name;
+    entry_block.name = name;
+    for (const auto &block : variant->blocks) {
+        std::visit(overloads{
+                       [&](std::monostate &) {},
+                       [&](Terminator::Jump &j) {
+                           if (j.name == old_entry) {
+                               j.name = name;
+                           }
+                       },
+                       [&](Terminator::Dispatch &d) {
+                           for (auto &target : d.targets) {
+                               if (target.name == old_entry) {
+                                   target.name = name;
+                               }
+                           }
+                       },
+                       [&](Terminator::Return &) {},
+                       [&](Terminator::ParFor &) {},
+                       [&](Terminator::Yield &) {},
+                       [&](Terminator::Call &c) {
+                           if (c.cont.name == old_entry) {
+                               c.cont.name = name;
+                           }
+                       },
+                   },
+                   block->terminator.data);
+    }
+    internal_assert(entry_block.args.size() == key.varying.size())
+        << "Call to " << key.callee << " passes " << key.varying.size()
+        << " arguments to a function taking " << entry_block.args.size();
+
+    // The varying parameters become one value per lane. They are seeded into
+    // the divergence analysis by name, the same way a loop index is.
+    set<string> varying_names;
+    for (size_t i = 0; i < key.varying.size(); i++) {
+        if (key.varying[i]) {
+            varying_names.insert(entry_block.args[i].name);
+        }
+    }
+
+    shared_ptr<Value> mask;
+    if (key.masked) {
+        // Declared scalar and widened below with everything else varying, so
+        // that the masks computed inside the function have the same shape.
+        const Argument mask_arg{Bool_t::make(), "!mask"};
+        entry_block.args.push_back(mask_arg);
+        mask = std::make_shared<Value>(mask_arg);
+        entry_block.lookups[mask_arg.name] = mask;
+        varying_names.insert(mask_arg.name);
+    }
+
+    const string entry = entry_block.name;
+    promote_allocas(*variant, entry);
+
+    // Linearization folds a region down to a single path, so the function
+    // needs a single exit for that path to end at.
+    unify_returns(*variant);
+
+    linearize(*variant, entry,
+              analyze_divergence(*variant, entry, varying_names), mask);
+
+    const Divergence div = analyze_divergence(*variant, entry, varying_names);
+    internal_assert(div.branches.empty())
+        << "Linearization left a divergent branch in " << name;
+    widen_region(*variant, entry, div, key.lanes);
+
+    // The return type follows whatever the exit ends up carrying, which is a
+    // vector if the returned value turned out to be varying.
+    for (const auto &block : variant->blocks) {
+        if (const auto *ret =
+                std::get_if<Terminator::Return>(&block->terminator.data);
+            ret != nullptr && ret->value) {
+            variant->ret_type = ret->value->get_type();
+        }
+    }
+
+    funcs[name] = variant;
+    return variant;
 }
 
 } // namespace
@@ -257,22 +497,27 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     promote_allocas(*f, f->blocks[0]->name);
 
     const string entry = parfor.body.name;
+
+    // Which calls are made under a mask has to be settled before the branches
+    // are folded away, since folding them is what makes a conditional call
+    // unconditional in the control flow.
+    const Divergence before = analyze_divergence(*f, entry, {idx});
+    set<string> conditional_calls;
     {
         const BlockMap blocks = make_block_map(f);
-        const set<string> region =
-            reachable_from(entry, compute_successors(*f));
-        for (const string &name : region) {
-            const Block &block = *blocks.at(name);
-            internal_assert(!std::holds_alternative<Terminator::Call>(
-                block.terminator.data))
-                << "TODO: a masked variant of the function called in " << name;
+        for (const string &name : reachable_from(entry, compute_successors(*f))) {
+            if (std::holds_alternative<Terminator::Call>(
+                    blocks.at(name)->terminator.data) &&
+                before.masked.count(name)) {
+                conditional_calls.insert(name);
+            }
         }
     }
 
     // Fold away the branches the lanes disagree about, so that what is left
     // is control flow every lane follows together, with masks standing in for
     // the branches that were folded (see SSA/Linearize.h).
-    linearize(*f, entry, analyze_divergence(*f, entry, {idx}));
+    const BlockMasks masks = linearize(*f, entry, before);
 
     const BlockMap blocks = make_block_map(f);
     const AdjacencyMap all_succs = compute_successors(*f);
@@ -323,54 +568,66 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << *div.branches.begin();
 
-    // Widen every varying value, in the order the blocks execute so that an
-    // instruction's operands are already widened when it is reached.
-    for (const string &name : reverse_postorder(entry, succs)) {
-        Block &block = *blocks.at(name);
-
-        for (const Argument &arg : block.args) {
-            if (div.args.count({name, arg.name})) {
-                widen_argument(block, arg.name, lanes);
-            }
+    // Point each call at a variant of its callee that takes the arguments in
+    // the shape this gang has them in.
+    //
+    // A call that the lanes make unconditionally needs no mask: every lane is
+    // executing it, so the callee can store freely. A call inside folded
+    // control flow does need one, and gets the mask of the block it sits in
+    // as an extra argument. Both variants can exist at once, for a function
+    // called both ways.
+    map<VariantKey, string> variants;
+    for (const string &name : region) {
+        auto block = blocks.at(name);
+        auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        if (call == nullptr) {
+            continue;
         }
 
-        vector<shared_ptr<Instruction>> widened;
-        for (const auto &instr : block.instrs) {
-            if (!div.instrs.count(instr.get())) {
-                widened.push_back(instr);
-                continue;
-            }
-
-            // Every lane's copy of a value has to be there for the ones that
-            // vary to be combined with it, so uniform operands are broadcast
-            // up to the gang width.
-            for (const size_t k : value_operands(*instr)) {
-                shared_ptr<Value> &operand = instr->operands[k];
-                if (operand->get_type().is_vector()) {
-                    continue;
-                }
-                auto count = std::make_shared<Value>(
-                    Constant{UInt_t::make(32), uint64_t(lanes)});
-                auto bc = std::make_shared<Instruction>(
-                    f->get_unique_name(), widen(operand->get_type(), lanes),
-                    Instruction::Op::Bc,
-                    vector<shared_ptr<Value>>{operand, count},
-                    block.shared_from_this());
-                widened.push_back(bc);
-                operand = std::make_shared<Value>(bc);
-            }
-
-            // A store has no result, and an instruction built per-lane in the
-            // first place (the ramp) is already the right type; everything
-            // else now produces one value per lane.
-            if (instr->type.defined() && !instr->name.empty() &&
-                !instr->type.is_vector()) {
-                instr->type = widen(instr->type, lanes);
-            }
-            widened.push_back(instr);
+        VariantKey key;
+        key.callee = call->call.name;
+        key.lanes = lanes;
+        key.masked = conditional_calls.count(name) > 0;
+        // Which arguments vary comes from the analysis, not from their types:
+        // the call sites are rewritten before the region is widened, so
+        // nothing has a vector type yet.
+        for (const auto &arg : call->call.args) {
+            key.varying.push_back(div.is_varying(name, *arg));
         }
-        block.instrs = std::move(widened);
+
+        // Nothing to specialize: every argument arrives as it would from a
+        // scalar caller and no mask is needed, so the original function is
+        // already the right one to call.
+        const bool needs_variant =
+            key.masked || std::any_of(key.varying.begin(), key.varying.end(),
+                                      [](bool v) { return v; });
+        if (!needs_variant) {
+            continue;
+        }
+
+        const auto cached = variants.find(key);
+        string name_of_variant;
+        if (cached != variants.end()) {
+            name_of_variant = cached->second;
+        } else {
+            name_of_variant = variant_name(key);
+            specialize(funcs, key, name_of_variant);
+            variants[key] = name_of_variant;
+        }
+        call->call.name = name_of_variant;
+
+        if (key.masked) {
+            // The mask the call site runs under, which linearization computed
+            // when it folded the branch that made the call conditional.
+            const auto mask = masks.find(name);
+            internal_assert(mask != masks.end())
+                << "Call in " << name << " is conditional but its block has "
+                << "no mask";
+            call->call.args.push_back(mask->second);
+        }
     }
+
+    widen_region(*f, entry, div, lanes);
 
     // With the body vectorized, the loop is gone: it runs exactly once, so
     // its header falls straight into the body and the body's Yield falls

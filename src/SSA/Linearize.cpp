@@ -157,9 +157,13 @@ map<string, vector<Incoming>> snapshot_arguments(const BlockMap &blocks,
                                    << " during linearization";
                 },
                 [&](const Terminator::Yield &) {},
-                [&](const Terminator::Call &) {
-                    internal_error << "TODO: linearize across the call in "
-                                   << name;
+                [&](const Terminator::Call &c) {
+                    // The callee is in another function; only the
+                    // continuation is an edge of this region. A returned
+                    // value arrives as the continuation's first argument and
+                    // is not passed here, which the blending accounts for by
+                    // matching the values to the *last* arguments.
+                    incoming[c.cont.name].push_back({name, c.cont.args});
                 },
             },
             block.terminator.data);
@@ -201,10 +205,11 @@ shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
 
 } // namespace
 
-void linearize(Function &func, const string &entry,
-               const Divergence &divergence) {
-    if (divergence.branches.empty()) {
-        return; // nothing diverges; the control flow is already uniform
+BlockMasks linearize(Function &func, const string &entry,
+                     const Divergence &divergence,
+                     const shared_ptr<Value> &entry_mask) {
+    if (divergence.branches.empty() && !entry_mask) {
+        return {}; // nothing diverges; the control flow is already uniform
     }
 
     const BlockMap blocks = make_block_map(func);
@@ -278,6 +283,15 @@ void linearize(Function &func, const string &entry,
 
     for (const string &b : by_index) {
         auto block = blocks.at(b);
+
+        // Everything in the region runs under the mask the region was
+        // entered with, so a block whose own predicate is uniform still
+        // carries it. Blocks that are control dependent on a divergent branch
+        // get a narrower mask, computed below; the entry mask is already
+        // folded into it, since the edge masks start from the entry's.
+        if (entry_mask && !divergence.masked.count(b)) {
+            masks.block[b] = entry_mask;
+        }
 
         // The block's own mask, from the edges it is control dependent on.
         if (divergence.masked.count(b)) {
@@ -369,18 +383,30 @@ void linearize(Function &func, const string &entry,
             continue; // a genuine join, still selected by control flow
         }
 
+        // A call continuation is handed the returned value as its first
+        // argument, which no predecessor passes. Those leading arguments have
+        // nothing to blend and stay as they are.
+        size_t leading = block->args.size();
+        for (const Incoming &source : sources) {
+            internal_assert(source.values.size() <= block->args.size())
+                << "Jump from " << source.from << " to " << b << " passes "
+                << source.values.size() << " arguments to a block taking "
+                << block->args.size();
+            leading = std::min(leading, block->args.size() - source.values.size());
+        }
+
         vector<shared_ptr<Value>> blended(block->args.size());
-        for (size_t j = 0; j < block->args.size(); j++) {
+        for (size_t j = leading; j < block->args.size(); j++) {
             // Fold from the last source backwards, so the first source ends
             // up as the outermost condition.
             shared_ptr<Value> value;
             for (size_t s = sources.size(); s-- > 0;) {
                 const Incoming &source = sources[s];
-                const size_t offset = source.values.size() - block->args.size();
-                internal_assert(source.values.size() >= block->args.size())
+                const size_t offset = block->args.size() - source.values.size();
+                internal_assert(j >= offset)
                     << "Jump from " << source.from << " to " << b
                     << " passes too few arguments";
-                shared_ptr<Value> incoming_value = source.values[j + offset];
+                shared_ptr<Value> incoming_value = source.values[j - offset];
 
                 if (!value) {
                     value = incoming_value;
@@ -399,8 +425,6 @@ void linearize(Function &func, const string &entry,
 
         // The blends were appended; move them to the front so they precede
         // the code that uses the arguments.
-        const size_t blend_count = block->instrs.size() - 0;
-        (void)blend_count;
         std::stable_partition(
             block->instrs.begin(), block->instrs.end(),
             [&](const shared_ptr<Instruction> &i) {
@@ -412,20 +436,56 @@ void linearize(Function &func, const string &entry,
                                    });
             });
 
-        // Replace uses of the arguments with the blends, then drop them.
-        for (size_t j = 0; j < block->args.size(); j++) {
+        // Replace uses of the arguments with the blends, then drop them. The
+        // terminator counts as a use: the value a function returns is the
+        // argument of its exit block.
+        for (size_t j = leading; j < block->args.size(); j++) {
             const string name = block->args[j].name;
+            auto replace = [&](shared_ptr<Value> &v) {
+                if (v && std::holds_alternative<Argument>(v->data) &&
+                    std::get<Argument>(v->data).name == name) {
+                    v = blended[j];
+                }
+            };
+
             for (const auto &instr : block->instrs) {
                 for (auto &operand : instr->operands) {
-                    if (std::holds_alternative<Argument>(operand->data) &&
-                        std::get<Argument>(operand->data).name == name) {
-                        operand = blended[j];
-                    }
+                    replace(operand);
                 }
             }
+            std::visit(overloads{
+                           [&](std::monostate &) {},
+                           [&](Terminator::Jump &t) {
+                               for (auto &a : t.args) {
+                                   replace(a);
+                               }
+                           },
+                           [&](Terminator::Dispatch &t) {
+                               replace(t.cond);
+                               for (auto &target : t.targets) {
+                                   for (auto &a : target.args) {
+                                       replace(a);
+                                   }
+                               }
+                           },
+                           [&](Terminator::Return &t) { replace(t.value); },
+                           [&](Terminator::ParFor &) {},
+                           [&](Terminator::Yield &) {},
+                           [&](Terminator::Call &t) {
+                               for (auto &a : t.call.args) {
+                                   replace(a);
+                               }
+                               for (auto &a : t.cont.args) {
+                                   replace(a);
+                               }
+                           },
+                       },
+                       block->terminator.data);
             block->lookups[name] = blended[j];
         }
-        block->args.clear();
+        // Only the blended arguments go: a call's returned value is still
+        // delivered as an argument.
+        block->args.erase(block->args.begin() + leading, block->args.end());
     }
 
     //===------------------------------------------------------------===//
@@ -480,6 +540,13 @@ void linearize(Function &func, const string &entry,
             j->name = edges[0].to;
             j->args.clear();
         }
+        if (auto *c = std::get_if<Terminator::Call>(&block->terminator.data)) {
+            // Only the continuation moves: where the call goes is a matter of
+            // which function is called, not of this region's control flow.
+            internal_assert(edges.size() == 1);
+            c->cont.name = edges[0].to;
+            c->cont.args.clear();
+        }
     }
 
     // Predecessor lists are rebuilt from the new terminators, since the
@@ -497,6 +564,8 @@ void linearize(Function &func, const string &entry,
             block->preds.push_back(blocks.at(p));
         }
     }
+
+    return masks.block;
 }
 
 } // namespace ssa
