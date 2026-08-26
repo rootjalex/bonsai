@@ -84,6 +84,10 @@ static const char *op_name(Instruction::Op op) {
         return "append";
     case Instruction::Op::Bc:
         return "bc";
+    case Instruction::Op::BwAnd:
+        return "bwand";
+    case Instruction::Op::BwOr:
+        return "bwor";
     case Instruction::Op::Cast:
         return "cast";
     case Instruction::Op::Div:
@@ -130,6 +134,12 @@ static const char *op_name(Instruction::Op op) {
         return "select";
     case Instruction::Op::Set:
         return "set";
+    case Instruction::Op::Shl:
+        return "shl";
+    case Instruction::Op::Shr:
+        return "shr";
+    case Instruction::Op::Xor:
+        return "xor";
     case Instruction::Op::Store:
         return "store";
     case Instruction::Op::Sub:
@@ -154,6 +164,8 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Alloca:
     case Instruction::Op::Append:
     case Instruction::Op::Bc:
+    case Instruction::Op::BwAnd:
+    case Instruction::Op::BwOr:
     case Instruction::Op::Cast:
     case Instruction::Op::Div:
     case Instruction::Op::Eps:
@@ -179,7 +191,10 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Reinterpret:
     case Instruction::Op::Select:
     case Instruction::Op::Set:
+    case Instruction::Op::Shl:
+    case Instruction::Op::Shr:
     case Instruction::Op::Sub:
+    case Instruction::Op::Xor:
         return false;
     }
 }

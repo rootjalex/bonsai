@@ -2686,6 +2686,18 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
                                               uint32_t lanes,
                                               const Expr &mask_expr,
                                               const std::string &name) {
+    // A boolean occupies a byte in memory -- that is what the scalar path
+    // stores and what the C++ side of an exported function sees -- while a
+    // vector of i1 is bit-packed. So booleans are loaded a byte per lane and
+    // narrowed afterwards, or eight lanes would come out of a single byte.
+    if (etype->isIntegerTy(1)) {
+        llvm::Value *bytes =
+            create_vector_load(i8_t, base, index, lanes, mask_expr, name);
+        return builder->CreateTrunc(
+            bytes, llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false),
+            name + "_bits");
+    }
+
     llvm::Type *vtype = llvm::VectorType::get(etype, lanes, /*Scalable=*/false);
     const llvm::DataLayout &dl = module->getDataLayout();
     llvm::Value *mask =
@@ -2719,6 +2731,17 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
 void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
                                        llvm::Value *base, const Expr &index,
                                        uint32_t lanes, const Expr &mask_expr) {
+    // Booleans take a byte each in memory (see create_vector_load), so a
+    // vector of them is widened before it is written; storing the i1 vector
+    // directly would pack eight lanes into one byte.
+    if (etype->isIntegerTy(1)) {
+        llvm::Value *bytes = builder->CreateZExt(
+            value, llvm::VectorType::get(i8_t, lanes, /*Scalable=*/false),
+            "store_bytes");
+        create_vector_store(bytes, i8_t, base, index, lanes, mask_expr);
+        return;
+    }
+
     const llvm::DataLayout &dl = module->getDataLayout();
     llvm::Value *mask =
         mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;

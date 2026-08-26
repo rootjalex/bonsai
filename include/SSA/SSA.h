@@ -68,6 +68,8 @@ struct Instruction {
         Alloca, // on stack
         Append, // side-effect-y
         Bc,
+        BwAnd,
+        BwOr,
         Cast,
         Div,
         Eps,
@@ -95,8 +97,11 @@ struct Instruction {
         Reinterpret,
         Select,
         Set,
+        Shl,
+        Shr,
         Store, // side-effect-y
         Sub,
+        Xor,
     };
 
     // empty -> side-effect-y (store/append)

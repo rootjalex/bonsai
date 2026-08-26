@@ -563,16 +563,19 @@ struct FunctionBuilder : Visitor {
         case BinOp::LOr:
             // TODO: SHORT CIRCUITING!!!
             return Instruction::Op::LOr;
-        // case BinOp::Xor:
-        //     return Instruction::Op::Xor;
-        // case BinOp::BwAnd:
-        //     return Instruction::Op::BwAnd;
-        // case BinOp::BwOr:
-        //     return Instruction::Op::BwOr;
-        // case BinOp::Shl:
-        //     return Instruction::Op::Shl;
-        // case BinOp::Shr:
-        //     return Instruction::Op::Shr;
+        case BinOp::Xor:
+            return Instruction::Op::Xor;
+        case BinOp::BwAnd:
+            return Instruction::Op::BwAnd;
+        case BinOp::BwOr:
+            return Instruction::Op::BwOr;
+        // Simplify turns a multiply or divide by a power of two into one of
+        // these, so integer arithmetic reaches them whether or not the source
+        // ever mentions a shift.
+        case BinOp::Shl:
+            return Instruction::Op::Shl;
+        case BinOp::Shr:
+            return Instruction::Op::Shr;
         default: {
             internal_error << "TODO: handle: " << to_string(op);
         }

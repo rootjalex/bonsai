@@ -81,6 +81,11 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
     case Instruction::Op::Bc:
+    case Instruction::Op::BwAnd:
+    case Instruction::Op::BwOr:
+    case Instruction::Op::Shl:
+    case Instruction::Op::Shr:
+    case Instruction::Op::Xor:
     case Instruction::Op::Cast:
     case Instruction::Op::Div:
     case Instruction::Op::Eps:
@@ -292,6 +297,36 @@ Stmt codegen_instruction(const Instruction &instr) {
         internal_assert(args.size() == 2) << args.size();
         const uint64_t lanes = get_const_u64(args[1]);
         value = Broadcast::make(lanes, std::move(args[0]));
+        break;
+    }
+    case Instruction::Op::BwAnd: {
+        internal_assert(args.size() == 2) << args.size();
+        value = BinOp::make(BinOp::OpType::BwAnd, std::move(args[0]),
+                            std::move(args[1]));
+        break;
+    }
+    case Instruction::Op::BwOr: {
+        internal_assert(args.size() == 2) << args.size();
+        value = BinOp::make(BinOp::OpType::BwOr, std::move(args[0]),
+                            std::move(args[1]));
+        break;
+    }
+    case Instruction::Op::Shl: {
+        internal_assert(args.size() == 2) << args.size();
+        value = BinOp::make(BinOp::OpType::Shl, std::move(args[0]),
+                            std::move(args[1]));
+        break;
+    }
+    case Instruction::Op::Shr: {
+        internal_assert(args.size() == 2) << args.size();
+        value = BinOp::make(BinOp::OpType::Shr, std::move(args[0]),
+                            std::move(args[1]));
+        break;
+    }
+    case Instruction::Op::Xor: {
+        internal_assert(args.size() == 2) << args.size();
+        value = BinOp::make(BinOp::OpType::Xor, std::move(args[0]),
+                            std::move(args[1]));
         break;
     }
     case Instruction::Op::Cast: {

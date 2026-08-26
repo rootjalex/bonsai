@@ -82,6 +82,11 @@ vector<size_t> value_operands(const Instruction &instr) {
     switch (instr.op) {
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
+    case Instruction::Op::BwAnd:
+    case Instruction::Op::BwOr:
+    case Instruction::Op::Shl:
+    case Instruction::Op::Shr:
+    case Instruction::Op::Xor:
     case Instruction::Op::Cast:
     case Instruction::Op::Div:
     case Instruction::Op::Eq:
@@ -363,6 +368,81 @@ string variant_name(const VariantKey &key) {
     return key.masked ? name + "$masked" : name;
 }
 
+// Every variant generated so far, so that a callee reached twice in the same
+// shape is specialized once. Scoped to one vectorize() call.
+using Variants = map<VariantKey, string>;
+
+shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
+                                const string &name, Variants &variants);
+
+// Points each call in `region` at a variant of its callee taking the
+// arguments in the shape this gang has them in.
+//
+// A call that the lanes make unconditionally needs no mask: every lane is
+// executing it, so the callee can store freely. A call inside folded control
+// flow does need one, and gets the mask of the block it sits in as an extra
+// argument. Both variants can exist at once, for a function called both ways,
+// and a callee whose arguments are all uniform needs neither.
+void specialize_calls(FuncMap &funcs, Function &func,
+                      const set<string> &region, const Divergence &div,
+                      const BlockMasks &masks,
+                      const set<string> &conditional_calls, uint32_t lanes,
+                      Variants &variants) {
+    const BlockMap blocks = make_block_map(func);
+
+    for (const string &name : region) {
+        auto block = blocks.at(name);
+        auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        if (call == nullptr) {
+            continue;
+        }
+
+        VariantKey key;
+        key.callee = call->call.name;
+        key.lanes = lanes;
+        key.masked = conditional_calls.count(name) > 0;
+        // Which arguments vary comes from the analysis, not from their types:
+        // the call sites are rewritten before the region is widened, so
+        // nothing has a vector type yet.
+        for (const auto &arg : call->call.args) {
+            key.varying.push_back(div.is_varying(name, *arg));
+        }
+
+        // Nothing to specialize: every argument arrives as it would from a
+        // scalar caller and no mask is needed, so the original function is
+        // already the right one to call.
+        const bool needs_variant =
+            key.masked || std::any_of(key.varying.begin(), key.varying.end(),
+                                      [](bool v) { return v; });
+        if (!needs_variant) {
+            continue;
+        }
+
+        const auto cached = variants.find(key);
+        string name_of_variant;
+        if (cached != variants.end()) {
+            name_of_variant = cached->second;
+        } else {
+            name_of_variant = variant_name(key);
+            // Recorded before specializing, so that a callee that reaches
+            // itself is caught rather than specialized forever.
+            variants[key] = name_of_variant;
+            specialize(funcs, key, name_of_variant, variants);
+        }
+        call->call.name = name_of_variant;
+
+        if (key.masked) {
+            // The mask the call site runs under, which linearization computed
+            // when it folded the branch that made the call conditional.
+            const auto mask = masks.find(name);
+            internal_assert(mask != masks.end())
+                << "Call in " << name << " is conditional but its block has "
+                << "no mask";
+            call->call.args.push_back(mask->second);
+        }
+    }
+}
+
 // Builds the variant: a copy of the callee whose varying parameters are
 // vectors, vectorized the same way a ParFor body is.
 //
@@ -373,7 +453,7 @@ string variant_name(const VariantKey &key) {
 // not pay for predication (ispc section 5.7 passes the mask the same way, and
 // only for functions that need it).
 shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
-                                const string &name) {
+                                const string &name, Variants &variants) {
     const auto original = funcs.find(key.callee);
     internal_assert(original != funcs.end())
         << "Cannot vectorize a call to unknown function: " << key.callee;
@@ -444,12 +524,35 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // needs a single exit for that path to end at.
     unify_returns(*variant);
 
-    linearize(*variant, entry,
-              analyze_divergence(*variant, entry, varying_names), mask);
+    // Which of the calls inside are conditional, decided before the branches
+    // that make them so are folded away. A masked variant runs entirely under
+    // its caller's mask, so every call it makes is conditional too.
+    const Divergence before =
+        analyze_divergence(*variant, entry, varying_names);
+    const set<string> region = reachable_from(entry, compute_successors(*variant));
+    set<string> conditional_calls;
+    {
+        const BlockMap blocks = make_block_map(*variant);
+        for (const string &block_name : region) {
+            if (std::holds_alternative<Terminator::Call>(
+                    blocks.at(block_name)->terminator.data) &&
+                (key.masked || before.masked.count(block_name))) {
+                conditional_calls.insert(block_name);
+            }
+        }
+    }
+
+    const BlockMasks masks = linearize(*variant, entry, before, mask);
 
     const Divergence div = analyze_divergence(*variant, entry, varying_names);
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << name;
+
+    // A variant's own calls are specialized the same way, so that a chain of
+    // calls from inside a gang is vectorized all the way down.
+    specialize_calls(funcs, *variant, region, div, masks, conditional_calls,
+                     key.lanes, variants);
+
     widen_region(*variant, entry, div, key.lanes);
 
     // The return type follows whatever the exit ends up carrying, which is a
@@ -568,65 +671,13 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << *div.branches.begin();
 
-    // Point each call at a variant of its callee that takes the arguments in
-    // the shape this gang has them in.
-    //
-    // A call that the lanes make unconditionally needs no mask: every lane is
-    // executing it, so the callee can store freely. A call inside folded
-    // control flow does need one, and gets the mask of the block it sits in
-    // as an extra argument. Both variants can exist at once, for a function
-    // called both ways.
-    map<VariantKey, string> variants;
-    for (const string &name : region) {
-        auto block = blocks.at(name);
-        auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
-        if (call == nullptr) {
-            continue;
-        }
+    Variants variants;
+    specialize_calls(funcs, *f, region, div, masks, conditional_calls, lanes,
+                     variants);
 
-        VariantKey key;
-        key.callee = call->call.name;
-        key.lanes = lanes;
-        key.masked = conditional_calls.count(name) > 0;
-        // Which arguments vary comes from the analysis, not from their types:
-        // the call sites are rewritten before the region is widened, so
-        // nothing has a vector type yet.
-        for (const auto &arg : call->call.args) {
-            key.varying.push_back(div.is_varying(name, *arg));
-        }
-
-        // Nothing to specialize: every argument arrives as it would from a
-        // scalar caller and no mask is needed, so the original function is
-        // already the right one to call.
-        const bool needs_variant =
-            key.masked || std::any_of(key.varying.begin(), key.varying.end(),
-                                      [](bool v) { return v; });
-        if (!needs_variant) {
-            continue;
-        }
-
-        const auto cached = variants.find(key);
-        string name_of_variant;
-        if (cached != variants.end()) {
-            name_of_variant = cached->second;
-        } else {
-            name_of_variant = variant_name(key);
-            specialize(funcs, key, name_of_variant);
-            variants[key] = name_of_variant;
-        }
-        call->call.name = name_of_variant;
-
-        if (key.masked) {
-            // The mask the call site runs under, which linearization computed
-            // when it folded the branch that made the call conditional.
-            const auto mask = masks.find(name);
-            internal_assert(mask != masks.end())
-                << "Call in " << name << " is conditional but its block has "
-                << "no mask";
-            call->call.args.push_back(mask->second);
-        }
+    if (std::getenv("BONSAI_DUMP_PRE_WIDEN") != nullptr) {
+        f->dump(std::cerr);
     }
-
     widen_region(*f, entry, div, lanes);
 
     // With the body vectorized, the loop is gone: it runs exactly once, so

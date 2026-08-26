@@ -189,6 +189,20 @@ struct Masks {
     map<std::pair<string, string>, shared_ptr<Value>> edge;
 };
 
+// Do two values refer to the same definition? The SSA form threads a
+// definition onwards under its own name, so a name is enough to tell.
+bool same_definition(const Value &a, const Value &b) {
+    if (const auto *ai = std::get_if<shared_ptr<Instruction>>(&a.data)) {
+        const auto *bi = std::get_if<shared_ptr<Instruction>>(&b.data);
+        return bi != nullptr && (*ai)->name == (*bi)->name;
+    }
+    if (const auto *aa = std::get_if<Argument>(&a.data)) {
+        const auto *ba = std::get_if<Argument>(&b.data);
+        return ba != nullptr && aa->name == ba->name;
+    }
+    return false; // constants: cheap enough to select between
+}
+
 // Appends an instruction to `block` without the operand rethreading
 // make_instruction does: after linearization the blocks form a chain, so a
 // value defined in an earlier block is already available here and must not be
@@ -353,6 +367,12 @@ BlockMasks linearize(Function &func, const string &entry,
     // the folded edges -- every value has been computed by the time the block
     // runs, and the mask says which one this lane wanted.
 
+    // What each blended-away argument was replaced by, so that a later block
+    // taking that argument as an incoming value picks up the blend instead of
+    // a name that no longer exists. Nested branches need this: the outer
+    // join's incoming value is the inner join's argument.
+    map<std::pair<string, string>, shared_ptr<Value>> replaced;
+
     for (const string &b : by_index) {
         auto block = blocks.at(b);
         if (block->args.empty() || b == entry) {
@@ -396,6 +416,7 @@ BlockMasks linearize(Function &func, const string &entry,
         }
 
         vector<shared_ptr<Value>> blended(block->args.size());
+        set<const Instruction *> blends;
         for (size_t j = leading; j < block->args.size(); j++) {
             // Fold from the last source backwards, so the first source ends
             // up as the outermost condition.
@@ -407,9 +428,25 @@ BlockMasks linearize(Function &func, const string &entry,
                     << "Jump from " << source.from << " to " << b
                     << " passes too few arguments";
                 shared_ptr<Value> incoming_value = source.values[j - offset];
+                if (std::holds_alternative<Argument>(incoming_value->data)) {
+                    const auto substituted = replaced.find(
+                        {source.from,
+                         std::get<Argument>(incoming_value->data).name});
+                    if (substituted != replaced.end()) {
+                        incoming_value = substituted->second;
+                    }
+                }
 
                 if (!value) {
                     value = incoming_value;
+                    continue;
+                }
+                // Every path passing the same definition is the common case
+                // -- a value merely threaded through the region rather than
+                // computed on either side -- and selecting between a value
+                // and itself is both pointless and, since the argument is
+                // about to be replaced by this select, self-referential.
+                if (same_definition(*value, *incoming_value)) {
                     continue;
                 }
                 const auto edge = masks.edge.find({source.from, b});
@@ -419,6 +456,8 @@ BlockMasks linearize(Function &func, const string &entry,
                 value = append(func, block, block->args[j].type,
                                Instruction::Op::Select,
                                {edge->second, incoming_value, value});
+                blends.insert(
+                    std::get<shared_ptr<Instruction>>(value->data).get());
             }
             blended[j] = value;
         }
@@ -449,6 +488,13 @@ BlockMasks linearize(Function &func, const string &entry,
             };
 
             for (const auto &instr : block->instrs) {
+                // Not inside a blend: its operands are the incoming values,
+                // one of which may well be an argument of this block with
+                // the same name, and rewriting them would make the blend
+                // select between itself.
+                if (blends.count(instr.get())) {
+                    continue;
+                }
                 for (auto &operand : instr->operands) {
                     replace(operand);
                 }
@@ -482,6 +528,7 @@ BlockMasks linearize(Function &func, const string &entry,
                        },
                        block->terminator.data);
             block->lookups[name] = blended[j];
+            replaced[{b, name}] = blended[j];
         }
         // Only the blended arguments go: a call's returned value is still
         // delivered as an argument.
