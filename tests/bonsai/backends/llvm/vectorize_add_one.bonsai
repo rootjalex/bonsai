@@ -1,0 +1,16 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the actual generated LLVM IR to assert vectorize() really
+// produces <8 x float> SIMD instructions (widened load/fadd/store), not
+// just plausible-looking SSA. See correctness/cpp/vectorize_add_one.bonsai
+// for the runtime-correctness counterpart of this same program.
+func add_one(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + 1.0;
+  }
+  return;
+}
+
+schedule {
+  add_one.vectorize(i);
+}

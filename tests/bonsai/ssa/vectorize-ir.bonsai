@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// Golden for the IR vectorize() produces, before any backend sees it.
+//
+// What to look for in the expected output:
+//   * the parfor is gone -- the gang runs once, so there is no loop left;
+//   * the loop index has become a `ramp(start, stride, lanes)`, which is what
+//     later makes an access dense rather than a gather;
+//   * values that vary between lanes have vector types (f32x8), and uniform
+//     ones are broadcast at the point they meet a varying value, rather than
+//     being widened everywhere;
+//   * the array handles themselves stay scalar: they are the same address for
+//     every lane.
+func contiguous(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + 1.0;
+  }
+  return;
+}
+
+func uniform_operand(a : array[f32, 8], scale : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] * scale;
+  }
+  return;
+}
+
+// Two uniform values combined with each other stay scalar all the way to the
+// point they meet the varying load, so only one broadcast is needed.
+func uniform_arithmetic(a : array[f32, 8], lo : f32, hi : f32,
+                        out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + (lo * hi);
+  }
+  return;
+}
+
+schedule {
+  contiguous.vectorize(i);
+  uniform_operand.vectorize(i);
+  uniform_arithmetic.vectorize(i);
+}

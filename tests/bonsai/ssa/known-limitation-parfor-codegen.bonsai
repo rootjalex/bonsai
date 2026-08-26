@@ -1,0 +1,19 @@
+//! flags: -p ssa -b llvm
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When the bug is fixed this test will fail; re-bless it and move it out of
+// "known-limitation".
+//
+// No backend implements ir::ParFor: CodeGen_LLVM, CodeGen_CUDA and the C++
+// backend all declare it with RESTRICT_VISITOR, which errors unconditionally.
+// So a parfor can only be compiled if a schedule removes it first -- today
+// that means vectorize(), which folds the loop into a single gang. The same
+// function *with* `add_one.vectorize(i)` in a schedule compiles and runs
+// correctly (see backends/llvm/vectorize_add_one.bonsai); without one, there
+// is no lowering at all, not even a sequential fallback.
+func add_one(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + 1.0;
+  }
+  return;
+}

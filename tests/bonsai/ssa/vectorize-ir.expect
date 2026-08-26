@@ -1,0 +1,32 @@
+func contiguous(a : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @4 = f32x8(1f) in
+  let @1 = @0 + @4 in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func uniform_arithmetic(a : f32[8], lo : f32, hi : f32, out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = lo * hi in
+  let @5 = f32x8(@1) in
+  let @2 = @0 + @5 in
+  out[ramp(0, 1, 8)] = @2
+  return
+}
+
+func uniform_operand(a : f32[8], scale : f32, out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @4 = f32x8(scale) in
+  let @1 = @0 * @4 in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+
+schedule host {
+    contiguous.vectorize(i)
+    uniform_arithmetic.vectorize(i)
+    uniform_operand.vectorize(i)
+
+}

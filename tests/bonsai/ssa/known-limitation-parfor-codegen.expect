@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: include/CodeGen/CodeGen_LLVM.h:177
+Restricted Visitor class does not handle: N6bonsai2ir6ParForE

@@ -1,0 +1,32 @@
+func bar(i : i32, a : mut i32[]) -> void {
+  let @0 = i / 2 in
+  a[i] = @0
+  return
+}
+
+func example(n : i32, a : mut i32[n]) -> void {
+  parfor i in [0:n:1] {
+    foo(i, a)
+    continue
+  }
+  return
+}
+
+func fiz(i : i32, a : mut i32[]) -> void {
+  let @0 = i * 3 in
+  a[i] = @0
+  return
+}
+
+func foo(i : i32, a : mut i32[]) -> void {
+  let @0 = i % 3 in
+  let @1 = @0 == 0 in
+  if (@1) {
+    bar(i, a)
+  } else {
+    fiz(i, a)
+  }
+  return
+}
+
+

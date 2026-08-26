@@ -52,6 +52,11 @@ void WriteLoc::add_index_access(const Expr &index) {
                 << "Cannot write to Tuple at OOB index: " << index;
             etype = tuple_t->etypes[*cvalue];
         }
+        // One index per lane writes one element per lane: a dense vector
+        // store when the index is a Ramp, a scatter otherwise.
+        if (index.type().defined() && index.type().is_vector()) {
+            etype = Vector_t::make(std::move(etype), index.type().lanes());
+        }
         internal_assert(etype.defined())
             << "Write location type inference produced undefined type: "
             << etype << " from index " << index << " of type " << type;

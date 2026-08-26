@@ -475,7 +475,7 @@ std::string Cursor::to_string() const {
 
 void split(FuncMap &funcs, string func, string idx, int factor, string outer,
            string inner, bool exact) {
-    internal_assert(funcs.contains(func)) << func;
+    internal_assert(funcs.contains(func)) << "split applied to unknown func:" << func;
     auto f = funcs[func];
 
     vector<shared_ptr<Block>> blocks;
@@ -561,7 +561,7 @@ void loopify(FuncMap &funcs, std::string func, int size) {
     internal_assert(size == 0)
         << "TODO: support queue-based loopify on: " << func;
 
-    internal_assert(funcs.contains(func)) << func;
+    internal_assert(funcs.contains(func)) << "loopify applied to unknown func:" << func;
     auto f = funcs[func];
 
     // Find any tail calls with empty return continuations and convert them into
@@ -615,6 +615,7 @@ void loopify(FuncMap &funcs, std::string func, int size) {
 // TODO: make this accept non-constant sizes!
 void defer(FuncMap &funcs, const string &func, const Queue_t &queue_t,
            const vector<Cursor> &cursors) {
+    internal_assert(funcs.contains(func)) << "defer applied to unknown func:" << func;
     auto [state_type, conts] = FindPaths(funcs, func, queue_t.owner, cursors);
 
     std::cout << state_type << std::endl;

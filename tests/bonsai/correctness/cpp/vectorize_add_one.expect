@@ -1,0 +1,4 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_add_one.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_add_one.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_add_one.o tests/bonsai/correctness/cpp/vectorize_add_one.o -o tests/bonsai/correctness/cpp/vectorize_add_one
+[test] ./tests/bonsai/correctness/cpp/vectorize_add_one
+1 2 3 4 5 6 7 8

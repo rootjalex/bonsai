@@ -188,7 +188,12 @@ void Visitor::visit(const Instantiate *node) {
 
 void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
 
-void Visitor::visit(const Deref *node) { node->expr.accept(this); }
+void Visitor::visit(const Deref *node) {
+    node->expr.accept(this);
+    if (node->mask.defined()) {
+        node->mask.accept(this);
+    }
+}
 
 void Visitor::visit(const AtomicAdd *node) {
     node->ptr.accept(this);
@@ -246,6 +251,9 @@ void Visitor::visit(const Free *node) { node->value.accept(this); }
 void Visitor::visit(const Store *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
+    if (node->mask.defined()) {
+        node->mask.accept(this);
+    }
 }
 
 void Visitor::visit(const Accumulate *node) {

@@ -1,0 +1,15 @@
+//! flags: -p ssa
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When the bug is fixed this test will fail; re-bless it and move it out of
+// "known-limitation".
+//
+// ConvertToSSA has no case for Print, so any function that prints cannot go
+// through the SSA pipeline at all. That is why the vectorization correctness
+// tests have to run through the C++ backend with a hand-written driver
+// (correctness/cpp/vectorize_*.bonsai) instead of `-b llvm -e` with a print,
+// which is how every other correctness test checks its values.
+func show(a : f32) -> void {
+    print(a);
+    return;
+}

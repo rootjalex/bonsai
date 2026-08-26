@@ -1,0 +1,29 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for the two accesses vectorize() cannot make
+// contiguous. `idx[i]` is a dense `load <8 x i32>` because the lane indices
+// are a stride-one ramp, but `a[idx[i]]` has one loaded address per lane and
+// must become an llvm.masked.gather; the strided loop below has ramp indices
+// of stride two, so both its read and its write become gather/scatter.
+//
+// The point of diffing the IR is that a wrong lowering here still computes
+// plausible values: only the shape of the memory operations shows whether the
+// addresses really went per-lane.
+func reorder(a : array[f32, 8], idx : array[i32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[idx[i]];
+  }
+  return;
+}
+
+func double_evens(a : array[f32, 16], out : mut array[f32, 16]) {
+  parfor i in 0:16:2 {
+    out[i] = a[i] * 2.0;
+  }
+  return;
+}
+
+schedule {
+  reorder.vectorize(i);
+  double_evens.vectorize(i);
+}

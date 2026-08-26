@@ -700,7 +700,13 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Deref: {
         const Deref *v0 = e0.as<Deref>();
         const Deref *v1 = e1.as<Deref>();
-        return compare_exprs(v0->expr, v1->expr);
+        // The mask is part of the load: a predicated one reads different
+        // memory than an unpredicated one, so CSE must not merge them.
+        if (const Cmp exprs = compare_exprs(v0->expr, v1->expr);
+            exprs != Cmp::Equals) {
+            return exprs;
+        }
+        return compare_exprs(v0->mask, v1->mask);
     }
     case IRExprEnum::AtomicAdd: {
         const AtomicAdd *v0 = e0.as<AtomicAdd>();

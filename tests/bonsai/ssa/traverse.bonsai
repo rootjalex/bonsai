@@ -1,3 +1,13 @@
+//! flags: -p ssa
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When the bug is fixed this test will fail; re-bless it with the IR it then
+// produces and drop this notice.
+//
+// This one is not specific to the SSA pipeline: LowerYields has no case for
+// Scan, so an aggregate scan over a tree query fails before SSA conversion is
+// even reached.
+
 extern input : set[f32];
 
 func [[export]] range_query_fast(low : f32, high : f32) = filter(|i : f32| low <= i && i <= high, input);

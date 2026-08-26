@@ -1,0 +1,95 @@
+//! flags: -p ssa-analysis
+
+// Golden for the analyses vectorize() is built on (SSA/Analysis.h,
+// SSA/AnalyzeDivergence.h, SSA/PromoteAllocas.h). The dump prints, for each
+// function and each parfor body region: the SSA form after promotion, the
+// control-flow analyses (dominance, post-dominance, control dependence, loop
+// forest, and the dominance-compact block index partial linearization needs),
+// and then which values are varying and which blocks execute under a mask.
+//
+// None of that is observable from generated code, which is why it is checked
+// here directly.
+
+// Straight line: `i` is varying and everything derived from it is too, while
+// the array handles stay uniform. No block is masked.
+func contiguous(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = a[i] + 1.0;
+    }
+    return;
+}
+
+// `scale` is a function argument the loop index never reaches, so it must
+// stay uniform (it becomes a broadcast rather than a vector).
+func uniform_operand(a : array[f32, 8], scale : f32, out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = a[i] * scale;
+    }
+    return;
+}
+
+// A varying condition: the branch is divergent, both arms are masked, and
+// the join that post-dominates them is not.
+func divergent_branch(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        if (a[i] < 0.0) {
+            out[i] = 0.0;
+        } else {
+            out[i] = a[i];
+        }
+    }
+    return;
+}
+
+// A uniform condition: no lane disagrees about which way to go, so nothing
+// is masked and the branch survives vectorization untouched.
+func uniform_branch(a : array[f32, 8], flag : f32, out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        if (flag < 0.0) {
+            out[i] = 0.0;
+        } else {
+            out[i] = a[i];
+        }
+    }
+    return;
+}
+
+// A mutable local assigned differently in each arm of a divergent branch.
+// Promotion turns its alloca/store/load into a block argument of the join,
+// which the divergence analysis then reports as varying -- the whole point
+// of promoting before vectorizing.
+func promoted_local(a : array[f32, 8], seed : f32, out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        x : mut = seed;
+        if (a[i] < 0.0) {
+            x = 1.0;
+        } else {
+            x = 2.0;
+        }
+        out[i] = x;
+    }
+    return;
+}
+
+// A mutable local whose value never depends on the loop index: it is
+// promoted just the same, but stays uniform.
+func promoted_uniform(a : array[f32, 8], seed : f32, out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        y : mut = seed;
+        y *= 2.0;
+        out[i] = a[i] + y;
+    }
+    return;
+}
+
+// A call inside the body. Until divergence is solved across functions, a
+// call handed a varying argument is assumed to return a varying result.
+func combine(x : f32, y : f32) -> f32 = x + y;
+
+func varying_call(a : array[f32, 8], b : array[f32, 8],
+                  out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = combine(a[i], b[i]);
+    }
+    return;
+}

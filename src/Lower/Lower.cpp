@@ -34,6 +34,7 @@
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
 #include "SSA/Convert.h"
+#include "SSA/DumpAnalysis.h"
 
 #include "CompilerOptions.h"
 #include "Error.h"
@@ -110,6 +111,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
     manager.register_pass<ir::ssa::ConvertToSSA>();
+    manager.register_pass<ir::ssa::DumpSSAAnalysis>();
 
     // Core: the minimal set of passes required to legally lower Bonsai IR
     // (this should *not* include optimizations).
@@ -151,6 +153,81 @@ PassManager register_passes(const CompilerOptions &options) {
         core.push_back(std::make_unique<RenamePointerToExpr>());
     }
     manager.register_alias("core", core);
+
+    // SSA: like `core`, but skips LoopTransforms (the Stmt-level scheduler,
+    // being replaced by the SSA rewriter in src/SSA/Rewrite.cpp) so that
+    // schedule transforms which only make sense post-SSA (e.g. `vectorize`)
+    // survive to reach ConvertToSSA, which reads them directly off the
+    // Program's schedule.
+    std::vector<std::unique_ptr<Pass>> ssa;
+    ssa.push_back(std::make_unique<Canonicalize>());
+    ssa.push_back(std::make_unique<VerifyOptions>());
+    ssa.push_back(std::make_unique<VerifyLayouts>());
+    // Fusion must always run before Array or Tree lowering!
+    ssa.push_back(std::make_unique<opt::Fusion>());
+    ssa.push_back(std::make_unique<LowerMaps>());
+    ssa.push_back(std::make_unique<LowerTrees>());
+    // This must always run after LowerTrees and before LowerLayouts
+    ssa.push_back(std::make_unique<LowerSorts>());
+    ssa.push_back(std::make_unique<LowerDefers>());
+    ssa.push_back(std::make_unique<LowerExterns>());
+    ssa.push_back(std::make_unique<LowerGeometrics>());
+    ssa.push_back(std::make_unique<LowerLayouts>());
+    ssa.push_back(std::make_unique<LowerForEachs>());
+    ssa.push_back(std::make_unique<LowerRandom>());
+    ssa.push_back(std::make_unique<LowerDynamicSets>());
+    ssa.push_back(std::make_unique<LowerYields>());
+    ssa.push_back(std::make_unique<LowerScans>());
+    ssa.push_back(std::make_unique<LowerRecLoops>());
+    ssa.push_back(std::make_unique<LowerLambdas>());
+    ssa.push_back(std::make_unique<LowerOptions>());
+    ssa.push_back(std::make_unique<LowerTuples>());
+    ssa.push_back(std::make_unique<LowerDynamicArrays>());
+    ssa.push_back(std::make_unique<LowerLogicalOperations>());
+    ssa.push_back(std::make_unique<LowerGenerics>());
+    // This should always run last! It duplicates the exported functions.
+    ssa.push_back(std::make_unique<ReturnToOutParameter>());
+    ssa.push_back(std::make_unique<Mutability>());
+    if (options.target == BackendTarget::CUDA) {
+        // This must go after Mutability, since it requires PtrTo.
+        ssa.push_back(std::make_unique<RenamePointerToExpr>());
+    }
+    ssa.push_back(std::make_unique<ir::ssa::ConvertToSSA>());
+    manager.register_alias("ssa", ssa);
+
+    // Same lowering as "ssa", but dumps the SSA control-flow analyses instead
+    // of rewriting and generating code. Used to test those analyses directly.
+    std::vector<std::unique_ptr<Pass>> ssa_analysis;
+    ssa_analysis.push_back(std::make_unique<Canonicalize>());
+    ssa_analysis.push_back(std::make_unique<VerifyOptions>());
+    ssa_analysis.push_back(std::make_unique<VerifyLayouts>());
+    ssa_analysis.push_back(std::make_unique<opt::Fusion>());
+    ssa_analysis.push_back(std::make_unique<LowerMaps>());
+    ssa_analysis.push_back(std::make_unique<LowerTrees>());
+    ssa_analysis.push_back(std::make_unique<LowerSorts>());
+    ssa_analysis.push_back(std::make_unique<LowerDefers>());
+    ssa_analysis.push_back(std::make_unique<LowerExterns>());
+    ssa_analysis.push_back(std::make_unique<LowerGeometrics>());
+    ssa_analysis.push_back(std::make_unique<LowerLayouts>());
+    ssa_analysis.push_back(std::make_unique<LowerForEachs>());
+    ssa_analysis.push_back(std::make_unique<LowerRandom>());
+    ssa_analysis.push_back(std::make_unique<LowerDynamicSets>());
+    ssa_analysis.push_back(std::make_unique<LowerYields>());
+    ssa_analysis.push_back(std::make_unique<LowerScans>());
+    ssa_analysis.push_back(std::make_unique<LowerRecLoops>());
+    ssa_analysis.push_back(std::make_unique<LowerLambdas>());
+    ssa_analysis.push_back(std::make_unique<LowerOptions>());
+    ssa_analysis.push_back(std::make_unique<LowerTuples>());
+    ssa_analysis.push_back(std::make_unique<LowerDynamicArrays>());
+    ssa_analysis.push_back(std::make_unique<LowerLogicalOperations>());
+    ssa_analysis.push_back(std::make_unique<LowerGenerics>());
+    ssa_analysis.push_back(std::make_unique<ReturnToOutParameter>());
+    ssa_analysis.push_back(std::make_unique<Mutability>());
+    if (options.target == BackendTarget::CUDA) {
+        ssa_analysis.push_back(std::make_unique<RenamePointerToExpr>());
+    }
+    ssa_analysis.push_back(std::make_unique<ir::ssa::DumpSSAAnalysis>());
+    manager.register_alias("ssa-analysis", ssa_analysis);
 
     // Default: the default work flow (with optimizations).
     std::vector<std::unique_ptr<Pass>> d;

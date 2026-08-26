@@ -1,0 +1,4 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_stride.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_stride.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_stride.o tests/bonsai/correctness/cpp/vectorize_stride.o -o tests/bonsai/correctness/cpp/vectorize_stride
+[test] ./tests/bonsai/correctness/cpp/vectorize_stride
+0 -1 4 -1 8 -1 12 -1 16 -1 20 -1 24 -1 28 -1

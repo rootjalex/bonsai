@@ -1,0 +1,13 @@
+// Adds a genuinely uniform value (a function argument never touched by `i`)
+// alongside varying per-lane loads. Exercises the uniformity analysis
+// keeping `scale` scalar/broadcast while `a[i]` is a full vector op.
+func scale_all(a : array[f32, 8], scale : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] * scale;
+  }
+  return;
+}
+
+schedule {
+  scale_all.vectorize(i);
+}

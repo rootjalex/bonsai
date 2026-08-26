@@ -604,6 +604,11 @@ Expr Extract::make(Expr vec, Expr idx) {
                 return Extract::make(std::move(vec), *as_const_int(idx));
             }
             type = vec.type().element_of();
+            // One index per lane extracts one element per lane: a dense
+            // vector load when the index is a Ramp, a gather otherwise.
+            if (idx.type().is_vector()) {
+                type = Vector_t::make(std::move(type), idx.type().lanes());
+            }
         }
     }
 
@@ -1299,7 +1304,9 @@ Expr PtrTo::make(Expr expr) {
     internal_assert(expr.type().defined())
         << "PtrTo::make received untyped expr: " << expr;
 
-    if (const Deref *ref = expr.as<Deref>()) {
+    // Taking the address of a dereference is the address itself -- unless
+    // the load was predicated, which is not something an address can carry.
+    if (const Deref *ref = expr.as<Deref>(); ref && !ref->mask.defined()) {
         return ref->expr;
     }
 
@@ -1309,21 +1316,28 @@ Expr PtrTo::make(Expr expr) {
     return node;
 }
 
-Expr Deref::make(Expr expr) {
+Expr Deref::make(Expr expr, Expr mask) {
     internal_assert(expr.defined()) << "Deref::make received undefined expr";
     internal_assert(expr.type().defined())
         << "Deref::make received untyped expr: " << expr;
     internal_assert(expr.type().is<Ptr_t>())
         << "Deref::make received non-ptr expr: " << expr
         << " has type: " << expr.type();
+    if (mask.defined() && mask.type().defined()) {
+        internal_assert(mask.type().is_bool() && mask.type().is_vector())
+            << "Deref mask must be a boolean vector, got: " << mask.type();
+    }
 
-    if (const PtrTo *ptr = expr.as<PtrTo>()) {
+    // Dereferencing an address-of is the value itself -- unless the load is
+    // predicated, in which case the disabled lanes must not be read.
+    if (const PtrTo *ptr = expr.as<PtrTo>(); ptr && !mask.defined()) {
         return ptr->expr;
     }
 
     Deref *node = new Deref;
     node->type = expr.type().as<Ptr_t>()->etype;
     node->expr = std::move(expr);
+    node->mask = std::move(mask);
     return node;
 }
 

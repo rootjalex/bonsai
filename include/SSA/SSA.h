@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "IR/Function.h"
 #include "IR/Type.h"
 
 namespace bonsai {
@@ -13,6 +14,10 @@ namespace ssa {
 struct Argument {
     Type type;
     std::string name;
+    // Only meaningful for a Function's entry-block arguments (see
+    // FunctionBuilder in SSA/Convert.cpp and codegen_stmt in
+    // SSA/CodeGen_Stmt.cpp); ignored elsewhere.
+    bool mutating = false;
 
     void dump(std::ostream &os) const;
 };
@@ -78,7 +83,13 @@ struct Instruction {
         Min,
         Mod,
         Mul,
+        // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
+        // This is what a vectorized loop index becomes, and an index of
+        // this shape is what makes a memory access dense rather than a
+        // gather (see ir::Ramp).
+        Ramp,
         Reinterpret,
+        Select,
         Set,
         Store, // side-effect-y
         Sub,
@@ -169,6 +180,8 @@ struct Block : public std::enable_shared_from_this<Block> {
     make_instruction(Type type, Instruction::Op op,
                      std::vector<std::shared_ptr<Value>> vs,
                      bool allow_rename = false);
+    void make_side_effect(Instruction::Op op,
+                           std::vector<std::shared_ptr<Value>> vs);
 
     // If value is defined in this block, returns it, otherwise adds it as an
     // argument recursively until it finds the block it is defined in!
@@ -176,12 +189,18 @@ struct Block : public std::enable_shared_from_this<Block> {
 
     void dump(std::ostream &os) const;
     void dump() const; // defaults to std::cout
+private:
+    // Mutates in place. Used for rethreading args in call instructions.
+    void forward_block_values(std::vector<std::shared_ptr<Value>> &vs);
 };
 
 struct Function {
     // First block is entry block.
     std::vector<std::shared_ptr<Block>> blocks;
     ir::Type ret_type; // convenience.
+    // Carried through from the originating ir::Function so that codegen_stmt
+    // can reconstruct it faithfully (e.g. [[export]]).
+    std::vector<ir::Function::Attribute> attributes;
 
     void dump(std::ostream &os) const;
 

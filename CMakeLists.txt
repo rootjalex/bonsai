@@ -148,10 +148,14 @@ target_sources(
     src/Parser/Parser.cpp
     src/Parser/Token.cpp
     src/SSA/Analysis.cpp
+    src/SSA/AnalyzeDivergence.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/Convert.cpp
+    src/SSA/DumpAnalysis.cpp
+    src/SSA/PromoteAllocas.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
+    src/SSA/Vectorize.cpp
     src/Utils.cpp
 )
 
@@ -239,8 +243,11 @@ target_sources(
     include/Parser/Parser.h
     include/Parser/Token.h
     include/SSA/Analysis.h
+    include/SSA/AnalyzeDivergence.h
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
+    include/SSA/DumpAnalysis.h
+    include/SSA/PromoteAllocas.h
     include/SSA/Rewrite.h
     include/SSA/SSA.h
     include/RefCount.h

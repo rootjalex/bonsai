@@ -8,9 +8,9 @@ func [[kernel]] _parfunc0(ctx0 : mut (_ctx0*), _parfor_idx : i64) -> void {
 
 func _traverse_array0(fs : i32[8]) -> i32[8] {
   alloc _alloc0 : mut i32[8]
-  ctx : mut _ctx0 := build<_ctx0>((*_alloc0), fs)
+  ctx : mut _ctx0 := build<_ctx0>(_alloc0, fs)
   launch 8 _parfunc0(ctx)
-  return (*_alloc0)
+  return _alloc0
 }
 
 func apply_function(fs : i32[8]) -> i32[8] {

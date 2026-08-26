@@ -36,7 +36,9 @@ struct RewriteMutables : public ir::Mutator {
         : mut_args(std::move(mut_args)), immut_args(std::move(immut_args)) {}
 
     ir::Expr visit(const ir::Var *node) override {
-        if (mut_args.contains(node->name) || mut_locals.contains(node->name)) {
+        if ((mut_args.contains(node->name) ||
+             mut_locals.contains(node->name)) &&
+            !node->type.is_reference()) {
             ir::Expr var =
                 ir::Var::make(ir::Ptr_t::make(node->type), node->name);
             return ir::Deref::make(std::move(var));
@@ -89,7 +91,7 @@ struct RewriteMutables : public ir::Mutator {
             ir::Expr arg = mutate(args[i]);
             if ((func_t->arg_types[i].is_mutable ||
                  func_t->arg_types[i].type.is<ir::Struct_t>()) &&
-                !arg.type().is<ir::Ptr_t>()) {
+                !arg.type().is<ir::Ptr_t>() && !arg.type().is_reference()) {
                 arg = ir::PtrTo::make(std::move(arg));
                 ret.rewrote_mut = true;
             }
@@ -104,10 +106,13 @@ struct RewriteMutables : public ir::Mutator {
         std::vector<ir::Function_t::ArgSig> arg_types(n);
 
         for (size_t i = 0; i < n; i++) {
-            arg_types[i].type = (func_t->arg_types[i].is_mutable ||
-                                 func_t->arg_types[i].type.is<ir::Struct_t>())
-                                    ? ir::Ptr_t::make(func_t->arg_types[i].type)
-                                    : func_t->arg_types[i].type;
+            const ir::Type &arg_type = func_t->arg_types[i].type;
+            arg_types[i].type =
+                ((func_t->arg_types[i].is_mutable ||
+                  arg_type.is<ir::Struct_t>()) &&
+                 !arg_type.is_reference())
+                    ? ir::Ptr_t::make(arg_type)
+                    : arg_type;
             arg_types[i].is_mutable = func_t->arg_types[i].is_mutable;
         }
         return ir::Function_t::make(func_t->ret_type, std::move(arg_types));
@@ -209,7 +214,8 @@ ir::FuncMap Mutability::run(ir::FuncMap funcs,
         // Then rewrite function signature.
         for (auto &arg_sig : func->args) {
             ir::Type t = arg_sig.type;
-            if (arg_sig.mutating || arg_sig.type.is<ir::Struct_t>()) {
+            if ((arg_sig.mutating || arg_sig.type.is<ir::Struct_t>()) &&
+                !arg_sig.type.is_reference()) {
                 t = ir::Ptr_t::make(arg_sig.type);
             }
             t = rewriter.mutate(std::move(t));

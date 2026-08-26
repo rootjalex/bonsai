@@ -470,8 +470,13 @@ struct PtrTo : ExprNode<PtrTo> {
 
 struct Deref : ExprNode<Deref> {
     Expr expr; // must be ptr
+    // Predication, for a load that reads one element per lane (see Ramp).
+    // Undefined means every lane reads; otherwise a boolean vector with one
+    // entry per lane, and the disabled lanes read as zero rather than
+    // touching memory.
+    Expr mask;
 
-    static Expr make(Expr expr);
+    static Expr make(Expr expr, Expr mask = Expr());
 
     static const IRExprEnum node_type = IRExprEnum::Deref;
 };

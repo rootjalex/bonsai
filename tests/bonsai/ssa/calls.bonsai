@@ -1,3 +1,8 @@
+//! flags: -p ssa
+
+// Calls across functions survive the round trip through SSA form: each one
+// becomes a Call terminator plus a continuation block, and the relooper has
+// to rebuild the original structure from that.
 func foo(a : f32) = a + 1.0;
 
 func bar(a : f32) = a - 1.0;

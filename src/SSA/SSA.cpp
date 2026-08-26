@@ -118,8 +118,12 @@ static const char *op_name(Instruction::Op op) {
         return "mod";
     case Instruction::Op::Mul:
         return "mul";
+    case Instruction::Op::Ramp:
+        return "ramp";
     case Instruction::Op::Reinterpret:
         return "reinterpret";
+    case Instruction::Op::Select:
+        return "select";
     case Instruction::Op::Set:
         return "set";
     case Instruction::Op::Store:
@@ -163,7 +167,9 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
+    case Instruction::Op::Ramp:
     case Instruction::Op::Reinterpret:
+    case Instruction::Op::Select:
     case Instruction::Op::Set:
     case Instruction::Op::Sub:
         return false;
@@ -173,12 +179,17 @@ bool is_store_instr(const Instruction::Op &op) {
 void Instruction::dump(std::ostream &os) const {
     if (is_store_instr(op)) {
         internal_assert(name.empty())
-            << "Name must be empty for store/acc: " << name;
+            << "Name must be empty for store/acc: " << name << " (op: " << op_name(op) << ")";
         os << op_name(op) << " ";
-        internal_assert(operands.size() == 2);
+        // A vectorized store carries a third operand, its execution mask.
+        internal_assert(operands.size() == 2 || operands.size() == 3);
         operands[0]->dump(os);
         os << " ";
         operands[1]->dump(os);
+        if (operands.size() == 3) {
+            os << " mask ";
+            operands[2]->dump(os);
+        }
         return;
     } else if (op == Instruction::Op::Append) {
         internal_assert(name.empty())
@@ -320,27 +331,7 @@ Block::make_instruction(Type type, Instruction::Op op,
                         bool allow_rename) {
     // Re-thread any operands from other blocks (necessary due to call
     // continuations).
-    for (auto &operand : vs) {
-        std::visit(overloads{
-                       [&](const std::shared_ptr<Instruction> &i) {
-                           if (i->owner.lock().get() != this) {
-                               operand = get_value(i->name, i->type);
-                           }
-                       },
-                       [&](const Argument &a) {
-                           auto it = lookups.find(a.name);
-                           if (it != lookups.end()) {
-                               // Already local — use the canonical local value.
-                               operand = it->second;
-                               return;
-                           }
-                           // Not local — thread it in.
-                           operand = get_value(a.name, a.type);
-                       },
-                       [](const Constant &) {}, // constants need no threading
-                   },
-                   operand->data);
-    }
+    forward_block_values(vs);
 
     auto locked = owner.lock();
     internal_assert(locked)
@@ -357,6 +348,17 @@ Block::make_instruction(Type type, Instruction::Op op,
         internal_assert(inserted) << name << "already exists in block!\n";
     }
     return v;
+}
+
+void Block::make_side_effect(Instruction::Op op,
+                        std::vector<std::shared_ptr<Value>> vs) {
+    // Re-thread any operands from other blocks (necessary due to call
+    // continuations).
+    forward_block_values(vs);
+
+    // No name for side-effect-y instructions.
+    auto instr = std::make_shared<Instruction>(op, std::move(vs), weak_from_this());
+    instrs.push_back(instr);
 }
 
 std::shared_ptr<Value> Block::get_value(const std::string &name,
@@ -493,6 +495,30 @@ void Block::dump(std::ostream &os) const {
 }
 
 void Block::dump() const { this->dump(std::cout); }
+
+void Block::forward_block_values(std::vector<std::shared_ptr<Value>> &vs) {
+    for (auto &operand : vs) {
+        std::visit(overloads{
+                       [&](const std::shared_ptr<Instruction> &i) {
+                           if (i->owner.lock().get() != this) {
+                               operand = get_value(i->name, i->type);
+                           }
+                       },
+                       [&](const Argument &a) {
+                           auto it = lookups.find(a.name);
+                           if (it != lookups.end()) {
+                               // Already local — use the canonical local value.
+                               operand = it->second;
+                               return;
+                           }
+                           // Not local — thread it in.
+                           operand = get_value(a.name, a.type);
+                       },
+                       [](const Constant &) {}, // constants need no threading
+                   },
+                   operand->data);
+    }
+}
 
 void Function::dump(std::ostream &os) const {
     for (size_t i = 0; i < blocks.size(); ++i) {

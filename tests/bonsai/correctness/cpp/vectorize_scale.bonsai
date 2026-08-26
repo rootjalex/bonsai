@@ -1,0 +1,17 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_scale
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_scale.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_scale.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_scale.o tests/bonsai/correctness/cpp/vectorize_scale.o -o tests/bonsai/correctness/cpp/vectorize_scale, ./tests/bonsai/correctness/cpp/vectorize_scale, rm tests/bonsai/correctness/cpp/vectorize_scale, rm tests/bonsai/correctness/cpp/main_vectorize_scale.o, rm tests/bonsai/correctness/cpp/vectorize_scale.h, rm tests/bonsai/correctness/cpp/vectorize_scale.o
+
+// Same as vectorize_add_one.bonsai, but exercises a uniform scalar operand
+// (scale) alongside the varying array read/write, verifying vectorize()'s
+// broadcast (Op::Bc) path produces correct results too, not just the
+// straight-line widen path.
+func [[export]] scale_all(a : array[f32, 8], scale : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] * scale;
+  }
+  return;
+}
+
+schedule {
+  scale_all.vectorize(i);
+}

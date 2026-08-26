@@ -242,6 +242,19 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     llvm::LoadInst *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
                                         const std::string &name);
+    // A per-lane memory operation: `base` addresses the container, `index`
+    // holds one index per lane. A Ramp of stride one is contiguous and
+    // becomes an ordinary vector load/store; anything else is a
+    // gather/scatter over a vector of addresses.
+    // `mask`, when defined, is a boolean vector disabling the lanes that must
+    // not touch memory.
+    llvm::Value *create_vector_load(llvm::Type *etype, llvm::Value *base,
+                                    const ir::Expr &index, uint32_t lanes,
+                                    const ir::Expr &mask,
+                                    const std::string &name);
+    void create_vector_store(llvm::Value *value, llvm::Type *etype,
+                             llvm::Value *base, const ir::Expr &index,
+                             uint32_t lanes, const ir::Expr &mask);
     llvm::Value *create_alloca_at_entry(llvm::Type *etype,
                                         const std::string &name,
                                         llvm::Value *size = nullptr);

@@ -84,6 +84,11 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_stack_allocatable() const; // primitives but not arrays
     bool is_iterable() const;
     bool is_func() const;
+    // Does a value of this type already refer to storage the program can
+    // write through? An array handle does: it is the address of its
+    // elements, so making one mutable adds no indirection, and wrapping it
+    // in a Ptr_t would mean a pointer to a pointer.
+    bool is_reference() const;
 
     // Type casts
     // Rewrites (through vectors) to boolean base.

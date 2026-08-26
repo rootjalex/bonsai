@@ -367,7 +367,26 @@ class BonsaiToCpp : ir::Printer {
     bool should_be_ref(const Type &type) const {
         // TODO: finish
         // const auto *struct_t = type.as<Struct_t>();
-        return type.is<Ref_t, Set_t, BVH_t, Struct_t>();
+        if (type.is<Ref_t, Set_t, BVH_t, Struct_t>()) {
+            return true;
+        }
+        // Constant-size arrays are emitted as std::array<T, N> (see
+        // emit_type's Array_t visitor above), a value type -- but
+        // CodeGen_LLVM's Array_t codegen *always* represents an Array_t as a
+        // bare pointer at the LLVM level (arrays are never passed as
+        // in-register aggregates; see CodeGen_LLVM::visit(const Array_t*)),
+        // so the declared C++ signature must match with a reference here,
+        // exactly like Ptr_t/Struct_t above. Without this, callers compute
+        // the SysV by-value (memory-class) ABI for std::array<T, N>, which
+        // doesn't match the pointer the generated function actually
+        // expects, and calls corrupt the stack.
+        // Dynamically-sized arrays are emitted as a raw `T*` instead (see
+        // emit_type), which already matches the pointer ABI on its own and
+        // must *not* additionally get a reference here.
+        if (const Array_t *array_t = type.as<Array_t>()) {
+            return array_t->size.defined() && is_const(array_t->size);
+        }
+        return false;
     }
 
     void emit_func_decl(const Function &func) {
@@ -862,6 +881,8 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
     void visit(const Deref *node) override {
+        internal_assert(!node->mask.defined())
+            << "[unimplemented] masked load in C++ codegen: " << Expr(node);
         ss << "(*";
         node->expr.accept(this);
         ss << ")";

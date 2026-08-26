@@ -13,6 +13,7 @@
 #include "Utils.h"
 
 #include <iostream>
+#include <set>
 
 namespace bonsai {
 namespace ir {
@@ -23,6 +24,17 @@ struct FunctionBuilder : Visitor {
     std::shared_ptr<Block> block = nullptr;
 
     std::shared_ptr<ssa::Function> function;
+
+    // Names of mutable function arguments and locals (populated from `func`'s
+    // args below, and as `Allocate` nodes are visited). Both are registered
+    // in `lookups` under a pointer type -- function args because `arg.type`
+    // is already `Ptr_t(original type)` by the time Mutability has run,
+    // locals because `visit(const Allocate *)` below allocates a real
+    // pointer to match how Lower/Mutability.cpp rewrites reads of them into
+    // Deref(Var(Ptr_t(...), name)). WriteLoc::base_type in Store/Accumulate
+    // nodes still refers to the pre-pointer element type, so lookups for
+    // these names must ask for the pointer type instead.
+    std::set<std::string> mut_names;
 
     FunctionBuilder(const ir::Function &func) {
         function = std::make_shared<Function>();
@@ -35,11 +47,10 @@ struct FunctionBuilder : Visitor {
                 << "TODO: handle default values: " << func.name << " has "
                 << arg.name << " = " << arg.default_value;
             // TODO: Ref_t???
-            Type type = arg.mutating ? Ptr_t::make(arg.type) : arg.type;
-            // internal_assert(!arg.mutating)
-            //     << "TODO: handle mutable arguments: " << func.name << " has "
-            //     << arg.name << " as mutable";
-            Argument a = {arg.type, arg.name};
+            if (arg.mutating) {
+                mut_names.insert(arg.name);
+            }
+            Argument a = {arg.type, arg.name, arg.mutating};
             block->args.push_back(a);
             auto [_, inserted] = block->lookups.insert(
                 {arg.name, std::make_shared<Value>(std::move(a))});
@@ -50,8 +61,19 @@ struct FunctionBuilder : Visitor {
 
         function->blocks.push_back(block);
         function->ret_type = func.ret_type;
+        function->attributes = func.attributes;
 
         func.body.accept(this);
+    }
+
+    // Returns the type to look up `loc.base` under: the pointer type if
+    // `loc.base` names a mutable argument or local (see `mut_names` above),
+    // otherwise `loc.base_type` unchanged.
+    Type base_lookup_type(const WriteLoc &loc) const {
+        if (mut_names.contains(loc.base) && !loc.base_type.is_reference()) {
+            return Ptr_t::make(loc.base_type);
+        }
+        return loc.base_type;
     }
 
     // TODO: cache for unmutable expressions!
@@ -256,38 +278,44 @@ struct FunctionBuilder : Visitor {
         auto loc = get_value(node->loc.to_expr());
         std::vector<std::shared_ptr<Value>> args = {std::move(loc),
                                                     std::move(v)};
-
-        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            Instruction::Op::Append, std::move(args), block);
-        block->instrs.push_back(instr);
+        block->make_side_effect(Instruction::Op::Append, std::move(args));
     }
 
     void visit(const Allocate *node) override {
-        if (node->memory == Allocate::Stack && node->value.defined()) {
-            // TODO: require simple (non-struct) type?
-            // Handle like a LetStmt, this is a primitive type that will
-            // just be updated.
-            auto v = get_value(node->value);
-            block->make_instruction(node->loc.base, node->loc.base_type,
-                                    std::move(v));
-            return;
-        }
+        // Allocate is only ever emitted for `mut` locals (see
+        // Parser::parse_assign / parse declarations), so any read of this
+        // name later in the body was rewritten by Lower/Mutability.cpp into
+        // Deref(Var(Ptr_t(base_type), name)). Register a real pointer here
+        // (matching mut function arguments, see `mut_names` above) so those
+        // reads and any later Store/Accumulate agree on its type.
         auto op = (node->memory == Allocate::Stack) ? Instruction::Op::Alloca
                                                     : Instruction::Op::Alloc;
 
-        internal_assert(!node->value.defined())
-            << "TODO: handle values in Allocate SSA! " << node->value;
+        mut_names.insert(node->loc.base);
 
+        // An array handle already refers to storage, so it is registered
+        // under its own type rather than a pointer to it -- the same
+        // convention Lower/Mutability.cpp uses (see Type::is_reference), and
+        // what `base_lookup_type` below expects to find.
+        const Type &base_type = node->loc.base_type;
+        Type alloc_type =
+            base_type.is_reference() ? base_type : Ptr_t::make(base_type);
         std::vector<std::shared_ptr<Value>> args;
         std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            node->loc.base, node->loc.base_type, op, args, block);
+            node->loc.base, alloc_type, op, args, block);
         block->instrs.push_back(instr);
 
-        // TODO: should this be a load? I think it should...
         auto [_, inserted] = block->lookups.insert(
             {node->loc.base, std::make_shared<Value>(instr)});
         internal_assert(inserted)
             << node->loc.base << "already exists in block!\n";
+
+        if (node->value.defined()) {
+            auto v = get_value(node->value);
+            block->make_side_effect(
+                Instruction::Op::Store,
+                {std::make_shared<Value>(instr), std::move(v)});
+        }
     }
 
     void visit(const Store *node) override {
@@ -296,6 +324,20 @@ struct FunctionBuilder : Visitor {
                 << "TODO: handle non-primitive (heap) stores in SSA: "
                 << Stmt(node);
             auto v = get_value(node->value);
+
+            if (mut_names.contains(node->loc.base)) {
+                // `node->loc.base` is a pointer-backed mutable argument (see
+                // `mut_names` above); the write must go through a real Store
+                // so it's visible to the caller, not just renamed in this
+                // function's local SSA lookups. Also, overwriting the lookup
+                // with the raw (unwrapped) value here would stomp the
+                // pointer entry needed by any later access to this argument.
+                auto ptr =
+                    block->get_value(node->loc.base, base_lookup_type(node->loc));
+                block->make_side_effect(Instruction::Op::Store,
+                                        {std::move(ptr), std::move(v)});
+                return;
+            }
 
             // Overwrite the name with v (insert if missing).
             // All successors of the current block will receive v.
@@ -308,8 +350,7 @@ struct FunctionBuilder : Visitor {
         auto v = get_value(node->value);
 
         // Create GEP
-        // TODO: should this be a pointer to the type??
-        auto var = block->get_value(node->loc.base, node->loc.base_type);
+        auto var = block->get_value(node->loc.base, base_lookup_type(node->loc));
 
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<std::string>(value)) {
@@ -329,9 +370,7 @@ struct FunctionBuilder : Visitor {
 
         std::vector<std::shared_ptr<Value>> args = {std::move(var),
                                                     std::move(v)};
-        std::shared_ptr<Instruction> instr = std::make_shared<Instruction>(
-            Instruction::Op::Store, std::move(args), block);
-        block->instrs.push_back(instr);
+        block->make_side_effect(Instruction::Op::Store, std::move(args));
     }
 
     Instruction::Op get_acc_op(const Accumulate::OpType op) {
@@ -364,6 +403,10 @@ struct FunctionBuilder : Visitor {
         auto v = get_value(node->value);
         auto op = get_acc_op(node->op);
 
+        std::shared_ptr<Value> ptr = nullptr;
+
+
+
         // Handle local variables
         if (node->loc.accesses.empty()) {
             internal_assert(node->loc.type.is_stack_allocatable())
@@ -371,43 +414,32 @@ struct FunctionBuilder : Visitor {
                 << Stmt(node);
 
             // Get current value from lookup
-            auto curr = block->get_value(node->loc.base, node->loc.base_type);
+            ptr = block->get_value(node->loc.base, base_lookup_type(node->loc));
+        } else {
+            // Memory Access (GEP -> AccOp)
 
-            std::vector<std::shared_ptr<Value>> args = {std::move(curr),
-                                                        std::move(v)};
+            // Calculate address (TODO: dedup with Store)
+            ptr = block->get_value(node->loc.base, base_lookup_type(node->loc));
 
-            // Create instruction and add to block
-            auto instr = block->make_instruction(
-                node->loc.type, op, std::move(args), /*allow_rename*/ true);
+            for (const auto &value : node->loc.accesses) {
+                if (std::holds_alternative<std::string>(value)) {
+                    internal_error
+                        << "TODO: handle accumulates to field vars in SSA: "
+                        << Stmt(node);
+                } else {
+                    Expr idx = std::get<Expr>(value);
+                    auto i = get_value(idx);
 
-            return;
-        }
-
-        // Memory Access (GEP -> AccOp)
-
-        // Calculate address (TODO: dedup with Store)
-        auto ptr = block->get_value(node->loc.base, node->loc.base_type);
-
-        for (const auto &value : node->loc.accesses) {
-            if (std::holds_alternative<std::string>(value)) {
-                internal_error
-                    << "TODO: handle accumulates to field vars in SSA: "
-                    << Stmt(node);
-            } else {
-                Expr idx = std::get<Expr>(value);
-                auto i = get_value(idx);
-
-                // Update ptr with GEP result
-                ptr = block->make_instruction(Type(), Instruction::Op::GEP,
-                                              {std::move(ptr), std::move(i)});
+                    // Update ptr with GEP result
+                    ptr = block->make_instruction(Type(), Instruction::Op::GEP,
+                                                {std::move(ptr), std::move(i)});
+                }
             }
         }
 
         std::vector<std::shared_ptr<Value>> args = {std::move(ptr),
                                                     std::move(v)};
-        std::shared_ptr<Instruction> instr =
-            std::make_shared<Instruction>(op, std::move(args), block);
-        block->instrs.push_back(instr);
+        block->make_side_effect(op, std::move(args));
     }
 
     void visit(const ParFor *node) override {
@@ -686,6 +718,15 @@ struct FunctionBuilder : Visitor {
         }
     }
 
+    void visit(const Deref *node) override {
+        // `node->expr` is a pointer (e.g. a `mut` argument/local, wrapped by
+        // Lower/Mutability.cpp); Load reads through it to produce a value of
+        // the pointee type (node->type).
+        auto ptr = get_value(node->expr);
+        value = block->make_instruction(node->type, Instruction::Op::Load,
+                                        {std::move(ptr)});
+    }
+
     Instruction::Op get_vreduce(const VectorReduce::OpType &op) {
         switch (op) {
         case VectorReduce::Add:
@@ -716,6 +757,15 @@ struct FunctionBuilder : Visitor {
         value = block->make_instruction(node->type, op, {std::move(a)});
     }
 
+    void visit(const Select *node) override {
+        auto cond = get_value(node->cond);
+        auto true_val = get_value(node->tvalue);
+        auto false_val = get_value(node->fvalue);
+        value = block->make_instruction(node->type, Instruction::Op::Select,
+                                        {std::move(cond), std::move(true_val),
+                                         std::move(false_val)});
+    }
+
     // RESTRICT_VISITOR(IntImm);
     // RESTRICT_VISITOR(UIntImm);
     // RESTRICT_VISITOR(FloatImm);
@@ -726,7 +776,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Var);
     // RESTRICT_VISITOR(BinOp);
     RESTRICT_VISITOR(UnOp);
-    RESTRICT_VISITOR(Select);
+    // RESTRICT_VISITOR(Select);
     // RESTRICT_VISITOR(Cast);
     // RESTRICT_VISITOR(Broadcast);
     // RESTRICT_VISITOR(VectorReduce);
@@ -745,7 +795,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Call);
     RESTRICT_VISITOR(Instantiate);
     RESTRICT_VISITOR(PtrTo);
-    RESTRICT_VISITOR(Deref);
+    // RESTRICT_VISITOR(Deref);
     RESTRICT_VISITOR(AtomicAdd);
 
     // RESTRICT_VISITOR(CallStmt);
@@ -775,7 +825,6 @@ struct FunctionBuilder : Visitor {
 
 std::shared_ptr<ssa::Function>
 build(const std::shared_ptr<ir::Function> &func) {
-    std::cout << *func << std::endl;
     FunctionBuilder builder(*func);
     if (!builder.block->terminator.defined()) {
         builder.block->terminator.data = Terminator::Return{};
@@ -783,8 +832,13 @@ build(const std::shared_ptr<ir::Function> &func) {
     return builder.function;
 }
 
-ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
-                              const CompilerOptions &options) const {
+namespace {
+
+// Applies the SSA-level schedule `transforms` (only those kinds implemented
+// in SSA/Rewrite.h; anything else is left for the Stmt-level LoopTransforms
+// pass) and builds/codegens `funcs` through the SSA representation.
+ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
+                    const CompilerOptions &options) {
     FuncMap fmap;
 
     TypeMap func_type_map;
@@ -792,27 +846,28 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
     for (const auto &[name, func] : funcs) {
         func_type_map[name] = func->call_type();
         auto f = build(func);
-        f->dump(std::cout);
         fmap[name] = std::move(f);
     }
 
-    // Apply scheduling (until we implement interface).
-    // split(fmap, "trace", "i", 8, "io", "ii", true);
-    // TODO: make this accept non-constant sizes!
-    // defer(fmap, "trace", Queue_t{"mq", Cursor{{"root"}}, "root", 256},
-    //       {Cursor{{"i", "color", "sky_color"}}});
-    // defer(fmap, "trace", Queue_t{"mq", Cursor{{"root"}}, "root", 256},
-    //       {Cursor{{"i", "color", "brdf_eval"}}});
-
-    if (fmap.contains("color")) {
-        std::cout << "Before (color):" << std::endl;
-        fmap["color"]->dump(std::cout);
-
-        loopify(fmap, "color");
-
-        std::cout << "After (color):" << std::endl;
-        std::cout << fmap.contains("color") << std::endl;
-        fmap["color"]->dump(std::cout);
+    for (const auto &[name, ts] : transforms) {
+        if (!fmap.contains(name)) {
+            continue;
+        }
+        for (const auto &t : ts) {
+            std::visit(overloads{
+                           [&](const ir::Vectorize &v) {
+                               internal_assert(!v.i.names.empty())
+                                   << "vectorize() requires a loop name for: "
+                                   << name;
+                               vectorize(fmap, name, v.i.names.back());
+                           },
+                           [&](const auto &) {
+                               // Not (yet) applied at the SSA level; handled
+                               // by the Stmt-level LoopTransforms pass.
+                           },
+                       },
+                       t);
+        }
     }
 
     ir::FuncMap new_funcs;
@@ -822,6 +877,29 @@ ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
     }
 
     return new_funcs;
+}
+
+} // namespace
+
+ir::Program ConvertToSSA::run(ir::Program program,
+                              const CompilerOptions &options) const {
+    ir::TransformMap transforms;
+    if (const auto it = program.schedules.find(ir::Target::Host);
+        it != program.schedules.end()) {
+        transforms = it->second.func_transforms;
+    }
+
+    ir::Program new_program;
+    new_program.types = program.types;
+    new_program.externs = program.externs;
+    new_program.schedules = program.schedules;
+    new_program.funcs = convert(std::move(program.funcs), transforms, options);
+    return new_program;
+}
+
+ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
+                              const CompilerOptions &options) const {
+    return convert(std::move(funcs), {}, options);
 }
 
 } // namespace ssa

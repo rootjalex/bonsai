@@ -1,3 +1,9 @@
+//! flags: -p ssa
+
+// A parfor round tripping through SSA form: it becomes a ParFor terminator
+// with a body region ending in Yield, which structurize() has to turn back
+// into a parfor statement. (Compiling one to machine code needs a schedule --
+// see known-limitation-parfor-codegen.bonsai.)
 func bar(i : i32, a : mut array[i32]) {
     a[i] = i / 2;
     return;

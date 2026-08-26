@@ -1,0 +1,20 @@
+//! flags: -p ssa -b llvm
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When the bug is fixed this test will fail; re-bless it with the LLVM IR it
+// then produces, and move it out of "known-limitation".
+//
+// A mutable local of any non-array type cannot be compiled through the SSA
+// pipeline. ConvertToSSA splits a declaration's initialiser into a separate
+// Store (see the Allocate visitor in SSA/Convert.cpp), so every Allocate
+// reaches the backend with no initial value -- but CodeGen_LLVM's Allocate
+// visitor only tolerates that for arrays, and errors out for anything else.
+//
+// The default (non-SSA) pipeline compiles the same function fine, which is
+// why this is invisible outside `-p ssa`.
+func running_total(a : f32, b : f32) -> f32 {
+    t : mut = a;
+    t += b;
+    t *= 2.0;
+    return t;
+}

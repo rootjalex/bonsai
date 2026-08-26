@@ -1,0 +1,52 @@
+//! flags: -b llvm -e
+
+// An array handle is already a reference to its elements (Type::is_reference),
+// so making one mutable must not add a level of indirection. Writing through a
+// `mut array` parameter used to dereference the parameter one time too many
+// and scribble over an address read out of the array's own contents.
+//
+// Every case below writes through such a parameter: directly, through a
+// second call, into a local array, and into an array field of a struct.
+
+func write_direct(out : mut array[i32, 4]) {
+    out[0] = 10;
+    out[3] = 13;
+    return;
+}
+
+func write_indirect(out : mut array[i32, 4]) {
+    write_direct(out);
+    out[1] = 11;
+    return;
+}
+
+element Boxed {
+    xs : array[i32, 4];
+    n : i32;
+}
+
+func write_field(b : mut Boxed) {
+    b.xs[2] = 22;
+    b.n = 4;
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[i32, 4] = {0, 0, 0, 0};
+    write_direct(a);
+    print(a);
+
+    b : mut array[i32, 4] = {0, 0, 0, 0};
+    write_indirect(b);
+    print(b);
+
+    // A local array written directly, rather than through a parameter.
+    c : mut array[i32, 4] = {1, 2, 3, 4};
+    c[0] = 9;
+    print(c);
+
+    d : mut Boxed = {c, 0};
+    write_field(d);
+    print(d);
+    return 0;
+}

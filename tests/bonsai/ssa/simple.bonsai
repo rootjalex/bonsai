@@ -1,3 +1,8 @@
+//! flags: -p ssa
+
+// The basic shapes the SSA builder and the relooper have to round trip:
+// straight line code, an if/else with a value flowing out of both arms, a
+// mutable local, and a recursive call.
 func afoo(a : f32) {
     return a + 1.0;
 }

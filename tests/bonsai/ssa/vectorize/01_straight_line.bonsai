@@ -1,0 +1,17 @@
+// Simplest possible vectorize() target: straight-line arithmetic over a
+// constant-extent parfor, no calls, no branches, no uniform values besides
+// the array pointers themselves. Exercises: widening Load/Add/Store to
+// vector width, and treating `a`/`out` as uniform while `i` is varying.
+// (Mirrors visect_box: inputs are read-only, the output is write-only, to
+// avoid an unrelated pre-existing SSA-builder gap around reading `mut`
+// arrays.)
+func add_one(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + 1.0;
+  }
+  return;
+}
+
+schedule {
+  add_one.vectorize(i);
+}

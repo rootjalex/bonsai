@@ -1,0 +1,17 @@
+// The parfor body's real work happens in a called function (mirrors
+// visect_box calling intersectsp_ray_aabb) instead of being inline. The
+// callee itself has no branches. Exercises inlining across the SSA Call
+// terminator and rethreading the varying/uniform arguments into the callee's
+// body, ahead of doing the same for a callee that also branches.
+func combine(x : f32, y : f32) -> f32 = x + y;
+
+func sum_pairs(a : array[f32, 8], b : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = combine(a[i], b[i]);
+  }
+  return;
+}
+
+schedule {
+  sum_pairs.vectorize(i);
+}

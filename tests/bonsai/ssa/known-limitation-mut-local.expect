@@ -1,0 +1,6 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:2252
+Allocation of struct without initial value: t : mut f32
+

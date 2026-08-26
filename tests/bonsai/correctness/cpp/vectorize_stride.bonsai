@@ -1,0 +1,18 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_stride
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_stride.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_stride.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_stride.o tests/bonsai/correctness/cpp/vectorize_stride.o -o tests/bonsai/correctness/cpp/vectorize_stride, ./tests/bonsai/correctness/cpp/vectorize_stride, rm tests/bonsai/correctness/cpp/vectorize_stride, rm tests/bonsai/correctness/cpp/main_vectorize_stride.o, rm tests/bonsai/correctness/cpp/vectorize_stride.h, rm tests/bonsai/correctness/cpp/vectorize_stride.o
+
+// A gang of eight lanes over a strided loop: the lane indices are 0, 2, ...,
+// 14, so neither the load nor the store is contiguous and both become
+// gather/scatter. Running it checks that the odd elements are left untouched
+// -- a lowering that ignored the stride and wrote eight contiguous elements
+// would clobber them and still look plausible in the IR.
+func [[export]] double_evens(a : array[f32, 16], out : mut array[f32, 16]) {
+  parfor i in 0:16:2 {
+    out[i] = a[i] * 2.0;
+  }
+  return;
+}
+
+schedule {
+  double_evens.vectorize(i);
+}

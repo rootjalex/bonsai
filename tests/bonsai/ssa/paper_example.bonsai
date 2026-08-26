@@ -1,3 +1,13 @@
+//! flags: -p ssa
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When the bug is fixed this test will fail; re-bless it with the IR it then
+// produces and drop this notice.
+//
+// ConvertToSSA has no case for PtrTo, so a program that takes the address of
+// something (here, via the tree traversal this example lowers to) cannot go
+// through the SSA pipeline.
+
 // Trivial examples for now;
 element Tree = f32;
 element Ray {

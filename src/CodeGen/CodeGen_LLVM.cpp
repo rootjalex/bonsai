@@ -1195,6 +1195,15 @@ void CodeGen_LLVM::visit(const Cast *node) {
         value = builder->CreateFPCast(inner, llvm_dst);
     } else if (src.is<Array_t>() && dst.is<Array_t>()) {
         value = inner; // no-op
+    } else if ((src.is<Array_t>() || src.is<Ptr_t>()) && dst.is<Ptr_t>()) {
+        // Array_t values are always pointer-backed at the LLVM level (see
+        // Array_t codegen above), so this covers both a genuine
+        // pointer-to-pointer reinterpret (e.g. Ptr_t(Array_t) ->
+        // Ptr_t(Vector_t) for a mutable array) and treating an Array_t
+        // value's own (already-pointer) representation as a differently
+        // -typed pointer (e.g. for reading a whole immutable array as a
+        // vector). Both are address reinterprets, not size-sensitive.
+        value = builder->CreateBitCast(inner, llvm_dst);
     } else if (src.is_bool() && dst.is_uint()) {
         value = builder->CreateIntCast(inner, llvm_dst,
                                        /* isSigned */ false);
@@ -1320,7 +1329,29 @@ void CodeGen_LLVM::visit(const VectorShuffle *node) {
 }
 
 void CodeGen_LLVM::visit(const Ramp *node) {
-    internal_error << "TODO: implement Ramp code generation: " << Expr(node);
+    llvm::Value *base = codegen_expr(node->base);
+    llvm::Value *stride = codegen_expr(node->stride);
+    const uint32_t lanes = uint32_t(node->lanes);
+
+    // base + stride * <0, 1, ..., lanes-1>
+    llvm::Type *etype = base->getType();
+    std::vector<llvm::Constant *> steps(lanes);
+    for (uint32_t i = 0; i < lanes; i++) {
+        steps[i] = node->base.type().is_float()
+                       ? llvm::ConstantFP::get(etype, double(i))
+                       : llvm::ConstantInt::get(etype, uint64_t(i));
+    }
+    llvm::Value *iota = llvm::ConstantVector::get(steps);
+    llvm::Value *base_vec = builder->CreateVectorSplat(lanes, base);
+    llvm::Value *stride_vec = builder->CreateVectorSplat(lanes, stride);
+
+    if (node->base.type().is_float()) {
+        value = builder->CreateFAdd(base_vec,
+                                    builder->CreateFMul(stride_vec, iota));
+    } else {
+        value =
+            builder->CreateAdd(base_vec, builder->CreateMul(stride_vec, iota));
+    }
 }
 
 void CodeGen_LLVM::visit(const Extract *node) {
@@ -1331,6 +1362,20 @@ void CodeGen_LLVM::visit(const Extract *node) {
         vec_expr = Access::make("buffer", vec_expr);
     }
     llvm::Value *vec = codegen_expr(vec_expr);
+
+    // One index per lane reads one element per lane: this is a vector load
+    // over the container, dense or gathered depending on the index.
+    if (node->idx.type().defined() && node->idx.type().is_vector() &&
+        vec_expr.type().is<Array_t>()) {
+        // Unmasked: every lane of a gang stands for a real iteration, so
+        // every lane's address is one the program would have read anyway.
+        // A load that must not read on some lanes is a masked Deref.
+        value = create_vector_load(codegen_type(vec_expr.type().element_of()),
+                                   vec, node->idx, node->idx.type().lanes(),
+                                   Expr(), "extract");
+        return;
+    }
+
     llvm::Value *idx = codegen_expr(node->idx);
     if (vec_expr.type().is<Vector_t>()) {
         value = builder->CreateExtractElement(vec, idx);
@@ -1742,6 +1787,28 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
 
 void CodeGen_LLVM::visit(const Deref *node) {
     llvm::Value *pointer_value = codegen_expr(node->expr);
+
+    if (node->mask.defined()) {
+        // A predicated load: the disabled lanes read as zero without
+        // touching memory. One address per lane is a gather, one address for
+        // all of them is a contiguous masked load.
+        llvm::Type *loaded_type = codegen_type(node->type);
+        llvm::Value *mask = codegen_expr(node->mask);
+        const llvm::DataLayout &dl = module->getDataLayout();
+        llvm::Value *passthrough = llvm::Constant::getNullValue(loaded_type);
+
+        if (llvm::isa<llvm::VectorType>(pointer_value->getType())) {
+            value = builder->CreateMaskedGather(
+                llvm::dyn_cast<llvm::VectorType>(loaded_type), pointer_value,
+                dl.getABITypeAlign(loaded_type->getScalarType()), mask,
+                passthrough, "deref_gather");
+        } else {
+            value = builder->CreateMaskedLoad(loaded_type, pointer_value,
+                                              dl.getABITypeAlign(loaded_type),
+                                              mask, passthrough, "deref_temp");
+        }
+        return;
+    }
 
     // Make sure the expression is a pointer
     if (pointer_value->getType()->isPointerTy()) {
@@ -2190,6 +2257,14 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         << "Allocating Allocate to non-local value: " << Stmt(node);
     internal_assert(!frames.from_frames(name).has_value()) << name;
 
+    // An array handle names its elements' storage directly rather than a
+    // slot holding a pointer to them, so that indexing it needs no load --
+    // the same way an array argument arrives (see Type::is_reference).
+    if (allocate_type.is_reference()) {
+        frames.add_to_frame(name, rhs);
+        return;
+    }
+
     llvm::Type *value_type = codegen_type(node->loc.base_type);
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
@@ -2199,8 +2274,44 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 
 void CodeGen_LLVM::visit(const Store *node) {
     llvm::Value *rhs = codegen_expr(node->value);
-    llvm::Value *loc = codegen_write_loc(node->loc);
-    builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+
+    // A trailing index with one entry per lane writes one element per lane:
+    // a vector store over the container, dense or scattered depending on the
+    // index. The address of the container itself is everything before it.
+    const WriteLoc &loc = node->loc;
+    if (!loc.accesses.empty()) {
+        const auto *index = std::get_if<Expr>(&loc.accesses.back());
+        if (index != nullptr && index->type().defined() &&
+            index->type().is_vector()) {
+            WriteLoc container(loc.base, loc.base_type);
+            for (size_t i = 0; i + 1 < loc.accesses.size(); i++) {
+                if (const auto *field =
+                        std::get_if<std::string>(&loc.accesses[i])) {
+                    container.add_struct_access(*field);
+                } else {
+                    container.add_index_access(std::get<Expr>(loc.accesses[i]));
+                }
+            }
+            llvm::Value *base = codegen_write_loc(container);
+            // Same rule as the scalar path in codegen_write_loc: a name of
+            // array type is bound to its elements' storage, but a field or
+            // element of one is a slot holding the handle, which has to be
+            // read before it can be indexed.
+            if (!container.accesses.empty() || !container.type.is_reference()) {
+                base = create_aligned_load(codegen_type(container.type), base,
+                                           container.base + "_ld");
+            }
+            create_vector_store(rhs, codegen_type(container.type.element_of()),
+                                base, *index, index->type().lanes(),
+                                node->mask);
+            return;
+        }
+    }
+
+    internal_assert(!node->mask.defined())
+        << "Masked store to a location that is not indexed per lane: "
+        << Stmt(node);
+    builder->CreateStore(rhs, codegen_write_loc(loc), /*isVolatile=*/false);
 }
 
 llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {
@@ -2499,6 +2610,87 @@ llvm::LoadInst *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
     unsigned align = dl.getABITypeAlign(etype).value();
     load->setAlignment(llvm::Align(align));
     return load;
+}
+
+namespace {
+
+// A Ramp of stride one addresses `lanes` contiguous elements, which is an
+// ordinary vector access rather than a gather or a scatter.
+const Ramp *as_dense_ramp(const Expr &index) {
+    const Ramp *ramp = index.as<Ramp>();
+    if (ramp == nullptr) {
+        return nullptr;
+    }
+    const int64_t *stride = as_const_int(ramp->stride);
+    return (stride != nullptr && *stride == 1) ? ramp : nullptr;
+}
+
+} // namespace
+
+llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
+                                              llvm::Value *base,
+                                              const Expr &index,
+                                              uint32_t lanes,
+                                              const Expr &mask_expr,
+                                              const std::string &name) {
+    llvm::Type *vtype = llvm::VectorType::get(etype, lanes, /*Scalable=*/false);
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Value *mask =
+        mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;
+
+    if (const Ramp *ramp = as_dense_ramp(index)) {
+        llvm::Value *first = builder->CreateInBoundsGEP(
+            etype, base, codegen_expr(ramp->base), name + "_base");
+        if (mask == nullptr) {
+            return create_aligned_load(vtype, first, name);
+        }
+        // A disabled lane must not touch memory at all, so the disabled
+        // lanes come from the passthrough value rather than from the load.
+        return builder->CreateMaskedLoad(vtype, first,
+                                         dl.getABITypeAlign(vtype), mask,
+                                         llvm::Constant::getNullValue(vtype),
+                                         name);
+    }
+
+    llvm::Value *ptrs = builder->CreateInBoundsGEP(
+        etype, base, codegen_expr(index), name + "_ptrs");
+    if (mask == nullptr) {
+        mask = llvm::Constant::getAllOnesValue(
+            llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
+    }
+    return builder->CreateMaskedGather(vtype, ptrs, dl.getABITypeAlign(etype),
+                                       mask, llvm::Constant::getNullValue(vtype),
+                                       name);
+}
+
+void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
+                                       llvm::Value *base, const Expr &index,
+                                       uint32_t lanes, const Expr &mask_expr) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Value *mask =
+        mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;
+
+    if (const Ramp *ramp = as_dense_ramp(index)) {
+        llvm::Value *first = builder->CreateInBoundsGEP(
+            etype, base, codegen_expr(ramp->base), "store_base");
+        if (mask == nullptr) {
+            llvm::StoreInst *store = builder->CreateStore(value, first);
+            store->setAlignment(dl.getABITypeAlign(value->getType()));
+            return;
+        }
+        builder->CreateMaskedStore(value, first,
+                                   dl.getABITypeAlign(value->getType()), mask);
+        return;
+    }
+
+    llvm::Value *ptrs = builder->CreateInBoundsGEP(etype, base,
+                                                   codegen_expr(index),
+                                                   "store_ptrs");
+    if (mask == nullptr) {
+        mask = llvm::Constant::getAllOnesValue(
+            llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
+    }
+    builder->CreateMaskedScatter(value, ptrs, dl.getABITypeAlign(etype), mask);
 }
 
 llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
@@ -2932,6 +3124,13 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
     llvm::Value *loc = *frame_value;
     Type bonsai_type = wloc.base_type;
 
+    // A name of array type is bound to its elements' storage directly (see
+    // Type::is_reference and the Allocate visitor), so indexing it needs no
+    // load. That only holds for the name itself: once a field or an element
+    // has been reached, `loc` is the address of a slot holding the handle,
+    // which does have to be read first.
+    bool holds_handle = !wloc.base_type.is_reference();
+
     for (const auto &value : wloc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
             const std::string &field_name = std::get<std::string>(value);
@@ -2949,16 +3148,19 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
                 name                       // Optional name for debugging
             );
             bonsai_type = struct_t->fields[idx].type;
+            holds_handle = true;
         } else {
             Expr idx = std::get<Expr>(value);
             llvm::Value *llvm_idx = codegen_expr(idx);
 
-            // First do a load, then index.
-            loc = create_aligned_load(codegen_type(bonsai_type), loc,
-                                      name + "_ld");
+            if (holds_handle) {
+                loc = create_aligned_load(codegen_type(bonsai_type), loc,
+                                          name + "_ld");
+                name += "_ld";
+            }
+            holds_handle = true;
 
             // Get lvalue to loc[`idx`]
-            name += "_ld";
             bonsai_type = bonsai_type.element_of();
             loc = builder->CreateInBoundsGEP(
                 codegen_type(bonsai_type), // The LLVM element type

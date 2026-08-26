@@ -1,0 +1,20 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_gather
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_gather.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_gather.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_gather.o tests/bonsai/correctness/cpp/vectorize_gather.o -o tests/bonsai/correctness/cpp/vectorize_gather, ./tests/bonsai/correctness/cpp/vectorize_gather, rm tests/bonsai/correctness/cpp/vectorize_gather, rm tests/bonsai/correctness/cpp/main_vectorize_gather.o, rm tests/bonsai/correctness/cpp/vectorize_gather.h, rm tests/bonsai/correctness/cpp/vectorize_gather.o
+
+// An index that is itself loaded per lane, so the read of `a` cannot become a
+// contiguous vector load however the addresses are rearranged: vectorize()
+// has to leave one address per lane and let the backend emit a real gather
+// (llvm.masked.gather; see backends/llvm/vectorize_gather.bonsai for the IR).
+// Running it checks that each lane gathers from the element its own index
+// names, which a broken lane order or a mis-strided address would get wrong.
+func [[export]] reorder(a : array[f32, 8], idx : array[i32, 8],
+                        out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[idx[i]];
+  }
+  return;
+}
+
+schedule {
+  reorder.vectorize(i);
+}

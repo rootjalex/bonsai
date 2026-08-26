@@ -1,0 +1,41 @@
+func afoo(a : f32) -> f32 {
+  let @0 = a + 1f in
+  return @0
+}
+
+func bfoo(a : f32) -> f32 {
+  let @0 = a < 0f in
+  if (@0) {
+    let @1 = a + 1f in
+    return @1
+  } else {
+    return a
+  }
+}
+
+func cfoo(a : f32) -> f32 {
+  b : mut f32
+  b = 0f
+  let @0 = a < 0f in
+  if (@0) {
+    b = 1f
+  } else {
+    b = 0f
+  }
+  let @1 = (*b) in
+  return @1
+}
+
+func color(out : mut f32[8], i : i8, a : f32) -> void {
+  let @0 = a < 0f in
+  if (@0) {
+    let @1 = a + 1f in
+    color(out, i, @1)
+    return
+  } else {
+    out[i] = a
+    return
+  }
+}
+
+

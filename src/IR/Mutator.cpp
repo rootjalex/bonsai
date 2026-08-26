@@ -463,10 +463,11 @@ Expr Mutator::visit(const PtrTo *node) {
 
 Expr Mutator::visit(const Deref *node) {
     Expr expr = mutate(node->expr);
-    if (expr.same_as(node->expr)) {
+    Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;
+    if (expr.same_as(node->expr) && mask.same_as(node->mask)) {
         return node;
     }
-    return Deref::make(std::move(expr));
+    return Deref::make(std::move(expr), std::move(mask));
 }
 
 Expr Mutator::visit(const AtomicAdd *node) {
@@ -576,10 +577,12 @@ Stmt Mutator::visit(const Free *node) {
 Stmt Mutator::visit(const Store *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
-    if (not_changed && value.same_as(node->value)) {
+    Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;
+    if (not_changed && value.same_as(node->value) &&
+        mask.same_as(node->mask)) {
         return node;
     }
-    return Store::make(std::move(loc), std::move(value));
+    return Store::make(std::move(loc), std::move(value), std::move(mask));
 }
 
 Stmt Mutator::visit(const Accumulate *node) {

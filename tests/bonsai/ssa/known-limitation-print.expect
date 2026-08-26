@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Convert.cpp:802
+Restricted Visitor class does not handle: N6bonsai2ir5PrintE

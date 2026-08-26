@@ -16,6 +16,7 @@ add_bonsai_tests(
     print.bonsai
     map-func.bonsai
     map.bonsai
+    mut-array-param.bonsai
     mutability.bonsai
     struct.bonsai
 )

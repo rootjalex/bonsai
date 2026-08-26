@@ -1,0 +1,638 @@
+promoted 0 allocation(s) in combine
+function combine:
+func combine(x : f32, y : f32): 
+  @0 = add(x, y)
+  ret @0
+
+  rpo: [combine]
+  [0] combine
+    succs: []
+    preds: []
+    idom: combine
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  loops: none
+promoted 0 allocation(s) in contiguous
+function contiguous:
+func contiguous(a : f32[8], out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(a, out) !par_cont_1()
+
+!par_body_0(i : i32, a : f32[8], out : f32[8]): // preds: contiguous
+  @0 = extract_idx(a, i)
+  @1 = add(@0, (f32)1)
+  @2 = gep(out, i)
+  store @2 @1
+  yield
+
+!par_cont_1(): // preds: contiguous
+  ret
+
+  rpo: [contiguous, !par_cont_1, !par_body_0]
+  [0] contiguous
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: contiguous
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [contiguous]
+    idom: contiguous
+    ipdom: !!exit
+    cdep: [contiguous->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: []
+    preds: [contiguous]
+    idom: contiguous
+    ipdom: !!exit
+    cdep: [contiguous->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0]
+    [0] !par_body_0
+      succs: []
+      preds: []
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked
+        varying: [i, @0, @1, @2, store @2 @1]
+promoted 0 allocation(s) in divergent_branch
+function divergent_branch:
+func divergent_branch(a : f32[8], out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(a, out) !par_cont_1()
+
+!par_body_0(i : i32, a : f32[8], out : f32[8]): // preds: divergent_branch
+  @0 = extract_idx(a, i)
+  @1 = lt(@0, (f32)0)
+  dispatch @1 [!else_3(a, i, out), !then_2(out, i)]
+
+!par_cont_1(): // preds: divergent_branch
+  ret
+
+!then_2(out : f32[8], i : i32): // preds: !par_body_0
+  @2 = gep(out, i)
+  store @2 (f32)0
+  jmp !merge_4()
+
+!else_3(a : f32[8], i : i32, out : f32[8]): // preds: !par_body_0
+  @3 = extract_idx(a, i)
+  @4 = gep(out, i)
+  store @4 @3
+  jmp !merge_4()
+
+!merge_4(): // preds: !then_2, !else_3
+  yield
+
+  rpo: [divergent_branch, !par_cont_1, !par_body_0, !then_2, !else_3, !merge_4]
+  [0] divergent_branch
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: divergent_branch
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [divergent_branch]
+    idom: divergent_branch
+    ipdom: !!exit
+    cdep: [divergent_branch->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: [!else_3, !then_2]
+    preds: [divergent_branch]
+    idom: divergent_branch
+    ipdom: !merge_4
+    cdep: [divergent_branch->!par_body_0]
+    always-executed: no
+  [3] !then_2
+    succs: [!merge_4]
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !merge_4
+    cdep: [!par_body_0->!then_2]
+    always-executed: no
+  [4] !else_3
+    succs: [!merge_4]
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !merge_4
+    cdep: [!par_body_0->!else_3]
+    always-executed: no
+  [5] !merge_4
+    succs: []
+    preds: [!else_3, !then_2]
+    idom: !par_body_0
+    ipdom: !!exit
+    cdep: [divergent_branch->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0, !then_2, !else_3, !merge_4]
+    [0] !par_body_0
+      succs: [!else_3, !then_2]
+      preds: []
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: []
+      always-executed: yes
+    [1] !then_2
+      succs: [!merge_4]
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: [!par_body_0->!then_2]
+      always-executed: no
+    [2] !else_3
+      succs: [!merge_4]
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: [!par_body_0->!else_3]
+      always-executed: no
+    [3] !merge_4
+      succs: []
+      preds: [!else_3, !then_2]
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked, divergent branch
+        varying: [i, @0, @1]
+      !then_2: masked
+        varying: [i, @2, store @2 (f32)0]
+      !else_3: masked
+        varying: [i, @3, @4, store @4 @3]
+      !merge_4: unmasked
+        varying: []
+promoted 1 allocation(s) in promoted_local
+function promoted_local:
+func promoted_local(a : f32[8], seed : f32, out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(seed, a, out) !par_cont_1()
+
+!par_body_0(i : i32, seed : f32, a : f32[8], out : f32[8]): // preds: promoted_local
+  @0 = extract_idx(a, i)
+  @1 = lt(@0, (f32)0)
+  dispatch @1 [!else_3(out, i), !then_2(out, i)]
+
+!par_cont_1(): // preds: promoted_local
+  ret
+
+!then_2(out : f32[8], i : i32): // preds: !par_body_0
+  jmp !merge_4(out, i, (f32)1)
+
+!else_3(out : f32[8], i : i32): // preds: !par_body_0
+  jmp !merge_4(out, i, (f32)2)
+
+!merge_4(out : f32[8], i : i32, x : f32): // preds: !then_2, !else_3
+  @3 = gep(out, i)
+  store @3 x
+  yield
+
+  rpo: [promoted_local, !par_cont_1, !par_body_0, !then_2, !else_3, !merge_4]
+  [0] promoted_local
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: promoted_local
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [promoted_local]
+    idom: promoted_local
+    ipdom: !!exit
+    cdep: [promoted_local->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: [!else_3, !then_2]
+    preds: [promoted_local]
+    idom: promoted_local
+    ipdom: !merge_4
+    cdep: [promoted_local->!par_body_0]
+    always-executed: no
+  [3] !then_2
+    succs: [!merge_4]
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !merge_4
+    cdep: [!par_body_0->!then_2]
+    always-executed: no
+  [4] !else_3
+    succs: [!merge_4]
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !merge_4
+    cdep: [!par_body_0->!else_3]
+    always-executed: no
+  [5] !merge_4
+    succs: []
+    preds: [!else_3, !then_2]
+    idom: !par_body_0
+    ipdom: !!exit
+    cdep: [promoted_local->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0, !then_2, !else_3, !merge_4]
+    [0] !par_body_0
+      succs: [!else_3, !then_2]
+      preds: []
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: []
+      always-executed: yes
+    [1] !then_2
+      succs: [!merge_4]
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: [!par_body_0->!then_2]
+      always-executed: no
+    [2] !else_3
+      succs: [!merge_4]
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: [!par_body_0->!else_3]
+      always-executed: no
+    [3] !merge_4
+      succs: []
+      preds: [!else_3, !then_2]
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked, divergent branch
+        varying: [i, @0, @1]
+      !then_2: masked
+        varying: [i]
+      !else_3: masked
+        varying: [i]
+      !merge_4: unmasked
+        varying: [i, x, @3, store @3 x]
+promoted 1 allocation(s) in promoted_uniform
+function promoted_uniform:
+func promoted_uniform(a : f32[8], seed : f32, out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(seed, a, out) !par_cont_1()
+
+!par_body_0(i : i32, seed : f32, a : f32[8], out : f32[8]): // preds: promoted_uniform
+  @4 = mul(seed, (f32)2)
+  @0 = extract_idx(a, i)
+  @2 = add(@0, @4)
+  @3 = gep(out, i)
+  store @3 @2
+  yield
+
+!par_cont_1(): // preds: promoted_uniform
+  ret
+
+  rpo: [promoted_uniform, !par_cont_1, !par_body_0]
+  [0] promoted_uniform
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: promoted_uniform
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [promoted_uniform]
+    idom: promoted_uniform
+    ipdom: !!exit
+    cdep: [promoted_uniform->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: []
+    preds: [promoted_uniform]
+    idom: promoted_uniform
+    ipdom: !!exit
+    cdep: [promoted_uniform->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0]
+    [0] !par_body_0
+      succs: []
+      preds: []
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked
+        varying: [i, @0, @2, @3, store @3 @2]
+promoted 0 allocation(s) in uniform_branch
+function uniform_branch:
+func uniform_branch(a : f32[8], flag : f32, out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(flag, out, a) !par_cont_1()
+
+!par_body_0(i : i32, flag : f32, out : f32[8], a : f32[8]): // preds: uniform_branch
+  @0 = lt(flag, (f32)0)
+  dispatch @0 [!else_3(a, i, out), !then_2(out, i)]
+
+!par_cont_1(): // preds: uniform_branch
+  ret
+
+!then_2(out : f32[8], i : i32): // preds: !par_body_0
+  @1 = gep(out, i)
+  store @1 (f32)0
+  jmp !merge_4()
+
+!else_3(a : f32[8], i : i32, out : f32[8]): // preds: !par_body_0
+  @2 = extract_idx(a, i)
+  @3 = gep(out, i)
+  store @3 @2
+  jmp !merge_4()
+
+!merge_4(): // preds: !then_2, !else_3
+  yield
+
+  rpo: [uniform_branch, !par_cont_1, !par_body_0, !then_2, !else_3, !merge_4]
+  [0] uniform_branch
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: uniform_branch
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [uniform_branch]
+    idom: uniform_branch
+    ipdom: !!exit
+    cdep: [uniform_branch->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: [!else_3, !then_2]
+    preds: [uniform_branch]
+    idom: uniform_branch
+    ipdom: !merge_4
+    cdep: [uniform_branch->!par_body_0]
+    always-executed: no
+  [3] !then_2
+    succs: [!merge_4]
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !merge_4
+    cdep: [!par_body_0->!then_2]
+    always-executed: no
+  [4] !else_3
+    succs: [!merge_4]
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !merge_4
+    cdep: [!par_body_0->!else_3]
+    always-executed: no
+  [5] !merge_4
+    succs: []
+    preds: [!else_3, !then_2]
+    idom: !par_body_0
+    ipdom: !!exit
+    cdep: [uniform_branch->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0, !then_2, !else_3, !merge_4]
+    [0] !par_body_0
+      succs: [!else_3, !then_2]
+      preds: []
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: []
+      always-executed: yes
+    [1] !then_2
+      succs: [!merge_4]
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: [!par_body_0->!then_2]
+      always-executed: no
+    [2] !else_3
+      succs: [!merge_4]
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !merge_4
+      cdep: [!par_body_0->!else_3]
+      always-executed: no
+    [3] !merge_4
+      succs: []
+      preds: [!else_3, !then_2]
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked
+        varying: [i]
+      !then_2: unmasked
+        varying: [i, @1, store @1 (f32)0]
+      !else_3: unmasked
+        varying: [i, @2, @3, store @3 @2]
+      !merge_4: unmasked
+        varying: []
+promoted 0 allocation(s) in uniform_operand
+function uniform_operand:
+func uniform_operand(a : f32[8], scale : f32, out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(a, scale, out) !par_cont_1()
+
+!par_body_0(i : i32, a : f32[8], scale : f32, out : f32[8]): // preds: uniform_operand
+  @0 = extract_idx(a, i)
+  @1 = mul(@0, scale)
+  @2 = gep(out, i)
+  store @2 @1
+  yield
+
+!par_cont_1(): // preds: uniform_operand
+  ret
+
+  rpo: [uniform_operand, !par_cont_1, !par_body_0]
+  [0] uniform_operand
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: uniform_operand
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [uniform_operand]
+    idom: uniform_operand
+    ipdom: !!exit
+    cdep: [uniform_operand->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: []
+    preds: [uniform_operand]
+    idom: uniform_operand
+    ipdom: !!exit
+    cdep: [uniform_operand->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0]
+    [0] !par_body_0
+      succs: []
+      preds: []
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked
+        varying: [i, @0, @1, @2, store @2 @1]
+promoted 0 allocation(s) in varying_call
+function varying_call:
+func varying_call(a : f32[8], b : f32[8], out : f32[8]): 
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(a, b, out) !par_cont_1()
+
+!par_body_0(i : i32, a : f32[8], b : f32[8], out : f32[8]): // preds: varying_call
+  @0 = extract_idx(a, i)
+  @1 = extract_idx(b, i)
+  callc combine(@0, @1) !combine_call_cont_2(out, i)
+
+!par_cont_1(): // preds: varying_call
+  ret
+
+!combine_call_cont_2(@2 : f32, out : f32[8], i : i32): // preds: !par_body_0
+  @3 = gep(out, i)
+  store @3 @2
+  yield
+
+  rpo: [varying_call, !par_cont_1, !par_body_0, !combine_call_cont_2]
+  [0] varying_call
+    succs: [!par_body_0, !par_cont_1]
+    preds: []
+    idom: varying_call
+    ipdom: !!exit
+    cdep: []
+    always-executed: yes
+  [1] !par_cont_1
+    succs: []
+    preds: [varying_call]
+    idom: varying_call
+    ipdom: !!exit
+    cdep: [varying_call->!par_cont_1]
+    always-executed: no
+  [2] !par_body_0
+    succs: [!combine_call_cont_2]
+    preds: [varying_call]
+    idom: varying_call
+    ipdom: !combine_call_cont_2
+    cdep: [varying_call->!par_body_0]
+    always-executed: no
+  [3] !combine_call_cont_2
+    succs: []
+    preds: [!par_body_0]
+    idom: !par_body_0
+    ipdom: !!exit
+    cdep: [varying_call->!par_body_0]
+    always-executed: no
+  loops: none
+  parfor i body region (!par_body_0):
+    rpo: [!par_body_0, !combine_call_cont_2]
+    [0] !par_body_0
+      succs: [!combine_call_cont_2]
+      preds: []
+      idom: !par_body_0
+      ipdom: !combine_call_cont_2
+      cdep: []
+      always-executed: yes
+    [1] !combine_call_cont_2
+      succs: []
+      preds: [!par_body_0]
+      idom: !par_body_0
+      ipdom: !!exit
+      cdep: []
+      always-executed: yes
+    loops: none
+    divergence (varying: i):
+      !par_body_0: unmasked
+        varying: [i, @0, @1]
+      !combine_call_cont_2: unmasked
+        varying: [@2, i, @3, store @3 @2]
+func combine(x : f32, y : f32) -> f32 {
+  return x + y
+}
+
+func contiguous(a : f32[8], out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    out[i] = a[i] + 1f
+  }
+  return
+}
+
+func divergent_branch(a : f32[8], out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    if (a[i] < 0f) {
+      out[i] = 0f
+    } else {
+      out[i] = a[i]
+    }
+  }
+  return
+}
+
+func promoted_local(a : f32[8], seed : f32, out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    x : mut f32 := seed
+    if (a[i] < 0f) {
+      x = 1f
+    } else {
+      x = 2f
+    }
+    out[i] = (*x)
+  }
+  return
+}
+
+func promoted_uniform(a : f32[8], seed : f32, out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    y : mut f32 := seed
+    y *= 2f
+    out[i] = a[i] + (*y)
+  }
+  return
+}
+
+func uniform_branch(a : f32[8], flag : f32, out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    if (flag < 0f) {
+      out[i] = 0f
+    } else {
+      out[i] = a[i]
+    }
+  }
+  return
+}
+
+func uniform_operand(a : f32[8], scale : f32, out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    out[i] = a[i] * scale
+  }
+  return
+}
+
+func varying_call(a : f32[8], b : f32[8], out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    out[i] = combine(a[i], b[i])
+  }
+  return
+}
+
+

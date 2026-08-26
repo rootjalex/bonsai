@@ -498,6 +498,8 @@ void CodeGen_CUDA::visit(const Build *node) {
 void CodeGen_CUDA::visit(const Deref *node) {
     Expr pointee = node->expr;
     internal_assert(pointee.type().is<Ptr_t>());
+    internal_assert(!node->mask.defined())
+        << "[unimplemented] masked load in CUDA codegen: " << Expr(node);
     if (is_context_type(pointee.type().element_of())) {
         pointee.accept(this);
         return;
@@ -904,6 +906,9 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
+
+    internal_assert(!node->mask.defined())
+        << "[unimplemented] masked store in CUDA codegen: " << Stmt(node);
 
     Expr value = node->value;
     Type base_type = node->loc.base_type;

@@ -384,6 +384,11 @@ void Printer::print(const Schedule &schedule) {
                                       os << "(";
                                       print(par.i);
                                       os << ")";
+                                  },
+                                  [&](const Vectorize &vec) {
+                                      os << "vectorize(";
+                                      print(vec.i);
+                                      os << ")";
                                   }},
                        ts[i]);
         }
@@ -1171,6 +1176,14 @@ void Printer::visit(const PtrTo *node) {
 }
 
 void Printer::visit(const Deref *node) {
+    if (node->mask.defined()) {
+        os << "masked_load(";
+        print_no_parens(node->expr);
+        os << ", ";
+        print_no_parens(node->mask);
+        os << ")";
+        return;
+    }
     os << "(*";
     print_no_parens(node->expr);
     os << ")";
@@ -1304,6 +1317,18 @@ void Printer::visit(const Free *node) {
 
 void Printer::visit(const Store *node) {
     os << get_indent();
+    if (node->mask.defined()) {
+        // A predicated store writes only the lanes the mask enables.
+        os << "masked_store(";
+        print(node->loc);
+        os << ", ";
+        print_no_parens(node->value);
+        os << ", ";
+        print_no_parens(node->mask);
+        os << ")";
+        end_stmt();
+        return;
+    }
     print(node->loc);
     os << " = ";
     print_no_parens(node->value);

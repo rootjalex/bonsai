@@ -26,7 +26,17 @@ namespace {
 Expr codegen_value(const std::shared_ptr<Value> &v) {
     return std::visit(
         overloads{
-            [](const std::shared_ptr<Instruction> &i) {
+            [](const std::shared_ptr<Instruction> &i) -> Expr {
+                if (i->op == Instruction::Op::Ramp) {
+                    // Inlined rather than bound to a name: whether a memory
+                    // access is dense or a gather is read off the shape of
+                    // its index (see CodeGen_LLVM's Ramp handling), so a Ramp
+                    // has to be visible at its use.
+                    internal_assert(i->operands.size() == 2);
+                    return Ramp::make(codegen_value(i->operands[0]),
+                                      codegen_value(i->operands[1]),
+                                      i->type.lanes());
+                }
                 return Var::make(i->type, i->name);
             },
             [](const Constant &c) {
@@ -87,7 +97,9 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
+    case Instruction::Op::Ramp:
     case Instruction::Op::Reinterpret:
+    case Instruction::Op::Select:
     case Instruction::Op::Set:
     case Instruction::Op::Sub:
         return false;
@@ -113,16 +125,42 @@ WriteLoc codegen_gep(const std::shared_ptr<Value> &v) {
             return loc;
         }
 
-        // Base case: non-GEP instruction -> variable
+        // Base case: non-GEP instruction -> variable. Every base a
+        // Store/Accumulate GEP chain bottoms out at (an Alloc/Alloca; see
+        // SSA/Convert.cpp) is pointer-typed, since only mutable
+        // args/locals are ever looked up under a pointer type there.
+        // WriteLoc::base_type/type must be the raw pointee type (it's
+        // narrowed by add_index_access/add_struct_access as accesses are
+        // appended), so unwrap it here.
         internal_assert(!i->name.empty())
             << "Cannot form WriteLoc from unnamed instruction";
+        // An array handle is already the address of its elements, so it is
+        // not wrapped in a Ptr_t (see Type::is_reference) and is its own
+        // base.
+        if (i->type.is_reference()) {
+            return WriteLoc(i->name, i->type);
+        }
+        const Ptr_t *ptr_t = i->type.as<Ptr_t>();
+        internal_assert(ptr_t)
+            << "GEP base instruction: " << i->name
+            << " expected to be pointer-typed, got: " << i->type;
 
-        return WriteLoc(i->name, i->type);
+        return WriteLoc(i->name, ptr_t->etype);
     }
 
-    // Argument base case
+    // Argument base case: same pointer-typed assumption as above, since
+    // mutable arguments are registered under Ptr_t(original type) (see
+    // `mut_names` in SSA/Convert.cpp).
     if (auto arg = std::get_if<Argument>(&v->data)) {
-        return WriteLoc(arg->name, arg->type);
+        if (arg->type.is_reference()) {
+            return WriteLoc(arg->name, arg->type);
+        }
+        const Ptr_t *ptr_t = arg->type.as<Ptr_t>();
+        internal_assert(ptr_t)
+            << "GEP base argument: " << arg->name
+            << " expected to be pointer-typed, got: " << arg->type;
+
+        return WriteLoc(arg->name, ptr_t->etype);
     }
 
     v->dump(std::cerr);
@@ -187,16 +225,42 @@ Stmt codegen_instruction(const Instruction &instr) {
         case Instruction::Op::Append:
             internal_error << "TODO: Append codegen!\n";
         case Instruction::Op::Store: {
-            internal_assert(instr.operands.size() == 2)
+            // A third operand is the execution mask of a vectorized store:
+            // only the lanes it enables are written.
+            internal_assert(instr.operands.size() == 2 ||
+                            instr.operands.size() == 3)
                 << instr.operands.size();
             WriteLoc loc = codegen_gep(instr.operands[0]);
             Expr val = codegen_value(instr.operands[1]);
-            return Store::make(std::move(loc), std::move(val));
+            Expr mask = instr.operands.size() == 3
+                            ? codegen_value(instr.operands[2])
+                            : Expr();
+            return Store::make(std::move(loc), std::move(val),
+                               std::move(mask));
         }
         case Instruction::Op::Alloc:
-            internal_error << "TODO: Alloc codegen!\n";
-        case Instruction::Op::Alloca:
-            internal_error << "TODO: Alloca codegen!\n";
+        case Instruction::Op::Alloca: {
+            internal_assert(instr.operands.empty()) << instr.operands.size();
+            // An array handle is registered under its own type, everything
+            // else under a pointer to what it allocates (see the Allocate
+            // visitor in SSA/Convert.cpp and Type::is_reference).
+            Type allocated = instr.type;
+            if (!allocated.is_reference()) {
+                const Ptr_t *ptr_t = instr.type.as<Ptr_t>();
+                internal_assert(ptr_t)
+                    << "Alloc(a) instruction must have pointer type: "
+                    << instr.type;
+                allocated = ptr_t->etype;
+            }
+            Allocate::Memory memory = (instr.op == Instruction::Op::Alloca)
+                                          ? Allocate::Stack
+                                          : Allocate::Heap;
+            // The initial value (if any) was split into a separate Store
+            // instruction by the SSA builder (see SSA/Convert.cpp), so this
+            // just declares storage.
+            return Allocate::make(WriteLoc(instr.name, std::move(allocated)),
+                                  memory);
+        }
         default:
             instr.dump(std::cerr);
             internal_error << "TODO: side_effecty codegen for ^";
@@ -254,11 +318,17 @@ Stmt codegen_instruction(const Instruction &instr) {
         break;
     }
     case Instruction::Op::GEP: {
-        // TODO: is this right?
-        internal_assert(args.size() == 2) << args.size();
-        Expr temp = Extract::make(std::move(args[0]), std::move(args[1]));
-        value = PtrTo::make(temp);
-        break;
+        // GEP has no standalone codegen: it's a pure address-computation
+        // helper for a Store/Accumulate, consumed inline by codegen_gep()
+        // above, which walks the operand chain directly rather than by
+        // name. The per-instruction loop below skips GEP instructions for
+        // this reason. Reaching here means something referenced a GEP's
+        // result outside of a Store/Accumulate address, which the SSA
+        // builder never constructs and this codegen doesn't support.
+        internal_error << "GEP instruction: " << instr.name
+                       << " was codegen'd standalone instead of being "
+                          "consumed via codegen_gep() by its owning "
+                          "Store/Accumulate.";
     }
     case Instruction::Op::LAnd: {
         internal_assert(args.size() == 2) << args.size();
@@ -278,7 +348,11 @@ Stmt codegen_instruction(const Instruction &instr) {
                             std::move(args[1]));
         break;
     }
-    // case Instruction::Op::Load:
+    case Instruction::Op::Load: {
+        internal_assert(args.size() == 1) << args.size();
+        value = Deref::make(std::move(args[0]));
+        break;
+    }
     case Instruction::Op::LoadField: {
         internal_assert(args.size() == 2) << args.size();
         const Struct_t *struct_t = args[0].type().as<Struct_t>();
@@ -322,10 +396,21 @@ Stmt codegen_instruction(const Instruction &instr) {
                             std::move(args[1]));
         break;
     }
+    case Instruction::Op::Ramp: {
+        internal_assert(args.size() == 2) << args.size();
+        value = Ramp::make(std::move(args[0]), std::move(args[1]),
+                           instr.type.lanes());
+        break;
+    }
     case Instruction::Op::Reinterpret: {
         internal_assert(args.size() == 1) << args.size();
         value =
             Cast::make(instr.type, std::move(args[0]), Cast::Mode::Reinterpret);
+        break;
+    }
+    case Instruction::Op::Select: {
+        internal_assert(args.size() == 3) << args.size();
+        value = Select::make(std::move(args[0]), std::move(args[1]), std::move(args[2]));
         break;
     }
     case Instruction::Op::Set: {
@@ -670,29 +755,6 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
         info[name].loop_exit = t0_is_body ? t1 : t0;
     }
 
-    for (const auto &[name, i] : info) {
-        std::cout << "name: " << name << " has type: ";
-        switch (i.role) {
-        case BlockInfo::Role::DoWhileLatch: {
-            std::cout << "do-while latch";
-            break;
-        }
-        case BlockInfo::Role::InfLoopLatch: {
-            std::cout << "inf loop latch";
-            break;
-        }
-        case BlockInfo::Role::Normal: {
-            std::cout << "normal";
-            break;
-        }
-        case BlockInfo::Role::WhileHeader: {
-            std::cout << "while header";
-            break;
-        }
-        }
-        std::cout << std::endl;
-    }
-
     return info;
 }
 
@@ -742,6 +804,14 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
         // Emit this block's instructions
         for (auto &instr : block->instrs) {
+            if (instr->op == Instruction::Op::GEP ||
+                instr->op == Instruction::Op::Ramp) {
+                // Pure address-computation helpers, consumed inline by
+                // codegen_gep()/codegen_value() when codegening the owning
+                // Store/Accumulate below; they have no standalone Stmt
+                // representation.
+                continue;
+            }
             append(codegen_instruction(*instr));
         }
 
@@ -954,7 +1024,6 @@ Stmt structurize(const std::string &start, const std::string &exit,
 }
 
 Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
-    std::cout << "codegen for: " << func.blocks[0]->name << std::endl;
     const auto block_map = make_block_map(func);
     const auto dom = compute_dominators(func, block_map);
     const auto info = classify_blocks(func, block_map, dom);
@@ -972,27 +1041,20 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
     std::vector<ir::Function::Argument> args;
     args.reserve(func.blocks[0]->args.size());
     for (const auto &arg : func.blocks[0]->args) {
-        // Figure out mutability / default values later.
-        args.push_back(ir::Function::Argument(arg.name, arg.type));
+        // TODO: default values aren't preserved through SSA.
+        args.push_back(ir::Function::Argument(arg.name, arg.type, Expr(),
+                                              arg.mutating));
     }
 
     Type ret_type = func.ret_type;
 
     Stmt body = codegen_body(func, func_type_map);
 
-    func.dump(std::cout);
-
-    std::cout << "\n\n ->\n\n";
-
-    std::cout << body << std::endl;
-
     ir::Function::InterfaceList ilist; // always empty at this stage.
 
-    std::vector<ir::Function::Attribute> attrs; // Figure this out later
-
-    return std::make_shared<ir::Function>(std::move(name), std::move(args),
-                                          std::move(ret_type), std::move(body),
-                                          std::move(ilist), std::move(attrs));
+    return std::make_shared<ir::Function>(
+        std::move(name), std::move(args), std::move(ret_type),
+        std::move(body), std::move(ilist), func.attributes);
 }
 
 } // namespace ssa

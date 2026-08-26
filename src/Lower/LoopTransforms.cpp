@@ -664,6 +664,10 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       std::string i = get_name(par.i);
                                       body = opt::parallelize_forall(
                                           i, std::move(body), program, options);
+                                  },
+                                  [&](const Vectorize &vec) {
+                                      // no-op, applied by ConvertToSSA
+                                      // instead (see SSA/Rewrite.h).
                                   }},
                        t);
         }

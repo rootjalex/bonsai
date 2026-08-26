@@ -1,0 +1,4 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_scale.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_scale.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_scale.o tests/bonsai/correctness/cpp/vectorize_scale.o -o tests/bonsai/correctness/cpp/vectorize_scale
+[test] ./tests/bonsai/correctness/cpp/vectorize_scale
+0 2 4 6 8 10 12 14

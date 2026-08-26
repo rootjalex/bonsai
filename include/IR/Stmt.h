@@ -184,8 +184,12 @@ struct Free : StmtNode<Free> {
 struct Store : StmtNode<Store> {
     WriteLoc loc;
     Expr value;
+    // Predication, for a store that writes one element per lane (see Ramp).
+    // Undefined means every lane writes; otherwise a boolean vector with one
+    // entry per lane of `value`, and only the enabled lanes are written.
+    Expr mask;
 
-    static Stmt make(WriteLoc loc, Expr value);
+    static Stmt make(WriteLoc loc, Expr value, Expr mask = Expr());
 
     static const IRStmtEnum node_type = IRStmtEnum::Store;
 };

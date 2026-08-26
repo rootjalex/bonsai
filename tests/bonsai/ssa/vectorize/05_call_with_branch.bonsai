@@ -1,0 +1,22 @@
+// Last stepping stone before visect.bonsai: the called function both mixes
+// uniform and varying parameters *and* branches internally (like
+// intersectsp_ray_aabb's early-return ifs), so vectorize() must inline the
+// callee, mask its internal branch, and rethread the masked result back out
+// through the Call continuation.
+func clip(x : f32, lo : f32) -> f32 {
+  if (x < lo) {
+    return lo;
+  }
+  return x;
+}
+
+func clip_all(a : array[f32, 8], lo : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = clip(a[i], lo);
+  }
+  return;
+}
+
+schedule {
+  clip_all.vectorize(i);
+}

@@ -20,4 +20,7 @@ add_bonsai_tests(
     struct_defaults.bonsai
     tail-call.bonsai
     type_coercion_primitive.bonsai
+    vectorize_add_one.bonsai
+    vectorize_gather.bonsai
+    vectorize_scale.bonsai
 )

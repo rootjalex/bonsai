@@ -1,0 +1,4 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_gather.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_gather.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_gather.o tests/bonsai/correctness/cpp/vectorize_gather.o -o tests/bonsai/correctness/cpp/vectorize_gather
+[test] ./tests/bonsai/correctness/cpp/vectorize_gather
+70 30 0 50 30 10 60 20

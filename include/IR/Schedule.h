@@ -98,8 +98,16 @@ struct Split {
     bool generate_tail;
 };
 
-using Transform =
-    std::variant<Collapse, Defer, Loopify, MakeQueue, Parallelize, Split, Sort>;
+// Vectorize for-loop `i`, which must have a constant extent, turning it into
+// a single SIMD "gang" of that width (see Pharr & Mark, "ispc: A SPMD
+// Compiler for High-Performance CPU Programming"). Applied at the SSA level,
+// not by LoopTransforms.
+struct Vectorize {
+    Location i;
+};
+
+using Transform = std::variant<Collapse, Defer, Loopify, MakeQueue,
+                               Parallelize, Split, Sort, Vectorize>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

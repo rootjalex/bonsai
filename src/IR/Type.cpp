@@ -98,6 +98,8 @@ bool Type::is_vector() const {
     return this->is<Vector_t>();
 }
 
+bool Type::is_reference() const { return this->is<Array_t, DynArray_t>(); }
+
 bool Type::is_numeric() const {
     // scalar + vector of numbers
     // TODO: let Struct_ts overload their numeric operators.

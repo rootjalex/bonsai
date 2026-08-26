@@ -1,0 +1,18 @@
+// A varying condition (a[i] < 0.0) drives an `if`, so different lanes take
+// different paths. This is the core ISPC-paper case: no lane may actually
+// branch, so vectorize() must linearize control flow into an execution mask
+// and a Select over both sides, rather than emitting a real Dispatch.
+func clamp_negative(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0.0) {
+      out[i] = 0.0;
+    } else {
+      out[i] = a[i];
+    }
+  }
+  return;
+}
+
+schedule {
+  clamp_negative.vectorize(i);
+}

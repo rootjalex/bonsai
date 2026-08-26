@@ -1,0 +1,15 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @scale_all(ptr nocapture noundef readonly %a, float noundef %scale, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+scale_all_entry:
+  %extract = load <8 x float>, ptr %a, align 32
+  %.splatinsert = insertelement <8 x float> poison, float %scale, i64 0
+  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
+  %0 = fmul <8 x float> %.splat, %extract
+  store <8 x float> %0, ptr %out, align 32
+  ret void
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

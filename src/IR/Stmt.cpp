@@ -163,12 +163,21 @@ Stmt Free::make(Expr var) {
     return node;
 }
 
-Stmt Store::make(WriteLoc loc, Expr value) {
+Stmt Store::make(WriteLoc loc, Expr value, Expr mask) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
+    if (mask.defined() && mask.type().defined() && value.type().defined()) {
+        internal_assert(mask.type().is_bool() && mask.type().is_vector())
+            << "Store mask must be a boolean vector, got: " << mask.type();
+        internal_assert(value.type().is_vector() &&
+                        mask.type().lanes() == value.type().lanes())
+            << "Store mask has " << mask.type().lanes()
+            << " lanes but stores a value of type: " << value.type();
+    }
     Store *node = new Store;
     node->loc = std::move(loc);
     node->value = std::move(value);
+    node->mask = std::move(mask);
     return node;
 }
 
