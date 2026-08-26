@@ -12,6 +12,7 @@ add_bonsai_tests(
     nested-exported-function.bonsai
     option.bonsai
     print-str.bonsai
+    print-float.bonsai
     print.bonsai
     map-func.bonsai
     map.bonsai

@@ -1008,7 +1008,12 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         // TODO(cgyurgyik): print non-constant sized arrays.
         std::optional<uint64_t> constant_size = get_constant_value(atype->size);
         internal_assert(constant_size.has_value()) << atype->size;
-        const std::string name = "__array_print" + std::to_string(indent_level);
+        // Unique per array printed, not per nesting depth: an array of arrays
+        // recurses at the same indent level (only structs indent), so a name
+        // derived from the level collides with the one the enclosing array is
+        // still holding.
+        const std::string name =
+            "__array_print" + std::to_string(array_print_counter++);
         Expr to_print_expr = node;
         if (!node.is<Var>()) {
             // Evaluate node once, then perform extracts.
@@ -1068,6 +1073,13 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         llvm::Value *t = builder->CreateGlobalStringPtr("true");
         llvm::Value *f = builder->CreateGlobalStringPtr("false");
         expr = builder->CreateSelect(expr, t, f);
+    } else if (t.is_float() && expr->getType()->isFloatingPointTy() &&
+               !expr->getType()->isDoubleTy()) {
+        // printf is variadic, so C's default argument promotion applies: a
+        // float is passed as a double, and "%f" (see get_specifier) reads it
+        // as one. Without this the callee reads eight bytes where four were
+        // written and prints garbage.
+        expr = builder->CreateFPExt(expr, llvm::Type::getDoubleTy(*context));
     }
     args.push_back(expr);
 }

@@ -186,6 +186,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     void print_helper(const ir::Expr &expr, std::vector<llvm::Value *> &args,
                       std::string &to_print, uint32_t indent_level = 0);
 
+    // Names the temporary print_helper binds an array to before indexing it,
+    // so that nested arrays do not collide (see the Array_t case there).
+    uint64_t array_print_counter = 0;
+
     // Allocates memory for the dynamic array type in Bonsai.
     void allocate_dynamic_array_type(const ir::Allocate *);
 

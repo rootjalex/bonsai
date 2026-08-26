@@ -1,0 +1,42 @@
+//! flags: -b llvm -e
+
+// Floats passed to printf must be promoted to double.
+//
+// printf is variadic, so C's default argument promotion applies: a `float`
+// argument is passed as a `double`. The LLVM backend used to hand printf a
+// raw `float`, so `%f` read eight bytes where four had been written and every
+// float printed as 0.000000 -- while integers and bools were fine. The C++
+// backend never had the bug, because the host compiler does the promotion.
+//
+// Each case below routes through print_helper differently: on its own, nested
+// in a struct, inside a vector, and as an array element.
+element vec3f = vector[f32, 3];
+
+element Sample {
+    weight : f32;
+    n : i32;
+}
+
+func main() -> i32 {
+    x : f32 = 42.5;
+    print(x);
+
+    // Negative and fractional values: a truncation to int would print these
+    // as 0 or -3 rather than the value.
+    y : f32 = -3.25;
+    print(y);
+
+    s : Sample = {0.5, 7};
+    print(s);
+
+    v : vec3f = {1.5, 2.5, 3.5};
+    print(v);
+
+    xs : array[f32, 3] = {0.125, 0.25, 0.5};
+    print(xs);
+
+    // A double is already the right width; it must not be promoted twice.
+    d : f64 = 6.75;
+    print(d);
+    return 0;
+}
