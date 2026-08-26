@@ -12,6 +12,8 @@ add_bonsai_tests(
     vectorize_gather.bonsai
     vectorize_locals.bonsai
     vectorize_shapes.bonsai
+    vectorize_soa.bonsai
+    vectorize_visect.bonsai
     vectorize_scale.bonsai
     vectorize_stride.bonsai
 )

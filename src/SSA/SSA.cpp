@@ -138,6 +138,8 @@ static const char *op_name(Instruction::Op op) {
         return "shl";
     case Instruction::Op::Shr:
         return "shr";
+    case Instruction::Op::SizeOf:
+        return "sizeof";
     case Instruction::Op::Xor:
         return "xor";
     case Instruction::Op::Store:
@@ -193,6 +195,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Set:
     case Instruction::Op::Shl:
     case Instruction::Op::Shr:
+    case Instruction::Op::SizeOf:
     case Instruction::Op::Sub:
     case Instruction::Op::Xor:
         return false;

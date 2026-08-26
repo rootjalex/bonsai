@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_visect.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_visect.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_visect.o tests/bonsai/correctness/cpp/vectorize_visect.o -o tests/bonsai/correctness/cpp/vectorize_visect
+[test] ./tests/bonsai/correctness/cpp/vectorize_visect
+10111101
+matches scalar

@@ -613,6 +613,12 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // void visit(const StringImm *) override;
+    void visit(const SizeOf *node) override {
+        // Left to the C++ compiler, which knows its own layout rules.
+        ss << "sizeof(";
+        emit_type(ss, node->of);
+        ss << ")";
+    }
     void visit(const Extrema *node) override {
         ss << "std::numeric_limits<";
         emit_type(ss, node->type);

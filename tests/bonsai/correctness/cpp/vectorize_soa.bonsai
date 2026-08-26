@@ -1,0 +1,52 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_soa
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_soa.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_soa.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_soa.o tests/bonsai/correctness/cpp/vectorize_soa.o -o tests/bonsai/correctness/cpp/vectorize_soa, ./tests/bonsai/correctness/cpp/vectorize_soa, rm tests/bonsai/correctness/cpp/vectorize_soa, rm tests/bonsai/correctness/cpp/main_vectorize_soa.o, rm tests/bonsai/correctness/cpp/vectorize_soa.h, rm tests/bonsai/correctness/cpp/vectorize_soa.o
+
+// Per-lane vectors, which have to be split into one value per component
+// before a gang of them can be held at all: a gang of eight vec3f would be a
+// vector of vectors, which no SIMD target has.
+//
+// Reading these from an array is the case worth running. The array is a
+// vector per element, so a lane's component sits three floats from the next
+// lane's -- each component becomes its own strided read, and getting the
+// stride or the offset wrong still produces perfectly plausible numbers.
+element vec3f = vector[f32, 3];
+
+// Arithmetic on per-lane vectors, one component at a time once split.
+func [[export]] scale_each(inp : array[vec3f, 8], k : f32,
+                           out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    v = inp[i] * k;
+    out[i] = v.x + v.y + v.z;
+  }
+  return;
+}
+
+// A uniform vector meeting per-lane ones: `origin` is the same for every
+// lane, so it stays a single vector and is read apart per component.
+func [[export]] distance_from(inp : array[vec3f, 8], origin : vec3f,
+                              out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    d = inp[i] - origin;
+    out[i] = d.x * d.x + d.y * d.y + d.z * d.z;
+  }
+  return;
+}
+
+// A per-lane vector chosen by a per-lane condition: the select happens per
+// component, on the component's own mask.
+func [[export]] pick_vector(a : array[vec3f, 8], b : array[vec3f, 8],
+                            out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    av = a[i];
+    bv = b[i];
+    v = select(av < bv, av, bv);
+    out[i] = v.x + v.y + v.z;
+  }
+  return;
+}
+
+schedule {
+  scale_each.vectorize(i);
+  distance_from.vectorize(i);
+  pick_vector.vectorize(i);
+}

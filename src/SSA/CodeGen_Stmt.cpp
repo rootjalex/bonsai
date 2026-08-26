@@ -85,6 +85,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::BwOr:
     case Instruction::Op::Shl:
     case Instruction::Op::Shr:
+    case Instruction::Op::SizeOf:
     case Instruction::Op::Xor:
     case Instruction::Op::Cast:
     case Instruction::Op::Div:
@@ -315,6 +316,13 @@ Stmt codegen_instruction(const Instruction &instr) {
         internal_assert(args.size() == 2) << args.size();
         value = BinOp::make(BinOp::OpType::Shl, std::move(args[0]),
                             std::move(args[1]));
+        break;
+    }
+    case Instruction::Op::SizeOf: {
+        internal_assert(args.empty()) << args.size();
+        internal_assert(instr.queried_type.defined())
+            << "sizeof of nothing in " << instr.name;
+        value = SizeOf::make(instr.queried_type, instr.type);
         break;
     }
     case Instruction::Op::Shr: {

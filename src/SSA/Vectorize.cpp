@@ -4,6 +4,7 @@
 #include "SSA/Linearize.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
+#include "SSA/SplitAggregates.h"
 #include "SSA/SSA.h"
 
 #include "Utils.h"
@@ -280,6 +281,13 @@ void widen_argument(const BlockMap &blocks, const set<string> &region,
 // operands have already been widened by the time it is reached.
 void widen_region(Function &func, const string &entry, const Divergence &div,
                   uint32_t lanes) {
+    // Everything the earlier stages did is visible here, and what widening
+    // chokes on is usually a value one of them left in the wrong shape.
+    if (std::getenv("BONSAI_DUMP_PRE_WIDEN") != nullptr) {
+        std::cerr << "--- before widening " << entry << ":\n";
+        func.dump(std::cerr);
+    }
+
     const BlockMap blocks = make_block_map(func);
     const AdjacencyMap all_succs = compute_successors(func);
     const set<string> region = reachable_from(entry, all_succs);
@@ -387,6 +395,7 @@ void specialize_calls(FuncMap &funcs, Function &func,
                       const set<string> &region, const Divergence &div,
                       const BlockMasks &masks,
                       const set<string> &conditional_calls, uint32_t lanes,
+                      const map<string, vector<uint32_t>> &call_shapes,
                       Variants &variants) {
     const BlockMap blocks = make_block_map(func);
 
@@ -401,11 +410,28 @@ void specialize_calls(FuncMap &funcs, Function &func,
         key.callee = call->call.name;
         key.lanes = lanes;
         key.masked = conditional_calls.count(name) > 0;
-        // Which arguments vary comes from the analysis, not from their types:
-        // the call sites are rewritten before the region is widened, so
-        // nothing has a vector type yet.
-        for (const auto &arg : call->call.args) {
-            key.varying.push_back(div.is_varying(name, *arg));
+
+        // The key describes the callee's own parameters, not the values being
+        // passed: a per-lane vector argument was split into components, and
+        // the callee's parameter has to be split the same way for the two to
+        // line up. `call_shapes` says how many values each parameter took.
+        const auto shape = call_shapes.find(name);
+        const vector<uint32_t> components =
+            shape != call_shapes.end()
+                ? shape->second
+                : vector<uint32_t>(call->call.args.size(), 1);
+
+        size_t arg = 0;
+        for (const uint32_t count : components) {
+            internal_assert(arg < call->call.args.size())
+                << "Call in " << name << " passes fewer arguments than the "
+                << "split recorded";
+            // A split argument is varying by construction; an unsplit one is
+            // whatever the analysis says. Which arguments vary cannot come
+            // from their types here, since the region is not widened yet.
+            key.varying.push_back(
+                count > 1 || div.is_varying(name, *call->call.args[arg]));
+            arg += count;
         }
 
         // Nothing to specialize: every argument arrives as it would from a
@@ -544,6 +570,13 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 
     const BlockMasks masks = linearize(*variant, entry, before, mask);
 
+    // Per-lane vectors become one value per component here too, which is what
+    // turns a `vec3f` parameter into three `f32` ones -- matching the
+    // components the caller hands over.
+    const SplitResult split = split_aggregates(
+        *variant, entry, analyze_divergence(*variant, entry, varying_names));
+    varying_names.insert(split.parameters.begin(), split.parameters.end());
+
     const Divergence div = analyze_divergence(*variant, entry, varying_names);
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << name;
@@ -551,7 +584,7 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // A variant's own calls are specialized the same way, so that a chain of
     // calls from inside a gang is vectorized all the way down.
     specialize_calls(funcs, *variant, region, div, masks, conditional_calls,
-                     key.lanes, variants);
+                     key.lanes, split.call_shapes, variants);
 
     widen_region(*variant, entry, div, key.lanes);
 
@@ -663,6 +696,13 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
         substitute(*blocks.at(name), idx, ramp_value);
     }
 
+    // A lane's own vector -- a vec3f per lane, say -- cannot be widened as it
+    // is, since a gang of them would be a vector of vectors. Split those into
+    // one value per component first (see SSA/SplitAggregates.h).
+    const SplitResult split = split_aggregates(
+        *f, entry, analyze_divergence(*f, entry, {}, {ramp.get()}),
+        {ramp.get()});
+
     // Re-run the analysis now that the region is linearized and the index is
     // the ramp: the masks and blends linearization introduced have to be
     // classified too, and the index is no longer a block argument to seed on.
@@ -673,11 +713,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
 
     Variants variants;
     specialize_calls(funcs, *f, region, div, masks, conditional_calls, lanes,
-                     variants);
+                     split.call_shapes, variants);
 
-    if (std::getenv("BONSAI_DUMP_PRE_WIDEN") != nullptr) {
-        f->dump(std::cerr);
-    }
     widen_region(*f, entry, div, lanes);
 
     // With the body vectorized, the loop is gone: it runs exactly once, so

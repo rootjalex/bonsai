@@ -504,6 +504,9 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Var: {
         return compare_primitives(e0.as<Var>()->name, e1.as<Var>()->name);
     }
+    case IRExprEnum::SizeOf: {
+        return compare_types(e0.as<SizeOf>()->of, e1.as<SizeOf>()->of);
+    }
     case IRExprEnum::Extrema: {
         return compare_primitives(e0.as<Extrema>()->op, e1.as<Extrema>()->op);
     }

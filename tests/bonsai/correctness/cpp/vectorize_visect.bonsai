@@ -1,0 +1,67 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_visect
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_visect.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_visect.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_visect.o tests/bonsai/correctness/cpp/vectorize_visect.o -o tests/bonsai/correctness/cpp/vectorize_visect, ./tests/bonsai/correctness/cpp/vectorize_visect, rm tests/bonsai/correctness/cpp/vectorize_visect, rm tests/bonsai/correctness/cpp/main_vectorize_visect.o, rm tests/bonsai/correctness/cpp/vectorize_visect.h, rm tests/bonsai/correctness/cpp/vectorize_visect.o
+
+// Ray/box intersection for a gang of rays -- the program this whole
+// vectorization effort was aimed at (visect.bonsai), run against a scalar
+// implementation of the same slab test in the driver.
+//
+// It puts every stage together: the rays arrive as arrays of per-lane
+// vectors, so reading one is a strided read per component; the box is
+// uniform, so it is read apart per component and broadcast; the function is
+// called per lane and specialized for it; its early returns become masks; and
+// the boolean results are stored a byte per lane.
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element AABB {
+    low, high : vec3f;
+}
+
+func gamma(n : i32) -> Float =
+    (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
+
+func intersectsp_ray_aabb(o : vec3f, d : vec3f, b : AABB) -> bool {
+    invDir = 1 / d;
+    dirIsNeg = invDir < 0;
+
+    // Check for ray intersection against slabs.
+    low_parts = select(dirIsNeg, b.high, b.low);
+    high_parts = select(dirIsNeg, b.low, b.high);
+    tMin : mut = (low_parts - o) * invDir;
+    tMax : mut = (high_parts - o) * invDir;
+
+    // Update to ensure robust bounds intersection
+    tMax *= 1 + 2 * gamma(3);
+
+    if (tMin.x > tMax.y || tMin.y > tMax.x) {
+        return false;
+    }
+
+    tmin : mut = max(tMin.x, tMin.y);
+    tmax : mut = min(tMax.x, tMax.y);
+
+    if (tmin > tMax.z || tMin.z > tmax) {
+        return false;
+    }
+
+    tmin = max(tmin, tMin.z);
+    tmax = min(tmax, tMax.z);
+
+    // The conventional way round -- visect.bonsai currently returns
+    // `tmin >= tmax`, which is true only for a ray that grazes the box, so
+    // every lane would answer false and a broken mask would look fine.
+    return tmin <= tmax;
+}
+
+func [[export]] visect_box(b : AABB, inp_o : array[vec3f, 8],
+                           inp_d : array[vec3f, 8],
+                           outp : mut array[bool, 8]) {
+  parfor i in 0:8 {
+    outp[i] = intersectsp_ray_aabb(inp_o[i], inp_d[i], b);
+  }
+  return;
+}
+
+schedule {
+  visect_box.vectorize(i);
+}

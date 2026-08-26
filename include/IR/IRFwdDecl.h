@@ -41,6 +41,7 @@ struct BoolImm;
 struct VecImm;
 struct StringImm;
 struct Extrema;
+struct SizeOf;
 struct Var;
 struct BinOp;
 struct UnOp;

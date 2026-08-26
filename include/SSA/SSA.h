@@ -99,6 +99,9 @@ struct Instruction {
         Set,
         Shl,
         Shr,
+        // The storage size of `queried_type`, left for the backend to answer
+        // (see ir::SizeOf).
+        SizeOf,
         Store, // side-effect-y
         Sub,
         Xor,
@@ -108,6 +111,11 @@ struct Instruction {
     std::string name;
     Type type;
     Op op;
+
+    // The type an operation asks about rather than produces. Only SizeOf has
+    // one: its answer is an integer, but what it is the size *of* is a type,
+    // which no operand can carry.
+    Type queried_type;
 
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;

@@ -1,0 +1,116 @@
+type vec3f = f32x3
+
+func components(inp : f32x3[8], out : mut f32[8]) -> void {
+  let @8 = reinterpret_cast<f32[]>(inp) in
+  let @9 = sizeof(f32x3) in
+  let @10 = sizeof(f32) in
+  let @11 = @9 / @10 in
+  let @25 = i32x8(@11) in
+  let @12 = ramp(0, 1, 8) * @25 in
+  let @26 = i32x8(0) in
+  let @13 = @12 + @26 in
+  let @14 = @8[@13] in
+  let @27 = i32x8(1) in
+  let @15 = @12 + @27 in
+  let @16 = @8[@15] in
+  let @28 = i32x8(2) in
+  let @17 = @12 + @28 in
+  let @18 = @8[@17] in
+  let @1 = f32x3(2f) in
+  let @19 = @1[0u] in
+  let @29 = f32x8(@19) in
+  let @20 = @14 * @29 in
+  let @21 = @1[1u] in
+  let @30 = f32x8(@21) in
+  let @22 = @16 * @30 in
+  let @23 = @1[2u] in
+  let @31 = f32x8(@23) in
+  let @24 = @18 * @31 in
+  let @5 = @20 + @24 in
+  out[ramp(0, 1, 8)] = @5
+  return
+}
+
+func length_squared(v : f32x3) -> f32 {
+  let @0 = v[0u] in
+  let @1 = v[0u] in
+  let @2 = @0 * @1 in
+  let @3 = v[1u] in
+  let @4 = v[1u] in
+  let @5 = @3 * @4 in
+  let @6 = @2 + @5 in
+  let @7 = v[2u] in
+  let @8 = v[2u] in
+  let @9 = @7 * @8 in
+  let @10 = @6 + @9 in
+  return @10
+}
+
+func length_squared$gang8_v0(v!0 : f32x8, v!1 : f32x8, v!2 : f32x8) -> f32x8 {
+  let @2 = v!0 * v!0 in
+  let @5 = v!1 * v!1 in
+  let @6 = @2 + @5 in
+  let @9 = v!2 * v!2 in
+  let @10 = @6 + @9 in
+  return @10
+}
+
+func through_a_call(inp : f32x3[8], out : mut f32[8]) -> void {
+  let @4 = reinterpret_cast<f32[]>(inp) in
+  let @5 = sizeof(f32x3) in
+  let @6 = sizeof(f32) in
+  let @7 = @5 / @6 in
+  let @15 = i32x8(@7) in
+  let @8 = ramp(0, 1, 8) * @15 in
+  let @16 = i32x8(0) in
+  let @9 = @8 + @16 in
+  let @10 = @4[@9] in
+  let @17 = i32x8(1) in
+  let @11 = @8 + @17 in
+  let @12 = @4[@11] in
+  let @18 = i32x8(2) in
+  let @13 = @8 + @18 in
+  let @14 = @4[@13] in
+  let @1 = length_squared$gang8_v0(@10, @12, @14) in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func uniform_meets_varying(inp : f32x3[8], origin : f32x3, out : mut f32[8]) -> void {
+  let @9 = reinterpret_cast<f32[]>(inp) in
+  let @10 = sizeof(f32x3) in
+  let @11 = sizeof(f32) in
+  let @12 = @10 / @11 in
+  let @26 = i32x8(@12) in
+  let @13 = ramp(0, 1, 8) * @26 in
+  let @27 = i32x8(0) in
+  let @14 = @13 + @27 in
+  let @15 = @9[@14] in
+  let @28 = i32x8(1) in
+  let @16 = @13 + @28 in
+  let @17 = @9[@16] in
+  let @29 = i32x8(2) in
+  let @18 = @13 + @29 in
+  let @19 = @9[@18] in
+  let @20 = origin[0u] in
+  let @30 = f32x8(@20) in
+  let @21 = @15 - @30 in
+  let @22 = origin[1u] in
+  let @31 = f32x8(@22) in
+  let @23 = @17 - @31 in
+  let @24 = origin[2u] in
+  let @32 = f32x8(@24) in
+  let @25 = @19 - @32 in
+  let @4 = @21 + @23 in
+  let @6 = @4 + @25 in
+  out[ramp(0, 1, 8)] = @6
+  return
+}
+
+
+schedule host {
+    components.vectorize(i)
+    through_a_call.vectorize(i)
+    uniform_meets_varying.vectorize(i)
+
+}

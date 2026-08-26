@@ -14,4 +14,5 @@ add_bonsai_tests(
     traverse.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
+    vectorize-soa.bonsai
 )

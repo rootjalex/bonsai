@@ -1,0 +1,54 @@
+//! flags: -p ssa
+
+// Golden for splitting per-lane vectors into one value per component
+// (SSA/SplitAggregates.h).
+//
+// What to look for:
+//
+//   * `components` has no vector arithmetic left. The subtraction on vec3f
+//     became three subtractions, and reading `.x` is not an instruction at
+//     all -- it is whichever value that component was split into.
+//
+//   * reading the array of vec3f became one strided read per component. The
+//     array is viewed as flat floats and indexed at four times the lane index
+//     plus the component, four rather than three because a three-float vector
+//     occupies four floats in memory.
+//
+//   * in `uniform_meets_varying`, `origin` stays a single vector: it is the
+//     same for every lane, so it is read apart per component where it meets
+//     the split values rather than being split itself.
+element vec3f = vector[f32, 3];
+
+func components(inp : array[vec3f, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    v = inp[i] * 2.0;
+    out[i] = v.x + v.z;
+  }
+  return;
+}
+
+func uniform_meets_varying(inp : array[vec3f, 8], origin : vec3f,
+                           out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    d = inp[i] - origin;
+    out[i] = d.x + d.y + d.z;
+  }
+  return;
+}
+
+// A per-lane vector passed to a function: its parameter is split to match,
+// so the callee takes three floats per vector rather than one vector.
+func length_squared(v : vec3f) -> f32 = v.x * v.x + v.y * v.y + v.z * v.z;
+
+func through_a_call(inp : array[vec3f, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = length_squared(inp[i]);
+  }
+  return;
+}
+
+schedule {
+  components.vectorize(i);
+  uniform_meets_varying.vectorize(i);
+  through_a_call.vectorize(i);
+}

@@ -179,6 +179,17 @@ Expr Extrema::make(Type t, Extrema::OpType op) {
     return node;
 }
 
+Expr SizeOf::make(Type of, Type as) {
+    internal_assert(of.defined()) << "SizeOf of an undefined type";
+    internal_assert(as.defined() && as.is_int_or_uint())
+        << "SizeOf must produce an integer, not: " << as;
+
+    SizeOf *node = new SizeOf;
+    node->of = std::move(of);
+    node->type = std::move(as);
+    return node;
+}
+
 Expr Var::make(Type type, const std::string &name) {
     internal_assert(!name.empty())
         << "Var::make called with empty name and type: " << type;

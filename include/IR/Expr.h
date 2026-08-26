@@ -25,6 +25,7 @@ enum class IRExprEnum {
     StringImm,
     Var,
     Extrema,
+    SizeOf,
     BinOp,
     UnOp,
     Select,
@@ -172,6 +173,24 @@ struct Extrema : ExprNode<Extrema> {
     static Expr make(Type t, OpType op);
 
     static const IRExprEnum node_type = IRExprEnum::Extrema;
+};
+
+// How many bytes a value of `of` occupies in memory, including any padding:
+// the distance between consecutive elements of an array of them.
+//
+// This is a question only a backend can answer -- a `vector[f32, 3]` is
+// twelve bytes of data but occupies sixteen, and another target could say
+// otherwise -- so it stays symbolic until code generation rather than being
+// computed by whoever needed it. Vectorization needs it to read an array of
+// per-lane vectors one component at a time.
+struct SizeOf : ExprNode<SizeOf> {
+    Type of;
+
+    // `as` is the type of the resulting number, so that it can be used in
+    // index arithmetic without a cast.
+    static Expr make(Type of, Type as);
+
+    static const IRExprEnum node_type = IRExprEnum::SizeOf;
 };
 
 struct BinOp : ExprNode<BinOp> {

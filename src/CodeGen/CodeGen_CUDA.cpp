@@ -366,6 +366,15 @@ void CodeGen_CUDA::visit(const Extrema *node) {
     }
 }
 
+void CodeGen_CUDA::visit(const SizeOf *node) {
+    // Left to the CUDA compiler, which knows its own layout rules. The type
+    // is emitted through the visitor so that it is spelled the way this
+    // backend spells types, not the way the IR prints them.
+    os << "sizeof(";
+    node->of.accept(this);
+    os << ")";
+}
+
 void CodeGen_CUDA::visit(const Cast *node) {
     ir::Expr value = node->value;
     ir::Type type = node->type;

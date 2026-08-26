@@ -694,6 +694,14 @@ void CodeGen_LLVM::visit(const StringImm *node) {
     internal_error << "[unimplemented] StringImm in LLVM: " << Expr(node);
 }
 
+void CodeGen_LLVM::visit(const SizeOf *node) {
+    // The target's own answer, including whatever padding it applies -- a
+    // <3 x float> is twelve bytes of data in sixteen bytes of storage.
+    const uint64_t bytes =
+        module->getDataLayout().getTypeAllocSize(codegen_type(node->of));
+    value = llvm::ConstantInt::get(codegen_type(node->type), bytes);
+}
+
 void CodeGen_LLVM::visit(const Extrema *node) {
     llvm::Type *type = codegen_type(node->type);
     // A vector of them is the scalar splatted; ConstantFP/ConstantInt::get
@@ -1199,6 +1207,15 @@ void CodeGen_LLVM::visit(const Cast *node) {
     llvm::Value *inner = codegen_expr(node->value);
 
     llvm::Type *llvm_dst = codegen_type(dst);
+
+    // An array is the address of its elements, so viewing one as an array of
+    // a different element type is nothing at the machine level -- only the
+    // stride of later indexing changes. Vectorization does this to read an
+    // array of per-lane vectors component by component.
+    if (src.is_reference() && dst.is_reference()) {
+        value = inner;
+        return;
+    }
 
     // Except the first branch, these just copy Halide's lowering (minus a few
     // pointer things).

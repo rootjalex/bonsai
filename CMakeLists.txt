@@ -155,6 +155,7 @@ target_sources(
     src/SSA/DumpAnalysis.cpp
     src/SSA/Linearize.cpp
     src/SSA/PromoteAllocas.cpp
+    src/SSA/SplitAggregates.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
     src/SSA/Vectorize.cpp
@@ -252,6 +253,7 @@ target_sources(
     include/SSA/DumpAnalysis.h
     include/SSA/Linearize.h
     include/SSA/PromoteAllocas.h
+    include/SSA/SplitAggregates.h
     include/SSA/Rewrite.h
     include/SSA/SSA.h
     include/RefCount.h

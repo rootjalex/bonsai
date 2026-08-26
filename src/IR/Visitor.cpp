@@ -113,6 +113,9 @@ void Visitor::visit(const StringImm *) {}
 
 void Visitor::visit(const Extrema *) {}
 
+// Its operand is a type, not a value, so there is nothing to walk into.
+void Visitor::visit(const SizeOf *) {}
+
 void Visitor::visit(const Var *) {}
 
 void Visitor::visit(const BinOp *node) {

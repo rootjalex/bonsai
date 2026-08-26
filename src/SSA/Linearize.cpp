@@ -463,17 +463,14 @@ BlockMasks linearize(Function &func, const string &entry,
         }
 
         // The blends were appended; move them to the front so they precede
-        // the code that uses the arguments.
-        std::stable_partition(
-            block->instrs.begin(), block->instrs.end(),
-            [&](const shared_ptr<Instruction> &i) {
-                return std::any_of(blended.begin(), blended.end(),
-                                   [&](const shared_ptr<Value> &v) {
-                                       const auto *p = std::get_if<
-                                           shared_ptr<Instruction>>(&v->data);
-                                       return p != nullptr && p->get() == i.get();
-                                   });
-            });
+        // the code that uses the arguments. All of them, not just the last of
+        // each chain: a blend over three predecessors is a select feeding a
+        // select, and moving only the outer one would leave it reading a
+        // value defined below it.
+        std::stable_partition(block->instrs.begin(), block->instrs.end(),
+                              [&](const shared_ptr<Instruction> &i) {
+                                  return blends.count(i.get()) > 0;
+                              });
 
         // Replace uses of the arguments with the blends, then drop them. The
         // terminator counts as a use: the value a function returns is the

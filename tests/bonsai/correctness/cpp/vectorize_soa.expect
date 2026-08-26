@@ -1,0 +1,6 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_soa.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_soa.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_soa.o tests/bonsai/correctness/cpp/vectorize_soa.o -o tests/bonsai/correctness/cpp/vectorize_soa
+[test] ./tests/bonsai/correctness/cpp/vectorize_soa
+0 222 444 666 888 1110 1332 1554
+3 9882 39963 90246 160731 251418 362307 493398
+0 56 62 68 74 80 86 92
