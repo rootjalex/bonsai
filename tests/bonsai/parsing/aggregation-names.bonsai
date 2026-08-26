@@ -1,0 +1,20 @@
+//! flags: -p canonicalize
+
+// `count`, `avg` and `prod` are aggregation intrinsics, so they are reserved:
+// Parser::parse_identifier resolves a name against the builtin set before the
+// enclosing scope, which means a variable or layout field of one of those
+// names is parsed as a call and rejected (see
+// error/aggregation-name-reserved.bonsai for that half).
+//
+// This is the other half: the names must still work as the intrinsics they
+// are reserved for. A layout field that used to be called `count` is spelled
+// `nCount` here and in tests/bonsai/lower/trace.bonsai for exactly this
+// reason.
+extern items : set[f32];
+
+func [[export]] how_many(low : f32, high : f32) =
+    count(filter(|i : f32| low <= i && i <= high, items));
+
+func [[export]] mean(low : f32) = avg(filter(|i : f32| low <= i, items));
+
+func [[export]] multiply_all(low : f32) = prod(filter(|i : f32| low <= i, items));

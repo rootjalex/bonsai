@@ -1,0 +1,19 @@
+//! flags: -p canonicalize
+
+// An internal error must unwind rather than abort().
+//
+// ErrorReport's destructor used to call abort() with its `throw` commented
+// out, which made cli::run()'s `catch (const Error &)` unreachable. Because
+// the test runner compiles in-process, that abort took the whole runner down
+// before it could record anything -- which is why every test in this
+// directory failed at the time, with the harness reporting "Subprocess
+// aborted" and no captured output at all.
+//
+// So what this pins down is the *shape* of a failure, not this particular
+// diagnostic: exit code 1, with the message on stderr and printed exactly
+// once. The error below is raised while building the IR for the expression,
+// so there are real frames to unwind through. Set BONSAI_ABORT_ON_ERROR to
+// get the old aborting behaviour back under a debugger.
+func f(a : f32, b : bool) -> f32 {
+    return a + b;
+}

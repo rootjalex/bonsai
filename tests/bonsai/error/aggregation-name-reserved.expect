@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/aggregation-name-reserved.bonsai:17:12: [parse error] Cannot use intrinsic as func pointer.
+
+    return count;
+           ^^^^^

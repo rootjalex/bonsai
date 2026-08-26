@@ -186,8 +186,8 @@ schedule {
     layout spheres {
         pCount : u32;
         prims : array[MaterialSphere, pCount];
-        count : u32;
-        group[count] index : u16 {
+        nCount : u32;
+        group[nCount] index : u16 {
             center : vec3f;
             radius : Float;
             nPrims : u16;

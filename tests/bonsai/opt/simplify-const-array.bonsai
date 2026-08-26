@@ -1,0 +1,30 @@
+//! flags: -p simplify
+
+// Constant-folding an index into an aggregate must not crash.
+//
+// Simplify's Extract rule checks that the indexed value is a VecImm or Build
+// and that the index is constant, then asks get_constant_value to fold it.
+// But `Build` covers arrays as well as vectors, and get_constant_value only
+// knows about scalars and vectors -- so indexing a constant array of arrays
+// walked off the end of its cases and raised an internal error, taking the
+// compiler down on a perfectly valid program.
+//
+// Folding these is optional; not crashing is not.
+func nested() -> i32 {
+    x : array[i32, 3] = {0, 1, 2};
+    y : array[i32, 3] = {3, 4, 5};
+    grid : array[array[i32, 3], 2] = {x, y};
+    return grid[1][2];
+}
+
+// The vector case, which always folded, so that a fix does not regress it.
+func vector_element() -> i32 {
+    v : vector[i32, 4] = {10, 20, 30, 40};
+    return v[2];
+}
+
+// A constant index into a flat constant array.
+func flat() -> i32 {
+    xs : array[i32, 3] = {7, 8, 9};
+    return xs[0];
+}

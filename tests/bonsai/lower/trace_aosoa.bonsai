@@ -20,8 +20,8 @@ schedule {
     layout ts {
         pCount : u32;
         prims : array[Triangle, pCount];
-        count : u32;
-        group[count] index : u32 {
+        nCount : u32;
+        group[nCount] index : u32 {
             low_32 : vec3f; // float32
             high_32 : vec3f; // float32
 

@@ -21,8 +21,8 @@ schedule {
     layout triangles {
         pCount : u32;
         prims : array[Triangle, pCount];
-        count : u32;
-        group[count] index : u32 {
+        nCount : u32;
+        group[nCount] index : u32 {
             low : vec3f;
             nPrims : u16;
             axis : u8;

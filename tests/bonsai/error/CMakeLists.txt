@@ -1,9 +1,11 @@
 add_bonsai_tests(
     LABELS error
     FILES
+    aggregation-name-reserved.bonsai
     bad_layout_split.bonsai
     bad_path_layout.bonsai
     f42.bonsai
+    internal-error-exits-cleanly.bonsai
     f_rec_undef.bonsai
     generic_fib.bonsai
     identifier.bonsai

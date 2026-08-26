@@ -68,6 +68,15 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         return {};
     }
 
+    // An aggregate does not have *a* constant value: an array or struct
+    // literal is constant, but it holds several values and does not fit in a
+    // T. Callers fold an element out of one by passing an `index`, which is
+    // handled above for vectors; anything else declines to fold rather than
+    // failing, since folding is always optional.
+    if (!type.is_scalar()) {
+        return {};
+    }
+
     internal_error << "[unimplemented] get_constant_value, " << e << " : "
                    << type;
 }

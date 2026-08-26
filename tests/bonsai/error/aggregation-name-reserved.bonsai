@@ -1,0 +1,18 @@
+//! flags: -p canonicalize
+
+// `count`, `avg` and `prod` are aggregation intrinsics (added alongside
+// aggregate scans), and Parser::parse_identifier resolves a name against the
+// builtin set before the enclosing scope. A binding of one of those names is
+// therefore parsed as a call to the intrinsic and rejected, rather than
+// shadowing it -- so those names are effectively reserved.
+//
+// This test pins that behaviour down: it used to be discovered by accident,
+// as a parse error in unrelated tests whose layout happened to have a field
+// called `count` (tests/bonsai/lower/trace.bonsai and friends, since renamed
+// to `nCount`). The other half, that the names still work as intrinsics, is
+// parsing/aggregation-names.bonsai.
+func totals(xs : array[f32, 4]) -> f32 {
+    count : mut f32 = 0.0;
+    count += xs[0];
+    return count;
+}

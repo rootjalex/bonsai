@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS parsing
     FILES
+    aggregation-names.bonsai
     bitwise.bonsai
     call.bonsai
     export.bonsai

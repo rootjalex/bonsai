@@ -1,0 +1,18 @@
+func flat() -> i32 {
+  let xs = build<i32[3]>(7, 8, 9) in
+  return build<i32[3]>(7, 8, 9)[0]
+}
+
+func nested() -> i32 {
+  let x = build<i32[3]>(0, 1, 2) in
+  let y = build<i32[3]>(3, 4, 5) in
+  let grid = build<i32[3][2]>(build<i32[3]>(0, 1, 2), build<i32[3]>(3, 4, 5)) in
+  return build<i32[3][2]>(build<i32[3]>(0, 1, 2), build<i32[3]>(3, 4, 5))[1][2]
+}
+
+func vector_element() -> i32 {
+  let v = (i32x4)[10,20,30,40] in
+  return 30
+}
+
+

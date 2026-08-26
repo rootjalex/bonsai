@@ -1,0 +1,15 @@
+extern items : set<f32>
+
+func [[export]] how_many(low : f32, high : f32) -> u64 {
+  return count(filter(|i : f32| (low <= i) && (i <= high), items))
+}
+
+func [[export]] mean(low : f32) -> f32 {
+  return avg(filter(|i : f32| low <= i, items))
+}
+
+func [[export]] multiply_all(low : f32) -> f32 {
+  return prod(filter(|i : f32| low <= i, items))
+}
+
+

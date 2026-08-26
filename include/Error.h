@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -43,10 +44,20 @@ class ErrorReport {
     [[noreturn]]
     ~ErrorReport() noexcept(false) {
         stream << "\n";
-        // TODO: debug mode should do this.
-        std::cerr << stream.str();
-        abort();
-        // throw Error(stream.str());
+        // Thrown rather than aborted so that a caller can report the error
+        // and exit cleanly: bonsai::cli::run() catches this, prints it, and
+        // returns EXIT_FAILURE. That matters for the test runner
+        // (tests/runner.cpp), which runs the compiler in-process: aborting
+        // here takes the whole test process down before it can record the
+        // diagnostic it is checking for.
+        //
+        // Set BONSAI_ABORT_ON_ERROR to abort instead, which prints here and
+        // leaves the stack intact for a debugger.
+        if (std::getenv("BONSAI_ABORT_ON_ERROR") != nullptr) {
+            std::cerr << stream.str();
+            abort();
+        }
+        throw Error(stream.str());
     }
 
   private:

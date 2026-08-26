@@ -496,7 +496,12 @@ struct Simplifier : ir::Mutator {
         }
 
         std::optional<uint64_t> index = get_constant_value(i);
-        if (v.is<ir::VecImm, ir::Build>() && index.has_value()) {
+        // Only a vector holds its elements as constants that can be folded
+        // out this way; a Build of an array or a struct is just as constant
+        // but its elements are Exprs, and folding one is the job of the
+        // aggregate cases above.
+        if (v.is<ir::VecImm, ir::Build>() && v.type().is_vector() &&
+            index.has_value()) {
             if (std::optional<uint64_t> c = get_constant_value(v, index)) {
                 return make_const(v.type().element_of(), *c);
             }

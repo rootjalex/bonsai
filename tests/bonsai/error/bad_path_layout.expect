@@ -7,8 +7,8 @@
 No path for node: Interior in layout: {
   pCount : u32;
   prims : Triangle[pCount];
-  count : u32;
-  group[count] index : u32
+  nCount : u32;
+  group[nCount] index : u32
   {
     low : f32x3;
     nPrims : u16;

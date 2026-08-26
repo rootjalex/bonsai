@@ -11,5 +11,6 @@ add_bonsai_tests(
     dce.bonsai
     inline.bonsai
     parallel.bonsai
+    simplify-const-array.bonsai
     split.bonsai
 )
