@@ -1,0 +1,28 @@
+//! flags: -p ssa
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When it is fixed this test will fail; re-bless it with the IR it then
+// produces and move it out of "known-limitation".
+//
+// Two parfors in the same function cannot both be vectorized. Removing the
+// first one leaves its continuation carrying the values the second needs, and
+// vectorize() does not thread those through the body it just linearized.
+//
+// Each loop vectorizes fine on its own, so the limitation is the pair rather
+// than either of them -- splitting the two loops into separate functions is
+// the workaround today.
+func two_loops(a : array[f32, 8], b : array[f32, 8], out : mut array[f32, 8],
+               out2 : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + 1.0;
+  }
+  parfor j in 0:8 {
+    out2[j] = b[j] * 2.0;
+  }
+  return;
+}
+
+schedule {
+  two_loops.vectorize(i);
+  two_loops.vectorize(j);
+}

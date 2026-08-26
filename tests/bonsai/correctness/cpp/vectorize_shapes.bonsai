@@ -1,0 +1,66 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_shapes
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_shapes.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_shapes.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_shapes.o tests/bonsai/correctness/cpp/vectorize_shapes.o -o tests/bonsai/correctness/cpp/vectorize_shapes, ./tests/bonsai/correctness/cpp/vectorize_shapes, rm tests/bonsai/correctness/cpp/vectorize_shapes, rm tests/bonsai/correctness/cpp/main_vectorize_shapes.o, rm tests/bonsai/correctness/cpp/vectorize_shapes.h, rm tests/bonsai/correctness/cpp/vectorize_shapes.o
+
+// Gang widths and element types other than the eight floats the rest of the
+// vectorization tests use.
+//
+// The gang is as wide as the loop, so these are gangs of four and sixteen,
+// and the element type decides what a lane holds: an integer vector, or a
+// boolean one. Booleans are the interesting case, because a lane's boolean is
+// a bit in a vector but a byte in memory -- storing the vector without
+// widening it first would pack all eight results into one byte.
+
+// A gang of four, over integers.
+func [[export]] triple(a : array[i32, 4], out : mut array[i32, 4]) {
+  parfor i in 0:4 {
+    out[i] = a[i] * 3;
+  }
+  return;
+}
+
+// A gang of sixteen.
+func [[export]] add_one(a : array[f32, 16], out : mut array[f32, 16]) {
+  parfor i in 0:16 {
+    out[i] = a[i] + 1.0;
+  }
+  return;
+}
+
+// Boolean results, one byte per lane in memory.
+func [[export]] positive(a : array[f32, 8], out : mut array[bool, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] > 0.0;
+  }
+  return;
+}
+
+// A boolean written under a mask: the lanes the branch disables keep whatever
+// was in the array before.
+func [[export]] flag_big(a : array[f32, 8], out : mut array[bool, 8]) {
+  parfor i in 0:8 {
+    if (a[i] > 0.0) {
+      out[i] = a[i] > 10.0;
+    }
+  }
+  return;
+}
+
+// Integers under a divergent branch, to check masking is not float-specific.
+func [[export]] clamp_int(a : array[i32, 8], out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0) {
+      out[i] = 0;
+    } else {
+      out[i] = a[i] * 2;
+    }
+  }
+  return;
+}
+
+schedule {
+  triple.vectorize(i);
+  add_one.vectorize(i);
+  positive.vectorize(i);
+  flag_big.vectorize(i);
+  clamp_int.vectorize(i);
+}

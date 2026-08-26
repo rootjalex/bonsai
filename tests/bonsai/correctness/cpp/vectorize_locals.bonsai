@@ -1,0 +1,71 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_locals
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_locals.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_locals.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_locals.o tests/bonsai/correctness/cpp/vectorize_locals.o -o tests/bonsai/correctness/cpp/vectorize_locals, ./tests/bonsai/correctness/cpp/vectorize_locals, rm tests/bonsai/correctness/cpp/vectorize_locals, rm tests/bonsai/correctness/cpp/main_vectorize_locals.o, rm tests/bonsai/correctness/cpp/vectorize_locals.h, rm tests/bonsai/correctness/cpp/vectorize_locals.o
+
+// Mutable locals inside a gang, where each lane has its own value of one.
+//
+// They start as memory: the SSA builder gives a `mut` local an alloca, and
+// promotion turns it back into a value so that the lanes can differ without
+// any memory traffic. Assigned on both sides of a divergent branch, the local
+// becomes a blend rather than a phi, which is the case worth running -- a
+// blend on the wrong mask still type-checks and still produces plausible
+// numbers.
+func [[export]] accumulate(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    x : mut = a[i];
+    x += 1.0;
+    x *= 2.0;
+    out[i] = x;
+  }
+  return;
+}
+
+// Reassigned under a divergent branch, then used afterwards.
+func [[export]] absolute(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    x : mut = a[i];
+    if (a[i] < 0.0) {
+      x = 0.0 - x;
+    }
+    x += 1.0;
+    out[i] = x;
+  }
+  return;
+}
+
+// Assigned on both sides, so neither side's value is the one to keep for
+// every lane.
+func [[export]] pick(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    x : mut f32 = 0.0;
+    if (a[i] < 0.0) {
+      x = a[i] * 10.0;
+    } else {
+      x = a[i] * 100.0;
+    }
+    out[i] = x;
+  }
+  return;
+}
+
+// A local carried across nested branches, where the inner assignment must
+// only reach the lanes that took both.
+func [[export]] staircase(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    x : mut f32 = 1.0;
+    if (a[i] > 0.0) {
+      x = 2.0;
+      if (a[i] > 10.0) {
+        x = 3.0;
+      }
+    }
+    out[i] = x;
+  }
+  return;
+}
+
+schedule {
+  accumulate.vectorize(i);
+  absolute.vectorize(i);
+  pick.vectorize(i);
+  staircase.vectorize(i);
+}

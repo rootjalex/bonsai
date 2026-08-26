@@ -1,0 +1,7 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_locals.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_locals.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_locals.o tests/bonsai/correctness/cpp/vectorize_locals.o -o tests/bonsai/correctness/cpp/vectorize_locals
+[test] ./tests/bonsai/correctness/cpp/vectorize_locals
+-6 0 2 4 6 42 12 -2
+5 2 1 2 3 21 6 3
+-40 -10 0 100 200 2000 500 -20
+1 1 1 2 2 3 2 1

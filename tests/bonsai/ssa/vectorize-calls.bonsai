@@ -47,6 +47,19 @@ func clip_all(a : array[f32, 8], lo : f32, out : mut array[f32, 8]) {
   return;
 }
 
+// A callee that calls another function: specializing one has to specialize
+// what it calls too, or the variant would hand vectors to a scalar function.
+func inner(x : f32) -> f32 = x + 1.0;
+
+func outer(x : f32) -> f32 = inner(x) * 2.0;
+
+func chained(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = outer(a[i]);
+  }
+  return;
+}
+
 // Nothing varying is passed here, so the callee needs no vector parameters at
 // all -- only its result is spread across the lanes, by the caller.
 func constant_of(k : f32) -> f32 = k * 2.0;
@@ -60,6 +73,7 @@ func uniform_arg(k : f32, out : mut array[f32, 8]) {
 
 schedule {
   both_ways.vectorize(i);
+  chained.vectorize(i);
   clip_all.vectorize(i);
   uniform_arg.vectorize(i);
 }

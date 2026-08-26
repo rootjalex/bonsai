@@ -10,6 +10,8 @@ add_bonsai_tests(
     vectorize_calls.bonsai
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
+    vectorize_locals.bonsai
+    vectorize_shapes.bonsai
     vectorize_scale.bonsai
     vectorize_stride.bonsai
 )

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Vectorize.cpp:629
+
+--> parfor.cont.args.empty()
+TODO: thread the continuation arguments of i through its body
