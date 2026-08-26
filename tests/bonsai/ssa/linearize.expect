@@ -1,0 +1,78 @@
+func divergent(a : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @7 = f32x8(0f) in
+  let @1 = @0 < @7 in
+  let @8 = boolx8(false) in
+  let @9 = boolx8(true) in
+  let @5 = select(@1, @8, @9) in
+  let @10 = f32x8(0f) in
+  masked_store(out[ramp(0, 1, 8)], @10, @1)
+  let @3 = a[ramp(0, 1, 8)] in
+  masked_store(out[ramp(0, 1, 8)], @3, @5)
+  return
+}
+
+func nested(a : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @11 = f32x8(0f) in
+  let @1 = @0 < @11 in
+  let @12 = boolx8(false) in
+  let @13 = boolx8(true) in
+  let @6 = select(@1, @12, @13) in
+  let @2 = a[ramp(0, 1, 8)] in
+  let @14 = f32x8(-5f) in
+  let @3 = @2 < @14 in
+  let @15 = boolx8(false) in
+  let @16 = boolx8(true) in
+  let @7 = select(@3, @15, @16) in
+  let @8 = @1 && @7 in
+  let @9 = @1 && @3 in
+  let @17 = f32x8(-2f) in
+  masked_store(out[ramp(0, 1, 8)], @17, @9)
+  let @18 = f32x8(-1f) in
+  masked_store(out[ramp(0, 1, 8)], @18, @8)
+  return
+}
+
+func one_sided(a : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @7 = f32x8(0f) in
+  let @1 = @7 < @0 in
+  let @8 = boolx8(false) in
+  let @9 = boolx8(true) in
+  let @5 = select(@1, @8, @9) in
+  let @2 = a[ramp(0, 1, 8)] in
+  let @10 = f32x8(10f) in
+  let @3 = @2 * @10 in
+  masked_store(out[ramp(0, 1, 8)], @3, @1)
+  return
+}
+
+func uniform_outer(a : f32[8], flag : f32, out : mut f32[8]) -> void {
+  let @0 = flag < 0f in
+  if (@0) {
+    let @8 = f32x8(0f) in
+    out[ramp(0, 1, 8)] = @8
+  } else {
+    let @2 = a[ramp(0, 1, 8)] in
+    let @9 = f32x8(0f) in
+    let @3 = @2 < @9 in
+    let @10 = boolx8(false) in
+    let @11 = boolx8(true) in
+    let @6 = select(@3, @10, @11) in
+    let @12 = f32x8(1f) in
+    masked_store(out[ramp(0, 1, 8)], @12, @3)
+    let @13 = f32x8(2f) in
+    masked_store(out[ramp(0, 1, 8)], @13, @6)
+  }
+  return
+}
+
+
+schedule host {
+    divergent.vectorize(i)
+    nested.vectorize(i)
+    one_sided.vectorize(i)
+    uniform_outer.vectorize(i)
+
+}

@@ -242,7 +242,11 @@ namespace {
 
 // Returns whether this type is valid for logical operations.
 bool is_valid_logical_operation(Type type) {
-    return type.is<Option_t, Bool_t>();
+    // Type::is_bool looks through a vector to its element type, so a vector
+    // of booleans qualifies as well as a plain one. That is what an execution
+    // mask is: one boolean per lane, combined with the mask of the branch it
+    // is nested inside.
+    return type.is<Option_t>() || type.is_bool();
 }
 
 void try_match_types(Expr &a, Expr &b) {

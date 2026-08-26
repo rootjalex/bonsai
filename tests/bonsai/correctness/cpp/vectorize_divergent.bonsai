@@ -1,0 +1,54 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_divergent
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_divergent.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_divergent.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_divergent.o tests/bonsai/correctness/cpp/vectorize_divergent.o -o tests/bonsai/correctness/cpp/vectorize_divergent, ./tests/bonsai/correctness/cpp/vectorize_divergent, rm tests/bonsai/correctness/cpp/vectorize_divergent, rm tests/bonsai/correctness/cpp/main_vectorize_divergent.o, rm tests/bonsai/correctness/cpp/vectorize_divergent.h, rm tests/bonsai/correctness/cpp/vectorize_divergent.o
+
+// Control flow the lanes disagree about, run for real.
+//
+// Partial linearization folds these branches away and replaces them with
+// masks, so both sides of every `if` execute for every lane and the stores
+// are predicated. That is only correct if each lane ends up with the value
+// its own path would have produced, which is what running it checks: the
+// IR-level tests cannot tell a correct mask from an inverted one.
+func [[export]] clamp_negative(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0.0) {
+      out[i] = 0.0;
+    } else {
+      out[i] = a[i];
+    }
+  }
+  return;
+}
+
+// Only one side writes, so the lanes that take the other side must be left
+// untouched -- an unmasked store would clobber them.
+func [[export]] keep_positive(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] > 0.0) {
+      out[i] = a[i] * 10.0;
+    }
+  }
+  return;
+}
+
+// Nested divergence: the inner condition is only meaningful for the lanes
+// that took the outer one, so the masks have to compose.
+func [[export]] classify(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0.0) {
+      if (a[i] < -5.0) {
+        out[i] = -2.0;
+      } else {
+        out[i] = -1.0;
+      }
+    } else {
+      out[i] = 1.0;
+    }
+  }
+  return;
+}
+
+schedule {
+  clamp_negative.vectorize(i);
+  keep_positive.vectorize(i);
+  classify.vectorize(i);
+}

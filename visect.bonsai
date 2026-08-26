@@ -1,0 +1,61 @@
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element AABB {
+    low, high : vec3f;
+}
+
+element Ray {
+    o : vec3f;
+    d : vec3f;
+}
+
+func gamma(n : i32) -> Float = (cast[[Float]](n) * eps[[Float]]()) / (1 - cast[[Float]](n) * eps[[Float]]());
+
+
+// TODO: turn this into the option[FInterval]
+// func intersectsp_ray_aabb(r : Ray, b : AABB) -> bool {
+// TODO: desugar AoS?
+func intersectsp_ray_aabb(o : vec3f, d : vec3f, b : AABB) -> bool {
+    invDir = 1 / d;
+    dirIsNeg = invDir < 0;
+
+    // Check for ray intersection against slabs.
+    low_parts = select(dirIsNeg, b.high, b.low);
+    high_parts = select(dirIsNeg, b.low, b.high);
+    tMin : mut = (low_parts - o) * invDir;
+    tMax : mut = (high_parts - o) * invDir;
+
+    // Update to ensure robust bounds intersection
+    tMax *= 1 + 2 * gamma(3);
+
+    if (tMin.x > tMax.y || tMin.y > tMax.x) {
+        return false;
+    }
+
+    tmin : mut = max(tMin.x, tMin.y); // TODO: handle inf/nan behavior
+    tmax : mut = min(tMax.x, tMax.y); // TODO: handle inf/nan behavior
+
+    if (tmin > tMax.z || tMin.z > tmax) {
+        return false;
+    }
+
+    tmin = max(tmin, tMin.z); // TODO: handle inf/nan behavior
+    tmax = min(tmax, tMax.z); // TODO: handle inf/nan behavior
+
+    return tmin >= tmax;
+}
+
+// func visect_box(b : AABB, inp : array[Ray, 8], outp : mut array[bool, 8]) {
+func visect_box(b : AABB, inp_o : array[vec3f, 8], inp_d : array[vec3f, 8], outp : mut array[bool, 8]) {
+  parfor i in 0:8 {
+    // ray = inp[i];
+    // outp[i] = intersectsp_ray_aabb(ray, b);
+    outp[i] = intersectsp_ray_aabb(inp_o[i], inp_d[i], b);
+  }
+  return;
+}
+
+schedule {
+  visect_box.vectorize(i);
+}

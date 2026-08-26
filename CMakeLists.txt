@@ -152,6 +152,7 @@ target_sources(
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/Convert.cpp
     src/SSA/DumpAnalysis.cpp
+    src/SSA/Linearize.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
@@ -247,6 +248,7 @@ target_sources(
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
     include/SSA/DumpAnalysis.h
+    include/SSA/Linearize.h
     include/SSA/PromoteAllocas.h
     include/SSA/Rewrite.h
     include/SSA/SSA.h

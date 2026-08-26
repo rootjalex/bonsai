@@ -1,0 +1,42 @@
+//! flags: -p ssa -b llvm
+
+// Golden for the machine code partial linearization leads to.
+//
+// `clamp_negative` should contain no branch at all: one comparison producing
+// the mask, its complement, and two llvm.masked.store calls.
+//
+// `uniform_outer` should still contain a real `br` on the uniform condition,
+// with a plain unpredicated store on the side that only uniform control flow
+// guards, and masked stores only inside the divergent inner branch. That
+// difference is the whole point of partial linearization, and it is visible
+// only at this level: the two would compute the same values either way.
+func clamp_negative(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0.0) {
+      out[i] = 0.0;
+    } else {
+      out[i] = a[i];
+    }
+  }
+  return;
+}
+
+func uniform_outer(a : array[f32, 8], flag : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (flag < 0.0) {
+      out[i] = 0.0;
+    } else {
+      if (a[i] < 0.0) {
+        out[i] = 1.0;
+      } else {
+        out[i] = 2.0;
+      }
+    }
+  }
+  return;
+}
+
+schedule {
+  clamp_negative.vectorize(i);
+  uniform_outer.vectorize(i);
+}

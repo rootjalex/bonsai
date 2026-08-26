@@ -1,5 +1,6 @@
 #include "SSA/Analysis.h"
 #include "SSA/AnalyzeDivergence.h"
+#include "SSA/Linearize.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
@@ -108,16 +109,23 @@ vector<size_t> value_operands(const Instruction &instr) {
     case Instruction::Op::GEP:
         return {1};
 
-    // The address is structural; the value written is per-lane.
+    // The address is structural; the value written is per-lane, and so is the
+    // execution mask a predicated store carries as a third operand.
     case Instruction::Op::AccAdd:
     case Instruction::Op::AccMul:
     case Instruction::Op::AccSub:
     case Instruction::Op::AccMin:
     case Instruction::Op::AccMax:
     case Instruction::Op::Store:
-        return {1};
+        return n > 2 ? vector<size_t>{1, 2} : vector<size_t>{1};
 
     case Instruction::Op::Eps:
+    case Instruction::Op::Inf:
+        return {};
+
+    // Already one value per lane, built that way: its base and stride are
+    // uniform scalars and must stay that way.
+    case Instruction::Op::Ramp:
         return {};
 
     default:
@@ -248,24 +256,28 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // body (see SSA/PromoteAllocas.h).
     promote_allocas(*f, f->blocks[0]->name);
 
+    const string entry = parfor.body.name;
+    {
+        const BlockMap blocks = make_block_map(f);
+        const set<string> region =
+            reachable_from(entry, compute_successors(*f));
+        for (const string &name : region) {
+            const Block &block = *blocks.at(name);
+            internal_assert(!std::holds_alternative<Terminator::Call>(
+                block.terminator.data))
+                << "TODO: a masked variant of the function called in " << name;
+        }
+    }
+
+    // Fold away the branches the lanes disagree about, so that what is left
+    // is control flow every lane follows together, with masks standing in for
+    // the branches that were folded (see SSA/Linearize.h).
+    linearize(*f, entry, analyze_divergence(*f, entry, {idx}));
+
     const BlockMap blocks = make_block_map(f);
     const AdjacencyMap all_succs = compute_successors(*f);
-    const string entry = parfor.body.name;
     const set<string> region = reachable_from(entry, all_succs);
 
-    const Divergence div = analyze_divergence(*f, entry, {idx});
-
-    for (const string &name : region) {
-        const Block &block = *blocks.at(name);
-        internal_assert(!div.branches.count(name))
-            << "TODO: partial linearization of the divergent branch in "
-            << name;
-        internal_assert(
-            !std::holds_alternative<Terminator::Call>(block.terminator.data))
-            << "TODO: masked clones for the call in " << name;
-    }
-    internal_assert(div.masked.empty())
-        << "TODO: execution masks; " << *div.masked.begin() << " is masked";
     internal_assert(parfor.cont.args.empty())
         << "TODO: thread the continuation arguments of " << idx
         << " through its body";
@@ -295,7 +307,21 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
         << "ParFor body " << entry << " does not take " << idx
         << " as its first argument";
     body.args.erase(body.args.begin());
-    substitute(body, idx, ramp_value);
+
+    // Everywhere, not just in the body block: linearization drops the block
+    // arguments that used to thread the index onwards, so blocks further
+    // along the region refer to the index directly.
+    for (const string &name : region) {
+        substitute(*blocks.at(name), idx, ramp_value);
+    }
+
+    // Re-run the analysis now that the region is linearized and the index is
+    // the ramp: the masks and blends linearization introduced have to be
+    // classified too, and the index is no longer a block argument to seed on.
+    const Divergence div =
+        analyze_divergence(*f, entry, {}, {ramp.get()});
+    internal_assert(div.branches.empty())
+        << "Linearization left a divergent branch in " << *div.branches.begin();
 
     // Widen every varying value, in the order the blocks execute so that an
     // instruction's operands are already widened when it is reached.
@@ -334,9 +360,11 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
                 operand = std::make_shared<Value>(bc);
             }
 
-            // A store has no result; everything else now produces one value
-            // per lane.
-            if (instr->type.defined() && !instr->name.empty()) {
+            // A store has no result, and an instruction built per-lane in the
+            // first place (the ramp) is already the right type; everything
+            // else now produces one value per lane.
+            if (instr->type.defined() && !instr->name.empty() &&
+                !instr->type.is_vector()) {
                 instr->type = widen(instr->type, lanes);
             }
             widened.push_back(instr);

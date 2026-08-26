@@ -104,7 +104,8 @@ const T &lookup_or(const map<string, T> &m, const string &key, const T &fallback
 } // namespace
 
 Divergence analyze_divergence(const Function &func, const string &entry,
-                              const set<string> &varying_seeds) {
+                              const set<string> &varying_seeds,
+                              const set<const Instruction *> &varying_instrs) {
     const BlockMap all_blocks = make_block_map(func);
     const AdjacencyMap all_succs = compute_successors(func);
 
@@ -135,6 +136,7 @@ Divergence analyze_divergence(const Function &func, const string &entry,
     for (const string &seed : varying_seeds) {
         result.args.insert({entry, seed});
     }
+    result.instrs.insert(varying_instrs.begin(), varying_instrs.end());
 
     const set<Edge> no_edges;
     const vector<string> no_names;

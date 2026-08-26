@@ -26,6 +26,7 @@ add_bonsai_tests(
     tail-call.bonsai
     type_coercion_primitive.bonsai
     vectorize_add_one.bonsai
+    vectorize_divergent.bonsai
     vectorize_gather.bonsai
     vectorize_scale.bonsai
 )

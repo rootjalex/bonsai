@@ -4,6 +4,7 @@ add_bonsai_tests(
     calls.bonsai
     divergence.bonsai
     known-limitation-parfor-codegen.bonsai
+    linearize.bonsai
     mut-local.bonsai
     paper_example.bonsai
     parfor.bonsai

@@ -38,13 +38,19 @@ struct Divergence {
 
 // Solves divergence over the region of `func` rooted at `entry`, seeded by
 // the entry-block arguments named in `varying_seeds` (for a ParFor body, the
-// loop index).
+// loop index) and by the instructions in `varying_instrs`.
+//
+// The second seed is for after linearization, when the index is no longer a
+// block argument threaded through the region but a single instruction the
+// whole region refers to.
 //
 // A value is varying if it is seeded, if any operand is varying, or -- for a
 // block argument -- if the block is a join that some lanes may reach along
 // one predecessor and others along another.
-Divergence analyze_divergence(const Function &func, const std::string &entry,
-                              const std::set<std::string> &varying_seeds);
+Divergence analyze_divergence(
+    const Function &func, const std::string &entry,
+    const std::set<std::string> &varying_seeds,
+    const std::set<const Instruction *> &varying_instrs = {});
 
 } // namespace ssa
 } // namespace ir

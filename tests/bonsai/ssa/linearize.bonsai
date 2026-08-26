@@ -1,0 +1,78 @@
+//! flags: -p ssa
+
+// Golden for partial linearization (SSA/Linearize.h), the stage that removes
+// the branches a gang's lanes disagree about.
+//
+// What to look for:
+//
+//   * `divergent` has no `if` left. Both sides run, each store predicated on
+//     the mask of the path it came from -- the second being a select against
+//     the condition, since the IR has no boolean negation.
+//
+//   * `uniform_outer` keeps its outer `if`, because `flag` is the same for
+//     every lane, and its store is *unmasked*: a block whose predicate is
+//     uniform is reached exactly when the predicate holds, so it needs no
+//     mask (Moll & Hack, theorem 4.1). Only the inner, divergent branch is
+//     folded. Preserving that branch is what makes this partial
+//     linearization rather than plain if-conversion -- lanes skip the whole
+//     inner region when the uniform test fails.
+//
+//   * `nested` folds both levels, and the inner masks are conjunctions of the
+//     outer one with the inner condition, so a lane that failed the outer
+//     test writes nothing inside.
+func divergent(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0.0) {
+      out[i] = 0.0;
+    } else {
+      out[i] = a[i];
+    }
+  }
+  return;
+}
+
+func uniform_outer(a : array[f32, 8], flag : f32, out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (flag < 0.0) {
+      out[i] = 0.0;
+    } else {
+      if (a[i] < 0.0) {
+        out[i] = 1.0;
+      } else {
+        out[i] = 2.0;
+      }
+    }
+  }
+  return;
+}
+
+func nested(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] < 0.0) {
+      if (a[i] < -5.0) {
+        out[i] = -2.0;
+      } else {
+        out[i] = -1.0;
+      }
+    }
+  }
+  return;
+}
+
+// One side of the branch writes nothing, so the other side's mask is the only
+// thing keeping the untaken lanes from being written.
+func one_sided(a : array[f32, 8], out : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    if (a[i] > 0.0) {
+      out[i] = a[i] * 10.0;
+    }
+  }
+  return;
+}
+
+schedule {
+  divergent.vectorize(i);
+  uniform_outer.vectorize(i);
+  nested.vectorize(i);
+  one_sided.vectorize(i);
+}
