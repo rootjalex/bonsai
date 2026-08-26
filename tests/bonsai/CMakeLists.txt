@@ -1,8 +1,12 @@
 ##
 # CTest implementation
 
+# FLAGS are passed to the compiler for every test in the call, after the
+# flags the test file itself declares. Use them for settings a whole directory
+# shares -- notably pinning the LLVM target for tests that diff generated
+# code, so their output does not depend on the machine running them.
 function(add_bonsai_tests)
-    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "" "FILES;LABELS")
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "" "FILES;LABELS;FLAGS")
     foreach (file IN LISTS ARG_FILES)
         cmake_path(SET input "${file}")
         cmake_path(REPLACE_EXTENSION input "expect" OUTPUT_VARIABLE expect)
@@ -28,6 +32,7 @@ function(add_bonsai_tests)
 
         add_test(NAME "${run_test}"
                  COMMAND bonsai_test_runner "${input_file_arg}" "${actual}"
+                         ${ARG_FLAGS}
                  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
         set_tests_properties(
             "${run_test}" PROPERTIES FIXTURES_SETUP "${actual}"

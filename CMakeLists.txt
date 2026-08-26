@@ -251,6 +251,7 @@ target_sources(
     include/SSA/Rewrite.h
     include/SSA/SSA.h
     include/RefCount.h
+    include/RuntimeABI.h
     include/Scope.h
     include/Utils.h
 )

@@ -211,14 +211,21 @@ void run_commands(const std::vector<std::string> &commands) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
+    if (argc < 3) {
         std::cerr << "Usage: " << argv[0]
-                  << " <input_file> <actual_output_file>" << std::endl;
+                  << " <input_file> <actual_output_file> [extra flags...]"
+                  << std::endl;
         return EXIT_FAILURE;
     }
 
     std::string input_file = argv[1];
     std::string actual_output_file = argv[2];
+
+    // Flags a whole directory of tests shares, supplied by CMake rather than
+    // repeated in every `//! flags:` header -- see add_bonsai_tests. They are
+    // appended after the file's own flags, so a test can still say something
+    // different for itself.
+    std::vector<std::string> extra_flags(argv + 3, argv + argc);
 
     std::string stdout_s, stderr_s;
     int code = EXIT_FAILURE;
@@ -227,6 +234,7 @@ int main(int argc, char *argv[]) {
         Capture capout(stdout, stdout_s);
         Capture caperr(stderr, stderr_s);
         std::vector<std::string> flags = get_flags_for_file(input_file);
+        flags.insert(flags.end(), extra_flags.begin(), extra_flags.end());
         std::vector<std::string> commands = get_commands_for_file(input_file);
         code = run(bonsai::cli::parse(flags));
         run_commands(commands);

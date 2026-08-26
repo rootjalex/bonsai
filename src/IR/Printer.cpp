@@ -800,13 +800,16 @@ void Printer::visit(const Extrema *node) {
     os << "(";
     print(node->type);
     os << ")";
+    // Spelled as the source spells them: the parser reads `inf` (see
+    // parse_identifier) and `eps[[T]]()`, and knows no uppercase form, so
+    // printing INF/EPS made the output describe syntax that does not exist.
     switch (node->op) {
     case Extrema::inf: {
-        os << "INF";
+        os << "inf";
         break;
     }
     case Extrema::eps: {
-        os << "EPS";
+        os << "eps";
         break;
     }
     }
@@ -1247,16 +1250,20 @@ void Printer::visit(const IfElse *node) {
             break;
         }
 
-        // if (const IfElse *nested_if = node->else_body.as<IfElse>()) {
-        //     os << get_indent() << "} else ";
-        //     node = nested_if;
-        // } else {
+        // An else branch that is itself an if is printed as `} else if (...) {`
+        // rather than nesting a whole new block, which is both what the source
+        // looked like and what keeps a chain of conditions readable.
+        if (const IfElse *nested_if = node->else_body.as<IfElse>()) {
+            os << get_indent() << "} else ";
+            node = nested_if;
+            continue;
+        }
+
         os << get_indent() << "} else {\n";
         indent++;
         print(node->else_body);
         indent--;
         break;
-            // }
     }
 
     os << get_indent() << "}\n";

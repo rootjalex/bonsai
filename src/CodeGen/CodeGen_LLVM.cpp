@@ -88,9 +88,13 @@ using namespace ir;
 std::unique_ptr<llvm::TargetMachine>
 CodeGen_LLVM::make_target_machine(llvm::Module &module,
                                   const CompilerOptions &options) {
-    // TODO(cgyurgyik): This effectively makes our tests host-machine specific.
-    std::string target_triple = llvm::sys::getDefaultTargetTriple(),
-                error_string;
+    // Generated code follows the host unless the target is named explicitly.
+    // Naming it is what makes output reproducible on another machine, which
+    // is why the tests that diff generated code pass --triple and --mcpu.
+    std::string target_triple = options.target_triple.empty()
+                                    ? llvm::sys::getDefaultTargetTriple()
+                                    : options.target_triple;
+    std::string error_string;
     const llvm::Target *llvm_target =
         llvm::TargetRegistry::lookupTarget(target_triple, error_string);
     if (llvm_target == nullptr) {
@@ -116,8 +120,7 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     // use_large_code_model);
 
     auto *tm = llvm_target->createTargetMachine(
-        module.getTargetTriple(),
-        /*CPU target=*/"", /*Features=*/"", target_options,
+        target_triple, options.target_cpu, /*Features=*/"", target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
         llvm::CodeGenOptLevel::Aggressive);

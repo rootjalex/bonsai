@@ -4,7 +4,7 @@
 
 // Used in struct.bonsai
 int main() {
-    vec3_float v;
+    float3 v;
     v[0] = -1;
     v[1] = -2;
     v[2] = 5;

@@ -1,5 +1,10 @@
 add_bonsai_tests(
     LABELS backends llvm
+    # These tests diff generated LLVM IR, which otherwise depends on the host:
+    # the triple decides the data layout, and the CPU decides what the
+    # vectorizers do. Pinning both is what lets the goldens travel between
+    # machines.
+    FLAGS --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
     dynamic-array.bonsai
     exported-function.bonsai

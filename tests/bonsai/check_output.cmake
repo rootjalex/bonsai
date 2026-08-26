@@ -22,9 +22,24 @@ else ()
         message(FATAL_ERROR "Missing expect file: ${EXPECT}")
     endif ()
 
-    execute_process(
-        COMMAND diff "${ACTUAL}" "${EXPECT}"
-        COMMAND_ERROR_IS_FATAL ANY
-        COMMAND_ECHO STDOUT
-    )
+    # An internal error reports the compiler source line it was raised from.
+    # That line moves whenever anything above it is edited, which would fail
+    # every test that captures a diagnostic for reasons having nothing to do
+    # with the diagnostic. Compare with those line numbers removed; the file
+    # name still has to match, so the error must still come from where the
+    # test expects.
+    file(READ "${ACTUAL}" actual_text)
+    file(READ "${EXPECT}" expect_text)
+    set(error_line_re "(\\[internal\\] Error: [^ \n]+):[0-9]+")
+    string(REGEX REPLACE "${error_line_re}" "\\1" actual_text "${actual_text}")
+    string(REGEX REPLACE "${error_line_re}" "\\1" expect_text "${expect_text}")
+
+    if (NOT actual_text STREQUAL expect_text)
+        # Show the real diff, which is more readable than dumping both files.
+        execute_process(
+            COMMAND diff "${ACTUAL}" "${EXPECT}"
+            COMMAND_ECHO STDOUT
+        )
+        message(FATAL_ERROR "${ACTUAL} does not match ${EXPECT}")
+    endif ()
 endif ()

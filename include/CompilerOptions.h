@@ -45,6 +45,15 @@ struct CompilerOptions {
     // the order they are passed on the command line.
     std::vector<std::string> passes;
 
+    // The LLVM target to generate code for. Empty means the host, which is
+    // what a normal compile wants; a test that diffs generated code sets both
+    // so that its output does not depend on the machine it runs on. The CPU
+    // matters as much as the triple: with an empty CPU string LLVM tunes for
+    // a generic processor, but with "native" it makes different vectorization
+    // choices per host.
+    std::string target_triple;
+    std::string target_cpu;
+
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
 

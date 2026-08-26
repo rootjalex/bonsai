@@ -22,6 +22,9 @@ std::string command_help() {
       << "-o   | --output <output file name> | e.g., `-o out.bonsai`\n"
       << "-v   | --verbose                   | e.g., `-v`\n"
       << "-O<n>| n/a                         | e.g., `-O3`\n"
+      << "     | --triple <target triple>    | e.g., "
+         "`--triple x86_64-unknown-linux-gnu`\n"
+      << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
       << "-h   | --help";
     return s.str();
 }
@@ -102,14 +105,14 @@ Flags parse(const std::vector<std::string> &args) {
             options.is_verbose = true;
             continue;
         }
+        // No ++i here: these take no value, and skipping one swallowed
+        // whatever flag happened to follow.
         if (arg == "-O0") {
             options.level = BackendOptimizationLevel::O0;
-            ++i;
             continue;
         }
         if (arg == "-O3") {
             options.level = BackendOptimizationLevel::O3;
-            ++i;
             continue;
         }
         if (arg == "-b" || arg == "--backend") {
@@ -130,6 +133,18 @@ Flags parse(const std::vector<std::string> &args) {
                 << "already received output file: " << options.output_file;
             internal_assert(i + 1 < args.size());
             options.output_file = args[i + 1];
+            ++i;
+            continue;
+        }
+        if (arg == "--triple") {
+            internal_assert(i + 1 < args.size());
+            options.target_triple = args[i + 1];
+            ++i;
+            continue;
+        }
+        if (arg == "--mcpu") {
+            internal_assert(i + 1 < args.size());
+            options.target_cpu = args[i + 1];
             ++i;
             continue;
         }
