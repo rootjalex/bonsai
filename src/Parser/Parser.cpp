@@ -110,9 +110,11 @@ struct Parser {
             "sqrt",
             "tan",
             // Set operations
+            "argmax",
             "argmin",
             "filter",
             "map",
+            "maximum",
             "minimum",
             "product",
             // Geometry operations
@@ -130,6 +132,7 @@ struct Parser {
             // Aggregations
             "avg",
             "count",
+            "reduce",
             // Other builtins
             "cast",
             "eps",
@@ -1348,16 +1351,25 @@ struct Parser {
         };
 
         static constexpr auto SPATTERNS = std::to_array<SetPattern>({
+            // `any` and `all` also name the vector reductions below, but at
+            // arity 1; here they take a predicate and a set.
+            {"all", ir::SetOp::all},
+            {"any", ir::SetOp::any},
+            {"argmax", ir::SetOp::argmax},
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
             {"map", ir::SetOp::map},
+            {"maximum", ir::SetOp::maximum},
             {"minimum", ir::SetOp::minimum},
             {"product", ir::SetOp::product},
         });
 
-        if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(),
-                                                           SPATTERNS, 2)) {
-            return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
+        if (args.size() == 2) {
+            if (auto op = try_match_pattern<ir::SetOp::OpType>(
+                    name, args.size(), SPATTERNS, 2)) {
+                return ir::SetOp::make(*op, std::move(args[0]),
+                                       std::move(args[1]));
+            }
         }
 
         // Aggregations over a set. Note that `sum` and `prod` are absent:
@@ -1376,6 +1388,15 @@ struct Parser {
         if (auto op = try_match_pattern<ir::AggOp::OpType>(name, args.size(),
                                                            APATTERNS, 1)) {
             return ir::AggOp::make(*op, std::move(args[0]));
+        }
+
+        if (name == "reduce") {
+            if (args.size() != 3) {
+                report_error() << "reduce takes 3 argument(s), received "
+                               << args.size();
+            }
+            return ir::AggOp::make(std::move(args[0]), std::move(args[1]),
+                                   std::move(args[2]));
         }
 
         // Geometry operations

@@ -407,16 +407,21 @@ struct GeomOp : ExprNode<GeomOp> {
     static const IRExprEnum node_type = IRExprEnum::GeomOp;
 };
 
-// For Argmin/Map/Filter, a: Lambda, b: Set
-// For Product, a and b are Sets
+// The set operators of Figure 2. For everything but `product`, a is a lambda
+// over the set's elements and b is the set; for `product`, a and b are sets.
+// The set-level `min` and `max` are spelled `minimum` and `maximum` because
+// `min` and `max` already name the binary scalar intrinsics.
 struct SetOp : ExprNode<SetOp> {
     enum OpType {
+        all,
+        any,
+        argmax,
         argmin,
         filter,
         map,
+        maximum,
         minimum,
         product,
-        // TODO: reduce
         // TODO: geometric intrinsics for lambda
     };
 

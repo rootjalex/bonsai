@@ -574,8 +574,10 @@ struct PredicateAnalysis : public ir::Visitor {
 Interval predicate_analysis(const ir::Expr &expr, const VolumeMap &bounds,
                             const IntervalMap &intervals) {
     PredicateAnalysis analysis(bounds, intervals);
-    expr.accept(&analysis);
-    return analysis.interval;
+    // Go through get() rather than accepting directly, so that a tagged
+    // interval on the expression itself is honoured. This matters for metrics
+    // like `|p| p.id`, where the whole expression is the annotated field.
+    return analysis.get(expr);
 }
 
 } // namespace lower

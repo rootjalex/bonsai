@@ -1066,6 +1066,69 @@ const char *GeomOp::intrinsic_name(const OpType &op) {
     return geometric_op_names[op];
 }
 
+namespace {
+
+// Shared validation for the Figure 2 operators that apply a lambda to a set's
+// elements. Checks that `b` is a set and that `a`, when its type is known, is
+// a function accepting those elements. Returns the lambda's function type, or
+// null when types are not being inferred.
+const Function_t *check_element_lambda(const char *name, const Expr &a,
+                                       const Expr &b) {
+    internal_assert((b.type().is<Set_t, BVH_t>()))
+        << "Expected rhs of " << name
+        << " to be a set, instead received: " << b << " : " << b.type();
+
+    const Function_t *f = a.type().as<Function_t>();
+    if (f == nullptr) {
+        internal_assert(!a.type().defined() && !type_enforcement_enabled())
+            << "Expected lhs of " << name
+            << " to be a function, instead received: " << a << " : "
+            << a.type();
+        return nullptr;
+    }
+
+    if (f->arg_types.size() == 1) {
+        internal_assert(equals(f->arg_types[0].type, b.type().element_of()))
+            << "Expected the " << name
+            << " function to accept an element of type: "
+            << b.type().element_of() << " instead got " << a << " : "
+            << a.type();
+    } else {
+        // Coiterating several sets passes the element tuple componentwise.
+        internal_assert(b.type().element_of().is<Tuple_t>() &&
+                        b.type().element_of().as<Tuple_t>()->etypes.size() ==
+                            f->arg_types.size())
+            << "Expected the " << name
+            << " function to accept elements of group: "
+            << b.type().element_of() << " instead got " << a << " : "
+            << a.type();
+    }
+    return f;
+}
+
+void check_returns_bool(const char *name, const Function_t *f, const Expr &a) {
+    internal_assert(f == nullptr || f->ret_type.is_bool())
+        << "Expected lhs of " << name
+        << " to be a boolean function, instead received: " << a << " : "
+        << a.type();
+}
+
+void check_returns_numeric(const char *name, const Function_t *f,
+                           const Expr &a) {
+    internal_assert(f == nullptr || f->ret_type.is_numeric())
+        << "Expected lhs of " << name
+        << " to be a numeric function, instead received: " << a << " : "
+        << a.type();
+}
+
+// A reduction over a set that might be empty has no value to report, so its
+// result becomes optional.
+Type optional_if_empty(Type t, const Expr &set) {
+    return can_be_empty(set) ? Option_t::make(std::move(t)) : t;
+}
+
+} // namespace
+
 Expr SetOp::make(OpType op, Expr a, Expr b) {
     internal_assert(a.defined() && b.defined())
         << "SetOp::make received undefined value: " << to_string(op) << " " << a
@@ -1073,79 +1136,58 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
     SetOp *node = new SetOp;
 
     // Only do type inference if it's enabled or both types are defined.
-    // Filters and argmins can be infered regardless of the lambda type.
+    // Operators whose result does not depend on the lambda's return type can
+    // be inferred regardless of it.
+    const bool result_independent_of_lambda =
+        op == SetOp::filter || op == SetOp::argmin || op == SetOp::argmax ||
+        op == SetOp::any || op == SetOp::all;
     const bool infer_types =
         type_enforcement_enabled() ||
-        ((op == SetOp::filter || op == SetOp::argmin || a.type().defined()) &&
+        ((result_independent_of_lambda || a.type().defined()) &&
          b.type().defined());
 
     if (infer_types) {
-        if (op == SetOp::filter) {
-            // TODO: allow this assert to pass if !a.type().defined() only if
-            // !type_enforcement_enabled()
-            internal_assert(
-                (!a.type().defined() && !type_enforcement_enabled()) ||
-                (a.type().is<Function_t>() &&
-                 a.type().as<Function_t>()->ret_type.is_bool()))
-                << "Expected lhs of filter to be a boolean function, instead "
-                   "received: "
-                << a << " : " << a.type();
-            internal_assert((b.type().is<Set_t, BVH_t>()))
-                << "Expected rhs of filter to be a (set|bvh), instead "
-                   "received: "
-                << b << " : " << b.type();
-            if (const Function_t *f = a.type().as<Function_t>()) {
-                if (f->arg_types.size() == 1) {
-                    internal_assert(
-                        equals(f->arg_types[0].type, b.type().element_of()))
-                        << "Expected filter function to accept element of "
-                           "type: "
-                        << b.type().element_of() << " instead got " << a
-                        << " : " << a.type();
-                } else {
-                    internal_assert(
-                        b.type().element_of().is<Tuple_t>() &&
-                        b.type().element_of().as<Tuple_t>()->etypes.size() ==
-                            f->arg_types.size())
-                        << "Expected filter function to accept elements of "
-                           "group: "
-                        << b.type().element_of() << " instead got " << a
-                        << " : " << a.type();
-                }
-            }
+        switch (op) {
+        case SetOp::filter: {
+            const Function_t *f = check_element_lambda("filter", a, b);
+            check_returns_bool("filter", f, a);
             node->type = b.type();
-        } else if (op == SetOp::argmin) {
-            internal_assert(
-                (!a.type().defined() && !type_enforcement_enabled()) ||
-                (a.type().is<Function_t>() &&
-                 a.type().as<Function_t>()->ret_type.is_numeric()))
-                << "Expected lhs of argmin to be a numeric function, instead "
-                   "received: "
-                << a << " : " << a.type();
-            internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
-                << "Expected rhs of argmin to be a set, instead received: " << b
-                << " : " << b.type();
-            if (const Function_t *f = a.type().as<Function_t>()) {
-                internal_assert(
-                    f->arg_types.size() == 1 &&
-                    equals(f->arg_types[0].type, b.type().element_of()))
-                    << "Expected argmin function to accept element of type: "
-                    << b.type().element_of() << " instead got " << a << " : "
-                    << a.type();
-            }
-            if (can_be_empty(b)) {
-                node->type = Option_t::make(b.type().element_of());
-            } else {
-                node->type = b.type().element_of();
-            }
-        } else if (op == SetOp::map) {
-            internal_assert(a.type().is<Function_t>())
-                << "Expected lhs of map to be afunction, instead received: "
-                << a << " : " << a.type();
+            break;
+        }
+        case SetOp::any:
+        case SetOp::all: {
+            const char *name = op == SetOp::any ? "any" : "all";
+            const Function_t *f = check_element_lambda(name, a, b);
+            check_returns_bool(name, f, a);
+            node->type = Bool_t::make();
+            break;
+        }
+        case SetOp::argmin:
+        case SetOp::argmax: {
+            const char *name = op == SetOp::argmin ? "argmin" : "argmax";
+            const Function_t *f = check_element_lambda(name, a, b);
+            check_returns_numeric(name, f, a);
+            node->type = optional_if_empty(b.type().element_of(), b);
+            break;
+        }
+        case SetOp::minimum:
+        case SetOp::maximum: {
+            const char *name = op == SetOp::minimum ? "minimum" : "maximum";
+            const Function_t *f = check_element_lambda(name, a, b);
+            check_returns_numeric(name, f, a);
+            internal_assert(f) << "Cannot infer the type of " << name
+                               << " without a typed metric: " << a;
+            node->type = optional_if_empty(f->ret_type, b);
+            break;
+        }
+        case SetOp::map: {
             internal_assert((b.type().is<Set_t, Array_t>()))
                 << "Expected rhs of map to be a set or array, instead "
                    "received: "
                 << b << " : " << b.type();
+            internal_assert(a.type().is<Function_t>())
+                << "Expected lhs of map to be a function, instead received: "
+                << a << " : " << a.type();
             const Function_t *f = a.type().as<Function_t>();
             internal_assert(f->arg_types.size() == 1 &&
                             equals(f->arg_types[0].type, b.type().element_of()))
@@ -1158,30 +1200,9 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 Expr size = b.type().as<Array_t>()->size;
                 node->type = Array_t::make(f->ret_type, std::move(size));
             }
-        } else if (op == SetOp::minimum) {
-            internal_assert(
-                (!a.type().defined() && !type_enforcement_enabled()) ||
-                (a.type().is<Function_t>() &&
-                 a.type().as<Function_t>()->ret_type.is_numeric()))
-                << "Expected lhs of minimum to be a numeric function, instead "
-                   "received: "
-                << a << " : " << a.type();
-            internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
-                << "Expected rhs of minimum to be a set, instead received: "
-                << b << " : " << b.type();
-            if (const Function_t *f = a.type().as<Function_t>()) {
-                internal_assert(
-                    f->arg_types.size() == 1 &&
-                    equals(f->arg_types[0].type, b.type().element_of()))
-                    << "Expected minimum function to accept element of type: "
-                    << b.type().element_of() << " instead got " << a << " : "
-                    << a.type();
-            }
-            node->type = a.type().as<Function_t>()->ret_type;
-            if (can_be_empty(b)) {
-                node->type = Option_t::make(node->type);
-            }
-        } else if (op == SetOp::product) {
+            break;
+        }
+        case SetOp::product: {
             internal_assert(a.type().is_iterable() && b.type().is_iterable())
                 << "Expected args of product to be iterables, instead "
                    "received: "
@@ -1190,6 +1211,8 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
             Type btype = b.type().element_of();
             Type tuple_t = Tuple_t::make({std::move(atype), std::move(btype)});
             node->type = Set_t::make(std::move(tuple_t));
+            break;
+        }
         }
     }
 
@@ -1202,7 +1225,7 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
 Expr AggOp::make(Expr identity, Expr combiner, Expr a) {
     internal_assert(identity.defined() && combiner.defined() && a.defined())
         << "AggOp::make received undefined value in reduce";
-    internal_assert(a.type().is<Set_t>())
+    internal_assert(!a.type().defined() || a.type().is<Set_t>())
         << "Expected the argument of reduce to be a set, instead received: "
         << a << " : " << a.type();
 

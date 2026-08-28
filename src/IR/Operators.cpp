@@ -108,8 +108,24 @@ Expr map(Expr func, Expr set) {
     return SetOp::make(SetOp::map, std::move(func), std::move(set));
 }
 
+Expr argmax(Expr metric, Expr set) {
+    return SetOp::make(SetOp::argmax, std::move(metric), std::move(set));
+}
+
 Expr minimum(Expr metric, Expr set) {
     return SetOp::make(SetOp::minimum, std::move(metric), std::move(set));
+}
+
+Expr maximum(Expr metric, Expr set) {
+    return SetOp::make(SetOp::maximum, std::move(metric), std::move(set));
+}
+
+Expr any(Expr predicate, Expr set) {
+    return SetOp::make(SetOp::any, std::move(predicate), std::move(set));
+}
+
+Expr all(Expr predicate, Expr set) {
+    return SetOp::make(SetOp::all, std::move(predicate), std::move(set));
 }
 
 Expr product(Expr a, Expr b) {

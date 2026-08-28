@@ -1082,12 +1082,20 @@ void Printer::visit(const GeomOp *node) {
 
 std::string to_string(const SetOp::OpType &op) {
     switch (op) {
+    case SetOp::all:
+        return "all";
+    case SetOp::any:
+        return "any";
+    case SetOp::argmax:
+        return "argmax";
     case SetOp::argmin:
         return "argmin";
     case SetOp::filter:
         return "filter";
     case SetOp::map:
         return "map";
+    case SetOp::maximum:
+        return "maximum";
     case SetOp::minimum:
         return "minimum";
     case SetOp::product:
