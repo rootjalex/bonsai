@@ -175,10 +175,11 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
             ss << (node->value ? "true" : "false");
         }
 
-        void visit(const Infinity *node) override {
+        void visit(const Extrema *node) override {
             ss << "std::numeric_limits<";
             emit_type(ss, node->type);
-            ss << ">::infinity()";
+            ss << (node->op == Extrema::eps ? ">::epsilon()"
+                                            : ">::infinity()");
         }
 
         void visit(const VecImm *node) override {
@@ -478,7 +479,7 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const BoolImm *) override;
     // void visit(const VecImm *) override;
     // void visit(const StringImm *) override;
-    // void visit(const Infinity *) override;
+    // void visit(const Extrema *) override;
     // void visit(const Var *) override;
     // void print(const BinOp::OpType &op);
     // void visit(const BinOp *) override;

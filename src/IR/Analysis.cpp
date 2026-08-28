@@ -78,7 +78,13 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Accumulate *node) override {
-        seen_vars.insert(node->loc.base);
+        // Accumulating into a location makes that location a free variable of
+        // the enclosing traversal; without this the generated traversal
+        // function never receives the accumulator.
+        if (!seen_vars.contains(node->loc.base)) {
+            seen_vars.insert(node->loc.base);
+            free_vars.push_back({node->loc.base, node->loc.base_type});
+        }
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
                 std::get<Expr>(value).accept(this);
@@ -413,7 +419,7 @@ std::vector<const Struct_t *> gather_struct_types(const Program &program) {
 // TODO: merge with is_const ?
 bool is_constant_expr(const Expr &expr) {
     // TODO: constant fold first?
-    if (expr.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity>()) {
+    if (expr.is<IntImm, UIntImm, FloatImm, BoolImm, Extrema>()) {
         return true;
     } else if (expr.is<Broadcast>()) {
         return is_constant_expr(expr.as<Broadcast>()->value);

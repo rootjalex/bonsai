@@ -356,7 +356,16 @@ void CodeGen_CUDA::visit(const StringImm *node) {
     print_string_imm(os, node->value);
 }
 
-void CodeGen_CUDA::visit(const Infinity *node) { os << "INFINITY"; }
+void CodeGen_CUDA::visit(const Extrema *node) {
+    switch (node->op) {
+    case Extrema::inf:
+        os << "INFINITY";
+        break;
+    case Extrema::eps:
+        os << (node->type.bits() == 64 ? "DBL_EPSILON" : "FLT_EPSILON");
+        break;
+    }
+}
 
 void CodeGen_CUDA::visit(const Cast *node) {
     ir::Expr value = node->value;
@@ -943,14 +952,28 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     case Accumulate::OpType::Mul:
         os << '*';
         break;
-    case Accumulate::OpType::Argmax: {
-    case Accumulate::OpType::Argmin:
+    case Accumulate::OpType::Argmax:
+    case Accumulate::OpType::Argmin: {
         // curr arg{min|max}= update;
         // ->
         // curr = arg{min|max}(curr, update);
         os << '=' << ' ';
         os << "arg" << (node->op == Accumulate::OpType::Argmax ? "max" : "min")
            << '(';
+        Var::make(current.type, current.base).accept(this);
+        os << ',' << ' ';
+        update.accept(this);
+        os << ')';
+        os << ';' << '\n';
+        return;
+    }
+    case Accumulate::OpType::Max:
+    case Accumulate::OpType::Min: {
+        // curr {min|max}= update;
+        // ->
+        // curr = {min|max}(curr, update);
+        os << '=' << ' ';
+        os << (node->op == Accumulate::OpType::Max ? "max" : "min") << '(';
         Var::make(current.type, current.base).accept(this);
         os << ',' << ' ';
         update.accept(this);

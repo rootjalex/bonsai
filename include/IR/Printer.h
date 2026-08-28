@@ -49,6 +49,8 @@ std::string to_string(const Intrinsic::OpType &op);
 std::string to_string(const Generator::OpType &op);
 std::string to_string(const GeomOp::OpType &op);
 std::string to_string(const SetOp::OpType &op);
+std::string to_string(const AggOp::OpType &op);
+std::string to_string(const Annotation::Aggregate::OpType &op);
 
 std::string from_string_imm(const std::string &value);
 void print_string_imm(std::ostream &os, const std::string &value);
@@ -72,7 +74,7 @@ struct Printer : public Visitor {
     void print(const Schedule &schedule);
     void print(const Location &loc);
     void print(const Type &type);
-    void print_type_list(const std::vector<Type> &types);
+    virtual void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
     void print(const Expr &expr);
     void print_no_parens(const Expr &expr);
@@ -114,7 +116,7 @@ struct Printer : public Visitor {
     void visit(const BoolImm *) override;
     void visit(const VecImm *) override;
     void visit(const StringImm *) override;
-    void visit(const Infinity *) override;
+    void visit(const Extrema *) override;
     void visit(const Var *) override;
     void print(const BinOp::OpType &op);
     void visit(const BinOp *) override;
@@ -136,6 +138,7 @@ struct Printer : public Visitor {
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;
     void visit(const SetOp *) override;
+    void visit(const AggOp *) override;
     void visit(const Call *) override;
     void visit(const Instantiate *) override;
     void visit(const PtrTo *) override;

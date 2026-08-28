@@ -430,6 +430,24 @@ Type Generic_t::make(std::string name, Interface interface) {
     return node;
 }
 
+Annotation::Aggregate::OpType
+Annotation::Aggregate::str_to_op(const std::string &op) {
+    if (op == "avg") {
+        return Annotation::Aggregate::OpType::avg;
+    } else if (op == "count") {
+        return Annotation::Aggregate::OpType::count;
+    } else if (op == "max") {
+        return Annotation::Aggregate::OpType::max;
+    } else if (op == "min") {
+        return Annotation::Aggregate::OpType::min;
+    } else if (op == "prod") {
+        return Annotation::Aggregate::OpType::prod;
+    } else if (op == "sum") {
+        return Annotation::Aggregate::OpType::sum;
+    }
+    internal_error << "Unknown Aggregate type: " << op;
+}
+
 namespace {
 
 bool validate_volume(const Annotation::Volume &volume,

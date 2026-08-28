@@ -24,7 +24,7 @@ enum class IRExprEnum {
     VecImm,
     StringImm,
     Var,
-    Infinity,
+    Extrema,
     BinOp,
     UnOp,
     Select,
@@ -45,6 +45,7 @@ enum class IRExprEnum {
     Lambda,
     GeomOp,
     SetOp,
+    AggOp,
     Call,
     Instantiate,
     // Pointer operations
@@ -162,10 +163,15 @@ struct Var : ExprNode<Var> {
 };
 
 // Maximum value of a type (inf for float)
-struct Infinity : ExprNode<Infinity> {
-    static Expr make(Type tan);
+struct Extrema : ExprNode<Extrema> {
+    enum OpType {
+        eps,
+        inf,
+    };
+    OpType op;
+    static Expr make(Type t, OpType op);
 
-    static const IRExprEnum node_type = IRExprEnum::Infinity;
+    static const IRExprEnum node_type = IRExprEnum::Extrema;
 };
 
 struct BinOp : ExprNode<BinOp> {
@@ -408,6 +414,7 @@ struct SetOp : ExprNode<SetOp> {
         argmin,
         filter,
         map,
+        minimum,
         product,
         // TODO: reduce
         // TODO: geometric intrinsics for lambda
@@ -420,6 +427,18 @@ struct SetOp : ExprNode<SetOp> {
     static Expr make(OpType op, Expr a, Expr b);
 
     static const IRExprEnum node_type = IRExprEnum::SetOp;
+};
+
+struct AggOp : ExprNode<AggOp> {
+    enum OpType { avg, count, prod, sum };
+
+    OpType op;
+
+    Expr a; // must be a set type
+
+    static Expr make(OpType op, Expr a);
+
+    static const IRExprEnum node_type = IRExprEnum::AggOp;
 };
 
 struct Call : ExprNode<Call> {

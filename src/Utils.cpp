@@ -121,7 +121,7 @@ bool is_const(const Expr &e) {
                std::all_of(b->values.begin(), b->values.end(),
                            [](const Expr &v) { return is_const(v); });
     }
-    return e.is<IntImm, UIntImm, FloatImm, BoolImm, Infinity, VecImm>();
+    return e.is<IntImm, UIntImm, FloatImm, BoolImm, Extrema, VecImm>();
 }
 
 bool is_location_expr(const Expr &expr) {
@@ -171,7 +171,7 @@ Expr make_all_ones(const Type &t) { return make_const(t, bit_mask(t.bits())); }
 
 Expr make_inf(const Type &t) {
     if (t.is<UInt_t, Int_t, Float_t>()) {
-        return Infinity::make(t);
+        return Extrema::make(t, Extrema::inf);
     }
     internal_error << "Unknown infinity for type: " << t;
 }
@@ -192,7 +192,7 @@ Expr make_tuple(std::vector<Expr> exprs) {
         etypes.push_back(e.type());
     }
     Type tuple_t = Tuple_t::make(std::move(etypes));
-    return ir::Build::make(std::move(tuple_t), std::move(exprs));
+    return Build::make(std::move(tuple_t), std::move(exprs));
 }
 
 std::vector<Expr> break_tuple(Expr expr) {
@@ -261,8 +261,8 @@ Expr constant_cast(const Type &t, const Expr &e) {
         }
     } else if (e.is<Broadcast>()) {
         return constant_cast(t, e.as<Broadcast>()->value);
-    } else if (e.is<Infinity>()) {
-        return Infinity::make(t);
+    } else if (const auto *extrema = e.as<Extrema>()) {
+        return Extrema::make(t, extrema->op);
     }
     internal_error << "Unsure how to convert constant to type: " << t
                    << " expr: " << e;
@@ -342,7 +342,7 @@ struct VarNameReplacer : public Mutator {
     Expr visit(const Var *node) override {
         auto iter = repls.find(node->name);
         if (iter != repls.cend()) {
-            return ir::Var::make(node->type, iter->second);
+            return Var::make(node->type, iter->second);
         } else {
             return node;
         }
@@ -353,6 +353,27 @@ struct VarNameReplacer : public Mutator {
 
 Expr replace(const std::map<std::string, Expr> &repls, const Expr &orig) {
     VarReplacer replacer(repls);
+    return replacer.mutate(orig);
+}
+
+Expr replace(const std::map<Expr, Expr, ExprLessThan> &repls,
+             const Expr &orig) {
+    struct Replacer : public Mutator {
+        const std::map<Expr, Expr, ExprLessThan> &repls;
+        Replacer(const std::map<Expr, Expr, ExprLessThan> &repls)
+            : repls(repls) {}
+
+        Expr mutate(const Expr &expr) override {
+            const auto &iter = repls.find(expr);
+            if (iter != repls.cend()) {
+                return iter->second;
+            } else {
+                return Mutator::mutate(expr);
+            }
+        }
+    };
+
+    Replacer replacer(repls);
     return replacer.mutate(orig);
 }
 
@@ -520,7 +541,7 @@ Type flatten_array_type(const Type &type) {
     internal_error << "flatten_array_type called on non-Array_t: " << type;
 }
 
-std::string get_specifier(const ir::Type &type) {
+std::string get_specifier(const Type &type) {
     std::string specifier = "%";
     const uint32_t width = type.bits();
     if (type.is_bool()) {
@@ -549,9 +570,9 @@ std::string get_specifier(const ir::Type &type) {
     internal_error << "[unimplemented] print: " << type;
 }
 
-bool is_dynamic_array_struct_type(const ir::Type &type) {
+bool is_dynamic_array_struct_type(const Type &type) {
     // Dynamic arrays are lowered to structs.
-    if (const auto *dynamic_array_t = type.as<ir::Struct_t>()) {
+    if (const auto *dynamic_array_t = type.as<Struct_t>()) {
         if (dynamic_array_t->name.starts_with("__dyn_array")) {
             return true;
         }
