@@ -386,13 +386,30 @@ struct Lambda : ExprNode<Lambda> {
     static const IRExprEnum node_type = IRExprEnum::Lambda;
 };
 
+// The geometric operators of Figure 1: the topological predicates of Egenhofer
+// and Herring, the per-dimension ordering predicates, and the metrics.
+// `lex`/`ltx` and friends are `a <=_x b` and `a <_x b`, one opcode per
+// (relation, axis) pair.
 struct GeomOp : ExprNode<GeomOp> {
     enum OpType {
+        // Topological predicates.
         contains,
+        covers,
+        disjoint,
+        equals,
+        intersects,
+        touches,
+        within,
+        // Ordering predicates, per dimension.
+        lex,
+        ley,
+        lez,
+        ltx,
+        lty,
+        ltz,
+        // Metrics.
         distmax,
         distmin,
-        intersects,
-        // TODO: the rest
 
         opcount, // sentinel, do not remove!
     };

@@ -118,6 +118,17 @@ struct Parser {
             "minimum",
             "product",
             // Geometry operations
+            "covers",
+            "disjoint",
+            "equals",
+            "touches",
+            "within",
+            "lex",
+            "ley",
+            "lez",
+            "ltx",
+            "lty",
+            "ltz",
             "distmax",
             "distmin",
             "intersects",
@@ -1406,10 +1417,21 @@ struct Parser {
         };
 
         static const auto GPATTERNS = std::to_array<GeomPattern>({
+            {"contains", ir::GeomOp::contains},
+            {"covers", ir::GeomOp::covers},
+            {"disjoint", ir::GeomOp::disjoint},
+            {"equals", ir::GeomOp::equals},
+            {"intersects", ir::GeomOp::intersects},
+            {"touches", ir::GeomOp::touches},
+            {"within", ir::GeomOp::within},
+            {"lex", ir::GeomOp::lex},
+            {"ley", ir::GeomOp::ley},
+            {"lez", ir::GeomOp::lez},
+            {"ltx", ir::GeomOp::ltx},
+            {"lty", ir::GeomOp::lty},
+            {"ltz", ir::GeomOp::ltz},
             {"distmax", ir::GeomOp::distmax},
             {"distmin", ir::GeomOp::distmin},
-            {"intersects", ir::GeomOp::intersects},
-            {"contains", ir::GeomOp::contains},
         });
 
         if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(),
