@@ -56,7 +56,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::FloatImm *) override;
     void visit(const ir::VecImm *) override;
     void visit(const ir::StringImm *) override;
-    void visit(const ir::Infinity *) override;
+    void visit(const ir::Extrema *) override;
     void visit(const ir::Deref *) override;
     RESTRICT_VISITOR(ir::AtomicAdd); // TODO
     void visit(const ir::Select *) override;
@@ -74,6 +74,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Lambda);
     RESTRICT_VISITOR(ir::GeomOp);
     RESTRICT_VISITOR(ir::SetOp);
+    RESTRICT_VISITOR(ir::AggOp);
     RESTRICT_VISITOR(ir::Instantiate);
     // Statements
     void visit(const ir::CallStmt *) override;

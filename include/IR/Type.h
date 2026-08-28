@@ -290,7 +290,6 @@ struct Generic_t : TypeNode<Generic_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Generic_t;
 };
 
-// TODO: aggregation
 struct Annotation {
 
     // data = name
@@ -314,7 +313,27 @@ struct Annotation {
         std::string low, high;
     };
 
-    std::variant<Data, Volume, Interval> type;
+    // count() = dCount
+    // min(field) = field_min
+    // etc.
+    struct Aggregate {
+        // TODO: deduplicate with AggOp::OpType...
+        enum OpType {
+            avg,
+            count,
+            max,
+            min,
+            prod,
+            sum,
+        };
+        OpType op;
+        std::vector<std::string> args; // field, empty for count
+        std::string value;             // field name that stores
+
+        static OpType str_to_op(const std::string &str);
+    };
+
+    std::variant<Data, Volume, Interval, Aggregate> type;
 
     template <typename T>
     const T *as() const {
@@ -339,7 +358,8 @@ struct BVH_t : TypeNode<BVH_t> {
 
         bool has_volume() const {
             for (const auto &annot : annotations) {
-                if (annot.as<Annotation::Volume>()) {
+                if (annot.as<Annotation::Volume>() &&
+                    annot.as<Annotation::Volume>()->geometry.empty()) {
                     return true;
                 }
             }
@@ -348,7 +368,8 @@ struct BVH_t : TypeNode<BVH_t> {
 
         const Annotation::Volume *get_volume() const {
             for (const auto &annot : annotations) {
-                if (const auto *vol = annot.as<Annotation::Volume>()) {
+                if (const auto *vol = annot.as<Annotation::Volume>();
+                    vol && vol->geometry.empty()) {
                     return vol;
                 }
             }

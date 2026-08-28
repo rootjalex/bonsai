@@ -439,7 +439,7 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, tuple_t);
 
-    ir::Expr inf = ir::Infinity::make(std::move(metric_t));
+    ir::Expr inf = ir::Extrema::make(std::move(metric_t), ir::Extrema::inf);
     static const std::vector<ir::Expr> empty_list = {};
     ir::Expr empty = ir::Build::make(ret_type, empty_list);
     std::vector<ir::Expr> values = {inf, std::move(empty)};
@@ -515,7 +515,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -551,7 +551,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -580,7 +580,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::Iterate *iterate =
                                a_body.as<ir::Iterate>()) {
                     internal_assert(locs.size() == 2);
@@ -591,7 +591,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, make_tuple(std::move(vals)));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
                     // Cartesian product of nodes! TODO: doesn't have to be...
                     // Make this scheduable?
@@ -603,7 +603,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                             pairs.push_back(make_tuple_pair(av, bv));
                         }
                     }
-                    return ir::Scan::make(make_tuple(std::move(pairs)));
+                    return ir::Scan::make({}, make_tuple(std::move(pairs)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -797,7 +797,7 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             for (const auto &c : children) {
                 cs.push_back(ir::Access::make(c.name, node));
             }
-            stmts.back() = ir::Scan::make(make_tuple(cs));
+            stmts.back() = ir::Scan::make({}, make_tuple(cs));
         }
 
         arms[i].first = bvh_t->nodes[i];

@@ -1411,7 +1411,11 @@ struct Parser {
         }
 
         if (name == "inf") {
-            return ir::Infinity::make(f32);
+            return ir::Extrema::make(f32, ir::Extrema::inf);
+        }
+
+        if (name == "eps") {
+            return ir::Extrema::make(f32, ir::Extrema::eps);
         }
 
         if (consume(Token::Type::LPAREN)) {

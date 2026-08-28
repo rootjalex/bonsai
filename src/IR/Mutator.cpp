@@ -205,8 +205,10 @@ Type Mutator::visit(const BVH_t *node) {
                                                  vol->broadcast}};
         } else {
             const auto *interval = annot.as<Annotation::Interval>();
-            internal_assert(interval)
-                << "Handle non-(Data | Volume | Interval) in Mutator";
+            const auto *aggregate = annot.as<Annotation::Aggregate>();
+            internal_assert(interval || aggregate)
+                << "Handle non-(Data | Volume | Interval | Aggregate) in "
+                   "Mutator";
             // TODO: handle low/high as Exprs?
             return annot;
         }
@@ -271,7 +273,7 @@ Expr Mutator::visit(const VecImm *node) { return node; }
 
 Expr Mutator::visit(const StringImm *node) { return node; }
 
-Expr Mutator::visit(const Infinity *node) { return node; }
+Expr Mutator::visit(const Extrema *node) { return node; }
 
 Expr Mutator::visit(const Var *node) { return node; }
 
@@ -421,6 +423,14 @@ Expr Mutator::visit(const SetOp *node) {
         return node;
     }
     return SetOp::make(node->op, std::move(a), std::move(b));
+}
+
+Expr Mutator::visit(const AggOp *node) {
+    Expr a = mutate(node->a);
+    if (a.same_as(node->a)) {
+        return node;
+    }
+    return AggOp::make(node->op, std::move(a));
 }
 
 Expr Mutator::visit(const Call *node) {
@@ -620,7 +630,7 @@ Stmt Mutator::visit(const Iterate *node) {
     if (value.same_as(node->value)) {
         return node;
     }
-    return Scan::make(std::move(value));
+    return Iterate::make(std::move(value));
 }
 
 Stmt Mutator::visit(const Scan *node) {
@@ -628,7 +638,7 @@ Stmt Mutator::visit(const Scan *node) {
     if (value.same_as(node->value)) {
         return node;
     }
-    return Scan::make(std::move(value));
+    return Scan::make(node->op, std::move(value));
 }
 
 Stmt Mutator::visit(const YieldFrom *node) {

@@ -599,7 +599,7 @@ void Printer::visit(const Generic_t *node) {
 
 void Printer::print(const BVH_t::Node &node) {
     const auto print_annotation = [&](const Annotation &annot) {
-        if (const Annotation::Data *data = annot.as<Annotation::Data>()) {
+        if (const auto *data = annot.as<Annotation::Data>()) {
             os << "data = " << data->name;
         } else if (const auto *vol = annot.as<Annotation::Volume>()) {
             internal_assert(vol->struct_type.is<Struct_t>());
@@ -617,12 +617,22 @@ void Printer::print(const BVH_t::Node &node) {
                 os << " on " << vol->geometry;
             }
             // TODO: print broadcast somehow?
-        } else {
-            const auto *interval = annot.as<Annotation::Interval>();
-            internal_assert(interval) << "TODO: handle non-(Data | Volume | "
-                                         "Interval) annotions in Printer\n";
+        } else if (const auto *interval = annot.as<Annotation::Interval>()) {
             os << interval->scalar << " in [" << interval->low << ", "
                << interval->high << "]";
+        } else if (const auto *aggregate = annot.as<Annotation::Aggregate>()) {
+            os << to_string(aggregate->op) << "(";
+            for (size_t i = 0, e = aggregate->args.size(); i < e; i++) {
+                if (i != 0) {
+                    os << ", ";
+                }
+                os << aggregate->args[i];
+            }
+            os << ") = ";
+            os << aggregate->value;
+        } else {
+            internal_error << "TODO: handle non-(Data | Volume | Interval | "
+                              "Aggregate) annotions in Printer\n";
         }
     };
 
@@ -781,11 +791,20 @@ void Printer::visit(const StringImm *node) {
     print_string_imm(os, node->value);
 }
 
-void Printer::visit(const Infinity *node) {
+void Printer::visit(const Extrema *node) {
     os << "(";
     print(node->type);
     os << ")";
-    os << "inf";
+    switch (node->op) {
+    case Extrema::inf: {
+        os << "inf";
+        break;
+    }
+    case Extrema::eps: {
+        os << "eps";
+        break;
+    }
+    }
 }
 
 void Printer::visit(const Var *node) { os << node->name; }
@@ -1069,8 +1088,40 @@ std::string to_string(const SetOp::OpType &op) {
         return "filter";
     case SetOp::map:
         return "map";
+    case SetOp::minimum:
+        return "minimum";
     case SetOp::product:
         return "product";
+    }
+}
+
+std::string to_string(const AggOp::OpType &op) {
+    switch (op) {
+    case AggOp::avg:
+        return "avg";
+    case AggOp::count:
+        return "count";
+    case AggOp::prod:
+        return "prod";
+    case AggOp::sum:
+        return "sum";
+    }
+}
+
+std::string to_string(const Annotation::Aggregate::OpType &op) {
+    switch (op) {
+    case Annotation::Aggregate::avg:
+        return "avg";
+    case Annotation::Aggregate::count:
+        return "count";
+    case Annotation::Aggregate::max:
+        return "max";
+    case Annotation::Aggregate::min:
+        return "min";
+    case Annotation::Aggregate::prod:
+        return "prod";
+    case Annotation::Aggregate::sum:
+        return "sum";
     }
 }
 
@@ -1080,6 +1131,13 @@ void Printer::visit(const SetOp *node) {
     print_no_parens(node->a);
     os << ", ";
     print_no_parens(node->b);
+    os << ")";
+}
+
+void Printer::visit(const AggOp *node) {
+    // TODO: print type?
+    os << to_string(node->op) << "(";
+    print_no_parens(node->a);
     os << ")";
 }
 
@@ -1264,6 +1322,14 @@ void Printer::visit(const Accumulate *node) {
         os << " argmax= ";
         break;
     }
+    case Accumulate::OpType::Max: {
+        os << " max= ";
+        break;
+    }
+    case Accumulate::OpType::Min: {
+        os << " min= ";
+        break;
+    }
     default: {
         internal_error
             << "TODO: implement printing for all Accumulate op types!";
@@ -1335,7 +1401,11 @@ void Printer::visit(const Iterate *node) {
 
 void Printer::visit(const Scan *node) {
     os << get_indent();
-    os << "scan ";
+    os << "scan";
+    if (node->op) {
+        os << "<" << to_string(*(node->op)) << ">";
+    }
+    os << " ";
     print_no_parens(node->value);
     end_stmt();
 }

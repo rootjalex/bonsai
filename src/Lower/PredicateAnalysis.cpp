@@ -99,7 +99,7 @@ struct PredicateAnalysis : public ir::Visitor {
 
     void visit(const ir::BoolImm *node) override { set(node); }
 
-    void visit(const ir::Infinity *node) override { set(node); }
+    void visit(const ir::Extrema *node) override { set(node); }
 
     void visit(const ir::Var *node) override { set(node); }
 

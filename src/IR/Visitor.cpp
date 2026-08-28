@@ -111,7 +111,7 @@ void Visitor::visit(const VecImm *) {}
 
 void Visitor::visit(const StringImm *) {}
 
-void Visitor::visit(const Infinity *) {}
+void Visitor::visit(const Extrema *) {}
 
 void Visitor::visit(const Var *) {}
 
@@ -173,6 +173,8 @@ void Visitor::visit(const SetOp *node) {
     node->a.accept(this);
     node->b.accept(this);
 }
+
+void Visitor::visit(const AggOp *node) { node->a.accept(this); }
 
 void Visitor::visit(const Call *node) {
     node->func.accept(this);

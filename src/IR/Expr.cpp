@@ -169,11 +169,12 @@ Expr StringImm::make(std::string value) {
     return node;
 }
 
-Expr Infinity::make(Type t) {
+Expr Extrema::make(Type t, Extrema::OpType op) {
     internal_assert(t.defined() && t.is_numeric())
-        << "Infinity can be made for numeric types only: " << t;
+        << "Extrema can be made for numeric types only: " << t;
 
-    Infinity *node = new Infinity;
+    Extrema *node = new Extrema;
+    node->op = op;
     node->type = std::move(t);
     return node;
 }
@@ -464,6 +465,11 @@ Expr Broadcast::make(uint32_t lanes, Expr value) {
 
 Expr VectorReduce::make(VectorReduce::OpType op, Expr value) {
     internal_assert(value.defined()) << "VectorReduce of undefined.";
+
+    if (op == VectorReduce::Add && value.type().defined() &&
+        value.type().is<Set_t>()) {
+        return AggOp::make(AggOp::sum, std::move(value));
+    }
 
     VectorReduce *node = new VectorReduce;
 
@@ -814,7 +820,7 @@ Expr Access::make(std::string field, Expr value) {
 
 Expr Unwrap::make(size_t index, Expr value) {
     internal_assert(value.defined() && value.type().is<BVH_t>())
-        << "Bad Unwrap parameters: " << value;
+        << "Bad Unwrap parameters: " << value << " has type: " << value.type();
     internal_assert(index < value.type().as<BVH_t>()->nodes.size())
         << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 
@@ -1146,6 +1152,29 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 Expr size = b.type().as<Array_t>()->size;
                 node->type = Array_t::make(f->ret_type, std::move(size));
             }
+        } else if (op == SetOp::minimum) {
+            internal_assert(
+                (!a.type().defined() && !type_enforcement_enabled()) ||
+                (a.type().is<Function_t>() &&
+                 a.type().as<Function_t>()->ret_type.is_numeric()))
+                << "Expected lhs of minimum to be a numeric function, instead "
+                   "received: "
+                << a << " : " << a.type();
+            internal_assert(b.type().is<Set_t>() || b.type().is<BVH_t>())
+                << "Expected rhs of minimum to be a set, instead received: "
+                << b << " : " << b.type();
+            if (const Function_t *f = a.type().as<Function_t>()) {
+                internal_assert(
+                    f->arg_types.size() == 1 &&
+                    equals(f->arg_types[0].type, b.type().element_of()))
+                    << "Expected minimum function to accept element of type: "
+                    << b.type().element_of() << " instead got " << a << " : "
+                    << a.type();
+            }
+            node->type = a.type().as<Function_t>()->ret_type;
+            if (can_be_empty(b)) {
+                node->type = Option_t::make(node->type);
+            }
         } else if (op == SetOp::product) {
             internal_assert(a.type().is_iterable() && b.type().is_iterable())
                 << "Expected args of product to be iterables, instead "
@@ -1161,6 +1190,32 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
     node->op = op;
     node->a = std::move(a);
     node->b = std::move(b);
+    return node;
+}
+
+Expr AggOp::make(OpType op, Expr a) {
+    internal_assert(a.defined())
+        << "AggOp::make received undefined value: " << to_string(op) << " "
+        << a;
+    AggOp *node = new AggOp;
+
+    // Only do type inference if it's enabled or a's type is defined.
+    const bool infer_types =
+        type_enforcement_enabled() || a.type().defined() || op == OpType::count;
+
+    if (infer_types) {
+        if (op == OpType::count) {
+            node->type = UInt_t::make(64);
+        } else {
+            internal_assert(a.type().defined() && a.type().as<Set_t>())
+                << "AggOp received undefined or non-set expr: " << a
+                << " of type " << a.type();
+            node->type = a.type().element_of();
+        }
+    }
+
+    node->op = op;
+    node->a = std::move(a);
     return node;
 }
 
