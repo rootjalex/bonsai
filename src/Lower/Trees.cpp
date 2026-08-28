@@ -13,6 +13,7 @@
 #include "Opt/Simplify.h"
 
 #include <algorithm>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
