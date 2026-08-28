@@ -501,9 +501,17 @@ struct Simplifier : ir::Mutator {
         // but its elements are Exprs, and folding one is the job of the
         // aggregate cases above.
         if (v.is<ir::VecImm, ir::Build>() && v.type().is_vector() &&
-            index.has_value()) {
-            if (std::optional<uint64_t> c = get_constant_value(v, index)) {
-                return make_const(v.type().element_of(), *c);
+            index.has_value() && is_const(v)) {
+            // The element itself, rather than its value read back as an
+            // integer and made into a constant again. That round trip is only
+            // right for integer elements: `get_constant_value` hands back the
+            // bit pattern, so a lane holding 1.0f came out as the integer its
+            // double spells, and every comparison against it was wrong.
+            //
+            // `is_const` is what makes dropping the other lanes safe.
+            if (ir::Expr element = get_value_at(v, int64_t(*index));
+                element.defined()) {
+                return element;
             }
         }
         if (v.same_as(node->vec) && i.same_as(node->idx)) {
