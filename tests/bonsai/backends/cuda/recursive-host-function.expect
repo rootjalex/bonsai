@@ -1,0 +1,8 @@
+#include "helpers.h"
+
+__host__ int32_t countdown(int32_t n, int32_t acc) {
+  if (n <= 0) {
+    return acc;
+  }
+  return countdown(n - 1, acc + n);
+}

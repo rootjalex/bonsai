@@ -1,0 +1,19 @@
+//! flags: -b cuda
+
+// A recursive exported function, compiled for CUDA.
+//
+// The CUDA backend works out which functions run on the host by walking the
+// call graph from each exported one. The walk pushed a function's callees
+// every time it reached that function, and never recorded where it had
+// already been -- so a function that calls itself put itself back on the
+// worklist for ever, and the compiler hung rather than failing. Sharing alone
+// was enough to make it exponential; a cycle made it endless.
+//
+// Nothing about recursion is special to CUDA, and this is the smallest
+// program that has a cycle in its call graph.
+func [[export]] countdown(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return countdown(n - 1, acc + n);
+}

@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     parallel.bonsai
     rand.bonsai
+    recursive-host-function.bonsai
     rtiow-primer.bonsai
     simple.bonsai
 )

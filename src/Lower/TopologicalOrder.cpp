@@ -266,10 +266,16 @@ std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
             if (func.is_kernel()) {
                 continue;
             }
+            // Walked once. Without this the callees of a function are pushed
+            // again every time it is reached, which never finishes if the
+            // call graph has a cycle and takes exponential time if it merely
+            // has sharing -- and a call graph has plenty of both.
+            if (!hosts.insert(name).second) {
+                continue;
+            }
             auto cit = call_graph.find(name);
             internal_assert(cit != call_graph.end()) << name;
             const auto &graph = cit->second;
-            hosts.insert(name);
             visit.insert(visit.end(), graph.begin(), graph.end());
         }
     }
