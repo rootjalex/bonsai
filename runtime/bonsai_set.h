@@ -171,3 +171,14 @@ bool operator==(const set<T> &a, const set<T> &b) {
     b.for_each([&](const T &x) { std_b.insert(x); });
     return std_a == std_b;
 }
+// How many elements a set or a leaf's range holds. A reduction that sums the
+// same constant over every element asks for this instead of iterating.
+template <typename T>
+inline uint64_t count(const set<T> &input) {
+    return input.size();
+}
+
+template <typename T, typename i_t>
+inline uint64_t count(const range<T, i_t> &input) {
+    return input.count;
+}
