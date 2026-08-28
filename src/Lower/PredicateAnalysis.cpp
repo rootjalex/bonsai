@@ -283,6 +283,28 @@ struct PredicateAnalysis : public ir::Visitor {
         return a && b;
     }
 
+    ir::Expr make_or(ir::Expr a, ir::Expr b) {
+        // A disjunction with an unbounded side is only as good as the other
+        // side when that side settles the answer, which the constant folds
+        // below cover; otherwise nothing can be said.
+        if (is_const_one(a)) {
+            return a;
+        }
+        if (is_const_one(b)) {
+            return b;
+        }
+        if (!a.defined() || !b.defined()) {
+            return ir::Expr();
+        }
+        if (is_const_zero(a)) {
+            return b;
+        }
+        if (is_const_zero(b)) {
+            return a;
+        }
+        return a || b;
+    }
+
     // Handle Lt/Le
     void visit_compare(const ir::BinOp *node) {
         Interval a = get(node->a);
@@ -362,20 +384,33 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
-        case ir::BinOp::LAnd: {
+        // Section 6.2: boolean and and or are monotonically increasing in
+        // both arguments, so each bound is that operator applied to the
+        // corresponding bounds. `&` and `|` on booleans mean the same thing
+        // as `&&` and `||` here, and are what most predicates are written
+        // with.
+        case ir::BinOp::LAnd:
+        case ir::BinOp::BwAnd:
+        case ir::BinOp::LOr:
+        case ir::BinOp::BwOr: {
             if (!node->type.is_bool()) {
                 break; // TODO: handle non-booleans
             }
+            const bool is_and =
+                node->op == ir::BinOp::LAnd || node->op == ir::BinOp::BwAnd;
             Interval a = get(node->a);
             Interval b = get(node->b);
-            // And is monotonic increasing in both args
             if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
                 interval = Interval::single_point(node);
             } else if (a.is_single_point() && b.is_single_point()) {
-                interval = Interval::single_point(a.min && b.min);
-            } else {
+                interval = Interval::single_point(is_and ? (a.min && b.min)
+                                                         : (a.min || b.min));
+            } else if (is_and) {
                 interval.min = make_and(a.min, b.min);
                 interval.max = make_and(a.max, b.max);
+            } else {
+                interval.min = make_or(a.min, b.min);
+                interval.max = make_or(a.max, b.max);
             }
             return;
         }
@@ -519,7 +554,46 @@ struct PredicateAnalysis : public ir::Visitor {
                        << ir::Expr(node);
     }
 
-    RESTRICT_VISITOR(ir::UnOp);
+    void visit(const ir::UnOp *node) override {
+        switch (node->op) {
+        case ir::UnOp::Not: {
+            // Section 6.2: negation is monotonically decreasing, so it is
+            // upper bounded by the negation of the lower bound and vice
+            // versa.
+            internal_assert(node->type.is_bool())
+                << "TODO: predicate analysis of bitwise negation: "
+                << ir::Expr(node);
+            Interval a = get(node->a);
+            if (a.is_single_point(node->a)) {
+                interval = Interval::single_point(node);
+                return;
+            }
+            if (a.min.defined()) {
+                interval.max = ~a.min;
+            }
+            if (a.max.defined()) {
+                interval.min = ~a.max;
+            }
+            return;
+        }
+        case ir::UnOp::Neg: {
+            // Negation reverses the order of the bounds.
+            Interval a = get(node->a);
+            if (a.is_single_point(node->a)) {
+                interval = Interval::single_point(node);
+                return;
+            }
+            if (a.min.defined()) {
+                interval.max = -a.min;
+            }
+            if (a.max.defined()) {
+                interval.min = -a.max;
+            }
+            return;
+        }
+        }
+    }
+
     void visit(const ir::Select *node) override {
         Interval c = get(node->cond);
         Interval t = get(node->tvalue);
