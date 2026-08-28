@@ -1403,8 +1403,8 @@ struct Parser {
 
         if (name == "reduce") {
             if (args.size() != 3) {
-                report_error() << "reduce takes 3 argument(s), received "
-                               << args.size();
+                report_error()
+                    << "reduce takes 3 argument(s), received " << args.size();
             }
             return ir::AggOp::make(std::move(args[0]), std::move(args[1]),
                                    std::move(args[2]));

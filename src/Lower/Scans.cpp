@@ -107,8 +107,7 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
             }
             std::string name = "_elem" + std::to_string(counter++);
             Expr element = Var::make(values.type().element_of(), name);
-            return ForEach::make(std::move(name), values,
-                                 contribute(element));
+            return ForEach::make(std::move(name), values, contribute(element));
         }
 
         Stmt visit(const Scan *node) override {
