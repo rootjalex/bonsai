@@ -237,10 +237,11 @@ Stmt Iterate::make(Expr value) {
     return node;
 }
 
-Stmt Scan::make(std::optional<AggOp::OpType> op, Expr value) {
+Stmt Scan::make(std::optional<AggOp::OpType> op, Expr func, Expr value) {
     internal_assert(value.defined()) << "Undefined value in Scan::make";
     Scan *node = new Scan;
     node->op = std::move(op);
+    node->func = std::move(func);
     node->value = std::move(value);
     return node;
 }

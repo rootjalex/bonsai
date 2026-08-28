@@ -1199,7 +1199,35 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
     return node;
 }
 
+Expr AggOp::make(Expr identity, Expr combiner, Expr a) {
+    internal_assert(identity.defined() && combiner.defined() && a.defined())
+        << "AggOp::make received undefined value in reduce";
+    internal_assert(a.type().is<Set_t>())
+        << "Expected the argument of reduce to be a set, instead received: "
+        << a << " : " << a.type();
+
+    AggOp *node = new AggOp;
+    node->op = OpType::reduce;
+    node->identity = std::move(identity);
+    node->combiner = std::move(combiner);
+    node->a = std::move(a);
+    node->type = node->identity.type();
+
+    if (const Function_t *f = node->combiner.type().as<Function_t>()) {
+        internal_assert(f->arg_types.size() == 2 &&
+                        equals(f->arg_types[0].type, node->type) &&
+                        equals(f->arg_types[1].type, node->type) &&
+                        equals(f->ret_type, node->type))
+            << "Expected the combiner of reduce to be a binary function on "
+            << node->type << ", instead received: " << node->combiner << " : "
+            << node->combiner.type();
+    }
+    return node;
+}
+
 Expr AggOp::make(OpType op, Expr a) {
+    internal_assert(op != OpType::reduce)
+        << "reduce must be built with an identity and a combiner";
     internal_assert(a.defined())
         << "AggOp::make received undefined value: " << to_string(op) << " "
         << a;

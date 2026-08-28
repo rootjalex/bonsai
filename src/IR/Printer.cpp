@@ -1103,6 +1103,8 @@ std::string to_string(const AggOp::OpType &op) {
         return "count";
     case AggOp::prod:
         return "prod";
+    case AggOp::reduce:
+        return "reduce";
     case AggOp::sum:
         return "sum";
     }
@@ -1137,6 +1139,12 @@ void Printer::visit(const SetOp *node) {
 void Printer::visit(const AggOp *node) {
     // TODO: print type?
     os << to_string(node->op) << "(";
+    if (node->op == AggOp::reduce) {
+        print_no_parens(node->identity);
+        os << ", ";
+        print_no_parens(node->combiner);
+        os << ", ";
+    }
     print_no_parens(node->a);
     os << ")";
 }
@@ -1406,6 +1414,10 @@ void Printer::visit(const Scan *node) {
         os << "<" << to_string(*(node->op)) << ">";
     }
     os << " ";
+    if (node->func.defined()) {
+        print_no_parens(node->func);
+        os << " over ";
+    }
     print_no_parens(node->value);
     end_stmt();
 }

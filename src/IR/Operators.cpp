@@ -3,6 +3,8 @@
 #include "IR/Equality.h"
 #include "IR/Printer.h"
 
+#include "Utils.h"
+
 namespace bonsai {
 namespace ir {
 
@@ -128,6 +130,54 @@ Expr sum(Expr a) {
         return VectorReduce::make(VectorReduce::Add, std::move(a));
     }
     internal_error << a;
+}
+
+Expr reduce(Expr identity, Expr combiner, Expr a) {
+    return AggOp::make(std::move(identity), std::move(combiner), std::move(a));
+}
+
+Expr binary_lambda(BinOp::OpType op, Type t) {
+    Expr a = Var::make(t, "_a");
+    Expr b = Var::make(t, "_b");
+    Expr body = BinOp::make(op, std::move(a), std::move(b));
+    return Lambda::make({{"_a", t}, {"_b", t}}, std::move(body));
+}
+
+Expr expand_aggregate(const AggOp *agg) {
+    internal_assert(agg) << "expand_aggregate received null";
+    if (agg->op == AggOp::reduce) {
+        return agg;
+    }
+
+    const Type elem_t = agg->a.type().element_of();
+    switch (agg->op) {
+    case AggOp::count: {
+        // count(S) = reduce(0, +, map(|x| 1, S))
+        const Type t = agg->type;
+        Expr one = Lambda::make({{"_x", elem_t}}, make_one(t));
+        return reduce(make_zero(t), binary_lambda(BinOp::Add, t),
+                      map(std::move(one), agg->a));
+    }
+    case AggOp::sum: {
+        // sum(S) = reduce(0, +, S)
+        return reduce(make_zero(elem_t), binary_lambda(BinOp::Add, elem_t),
+                      agg->a);
+    }
+    case AggOp::prod: {
+        // prod(S) = reduce(1, *, S)
+        return reduce(make_one(elem_t), binary_lambda(BinOp::Mul, elem_t),
+                      agg->a);
+    }
+    case AggOp::avg: {
+        // avg needs a pair reduction (running sum and count) which the
+        // combiner machinery does not build yet.
+        internal_error << "[unimplemented] avg over a set: " << Expr(agg);
+    }
+    case AggOp::reduce: {
+        break; // handled above
+    }
+    }
+    internal_error << "Unknown aggregation: " << Expr(agg);
 }
 
 Expr abs(Expr a) { return Intrinsic::make(Intrinsic::abs, {std::move(a)}); }
