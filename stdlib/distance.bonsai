@@ -154,3 +154,60 @@ func distmin(r : Ray, s : Sphere) -> Float {
     }
     return -inf;
 }
+
+// ---------------------------------------------------------------------------
+// Metrics between bounding boxes and between a box and a query primitive.
+//
+// Predicate analysis bounds a metric over a subtree by applying distmin and
+// distmax to the subtree's bounding volume (Algorithm 6, lines 15-25), so
+// every metric a query uses needs a counterpart on the volumes.
+// ---------------------------------------------------------------------------
+
+// The gap between the boxes along each axis, zero where they overlap.
+func distmin(a : AABB, b : AABB) -> Float {
+    gap = max(max(a.low - b.high, b.low - a.high), 0.0);
+    return norm(gap);
+}
+
+// The farthest a point of one box can be from a point of the other.
+func distmax(a : AABB, b : AABB) -> Float {
+    span = max(abs(a.low - b.high), abs(a.high - b.low));
+    return norm(span);
+}
+
+func distmax(pt : Point, a : AABB) -> Float {
+    span = max(abs(pt.vec - a.low), abs(pt.vec - a.high));
+    return norm(span);
+}
+
+func distmin(a : AABB, pt : Point) -> Float {
+    return distmin(pt, a);
+}
+
+func distmax(a : AABB, pt : Point) -> Float {
+    return distmax(pt, a);
+}
+
+func distmin(p : Point, q : Point) -> Float {
+    return norm(p.vec - q.vec);
+}
+
+func distmax(p : Point, q : Point) -> Float {
+    return norm(p.vec - q.vec);
+}
+
+func distmin(pt : Point, s : Sphere) -> Float {
+    return max(norm(pt.vec - s.center) - s.radius, 0.0);
+}
+
+func distmax(pt : Point, s : Sphere) -> Float {
+    return norm(pt.vec - s.center) + s.radius;
+}
+
+// The triangle's farthest point from `pt` is one of its vertices.
+func distmax(pt : Point, tri : Triangle) -> Float {
+    d0 = norm(pt.vec - tri.p0);
+    d1 = norm(pt.vec - tri.p1);
+    d2 = norm(pt.vec - tri.p2);
+    return max(max(d0, d1), d2);
+}
