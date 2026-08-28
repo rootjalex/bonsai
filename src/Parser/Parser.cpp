@@ -113,6 +113,7 @@ struct Parser {
             "argmin",
             "filter",
             "map",
+            "minimum",
             "product",
             // Geometry operations
             "distmax",
@@ -126,6 +127,9 @@ struct Parser {
             "idxmin",
             "prod",
             "any",
+            // Aggregations
+            "avg",
+            "count",
             // Other builtins
             "cast",
             "eps",
@@ -1347,12 +1351,31 @@ struct Parser {
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
             {"map", ir::SetOp::map},
+            {"minimum", ir::SetOp::minimum},
             {"product", ir::SetOp::product},
         });
 
         if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(),
                                                            SPATTERNS, 2)) {
             return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
+        }
+
+        // Aggregations over a set. Note that `sum` and `prod` are absent:
+        // they share a spelling with the vector reductions below, so
+        // VectorReduce::make dispatches them on the argument type instead.
+        struct AggPattern {
+            const std::string_view name;
+            ir::AggOp::OpType op;
+        };
+
+        static constexpr auto APATTERNS = std::to_array<AggPattern>({
+            {"avg", ir::AggOp::avg},
+            {"count", ir::AggOp::count},
+        });
+
+        if (auto op = try_match_pattern<ir::AggOp::OpType>(name, args.size(),
+                                                           APATTERNS, 1)) {
+            return ir::AggOp::make(*op, std::move(args[0]));
         }
 
         // Geometry operations
@@ -1406,7 +1429,18 @@ struct Parser {
     ir::Expr parse_identifier() {
         const std::string name = get_id();
 
-        if (program.funcs.contains(name) || is_builtin(name)) {
+        if (program.funcs.contains(name)) {
+            return parse_function_call(name);
+        }
+
+        // A builtin name denotes an intrinsic only where it is actually
+        // applied, either directly as `f(x)` or with template arguments as
+        // `f[[T]](x)`. Everywhere else it is an ordinary identifier, which is
+        // what lets a layout field or variable be called e.g. `count`. A bare
+        // builtin name was already rejected ("Cannot use intrinsic as func
+        // pointer"), so nothing that used to parse stops parsing.
+        if (is_builtin(name) && (peek().type == Token::Type::LPAREN ||
+                                 peek().type == Token::Type::LBRACKET)) {
             return parse_function_call(name);
         }
 
@@ -1542,7 +1576,7 @@ struct Parser {
                        "received: "
                     << type;
                 // TODO: this should be handled in codegen...
-                return ir::FloatImm::make(type, machine_epsilon(type));
+                return ir::Extrema::make(std::move(type), ir::Extrema::eps);
             }
 
             if (!template_types.empty()) {
@@ -1680,6 +1714,18 @@ struct Parser {
         } while (consume(Token::Type::COMMA));
         expect(token);
         return types;
+    }
+
+    std::vector<std::string> parse_string_list_until(const Token::Type &token) {
+        std::vector<std::string> strings;
+        if (consume(token)) {
+            return strings;
+        }
+        do {
+            strings.emplace_back(get_id());
+        } while (consume(Token::Type::COMMA));
+        expect(token);
+        return strings;
     }
 
     std::vector<ir::TypedVar> parse_lambda_args() {
@@ -2212,6 +2258,18 @@ struct Parser {
                     "", std::move(low), std::move(high)}};
             }
 
+        } else if (name == "avg" || name == "count" || name == "max" ||
+                   name == "min" || name == "prod" || name == "sum") {
+            // Reduction augmentation, e.g. `with min(id) = idl`: the node
+            // field `idl` stores the minimum `id` over the subtree.
+            expect(Token::Type::LPAREN);
+            std::vector<std::string> args =
+                parse_string_list_until(Token::Type::RPAREN);
+            expect(Token::Type::ASSIGN);
+            std::string value = get_id();
+            auto op = ir::Annotation::Aggregate::str_to_op(name);
+            return ir::Annotation{ir::Annotation::Aggregate{op, std::move(args),
+                                                            std::move(value)}};
         } else if (program.types.contains(name)) {
             ir::Type type = program.types[std::move(name)];
 

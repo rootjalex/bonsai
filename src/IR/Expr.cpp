@@ -466,9 +466,15 @@ Expr Broadcast::make(uint32_t lanes, Expr value) {
 Expr VectorReduce::make(VectorReduce::OpType op, Expr value) {
     internal_assert(value.defined()) << "VectorReduce of undefined.";
 
-    if (op == VectorReduce::Add && value.type().defined() &&
-        value.type().is<Set_t>()) {
-        return AggOp::make(AggOp::sum, std::move(value));
+    // `sum` and `prod` spell both a vector reduction and a set aggregation.
+    // Dispatch on the argument's type.
+    if (value.type().defined() && value.type().is<Set_t>()) {
+        if (op == VectorReduce::Add) {
+            return AggOp::make(AggOp::sum, std::move(value));
+        }
+        if (op == VectorReduce::Mul) {
+            return AggOp::make(AggOp::prod, std::move(value));
+        }
     }
 
     VectorReduce *node = new VectorReduce;
