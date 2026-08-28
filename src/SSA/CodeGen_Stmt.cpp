@@ -970,7 +970,9 @@ Stmt structurize(const std::string &start, const std::string &exit,
         if (target_block->args.empty())
             return;
         auto &muts = mut_map.at(target);
-        internal_assert(vals.size() == target_block->args.size());
+        internal_assert(vals.size() == target_block->args.size())
+            << "Jump to " << target << " passes " << vals.size()
+            << " arguments but it takes " << target_block->args.size();
 
         // Is this the same definition the argument already stands for? Nearly
         // every block argument is: the SSA builder threads a value through the
